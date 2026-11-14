@@ -13,6 +13,7 @@ import {
   jobs,
   jobPostings,
   jobReach,
+  reachesBadaBhaiWorkers,
 } from "@badabhai/db";
 import type { TradeKey } from "@badabhai/taxonomy";
 import { DATABASE } from "../database/database.module";
@@ -350,6 +351,7 @@ export class ApplicationsRepository {
    *
    *   (1) `status = 'open'` — positively excludes draft, paused, suspended and closed. The
    *       ADR-0037 suspension cascade is a status move, so no `payers` join is needed.
+   *       (1b) not hidden (#2566); (1c) an audience a BadaBhai worker may see (#2746).
    *   (2) `published_at IS NOT NULL` — a NULL means the publish never completed; such a row
    *       has no honest `posted_at`, and V1 never serves it either.
    *   (3a) no APPLIED decision on this posting (`applications_worker_posting_uq`), and
@@ -389,6 +391,7 @@ export class ApplicationsRepository {
     const conditions: (SQL | undefined)[] = [
       eq(jobPostings.status, "open"), // (1)
       isNull(jobPostings.hiddenAt), // (1b) #2566 — hidden leaves every worker surface
+      reachesBadaBhaiWorkers(), // (1c) #2746 — an RVM-only posting is on no worker surface
       isNotNull(jobPostings.publishedAt), // (2)
       sql`NOT EXISTS (
         SELECT 1 FROM ${applications}
@@ -466,14 +469,20 @@ export class ApplicationsRepository {
    * #1823 — an OPEN posting's id, or undefined: the posting branch of the apply/skip
    * resolution, consulted only after the open-`jobs` read misses. Id-only on purpose — the
    * caller needs existence, and a wider projection is a leak waiting for a log line.
-   * Unknown, draft, paused, suspended and closed all read as undefined (no oracle).
+   * Unknown, draft, paused, suspended, closed, hidden and RVM-only (#2746) all read as
+   * undefined (no oracle).
    */
   async findOpenPostingRef(id: string): Promise<{ id: string } | undefined> {
     const rows = await this.db
       .select({ id: jobPostings.id })
       .from(jobPostings)
       .where(
-        and(eq(jobPostings.id, id), eq(jobPostings.status, "open"), isNull(jobPostings.hiddenAt)),
+        and(
+          eq(jobPostings.id, id),
+          eq(jobPostings.status, "open"),
+          isNull(jobPostings.hiddenAt),
+          reachesBadaBhaiWorkers(),
+        ),
       )
       .limit(1);
     return rows[0];

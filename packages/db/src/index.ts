@@ -13,6 +13,10 @@ export * from "./crypto";
 // package — seven call sites that previously each had their own answer, one of them with no
 // ORDER BY at all.
 export * from "./current-profile";
+// #2746 — the one SQL spelling of "a BadaBhai worker may see this posting" (`job_postings.audience`).
+// Exported because the worker reads live in apps/api and the reach materialization lives here;
+// both must test the same membership, and a second spelling is how an RVM-only job leaks.
+export * from "./job-visibility";
 // The family fallback chain. Its own header says it exists so "Phase 7's production
 // QuestionPackService" can make this decision without a database — which requires that the
 // service can actually IMPORT it. Unexported, the guarantee it offers (one decision, SQL-parity

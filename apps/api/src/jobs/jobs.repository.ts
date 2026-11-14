@@ -8,6 +8,7 @@ import {
   type JobShift,
   jobs,
   jobPostings,
+  reachesBadaBhaiWorkers,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
@@ -205,6 +206,8 @@ export class JobsRepository {
           eq(jobPostings.id, jobId),
           eq(jobPostings.status, "open"),
           isNull(jobPostings.hiddenAt),
+          // #2746 — an RVM-only posting is the same neutral 404 as an unknown id.
+          reachesBadaBhaiWorkers(),
         ),
       )
       .limit(1);
@@ -267,7 +270,13 @@ export class JobsRepository {
      */
     publishedAfter?: Date | null;
   }): Promise<{ rows: JobSearchRow[]; hasMore: boolean }> {
-    const conditions = [eq(jobPostings.status, "open"), isNull(jobPostings.hiddenAt)];
+    // #2746 — the audience rule rides beside `hidden_at`, so the search box and the ADR-0044
+    // companion (which calls this) never offer an RVM-only posting.
+    const conditions = [
+      eq(jobPostings.status, "open"),
+      isNull(jobPostings.hiddenAt),
+      reachesBadaBhaiWorkers(),
+    ];
     if (args.publishedAfter) conditions.push(gt(jobPostings.publishedAt, args.publishedAfter));
 
     // ── Membership: the `search_vec` GIN probe (migration 0089) ──

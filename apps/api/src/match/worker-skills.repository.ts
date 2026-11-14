@@ -6,6 +6,7 @@ import {
   jobPostings,
   materializeJobReachWithin,
   PROFILE_SOURCE_SESSION_ANSWERS,
+  reachesBadaBhaiWorkers,
   skills,
   workerAttributes,
   workerIndustryTenure,
@@ -508,6 +509,9 @@ export class WorkerSkillsRepository {
     const skills = dsql.param([...wantedSkillIds]);
     // 2. Re-insert. The GROUP BY is per posting (the materializer groups per worker for
     //    one posting; here it is one worker across postings) — same MIN/ARRAY_AGG rule.
+    //    #2746 — and the same audience rule as `materializeJobReachWithin`: the worker side of
+    //    reach must not hand him a row the publish side would never write. Step 1 already
+    //    removed any row he held on an RVM-only posting.
     await tx.execute(dsql`
       INSERT INTO job_reach (job_posting_id, worker_id, match_tier, matched_skill_id)
       SELECT jp.id,
@@ -521,6 +525,7 @@ export class WorkerSkillsRepository {
        AND ws.wants
        AND jp.reach_skill_ids @> to_jsonb(ws.skill_id)
       WHERE jp.status IN ('open', 'paused')
+        AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
         AND jp.reach_skill_ids ?| ${skills}::text[]
       GROUP BY jp.id
       ON CONFLICT (job_posting_id, worker_id) DO UPDATE
@@ -579,7 +584,8 @@ export class WorkerSkillsRepository {
   ): Promise<void> {
     // THE STATEMENT LIVES IN `@badabhai/db` (`materializeJobReachWithin`) since ADR-0050: the
     // agency-twin sync must run the SAME materialization inside ITS transaction, and one SQL text
-    // cannot drift from itself. This method keeps its own transaction, exactly as before.
+    // cannot drift from itself. This method keeps its own transaction, exactly as before. The
+    // core reads the posting's audience itself (#2746): an RVM-only posting gets no rows here.
     await this.db.transaction(async (tx) =>
       materializeJobReachWithin(tx as unknown as Tx, jobPostingId, postedSkillIds, reachSkillIds),
     );
@@ -653,6 +659,10 @@ export class WorkerSkillsRepository {
    * the gate repeats the feed's hidden test. `worker-skills.repository.test.ts` pins both
    * predicates to the feed's.
    *
+   * #2746 — AND THE FEED'S AUDIENCE TEST, the same shared fragment. Reach never materializes an
+   * RVM-only posting, but a row left over from before an audience change must not let a worker
+   * holding the id apply. It is the same neutral 404.
+   *
    * A predicate, not a decision: what an absent row MEANS (the neutral 404, no event) is
    * decided in `MatchApplyService.buildSnapshot`.
    */
@@ -670,6 +680,7 @@ export class WorkerSkillsRepository {
         -- #2566 — hidden leaves every worker surface, apply included. Hiding keeps the reach
         -- rows, so without this a worker holding a card could still apply to a hidden job.
         AND jp.hidden_at IS NULL
+        AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
       LIMIT 1
     `);
     const list = rows as unknown as { match_tier: number; matched_skill_id: string }[];
@@ -722,6 +733,9 @@ export class WorkerSkillsRepository {
           inArray(jobPostings.status, ["open", "paused"]),
           // #2566 — a hidden posting must not appear in this discovery aid either.
           isNull(jobPostings.hiddenAt),
+          // #2746 — nor an RVM-only one: the reconcile writes it no reach row, so counting it
+          // would report reach the worker does not have.
+          reachesBadaBhaiWorkers(),
           dsql`${jobPostings.reachSkillIds} ?| ${dsql.param([...skillIds])}::text[]`,
         ),
       );

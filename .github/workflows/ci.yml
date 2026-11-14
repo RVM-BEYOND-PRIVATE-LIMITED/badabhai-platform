@@ -1378,6 +1378,10 @@ jobs:
       #                    the real `ApplicationsService.getFeed` serves him zero cards. The list
       #                    is a set-based second copy of the feed rule; only both SQLs evaluating
       #                    over one cohort can show they still agree.
+      #   * job-audience-visibility.db — #2746, an `rvm_students` posting reaches no BadaBhai
+      #                    worker: publish and the worker reconcile write it no `job_reach` row, and
+      #                    a row that exists anyway opens no feed (V1 or union), search, detail or
+      #                    apply — under the API config's defaults and every feed mode (no switch).
       #
       # They need nothing but a MIGRATED Postgres, which the steps above already built:
       # this job's service container gets the whole chain (journal-driven, 0000 → head —
@@ -1391,7 +1395,7 @@ jobs:
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a six-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + candidate search + payer org tenancy + org tenancy census + free-chat probe + companion history + deletion event tx + admin candidate detail + admin funnel parity + admin empty-feed parity + payer login management + worker account actions + PIN-reset gate + admin posting control + admin cost ledger + admin company records + admin candidates search + admin candidate corrections + Campus student link, tag rules and admin scope)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + candidate search + payer org tenancy + org tenancy census + free-chat probe + companion history + deletion event tx + admin candidate detail + admin funnel parity + admin empty-feed parity + payer login management + worker account actions + PIN-reset gate + admin posting control + admin cost ledger + admin company records + admin candidates search + admin candidate corrections + job audience visibility + Campus student link, tag rules and admin scope)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -1419,7 +1423,7 @@ jobs:
           # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
           # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
           # 2820-test `node` suite is database-free and has no shared state to race on.
-          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
@@ -1442,7 +1446,7 @@ jobs:
           # missing any one of them
           # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
           # gate lands in a new directory.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db; do
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db; do
             line=$(grep -E "src/(ai|admin|admin/companies|admin/corrections|admin-postings|agency-twin|applications|auth|campus-link|candidates|chat-companion|common|match|profiles|jobs|resume|payers|payer-portal|payer-portal/job-posting-chat|profiling/free-chat|workers)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
@@ -1460,8 +1464,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +41 passed \(41\)' db-gates.log; then
-            echo "::error::Expected exactly the 41 gate files to run - the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +42 passed \(42\)' db-gates.log; then
+            echo "::error::Expected exactly the 42 gate files to run - the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
@@ -1590,6 +1594,10 @@ jobs:
       # VACUOUS-PASS GUARD. The suite is `describe.skipIf(!RUN)` and the package runs vitest with
       # `--passWithNoTests`, so a dropped variable or a filter that matches nothing both exit 0.
       # The checks after the run fail the step unless the file ran and every test in it passed.
+      #
+      # #2746 — job-audience-visibility.e2e.test.ts rides the same armed API: an RVM-only job never
+      # reaches a BadaBhai worker through publish -> feed -> detail -> search -> apply. Same arming,
+      # same guard; the expected file count below is two.
       - name: Start a MATCH_V1-armed API and run the Matching V1 job journey E2E
         env:
           MATCH_V1_ENABLED: "true"
@@ -1617,7 +1625,7 @@ jobs:
 
           # NO `--` before the filter — pnpm would forward it and vitest would run every suite.
           set +e
-          pnpm --filter @badabhai/e2e test match-v1-job-journey 2>&1 | tee match-v1-raw.log
+          pnpm --filter @badabhai/e2e test match-v1-job-journey job-audience-visibility 2>&1 | tee match-v1-raw.log
           E2E_EXIT=$?
           set -e
 
@@ -1626,13 +1634,13 @@ jobs:
           [ "$E2E_EXIT" -eq 0 ] || exit "$E2E_EXIT"
 
           sed -e 's/\x1b\[[0-9;]*m//g' match-v1-raw.log > match-v1.log
-          if ! grep -qE 'Test Files +1 passed \(1\)' match-v1.log; then
-            echo "::error::match-v1-job-journey.e2e.test.ts did not run (or not alone) — the filter or an arming variable is not reaching vitest."
+          if ! grep -qE 'Test Files +2 passed \(2\)' match-v1.log; then
+            echo "::error::match-v1-job-journey + job-audience-visibility did not both run (or not alone) — the filter or an arming variable is not reaching vitest."
             grep -E 'Test Files|      Tests ' match-v1.log || true
             exit 1
           fi
           if ! grep -qE '^ +Tests +[0-9]+ passed \([0-9]+\) *$' match-v1.log; then
-            echo "::error::match-v1-job-journey ran but not every test passed (skipped/todo count as failure here)."
+            echo "::error::the MATCH_V1-armed e2e suites ran but not every test passed (skipped/todo count as failure here)."
             grep -E '      Tests ' match-v1.log || true
             exit 1
           fi

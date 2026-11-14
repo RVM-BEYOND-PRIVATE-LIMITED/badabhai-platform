@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { sql as dsql } from "drizzle-orm";
-import type { Database } from "@badabhai/db";
+import { reachesBadaBhaiWorkers, type Database } from "@badabhai/db";
 import type { LevelNeededSpec } from "@badabhai/taxonomy";
 import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
@@ -271,6 +271,9 @@ export class MatchFeedRepository {
         AND jp.status = 'open'
         -- #2566 — hidden is a state SEPARATE from status: it leaves every feed/search.
         AND jp.hidden_at IS NULL
+        -- #2746 — the read half of the audience lock. Reach never materializes an RVM-only
+        -- posting; this keeps a leftover row (an audience change racing a publish) off the deck.
+        AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
         -- ADR-0050 §4.4 — a twin is served only while its SOURCE is open: defence in depth
         -- against a twin that went stale while the sync was down. Source status always wins.
         AND (jp.sync_source IS NULL OR (src.status = 'open' AND src.hidden_at IS NULL))
