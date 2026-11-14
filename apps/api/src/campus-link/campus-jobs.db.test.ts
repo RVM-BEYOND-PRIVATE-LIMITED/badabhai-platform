@@ -68,6 +68,8 @@ describe.skipIf(!RUN)("#2752 part E — Campus jobs and applications against Pos
   let campusPostings!: CampusPostingsService;
   let campusApps!: CampusApplicationsService;
   let feedRepo!: MatchFeedRepository;
+  /** The company form's posting service with the audience switch ON (a company may pick one). */
+  let companyForm!: JobPostingsService;
   const students = new Map<string, RvmStudentLookup>();
   const touchedPayers: string[] = [];
   const touchedWorkers = new Set<string>();
@@ -133,6 +135,18 @@ describe.skipIf(!RUN)("#2752 part E — Campus jobs and applications against Pos
       events,
     );
     feedRepo = new MatchFeedRepository(client.db);
+    companyForm = new JobPostingsService(
+      new JobPostingsRepository(client.db),
+      events,
+      {} as never,
+      {} as never,
+      {} as never,
+      { materialize: async () => undefined } as never,
+      { resolveForPublish: async () => undefined } as never,
+      {} as never,
+      tenancy,
+      postingAudienceOver(client.db, events, { JOB_AUDIENCE_ROLLOUT: "on" }),
+    );
 
     const [payer] = await client.db
       .insert(payers)
@@ -417,6 +431,17 @@ describe.skipIf(!RUN)("#2752 part E — Campus jobs and applications against Pos
       CTX,
     );
     expect(second).toMatchObject({ company_id: out.company_id, company_created: false });
+
+    // The posting opened without the company publish gate (it reaches no worker). The company may
+    // not later widen it to BadaBhai workers without a trade: that is a publish to them.
+    await expect(
+      companyForm.updateForPayer(out.posting_id, out.company_id, { audience: "both" }, CTX),
+    ).rejects.toMatchObject({ status: 400 });
+    const [kept] = await client.db
+      .select({ audience: jobPostings.audience })
+      .from(jobPostings)
+      .where(eq(jobPostings.id, out.posting_id));
+    expect(kept?.audience).toBe("rvm_students");
   });
 
   it("refuses to post for a company Campus did not create, and never finds it", async () => {

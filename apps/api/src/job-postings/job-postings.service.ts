@@ -691,6 +691,17 @@ export class JobPostingsService {
     // #2746 — the audience half of the body: `null` when it carried none, or when the switch is
     // off for this company (the fields are then ignored, exactly as before they existed).
     const audienceRequest = await this.audience.requestedBy(scope, dto);
+    // #2752 — WIDENING A LIVE POSTING TO BADABHAI WORKERS IS A PUBLISH TO THEM, so it passes the
+    // same trade gate. A posting the RVM placement team created from Campus opened without that
+    // gate (it reached no worker); without this check a later audience edit to `both` or
+    // `badabhai_workers` would put a trade-less posting on worker surfaces.
+    const widensToWorkers =
+      audienceRequest?.audience !== undefined &&
+      !audienceReachesBadaBhaiWorkers(current.audience) &&
+      audienceReachesBadaBhaiWorkers(audienceRequest.audience);
+    if (widensToWorkers && current.status !== "draft" && !postingTradeFor(roleAfter)) {
+      throw postingTradeRequired();
+    }
     const prepared = this.prepareUpdate(current, tradeDto, audienceRequest !== null);
     if (prepared.changedFields.includes("skills")) {
       // Owner-scoped read, so the domain is the CALLER'S OWN posting's — never a
