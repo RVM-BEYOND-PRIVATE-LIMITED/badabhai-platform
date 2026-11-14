@@ -82,6 +82,18 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "`satisfies` is checked against.",
   "apps/api/src/campus-link/campus-link.contract.ts":
     "The Campus (RVM-facing) wire contract's `audience` enum. Never on a BadaBhai worker path.",
+  // #2746 PR 4 — the company side of the audience. None of these decides a BadaBhai worker read.
+  "packages/db/src/job-review.ts":
+    "The RVM review content hash: the audience is part of what an RVM student sees, so it is one " +
+    "of the hashed fields (a change of audience re-pends an approval). It reads the column as a " +
+    "VALUE to hash, never as a visibility test.",
+  "apps/api/src/job-postings/posting-audience.service.ts":
+    "The company's audience write and its own reads: compares the stored audience with the " +
+    "requested one (no-change detection) and with the column default (whether the company's read " +
+    "shows the block). Worker visibility is decided only through the fragment's TS twins.",
+  "apps/api/src/admin/admin-entities.repository.ts":
+    "The admin posting list and detail project the audience READ-ONLY for the console. Admin code, " +
+    "never a worker path (PAIRING_EXEMPT).",
 };
 
 /** A posting's `hidden_at` tested — the mark of a worker read since #2566. */

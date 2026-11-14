@@ -273,6 +273,8 @@ function make(
     appliedUntickedIds: [],
   });
   const opsWiden = vi.fn().mockResolvedValue({});
+  // #2746 — the status-free reach clear after an audience write (rows left).
+  const reconcileAudience = vi.fn().mockResolvedValue(0);
   const svc = new JobPostingsService(
     {
       withTransaction,
@@ -304,7 +306,7 @@ function make(
     // ADR-0036 moment ③. These cases exercise the ops/payer lifecycle, not reach; a
     // resolving stub keeps `materializeIfNeeded` inert. Reach materialization has its
     // own coverage in `apps/api/src/match/`.
-    { materialize: materializeReach, opsWiden } as never,
+    { materialize: materializeReach, opsWiden, reconcileAudience } as never,
     // #1645 — closed-set + cap validation for `match_skill_ids` AT CREATE. Resolves by
     // default so the lifecycle cases stay about the lifecycle; the create-path cases
     // override it to assert that an unknown id 400s on the form rather than at publish.
@@ -320,6 +322,7 @@ function make(
     svc,
     emit,
     opsWiden,
+    reconcileAudience,
     TX,
     persisted,
     stage,
@@ -2609,6 +2612,70 @@ describe("#2746 — who sees a company posting: the payer write path", () => {
     // BadaBhai visibility flipped on a live posting: the one reach core runs (it purges).
     expect(d.materializeReach).toHaveBeenCalledTimes(1);
     expect((d.materializeReach.mock.calls[0]![1] as { trigger: string }).trigger).toBe("edit");
+  });
+
+  it("an open flip to RVM-only clears through the edit's own rebuild, so the status-free clear does not run twice", async () => {
+    const d = audienceWorld(row({ status: "open", roleKind: "cnc_turner" }));
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "rvm_students" }, CTX as never);
+    expect(d.materializeReach).toHaveBeenCalledTimes(1);
+    expect(d.reconcileAudience).not.toHaveBeenCalled();
+  });
+
+  it("leaving the BadaBhai audience clears reach WHATEVER the status (a draft, a posting with no skills)", async () => {
+    // No skills and no 16-trade role: the publish-path rebuild short-circuits, so only the
+    // status-free clear can purge a leftover row.
+    const d = audienceWorld(row({ status: "paused" }));
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "rvm_students" }, CTX as never);
+    expect(d.materializeReach).not.toHaveBeenCalled();
+    expect(d.reconcileAudience).toHaveBeenCalledWith(POSTING_ID);
+
+    const draft = audienceWorld(row({ status: "draft" }));
+    await draft.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "both" }, CTX as never);
+    expect(draft.reconcileAudience).not.toHaveBeenCalled(); // `both` reaches BadaBhai workers
+    await draft.svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      { audience: "rvm_students" },
+      CTX as never,
+    );
+    expect(draft.reconcileAudience).toHaveBeenCalledTimes(1);
+  });
+
+  it("a targeting-only edit of an RVM-only posting re-runs the clear too (any audience or targeting change)", async () => {
+    const d = audienceWorld(
+      row({ status: "paused", roleKind: "cnc_turner", audience: "rvm_students" }),
+    );
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { rvm_branch_ids: [4] }, CTX as never);
+    expect(d.materializeReach).not.toHaveBeenCalled(); // no visibility flip, no skills change
+    expect(d.reconcileAudience).toHaveBeenCalledWith(POSTING_ID);
+  });
+
+  it("a content-only edit runs no reach clear; a failed clear never fails the committed edit", async () => {
+    const plain = audienceWorld(row({ status: "open", audience: "rvm_students" }));
+    await plain.svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      { description: "Day shift." },
+      CTX as never,
+    );
+    expect(plain.reconcileAudience).not.toHaveBeenCalled();
+
+    const d = audienceWorld(row({ status: "paused" }));
+    d.reconcileAudience.mockRejectedValueOnce(new Error("connection reset"));
+    await expect(
+      d.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "rvm_students" }, CTX as never),
+    ).resolves.toMatchObject({ audience: "rvm_students" });
+  });
+
+  it("the reach clear runs only AFTER the edit's transaction resolved (the core locks the row FOR SHARE)", async () => {
+    const d = audienceWorld(row({ status: "paused" }));
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "rvm_students" }, CTX as never);
+    expect(d.reconcileAudience.mock.invocationCallOrder[0]!).toBeGreaterThan(
+      d.updateOwned.mock.invocationCallOrder[0]!,
+    );
+    expect(d.reconcileAudience.mock.invocationCallOrder[0]!).toBeGreaterThan(
+      d.emit.mock.invocationCallOrder.at(-1)!,
+    );
   });
 
   it("a paused posting is live too: flipping it back to BadaBhai workers rebuilds its reach", async () => {

@@ -235,7 +235,8 @@ describe.skipIf(!RUN)("#2746 an RVM-only posting reaches no BadaBhai worker, on 
       VALUES (${P_PUB_RVM}::uuid, ${WORKER}::uuid, 1, ${SKILL})`;
     const rvm = await publish.materialize(P_PUB_RVM, input, CTX);
     expect(rvm.reachTotal).toBe(0);
-    expect(rvm.zeroReach).toBe(true);
+    // #2746 PR 4 — empty by design, so not the E13 void (and no zero_reach alert).
+    expect(rvm.zeroReach).toBe(false);
     const rows = await client.sql<{ n: number }[]>`
       SELECT count(*)::int AS n FROM job_reach WHERE job_posting_id = ${P_PUB_RVM}::uuid`;
     expect(rows[0]?.n).toBe(0);

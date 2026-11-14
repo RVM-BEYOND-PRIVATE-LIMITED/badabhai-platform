@@ -459,6 +459,29 @@ describe.skipIf(!RUN)("#2746 PR 4 — a company chooses who sees its job (Postgr
     expect(await reachRows(posting.id)).toBeGreaterThanOrEqual(1);
   }, 60_000);
 
+  it("leaving the BadaBhai audience clears reach whatever the status: paused, and a draft holding stray rows", async () => {
+    const svc = service();
+    // A paused posting keeps its rows warm for a resume; moving it to RVM-only must drop them.
+    const paused = await svc.createForPayer(COMPANY, { ...DTO, audience: "both" }, CTX);
+    await svc.updateForPayer(paused.id, COMPANY, { status: "open" }, CTX);
+    await svc.pauseForPayer(paused.id, COMPANY, CTX);
+    expect(await reachRows(paused.id)).toBeGreaterThanOrEqual(1);
+    await svc.updateForPayer(paused.id, COMPANY, { audience: "rvm_students" }, CTX);
+    expect(await reachRows(paused.id)).toBe(0);
+
+    // A non-live RVM-only posting with a leftover row (no D5 run visits it): any audience or
+    // targeting write clears it through the one reach core.
+    const draft = await svc.createForPayer(COMPANY, { ...DTO, audience: "rvm_students" }, CTX);
+    await client.sql`
+      INSERT INTO job_reach (job_posting_id, worker_id, match_tier, matched_skill_id)
+      VALUES (${draft.id}::uuid, ${WORKER}::uuid, 1, ${SKILL})`;
+    await svc.updateForPayer(draft.id, COMPANY, { rvm_course_ids: [COURSE_A] }, CTX);
+    expect(await reachRows(draft.id)).toBe(0);
+    // …and moving it back to a BadaBhai audience while it is a draft rebuilds nothing (live only).
+    await svc.updateForPayer(draft.id, COMPANY, { audience: "both" }, CTX);
+    expect(await reachRows(draft.id)).toBe(0);
+  }, 60_000);
+
   // ── The switch ──────────────────────────────────────────────────────────────
 
   it("switch OFF: the fields are ignored (default stored, no review row) and audience-options is a 404", async () => {

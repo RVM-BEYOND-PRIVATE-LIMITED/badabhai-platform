@@ -329,7 +329,10 @@ Behind the `job_audience` switch (`JOB_AUDIENCE_ROLLOUT`: `off` | `pilot` | `on`
   - It starts `pending` in the same transaction as the write.
   - A decision counts only for the content it saw. Any later company edit to a field RVM students see (company name, title, description, requirements, benefits, pay, location, shift, experience, vacancy, audience or targeting) returns it to `pending`. An edit to anything else (`needed_by`, `role_kind`, the trade form, skills) does not.
   - Withdrawing the RVM part keeps the row; Campus's feed is driven from it. `badabhai_workers` and `both` reach BadaBhai workers at once and never wait for the review.
-- **Reach:** an audience change on a live (`open` / `paused`) posting that moves it into or out of the BadaBhai audience rebuilds its reach: to `rvm_students` it clears it, back it rebuilds it. An `rvm_students` posting raises no `zero_reach` alert.
+- **Reach** follows the audience after the edit commits:
+  - Any audience or targeting change that leaves the posting `rvm_students` clears its BadaBhai reach, whatever its status.
+  - A live (`open` / `paused`) posting that comes back to a BadaBhai audience gets its reach rebuilt. A non-live one is rebuilt when it next goes live.
+  - An `rvm_students` posting raises no `zero_reach` alert, and the materialization result reports `zeroReach: false` for it.
 - **Reads** (`GET` list and detail, and every write's response) carry an audience block. The block is present while the switch is on for the company, or whenever the stored audience is not `badabhai_workers`:
   `{ audience, rvm_branch_ids, rvm_course_ids, rvm_review: { state: 'pending'|'approved'|'rejected', reviewed_at?, reason? } | null }`
   - `rvm_review` is `null` when the audience has no RVM part.

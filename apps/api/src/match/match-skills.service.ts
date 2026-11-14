@@ -12,7 +12,7 @@ import {
   type ScopedPostingSkills,
 } from "@badabhai/taxonomy";
 import { resolveReachSet, type ReachSet } from "@badabhai/match-engine";
-import { audienceReachesBadaBhaiWorkers } from "@badabhai/db";
+import { DEFAULT_JOB_POSTING_AUDIENCE, audienceReachesBadaBhaiWorkers } from "@badabhai/db";
 import { MatchConfigService } from "./match-config.service";
 import { WorkerSkillsRepository } from "./worker-skills.repository";
 import type { ReachPreviewDto } from "./match.dto";
@@ -174,8 +174,10 @@ export class MatchSkillsService {
     // no reach row), so every BadaBhai supply count is zero and none is read. Its `zero_reach` is
     // false: the E13 warning is about a posting into a void, and this one goes to RVM students
     // (the publish-time alert is suppressed for the same reason).
-    const badaBhaiSupply =
-      dto.audience === undefined || audienceReachesBadaBhaiWorkers(dto.audience);
+    // Omitted = the column default, which reaches BadaBhai workers (today's preview).
+    const badaBhaiSupply = audienceReachesBadaBhaiWorkers(
+      dto.audience ?? DEFAULT_JOB_POSTING_AUDIENCE,
+    );
     const count = (skillIds: readonly string[]): Promise<number> =>
       badaBhaiSupply ? this.repo.countWorkersReachedBy(skillIds) : Promise.resolve(0);
 

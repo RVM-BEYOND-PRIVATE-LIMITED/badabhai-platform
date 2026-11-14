@@ -472,14 +472,38 @@ describe("materialize — the E12/E13 ops alert fires only when supply is actual
       { matchSkillIds: [VMC], untickedIds: [], trigger: "edit", actor: { actor_type: "payer", actor_id: PAYER } },
       CTX,
     );
-    expect(result.zeroReach).toBe(true);
+    expect(result.reachTotal).toBe(0);
+    expect(result.zeroReach).toBe(false); // empty by design is not the E13 void
     expect(emittedNames(events)).toEqual(["job_posting.reach_materialized"]);
     expect(emittedOne(events, "job_posting.reach_materialized").payload.reach_total).toBe(0);
   });
 
+  it("#2746 — reconcileAudience re-runs the core over the STORED sets: no resolution, no posting write, no event", async () => {
+    const stored = posting({ reachesBadaBhaiWorkers: false });
+    const { svc, repo, events } = setup({ existing: stored, counts: [{ total: 0, tier1: 0 }] });
+    expect(await svc.reconcileAudience(POSTING)).toBe(0);
+    expect(repo.materializeReachForPosting).toHaveBeenCalledWith(
+      POSTING,
+      stored.matchSkillIds,
+      stored.reachSkillIds,
+    );
+    expect(repo.setPostingSkillSets).not.toHaveBeenCalled();
+    expect(emittedNames(events)).toEqual([]);
+  });
+
+  it("#2746 — reconcileAudience on a posting that is gone writes nothing", async () => {
+    const { svc, repo } = setup({ existing: undefined });
+    expect(await svc.reconcileAudience(POSTING)).toBe(0);
+    expect(repo.materializeReachForPosting).not.toHaveBeenCalled();
+  });
+
   it("#2746 — an ops widen on an RVM-only posting raises no alert either", async () => {
     const { svc, events } = setup({
-      existing: posting({ matchSkillIds: [VMC], reachSkillIds: [VMC], reachesBadaBhaiWorkers: false }),
+      existing: posting({
+        matchSkillIds: [VMC],
+        reachSkillIds: [VMC],
+        reachesBadaBhaiWorkers: false,
+      }),
       counts: [{ total: 0, tier1: 0 }],
     });
     await svc.opsWiden(POSTING, [HMC], OPS, CTX);

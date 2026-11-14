@@ -522,7 +522,10 @@ export class JobPostingsService {
   }
 
   /** The company's own posting as it reads it (#2746: the audience block when shown). */
-  private async forPayer(scope: PayerTenantScope, posting: JobPostingApi): Promise<PayerJobPostingApi> {
+  private async forPayer(
+    scope: PayerTenantScope,
+    posting: JobPostingApi,
+  ): Promise<PayerJobPostingApi> {
     const [view] = await this.audience.payerViews(scope, [posting]);
     return view!;
   }
@@ -672,7 +675,7 @@ export class JobPostingsService {
     // so a posting can never be edited while its review row still vouches for the old content.
     // An audience write LOCKS the row first and decides against it as locked.
     const actor = payerActor(scope);
-    const { updated, audienceBefore } = await this.repo.withTransaction(async (tx) => {
+    const edit = await this.repo.withTransaction(async (tx) => {
       let audienceWrite: PostingAudienceWrite | null = null;
       let previous: JobPostingAudience = current.audience;
       if (audienceRequest !== null) {
@@ -694,11 +697,50 @@ export class JobPostingsService {
       await this.audience.recordUpdateWithin(tx, row, previous, audienceWrite !== null, actor, ctx);
       // An audience-only edit is `job_posting.audience_set` alone: `updated` records content keys.
       if (prepared.changedFields.length > 0) await this.emitUpdated(row, actor, prepared, ctx, tx);
-      return { updated: row, audienceBefore: previous };
+      return { updated: row, audienceBefore: previous, audienceWritten: audienceWrite !== null };
     });
+    const { updated, audienceBefore, audienceWritten } = edit;
 
-    await this.materializeIfNeeded(current, updated, tradeDto, actor, ctx, audienceBefore);
+    // REACH RUNS ONLY AFTER THE COMMIT. The reach core takes the posting row `FOR SHARE` on its
+    // own transaction (another pool connection); started while this edit's row lock was held it
+    // would wait on us forever. Nothing above touches `job_reach`.
+    const rebuilt = await this.materializeIfNeeded(
+      current,
+      updated,
+      tradeDto,
+      actor,
+      ctx,
+      audienceBefore,
+    );
+    // #2746 — an audience or targeting write that leaves the posting outside the BadaBhai
+    // audience clears its reach WHATEVER ITS STATUS, unless the rebuild above already ran the
+    // core for this edit. A paused or closed posting is visited by no D5 full run, so nothing
+    // else would clean it. A rebuild (back into the BadaBhai audience) stays live-only, above.
+    if (audienceWritten && !audienceReachesBadaBhaiWorkers(updated.audience) && !rebuilt) {
+      await this.reconcileAudienceReach(updated);
+    }
     return this.forPayer(scope, updated);
+  }
+
+  /**
+   * The status-free reach clear (`PublishReachService.reconcileAudience`), never failing the edit
+   * that committed before it. A failure leaves stale rows that no worker read serves (the audience
+   * lock) and that `db:verify:match-v1` fails on (`D.reach_audience`), with its repair named here.
+   */
+  private async reconcileAudienceReach(posting: JobPostingApi): Promise<void> {
+    try {
+      await this.publishReach.reconcileAudience(posting.id);
+    } catch (err) {
+      const cls = err instanceof Error ? err.name : "UnknownError";
+      const repair =
+        posting.status === "open" || posting.status === "paused"
+          ? `db:materialize:reach --apply --job-posting-id=${posting.id}`
+          : `DELETE FROM job_reach WHERE job_posting_id = '${posting.id}'`;
+      this.logger.error(
+        `audience reach clear FAILED for posting=${posting.id} status=${posting.status} ` +
+          `(${cls}); no worker read serves the rows — repair: ${repair}`,
+      );
+    }
   }
 
   async closeForPayer(
@@ -802,6 +844,8 @@ export class JobPostingsService {
    * audience itself: to `rvm_students` it purges every reach row, back it rebuilds them. A move
    * between two BadaBhai audiences (`badabhai_workers` ↔ `both`) changes no reach and rebuilds
    * nothing. `audienceBefore` is the audience the edit's transaction locked.
+   *
+   * Resolves `true` when the reach core ran for this edit (so the caller need not run it again).
    */
   private async materializeIfNeeded(
     before: JobPostingApi,
@@ -810,7 +854,7 @@ export class JobPostingsService {
     actor: JobPostingActor,
     ctx: RequestContext,
     audienceBefore?: JobPostingAudience,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const publishing = before.status === "draft" && after.status === "open";
     // #2635 — a 16-trade posting's match set follows its trade, so moving an OPEN posting into
     // or out of one is a reach change even when the edit carried no skill ids.
@@ -824,8 +868,8 @@ export class JobPostingsService {
       audienceReachesBadaBhaiWorkers(audienceBefore) !==
         audienceReachesBadaBhaiWorkers(after.audience);
     const live = after.status === "open" || after.status === "paused";
-    if (!publishing && !skillsChanged && !audienceMoved) return;
-    if (!publishing && !(after.status === "open" || (audienceMoved && live))) return;
+    if (!publishing && !skillsChanged && !audienceMoved) return false;
+    if (!publishing && !(after.status === "open" || (audienceMoved && live))) return false;
 
     // The skills to resolve from: the edit's, else what the posting already carries.
     const matchSkillIds = dto.match_skill_ids ?? after.match_skill_ids;
@@ -834,14 +878,14 @@ export class JobPostingsService {
       // Reaches nobody. Not a crash and not a guess — the E13 alert is the right
       // channel for it, and `materialize` emits it once the (empty) set is written.
       // Only do that on a PUBLISH; an unrelated edit should not raise a fresh alert.
-      if (!publishing) return;
+      if (!publishing) return false;
     }
 
     // The unticks are passed ONLY when this edit carried them. When it did not, the
     // fallback to the posting's STORED unticks lives in `materializeReach` below — one
     // place, so every trigger (publish, edit, unpause, ops widen) gets the same rule and
     // a second copy here cannot quietly disagree with it.
-    await this.materializeReach(
+    return this.materializeReach(
       after,
       publishing ? "publish" : "edit",
       actor,
@@ -861,6 +905,8 @@ export class JobPostingsService {
    * `job_reach` is a rebuildable cache (`db:materialize:reach` is the repair tool and is
    * safe to re-run), and `db:verify:match-v1` fails the deploy gate on an unmaterialized
    * open posting — so the gap is detected, not silent.
+   *
+   * Resolves `true` only when the materialization completed.
    */
   private async materializeReach(
     posting: JobPostingApi,
@@ -869,7 +915,7 @@ export class JobPostingsService {
     ctx: RequestContext,
     matchSkillIds?: readonly string[],
     untickedIds?: readonly string[],
-  ): Promise<void> {
+  ): Promise<boolean> {
     const skills = matchSkillIds ?? posting.match_skill_ids;
     // THE UNTICK FALLBACK (#1645) — THE ONLY ONE IN THE SYSTEM.
     //
@@ -884,7 +930,7 @@ export class JobPostingsService {
     const unticked = untickedIds ?? posting.unticked_related_ids;
     // A 16-trade posting always has its base skill once scoped, so it never short-circuits here.
     const sixteenTrade = postingTradeFor(posting.role_kind) !== undefined;
-    if (skills.length === 0 && trigger !== "publish" && !sixteenTrade) return;
+    if (skills.length === 0 && trigger !== "publish" && !sixteenTrade) return false;
     try {
       await this.publishReach.materialize(
         posting.id,
@@ -899,6 +945,7 @@ export class JobPostingsService {
         },
         ctx,
       );
+      return true;
     } catch (err) {
       const cls = err instanceof Error ? err.name : "UnknownError";
       const msg = err instanceof Error ? err.message : "unknown";
@@ -907,6 +954,7 @@ export class JobPostingsService {
           `(${cls}: ${msg}); the posting IS live — re-run db:materialize:reach ` +
           `--job-posting-id=${posting.id}`,
       );
+      return false;
     }
   }
 
