@@ -437,6 +437,12 @@ services:
       CAMPUS_SERVICE_TOKEN_SHA256S: ${CAMPUS_SERVICE_TOKEN_SHA256S:-}
       CAMPUS_SERVICE_ALLOWED_IPS: ${CAMPUS_SERVICE_ALLOWED_IPS:-}
       CAMPUS_SERVICE_MAX_PER_MINUTE: ${CAMPUS_SERVICE_MAX_PER_MINUTE:-}
+      # RVM's Student API (Scheduler_Backend#162): where BadaBhai reads a linked student's six
+      # agreed fields, and the token RVM issued BadaBhai. Unset = every read fails closed.
+      RVM_STUDENT_API_BASE_URL: ${RVM_STUDENT_API_BASE_URL:-}
+      RVM_STUDENT_API_TOKEN: ${RVM_STUDENT_API_TOKEN:-}
+      RVM_STUDENT_API_TIMEOUT_MS: ${RVM_STUDENT_API_TIMEOUT_MS:-}
+      RVM_CONSENT_RECHECK_SECONDS: ${RVM_CONSENT_RECHECK_SECONDS:-}
 
       # ---- THE REFERRAL RESOLVER'S DESTINATION (#1800).
       #

@@ -180,6 +180,7 @@ function harness(rows: FakeRow[]) {
     {} as never, // AiService — the sweep reads no document and calls no model.
     {} as never, // AiCostRecorder — the sweep re-bills nothing.
     events as never,
+    { assertMayRunAi: vi.fn(async () => undefined) } as never, // #2752 institute AI gate
   );
   const queue = { upsertJobScheduler: vi.fn().mockResolvedValue(undefined) };
   const config = {
