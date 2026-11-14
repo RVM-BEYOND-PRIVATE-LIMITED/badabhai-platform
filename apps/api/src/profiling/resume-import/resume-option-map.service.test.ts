@@ -45,7 +45,12 @@ function setup(
   const resolved = "out" in opts ? opts.out : output();
   const ai = { mapResumeOptions: vi.fn().mockResolvedValue(resolved) };
   const aiCost = { record: vi.fn().mockResolvedValue(undefined) };
-  const svc = new ResumeOptionMapService(ai as never, aiCost as never, opts.config ?? TODAY);
+  const svc = new ResumeOptionMapService(
+    ai as never,
+    aiCost as never,
+    opts.config ?? TODAY,
+    { assertMayRunAi: vi.fn(async () => undefined) } as never, // #2752 institute AI gate
+  );
   return { svc, ai, aiCost };
 }
 

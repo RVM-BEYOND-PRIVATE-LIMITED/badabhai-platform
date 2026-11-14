@@ -139,6 +139,19 @@ export class InstituteLinkRepository {
   }
 
   /**
+   * Whether he has ever been linked to an institute, active or withdrawn: the AI rule's subject
+   * (a withdrawn link means RVM's consent is gone too, never that BadaBhai's was given).
+   */
+  async hasAnyLink(workerId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ workerId: workerInstituteLinks.workerId })
+      .from(workerInstituteLinks)
+      .where(eq(workerInstituteLinks.workerId, workerId))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /**
    * Whether he applied to a posting or a legacy job this tenant owns: the institute rule's "a
    * company he applied to". Ownership is `payer_id` = the tenant key, as `findOwnedJobRef` reads
    * it. Any apply counts, through Campus or the worker app, whatever its stage since.

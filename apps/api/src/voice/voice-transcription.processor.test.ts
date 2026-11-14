@@ -148,6 +148,7 @@ function make(
     // about an event that was actually built rather than about a stub being called (#738).
     new AiCostRecorder(events as never, totals.repo),
     traces.recorder,
+    { assertMayRunAi: vi.fn(async () => undefined) } as never, // #2752 institute AI gate
   );
   const proc = new VoiceTranscriptionProcessor(service);
   return { proc, service, voice, aiJobs, events, ai, totals, traces };
