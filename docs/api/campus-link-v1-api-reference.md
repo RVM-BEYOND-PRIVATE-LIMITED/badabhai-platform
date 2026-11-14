@@ -277,6 +277,10 @@ Not routes. These rules hold with `CAMPUS_LINK_ENABLED` off too, because a link 
 5. **Send `DELETE students/:student_ref` only for a withdrawal or a deletion request.** A retried
    DELETE that arrives after he consented again still unlinks him; his next application links him
    again.
+6. **Admin.** A row the link created that he never signed in to (`pending`, origin `institute`) is
+   in no onboarding-funnel cohort, has no worker journey (404) and is in no dashboard status count
+   until his first worker-app sign-in. The admin candidates search labels an actively linked row
+   (`institute_code: "rvm"`) and filters on it (`filters.institute_linked`).
 
 ## Open decisions (owner, before the route is built)
 
