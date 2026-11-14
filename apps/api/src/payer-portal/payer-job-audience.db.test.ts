@@ -583,6 +583,11 @@ describe.skipIf(!RUN)("#2746 PR 4 — a company chooses who sees its job (Postgr
 
   it("a reach core on a second connection WAITS for an open audience write, then runs against the committed audience (no 40P01)", async () => {
     const second = createDbClient(DATABASE_URL, { max: 1 });
+    // Declared out here so `finally` can always let the held PATCH commit and settle both sides:
+    // a failed assertion must not leave the posting row locked under the suite's cleanup.
+    let release: (() => void) | undefined;
+    let patch: Promise<unknown> | undefined;
+    let core: Promise<unknown> | undefined;
     try {
       const plain = service();
       const posting = await plain.createForPayer(COMPANY, { ...DTO, audience: "both" }, CTX);
@@ -597,7 +602,6 @@ describe.skipIf(!RUN)("#2746 PR 4 — a company chooses who sees its job (Postgr
       const original = audience.recordUpdateWithin.bind(audience);
       let atLock!: () => void;
       const locked = new Promise<void>((resolve) => (atLock = resolve));
-      let release!: () => void;
       const gate = new Promise<void>((resolve) => (release = resolve));
       audience.recordUpdateWithin = async (...args: Parameters<typeof original>) => {
         atLock();
@@ -605,13 +609,22 @@ describe.skipIf(!RUN)("#2746 PR 4 — a company chooses who sees its job (Postgr
         return original(...args);
       };
       const svc = service(undefined, defaultModeResolver(), audience);
-      const patch = svc.updateForPayer(posting.id, COMPANY, { audience: "rvm_students" }, CTX);
-      await locked;
+      const heldPatch = svc.updateForPayer(posting.id, COMPANY, { audience: "rvm_students" }, CTX);
+      patch = heldPatch;
+      // A PATCH that fails before the gate must fail the test now, not hang it to the timeout.
+      await Promise.race([
+        locked,
+        heldPatch.then(() => {
+          throw new Error("the PATCH finished without reaching the held point");
+        }),
+      ]);
 
-      // The reach core on its own transaction, another connection. A lock_timeout makes a broken
-      // order fail loudly here instead of hanging the suite.
+      // The reach core on its own transaction, another connection (max 1, so this pid is the
+      // core's). A lock_timeout makes a broken order fail loudly here instead of hanging the suite.
+      const [backend] = await second.sql<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+      const corePid = backend!.pid;
       let settled = false;
-      const core = second.db
+      const heldCore = second.db
         .transaction(async (tx) => {
           await tx.execute(dsql`SET LOCAL lock_timeout = '20s'`);
           return materializeJobReachWithin(tx as unknown as Database, posting.id, [SKILL], [SKILL]);
@@ -619,23 +632,31 @@ describe.skipIf(!RUN)("#2746 PR 4 — a company chooses who sees its job (Postgr
         .finally(() => {
           settled = true;
         });
+      core = heldCore;
 
-      await new Promise((resolve) => setTimeout(resolve, 750));
+      // Wait until THAT backend is blocked by another (the held PATCH), not on a fixed sleep.
+      let blockedBy = 0;
+      for (const deadline = Date.now() + 10_000; Date.now() < deadline && !settled; ) {
+        const [row] = await client.sql<{ n: number }[]>`
+          SELECT cardinality(pg_blocking_pids(${corePid}))::int AS n`;
+        blockedBy = row?.n ?? 0;
+        if (blockedBy > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
       expect(settled).toBe(false);
-      const [waiting] = await client.sql<{ n: number }[]>`
-        SELECT count(*)::int AS n FROM pg_stat_activity
-         WHERE datname = current_database() AND wait_event_type = 'Lock'`;
-      expect(waiting?.n).toBeGreaterThanOrEqual(1);
+      expect(blockedBy).toBeGreaterThanOrEqual(1);
 
-      release();
-      await patch;
-      const counts = await core; // rejects on 40P01 / 55P03
+      release!();
+      await heldPatch;
+      const counts = await heldCore; // rejects on 40P01 / 55P03
       // It ran against the COMMITTED audience (rvm_students): nothing inserted or refreshed.
       expect(counts.upserted).toBe(0);
       expect(counts.inserted).toBe(0);
       expect(await reachRows(posting.id)).toBe(0);
       expect((await storedAudience(posting.id)).audience).toBe("rvm_students");
     } finally {
+      release?.();
+      await Promise.allSettled([patch, core].filter((p) => p !== undefined));
       await second.sql.end({ timeout: 5 });
     }
   }, 60_000);

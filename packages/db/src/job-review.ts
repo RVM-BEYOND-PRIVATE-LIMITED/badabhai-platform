@@ -26,9 +26,12 @@ import {
  * LOCK ORDER — THE POSTING ROW BEFORE THE REVIEW ROW, in every transaction that writes the review
  * row. The company's edit locks the posting (`FOR NO KEY UPDATE`, then its UPDATE) and only then
  * opens, resets or bumps the review row; the Campus decision (#2746 PR 5) must lock the posting
- * row first as well, then write the review row with the hash read under that lock. Two writers
- * taking the rows in opposite orders deadlock (40P01), and the posting lock is also what makes the
- * stored hash the hash of the content the decision saw.
+ * row first as well, then write the review row. Two writers taking the rows in opposite orders
+ * deadlock (40P01). The lock only ties the stored hash to the content the decision TRANSACTION
+ * read, not to what the reviewer saw minutes earlier: a company edit committed between Campus's
+ * fetch and the decision would be approved unseen. So the decision also carries the
+ * `content_hash` the reviewer saw (owner ruling 2026-11-14), and it is applied only when that
+ * equals {@link postingReviewContentHash} under the lock (409 `POSTING_CHANGED` otherwise).
  */
 
 /** The institute an RVM audience is reviewed by (`INSTITUTE_CODES`); the review row's key half. */

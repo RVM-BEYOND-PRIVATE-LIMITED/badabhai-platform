@@ -215,7 +215,8 @@ function make(
   // Payer owner-scoped repo methods (default: the row IS owned; tests override
   // findByIdAndPayer with undefined to exercise the not-owned / no-oracle path).
   const findByIdAndPayer = vi.fn().mockResolvedValue(existing ? toApi(existing) : undefined);
-  // #2746 — the locked read an audience write decides against (the same row, under FOR UPDATE).
+  // #2746 — the locked read an audience write decides against (the same row, under FOR NO KEY
+  // UPDATE).
   const findOwnedForUpdate = vi.fn().mockResolvedValue(existing ? toApi(existing) : undefined);
   const listByPayer = vi.fn().mockResolvedValue([]);
   const updateOwned = vi
