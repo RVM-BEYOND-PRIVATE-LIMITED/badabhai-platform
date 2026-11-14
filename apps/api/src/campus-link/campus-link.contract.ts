@@ -43,6 +43,10 @@ export const CAMPUS_ERROR_CODES = [
   "AUDIENCE_EXCLUDES_RVM",
   "STUDENT_NOT_AVAILABLE",
   "RVM_UNAVAILABLE",
+  // #2752 item 5 (owner decision 2026-11-14): the phone is a BadaBhai company Campus did not create.
+  "COMPANY_NOT_CAMPUS_CREATED",
+  // A retry of POST job-postings with the same key while the first is still running.
+  "REQUEST_IN_PROGRESS",
 ] as const;
 export type CampusErrorCode = (typeof CAMPUS_ERROR_CODES)[number];
 
@@ -185,10 +189,10 @@ export const CampusReviewResponseSchema = z.object({
 
 export const CampusPostForCompanyBodySchema = z.strictObject({
   /**
-   * Found by exact phone, or created as a pending company that its owner activates by code.
-   * OPEN OWNER DECISION before this route is built: whether Campus may publish in the name of an
-   * EXISTING active company without that company confirming (a leaked Campus token could then post
-   * as any employer whose phone it knows). See the API reference, "Open decisions".
+   * A company Campus created with this phone, or a new pending one its owner activates by code.
+   * A phone that is a BadaBhai company Campus did NOT create is refused (`COMPANY_NOT_CAMPUS_CREATED`;
+   * owner decision 2026-11-14 on the security review): a Campus token never publishes in another
+   * employer's name.
    */
   company: z.strictObject({
     phone: Phone10Schema,

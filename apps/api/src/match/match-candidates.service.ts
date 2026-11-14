@@ -54,6 +54,8 @@ export interface MatchCandidateRowDto {
   matchedSkillLabel: string | null;
   /** The rule version that produced these numbers (Policy 24). */
   engineVersion: string | null;
+  /** #2752 — `rvm` for an RVM student (through BadaBhai Campus), else null. A label only. */
+  instituteCode: string | null;
   /**
    * Middle Way P5 — the rungs he stated, per trade skill, for the level badge.
    * Display-only, like `matchedSkillLabel`: never a rank input, and an empty array
@@ -307,6 +309,7 @@ export function toMatchCandidateRowDto(
     matchedSkillLabel:
       row.matchedSkillId === null ? null : (matchSkillLabel(row.matchedSkillId) ?? null),
     engineVersion: row.engineVersion,
+    instituteCode: row.instituteCode,
     tradeLevels: row.tradeLevels.map(toTradeLevelBadge),
     levelFit:
       levelSpec === null

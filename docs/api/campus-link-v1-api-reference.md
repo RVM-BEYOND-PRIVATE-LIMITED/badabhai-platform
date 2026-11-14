@@ -9,9 +9,8 @@ RVMBeyond_jobportal#155 and #154.
   `campus-link.examples.ts` is parsed against its schema in CI.
 - **Mock:** `pnpm --filter @badabhai/api build && pnpm --filter @badabhai/api campus:mock -- --port=4100 --token=<test token>`.
   Same paths, headers, schemas and errors; examples plus in-memory state; no database.
-- **Status:** `GET ping` and `DELETE students/:student_ref` are live behind the flag. The other
-  routes are the contract Campus builds against; each lands as the rest of #2752 (and #2746 for
-  postings and review) is built.
+- **Status:** every route below is live behind the flag except `PUT job-postings/:id/review`, which
+  #2746 builds.
 
 ## Rules for every call
 
@@ -34,33 +33,35 @@ RVMBeyond_jobportal#155 and #154.
 
 Every error uses the api's envelope: `{ statusCode, error: { code, message? }, requestId, path, timestamp }`.
 
-| Status | `error.code`               | When                                                                                  | Retry?             |
-| ------ | -------------------------- | ------------------------------------------------------------------------------------- | ------------------ |
-| 400    | `VALIDATION_FAILED`        | Body or query fails the schema (including an unknown key)                             | No                 |
-| 400    | `IDEMPOTENCY_KEY_REQUIRED` | A write without a valid key                                                           | No                 |
-| 401    | `UNAUTHENTICATED`          | Missing or wrong token, or none configured                                            | No                 |
-| 403    | `ADDRESS_NOT_ALLOWED`      | Caller address is not on the allow-list                                               | No                 |
-| 404    | none                       | Flag off, unknown route, or an id that does not exist                                 | No                 |
-| 409    | `EXTERNAL_REF_CONFLICT`    | The same `external_ref` (or `grant_ref`) with a different posting, company or student | No                 |
-| 409    | `POSTING_NOT_OPEN`         | Posting closed, paused or hidden, including one that closed at the same moment        | No                 |
-| 409    | `POSTING_NOT_APPROVED`     | Posting's RVM review is pending or rejected                                           | No                 |
-| 409    | `AUDIENCE_EXCLUDES_RVM`    | Posting is for BadaBhai workers only                                                  | No                 |
-| 409    | `STUDENT_NOT_AVAILABLE`    | RVM refuses the student (no consent, not linked, any reason); no row is created       | No                 |
-| 429    | `RATE_LIMITED`             | Over the per-minute cap                                                               | Yes, after a pause |
-| 503    | `RVM_UNAVAILABLE`          | RVM's Student API did not answer; nothing was created                                 | Yes, same key      |
+| Status | `error.code`                 | When                                                                                  | Retry?             |
+| ------ | ---------------------------- | ------------------------------------------------------------------------------------- | ------------------ |
+| 400    | `VALIDATION_FAILED`          | Body or query fails the schema (including an unknown key)                             | No                 |
+| 400    | `IDEMPOTENCY_KEY_REQUIRED`   | A write without a valid key                                                           | No                 |
+| 401    | `UNAUTHENTICATED`            | Missing or wrong token, or none configured                                            | No                 |
+| 403    | `ADDRESS_NOT_ALLOWED`        | Caller address is not on the allow-list                                               | No                 |
+| 404    | none                         | Flag off, unknown route, or an id that does not exist                                 | No                 |
+| 409    | `EXTERNAL_REF_CONFLICT`      | The same `external_ref` (or `grant_ref`) with a different posting, company or student | No                 |
+| 409    | `POSTING_NOT_OPEN`           | Posting closed, paused or hidden, including one that closed at the same moment        | No                 |
+| 409    | `POSTING_NOT_APPROVED`       | Posting's RVM review is pending or rejected                                           | No                 |
+| 409    | `AUDIENCE_EXCLUDES_RVM`      | Posting is for BadaBhai workers only                                                  | No                 |
+| 409    | `STUDENT_NOT_AVAILABLE`      | RVM refuses the student (no consent, not linked, any reason); no row is created       | No                 |
+| 409    | `COMPANY_NOT_CAMPUS_CREATED` | `POST job-postings` for a phone that is a BadaBhai company Campus did not create      | No                 |
+| 409    | `REQUEST_IN_PROGRESS`        | The same `POST job-postings` key while the first request still runs                   | Yes, after a pause |
+| 429    | `RATE_LIMITED`               | Over the per-minute cap                                                               | Yes, after a pause |
+| 503    | `RVM_UNAVAILABLE`            | RVM's Student API did not answer; nothing was created                                 | Yes, same key      |
 
 ## Routes
 
 | Method and path                     | Purpose                                                 | Lands with    |
 | ----------------------------------- | ------------------------------------------------------- | ------------- |
 | `GET ping`                          | Proves flag, address and token                          | **live**      |
-| `GET job-postings`                  | Postings whose audience includes RVM students           | #2752 + #2746 |
+| `GET job-postings`                  | Postings whose audience includes RVM students           | **live**      |
 | `PUT job-postings/:id/review`       | Placement team approves or rejects                      | #2752 + #2746 |
-| `POST job-postings`                 | Placement team posts for a company                      | #2752 + #2746 |
-| `GET companies?phone=`              | Find a company by exact phone                           | #2752         |
-| `POST applications`                 | A student applies                                       | #2752 + #2746 |
-| `GET applications`                  | Status feed Campus polls                                | #2752         |
-| `DELETE applications/:external_ref` | Student withdraws                                       | #2752         |
+| `POST job-postings`                 | Placement team posts for a company                      | **live**      |
+| `GET companies?phone=`              | Find a company by exact phone                           | **live**      |
+| `POST applications`                 | A student applies                                       | **live**      |
+| `GET applications`                  | Status feed Campus polls                                | **live**      |
+| `DELETE applications/:external_ref` | Student withdraws                                       | **live**      |
 | `PUT search-grants/:grant_ref`      | Named-company search grant, after the student's own yes | **live**      |
 | `DELETE search-grants/:grant_ref`   | Revoke a grant                                          | **live**      |
 | `DELETE students/:student_ref`      | Unlink a student (consent withdrawn or deleted)         | **live**      |
@@ -146,14 +147,23 @@ read, so a posting edited after approval reads `pending` even before anything re
 }
 ```
 
-The company is found by exact phone, or created as **pending** (its owner activates it by signing
-in with a code). The posting is open, for RVM students, with its review recorded as approved by
-`staff_ref`. Answers `201 { "posting_id", "company_id", "company_created", "review_state": "approved" }`.
-`openings` is stored as the matching `vacancy_band`.
+Campus posts only for a company **it created** (owner decision, 14 Nov 2026, on the security
+review). A phone BadaBhai does not know creates a **pending** company (its owner activates it by
+signing in with a code; the `staff_ref` is in BadaBhai's audit log), and later postings for the
+same phone reuse it. A phone that is a BadaBhai company Campus did not create answers 409
+`COMPANY_NOT_CAMPUS_CREATED`: that company posts for RVM students from its own BadaBhai account, so
+a Campus token can never publish in another employer's name. The posting is open, for RVM
+students, with its review recorded as approved by `staff_ref` against the content as stored.
+Answers `201 { "posting_id", "company_id", "company_created", "review_state": "approved" }`.
+`openings` is stored as the matching `vacancy_band`. A posting has no lasting ref, so the
+`Idempotency-Key` is held for minutes: a retry inside that window answers the first result (or
+`REQUEST_IN_PROGRESS` while it still runs), never a second posting.
 
 ### GET companies?phone=
 
-`200 { "company": { "id", "name", "status": "active" | "pending" } }`, or `{ "company": null }`.
+`200 { "company": { "id", "name", "status": "active" | "pending" } }` for a company Campus created,
+or `{ "company": null }` for any other phone, a BadaBhai company Campus did not create included,
+so the route never tells whether a phone is a BadaBhai company.
 
 ### POST applications
 
@@ -172,7 +182,13 @@ student's consent, so no name, phone, course or résumé link is sent here. Bada
 and the came-from itself. `applied_at` is kept as information only; BadaBhai orders and dates
 applications by its own clock.
 
-Answers `201` with the application, or `200` with the same application on a replay:
+BadaBhai takes it only for a posting that is open and not hidden (`POSTING_NOT_OPEN`, also for one
+that closes at the same moment), whose audience includes RVM students (`AUDIENCE_EXCLUDES_RVM`),
+and whose review is approved for the content it has now (`POSTING_NOT_APPROVED`). Branch and
+course targeting is Campus's to enforce: the Student API returns the student's branch only by
+name. A second Campus ref for the same student and posting is `EXTERNAL_REF_CONFLICT`. The company
+sees him in its applicant list labelled as an RVM student. Answers `201` with the application, or
+`200` with the same application on a replay:
 
 ```json
 {
@@ -187,14 +203,18 @@ Answers `201` with the application, or `200` with the same application on a repl
 
 ### GET applications (status feed)
 
-Query: `changed_since`, `cursor`, `limit`. Answers `{ "applications": [ …as above… ], "next_cursor" }`.
+Query: `changed_since`, `cursor`, `limit`. Answers `{ "applications": [ …as above… ], "next_cursor" }`,
+in `changed_at` order. `changed_since` reaches back two minutes further than asked, so a change
+committed late is never skipped: de-duplicate by `application_id`. The same holds for
+`GET job-postings`.
 `stage` is one of `new`, `shortlist`, `selected`, `hired`, `passed`, `withdrawn`. `new`, `shortlist`
 and `passed` exist today; `selected` and `hired` arrive with #2747. Campus maps `passed` to its own
 `rejected`.
 
 ### DELETE applications/:external_ref
 
-Withdraws. Idempotent. Answers the application with `stage: "withdrawn"`.
+Withdraws: the company no longer sees him, and the feed says `withdrawn`. Idempotent; an unknown
+ref is a 404. Answers the application with `stage: "withdrawn"`.
 
 ### PUT search-grants/:grant_ref
 
@@ -296,15 +316,6 @@ Not routes. These rules hold with `CAMPUS_LINK_ENABLED` off too, because a link 
    in no onboarding-funnel cohort, has no worker journey (404) and is in no dashboard status count
    until his first worker-app sign-in. The admin candidates search labels an actively linked row
    (`institute_code: "rvm"`) and filters on it (`filters.institute_linked`).
-
-## Open decisions (owner, before the route is built)
-
-1. **Posting in an existing company's name.** As written (issue item 5), `POST job-postings` finds
-   an active company by phone and publishes an approved, open posting in its name without the
-   company confirming, and `GET companies?phone=` tells whether a phone is a company. A leaked
-   Campus token could then post as any employer whose phone it knows. The alternative is to hold a
-   posting for an existing active company until that company confirms, and to answer
-   `GET companies` only for companies Campus created. Needs Prakash's and Akshit's call.
 
 ## Setting the link up
 

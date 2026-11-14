@@ -6345,3 +6345,32 @@ export const WorkerInstituteSearchGrantPayload = z
   })
   .strict();
 export type WorkerInstituteSearchGrantPayload = z.infer<typeof WorkerInstituteSearchGrantPayload>;
+
+// #2752 part E — a student applied to a posting through Campus, or withdrew. IDS ONLY: never his
+// name, phone, student reference or the Campus application id. `application_id` is the
+// `applications` row the company sees (gone after a withdrawal, but its id is kept here);
+// `institute_application_id` is the Campus record that outlives it. The apply also emits the
+// existing `application.submitted` (source_surface `other`), so application counts include it.
+export const WorkerInstituteApplicationPayload = z
+  .object({
+    institute_application_id: uuidSchema,
+    application_id: uuidSchema,
+    worker_id: uuidSchema,
+    job_posting_id: uuidSchema,
+    institute_code: InstituteCodeEnum,
+  })
+  .strict();
+export type WorkerInstituteApplicationPayload = z.infer<typeof WorkerInstituteApplicationPayload>;
+
+// #2752 item 5 — the placement team created a company on BadaBhai from Campus (status `pending`;
+// its owner activates it by signing in with a code). Ids only: never its name or phone, and not
+// the Campus staff reference (that is in `audit_logs`).
+export const PayerInstituteCompanyCreatedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    institute_code: InstituteCodeEnum,
+  })
+  .strict();
+export type PayerInstituteCompanyCreatedPayload = z.infer<
+  typeof PayerInstituteCompanyCreatedPayload
+>;

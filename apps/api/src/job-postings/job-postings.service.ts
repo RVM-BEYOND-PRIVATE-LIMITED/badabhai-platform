@@ -478,6 +478,37 @@ export class JobPostingsService {
   }
 
   /**
+   * #2752 item 5 — a posting the RVM placement team creates for a company from Campus, in the
+   * company's resolved scope: the same create as the company form (same validation, events and
+   * review row), for RVM students with the targeting Campus sent, and then opened. The Campus
+   * route then records the placement team's approval (`CampusPostingsService`).
+   */
+  async createForCampus(
+    scope: PayerTenantScope,
+    dto: PayerCreateJobPostingDto,
+    targeting: { rvm_branch_ids: number[]; rvm_course_ids: string[] },
+    ctx: RequestContext,
+  ): Promise<JobPostingApi> {
+    const audience = await this.audience.resolveForInstitute(targeting);
+    const draft = await this.createWithin(scope, dto, ctx, audience);
+    // OPEN AT ONCE, as Campus puts a staff-posted job live today. Not through the company
+    // publish gate: that gate requires one of the 16 trades because publishing MATCHES BadaBhai
+    // workers (#2635), and an RVM-only posting reaches no worker at all.
+    const opened = await this.repo.transitionOwned(draft.id, scope.tenantKey, "draft", "open");
+    if (!opened) throw new Error("campus posting: the new draft could not be opened");
+    const payload: PayloadInputOf<"job_posting.updated"> = {
+      job_posting_id: opened.id,
+      changed_fields: ["status"],
+      status: "open",
+      vacancy_band: opened.vacancy_band,
+    };
+    await this.events.emit(
+      this.emitParams("job_posting.updated", opened.id, payerActor(scope), payload, ctx),
+    );
+    return opened;
+  }
+
+  /**
    * {@link createForPayer} for a caller that already resolved the scope (the AI posting-chat
    * publish, which resolves before it claims its session). The TENANT owns the row; the ACTING
    * LOGIN is its `created_by` and the event actor (ADR-0053 §3.1).

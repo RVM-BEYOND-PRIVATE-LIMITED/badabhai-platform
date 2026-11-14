@@ -62,7 +62,9 @@ import { NotificationPrefsController } from "../notifications/notification-prefs
 import { PayerRelayController } from "../relay/payer-relay.controller";
 import { WorkerRelayController } from "../relay/worker-relay.controller";
 import { SkillsController } from "../skills/skills.controller";
+import { CampusApplicationsController } from "../campus-link/campus-applications.controller";
 import { CampusGrantsController } from "../campus-link/campus-grants.controller";
+import { CampusJobsController } from "../campus-link/campus-jobs.controller";
 import { CampusLinkController } from "../campus-link/campus-link.controller";
 import { ReferralAttributionController } from "../referrals/referral-attribution.controller";
 import { ReferralBonusController } from "../referrals/referral-bonus.controller";
@@ -673,6 +675,18 @@ const CONTRACT: ControllerContract[] = [
     name: "CampusGrants",
     ctor: CampusGrantsController,
     routes: { grant: [CS], revoke: [CS] },
+  },
+  // #2752 part E — the jobs feed, posting for a Campus-created company, the company lookup, and
+  // Campus applications: the same Campus credential only.
+  {
+    name: "CampusJobs",
+    ctor: CampusJobsController,
+    routes: { listPostings: [CS], postForCompany: [CS], findCompany: [CS] },
+  },
+  {
+    name: "CampusApplications",
+    ctor: CampusApplicationsController,
+    routes: { apply: [CS], feed: [CS], withdraw: [CS] },
   },
   // Referral attribution (ADR-0020/0022): the invited_worker_id is the SESSION worker, so
   // a caller can only ever attribute THEMSELVES to a code (XB-A). B4 added an OPTIONAL

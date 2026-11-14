@@ -29,6 +29,10 @@ import { RvmStudentApiClient } from "./rvm-student-api.client";
  *
  * `PayersModule` (one-way: it imports nothing from here) — `PayerTenantScopeService`, so a grant
  * is stored under the company's TENANT key, the key its search and its opens are asked by.
+ *
+ * Part E's jobs and applications routes live in `CampusJobsModule`, which imports this one: they
+ * need `JobPostingsModule`, whose tree reaches the modules that import this one, so here it would
+ * close a cycle.
  */
 @Module({
   imports: [PayersModule],

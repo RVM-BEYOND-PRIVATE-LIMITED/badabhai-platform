@@ -122,6 +122,7 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
       "AgencyWorkersService",
       // #2752 item 10: the company search reads that company's named-company search grants, and
       // a grant is stored under the company's tenant key.
+      "CampusPostingsService",
       "CandidateSearchService",
       "InstituteSearchGrantsService",
       "JobPostingChatService",

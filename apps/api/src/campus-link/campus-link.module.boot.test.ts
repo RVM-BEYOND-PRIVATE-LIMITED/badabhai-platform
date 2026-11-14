@@ -10,8 +10,11 @@ import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { SubjectRateLimit } from "../common/rate-limit/subject-rate-limit.service";
 import { SERVER_CONFIG } from "../config/config.module";
 import { CampusCallAuditRepository, type CampusCallAudit } from "./campus-call-audit.repository";
+import { CampusApplicationsController } from "./campus-applications.controller";
 import { CampusGrantsController } from "./campus-grants.controller";
+import { CampusJobsController } from "./campus-jobs.controller";
 import { CampusLinkController } from "./campus-link.controller";
+import { CampusJobsModule } from "./campus-jobs.module";
 import { CampusLinkModule } from "./campus-link.module";
 import { CampusServiceGuard } from "./campus-service.guard";
 import { InstituteLinkService, StudentNotAvailableError } from "./institute-link.service";
@@ -31,6 +34,12 @@ describe("CampusLinkModule wiring", () => {
       CampusLinkController,
       CampusGrantsController,
     ]);
+    expect(getMeta("controllers", CampusJobsModule)).toEqual([
+      CampusJobsController,
+      CampusApplicationsController,
+    ]);
+    // One-way: the jobs module imports the link module, never the other way round.
+    expect(getMeta("imports", CampusJobsModule)).toContain(CampusLinkModule);
     expect(getMeta("providers", CampusLinkModule)).toEqual(
       expect.arrayContaining([CampusServiceGuard, CampusCallAuditRepository]),
     );

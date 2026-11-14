@@ -1717,6 +1717,23 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerInstituteSearchGrantPayload,
   },
+  // #2752 part E — a Campus application taken, and withdrawn. Ids only; see the payload.
+  "worker.institute_applied": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerInstituteApplicationPayload,
+  },
+  "worker.institute_application_withdrawn": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerInstituteApplicationPayload,
+  },
+  // #2752 item 5 — a company created from Campus (pending until its owner signs in).
+  "payer.institute_company_created": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerInstituteCompanyCreatedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
