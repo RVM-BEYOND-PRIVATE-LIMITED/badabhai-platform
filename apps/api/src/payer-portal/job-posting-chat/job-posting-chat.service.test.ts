@@ -14,6 +14,7 @@ import type { RequestContext } from "../../common/request-context";
 import { fakeAiTraceRecorder } from "../../ai/ai-trace-recorder.fake";
 import { EventsService } from "../../events/events.service";
 import { JobPostingsService } from "../../job-postings/job-postings.service";
+import { inertPostingAudience } from "../../job-postings/posting-audience.test-support";
 import { JobPostingChatService } from "./job-posting-chat.service";
 import type { PayerTenantScope } from "../../payers/payer-tenant-scope";
 import type { PayerTenantScopeService } from "../../payers/payer-tenant-scope.service";
@@ -1135,6 +1136,7 @@ describe("JobPostingChatService — a publish whose job_posting.created emit fai
       {} as never,
       {} as never, // PostingTradesService
       tenancy,
+      inertPostingAudience(), // #2746 — a chat publish carries no audience
     );
 
     const session = {

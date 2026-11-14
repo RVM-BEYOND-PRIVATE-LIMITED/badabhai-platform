@@ -1083,8 +1083,10 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
   },
   // 0162 (#2746): who sees a job, and the company test marker. Both columns are named by bare
   // `select()` / `.returning()` on hot paths with no flag, so APPLY-BEFORE-MERGE (production
-  // deploys on every push to main). The four new tables are named only behind the #2746
-  // switches, so they are listed for their locks, as 0134's table is.
+  // deploys on every push to main). Since #2746 PR 4 `job_posting_institute_reviews` is on a hot
+  // path with no flag too (every company posting edit, both admin posting reads); the other three
+  // new tables are named only behind the #2746 switches, so they are listed for their locks, as
+  // 0134's table is.
   {
     id: "0162-job-postings-audience",
     migration: "0162_job_audience_campus_drives",
@@ -1125,6 +1127,20 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     failureMode:
       "every payer auth route and every guarded /payer/* request 500s (column does not exist). " +
       "Old builds on a migrated database are fine (a superset)",
+  },
+  {
+    id: "0162-job-posting-institute-reviews-table",
+    migration: "0162_job_audience_campus_drives",
+    kind: "table",
+    table: "job_posting_institute_reviews",
+    requiredBy:
+      "#2746 PR 4, no flag: every company PATCH /payer/job-postings/:id resets a stale RVM " +
+      "decision in its transaction (PostingAudienceRepository.resetStaleDecision), and " +
+      "AdminEntitiesRepository.listJobPostings / findJobPosting LEFT JOIN the review row",
+    failureMode:
+      "every company posting edit and publish 500s (relation does not exist) and rolls back; the " +
+      "admin Companies posting list and detail 500. LOUD. The OLD build on a migrated database " +
+      "is fine",
   },
   {
     id: "0162-job-posting-institute-reviews-rls",

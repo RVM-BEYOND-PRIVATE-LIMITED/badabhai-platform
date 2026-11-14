@@ -12,10 +12,12 @@ import type {
   CreditReason,
   JobNeededBy,
   JobPayType,
+  JobPostingAudience,
   JobShift,
   PayerRole,
   PayerStatus,
 } from "@badabhai/db";
+import type { RvmReviewView } from "../job-postings/rvm-review-view";
 
 
 /**
@@ -303,6 +305,18 @@ export interface AdminJobPostingListItem {
   published_at: Date | null;
   closed_at: Date | null;
   created_at: Date;
+  /**
+   * #2746 — who sees the posting and its RVM targeting (`[]` = every branch / course). READ-ONLY
+   * here: no admin write sets them (the admin edit's schema has no audience field).
+   */
+  audience: JobPostingAudience;
+  rvm_branch_ids: number[];
+  rvm_course_ids: string[];
+  /**
+   * The RVM placement team's review, with the live-hash rule (a decision on content the company
+   * has since changed reads `pending`). `null` when the audience has no RVM part.
+   */
+  rvm_review: RvmReviewView | null;
 }
 
 export interface AdminJobPostingDetail extends AdminJobPostingListItem {

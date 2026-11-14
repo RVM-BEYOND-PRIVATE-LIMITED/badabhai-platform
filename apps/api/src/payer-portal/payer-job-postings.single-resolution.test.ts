@@ -46,6 +46,10 @@ function wire() {
       if (!owns(scope)) throw new Error("not found");
       return { id };
     }),
+    // #2746 — shapes the page in the scope it is handed; resolves nothing itself.
+    toPayerPostings: vi.fn(async (_scope: PayerTenantScope, postings: readonly unknown[]) => [
+      ...postings,
+    ]),
   };
   const plans = { getPostingStats: vi.fn(async (_id: string, _tenant: TenantKey) => STATS) };
   const disclosureRepo = {

@@ -14,6 +14,7 @@ import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { JobPostingsRepository } from "../job-postings/job-postings.repository";
 import { JobPostingsService } from "../job-postings/job-postings.service";
+import { postingAudienceOver } from "../job-postings/posting-audience.test-support";
 import {
   PayerCreateJobPostingSchema,
   UpdateJobPostingSchema,
@@ -166,6 +167,8 @@ describe.skipIf(!RUN)(
         {} as never, // MatchSkillsService — no match_skill_ids on this create
         {} as never, // PostingTradesService
         tenancy,
+        // #2746 — the real audience service at the default (switch off).
+        postingAudienceOver(client.db, events),
       );
       const unlocksRepo = new UnlocksRepository(client.db);
       gateway = new PaymentGateway(unlocksRepo, config, {} as never, {} as never);
@@ -680,6 +683,8 @@ describe.skipIf(!RUN)(
         { resolveForPublish: async () => undefined } as never,
         {} as never, // PostingTradesService
         tenancy,
+        // #2746 — the real audience service at the default (switch off).
+        postingAudienceOver(client.db, events),
       );
       const agency = new AgencyService(
         new AgencyJobsRepository(client.db),
@@ -1209,6 +1214,8 @@ describe.skipIf(!RUN)(
         {} as never, // MatchSkillsService — no match_skill_ids
         {} as never, // PostingTradesService
         tenancy,
+        // #2746 — the real audience service at the default (switch off).
+        postingAudienceOver(client.db, events),
       );
       const plans = new PostingPlansService(
         new PostingPlansRepository(client.db),
@@ -2043,6 +2050,8 @@ describe.skipIf(!RUN)(
         {} as never, // MatchSkillsService — no match_skill_ids on this create
         {} as never, // PostingTradesService
         tenancy,
+        // #2746 — the real audience service at the default (switch off).
+        postingAudienceOver(client.db, events),
       );
       return { unlocks, tenancy, disclosures, relay, postings };
     }

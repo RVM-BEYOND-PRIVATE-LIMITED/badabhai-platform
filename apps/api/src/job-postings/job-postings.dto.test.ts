@@ -11,6 +11,8 @@ import { CITY_HUBS } from "../profiles/worker-cities.hubs";
 import {
   CreateJobPostingSchema,
   PayerCreateJobPostingSchema,
+  PayerCreateJobPostingWithAudienceSchema,
+  PayerUpdateJobPostingSchema,
   UpdateJobPostingSchema,
 } from "./job-postings.dto";
 
@@ -423,5 +425,94 @@ describe("#1848 — every posting and agency write route screens city and area",
     // Write-side only: a row stored before #1848 keeps its value until an edit resends it.
     expect(UpdateJobPostingSchema.safeParse({ shift: "night" }).success).toBe(true);
     expect(UpdateAgencyJobSchema.safeParse({ shift: "night" }).success).toBe(true);
+  });
+});
+
+/**
+ * #2746 — THE AUDIENCE FIELDS ARE THE COMPANY'S ALONE. The ops register / ops PATCH (one shared
+ * token), the admin edit and the AI chat publish parse the shared schemas, which must strip them;
+ * only the two company schemas carry them — with every rule the shared schemas have.
+ */
+describe("#2746 — audience fields exist on the company schemas only", () => {
+  const AUDIENCE = { audience: "rvm_students", rvm_branch_ids: [1], rvm_course_ids: ["cnc"] };
+  const CREATE_BASE = { org_label: "Acme Works", role_title: "CNC Operator", vacancy_band: "1" };
+  const KEYS = ["audience", "rvm_branch_ids", "rvm_course_ids"];
+
+  const SHARED: ReadonlyArray<[string, z.ZodTypeAny, Record<string, unknown>]> = [
+    [
+      "CreateJobPostingSchema (ops register)",
+      CreateJobPostingSchema,
+      { ...CREATE_BASE, created_by: CREATED_BY },
+    ],
+    ["PayerCreateJobPostingSchema (AI chat publish)", PayerCreateJobPostingSchema, CREATE_BASE],
+    ["UpdateJobPostingSchema (ops PATCH + admin edit)", UpdateJobPostingSchema, { shift: "night" }],
+  ];
+
+  it.each(SHARED)("%s strips them: the row keeps its stored audience", (_name, schema, base) => {
+    const parsed = schema.parse({ ...base, ...AUDIENCE }) as Record<string, unknown>;
+    for (const key of KEYS) expect(parsed).not.toHaveProperty(key);
+  });
+
+  it("an audience-only body is no edit at all on the shared PATCH schema", () => {
+    expect(UpdateJobPostingSchema.safeParse(AUDIENCE).success).toBe(false);
+  });
+
+  it("the company schemas carry them, and an audience-only PATCH is a real edit", () => {
+    expect(
+      PayerCreateJobPostingWithAudienceSchema.parse({ ...CREATE_BASE, ...AUDIENCE }),
+    ).toMatchObject(AUDIENCE);
+    expect(PayerUpdateJobPostingSchema.parse({ audience: "both" })).toEqual({ audience: "both" });
+    expect(PayerUpdateJobPostingSchema.parse({ rvm_branch_ids: [] })).toEqual({
+      rvm_branch_ids: [],
+    });
+  });
+
+  it("the company schemas are the shared ones plus exactly the three fields", () => {
+    const extra = (a: z.ZodObject, b: z.ZodObject) =>
+      Object.keys(a.shape)
+        .filter((k) => !(k in b.shape))
+        .sort();
+    expect(extra(PayerCreateJobPostingWithAudienceSchema, PayerCreateJobPostingSchema)).toEqual(
+      [...KEYS].sort(),
+    );
+    expect(extra(PayerUpdateJobPostingSchema, UpdateJobPostingSchema)).toEqual([...KEYS].sort());
+    expect(extra(PayerCreateJobPostingSchema, PayerCreateJobPostingWithAudienceSchema)).toEqual([]);
+  });
+
+  it("every shared rule still holds on the company schemas (safeExtend keeps the refinements)", () => {
+    // Exactly one of vacancy_band / vacancies on create.
+    expect(
+      PayerCreateJobPostingWithAudienceSchema.safeParse({ ...CREATE_BASE, vacancies: 3 }).success,
+    ).toBe(false);
+    // The pay band order, and set + clear of one field, on PATCH.
+    expect(PayerUpdateJobPostingSchema.safeParse({ pay_min: 9, pay_max: 1 }).success).toBe(false);
+    expect(PayerUpdateJobPostingSchema.safeParse({ shift: "day", clear: ["shift"] }).success).toBe(
+      false,
+    );
+    // The worker-visible free-text screen.
+    expect(
+      PayerUpdateJobPostingSchema.safeParse({ role_title: "Call 98765 43210 now" }).success,
+    ).toBe(false);
+    // An empty body.
+    expect(PayerUpdateJobPostingSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("shapes: a closed audience set, positive integer branch ids, 1–64 char course ids, the CHECK's caps", () => {
+    const bad = [
+      { audience: "everyone" },
+      { rvm_branch_ids: ["1"] },
+      { rvm_branch_ids: [0] },
+      { rvm_branch_ids: [1.5] },
+      { rvm_branch_ids: Array.from({ length: 51 }, (_, i) => i + 1) },
+      { rvm_course_ids: [""] },
+      { rvm_course_ids: ["x".repeat(65)] },
+      { rvm_course_ids: Array.from({ length: 101 }, (_, i) => `c${i}`) },
+    ];
+    for (const body of bad) {
+      expect(
+        PayerUpdateJobPostingSchema.safeParse(body).success,
+        JSON.stringify(body).slice(0, 60),
+      ).toBe(false);
+    }
   });
 });

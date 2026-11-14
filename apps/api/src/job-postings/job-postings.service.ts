@@ -8,7 +8,13 @@ import {
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { SkillCanonicalizationInput } from "@badabhai/ai-contracts";
 import { bandForCount } from "@badabhai/validators";
-import type { JobPosting, NewJobPosting } from "@badabhai/db";
+import {
+  audienceReachesBadaBhaiWorkers,
+  type Database,
+  type JobPosting,
+  type JobPostingAudience,
+  type NewJobPosting,
+} from "@badabhai/db";
 import type { JobPostingVerificationStatus } from "@badabhai/types";
 import { postingTradeFor, postingTradeSkillIds, scopePostingSkills } from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
@@ -35,8 +41,16 @@ import type {
   CreateJobPostingDto,
   ListJobPostingsQueryDto,
   PayerCreateJobPostingDto,
+  PayerCreateJobPostingWithAudienceDto,
+  PayerUpdateJobPostingDto,
   UpdateJobPostingDto,
 } from "./job-postings.dto";
+import {
+  PostingAudienceService,
+  type AudienceOptionsDto,
+  type PayerJobPostingApi,
+  type PostingAudienceWrite,
+} from "./posting-audience.service";
 import type {
   DraftJobDescriptionDto,
   JobDescriptionDraftResult,
@@ -133,6 +147,9 @@ export class JobPostingsService {
     // ADR-0053 — the payer tenant resolver (PayersModule). The ONLY source of the tenant key
     // every payer-path predicate and stamp below uses.
     private readonly tenancy: PayerTenantScopeService,
+    // #2746 — who sees a COMPANY posting (audience, RVM targeting, the RVM review row). Called on
+    // the payer path only; the ops and admin edits cannot express an audience.
+    private readonly audience: PostingAudienceService,
   ) {}
 
   /**
@@ -446,23 +463,41 @@ export class JobPostingsService {
   // Identity is the SESSION payer (XB-A); the body never carries payer_id/created_by.
   // Each `*ForPayer` entry point resolves the session payer's tenancy once (ADR-0053).
 
+  /**
+   * The company form's create. #2746: the body may also choose WHO SEES the posting; that half is
+   * decided before the transaction (switch off → ignored; targeting validated) and written in it.
+   */
   async createForPayer(
     actorPayerId: string,
-    dto: PayerCreateJobPostingDto,
+    dto: PayerCreateJobPostingWithAudienceDto,
     ctx: RequestContext,
-  ): Promise<JobPostingApi> {
-    return this.createInScope(await this.tenancy.resolve(actorPayerId), dto, ctx);
+  ): Promise<PayerJobPostingApi> {
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const audience = await this.audience.resolveCreate(scope, dto);
+    return this.forPayer(scope, await this.createWithin(scope, dto, ctx, audience));
   }
 
   /**
    * {@link createForPayer} for a caller that already resolved the scope (the AI posting-chat
    * publish, which resolves before it claims its session). The TENANT owns the row; the ACTING
    * LOGIN is its `created_by` and the event actor (ADR-0053 §3.1).
+   *
+   * #2746 — NO AUDIENCE ON THIS PATH. Its DTO cannot carry one, and it stores the column default:
+   * a chat-published posting is a BadaBhai-worker job until the company edits it.
    */
   async createInScope(
     scope: PayerTenantScope,
     dto: PayerCreateJobPostingDto,
     ctx: RequestContext,
+  ): Promise<JobPostingApi> {
+    return this.createWithin(scope, dto, ctx, null);
+  }
+
+  private async createWithin(
+    scope: PayerTenantScope,
+    dto: PayerCreateJobPostingDto,
+    ctx: RequestContext,
+    audience: PostingAudienceWrite | null,
   ): Promise<JobPostingApi> {
     const { content, droppedSkillIds } = await this.resolveCreateContent(dto);
     return this.insertAndEmit(
@@ -482,7 +517,33 @@ export class JobPostingsService {
       payerActor(scope),
       ctx,
       droppedSkillIds,
+      audience,
     );
+  }
+
+  /** The company's own posting as it reads it (#2746: the audience block when shown). */
+  private async forPayer(scope: PayerTenantScope, posting: JobPostingApi): Promise<PayerJobPostingApi> {
+    const [view] = await this.audience.payerViews(scope, [posting]);
+    return view!;
+  }
+
+  /**
+   * The company's own postings as the payer reads return them, in a scope the caller resolved
+   * (`PayerPostingPlansService`): the audience block per {@link PostingAudienceService.payerViews}.
+   */
+  toPayerPostings(
+    scope: PayerTenantScope,
+    postings: readonly JobPostingApi[],
+  ): Promise<PayerJobPostingApi[]> {
+    return this.audience.payerViews(scope, postings);
+  }
+
+  /**
+   * `GET /payer/job-postings/audience-options` (#2746): the active branch and course options, or
+   * the neutral 404 while the `job_audience` switch is off for the caller's company.
+   */
+  async audienceOptionsForPayer(actorPayerId: string): Promise<AudienceOptionsDto> {
+    return this.audience.optionsFor(await this.tenancy.resolve(actorPayerId));
   }
 
   /**
@@ -564,9 +625,9 @@ export class JobPostingsService {
   async updateForPayer(
     id: string,
     actorPayerId: string,
-    dto: UpdateJobPostingDto,
+    dto: PayerUpdateJobPostingDto,
     ctx: RequestContext,
-  ): Promise<JobPostingApi> {
+  ): Promise<PayerJobPostingApi> {
     const scope = await this.tenancy.resolve(actorPayerId);
     const current = await this.getOneInScope(id, scope); // no-oracle 404
     // #2668 — the #2635 gate must run BEFORE trade-form validation. Both payer clients now
@@ -593,7 +654,10 @@ export class JobPostingsService {
       throw postingTradeRequired();
     }
     await this.assertScopedSkillsValid(current, tradeDto);
-    const prepared = this.prepareUpdate(current, tradeDto);
+    // #2746 — the audience half of the body: `null` when it carried none, or when the switch is
+    // off for this company (the fields are then ignored, exactly as before they existed).
+    const audienceRequest = await this.audience.requestedBy(scope, dto);
+    const prepared = this.prepareUpdate(current, tradeDto, audienceRequest !== null);
     if (prepared.changedFields.includes("skills")) {
       // Owner-scoped read, so the domain is the CALLER'S OWN posting's — never a
       // body-supplied id. Null for every row today; see the ops update above.
@@ -604,19 +668,44 @@ export class JobPostingsService {
       );
     }
 
-    const updated = await this.repo.updateOwned(id, scope.tenantKey, prepared.patch);
-    if (!updated) throw new NotFoundException("Job posting not found");
+    // ONE TRANSACTION (#2746): the posting row, its RVM review row and the events commit together,
+    // so a posting can never be edited while its review row still vouches for the old content.
+    // An audience write LOCKS the row first and decides against it as locked.
+    const actor = payerActor(scope);
+    const { updated, audienceBefore } = await this.repo.withTransaction(async (tx) => {
+      let audienceWrite: PostingAudienceWrite | null = null;
+      let previous: JobPostingAudience = current.audience;
+      if (audienceRequest !== null) {
+        const locked = await this.repo.findOwnedForUpdate(id, scope.tenantKey, tx);
+        if (!locked) throw new NotFoundException("Job posting not found");
+        previous = locked.audience;
+        audienceWrite = await this.audience.resolveWrite(audienceRequest, locked, tx);
+        if (audienceWrite === null && prepared.changedFields.length === 0) {
+          throw new BadRequestException("no effective changes to apply");
+        }
+      }
+      const row = await this.repo.updateOwned(
+        id,
+        scope.tenantKey,
+        { ...prepared.patch, ...(audienceWrite ?? {}) },
+        tx,
+      );
+      if (!row) throw new NotFoundException("Job posting not found");
+      await this.audience.recordUpdateWithin(tx, row, previous, audienceWrite !== null, actor, ctx);
+      // An audience-only edit is `job_posting.audience_set` alone: `updated` records content keys.
+      if (prepared.changedFields.length > 0) await this.emitUpdated(row, actor, prepared, ctx, tx);
+      return { updated: row, audienceBefore: previous };
+    });
 
-    await this.emitUpdated(updated, payerActor(scope), prepared, ctx);
-    await this.materializeIfNeeded(current, updated, tradeDto, payerActor(scope), ctx);
-    return updated;
+    await this.materializeIfNeeded(current, updated, tradeDto, actor, ctx, audienceBefore);
+    return this.forPayer(scope, updated);
   }
 
   async closeForPayer(
     id: string,
     actorPayerId: string,
     ctx: RequestContext,
-  ): Promise<JobPostingApi> {
+  ): Promise<PayerJobPostingApi> {
     const scope = await this.tenancy.resolve(actorPayerId);
     const current = await this.getOneInScope(id, scope); // no-oracle 404
     const previousStatus = assertCloseable(current);
@@ -625,7 +714,7 @@ export class JobPostingsService {
     if (!closed) throw new ConflictException("Job posting is already closed");
 
     await this.emitClosed(closed, payerActor(scope), previousStatus, ctx);
-    return closed;
+    return this.forPayer(scope, closed);
   }
 
   /**
@@ -638,7 +727,7 @@ export class JobPostingsService {
     id: string,
     actorPayerId: string,
     ctx: RequestContext,
-  ): Promise<JobPostingApi> {
+  ): Promise<PayerJobPostingApi> {
     const scope = await this.tenancy.resolve(actorPayerId);
     await this.getOneInScope(id, scope); // no-oracle 404 (unknown OR foreign id)
     const paused = await this.repo.transitionOwned(id, scope.tenantKey, "open", "paused");
@@ -651,7 +740,7 @@ export class JobPostingsService {
       status: "paused",
     };
     await this.events.emit(this.emitParams("job_posting.paused", paused.id, actor, payload, ctx));
-    return paused;
+    return this.forPayer(scope, paused);
   }
 
   /**
@@ -663,7 +752,7 @@ export class JobPostingsService {
     id: string,
     actorPayerId: string,
     ctx: RequestContext,
-  ): Promise<JobPostingApi> {
+  ): Promise<PayerJobPostingApi> {
     const scope = await this.tenancy.resolve(actorPayerId);
     await this.getOneInScope(id, scope); // no-oracle 404
     const resumed = await this.repo.transitionOwned(id, scope.tenantKey, "paused", "open");
@@ -689,7 +778,7 @@ export class JobPostingsService {
     // `PublishReachService` only stamps on first open) — a posting must not be able to
     // pause/resume its way back to the top of a newest-first feed.
     await this.materializeReach(resumed, "unpause", actor, ctx);
-    return resumed;
+    return this.forPayer(scope, resumed);
   }
 
   // ----- shared internals (one chokepoint for both surfaces) -----------------
@@ -706,6 +795,13 @@ export class JobPostingsService {
    * A posting with no `match_skill_ids` reaches nobody and is NOT materialized here: the
    * D3 backfill leaves those empty on purpose and prints them to an ops worklist, and
    * inventing skills for them would be exactly the guessing that runner refuses to do.
+   *
+   * #2746 — A THIRD TRIGGER: a company edit that moved the posting into or out of the BadaBhai
+   * audience (`both` ↔ `rvm_students`, `badabhai_workers` ↔ `rvm_students`) on a LIVE posting,
+   * paused included. The rebuild goes through the one materialization core, which reads the
+   * audience itself: to `rvm_students` it purges every reach row, back it rebuilds them. A move
+   * between two BadaBhai audiences (`badabhai_workers` ↔ `both`) changes no reach and rebuilds
+   * nothing. `audienceBefore` is the audience the edit's transaction locked.
    */
   private async materializeIfNeeded(
     before: JobPostingApi,
@@ -713,6 +809,7 @@ export class JobPostingsService {
     dto: UpdateJobPostingDto,
     actor: JobPostingActor,
     ctx: RequestContext,
+    audienceBefore?: JobPostingAudience,
   ): Promise<void> {
     const publishing = before.status === "draft" && after.status === "open";
     // #2635 — a 16-trade posting's match set follows its trade, so moving an OPEN posting into
@@ -722,8 +819,13 @@ export class JobPostingsService {
       (postingTradeFor(before.role_kind) !== undefined ||
         postingTradeFor(after.role_kind) !== undefined);
     const skillsChanged = dto.match_skill_ids !== undefined || tradeMoved;
-    if (!publishing && !skillsChanged) return;
-    if (!publishing && after.status !== "open") return;
+    const audienceMoved =
+      audienceBefore !== undefined &&
+      audienceReachesBadaBhaiWorkers(audienceBefore) !==
+        audienceReachesBadaBhaiWorkers(after.audience);
+    const live = after.status === "open" || after.status === "paused";
+    if (!publishing && !skillsChanged && !audienceMoved) return;
+    if (!publishing && !(after.status === "open" || (audienceMoved && live))) return;
 
     // The skills to resolve from: the edit's, else what the posting already carries.
     const matchSkillIds = dto.match_skill_ids ?? after.match_skill_ids;
@@ -959,10 +1061,15 @@ export class JobPostingsService {
     actor: JobPostingActor,
     ctx: RequestContext,
     droppedSkillIds: readonly string[] = [],
+    // #2746 — a company form create's non-default audience; null = the column defaults.
+    audienceWrite: PostingAudienceWrite | null = null,
   ): Promise<JobPostingApi> {
     return this.repo.withTransaction(async (tx) => {
       // status is ALWAYS draft on create — any client-supplied status is ignored.
-      const row = await this.repo.create({ ...input, status: "draft" }, tx);
+      const row = await this.repo.create(
+        { ...input, ...(audienceWrite ?? {}), status: "draft" },
+        tx,
+      );
 
       const payload: PayloadInputOf<"job_posting.created"> = {
         job_posting_id: row.id,
@@ -994,6 +1101,9 @@ export class JobPostingsService {
           tx,
         });
       }
+      // #2746 — the RVM review row and `job_posting.audience_set`, on the same transaction. Only
+      // the company form's create passes an audience.
+      if (audienceWrite) await this.audience.recordCreateWithin(tx, row, actor, ctx);
       return row;
     });
   }
@@ -1072,8 +1182,16 @@ export class JobPostingsService {
    * Validate an edit against the current row and build the column patch + the
    * changed-field KEY list in lockstep (KEYS only, never the values — no free text
    * leaves this method). Throws the lifecycle/no-op errors. Shared by both surfaces.
+   *
+   * `otherChanges` (#2746): the request also carries a change this builder does not see — the
+   * company's audience half, decided under the row lock. The "no effective changes" 400 then waits
+   * for that decision (`updateForPayer` throws it when the audience turns out unchanged too).
    */
-  private prepareUpdate(current: JobPostingApi, dto: UpdateJobPostingDto): PreparedUpdate {
+  private prepareUpdate(
+    current: JobPostingApi,
+    dto: UpdateJobPostingDto,
+    otherChanges = false,
+  ): PreparedUpdate {
     // closed is terminal: no edits, no status changes.
     if (current.status === "closed") {
       throw new ConflictException("Job posting is closed and cannot be edited");
@@ -1285,7 +1403,7 @@ export class JobPostingsService {
       changedFields.push("status");
     }
 
-    if (changedFields.length === 0) {
+    if (changedFields.length === 0 && !otherChanges) {
       // Nothing actually changed (idempotent no-op edit). Don't write or emit.
       throw new BadRequestException("no effective changes to apply");
     }
@@ -1325,6 +1443,8 @@ export class JobPostingsService {
     actor: JobPostingActor,
     prepared: PreparedUpdate,
     ctx: RequestContext,
+    // The company edit's transaction (#2746); the ops edit emits after its own write, as before.
+    tx?: Database,
   ): Promise<unknown> {
     const payload: PayloadInputOf<"job_posting.updated"> = {
       job_posting_id: updated.id,
@@ -1333,9 +1453,10 @@ export class JobPostingsService {
       // Only carry the band when it actually changed; otherwise null.
       vacancy_band: prepared.bandChanged ? updated.vacancy_band : null,
     };
-    return this.events.emit(
-      this.emitParams("job_posting.updated", updated.id, actor, payload, ctx),
-    );
+    return this.events.emit({
+      ...this.emitParams("job_posting.updated", updated.id, actor, payload, ctx),
+      ...(tx !== undefined ? { tx } : {}),
+    });
   }
 
   private emitClosed(

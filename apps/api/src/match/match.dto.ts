@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { JOB_POSTING_AUDIENCES } from "@badabhai/db";
 import { roleKindSchema } from "../common/job-content.schemas";
 
 /**
@@ -39,6 +40,13 @@ export const ReachPreviewSchema = z.object({
    * still gets the 16-trade related scope, just not the posted-id scoping.
    */
   role_kind: roleKindSchema.nullable().optional(),
+  /**
+   * #2746 — who the posting is for. An audience without BadaBhai workers (`rvm_students`) reaches
+   * no BadaBhai worker by construction, so the preview reports zero supply rather than counting
+   * workers the posting would never be shown to. Omitted = BadaBhai workers (today's preview).
+   * Read-only and switch-free: it can only lower the counts, never widen anything.
+   */
+  audience: z.enum(JOB_POSTING_AUDIENCES).optional(),
 });
 export type ReachPreviewDto = z.infer<typeof ReachPreviewSchema>;
 

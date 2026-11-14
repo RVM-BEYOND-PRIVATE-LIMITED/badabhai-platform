@@ -17,6 +17,9 @@ export * from "./current-profile";
 // Exported because the worker reads live in apps/api and the reach materialization lives here;
 // both must test the same membership, and a second spelling is how an RVM-only job leaks.
 export * from "./job-visibility";
+// #2746 — the one content hash and the one "approved for RVM students" predicate. The payer and
+// admin reads use them now; the Campus approval and the student-facing read will, so one copy.
+export * from "./job-review";
 // The family fallback chain. Its own header says it exists so "Phase 7's production
 // QuestionPackService" can make this decision without a database — which requires that the
 // service can actually IMPORT it. Unexported, the guarantee it offers (one decision, SQL-parity

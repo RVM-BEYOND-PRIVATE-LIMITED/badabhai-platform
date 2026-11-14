@@ -852,6 +852,13 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingMatchSkillsScopedPayload,
   },
+  // #2746 — a company set or changed who sees a posting (audience + RVM targeting), with the RVM
+  // review state after the write. IDS AND ENUMS ONLY. v1.
+  "job_posting.audience_set": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingAudienceSetPayload,
+  },
   // POLICY 27 — an ops human WIDENED a reach set. Narrowing is structurally
   // impossible on that path (the service appends, never removes). v1.
   "job_posting.reach_widened": {

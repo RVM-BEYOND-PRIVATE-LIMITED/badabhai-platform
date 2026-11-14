@@ -122,8 +122,10 @@ Optional `course_ids` and `reason` (≤ 500 characters). A narrowed `branch_ids`
 replaces the posting's own for RVM students; when sent it must be non-empty (an empty list would
 mean every branch) and within the posting's own targeting. Answers
 `{ "posting_id", "review_state", "reviewed_at" }`. Any later edit by the company to a field RVM
-students see (title, description, requirements, benefits, pay, location, shift, experience,
-vacancy, audience or targeting) returns the posting to `pending`.
+students see (company name, title, description, requirements, benefits, pay, location, shift,
+experience, vacancy, audience or targeting) returns the posting to `pending`. A decision counts only
+for the content it saw: BadaBhai stores a hash of those fields with it and compares it on every
+read, so a posting edited after approval reads `pending` even before anything resets it.
 
 ### POST job-postings
 

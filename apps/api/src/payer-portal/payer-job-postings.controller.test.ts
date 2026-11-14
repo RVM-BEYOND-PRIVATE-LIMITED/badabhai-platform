@@ -1,7 +1,12 @@
 import "reflect-metadata";
 import { createHash } from "node:crypto";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ConflictException } from "@nestjs/common";
+import { ConflictException, RequestMethod } from "@nestjs/common";
+import { METHOD_METADATA, PATH_METADATA, ROUTE_ARGS_METADATA } from "@nestjs/common/constants";
+import {
+  PayerCreateJobPostingWithAudienceSchema,
+  PayerUpdateJobPostingSchema,
+} from "../job-postings/job-postings.dto";
 import type { Request } from "express";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { caught, renderedError } from "../common/idempotency/replay-fidelity.test-support";
@@ -743,5 +748,56 @@ describe("#2111 — quota top-up: no active plan is 409 reason no_active_plan, r
     });
     expect(replay).toMatchObject({ status: 409 });
     expect(renderedError(replay)).toStrictEqual(renderedError(first));
+  });
+});
+
+/**
+ * #2746 — the audience surface at the HTTP edge: the company routes parse the PAYER-ONLY schemas,
+ * the options route is keyed on the session and declared before `GET :id` (or Nest would route
+ * `audience-options` into `getOne` as an id).
+ */
+describe("#2746 — job audience at the payer posting edge", () => {
+  const bodyPipeSchema = (method: string): unknown => {
+    const args = Reflect.getMetadata(ROUTE_ARGS_METADATA, PayerJobPostingsController, method) as
+      | Record<string, { pipes: unknown[] }>
+      | undefined;
+    // RouteParamtypes.BODY = 3.
+    const body = Object.entries(args ?? {}).find(([k]) => k.startsWith("3:"))?.[1];
+    const pipe = body?.pipes[0] as { schema?: unknown } | undefined;
+    return pipe?.schema;
+  };
+
+  it("create and update parse the company schemas that carry the audience", () => {
+    expect(bodyPipeSchema("create")).toBe(PayerCreateJobPostingWithAudienceSchema);
+    expect(bodyPipeSchema("update")).toBe(PayerUpdateJobPostingSchema);
+  });
+
+  it("GET audience-options is its own static route, declared BEFORE GET :id", () => {
+    const proto = PayerJobPostingsController.prototype as unknown as Record<string, object>;
+    expect(Reflect.getMetadata(PATH_METADATA, proto.audienceOptions!)).toBe("audience-options");
+    expect(Reflect.getMetadata(METHOD_METADATA, proto.audienceOptions!)).toBe(RequestMethod.GET);
+    const order = Object.getOwnPropertyNames(PayerJobPostingsController.prototype);
+    expect(order.indexOf("audienceOptions")).toBeGreaterThan(-1);
+    expect(order.indexOf("audienceOptions")).toBeLessThan(order.indexOf("getOne"));
+  });
+
+  it("audience-options is keyed on the SESSION payer, nothing else", async () => {
+    const d = makeCtrl();
+    const options = { audiences: [], branches: [], courses: [] };
+    const audienceOptionsForPayer = vi.fn(async (_payerId: string) => options);
+    const ctrl = new PayerJobPostingsController(
+      { ...d.jobPostings, audienceOptionsForPayer } as never,
+      d.postingPlans as never,
+      {} as never,
+    );
+    await expect(ctrl.audienceOptions(PAYER_B)).resolves.toBe(options);
+    expect(audienceOptionsForPayer).toHaveBeenCalledWith(PAYER_B.id);
+  });
+
+  it("an audience body reaches the service untouched (the controller decides nothing)", async () => {
+    const d = makeCtrl();
+    const dto = { audience: "both" as const, rvm_branch_ids: [1] };
+    await d.ctrl.update(POSTING, dto, PAYER_B, CTX);
+    expect(d.jobPostings.updateForPayer).toHaveBeenCalledWith(POSTING, PAYER_B.id, dto, CTX);
   });
 });

@@ -35,7 +35,8 @@ export type InstituteReviewState = (typeof INSTITUTE_REVIEW_STATES)[number];
  *
  * APPROVED MEANS APPROVED FOR THIS CONTENT. `content_hash` is the sha256 of every field an RVM
  * student sees (title, description, requirements, benefits, pay, location, shift, experience,
- * vacancy, audience, targeting — owner ruling 2026-11-13) at review time. A company edit that
+ * vacancy, audience, targeting — owner ruling 2026-11-13 — and the company label Campus shows)
+ * at review time, computed by `postingReviewContentHash` (`../job-review.ts`). A company edit that
  * changes it returns the row to `pending`, which clears every decision column
  * (`jpir_decision_chk`; the history lives in the review events). Reads trust nothing but the
  * hash: a posting counts as approved only while `state = 'approved'` AND the hash equals the

@@ -12,6 +12,7 @@ import {
   type ScopedPostingSkills,
 } from "@badabhai/taxonomy";
 import { resolveReachSet, type ReachSet } from "@badabhai/match-engine";
+import { audienceReachesBadaBhaiWorkers } from "@badabhai/db";
 import { MatchConfigService } from "./match-config.service";
 import { WorkerSkillsRepository } from "./worker-skills.repository";
 import type { ReachPreviewDto } from "./match.dto";
@@ -169,6 +170,14 @@ export class MatchSkillsService {
     });
 
     const unticked = new Set<string>(resolved.appliedUntickedIds);
+    // #2746 — an RVM-only posting reaches no BadaBhai worker (`materializeJobReachWithin` writes it
+    // no reach row), so every BadaBhai supply count is zero and none is read. Its `zero_reach` is
+    // false: the E13 warning is about a posting into a void, and this one goes to RVM students
+    // (the publish-time alert is suppressed for the same reason).
+    const badaBhaiSupply =
+      dto.audience === undefined || audienceReachesBadaBhaiWorkers(dto.audience);
+    const count = (skillIds: readonly string[]): Promise<number> =>
+      badaBhaiSupply ? this.repo.countWorkersReachedBy(skillIds) : Promise.resolve(0);
 
     // Per-skill counts. Issued in parallel: they are independent index-only reads and
     // the form is a live, per-keystroke surface.
@@ -176,7 +185,7 @@ export class MatchSkillsService {
       resolved.postedSkillIds.map(async (skillId) => ({
         skill_id: skillId,
         label: matchSkillLabel(skillId) ?? skillId,
-        reach_count: await this.repo.countWorkersReachedBy([skillId]),
+        reach_count: await count([skillId]),
         related: await Promise.all(
           relatedMatchSkills(skillId)
             .filter((r) => !resolved.postedSkillIds.includes(r) && isInPostingScope(r))
@@ -186,15 +195,15 @@ export class MatchSkillsService {
               // Pre-ticked (ruling #4) unless the payer unticked it, and never ticked
               // at all when related expansion is configured off.
               ticked: cfg.relatedSkillsDefault === "on" && !unticked.has(relatedId),
-              reach_count: await this.repo.countWorkersReachedBy([relatedId]),
+              reach_count: await count([relatedId]),
             })),
         ),
       })),
     );
 
     const [reachTotal, reachTier1] = await Promise.all([
-      this.repo.countWorkersReachedBy(resolved.reachSkillIds),
-      this.repo.countWorkersReachedBy(resolved.postedSkillIds),
+      count(resolved.reachSkillIds),
+      count(resolved.postedSkillIds),
     ]);
 
     return {
@@ -202,7 +211,7 @@ export class MatchSkillsService {
       reach_skill_ids: resolved.reachSkillIds,
       reach_total: reachTotal,
       reach_tier1: reachTier1,
-      zero_reach: reachTotal === 0,
+      zero_reach: badaBhaiSupply && reachTotal === 0,
       applied_unticked_ids: resolved.appliedUntickedIds,
       max_skills_per_posting: cfg.maxSkillsPerPosting,
     };

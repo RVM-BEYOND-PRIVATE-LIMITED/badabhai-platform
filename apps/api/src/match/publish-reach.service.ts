@@ -152,7 +152,7 @@ export class PublishReachService {
     });
 
     await this.emitScopedIfDropped(jobPostingId, input, resolved, ctx);
-    await this.emitAlertIfShort(result, ctx);
+    if (existing.reachesBadaBhaiWorkers) await this.emitAlertIfShort(result, ctx);
     return result;
   }
 
@@ -300,7 +300,7 @@ export class PublishReachService {
       reachTier2: after.total - after.tier1,
       zeroReach: after.total === 0,
     };
-    await this.emitAlertIfShort(result, ctx);
+    if (existing.reachesBadaBhaiWorkers) await this.emitAlertIfShort(result, ctx);
     return result;
   }
 
@@ -440,10 +440,12 @@ export class PublishReachService {
           reachTier2: after.total - after.tier1,
           zeroReach: after.total === 0,
         };
-        await this.emitAlertIfShort(result, {
-          correlationId: randomUUID(),
-          requestId: "reach-widen-expiry-sweep",
-        } as RequestContext);
+        if (existing.reachesBadaBhaiWorkers) {
+          await this.emitAlertIfShort(result, {
+            correlationId: randomUUID(),
+            requestId: "reach-widen-expiry-sweep",
+          } as RequestContext);
+        }
       }
 
       await this.widenRepo.markRetracted(rows.map((r) => r.id));
@@ -463,6 +465,11 @@ export class PublishReachService {
    *
    * Keyed idempotently on (posting, reason) so a republish of a still-thin posting
    * does not spam the spine with the same alert.
+   *
+   * #2746 — NOT CALLED for a posting whose audience excludes BadaBhai workers (`rvm_students`):
+   * its reach is empty by design, so the alert (and its warn line) would page someone for a
+   * posting doing exactly what its company asked. `job_posting.reach_materialized` still records
+   * the zero. Every caller gates on `findPostingSkillSets().reachesBadaBhaiWorkers`.
    */
   private async emitAlertIfShort(result: MaterializeResult, ctx: RequestContext): Promise<void> {
     const reason: "zero_reach" | "no_tier1_reach" | null =

@@ -62,6 +62,11 @@ const COMPANY_WRITES = [
   "topUpQuota",
 ] as const;
 const COMPANY_READS = ["list", "getOne"] as const;
+/**
+ * #2746 — reads that are employer-only anyway: an agency can never set an audience, so it has no
+ * use for the targeting options. Same metadata, same 403.
+ */
+const EMPLOYER_ONLY_READS = ["audienceOptions"] as const;
 
 describe("PayerJobPostingsController — writes are employer-only (#1885)", () => {
   it("attaches the agency guard pair at the class level", () => {
@@ -71,7 +76,7 @@ describe("PayerJobPostingsController — writes are employer-only (#1885)", () =
     expect(guards.map((g) => g.name)).toEqual(["PayerAuthGuard", "PayerRoleGuard"]);
   });
 
-  for (const method of COMPANY_WRITES) {
+  for (const method of [...COMPANY_WRITES, ...EMPLOYER_ONLY_READS]) {
     describe(method, () => {
       it("declares @PayerRoles('employer') on the handler", () => {
         const handler = handlerOf(PayerJobPostingsController, method);
@@ -151,7 +156,9 @@ describe("refusal shape — reuses the agency wrong-role refusal (no new error s
   const agencyRefusal = refusalOf(AgencyJobsController, "create", employer);
 
   for (const [ctor, method] of [
-    ...COMPANY_WRITES.map((m) => [PayerJobPostingsController, m] as const),
+    ...[...COMPANY_WRITES, ...EMPLOYER_ONLY_READS].map(
+      (m) => [PayerJobPostingsController, m] as const,
+    ),
     [JobPostingChatController, "publish"] as const,
   ]) {
     it(`${ctor.name}.${method} answers the same status + body`, () => {

@@ -20,12 +20,16 @@ import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers
 import { PayerRoleGuard, PayerRoles } from "../payers/payer-role.guard";
 import { JobPostingsService } from "../job-postings/job-postings.service";
 import type { PostingStats } from "../posting-plans/posting-plans.service";
-import type { JobPostingApi } from "../job-postings/job-postings.repository";
+import type {
+  AudienceOptionsDto,
+  PayerJobPostingApi,
+} from "../job-postings/posting-audience.service";
 import { PayerPostingPlansService, type PostingWithStats } from "./payer-posting-plans.service";
 
-/** The enriched shape of one posting on the payer surface: the row + its honest
- * per-posting stats (active-plan quota/used + boost) + the résumés-downloaded count. */
-type PayerJobPostingView = JobPostingApi & PostingStats & { disclosures_count: number };
+/** The enriched shape of one posting on the payer surface: the row (with its #2746 audience block
+ * when shown) + its honest per-posting stats (active-plan quota/used + boost) + the
+ * résumés-downloaded count. */
+type PayerJobPostingView = PayerJobPostingApi & PostingStats & { disclosures_count: number };
 
 /** The `payer_idem` scopes of the paid posting routes — one per route, never shared (#2103). */
 type PostingPurchaseScope = "plan_purchase" | "boost_purchase" | "quota_topup_purchase";
@@ -38,12 +42,12 @@ import {
   type PayerTopUpQuotaDto,
 } from "../posting-plans/posting-plans.dto";
 import {
-  PayerCreateJobPostingSchema,
+  PayerCreateJobPostingWithAudienceSchema,
   ListJobPostingsQuerySchema,
-  UpdateJobPostingSchema,
-  type PayerCreateJobPostingDto,
+  PayerUpdateJobPostingSchema,
+  type PayerCreateJobPostingWithAudienceDto,
   type ListJobPostingsQueryDto,
-  type UpdateJobPostingDto,
+  type PayerUpdateJobPostingDto,
 } from "../job-postings/job-postings.dto";
 import type { DraftJobDescriptionDto } from "../job-postings/job-description.dto";
 import { DraftJobDescriptionSchema } from "../job-postings/job-description.dto";
@@ -99,12 +103,17 @@ export class PayerJobPostingsController {
     return { ...posting, ...stats, disclosures_count: disclosuresCount };
   }
 
-  /** Create a posting OWNED by the caller (status=draft). payer_id from the session. */
+  /**
+   * Create a posting OWNED by the caller (status=draft). payer_id from the session. #2746: the
+   * body may choose the audience and RVM targeting (ignored while the switch is off for the
+   * company); free to post, whatever the audience — no credit or plan is read on this path.
+   */
   @Post()
   @HttpCode(201)
   @PayerRoles("employer")
   create(
-    @Body(new ZodValidationPipe(PayerCreateJobPostingSchema)) dto: PayerCreateJobPostingDto,
+    @Body(new ZodValidationPipe(PayerCreateJobPostingWithAudienceSchema))
+    dto: PayerCreateJobPostingWithAudienceDto,
     @CurrentPayer() payer: AuthenticatedPayer,
     @Ctx() ctx: RequestContext,
   ) {
@@ -148,6 +157,18 @@ export class PayerJobPostingsController {
     return rows.map((row) => this.view(row));
   }
 
+  /**
+   * #2746 — the audiences and the ACTIVE RVM branch / course options a company may target, with
+   * labels and Campus's order. Employer accounts only (an agency cannot set an audience). The house
+   * neutral 404 while the `job_audience` switch is off for the caller's company. DECLARED BEFORE
+   * `GET :id`, so the static segment is never read as an id.
+   */
+  @Get("audience-options")
+  @PayerRoles("employer")
+  audienceOptions(@CurrentPayer() payer: AuthenticatedPayer): Promise<AudienceOptionsDto> {
+    return this.jobPostings.audienceOptionsForPayer(payer.id);
+  }
+
   /** Get one of the caller's OWN postings; no-oracle 404 for unknown OR foreign id. */
   @Get(":id")
   async getOne(
@@ -163,7 +184,7 @@ export class PayerJobPostingsController {
   @PayerRoles("employer")
   update(
     @Param("id", new ParseUUIDPipe()) id: string,
-    @Body(new ZodValidationPipe(UpdateJobPostingSchema)) dto: UpdateJobPostingDto,
+    @Body(new ZodValidationPipe(PayerUpdateJobPostingSchema)) dto: PayerUpdateJobPostingDto,
     @CurrentPayer() payer: AuthenticatedPayer,
     @Ctx() ctx: RequestContext,
   ) {

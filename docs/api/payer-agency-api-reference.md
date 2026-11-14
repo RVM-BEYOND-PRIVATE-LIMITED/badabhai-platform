@@ -311,6 +311,41 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
   - **Ops routes:** the publish / live-role gate is company-only, but an ops posting with a 16-trade `role_kind` is scoped the same way. Ops / agency postings with no 16-trade role resolve exactly as before.
   - **`POST /payer/match/reach-preview`** keeps related reach inside the 16 and takes an optional `role_kind`; send it so the preview scopes the posted ids exactly as publish will.
 
+#### Who sees a posting — audience and RVM targeting (#2746)
+
+Behind the `job_audience` switch (`JOB_AUDIENCE_ROLLOUT`: `off` | `pilot` | `on`, read per company by its tenant key). **Default `off`.**
+
+- **Body fields** on `POST /payer/job-postings` and `PATCH /payer/job-postings/:id` only:
+  - `audience?: 'badabhai_workers' | 'rvm_students' | 'both'`. Omitted on create = `badabhai_workers`.
+  - `rvm_branch_ids?: int[]` (RVM location ids, positive, ≤ 50) and `rvm_course_ids?: string[]` (Scheduler course ids, 1–64 chars, ≤ 100). `[]` = every branch / every course. Stored sorted and de-duplicated.
+  - Not clearable through `clear`. An audience-only `PATCH` body is a real edit.
+- **Switch off for the company:** the three fields are **ignored**, as an unknown key always was. They are never an error: an audience-only `PATCH` gets the usual `400 no effective changes`. The switch gates the capability only. A posting that already stores an RVM audience keeps it and is shown with it, whatever the switch says.
+- **Not on any other surface.** The ops `POST`/`PATCH /job-postings`, the admin edit (`PATCH /admin/postings/:id/edit`) and the AI chat publish strip the fields. Their postings keep the stored audience, which is `badabhai_workers` for every chat-published job.
+- **Who may:** employer accounts only (`PayerRoleGuard`). An `agent` session gets the house `403` (`"Payer role is not permitted for this resource"`) on every write and on `audience-options`. An agency job's twin is pinned to `badabhai_workers` by a database CHECK.
+- **Validation (`400`, reason in `error.reason`):**
+  - `targeting_needs_rvm_audience`: non-empty targeting with an audience that has no RVM part (stored or sent).
+  - `targeting_option_not_offered`: an id that is not an **active** option of its kind. The message names the ids, which are reference ids, never personal data. An id the posting already holds stays valid after Campus retires it.
+- **RVM review.** An `rvm_students` / `both` posting has a placement-team review row:
+  - It starts `pending` in the same transaction as the write.
+  - A decision counts only for the content it saw. Any later company edit to a field RVM students see (company name, title, description, requirements, benefits, pay, location, shift, experience, vacancy, audience or targeting) returns it to `pending`. An edit to anything else (`needed_by`, `role_kind`, the trade form, skills) does not.
+  - Withdrawing the RVM part keeps the row; Campus's feed is driven from it. `badabhai_workers` and `both` reach BadaBhai workers at once and never wait for the review.
+- **Reach:** an audience change on a live (`open` / `paused`) posting that moves it into or out of the BadaBhai audience rebuilds its reach: to `rvm_students` it clears it, back it rebuilds it. An `rvm_students` posting raises no `zero_reach` alert.
+- **Reads** (`GET` list and detail, and every write's response) carry an audience block. The block is present while the switch is on for the company, or whenever the stored audience is not `badabhai_workers`:
+  `{ audience, rvm_branch_ids, rvm_course_ids, rvm_review: { state: 'pending'|'approved'|'rejected', reviewed_at?, reason? } | null }`
+  - `rvm_review` is `null` when the audience has no RVM part.
+  - A decision on content the company has since changed reads `pending`.
+  - `reason` is the placement team's note to the company on a decision, shown verbatim.
+- **Free to post.** No credit, plan or payment is read or required for any audience.
+- **Events:** `job_posting.audience_set` v1 (ids and enums only: `job_posting_id`, `audience`, `previous_audience` (`null` on create), `branch_ids`, `course_ids`, `review_state`). It is emitted in the write's transaction on a create with a non-default audience and on every change of audience or targeting. An audience-only edit emits only this. A content edit still emits `job_posting.updated`, now in the same transaction as the review row.
+
+#### `GET /payer/job-postings/audience-options` (#2746)
+
+- **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer`. Agent → `403`.
+- **Response:** `{ audiences: ('badabhai_workers'|'rvm_students'|'both')[], branches: { id: int, label: string, sort_order: int }[], courses: { id: string, label: string, sort_order: int }[] }`. Active options only, in Campus's order.
+- **Switch off for the company:** neutral `404` (no body detail). A static path, declared before `GET :id`.
+
+`POST /payer/match/reach-preview` takes an optional `audience`. With `rvm_students` every BadaBhai count is `0` and `zero_reach` is `false`: the posting reaches no BadaBhai worker by design and is not "a posting into a void". Without it, or with `badabhai_workers` / `both`, the preview is unchanged.
+
 #### `POST /payer/job-postings/:id/close`
 
 - **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer` (Bearer). Agent → `403`.

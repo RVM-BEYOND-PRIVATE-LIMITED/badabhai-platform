@@ -63,6 +63,8 @@ type Existing = {
   publishedAt: Date | null;
   payerId: string | null;
   createdBy: string;
+  /** #2746 — false for an `rvm_students` posting (empty reach by design). */
+  reachesBadaBhaiWorkers: boolean;
 };
 
 function posting(over: Partial<Existing> = {}): Existing {
@@ -72,6 +74,7 @@ function posting(over: Partial<Existing> = {}): Existing {
     publishedAt: null,
     payerId: PAYER,
     createdBy: PAYER,
+    reachesBadaBhaiWorkers: true,
     ...over,
   };
 }
@@ -457,6 +460,30 @@ describe("materialize — the E12/E13 ops alert fires only when supply is actual
     );
     // An alert that fires on every publish is an alert ops stops reading.
     expect(emittedNames(events)).toEqual(["job_posting.reach_materialized"]);
+  });
+
+  it("#2746 — an RVM-only posting's zero reach is by design: no alert, the zero still recorded", async () => {
+    const { svc, events } = setup({
+      existing: posting({ reachesBadaBhaiWorkers: false }),
+      counts: [{ total: 0, tier1: 0 }],
+    });
+    const result = await svc.materialize(
+      POSTING,
+      { matchSkillIds: [VMC], untickedIds: [], trigger: "edit", actor: { actor_type: "payer", actor_id: PAYER } },
+      CTX,
+    );
+    expect(result.zeroReach).toBe(true);
+    expect(emittedNames(events)).toEqual(["job_posting.reach_materialized"]);
+    expect(emittedOne(events, "job_posting.reach_materialized").payload.reach_total).toBe(0);
+  });
+
+  it("#2746 — an ops widen on an RVM-only posting raises no alert either", async () => {
+    const { svc, events } = setup({
+      existing: posting({ matchSkillIds: [VMC], reachSkillIds: [VMC], reachesBadaBhaiWorkers: false }),
+      counts: [{ total: 0, tier1: 0 }],
+    });
+    await svc.opsWiden(POSTING, [HMC], OPS, CTX);
+    expect(emittedNames(events)).not.toContain("job_posting.reach_alert");
   });
 });
 

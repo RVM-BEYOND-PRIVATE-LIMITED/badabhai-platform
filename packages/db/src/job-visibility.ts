@@ -37,3 +37,28 @@ const AUDIENCE_LITERALS = BADABHAI_WORKER_AUDIENCES.map((audience) => `'${audien
 export function reachesBadaBhaiWorkers(audience: SQLWrapper = jobPostings.audience): SQL {
   return sql`${audience} IN (${sql.raw(AUDIENCE_LITERALS)})`;
 }
+
+/** The column default: every posting before 0162, every agency twin, every chat-published job. */
+export const DEFAULT_JOB_POSTING_AUDIENCE = "badabhai_workers" satisfies JobPostingAudience;
+
+/**
+ * The audiences with an RVM part: the placement team reviews it (`job_posting_institute_reviews`)
+ * and RVM students see it once approved. Positive membership, like the list above.
+ */
+export const RVM_STUDENT_AUDIENCES = [
+  "rvm_students",
+  "both",
+] as const satisfies readonly JobPostingAudience[];
+
+/**
+ * The TypeScript twin of {@link reachesBadaBhaiWorkers}, for code that holds a row rather than a
+ * statement (the write path, the zero-reach alert). Same list, so the two cannot disagree.
+ */
+export function audienceReachesBadaBhaiWorkers(audience: JobPostingAudience): boolean {
+  return (BADABHAI_WORKER_AUDIENCES as readonly JobPostingAudience[]).includes(audience);
+}
+
+/** Does this audience have an RVM part (a review row, a Campus listing)? */
+export function audienceReachesRvmStudents(audience: JobPostingAudience): boolean {
+  return (RVM_STUDENT_AUDIENCES as readonly JobPostingAudience[]).includes(audience);
+}
