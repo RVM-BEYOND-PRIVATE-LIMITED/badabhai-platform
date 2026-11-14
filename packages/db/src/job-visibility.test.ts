@@ -2,7 +2,14 @@ import { and, eq, sql, type SQL } from "drizzle-orm";
 import { PgDialect, QueryBuilder } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 
-import { BADABHAI_WORKER_AUDIENCES, reachesBadaBhaiWorkers } from "./job-visibility";
+import {
+  BADABHAI_WORKER_AUDIENCES,
+  DEFAULT_JOB_POSTING_AUDIENCE,
+  RVM_STUDENT_AUDIENCES,
+  audienceReachesBadaBhaiWorkers,
+  audienceReachesRvmStudents,
+  reachesBadaBhaiWorkers,
+} from "./job-visibility";
 import { JOB_POSTING_AUDIENCES, jobPostings, type JobPostingAudience } from "./schema";
 
 /**
@@ -89,5 +96,42 @@ describe("reachesBadaBhaiWorkers", () => {
     const { sql: text } = compile(reachesBadaBhaiWorkers(sql`a`));
     const listed = /^a IN \((.*)\)$/.exec(text)?.[1]?.split(", ") ?? [];
     expect(listed).toEqual(BADABHAI_WORKER_AUDIENCES.map((audience) => `'${audience}'`));
+  });
+});
+
+/** #2746 PR 4 — who has an RVM part (a review row and a Campus listing), decided per audience. */
+const RVM_PART: Record<JobPostingAudience, boolean> = {
+  badabhai_workers: false,
+  rvm_students: true,
+  both: true,
+};
+
+describe("the TypeScript twins of the rule", () => {
+  it.each(JOB_POSTING_AUDIENCES)("%s: the twin answers what the SQL fragment's list says", (a) => {
+    expect(audienceReachesBadaBhaiWorkers(a)).toBe(WORKER_VISIBLE[a]);
+    expect(audienceReachesBadaBhaiWorkers(a)).toBe(
+      (BADABHAI_WORKER_AUDIENCES as readonly string[]).includes(a),
+    );
+    expect(audienceReachesRvmStudents(a)).toBe(RVM_PART[a]);
+  });
+
+  it("RVM_STUDENT_AUDIENCES is exactly the audiences with an RVM part", () => {
+    expect([...RVM_STUDENT_AUDIENCES].sort()).toEqual(
+      JOB_POSTING_AUDIENCES.filter((audience) => RVM_PART[audience]).sort(),
+    );
+  });
+
+  it("every audience reaches somebody, and the default is the column's", () => {
+    for (const a of JOB_POSTING_AUDIENCES) {
+      expect(audienceReachesBadaBhaiWorkers(a) || audienceReachesRvmStudents(a), a).toBe(true);
+    }
+    expect(DEFAULT_JOB_POSTING_AUDIENCE).toBe(jobPostings.audience.default);
+    expect(audienceReachesRvmStudents(DEFAULT_JOB_POSTING_AUDIENCE)).toBe(false);
+  });
+
+  it("an unknown value is in neither list (a cast cannot open a path)", () => {
+    const unknown = "everyone" as JobPostingAudience;
+    expect(audienceReachesBadaBhaiWorkers(unknown)).toBe(false);
+    expect(audienceReachesRvmStudents(unknown)).toBe(false);
   });
 });

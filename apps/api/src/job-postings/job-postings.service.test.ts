@@ -4,6 +4,8 @@ import { BadRequestException, ConflictException, NotFoundException } from "@nest
 import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import { EventsService } from "../events/events.service";
 import { JobPostingsService } from "./job-postings.service";
+import { PostingAudienceService } from "./posting-audience.service";
+import { inertPostingAudience } from "./posting-audience.test-support";
 import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import {
   defaultModeResolver,
@@ -59,6 +61,10 @@ type Row = {
   tradeAnswers: Record<string, string[]> | null;
   /** ADR-0050 — 'agency_job' on a system-owned agency twin, NULL on every other posting. */
   syncSource: string | null;
+  /** #2746 (migration 0162) — who sees it; the column default on every fixture. */
+  audience: "badabhai_workers" | "rvm_students" | "both";
+  rvmBranchIds: number[];
+  rvmCourseIds: string[];
   createdAt: Date;
   updatedAt: Date;
   closedAt: Date | null;
@@ -83,6 +89,9 @@ function row(overrides: Partial<Row> = {}): Row {
     tradeLevel: null,
     tradeAnswers: null,
     syncSource: null,
+    audience: "badabhai_workers",
+    rvmBranchIds: [],
+    rvmCourseIds: [],
     createdAt: new Date(),
     updatedAt: new Date(),
     closedAt: null,
@@ -141,6 +150,9 @@ function toApi(r: Row) {
     updated_at: r.updatedAt,
     closed_at: r.closedAt,
     sync_source: r.syncSource,
+    audience: r.audience,
+    rvm_branch_ids: r.rvmBranchIds,
+    rvm_course_ids: r.rvmCourseIds,
   };
 }
 
@@ -154,6 +166,8 @@ function make(
     tenancy?: PayerTenantScopeService;
     /** Migration 0141 — override the trade-form validator (default: a no-op stub). */
     postingTrades?: unknown;
+    /** #2746 — the audience service (default: inert, no field is ever requested). */
+    audience?: PostingAudienceService;
   } = {},
 ) {
   const emit = vi.fn().mockResolvedValue(undefined);
@@ -201,6 +215,9 @@ function make(
   // Payer owner-scoped repo methods (default: the row IS owned; tests override
   // findByIdAndPayer with undefined to exercise the not-owned / no-oracle path).
   const findByIdAndPayer = vi.fn().mockResolvedValue(existing ? toApi(existing) : undefined);
+  // #2746 — the locked read an audience write decides against (the same row, under FOR NO KEY
+  // UPDATE).
+  const findOwnedForUpdate = vi.fn().mockResolvedValue(existing ? toApi(existing) : undefined);
   const listByPayer = vi.fn().mockResolvedValue([]);
   const updateOwned = vi
     .fn()
@@ -257,6 +274,8 @@ function make(
     appliedUntickedIds: [],
   });
   const opsWiden = vi.fn().mockResolvedValue({});
+  // #2746 — the status-free reach clear after an audience write (rows left).
+  const reconcileAudience = vi.fn().mockResolvedValue(0);
   const svc = new JobPostingsService(
     {
       withTransaction,
@@ -266,6 +285,7 @@ function make(
       close,
       list,
       findByIdAndPayer,
+      findOwnedForUpdate,
       listByPayer,
       updateOwned,
       closeOwned,
@@ -287,7 +307,7 @@ function make(
     // ADR-0036 moment ③. These cases exercise the ops/payer lifecycle, not reach; a
     // resolving stub keeps `materializeIfNeeded` inert. Reach materialization has its
     // own coverage in `apps/api/src/match/`.
-    { materialize: materializeReach, opsWiden } as never,
+    { materialize: materializeReach, opsWiden, reconcileAudience } as never,
     // #1645 — closed-set + cap validation for `match_skill_ids` AT CREATE. Resolves by
     // default so the lifecycle cases stay about the lifecycle; the create-path cases
     // override it to assert that an unknown id 400s on the form rather than at publish.
@@ -296,11 +316,14 @@ function make(
     // the migration's own cases below pass a stub with a known selection.
     (opts.postingTrades ?? { normalizeSelection: vi.fn() }) as never,
     opts.tenancy ?? defaultModeResolver(),
+    // #2746 — inert unless a case passes the real service (the audience cases do).
+    opts.audience ?? inertPostingAudience(),
   );
   return {
     svc,
     emit,
     opsWiden,
+    reconcileAudience,
     TX,
     persisted,
     stage,
@@ -316,6 +339,7 @@ function make(
     close,
     list,
     findByIdAndPayer,
+    findOwnedForUpdate,
     listByPayer,
     updateOwned,
     closeOwned,
@@ -950,13 +974,15 @@ describe("JobPostingsService — payer self-serve (*ForPayer)", () => {
 
   it("updateForPayer reads + writes owner-scoped and emits the PAYER actor", async () => {
     const existing = row({ status: "draft", payerId: PAYER_ID } as Partial<Row>);
-    const { svc, emit, findByIdAndPayer, updateOwned, update } = make(existing);
+    const { svc, emit, findByIdAndPayer, updateOwned, update, TX } = make(existing);
     await svc.updateForPayer(POSTING_ID, PAYER_ID, { role_title: "CNC Operator" }, CTX as never);
     expect(findByIdAndPayer).toHaveBeenCalledWith(POSTING_ID, PAYER_ID);
+    // #2746 — on the edit's transaction (the RVM review row commits with it).
     expect(updateOwned).toHaveBeenCalledWith(
       POSTING_ID,
       PAYER_ID,
       expect.objectContaining({ roleTitle: "CNC Operator" }),
+      TX,
     );
     // The ops (unscoped) update path is NEVER used by the payer surface.
     expect(update).not.toHaveBeenCalled();
@@ -2017,7 +2043,7 @@ describe("ADR-0053 P2a — JobPostingsService's payer path follows the TENANT", 
       { role_title: "CNC Operator" },
       CTX as never,
     );
-    expect(draft.updateOwned).toHaveBeenCalledWith(POSTING_ID, ANCHOR, expect.anything());
+    expect(draft.updateOwned).toHaveBeenCalledWith(POSTING_ID, ANCHOR, expect.anything(), draft.TX);
     const open = teamWorld("open", tenancy);
     await open.svc.pauseForPayer(POSTING_ID, MEMBER, CTX as never);
     expect(open.transitionOwned).toHaveBeenCalledWith(POSTING_ID, ANCHOR, "open", "paused");
@@ -2474,5 +2500,254 @@ describe("#2635 — company jobs match only within the 16 postable trades", () =
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(d.resolveForPublish).toHaveBeenCalledWith(FOUR, [], { roleKind: "welder" });
     expect(d.updateOwned).not.toHaveBeenCalled();
+  });
+});
+
+describe("#2746 — who sees a company posting: the payer write path", () => {
+  const DTO = { org_label: ORG, role_title: ROLE, vacancy_band: "2-5" as const };
+  const AUDIENCE_KEYS = ["audience", "rvmBranchIds", "rvmCourseIds"];
+
+  /** The REAL audience service over faked rollout / repository, emitting into the case's `emit`. */
+  function audienceWorld(existing: Row | undefined, opts: { enabled?: boolean } = {}) {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const rollout = { isEnabledFor: vi.fn(async () => opts.enabled ?? true) };
+    const audienceRepo = {
+      activeOptionRefs: vi.fn(async (_k: string, refs: readonly string[]) => new Set(refs)),
+      listActiveOptions: vi.fn(async () => []),
+      ensurePendingReview: vi.fn(async () => undefined),
+      resetStaleDecision: vi.fn(async () => false),
+      touchReview: vi.fn(async () => undefined),
+      reviewStatesFor: vi.fn(async () => new Map()),
+    };
+    const audience = new PostingAudienceService(
+      rollout as never,
+      audienceRepo as never,
+      { emit } as never,
+    );
+    const d = make(existing, { events: { emit }, audience });
+    return { ...d, emit, rollout, audienceRepo };
+  }
+
+  const emitted = (emit: ReturnType<typeof vi.fn>) =>
+    emit.mock.calls.map(
+      (c) => c[0] as { event_name: string; tx?: unknown; payload: Record<string, unknown> },
+    );
+
+  it("create with an RVM audience: the row, the pending review and audience_set share ONE transaction", async () => {
+    const d = audienceWorld(undefined);
+    const out = await d.svc.createForPayer(
+      PAYER_ID,
+      { ...DTO, audience: "both", rvm_branch_ids: [2, 1] },
+      CTX as never,
+    );
+    expect(d.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        audience: "both",
+        rvmBranchIds: [1, 2],
+        rvmCourseIds: [],
+        status: "draft",
+      }),
+      d.TX,
+    );
+    expect(d.audienceRepo.ensurePendingReview).toHaveBeenCalledWith(POSTING_ID, d.TX);
+    expect(emitted(d.emit).map((e) => [e.event_name, e.tx])).toEqual([
+      ["job_posting.created", d.TX],
+      ["job_posting.audience_set", d.TX],
+    ]);
+    expect(emitted(d.emit)[1]!.payload).toMatchObject({
+      audience: "both",
+      previous_audience: null,
+    });
+    // The response carries the block (the stored audience is not the default).
+    expect(out).toMatchObject({
+      audience: "both",
+      rvm_branch_ids: [1, 2],
+      rvm_review: { state: "pending" },
+    });
+  });
+
+  it("create with the switch OFF: the fields are ignored — default stored, no review row, no audience_set", async () => {
+    const d = audienceWorld(undefined, { enabled: false });
+    const out = await d.svc.createForPayer(
+      PAYER_ID,
+      { ...DTO, audience: "rvm_students", rvm_course_ids: ["cnc"] },
+      CTX as never,
+    );
+    const input = d.create.mock.calls[0]![0] as Record<string, unknown>;
+    for (const key of AUDIENCE_KEYS) expect(input).not.toHaveProperty(key);
+    expect(d.audienceRepo.ensurePendingReview).not.toHaveBeenCalled();
+    expect(emitted(d.emit).map((e) => e.event_name)).toEqual(["job_posting.created"]);
+    expect(out).not.toHaveProperty("audience");
+  });
+
+  it("createInScope (the AI chat seam) never stores an audience, even when handed one", async () => {
+    const d = audienceWorld(undefined);
+    const scope = await defaultModeResolver().resolve(PAYER_ID);
+    await d.svc.createInScope(scope, { ...DTO, audience: "rvm_students" } as never, CTX as never);
+    const input = d.create.mock.calls[0]![0] as Record<string, unknown>;
+    for (const key of AUDIENCE_KEYS) expect(input).not.toHaveProperty(key);
+    expect(d.rollout.isEnabledFor).not.toHaveBeenCalled();
+    expect(emitted(d.emit).map((e) => e.event_name)).toEqual(["job_posting.created"]);
+  });
+
+  it("an audience-only edit locks the row, writes in the transaction, emits ONLY audience_set, and clears reach on a live posting", async () => {
+    const d = audienceWorld(row({ status: "open", roleKind: "cnc_turner" }));
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "rvm_students" }, CTX as never);
+    expect(d.findOwnedForUpdate).toHaveBeenCalledWith(POSTING_ID, PAYER_ID, d.TX);
+    expect(d.updateOwned).toHaveBeenCalledWith(
+      POSTING_ID,
+      PAYER_ID,
+      expect.objectContaining({ audience: "rvm_students", rvmBranchIds: [], rvmCourseIds: [] }),
+      d.TX,
+    );
+    expect(d.audienceRepo.ensurePendingReview).toHaveBeenCalledWith(POSTING_ID, d.TX);
+    expect(d.audienceRepo.touchReview).toHaveBeenCalledWith(POSTING_ID, d.TX);
+    expect(emitted(d.emit).map((e) => [e.event_name, e.tx])).toEqual([
+      ["job_posting.audience_set", d.TX],
+    ]);
+    expect(emitted(d.emit)[0]!.payload).toMatchObject({
+      previous_audience: "badabhai_workers",
+      audience: "rvm_students",
+      review_state: "pending",
+    });
+    // BadaBhai visibility flipped on a live posting: the one reach core runs (it purges).
+    expect(d.materializeReach).toHaveBeenCalledTimes(1);
+    expect((d.materializeReach.mock.calls[0]![1] as { trigger: string }).trigger).toBe("edit");
+  });
+
+  it("an open flip to RVM-only clears through the edit's own rebuild, so the status-free clear does not run twice", async () => {
+    const d = audienceWorld(row({ status: "open", roleKind: "cnc_turner" }));
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "rvm_students" }, CTX as never);
+    expect(d.materializeReach).toHaveBeenCalledTimes(1);
+    expect(d.reconcileAudience).not.toHaveBeenCalled();
+  });
+
+  it("leaving the BadaBhai audience clears reach WHATEVER the status (a draft, a posting with no skills)", async () => {
+    // No skills and no 16-trade role: the publish-path rebuild short-circuits, so only the
+    // status-free clear can purge a leftover row.
+    const d = audienceWorld(row({ status: "paused" }));
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "rvm_students" }, CTX as never);
+    expect(d.materializeReach).not.toHaveBeenCalled();
+    expect(d.reconcileAudience).toHaveBeenCalledWith(POSTING_ID);
+
+    const draft = audienceWorld(row({ status: "draft" }));
+    await draft.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "both" }, CTX as never);
+    expect(draft.reconcileAudience).not.toHaveBeenCalled(); // `both` reaches BadaBhai workers
+    await draft.svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      { audience: "rvm_students" },
+      CTX as never,
+    );
+    expect(draft.reconcileAudience).toHaveBeenCalledTimes(1);
+  });
+
+  it("a targeting-only edit of an RVM-only posting re-runs the clear too (any audience or targeting change)", async () => {
+    const d = audienceWorld(
+      row({ status: "paused", roleKind: "cnc_turner", audience: "rvm_students" }),
+    );
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { rvm_branch_ids: [4] }, CTX as never);
+    expect(d.materializeReach).not.toHaveBeenCalled(); // no visibility flip, no skills change
+    expect(d.reconcileAudience).toHaveBeenCalledWith(POSTING_ID);
+  });
+
+  it("a content-only edit runs no reach clear; a failed clear never fails the committed edit", async () => {
+    const plain = audienceWorld(row({ status: "open", audience: "rvm_students" }));
+    await plain.svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      { description: "Day shift." },
+      CTX as never,
+    );
+    expect(plain.reconcileAudience).not.toHaveBeenCalled();
+
+    const d = audienceWorld(row({ status: "paused" }));
+    d.reconcileAudience.mockRejectedValueOnce(new Error("connection reset"));
+    await expect(
+      d.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "rvm_students" }, CTX as never),
+    ).resolves.toMatchObject({ audience: "rvm_students" });
+  });
+
+  it("the reach clear runs only AFTER the edit's transaction resolved (the core locks the row FOR SHARE)", async () => {
+    const d = audienceWorld(row({ status: "paused" }));
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "rvm_students" }, CTX as never);
+    expect(d.reconcileAudience.mock.invocationCallOrder[0]!).toBeGreaterThan(
+      d.updateOwned.mock.invocationCallOrder[0]!,
+    );
+    expect(d.reconcileAudience.mock.invocationCallOrder[0]!).toBeGreaterThan(
+      d.emit.mock.invocationCallOrder.at(-1)!,
+    );
+  });
+
+  it("a paused posting is live too: flipping it back to BadaBhai workers rebuilds its reach", async () => {
+    const d = audienceWorld(
+      row({ status: "paused", roleKind: "cnc_turner", audience: "rvm_students" }),
+    );
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "both" }, CTX as never);
+    expect(d.materializeReach).toHaveBeenCalledTimes(1);
+  });
+
+  it("badabhai_workers → both moves no BadaBhai reach, so nothing is rebuilt", async () => {
+    const d = audienceWorld(row({ status: "open", roleKind: "cnc_turner" }));
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "both" }, CTX as never);
+    expect(d.materializeReach).not.toHaveBeenCalled();
+    expect(emitted(d.emit).map((e) => e.event_name)).toEqual(["job_posting.audience_set"]);
+  });
+
+  it("re-sending the stored audience alone is the usual 400, with nothing written", async () => {
+    const d = audienceWorld(row({ status: "draft" }));
+    await expect(
+      d.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "badabhai_workers" }, CTX as never),
+    ).rejects.toThrow("no effective changes to apply");
+    expect(d.updateOwned).not.toHaveBeenCalled();
+    expect(d.emit).not.toHaveBeenCalled();
+  });
+
+  it("switch OFF: an audience-only body is the 400 it always was, and the row is never locked", async () => {
+    const d = audienceWorld(row({ status: "draft" }), { enabled: false });
+    await expect(
+      d.svc.updateForPayer(POSTING_ID, PAYER_ID, { audience: "rvm_students" }, CTX as never),
+    ).rejects.toThrow("no effective changes to apply");
+    expect(d.findOwnedForUpdate).not.toHaveBeenCalled();
+    expect(d.updateOwned).not.toHaveBeenCalled();
+  });
+
+  it("switch OFF: a content edit of a stored RVM posting still resets a stale decision (stored state is honoured)", async () => {
+    const d = audienceWorld(row({ status: "open", audience: "both" }), { enabled: false });
+    const out = await d.svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      { description: "Day shift, Fanuc control.", audience: "rvm_students" },
+      CTX as never,
+    );
+    // The audience field was ignored; the content edit landed in the transaction.
+    const patch = d.updateOwned.mock.calls[0]![2] as Record<string, unknown>;
+    expect(patch).not.toHaveProperty("audience");
+    expect(d.updateOwned.mock.calls[0]![3]).toBe(d.TX);
+    expect(d.audienceRepo.resetStaleDecision).toHaveBeenCalledWith(POSTING_ID, d.TX);
+    expect(emitted(d.emit).map((e) => [e.event_name, e.tx])).toEqual([
+      ["job_posting.updated", d.TX],
+    ]);
+    // Stored state is visible whatever the switch says.
+    expect(out).toMatchObject({ audience: "both" });
+  });
+
+  it("the OPS update and the ADMIN edit cannot carry an audience: the shared schema strips it", async () => {
+    const parsed = UpdateJobPostingSchema.parse({
+      role_title: "CNC Operator",
+      audience: "rvm_students",
+      rvm_branch_ids: [1],
+    });
+    expect(parsed).not.toHaveProperty("audience");
+
+    const ops = audienceWorld(row({ status: "open" }));
+    await ops.svc.update(POSTING_ID, parsed, CTX as never);
+    const patch = ops.update.mock.calls[0]![1] as Record<string, unknown>;
+    for (const key of AUDIENCE_KEYS) expect(patch).not.toHaveProperty(key);
+    expect(ops.rollout.isEnabledFor).not.toHaveBeenCalled();
+
+    const admin = audienceWorld(row({ status: "open" }));
+    const prepared = await admin.svc.prepareAdminEdit(POSTING_ID, parsed, CTX as never);
+    for (const key of AUDIENCE_KEYS) expect(prepared.patch).not.toHaveProperty(key);
   });
 });

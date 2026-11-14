@@ -113,6 +113,58 @@ describe("job_posting.match_skills_scoped (#2635)", () => {
   });
 });
 
+describe("job_posting.audience_set (#2746)", () => {
+  function audienceEvent(payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: "job_posting.audience_set",
+      actor: { actor_type: "payer", actor_id: UUID_A },
+      subject: { subject_type: "job_posting", subject_id: UUID_B },
+      payload,
+    };
+  }
+  const valid = {
+    job_posting_id: UUID_B,
+    audience: "both",
+    previous_audience: "badabhai_workers",
+    branch_ids: [1, 3],
+    course_ids: ["cnc-programming"],
+    review_state: "pending",
+  };
+
+  it("accepts the ids-and-enums payload, a create (no previous audience) and a withdrawal", () => {
+    expect(validateEvent(audienceEvent(valid)).success).toBe(true);
+    expect(
+      validateEvent(audienceEvent({ ...valid, audience: "rvm_students", previous_audience: null }))
+        .success,
+    ).toBe(true);
+    expect(
+      validateEvent(
+        audienceEvent({
+          ...valid,
+          audience: "badabhai_workers",
+          previous_audience: "both",
+          branch_ids: [],
+          course_ids: [],
+          review_state: null,
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it("refuses an audience or review state outside the closed sets", () => {
+    expect(validateEvent(audienceEvent({ ...valid, audience: "everyone" })).success).toBe(false);
+    expect(validateEvent(audienceEvent({ ...valid, review_state: "waiting" })).success).toBe(false);
+  });
+
+  it("refuses a branch that is not a positive integer id, and any label or free text", () => {
+    expect(validateEvent(audienceEvent({ ...valid, branch_ids: ["1"] })).success).toBe(false);
+    expect(validateEvent(audienceEvent({ ...valid, branch_ids: [0] })).success).toBe(false);
+    expect(validateEvent(audienceEvent({ ...valid, branch_label: "Pune" })).success).toBe(false);
+    expect(validateEvent(audienceEvent({ ...valid, reason: "not a fit" })).success).toBe(false);
+  });
+});
+
 describe("voice_note.uploaded duration guard", () => {
   function voiceEvent(duration: number): Record<string, unknown> {
     return {
@@ -3428,8 +3480,10 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 266 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed + the B13 ai.fallback_alert_raised/cleared pair + the payer.account_deleted QA seam + the #2701 restricted-session issue + the six #2566 admin posting-control events + the B2 ai.cost_recorded_v2 + the #2564 payer.archived/restored/company_updated trio + the three B5 Candidates search/audit events + the #2752 worker.institute_linked + its worker.institute_unlinked)", () => {
-    expect(EVENT_NAMES).toHaveLength(266);
+  it("exposes all 267 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed + the B13 ai.fallback_alert_raised/cleared pair + the payer.account_deleted QA seam + the #2701 restricted-session issue + the six #2566 admin posting-control events + the B2 ai.cost_recorded_v2 + the #2564 payer.archived/restored/company_updated trio + the three B5 Candidates search/audit events + the #2752 worker.institute_linked + its worker.institute_unlinked + the #2746 job_posting.audience_set)", () => {
+    expect(EVENT_NAMES).toHaveLength(267);
+    // #2746 — a company set or changed who sees a posting (a new name; no schema mutated).
+    expect(isEventName("job_posting.audience_set")).toBe(true);
     // B5 (#2559) — the Candidates lookup audit + search-cap breach + budget alert (new names).
     expect(isEventName("admin.identity_searched")).toBe(true);
     expect(isEventName("admin.candidates_search_cap_exceeded")).toBe(true);

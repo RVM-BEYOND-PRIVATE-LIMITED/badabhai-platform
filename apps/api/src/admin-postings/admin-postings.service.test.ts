@@ -357,6 +357,49 @@ describe("#2566 admin posting control — one transaction per action", () => {
     expect(h.jobPostings.materializeAfterAdminEdit).toHaveBeenCalled();
   });
 
+  it("#2746 — the audience is read-only to an admin: an edit that sends one reaches the posting service without it", async () => {
+    const before = posting({ audience: "both" } as Partial<JobPosting>);
+    const h = harness({ posting: before });
+    h.jobPostings.prepareAdminEdit.mockResolvedValue({
+      before,
+      patch: { roleTitle: "CNC Machinist" },
+      changedFields: ["role_title"],
+      bandChanged: false,
+      tradeDto: {},
+    });
+    h.repo.updatePosting.mockResolvedValue(posting({ roleTitle: "CNC Machinist" }));
+
+    await h.service.edit(
+      ADMIN,
+      POSTING_ID,
+      {
+        ...REASON,
+        changes: {
+          role_title: "CNC Machinist",
+          audience: "badabhai_workers",
+          rvm_branch_ids: [],
+          rvm_course_ids: [],
+        },
+      },
+      CTX,
+    );
+    // The shared edit schema stripped all three: the posting service never saw an audience.
+    expect(h.jobPostings.prepareAdminEdit).toHaveBeenCalledWith(
+      POSTING_ID,
+      { role_title: "CNC Machinist" },
+      CTX,
+    );
+  });
+
+  it("#2746 — an audience-only admin edit is refused as no edit at all, writing nothing", async () => {
+    const h = harness({ posting: posting() });
+    await expect(
+      h.service.edit(ADMIN, POSTING_ID, { ...REASON, changes: { audience: "rvm_students" } }, CTX),
+    ).rejects.toThrow("Invalid posting changes");
+    expect(h.jobPostings.prepareAdminEdit).not.toHaveBeenCalled();
+    expect(h.repo.updatePosting).not.toHaveBeenCalled();
+  });
+
   it("edit refuses status changes: pause/resume/close are the only status writers", async () => {
     const h = harness({ posting: posting() });
     await expect(

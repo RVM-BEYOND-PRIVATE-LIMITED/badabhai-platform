@@ -611,7 +611,14 @@ export class WorkerSkillsRepository {
       .where(eq(jobPostings.id, jobPostingId));
   }
 
-  /** The stored match/reach id arrays + publish state for one posting. */
+  /**
+   * The stored match/reach id arrays + publish state for one posting.
+   *
+   * `reachesBadaBhaiWorkers` (#2746) is the shared audience fragment evaluated on the row: false
+   * for an RVM-only posting, whose empty reach set is by design. The publish path reads it only to
+   * keep the E13 zero-reach alert for postings that could reach somebody; the reach core still
+   * decides the rows itself.
+   */
   async findPostingSkillSets(jobPostingId: string): Promise<
     | {
         matchSkillIds: string[];
@@ -619,6 +626,7 @@ export class WorkerSkillsRepository {
         publishedAt: Date | null;
         payerId: string | null;
         createdBy: string;
+        reachesBadaBhaiWorkers: boolean;
       }
     | undefined
   > {
@@ -629,6 +637,7 @@ export class WorkerSkillsRepository {
         publishedAt: jobPostings.publishedAt,
         payerId: jobPostings.payerId,
         createdBy: jobPostings.createdBy,
+        reachesBadaBhaiWorkers: dsql<boolean>`${reachesBadaBhaiWorkers()}`,
       })
       .from(jobPostings)
       .where(eq(jobPostings.id, jobPostingId))
@@ -641,6 +650,8 @@ export class WorkerSkillsRepository {
       publishedAt: row.publishedAt,
       payerId: row.payerId,
       createdBy: row.createdBy,
+      // Only an explicit `false` from Postgres means "by design": anything else keeps the alert.
+      reachesBadaBhaiWorkers: row.reachesBadaBhaiWorkers !== false,
     };
   }
 

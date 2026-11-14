@@ -178,6 +178,7 @@ function make(
     {} as never,
     {} as never, // PostingTradesService
     tenancy,
+    {} as never, // PostingAudienceService — the ownership read never reaches it
   );
   const getOneInScope = vi.spyOn(jobPostings, "getOneInScope");
   const resolve = vi.spyOn(tenancy, "resolve");

@@ -532,11 +532,11 @@ function firstCountRow<T>(result: unknown): Partial<T> {
  * #2746 — A POSTING NO BADABHAI WORKER MAY SEE REACHES NOBODY. The audience is read in the
  * statement itself ({@link reachesBadaBhaiWorkers}), not by the caller, so no path can write a
  * `job_reach` row for an `rvm_students` posting, and the purge deletes every row such a posting
- * still holds. Nothing in this PR changes an audience on a live posting: #2746 PR 4's audience
- * write is what calls this to clear (or rebuild) one, and until it lands such a posting keeps
- * stale rows that the worker reads refuse to serve (risk R83). The stored reach set is left as it
- * is: it is the posting's resolved set, and a later change back to a BadaBhai audience
- * materializes from it unchanged.
+ * still holds. A company's audience write (#2746 PR 4) calls this after its commit: on ANY status
+ * when the posting leaves the BadaBhai audience (`PublishReachService.reconcileAudience`, the
+ * stored sets), and through the publish path to rebuild a live one that comes back (R83, closed).
+ * The stored reach set is left as it is: it is the posting's resolved set, and a later change back
+ * to a BadaBhai audience materializes from it unchanged.
  *
  * THE POSTING ROW IS READ `FOR SHARE` FIRST, on the caller's transaction, so a materialization
  * serializes with a concurrent audience UPDATE instead of committing rows read under the old

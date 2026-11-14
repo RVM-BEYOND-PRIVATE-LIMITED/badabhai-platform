@@ -3,18 +3,23 @@ import { and, count, desc, eq, isNotNull, isNull, lt, or, sql, type SQL } from "
 import type { PgColumn } from "drizzle-orm/pg-core";
 import {
   CURRENT_PROFILE_ORDER,
+  RVM_INSTITUTE_CODE,
   applications,
   creditLedger,
   generatedResumes,
+  jobPostingInstituteReviews,
   jobPostings,
   payerCredits,
   payers,
+  rvmReviewStateNow,
   unlocks,
   workerProfiles,
   workers,
   type Database,
+  type InstituteReviewState,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import { rvmReviewView } from "../job-postings/rvm-review-view";
 import type { EntityCursor } from "./admin-entities.cursor";
 import type {
   AdminApplicationListItem,
@@ -326,9 +331,11 @@ export class AdminEntitiesRepository {
         publishedAt: jobPostings.publishedAt,
         closedAt: jobPostings.closedAt,
         createdAt: jobPostings.createdAt,
+        ...postingAudienceColumns(),
       })
       .from(jobPostings)
       .leftJoin(payers, eq(payers.id, jobPostings.payerId))
+      .leftJoin(jobPostingInstituteReviews, rvmReviewJoin())
       .where(clauses.length > 0 ? and(...clauses) : undefined)
       .orderBy(desc(jobPostings.createdAt), desc(jobPostings.id))
       .limit(limit);
@@ -354,6 +361,7 @@ export class AdminEntitiesRepository {
       published_at: r.publishedAt,
       closed_at: r.closedAt,
       created_at: r.createdAt,
+      ...postingAudienceFields(r),
     }));
   }
 
@@ -397,9 +405,11 @@ export class AdminEntitiesRepository {
         previousStatus: jobPostings.previousStatus,
         createdAt: jobPostings.createdAt,
         updatedAt: jobPostings.updatedAt,
+        ...postingAudienceColumns(),
       })
       .from(jobPostings)
       .leftJoin(payers, eq(payers.id, jobPostings.payerId))
+      .leftJoin(jobPostingInstituteReviews, rvmReviewJoin())
       .where(eq(jobPostings.id, id))
       .limit(1);
 
@@ -453,6 +463,7 @@ export class AdminEntitiesRepository {
       skipped_count: skippedRows[0]?.n ?? 0,
       created_at: j.createdAt,
       updated_at: j.updatedAt,
+      ...postingAudienceFields(j),
     };
   }
 
@@ -555,4 +566,54 @@ export class AdminEntitiesRepository {
     // external system, so it is the one column whose PII-freeness this codebase cannot
     // guarantee. Nothing in the portal needs it; omitting it costs nothing.
   }
+}
+
+/**
+ * #2746 — the audience half of both admin posting reads. The posting's RVM review row is LEFT
+ * JOINed on its PK (one probe per row, no N+1) and its state read with the shared live-hash rule
+ * (`rvmReviewStateNow`, @badabhai/db), never re-spelled here. Read-only: no admin write path sets
+ * an audience.
+ */
+function postingAudienceColumns() {
+  return {
+    audience: jobPostings.audience,
+    rvmBranchIds: jobPostings.rvmBranchIds,
+    rvmCourseIds: jobPostings.rvmCourseIds,
+    rvmReviewStateNow: sql<InstituteReviewState | null>`${rvmReviewStateNow()}`,
+    rvmReviewReason: jobPostingInstituteReviews.reason,
+    rvmReviewedAt: jobPostingInstituteReviews.reviewedAt,
+  };
+}
+
+/** The join for {@link postingAudienceColumns}: the posting's RVM review row, by PK. */
+function rvmReviewJoin(): SQL {
+  return and(
+    eq(jobPostingInstituteReviews.jobPostingId, jobPostings.id),
+    eq(jobPostingInstituteReviews.instituteCode, RVM_INSTITUTE_CODE),
+  )!;
+}
+
+/** The row {@link postingAudienceColumns} selects (the review half is NULL with no review row). */
+interface PostingAudienceRow {
+  audience: AdminJobPostingListItem["audience"];
+  rvmBranchIds: number[] | null;
+  rvmCourseIds: string[] | null;
+  rvmReviewStateNow: InstituteReviewState | null;
+  rvmReviewReason: string | null;
+  rvmReviewedAt: Date | null;
+}
+
+function postingAudienceFields(
+  r: PostingAudienceRow,
+): Pick<AdminJobPostingListItem, "audience" | "rvm_branch_ids" | "rvm_course_ids" | "rvm_review"> {
+  return {
+    audience: r.audience,
+    rvm_branch_ids: Array.isArray(r.rvmBranchIds) ? r.rvmBranchIds : [],
+    rvm_course_ids: Array.isArray(r.rvmCourseIds) ? r.rvmCourseIds : [],
+    rvm_review: rvmReviewView(r.audience, {
+      stateNow: r.rvmReviewStateNow,
+      reason: r.rvmReviewReason,
+      reviewedAt: r.rvmReviewedAt,
+    }),
+  };
 }

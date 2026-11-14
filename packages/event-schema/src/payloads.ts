@@ -3923,6 +3923,36 @@ export type JobPostingMatchSkillsScopedPayload = z.infer<
   typeof JobPostingMatchSkillsScopedPayload
 >;
 
+/** #2746 — who sees a posting (`job_postings.audience`, migration 0162). */
+const JOB_POSTING_AUDIENCE_VALUES = ["badabhai_workers", "rvm_students", "both"] as const;
+
+/**
+ * #2746 — a company set or changed WHO SEES a posting: its audience and its RVM branch / course
+ * targeting. Emitted in the posting write's transaction, once per write that sets a non-default
+ * audience on create or changes the audience or targeting on edit. A plain content edit is
+ * `job_posting.updated`; this event never carries content.
+ *
+ * `review_state` is the RVM review after the write (`job_posting_institute_reviews`): `pending` for
+ * a new or changed RVM audience, `null` when the audience has no RVM part (the row, if any, is kept
+ * for Campus's feed but reviews nothing).
+ *
+ * IDS AND ENUMS ONLY: RVM location ids (integers) and Scheduler course ids (reference ids Campus
+ * set as targeting options), no labels, no free text, no company or student data.
+ */
+export const JobPostingAudienceSetPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    audience: z.enum(JOB_POSTING_AUDIENCE_VALUES),
+    /** `null` on create (the posting had no audience before this write). */
+    previous_audience: z.enum(JOB_POSTING_AUDIENCE_VALUES).nullable(),
+    /** The targeting after the write; `[]` = every branch / every course. */
+    branch_ids: z.array(z.number().int().positive()).max(50),
+    course_ids: z.array(z.string().min(1).max(64)).max(100),
+    review_state: z.enum(["pending", "approved", "rejected"]).nullable(),
+  })
+  .strict();
+export type JobPostingAudienceSetPayload = z.infer<typeof JobPostingAudienceSetPayload>;
+
 /**
  * POLICY 27 — "Ops may widen a reach set, never narrow one. Expiring, audited, evented."
  * This is the EVENTED half; the audited half is the ops actor on the envelope.

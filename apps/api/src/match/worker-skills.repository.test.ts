@@ -952,7 +952,23 @@ describe("findPostingSkillSets", () => {
       publishedAt: null,
       payerId: null,
       createdBy: "ops",
+      // No audience value read → the alert is kept (only an explicit false suppresses it).
+      reachesBadaBhaiWorkers: true,
     });
+  });
+
+  it("#2746 — reports the shared audience fragment; only Postgres' explicit false means RVM-only", async () => {
+    const base = {
+      matchSkillIds: [],
+      reachSkillIds: [],
+      publishedAt: null,
+      payerId: null,
+      createdBy: "ops",
+    };
+    const rvm = makeDb({ rows: [{ ...base, reachesBadaBhaiWorkers: false }] });
+    expect((await rvm.repo.findPostingSkillSets(POSTING))?.reachesBadaBhaiWorkers).toBe(false);
+    const both = makeDb({ rows: [{ ...base, reachesBadaBhaiWorkers: true }] });
+    expect((await both.repo.findPostingSkillSets(POSTING))?.reachesBadaBhaiWorkers).toBe(true);
   });
 });
 

@@ -37,6 +37,7 @@ import { parseMatchConfig } from "@badabhai/match-engine";
 import { sql as dsql } from "drizzle-orm";
 import { createDbClient } from "./client";
 import { reachesBadaBhaiWorkers } from "./job-visibility";
+import { LIVE_POSTING_STATUSES } from "./materialize-job-reach";
 import { parseCommonCli } from "./match-v1-cli";
 
 const NAME = "verify:match-v1";
@@ -181,23 +182,49 @@ async function main(): Promise<void> {
     } else pass("D.reach_superset", "reach ⊇ match on every posting");
 
     // #2746 — a posting no BadaBhai worker may see holds no `job_reach` row, ever: the reach core
-    // never writes one and purges what it finds. A row here is a broken lock (or an audience
-    // change whose rebuild never ran), so it FAILS. The worker reads refuse to serve it either way.
-    const offAudience = rowsOf<{ rows: number; postings: number; example: string | null }>(
+    // never writes one and purges what it finds, and a company's audience change clears the rows
+    // whatever the posting's status (#2746 PR 4). A row here is a broken lock (or a clear that
+    // failed after its edit committed), so it FAILS. The worker reads refuse to serve it either way.
+    //
+    // THE REPAIR DEPENDS ON THE STATUS. D5 rebuilds only a LIVE posting (`LIVE_POSTING_STATUSES`),
+    // and its full run visits `open` ones alone, so the hint names one command per case.
+    const liveStatuses = dsql.raw(LIVE_POSTING_STATUSES.map((s) => `'${s}'`).join(", "));
+    const offAudience = rowsOf<{
+      rows: number;
+      postings: number;
+      live_example: string | null;
+      other_example: string | null;
+    }>(
       await db.execute(dsql`
         SELECT count(*)::int AS rows,
                count(DISTINCT jr.job_posting_id)::int AS postings,
-               min(jr.job_posting_id::text) AS example
+               min(jr.job_posting_id::text) FILTER (WHERE jp.status IN (${liveStatuses})) AS live_example,
+               min(jr.job_posting_id::text) FILTER (WHERE jp.status NOT IN (${liveStatuses})) AS other_example
         FROM job_reach jr
         JOIN job_postings jp ON jp.id = jr.job_posting_id
         WHERE NOT (${reachesBadaBhaiWorkers(dsql`jp.audience`)})
       `),
     )[0];
     if ((offAudience?.rows ?? 0) > 0) {
+      const repairs: string[] = [];
+      if (offAudience!.live_example !== null) {
+        repairs.push(
+          `for an open or paused posting (e.g. ${offAudience!.live_example}), ` +
+            `db:materialize:reach --apply --job-posting-id=<id> (it clears an RVM-only posting; a ` +
+            `full --apply visits open postings only)`,
+        );
+      }
+      if (offAudience!.other_example !== null) {
+        repairs.push(
+          `for a draft, closed or suspended posting (e.g. ${offAudience!.other_example}), D5 refuses ` +
+            `it, and the rows are a cache it can never serve, so delete them by hand: ` +
+            `DELETE FROM job_reach WHERE job_posting_id = '<id>'`,
+        );
+      }
       fail(
         "D.reach_audience",
         `${offAudience!.rows} job_reach row(s) on ${offAudience!.postings} posting(s) no BadaBhai ` +
-          `worker may see, e.g. posting ${offAudience!.example} — re-run db:materialize:reach --apply`,
+          `worker may see. Repair: ${repairs.join("; ")}`,
       );
     } else pass("D.reach_audience", "no job_reach row on a posting outside the BadaBhai audience");
 

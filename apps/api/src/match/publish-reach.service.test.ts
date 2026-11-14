@@ -63,6 +63,8 @@ type Existing = {
   publishedAt: Date | null;
   payerId: string | null;
   createdBy: string;
+  /** #2746 — false for an `rvm_students` posting (empty reach by design). */
+  reachesBadaBhaiWorkers: boolean;
 };
 
 function posting(over: Partial<Existing> = {}): Existing {
@@ -72,6 +74,7 @@ function posting(over: Partial<Existing> = {}): Existing {
     publishedAt: null,
     payerId: PAYER,
     createdBy: PAYER,
+    reachesBadaBhaiWorkers: true,
     ...over,
   };
 }
@@ -457,6 +460,54 @@ describe("materialize — the E12/E13 ops alert fires only when supply is actual
     );
     // An alert that fires on every publish is an alert ops stops reading.
     expect(emittedNames(events)).toEqual(["job_posting.reach_materialized"]);
+  });
+
+  it("#2746 — an RVM-only posting's zero reach is by design: no alert, the zero still recorded", async () => {
+    const { svc, events } = setup({
+      existing: posting({ reachesBadaBhaiWorkers: false }),
+      counts: [{ total: 0, tier1: 0 }],
+    });
+    const result = await svc.materialize(
+      POSTING,
+      { matchSkillIds: [VMC], untickedIds: [], trigger: "edit", actor: { actor_type: "payer", actor_id: PAYER } },
+      CTX,
+    );
+    expect(result.reachTotal).toBe(0);
+    expect(result.zeroReach).toBe(false); // empty by design is not the E13 void
+    expect(emittedNames(events)).toEqual(["job_posting.reach_materialized"]);
+    expect(emittedOne(events, "job_posting.reach_materialized").payload.reach_total).toBe(0);
+  });
+
+  it("#2746 — reconcileAudience re-runs the core over the STORED sets: no resolution, no posting write, no event", async () => {
+    const stored = posting({ reachesBadaBhaiWorkers: false });
+    const { svc, repo, events } = setup({ existing: stored, counts: [{ total: 0, tier1: 0 }] });
+    expect(await svc.reconcileAudience(POSTING)).toBe(0);
+    expect(repo.materializeReachForPosting).toHaveBeenCalledWith(
+      POSTING,
+      stored.matchSkillIds,
+      stored.reachSkillIds,
+    );
+    expect(repo.setPostingSkillSets).not.toHaveBeenCalled();
+    expect(emittedNames(events)).toEqual([]);
+  });
+
+  it("#2746 — reconcileAudience on a posting that is gone writes nothing", async () => {
+    const { svc, repo } = setup({ existing: undefined });
+    expect(await svc.reconcileAudience(POSTING)).toBe(0);
+    expect(repo.materializeReachForPosting).not.toHaveBeenCalled();
+  });
+
+  it("#2746 — an ops widen on an RVM-only posting raises no alert either", async () => {
+    const { svc, events } = setup({
+      existing: posting({
+        matchSkillIds: [VMC],
+        reachSkillIds: [VMC],
+        reachesBadaBhaiWorkers: false,
+      }),
+      counts: [{ total: 0, tier1: 0 }],
+    });
+    await svc.opsWiden(POSTING, [HMC], OPS, CTX);
+    expect(emittedNames(events)).not.toContain("job_posting.reach_alert");
   });
 });
 
