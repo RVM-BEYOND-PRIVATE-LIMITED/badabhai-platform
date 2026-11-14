@@ -12,7 +12,7 @@ import {
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
-import type { PayerTenantScope } from "../payers/payer-tenant-scope";
+import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 import type { PostingAudienceInput } from "./job-postings.dto";
 import type { JobPostingApi } from "./job-postings.repository";
 import { PostingAudienceRepository } from "./posting-audience.repository";
@@ -197,36 +197,40 @@ export class PostingAudienceService {
    */
   async recordCreateWithin(
     tx: Database,
-    posting: JobPostingApi,
-    actor: PostingActor,
+    write: { posting: JobPostingApi; tenant: TenantKey; actor: PostingActor },
     ctx: RequestContext,
   ): Promise<void> {
-    if (audienceReachesRvmStudents(posting.audience)) {
-      await this.repo.ensurePendingReview(posting.id, tx);
+    if (audienceReachesRvmStudents(write.posting.audience)) {
+      await this.repo.ensurePendingReview(write.posting.id, tx);
     }
-    await this.emitAudienceSet(tx, posting, null, actor, ctx);
+    await this.emitAudienceSet(tx, { ...write, previousAudience: null }, ctx);
   }
 
   /**
-   * After a company edit, in its transaction (the posting row already holds the edit). Every edit
-   * resets a decision the content no longer matches; an audience or targeting change also opens
-   * the review row for an RVM part, bumps the row and emits `job_posting.audience_set`.
+   * After a company edit, in its transaction (the posting row already holds the edit, so it is
+   * locked before the review row — the house lock order). Every edit resets a decision the content
+   * no longer matches; an audience or targeting change also opens the review row for an RVM part,
+   * bumps the row and emits `job_posting.audience_set`.
    */
   async recordUpdateWithin(
     tx: Database,
-    posting: JobPostingApi,
-    previousAudience: JobPostingAudience,
-    audienceChanged: boolean,
-    actor: PostingActor,
+    write: {
+      posting: JobPostingApi;
+      tenant: TenantKey;
+      previousAudience: JobPostingAudience;
+      audienceChanged: boolean;
+      actor: PostingActor;
+    },
     ctx: RequestContext,
   ): Promise<void> {
-    if (audienceChanged && audienceReachesRvmStudents(posting.audience)) {
+    const { posting } = write;
+    if (write.audienceChanged && audienceReachesRvmStudents(posting.audience)) {
       await this.repo.ensurePendingReview(posting.id, tx);
     }
     await this.repo.resetStaleDecision(posting.id, tx);
-    if (!audienceChanged) return;
+    if (!write.audienceChanged) return;
     await this.repo.touchReview(posting.id, tx);
-    await this.emitAudienceSet(tx, posting, previousAudience, actor, ctx);
+    await this.emitAudienceSet(tx, write, ctx);
   }
 
   /**
@@ -242,6 +246,7 @@ export class PostingAudienceService {
     const isDefault = (p: JobPostingApi) => p.audience === DEFAULT_JOB_POSTING_AUDIENCE;
     const enabled = postings.some(isDefault) ? await this.enabledFor(scope) : false;
     const reviews = await this.repo.reviewStatesFor(
+      scope.tenantKey,
       postings.filter((p) => audienceReachesRvmStudents(p.audience)).map((p) => p.id),
     );
     return postings.map((posting) => {
@@ -295,18 +300,22 @@ export class PostingAudienceService {
   /** `job_posting.audience_set` on the write's transaction, with the review state after it. */
   private async emitAudienceSet(
     tx: Database,
-    posting: JobPostingApi,
-    previousAudience: JobPostingAudience | null,
-    actor: PostingActor,
+    write: {
+      posting: JobPostingApi;
+      tenant: TenantKey;
+      previousAudience: JobPostingAudience | null;
+      actor: PostingActor;
+    },
     ctx: RequestContext,
   ): Promise<void> {
+    const { posting, actor } = write;
     const reviews = audienceReachesRvmStudents(posting.audience)
-      ? await this.repo.reviewStatesFor([posting.id], tx)
+      ? await this.repo.reviewStatesFor(write.tenant, [posting.id], tx)
       : new Map();
     const payload: PayloadInputOf<"job_posting.audience_set"> = {
       job_posting_id: posting.id,
       audience: posting.audience,
-      previous_audience: previousAudience,
+      previous_audience: write.previousAudience,
       branch_ids: [...posting.rvm_branch_ids],
       course_ids: [...posting.rvm_course_ids],
       review_state: rvmReviewStateFor(posting.audience, reviews.get(posting.id)?.stateNow ?? null),

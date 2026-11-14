@@ -1,4 +1,4 @@
-import { eq, sql, type SQL } from "drizzle-orm";
+import { eq, getTableColumns, sql, type SQL } from "drizzle-orm";
 import { PgDialect, QueryBuilder } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 
@@ -59,6 +59,51 @@ const NOT_STUDENT_VISIBLE = [
   "verification_status",
   "updated_at",
 ];
+
+/**
+ * The SQL type of every hashed column. The encoding depends on it: an integer renders `16000`, a
+ * numeric could render `16000.00`, a varchar or an enum type renders like text but compares
+ * differently. A migration that changes one of these types must decide, on purpose, whether to
+ * bump `POSTING_REVIEW_CONTENT_VERSION` (it re-pends every approval), so it turns this red first.
+ * The Postgres suite (`payer-job-audience.db.test.ts`) checks the live columns match too.
+ */
+const HASHED_COLUMN_TYPES: Readonly<Record<string, "text" | "integer" | "jsonb">> = {
+  org_label: "text",
+  role_title: "text",
+  description: "text",
+  location_label: "text",
+  city: "text",
+  state: "text",
+  area: "text",
+  pay_min: "integer",
+  pay_max: "integer",
+  pay_type: "text",
+  vacancy_band: "text",
+  shift: "text",
+  min_experience_years: "integer",
+  max_experience_years: "integer",
+  requirements: "jsonb",
+  benefits: "jsonb",
+  audience: "text",
+  rvm_branch_ids: "jsonb",
+  rvm_course_ids: "jsonb",
+};
+
+describe("the hashed columns' types are pinned (a type change would change the encoding)", () => {
+  const columns = Object.values(getTableColumns(jobPostings));
+
+  it("every hashed column has a pinned type, and nothing else is pinned", () => {
+    expect([...POSTING_REVIEW_CONTENT_COLUMNS].sort()).toEqual(
+      Object.keys(HASHED_COLUMN_TYPES).sort(),
+    );
+  });
+
+  it.each(Object.entries(HASHED_COLUMN_TYPES))("%s is %s in the model", (name, type) => {
+    const column = columns.find((c) => c.name === name);
+    expect(column, name).toBeDefined();
+    expect(column!.getSQLType()).toBe(type);
+  });
+});
 
 describe("postingReviewContentHash", () => {
   it("reads exactly the student-visible columns", () => {

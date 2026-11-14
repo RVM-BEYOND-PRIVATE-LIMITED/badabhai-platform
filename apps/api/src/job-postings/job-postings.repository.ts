@@ -404,10 +404,14 @@ export class JobPostingsRepository {
   }
 
   /**
-   * #2746 — the owner-scoped read under `SELECT … FOR UPDATE`, inside the caller's transaction:
-   * an audience write decides against the row as it is while no other write can move it (another
-   * audience change, the Campus approval storing its hash). Same no-oracle miss as
-   * {@link findByIdAndPayer}.
+   * #2746 — the owner-scoped read under `SELECT … FOR NO KEY UPDATE`, inside the caller's
+   * transaction: an audience write decides against the row as it is while no other write can move
+   * it. It conflicts with another audience write, with the Campus decision (#2746 PR 5) and with
+   * the reach core's `FOR SHARE` (which then waits for this commit and runs against the committed
+   * audience). It does NOT conflict with `FOR KEY SHARE`, the lock a foreign-key check takes, so
+   * an application or a `job_reach` insert referencing the posting is not held up. The posting row
+   * is locked here BEFORE the review row (the house lock order, `@badabhai/db` `job-review.ts`).
+   * Same no-oracle miss as {@link findByIdAndPayer}.
    */
   async findOwnedForUpdate(
     id: string,
@@ -419,7 +423,7 @@ export class JobPostingsRepository {
       .from(jobPostings)
       .where(and(eq(jobPostings.id, id), eq(jobPostings.payerId, tenant)))
       .limit(1)
-      .for("update");
+      .for("no key update");
     return rows[0] ? toJobPostingApi(rows[0]) : undefined;
   }
 

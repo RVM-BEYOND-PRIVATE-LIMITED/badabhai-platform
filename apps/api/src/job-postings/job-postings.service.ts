@@ -29,7 +29,7 @@ import { clearedSet } from "../common/clearable-fields";
 import { sameTradeAnswers } from "../common/trade-fields";
 import { assertNotAgencyTwin } from "../common/agency-twin-fence";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
-import type { PayerTenantScope } from "../payers/payer-tenant-scope";
+import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 import {
   JobPostingsRepository,
   type JobPostingApi,
@@ -517,7 +517,7 @@ export class JobPostingsService {
       payerActor(scope),
       ctx,
       droppedSkillIds,
-      audience,
+      audience === null ? null : { write: audience, tenant: scope.tenantKey },
     );
   }
 
@@ -694,7 +694,17 @@ export class JobPostingsService {
         tx,
       );
       if (!row) throw new NotFoundException("Job posting not found");
-      await this.audience.recordUpdateWithin(tx, row, previous, audienceWrite !== null, actor, ctx);
+      await this.audience.recordUpdateWithin(
+        tx,
+        {
+          posting: row,
+          tenant: scope.tenantKey,
+          previousAudience: previous,
+          audienceChanged: audienceWrite !== null,
+          actor,
+        },
+        ctx,
+      );
       // An audience-only edit is `job_posting.audience_set` alone: `updated` records content keys.
       if (prepared.changedFields.length > 0) await this.emitUpdated(row, actor, prepared, ctx, tx);
       return { updated: row, audienceBefore: previous, audienceWritten: audienceWrite !== null };
@@ -1109,13 +1119,14 @@ export class JobPostingsService {
     actor: JobPostingActor,
     ctx: RequestContext,
     droppedSkillIds: readonly string[] = [],
-    // #2746 — a company form create's non-default audience; null = the column defaults.
-    audienceWrite: PostingAudienceWrite | null = null,
+    // #2746 — a company form create's non-default audience and the tenant that owns the row;
+    // null = the column defaults.
+    audienceWrite: { write: PostingAudienceWrite; tenant: TenantKey } | null = null,
   ): Promise<JobPostingApi> {
     return this.repo.withTransaction(async (tx) => {
       // status is ALWAYS draft on create — any client-supplied status is ignored.
       const row = await this.repo.create(
-        { ...input, ...(audienceWrite ?? {}), status: "draft" },
+        { ...input, ...(audienceWrite?.write ?? {}), status: "draft" },
         tx,
       );
 
@@ -1149,9 +1160,16 @@ export class JobPostingsService {
           tx,
         });
       }
-      // #2746 — the RVM review row and `job_posting.audience_set`, on the same transaction. Only
-      // the company form's create passes an audience.
-      if (audienceWrite) await this.audience.recordCreateWithin(tx, row, actor, ctx);
+      // #2746 — the RVM review row and `job_posting.audience_set`, on the same transaction (the
+      // posting row is inserted first: the house lock order). Only the company form's create
+      // passes an audience.
+      if (audienceWrite) {
+        await this.audience.recordCreateWithin(
+          tx,
+          { posting: row, tenant: audienceWrite.tenant, actor },
+          ctx,
+        );
+      }
       return row;
     });
   }

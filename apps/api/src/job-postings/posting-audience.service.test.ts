@@ -61,7 +61,9 @@ function make(opts: { enabled?: boolean; reviews?: Map<string, RvmReviewFacts> }
     ensurePendingReview: vi.fn(async () => undefined),
     resetStaleDecision: vi.fn(async () => false),
     touchReview: vi.fn(async () => undefined),
-    reviewStatesFor: vi.fn(async (ids: readonly string[]) => {
+    // Tenant-scoped like the real read: a foreign tenant reads nothing.
+    reviewStatesFor: vi.fn(async (tenant: TenantKey, ids: readonly string[]) => {
+      if (tenant !== SCOPE.tenantKey) return new Map<string, RvmReviewFacts>();
       const all = opts.reviews ?? new Map<string, RvmReviewFacts>();
       return new Map([...all].filter(([id]) => ids.includes(id)));
     }),
@@ -208,7 +210,12 @@ describe("recordCreateWithin / recordUpdateWithin — the review row and the eve
       reviews: new Map([[P1, { stateNow: "pending", reason: null, reviewedAt: null }]]),
     });
     const created = posting({ audience: "both", rvm_branch_ids: [1], rvm_course_ids: ["cnc"] });
-    await d.svc.recordCreateWithin(TX, created, ACTOR, CTX);
+    await d.svc.recordCreateWithin(
+      TX,
+      { posting: created, tenant: SCOPE.tenantKey, actor: ACTOR },
+      CTX,
+    );
+    expect(d.repo.reviewStatesFor).toHaveBeenCalledWith(SCOPE.tenantKey, [P1], TX);
     expect(d.repo.ensurePendingReview).toHaveBeenCalledWith(P1, TX);
     expect(d.events.emit).toHaveBeenCalledTimes(1);
     expect(d.events.emit.mock.calls[0]![0]).toMatchObject({
@@ -229,7 +236,17 @@ describe("recordCreateWithin / recordUpdateWithin — the review row and the eve
 
   it("a content-only edit resets a stale decision and emits nothing of its own", async () => {
     const d = make();
-    await d.svc.recordUpdateWithin(TX, posting({ audience: "both" }), "both", false, ACTOR, CTX);
+    await d.svc.recordUpdateWithin(
+      TX,
+      {
+        posting: posting({ audience: "both" }),
+        tenant: SCOPE.tenantKey,
+        previousAudience: "both",
+        audienceChanged: false,
+        actor: ACTOR,
+      },
+      CTX,
+    );
     expect(d.repo.resetStaleDecision).toHaveBeenCalledWith(P1, TX);
     expect(d.repo.ensurePendingReview).not.toHaveBeenCalled();
     expect(d.repo.touchReview).not.toHaveBeenCalled();
@@ -242,10 +259,13 @@ describe("recordCreateWithin / recordUpdateWithin — the review row and the eve
     });
     await d.svc.recordUpdateWithin(
       TX,
-      posting({ audience: "rvm_students" }),
-      "badabhai_workers",
-      true,
-      ACTOR,
+      {
+        posting: posting({ audience: "rvm_students" }),
+        tenant: SCOPE.tenantKey,
+        previousAudience: "badabhai_workers",
+        audienceChanged: true,
+        actor: ACTOR,
+      },
       CTX,
     );
     expect(d.repo.ensurePendingReview).toHaveBeenCalledWith(P1, TX);
@@ -262,7 +282,17 @@ describe("recordCreateWithin / recordUpdateWithin — the review row and the eve
 
   it("a withdrawal keeps the row (bumped, never deleted) and reports no review state", async () => {
     const d = make();
-    await d.svc.recordUpdateWithin(TX, posting(), "both", true, ACTOR, CTX);
+    await d.svc.recordUpdateWithin(
+      TX,
+      {
+        posting: posting(),
+        tenant: SCOPE.tenantKey,
+        previousAudience: "both",
+        audienceChanged: true,
+        actor: ACTOR,
+      },
+      CTX,
+    );
     expect(d.repo.ensurePendingReview).not.toHaveBeenCalled();
     expect(d.repo.touchReview).toHaveBeenCalledWith(P1, TX);
     expect(d.repo.reviewStatesFor).not.toHaveBeenCalled();
@@ -338,6 +368,19 @@ describe("payerViews — stored state is always visible, the switch only adds th
     expect(view?.rvm_review).toEqual({ state: "pending" });
   });
 
+  it("the review read is the scope's tenant's: another company's decision and note never show", async () => {
+    const d = make({ reviews: new Map([[P1, facts("rejected", "Internal note to company A")]]) });
+    const other: PayerTenantScope = {
+      ...SCOPE,
+      actorPayerId: "cccccccc-0000-4000-8000-000000000009",
+      tenantKey: "cccccccc-0000-4000-8000-000000000009" as TenantKey,
+    };
+    const [view] = await d.svc.payerViews(other, [posting({ audience: "both" })]);
+    expect(d.repo.reviewStatesFor).toHaveBeenCalledWith(other.tenantKey, [P1]);
+    expect(view?.rvm_review).toEqual({ state: "pending" });
+    expect(JSON.stringify(view)).not.toContain("Internal note");
+  });
+
   it("a page costs one switch read and one review read, for the RVM postings only", async () => {
     const d = make({ enabled: false });
     await d.svc.payerViews(SCOPE, [
@@ -347,7 +390,8 @@ describe("payerViews — stored state is always visible, the switch only adds th
     ]);
     expect(d.rollout.isEnabledFor).toHaveBeenCalledTimes(1);
     expect(d.repo.reviewStatesFor).toHaveBeenCalledTimes(1);
-    expect(d.repo.reviewStatesFor).toHaveBeenCalledWith([P2, P3]);
+    // Keyed on the scope's tenant (ADR-0053): the read can only ever see this company's rows.
+    expect(d.repo.reviewStatesFor).toHaveBeenCalledWith(SCOPE.tenantKey, [P2, P3]);
   });
 
   it("no switch read when every posting holds a non-default audience", async () => {

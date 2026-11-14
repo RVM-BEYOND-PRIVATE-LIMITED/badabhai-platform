@@ -12,6 +12,7 @@ import {
   type RvmTargetingKind,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 import type { RvmReviewFacts } from "./rvm-review-view";
 
 /** One active targeting option, as the company's picker shows it. */
@@ -31,6 +32,15 @@ export interface TargetingOptionRow {
  * Every review statement is keyed on the PK (`job_posting_id`, `institute_code`), so each is one
  * index probe. The "is this decision still for the content now?" test is the shared
  * `postingReviewContentHash` from @badabhai/db, never a copy.
+ *
+ * LOCK ORDER (the house rule, `@badabhai/db` `job-review.ts`): THE POSTING ROW BEFORE THE REVIEW
+ * ROW, in every transaction that writes the review row. Each write here is called only after the
+ * caller's transaction has locked or updated the posting row (`findOwnedForUpdate` /
+ * `updateOwned`); the Campus decision (#2746 PR 5) must take the posting row first too, or a
+ * company edit and a decision on one posting can deadlock.
+ *
+ * The one read on behalf of a company, {@link reviewStatesFor}, is TENANT-SCOPED in the query
+ * (ADR-0053 §5.2), like every company posting read: an id from another company reads nothing.
  */
 @Injectable()
 export class PostingAudienceRepository {
@@ -129,10 +139,13 @@ export class PostingAudienceRepository {
   }
 
   /**
-   * The RVM review of each posting that has a row, read with the live-hash rule (`stateNow`: a
-   * decision on older content reads `pending`). A posting with no row is absent from the map.
+   * The RVM review of each of the TENANT's postings that has a row, read with the live-hash rule
+   * (`stateNow`: a decision on older content reads `pending`). A posting with no row, and any id
+   * the tenant does not own, is absent from the map: `payer_id` is in the WHERE (ADR-0053 §5.2),
+   * so a caller handing in a foreign id cannot read that company's review or its note.
    */
   async reviewStatesFor(
+    tenant: TenantKey,
     jobPostingIds: readonly string[],
     executor: Database = this.db,
   ): Promise<Map<string, RvmReviewFacts>> {
@@ -152,7 +165,7 @@ export class PostingAudienceRepository {
           eq(jobPostingInstituteReviews.instituteCode, RVM_INSTITUTE_CODE),
         ),
       )
-      .where(inArray(jobPostings.id, [...jobPostingIds]));
+      .where(and(inArray(jobPostings.id, [...jobPostingIds]), eq(jobPostings.payerId, tenant)));
     return new Map(
       rows.map((r) => [r.id, { stateNow: r.stateNow, reason: r.reason, reviewedAt: r.reviewedAt }]),
     );

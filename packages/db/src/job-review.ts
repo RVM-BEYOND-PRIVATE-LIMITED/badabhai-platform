@@ -22,6 +22,13 @@ import {
  * Campus approval (#2746 PR 5) stores {@link postingReviewContentHash} and the student-facing read
  * (#2752 Part E) filters on {@link approvedForRvmStudents}. A second spelling of either is how an
  * edited posting would reach students unreviewed.
+ *
+ * LOCK ORDER — THE POSTING ROW BEFORE THE REVIEW ROW, in every transaction that writes the review
+ * row. The company's edit locks the posting (`FOR NO KEY UPDATE`, then its UPDATE) and only then
+ * opens, resets or bumps the review row; the Campus decision (#2746 PR 5) must lock the posting
+ * row first as well, then write the review row with the hash read under that lock. Two writers
+ * taking the rows in opposite orders deadlock (40P01), and the posting lock is also what makes the
+ * stored hash the hash of the content the decision saw.
  */
 
 /** The institute an RVM audience is reviewed by (`INSTITUTE_CODES`); the review row's key half. */
@@ -85,11 +92,19 @@ function columnOf(column: AnyPgColumn, alias: string | undefined): SQLWrapper {
 /**
  * THE CONTENT HASH: lower-case sha256 hex (`jpir_content_hash_chk`) of one canonical text.
  *
- * The text is `jsonb_build_object(...)::text`. jsonb output is canonical by construction — keys
- * sorted, one spacing, numbers normalised, strings escaped one way — and NULL-safe (a NULL is
- * `null`, never an empty string or a missing key), so the same content hashes the same in every
- * session and on every server. `convert_to(…, 'UTF8')` pins the byte encoding. Keys are literals
- * from the closed list above, so the statement text and its parameters are the same everywhere.
+ * The text is `jsonb_build_object(...)::text`. jsonb output sorts the keys, uses one spacing and
+ * escapes strings one way, and a SQL NULL scalar renders `null` (never an empty string or a missing
+ * key), so the same stored values hash the same in every session and on every server.
+ * `convert_to(…, 'UTF8')` pins the byte encoding. Keys are literals from the closed list above, so
+ * the statement text and its parameters are the same everywhere.
+ *
+ * WHAT IT DOES NOT NORMALISE, and why that is safe. jsonb keeps a number's written scale: a stored
+ * `[1.0, 2]` renders `[1.0, 2]` and hashes differently from `[1, 2]`, though the two compare equal
+ * as jsonb. And a JSON `null` stored in a chip list is not SQL NULL, so it renders `null` where a
+ * SQL NULL is read as `[]`. The API writes neither form (it stores JS integers and real lists), so
+ * either one means someone wrote the row by hand. Both only ever make the hash DIFFER: the posting
+ * reads `pending` and is reviewed again — it fails closed, never open. The column types the
+ * encoding depends on are pinned by `job-review.test.ts`.
  *
  * The default reads the unaliased `job_postings` columns, for a drizzle query over that table; a
  * raw statement that aliases the table passes the alias (`postingReviewContentHash("jp")`).
