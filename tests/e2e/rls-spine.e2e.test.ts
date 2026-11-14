@@ -242,6 +242,8 @@ const LOCKED_TABLES = [
   // a match skill id) and Campus applications (opaque ids, a Campus ref, dates).
   "institute_search_grants",
   "institute_applications",
+  // 0163 (#2752): the companies Campus created (opaque payer ids) — the only ones it may post for.
+  "institute_companies",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

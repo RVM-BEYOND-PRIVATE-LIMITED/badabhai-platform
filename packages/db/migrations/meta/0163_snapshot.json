@@ -1,5 +1,5 @@
 {
-  "id": "c27e90a7-adac-4442-a032-55b52c6896cf",
+  "id": "1350f45f-8206-4377-a32f-691ba0ab26c4",
   "prevId": "1bd9efcd-4246-42c6-a86a-bde8f1a88470",
   "version": "7",
   "dialect": "postgresql",
@@ -17945,6 +17945,57 @@
         "institute_applications_withdrawn_chk": {
           "name": "institute_applications_withdrawn_chk",
           "value": "\"institute_applications\".\"withdrawn_at\" IS NULL OR \"institute_applications\".\"application_id\" IS NULL"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.institute_companies": {
+      "name": "institute_companies",
+      "schema": "",
+      "columns": {
+        "payer_id": {
+          "name": "payer_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "institute_code": {
+          "name": "institute_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "institute_companies_payer_id_payers_id_fk": {
+          "name": "institute_companies_payer_id_payers_id_fk",
+          "tableFrom": "institute_companies",
+          "tableTo": "payers",
+          "columnsFrom": [
+            "payer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "institute_companies_institute_chk": {
+          "name": "institute_companies_institute_chk",
+          "value": "\"institute_companies\".\"institute_code\" IN ('rvm')"
         }
       },
       "isRLSEnabled": true

@@ -1,10 +1,11 @@
 /**
- * Migration 0163 — `institute_search_grants` and `institute_applications` (#2752 items 10, 8).
+ * Migration 0163 — `institute_search_grants`, `institute_applications` and `institute_companies`
+ * (#2752 items 10, 8 and 5).
  *
  * The drizzle model and CI's drift check cover the table-vs-model half. What this file pins is the
  * half that lives in the hand-edits and the contract:
  *
- *   1. ADDITIVE — two new tables. Nothing dropped, no existing table altered.
+ *   1. ADDITIVE — three new tables. Nothing dropped, no existing table altered.
  *   2. THE RLS TAIL — FORCE and the four REVOKEs are hand-appended; a regenerate drops them.
  *   3. THE KEYS — the refs Campus retries with are unique for good, and one live grant per
  *      company and worker.
@@ -31,10 +32,16 @@ const JOURNAL = JSON.parse(
   readFileSync(join(__dirname, "..", "migrations", "meta", "_journal.json"), "utf8"),
 ) as { entries: { idx: number; when: number; tag: string }[] };
 
-const TABLES = ["institute_search_grants", "institute_applications"] as const;
+const TABLES = [
+  "institute_search_grants",
+  "institute_applications",
+  "institute_companies",
+] as const;
+/** The tables keyed to a worker (the company table is keyed to a payer). */
+const WORKER_TABLES = ["institute_search_grants", "institute_applications"] as const;
 
 describe("the fixture is real (no assertion below is vacuous)", () => {
-  it("reads a migration that creates both tables", () => {
+  it("reads a migration that creates all three tables", () => {
     for (const table of TABLES) expect(FLAT).toContain(`CREATE TABLE "${table}"`);
   });
 
@@ -45,19 +52,19 @@ describe("the fixture is real (no assertion below is vacuous)", () => {
 });
 
 describe("0163 is additive", () => {
-  it("creates exactly two tables", () => {
-    expect([...FLAT.matchAll(/CREATE TABLE/g)]).toHaveLength(2);
+  it("creates exactly three tables", () => {
+    expect([...FLAT.matchAll(/CREATE TABLE/g)]).toHaveLength(3);
   });
 
   it("alters only the new tables", () => {
     const altered = [...FLAT.matchAll(/ALTER TABLE "([a-z_]+)" ([^;]+);/g)].map(
       (m) => `${m[1]} ${m[2]}`,
     );
-    // ENABLE + FORCE per table, three FKs on the applications table and two on the grants table.
-    expect(altered).toHaveLength(9);
+    // ENABLE + FORCE per table; three FKs on applications, two on grants, one on companies.
+    expect(altered).toHaveLength(12);
     for (const statement of altered) {
       expect(statement).toMatch(
-        /^(institute_search_grants|institute_applications) (ENABLE|FORCE|ADD CONSTRAINT)/,
+        /^(institute_search_grants|institute_applications|institute_companies) (ENABLE|FORCE|ADD CONSTRAINT)/,
       );
     }
   });
@@ -85,6 +92,7 @@ describe("0163 is additive", () => {
     expect(RAW).toContain("AFTER 0162");
     expect(RAW).toContain('DROP TABLE "institute_search_grants";');
     expect(RAW).toContain('DROP TABLE "institute_applications";');
+    expect(RAW).toContain('DROP TABLE "institute_companies";');
     expect(RAW).toContain("0163 rollback refused: the tables hold rows");
   });
 });
@@ -114,6 +122,13 @@ describe("the keys", () => {
     );
   });
 
+  it("a Campus-created company is one row per company, cascading with it", () => {
+    expect(FLAT).toContain(
+      `ALTER TABLE "institute_companies" ADD CONSTRAINT "institute_companies_payer_id_payers_id_fk" FOREIGN KEY ("payer_id") REFERENCES "public"."payers"("id") ON DELETE cascade`,
+    );
+    expect(FLAT).toContain(`"payer_id" uuid PRIMARY KEY NOT NULL`);
+  });
+
   it("a withdrawn Campus application no longer points at an applications row", () => {
     expect(FLAT).toContain(
       `CONSTRAINT "institute_applications_withdrawn_chk" CHECK ("institute_applications"."withdrawn_at" IS NULL OR "institute_applications"."application_id" IS NULL)`,
@@ -131,7 +146,7 @@ describe("the keys", () => {
   });
 
   it("cascades on worker deletion (DPDP), and on company deletion for a grant", () => {
-    for (const table of TABLES) {
+    for (const table of WORKER_TABLES) {
       expect(FLAT).toContain(
         `ALTER TABLE "${table}" ADD CONSTRAINT "${table}_worker_id_workers_id_fk" FOREIGN KEY ("worker_id") REFERENCES "public"."workers"("id") ON DELETE cascade`,
       );
