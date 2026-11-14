@@ -35,8 +35,10 @@ import { campusDriveRequests, type Database } from "@badabhai/db";
  * login's row (a QA delete of a team member takes that login's row, then the requests it typed). A
  * Campus decision and a company's cancel lock only the request row and take no lock on `payers` or
  * `employer_profiles` (the decision re-reads the standing in a separate plain statement; their
- * event and audit inserts reference neither table), and a create's insert takes only `FOR KEY
- * SHARE` on its `payers` row, which a status write (`FOR NO KEY UPDATE`) does not block. So no
+ * event and audit inserts reference neither table). A create reads its anchor's `payers` row
+ * `FOR SHARE`, on its own transaction and before its insert: a suspend, a reinstate, an archive or
+ * a restore in progress DOES make it wait (they hold that row `FOR NO KEY UPDATE` or `FOR UPDATE`),
+ * but the create holds no request row while it waits, so it cannot hold up their re-stamp. So no
  * cycle.
  *
  * The stamp is the database's clock (`clock_timestamp()`), the same as every request write.

@@ -384,11 +384,16 @@ export class AdminCompaniesRepository {
   }
 
   /**
-   * #2746 PR 6 (migration re-check F1) — lock EVERY login of an archive or restore, `FOR UPDATE`,
-   * in id order, right after {@link lockRoot} and before the first write. So the transaction holds no
+   * #2746 PR 6 (migration re-check F1) — lock EVERY login of an archive or restore, in id order,
+   * right after {@link lockRoot} and before the first write. So the transaction holds no
    * drive-request row (each login's archive re-stamps them) while it waits on a login's row: a QA
    * delete of a team member takes that login's `payers` row and then the requests it typed, and the
    * two would otherwise lock in opposite orders (40P01). Rows gone already are simply not returned.
+   *
+   * `FOR NO KEY UPDATE`, the membership lock's mode (`PayerOrgsRepository.lockPayerForMembership`):
+   * it conflicts with a delete of the row and with every status update of it, but not with the
+   * `FOR KEY SHARE` a foreign-key check takes, so a team member's unrelated insert that references
+   * its login does not wait on an archive.
    */
   async lockLogins(ids: readonly string[], tx: Database): Promise<string[]> {
     if (ids.length === 0) return [];
@@ -397,7 +402,7 @@ export class AdminCompaniesRepository {
       .from(payers)
       .where(inArray(payers.id, [...ids]))
       .orderBy(asc(payers.id))
-      .for("update");
+      .for("no key update");
     return rows.map((r) => r.id);
   }
 

@@ -208,12 +208,19 @@ export class CampusDriveRequestsRepository {
    * the same four the R2 withdrawn rule reads on Campus's routes (role, account status,
    * verification, GSTIN), so a request is never created withdrawn (migration review L2). No row at
    * all reads as "not an employer, not active, not verified".
+   *
+   * On the INSERT's transaction, with `FOR SHARE OF payers` (security re-check I-3): the anchor's
+   * row stays as read until the insert commits. A suspend, a reinstate or an archive in progress
+   * (each holds that row `FOR NO KEY UPDATE` or `FOR UPDATE`) makes the create WAIT, and the create
+   * then reads the committed status, so it can no longer pass the check a moment before a
+   * suspension and land withdrawn from birth. The create holds no request row while it waits, so
+   * the lock order stays payers → requests.
    */
   async requesterFacts(
     tenant: TenantKey,
-    executor: Database = this.db,
+    tx: Database,
   ): Promise<DriveCompanyStanding & { isTestAccount: boolean }> {
-    const rows = await executor
+    const rows = await tx
       .select({
         role: payers.role,
         status: payers.status,
@@ -224,7 +231,8 @@ export class CampusDriveRequestsRepository {
       .from(payers)
       .leftJoin(employerProfiles, eq(employerProfiles.payerId, payers.id))
       .where(eq(payers.id, tenant))
-      .limit(1);
+      .limit(1)
+      .for("share", { of: payers });
     const row = rows[0];
     if (row === undefined) {
       return {

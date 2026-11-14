@@ -103,7 +103,8 @@ function feedSince(changedSince: string | undefined): string | undefined {
  *
  * WITHDRAWN FROM CAMPUS (owner ruling R2). A company that would not pass the create check today
  * (verification withdrawn, GSTIN removed), or whose account an admin suspended or archived, is
- * WITHDRAWN (`driveCompanyWithdrawn`, read in the same statement as the request). Its requests stay
+ * WITHDRAWN (`driveCompanyWithdrawn`: in the feed read in the same statement as the request; for a
+ * decision re-read in its own statement after the row lock, `readStanding`). Its requests stay
  * in the feed, flagged `company_withdrawn`, WITHOUT the contact and the roles note (both `null`);
  * every other field stays: status, company id and name, posting, branches, dates, openings,
  * schedule, the latest decision and its reason, `is_test`, the times (security re-check N4). A
@@ -385,6 +386,9 @@ function assertDriveDay(scheduledOn: string, floorDay: string): void {
     );
   }
   if (scheduledOn > addDays(floorDay, DRIVE_MAX_DAYS_AHEAD)) {
-    throw campusInvalid("scheduled_on", "more than a year after the decision's day in India");
+    throw campusInvalid(
+      "scheduled_on",
+      "more than a year after the later of the decision's day in India and the day the request was made",
+    );
   }
 }

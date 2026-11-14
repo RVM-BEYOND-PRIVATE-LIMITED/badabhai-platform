@@ -107,6 +107,8 @@ const ERASED_LOGIN = uuid(0x2746d0016);
 const TEAM_ROOT = uuid(0x2746d0017);
 const TEAM_MEMBER = uuid(0x2746d0018);
 const TEAM_ORG = uuid(0x2746d0019);
+/** A verified employer archived while one of its logins tries to make a request (I-3). */
+const ARCHIVED_CO = uuid(0x2746d001a);
 const COMPANY_POSTING = uuid(0x2746d0020);
 const OTHER_POSTING = uuid(0x2746d0021);
 const STAFF = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
@@ -114,7 +116,17 @@ const STAFF = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 const BRANCH_A = 2746401;
 const BRANCH_B = 2746402;
 const BRANCH_RETIRED = 2746409;
-const COMPANIES = [COMPANY, OTHER, UNVERIFIED, AGENCY, LEAVER, WITHDRAWN, TEAM_ROOT, TEAM_MEMBER];
+const COMPANIES = [
+  COMPANY,
+  OTHER,
+  UNVERIFIED,
+  AGENCY,
+  LEAVER,
+  WITHDRAWN,
+  TEAM_ROOT,
+  TEAM_MEMBER,
+  ARCHIVED_CO,
+];
 
 /** Synthetic contact: no real person or number. */
 const CONTACT_NAME = "Fixture Contact t2746d";
@@ -954,6 +966,115 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     }
   }, 30_000);
 
+  it("a create behind a held suspend waits on the company's row, then gets 403 company_not_active (security re-check I-3)", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let parked!: () => void;
+    const holding = new Promise<void>((r) => (parked = r));
+    let pid = 0;
+    const suspending = raceClient.db.transaction(async (raw) => {
+      const tx = raw as unknown as Database;
+      await new AdminActionsRepository(raceClient.db).suspendPayer(WITHDRAWN, tx);
+      pid = await backendPid(tx);
+      parked();
+      await gate;
+    });
+    let creating: Promise<unknown> | undefined;
+    try {
+      await holding;
+      creating = company().create(WITHDRAWN, body({ openings: 73 }), "t2746d-key-0073", CTX);
+      // The create's FOR SHARE read of the company's row waits on the suspend.
+      await waitForLockWaiter(pid, "%payers%");
+      release();
+      const [suspended, created] = await Promise.allSettled([suspending, creating]);
+      expect(suspended.status).toBe("fulfilled");
+      expect(created.status).toBe("rejected");
+      const reason = (created as PromiseRejectedResult).reason;
+      expect(sqlStateOf(reason)).not.toBe("40P01");
+      expect(reason).toBeInstanceOf(ForbiddenException);
+      expect((reason as ForbiddenException).getResponse()).toMatchObject({
+        reason: "company_not_active",
+      });
+      expect(
+        (await stored({ payerId: WITHDRAWN })).filter(
+          (r) => r.idempotency_key === "t2746d-key-0073",
+        ),
+      ).toEqual([]);
+    } finally {
+      release();
+      await Promise.allSettled([suspending, creating ?? Promise.resolve()]);
+      await client.db.transaction((raw) =>
+        new AdminActionsRepository(client.db).reinstatePayer(WITHDRAWN, raw as unknown as Database),
+      );
+    }
+  }, 30_000);
+
+  it("a create during an archive in progress waits rather than deadlocks, then gets 403 company_not_active", async () => {
+    // A request the archive re-stamps (so it holds request rows while the create waits).
+    await client.sql`
+      INSERT INTO campus_drive_requests (payer_id, created_by, branch_ids, preferred_from,
+             preferred_to, openings, contact_name_enc, contact_phone_enc, idempotency_key)
+      VALUES (${ARCHIVED_CO}::uuid, ${ARCHIVED_CO}::uuid, '[]'::jsonb, ${PREFERRED_FROM}::date,
+              ${PREFERRED_TO}::date, 6, ${pii.encrypt(CONTACT_NAME)}, ${pii.encrypt(CONTACT_PHONE)},
+              't2746d-key-0082')`;
+    // The archive parks after its writes and its re-stamps, just before its audit row.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let parked!: () => void;
+    const holding = new Promise<void>((r) => (parked = r));
+    let pid = 0;
+    const companies = new AdminCompaniesRepository(raceClient.db);
+    const writeAudit = companies.writeAudit.bind(companies);
+    companies.writeAudit = async (tx, audit) => {
+      pid = await backendPid(tx);
+      parked();
+      await gate;
+      return writeAudit(tx, audit);
+    };
+    const archive = new AdminCompaniesService(
+      companies,
+      new AdminActionsRepository(raceClient.db),
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { revokeAllForPayer: async () => undefined } as never,
+      {} as never,
+      events,
+    );
+    const archiving = archive.archiveCompany(
+      { id: STAFF, role: "ops_admin", sid: "s" } as never,
+      ARCHIVED_CO,
+      { reason_code: "inactive", reason_text: "Company confirmed it has stopped hiring" },
+      CTX,
+    );
+    let creating: Promise<unknown> | undefined;
+    try {
+      await holding;
+      creating = company().create(ARCHIVED_CO, body({ openings: 83 }), "t2746d-key-0083", CTX);
+      await waitForLockWaiter(pid, "%payers%");
+      release();
+      const [archived, created] = await Promise.allSettled([archiving, creating]);
+      for (const r of [archived, created]) {
+        if (r.status === "rejected") expect(sqlStateOf(r.reason)).not.toBe("40P01");
+      }
+      expect(archived).toMatchObject({ status: "fulfilled", value: { changed: true } });
+      expect(created.status).toBe("rejected");
+      expect(
+        ((created as PromiseRejectedResult).reason as ForbiddenException).getResponse(),
+      ).toMatchObject({
+        reason: "company_not_active",
+      });
+      expect((await stored({ payerId: ARCHIVED_CO })).map((r) => r.idempotency_key)).toEqual([
+        "t2746d-key-0082",
+      ]);
+    } finally {
+      release();
+      await Promise.allSettled([archiving, creating ?? Promise.resolve()]);
+    }
+  }, 30_000);
+
   // ── DPDP erasure ────────────────────────────────────────────────────────────
 
   it("cdr_contact_chk refuses a half-erasure: the contact is both ciphertexts or neither, dated", async () => {
@@ -1080,6 +1201,7 @@ async function seed(client: DbClient): Promise<void> {
   await payer(LEAVER, "employer", "Leaver Login t2746d");
   await payer(WITHDRAWN, "employer", "Withdrawn Works t2746d");
   await payer(TEAM_ROOT, "employer", "Team Works t2746d");
+  await payer(ARCHIVED_CO, "employer", "Archived Works t2746d");
   await payer(TEAM_MEMBER, "employer", "Team Member Login t2746d");
   await sql`
     INSERT INTO payer_orgs (id, root_payer_id, name_enc, status)
@@ -1088,7 +1210,7 @@ async function seed(client: DbClient): Promise<void> {
     INSERT INTO payer_members (org_id, member_payer_id, org_role, status)
     VALUES (${TEAM_ORG}::uuid, ${TEAM_ROOT}::uuid, 'owner', 'active'),
            (${TEAM_ORG}::uuid, ${TEAM_MEMBER}::uuid, 'recruiter', 'active')`;
-  for (const id of [COMPANY, OTHER, WITHDRAWN]) {
+  for (const id of [COMPANY, OTHER, WITHDRAWN, ARCHIVED_CO]) {
     await sql`
       INSERT INTO employer_profiles (payer_id, verification_status, gst_number_enc)
       VALUES (${id}::uuid, 'verified', ${pii.encrypt("27ABCDE1234F1Z5")})`;
