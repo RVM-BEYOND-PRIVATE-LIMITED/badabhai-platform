@@ -193,6 +193,7 @@ export class AdminCandidatesService {
         updated_at: r.updatedAt.toISOString(),
         ai_cost_inr: r.aiCostInr,
         referral_source: r.referralSource,
+        institute_code: r.instituteCode,
       };
       const name = names?.get(r.workerId);
       if (name !== undefined) row.name = name;
