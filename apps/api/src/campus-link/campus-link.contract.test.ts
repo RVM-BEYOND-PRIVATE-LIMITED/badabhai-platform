@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import {
+  CAMPUS_EARLIEST_DECISION_TIME,
   CAMPUS_ERROR_CODES,
   CAMPUS_TARGETING_LIMITS,
   CourseIdSchema,
@@ -414,6 +415,21 @@ describe("Campus contract v1 — POST job-postings texts follow the shared chara
     expect(accepts({ description: "Day" + NUL + " shift" })).toBe(false);
     expect(accepts({ description: "Day" + LINE_SEP + "shift" })).toBe(false);
     expect(accepts({ description: "Day" + ZWNJ + " shift" })).toBe(true);
+  });
+});
+
+describe("Campus contract v1 — a stored applied_at is not before the link (#2752 Part E)", () => {
+  const apply = (applied_at: string) =>
+    CampusApplyBodySchema.safeParse({ ...examples.APPLY_BODY_EXAMPLE, applied_at }).success;
+
+  it("refuses a year-0000 or pre-2026 applied_at (it would fail the timestamptz cast, a 500)", () => {
+    expect(apply("0000-01-01T00:00:00.000Z")).toBe(false);
+    expect(apply("2025-12-31T23:59:59.999Z")).toBe(false);
+  });
+
+  it("accepts CAMPUS_EARLIEST_DECISION_TIME itself and anything after", () => {
+    expect(apply(CAMPUS_EARLIEST_DECISION_TIME)).toBe(true);
+    expect(apply("2026-11-14T15:30:00.000+05:30")).toBe(true);
   });
 });
 

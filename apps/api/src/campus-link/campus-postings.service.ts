@@ -12,7 +12,10 @@ import { isBarredPayerStatus } from "../payers/payer-barred-status";
 import type { PayerTenantScope } from "../payers/payer-tenant-scope";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { CampusRefusal } from "./campus-errors";
-import type { CampusPostForCompanyBodySchema } from "./campus-link.contract";
+import {
+  CAMPUS_EARLIEST_DECISION_TIME,
+  type CampusPostForCompanyBodySchema,
+} from "./campus-link.contract";
 import { CampusPostingsRepository, type CampusFeedRow } from "./campus-postings.repository";
 import type { z } from "zod";
 
@@ -24,6 +27,17 @@ const RVM: InstituteCode = "rvm";
  * read; re-reading this overlap (Campus de-duplicates by id) means no change is ever skipped.
  */
 export const CAMPUS_FEED_OVERLAP_MS = 120_000;
+
+const EARLIEST_MS = Date.parse(CAMPUS_EARLIEST_DECISION_TIME);
+
+/**
+ * Where a feed read with `changed_since` starts: the overlap before Campus's mark, but never before
+ * `CAMPUS_EARLIEST_DECISION_TIME`. A year-0000 mark passes the schema and would fail Postgres's
+ * `timestamptz` cast (22008, a 500); nothing the link records is older, so the clamp loses nothing.
+ */
+export function feedChangedSince(changedSince: string): Date {
+  return new Date(Math.max(Date.parse(changedSince) - CAMPUS_FEED_OVERLAP_MS, EARLIEST_MS));
+}
 
 /** One posting in the Campus contract's shape (`CampusPostingSchema`, plus `content_hash`). */
 export interface CampusPostingAnswer {
@@ -109,9 +123,7 @@ export class CampusPostingsService {
       branchId: query.branch_id,
       courseId: query.course_id,
       changedSince:
-        query.changed_since === undefined
-          ? undefined
-          : new Date(new Date(query.changed_since).getTime() - CAMPUS_FEED_OVERLAP_MS),
+        query.changed_since === undefined ? undefined : feedChangedSince(query.changed_since),
       after: query.cursor === undefined ? undefined : decodeFeedCursor(query.cursor),
       // One row past the page says whether there is a next one.
       limit: query.limit + 1,

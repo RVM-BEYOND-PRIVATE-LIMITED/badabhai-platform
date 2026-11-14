@@ -319,7 +319,7 @@ Send the Campus application id as both `external_ref` and `Idempotency-Key`. Onl
 travels: BadaBhai reads the student's agreed fields from RVM's Student API itself, under the
 student's consent, so no name, phone, course or résumé link is sent here. BadaBhai sets the RVM tag
 and the came-from itself. `applied_at` is kept as information only; BadaBhai orders and dates
-applications by its own clock.
+applications by its own clock. One before 2026-01-01T00:00:00Z is a 400 `VALIDATION_FAILED`.
 
 BadaBhai takes it only for a posting that is open and not hidden (`POSTING_NOT_OPEN`, also for one
 that closes at the same moment), whose audience includes RVM students (`AUDIENCE_EXCLUDES_RVM`),
@@ -345,7 +345,8 @@ sees him in its applicant list labelled as an RVM student. Answers `201` with th
 Query: `changed_since`, `cursor`, `limit`. Answers `{ "applications": [ …as above… ], "next_cursor" }`,
 in `changed_at` order. `changed_since` reaches back two minutes further than asked, so a change
 committed late is never skipped: de-duplicate by `application_id`. The same holds for
-`GET job-postings`.
+`GET job-postings`. A `changed_since` before 2026-01-01T00:00:00Z reads from that time: nothing the
+link records is older.
 `stage` is one of `new`, `shortlist`, `selected`, `hired`, `passed`, `withdrawn`. `new`, `shortlist`
 and `passed` exist today; `selected` and `hired` arrive with #2747. Campus maps `passed` to its own
 `rejected`.

@@ -9,11 +9,7 @@ import {
   CampusApplicationsRepository,
   type CampusApplicationView,
 } from "./campus-applications.repository";
-import {
-  decodeFeedCursor,
-  encodeFeedCursor,
-  CAMPUS_FEED_OVERLAP_MS,
-} from "./campus-postings.service";
+import { decodeFeedCursor, encodeFeedCursor, feedChangedSince } from "./campus-postings.service";
 import { InstituteLinkService } from "./institute-link.service";
 
 const RVM: InstituteCode = "rvm";
@@ -136,9 +132,7 @@ export class CampusApplicationsService {
     const rows = await this.repo.listFeed({
       instituteCode: RVM,
       changedSince:
-        query.changed_since === undefined
-          ? undefined
-          : new Date(new Date(query.changed_since).getTime() - CAMPUS_FEED_OVERLAP_MS),
+        query.changed_since === undefined ? undefined : feedChangedSince(query.changed_since),
       after: query.cursor === undefined ? undefined : decodeFeedCursor(query.cursor),
       limit: query.limit + 1,
     });

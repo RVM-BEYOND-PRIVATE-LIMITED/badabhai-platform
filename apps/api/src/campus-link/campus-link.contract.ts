@@ -469,8 +469,14 @@ export const CampusApplyBodySchema = z.strictObject({
   external_ref: CampusExternalRefSchema,
   posting_id: Id,
   student_ref: StudentRefSchema,
-  /** Kept as information only. BadaBhai orders and dates applications by its own clock. */
-  applied_at: IsoDateTime.optional(),
+  /**
+   * Kept as information only. BadaBhai orders and dates applications by its own clock. Stored, so
+   * not before `CAMPUS_EARLIEST_DECISION_TIME` (a year-0000 time would fail the `timestamptz` cast).
+   */
+  applied_at: IsoDateTime.refine(
+    (value) => Date.parse(value) >= Date.parse(CAMPUS_EARLIEST_DECISION_TIME),
+    `not before ${CAMPUS_EARLIEST_DECISION_TIME}`,
+  ).optional(),
 });
 
 export const CampusApplicationSchema = z.object({
