@@ -1719,6 +1719,26 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerInstituteUnlinkedPayload,
   },
+  // #2746 — a company asked RVM's placement team for a campus drive. IDS, ENUMS AND DATES ONLY;
+  // never the contact or the roles note. v1.
+  "campus_drive.requested": {
+    version: 1,
+    domain: "campus_drive",
+    payload: p.CampusDriveRequestedPayload,
+  },
+  // #2746 — the placement team (BadaBhai Campus) scheduled, declined or completed a drive request.
+  // IDS, ENUMS AND DATES ONLY; never the reason text. v1.
+  "campus_drive.decided": {
+    version: 1,
+    domain: "campus_drive",
+    payload: p.CampusDriveDecidedPayload,
+  },
+  // #2746 — the company cancelled its drive request. IDS AND ENUMS ONLY. v1.
+  "campus_drive.cancelled": {
+    version: 1,
+    domain: "campus_drive",
+    payload: p.CampusDriveCancelledPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

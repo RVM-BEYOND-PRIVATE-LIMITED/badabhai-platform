@@ -70,6 +70,8 @@ function harness(over: { company?: CompanyRow; keyring?: boolean } = {}) {
     findProfile: vi.fn(async () => undefined),
     upsertProfile: vi.fn(async () => undefined),
     lockRoot: vi.fn(async () => ({ status: (over.company ?? company()).status })),
+    lockLogins: vi.fn(async (ids: readonly string[]) => [...ids].sort()),
+    restampDriveRequests: vi.fn(async () => undefined),
     teamLoginIds: vi.fn(async () => [MEMBER]),
     archiveLogin: vi.fn(async (id: string) => ({
       id,
@@ -403,6 +405,81 @@ describe("#2564 company records — archive / restore", () => {
     );
     expect(result.changed).toBe(false);
     expect(h.repo.withTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("#2746 PR 6 — archive / restore lock every login first and re-stamp the drive requests last", () => {
+  const reason = {
+    reason_code: "inactive" as const,
+    reason_text: "Company confirmed it has stopped hiring",
+  };
+  const admin = { id: ADMIN, role: "ops_admin", sid: "s" } as never;
+  type Harness = ReturnType<typeof harness>;
+  const order = (fn: { mock: { invocationCallOrder: number[] } }) => fn.mock.invocationCallOrder;
+  const lastOther = (h: Harness) =>
+    Math.max(
+      ...[
+        h.repo.archiveLogin,
+        h.repo.restoreLogin,
+        h.repo.writeAudit,
+        h.actions.suspendPayerInventory,
+        h.actions.reinstatePayerInventory,
+        h.events.emit,
+      ].flatMap(order),
+    );
+
+  it("archive: locks every login in id order right after the root, before any write (migration re-check F1)", async () => {
+    const h = harness();
+    await h.service.archiveCompany(admin, COMPANY, reason, CTX);
+    expect(h.repo.lockLogins).toHaveBeenCalledWith([COMPANY, MEMBER], TX);
+    const locked = order(h.repo.lockLogins)[0]!;
+    expect(locked).toBeGreaterThan(order(h.repo.lockRoot)[0]!);
+    expect(locked).toBeLessThan(Math.min(...order(h.repo.archiveLogin)));
+  });
+
+  it("archive: re-stamps each archived login's drive requests AFTER the inventory freeze, the events and the audit row", async () => {
+    const h = harness();
+    await h.service.archiveCompany(admin, COMPANY, reason, CTX);
+    expect(h.repo.restampDriveRequests.mock.calls).toEqual([
+      [TX, COMPANY],
+      [TX, MEMBER],
+    ]);
+    expect(Math.min(...order(h.repo.restampDriveRequests))).toBeGreaterThan(
+      Math.max(...order(h.actions.suspendPayerInventory)),
+    );
+    expect(Math.min(...order(h.repo.restampDriveRequests))).toBeGreaterThan(lastOther(h));
+  });
+
+  it("restore: the same order", async () => {
+    const h = harness({ company: company({ status: "archived" }) });
+    await h.service.restoreCompany(admin, COMPANY, reason, CTX);
+    expect(h.repo.lockLogins).toHaveBeenCalledWith([COMPANY, MEMBER], TX);
+    expect(order(h.repo.lockLogins)[0]!).toBeLessThan(Math.min(...order(h.repo.restoreLogin)));
+    expect(h.repo.restampDriveRequests.mock.calls).toEqual([
+      [TX, COMPANY],
+      [TX, MEMBER],
+    ]);
+    expect(Math.min(...order(h.repo.restampDriveRequests))).toBeGreaterThan(lastOther(h));
+  });
+
+  it("an edit of the verification re-stamps last; an edit of anything else does not", async () => {
+    const h = harness();
+    await h.service.updateCompany(
+      admin,
+      COMPANY,
+      { changes: { verification_status: "verified" }, ...reason } as never,
+      CTX,
+    );
+    expect(h.repo.restampDriveRequests).toHaveBeenCalledWith(TX, COMPANY);
+    expect(order(h.repo.restampDriveRequests)[0]!).toBeGreaterThan(lastOther(h));
+    const other = harness();
+    await other.service.updateCompany(
+      admin,
+      COMPANY,
+      { changes: { website: "https://acme.example" }, ...reason } as never,
+      CTX,
+    );
+    expect(other.repo.restampDriveRequests).not.toHaveBeenCalled();
   });
 });
 

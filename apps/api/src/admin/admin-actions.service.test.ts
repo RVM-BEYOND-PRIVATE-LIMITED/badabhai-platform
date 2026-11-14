@@ -92,6 +92,7 @@ interface Mocks {
     reinstateWorker: ReturnType<typeof vi.fn>;
     writeAuditReason: ReturnType<typeof vi.fn>;
     writePayerAuditReason: ReturnType<typeof vi.fn>;
+    restampDriveRequests: ReturnType<typeof vi.fn>;
     withTransaction: ReturnType<typeof vi.fn>;
   };
   admins: {
@@ -141,6 +142,8 @@ function make(): Mocks {
     reinstateWorker: vi.fn(),
     writeAuditReason: vi.fn(async () => undefined),
     writePayerAuditReason: vi.fn(async () => undefined),
+    // #2746 PR 6 — the drive-request re-stamp, the LAST statement of a suspend / reinstate.
+    restampDriveRequests: vi.fn(async () => undefined),
     withTransaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(FAKE_TX)),
   };
   const admins = {
@@ -461,6 +464,54 @@ describe("suspendPayer", () => {
     expect(m.events.emit).not.toHaveBeenCalled();
     // Nothing was suspended, so nothing may be revoked.
     expect(m.sessions.revokeAllForPayer).not.toHaveBeenCalled();
+  });
+});
+
+describe("#2746 PR 6 — the drive-request re-stamp is the LAST statement of the transaction (security re-check L1)", () => {
+  /** The latest call order among every mock the transaction touched, other than the re-stamp. */
+  const lastOtherCall = (m: Mocks) =>
+    Math.max(
+      ...[
+        m.actions.suspendPayer,
+        m.actions.reinstatePayer,
+        m.actions.suspendPayerInventory,
+        m.actions.reinstatePayerInventory,
+        m.actions.writePayerAuditReason,
+        m.events.emit,
+      ].flatMap((fn) => fn.mock.invocationCallOrder),
+    );
+
+  it("suspend: re-stamps the company's drive requests after the freeze, the events and the audit row", async () => {
+    const m = make();
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "active" });
+    await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX, {
+      reason_code: "abuse_report",
+      reason_text: "Repeated complaints from workers about this company",
+    } as never);
+    expect(m.actions.restampDriveRequests).toHaveBeenCalledTimes(1);
+    expect(m.actions.restampDriveRequests).toHaveBeenCalledWith(FAKE_TX, PAYER_ID);
+    const stamp = m.actions.restampDriveRequests.mock.invocationCallOrder[0]!;
+    expect(stamp).toBeGreaterThan(m.actions.suspendPayerInventory.mock.invocationCallOrder[0]!);
+    expect(stamp).toBeGreaterThan(lastOtherCall(m));
+  });
+
+  it("reinstate: the same, after the thaw", async () => {
+    const m = make();
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    m.actions.reinstatePayer.mockResolvedValue({ status: "active" });
+    await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
+    expect(m.actions.restampDriveRequests).toHaveBeenCalledWith(FAKE_TX, PAYER_ID);
+    const stamp = m.actions.restampDriveRequests.mock.invocationCallOrder[0]!;
+    expect(stamp).toBeGreaterThan(m.actions.reinstatePayerInventory.mock.invocationCallOrder[0]!);
+    expect(stamp).toBeGreaterThan(lastOtherCall(m));
+  });
+
+  it("an idempotent no-op opens no transaction and re-stamps nothing", async () => {
+    const m = make();
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
+    expect(m.actions.restampDriveRequests).not.toHaveBeenCalled();
   });
 });
 

@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { ConflictException } from "@nestjs/common";
-import { payerOrgs } from "@badabhai/db";
+import { payerOrgs, payers } from "@badabhai/db";
 import { PayerAccountDeletionService } from "./payer-account-deletion.service";
 
 const CTX = { requestId: "req-1", correlationId: "corr-1" } as const;
@@ -9,22 +9,52 @@ const PAYER = "11111111-1111-4111-8111-111111111111";
 const ORG = "33333333-3333-4333-8333-333333333333";
 
 /** Chainable drizzle-select stub branching on the FROM table. */
-function mockDb(orgRows: Array<{ id: string }>, memberRows: Array<unknown>) {
+function mockDb(
+  orgRows: Array<{ id: string }>,
+  memberRows: Array<unknown>,
+  order: string[],
+  payerDeleteFails = false,
+) {
   const deletedTables: unknown[] = [];
-  return {
-    deletedTables,
-    db: {
-      select: vi.fn(() => ({
-        from: vi.fn((table: unknown) => ({
-          where: vi.fn(async () => (table === payerOrgs ? orgRows : memberRows)),
-        })),
+  /** The executor the row delete ran on: the db itself, or the transaction's handle. */
+  const executors: unknown[] = [];
+  const TX = { name: "tx" };
+  const db = {
+    select: vi.fn(() => ({
+      from: vi.fn((table: unknown) => ({
+        where: vi.fn(async () => (table === payerOrgs ? orgRows : memberRows)),
       })),
-      delete: vi.fn((table: unknown) => {
-        deletedTables.push(table);
-        return { where: vi.fn(async () => undefined) };
-      }),
-    },
+    })),
+    delete: vi.fn((table: unknown) => deleteOn(db, table)),
+    // #2746 — the payer row delete and the drive-contact erasure share one transaction.
+    transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => {
+      order.push("tx:begin");
+      try {
+        const out = await work(TX);
+        order.push("tx:commit");
+        return out;
+      } catch (err) {
+        order.push("tx:rollback");
+        throw err;
+      }
+    }),
   };
+  Object.assign(TX, { delete: vi.fn((table: unknown) => deleteOn(TX, table)) });
+  function deleteOn(executor: unknown, table: unknown) {
+    deletedTables.push(table);
+    executors.push(executor);
+    order.push(table === payers ? "delete:payers" : "delete:other");
+    return {
+      where: vi.fn(async () => {
+        if (table === payers && payerDeleteFails) {
+          // What a foreign key still holding the row (employer_profiles) raises.
+          throw Object.assign(new Error("violates foreign key constraint"), { code: "23503" });
+        }
+        return undefined;
+      }),
+    };
+  }
+  return { deletedTables, executors, db, TX };
 }
 
 function makeService(opts: {
@@ -33,8 +63,15 @@ function makeService(opts: {
   memberRows?: Array<unknown>;
   sessionsRevoked?: number;
   revokeThrows?: boolean;
+  payerDeleteFails?: boolean;
 }) {
-  const { deletedTables, db } = mockDb(opts.orgRows ?? [], opts.memberRows ?? []);
+  const order: string[] = [];
+  const { deletedTables, db, executors, TX } = mockDb(
+    opts.orgRows ?? [],
+    opts.memberRows ?? [],
+    order,
+    opts.payerDeleteFails,
+  );
   const payersRepo = {
     findById: vi.fn(async () => (opts.rowFound ? ({ id: PAYER } as never) : undefined)),
   };
@@ -46,13 +83,32 @@ function makeService(opts: {
       : vi.fn(async () => opts.sessionsRevoked ?? 0),
   };
   const events = { emit: vi.fn(async () => undefined) };
+  // #2746 PR 6 — the campus-drive contacts the login entered.
+  const driveContacts = {
+    eraseEnteredBy: vi.fn(async (_payerId: string, _executor?: unknown) => {
+      order.push("erase:drive_contacts");
+      return 1;
+    }),
+  };
   const svc = new PayerAccountDeletionService(
     db as never,
     payersRepo as never,
     sessions as never,
     events as never,
+    driveContacts as never,
   );
-  return { svc, payersRepo, sessions, events, deletedTables, db };
+  return {
+    svc,
+    payersRepo,
+    sessions,
+    events,
+    deletedTables,
+    db,
+    driveContacts,
+    order,
+    executors,
+    TX,
+  };
 }
 
 describe("PayerAccountDeletionService.execute (QA immediate seam)", () => {
@@ -112,6 +168,50 @@ describe("PayerAccountDeletionService.execute (QA immediate seam)", () => {
     expect(events.emit).not.toHaveBeenCalled();
     const deleteCalls = (db.delete as ReturnType<typeof vi.fn>).mock.calls;
     expect(deleteCalls).toHaveLength(0);
+  });
+
+  it("#2746: erases the campus-drive contacts the login entered, in the SAME transaction as the row delete", async () => {
+    const { svc, driveContacts, order, executors, TX } = makeService({
+      rowFound: true,
+      orgRows: [],
+    });
+    await svc.execute(PAYER, { ...CTX });
+    // On the transaction's handle, not the pool: it commits only with the delete.
+    expect(driveContacts.eraseEnteredBy).toHaveBeenCalledWith(PAYER, TX);
+    expect(executors.at(-1)).toBe(TX);
+    // The row delete first: the erasure's stamp lands just before the commit.
+    expect(order).toEqual(["tx:begin", "delete:payers", "erase:drive_contacts", "tx:commit"]);
+  });
+
+  it("#2746: a payer row delete that fails aborts the transaction before the erasure, and emits nothing", async () => {
+    const { svc, events, order } = makeService({
+      rowFound: true,
+      orgRows: [],
+      payerDeleteFails: true,
+    });
+    await expect(svc.execute(PAYER, { ...CTX })).rejects.toMatchObject({ code: "23503" });
+    // The failing delete aborts the transaction before any contact is touched.
+    expect(order).toEqual(["tx:begin", "delete:payers", "tx:rollback"]);
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("#2746: a refused deletion (shared org, already gone, revoke failure) erases no contact", async () => {
+    const OTHER = "22222222-2222-4222-8222-222222222222";
+    const shared = makeService({
+      rowFound: true,
+      orgRows: [{ id: ORG }],
+      memberRows: [{ memberPayerId: OTHER, status: "active" }],
+    });
+    await expect(shared.svc.execute(PAYER, { ...CTX })).rejects.toBeInstanceOf(ConflictException);
+    expect(shared.driveContacts.eraseEnteredBy).not.toHaveBeenCalled();
+
+    const gone = makeService({ rowFound: false });
+    await gone.svc.execute(PAYER, { ...CTX });
+    expect(gone.driveContacts.eraseEnteredBy).not.toHaveBeenCalled();
+
+    const redisDown = makeService({ rowFound: true, revokeThrows: true });
+    await expect(redisDown.svc.execute(PAYER, { ...CTX })).rejects.toThrow("redis down");
+    expect(redisDown.driveContacts.eraseEnteredBy).not.toHaveBeenCalled();
   });
 
   it("fails CLOSED when session revocation throws (no partial erasure)", async () => {
