@@ -51,6 +51,12 @@ describe("cleanDriveLine — the contact name, on the shared Campus character ru
   it("is undefined when nothing visible is left", () => {
     expect(cleanDriveLine(`${ZWSP}${BOM} ${LF}`)).toBeUndefined();
   });
+
+  it("is undefined for joiners and spaces only (they are kept, yet render blank: PR 5's label rule)", () => {
+    expect(cleanDriveLine(`${ZWNJ}${ZWJ}`)).toBeUndefined();
+    expect(cleanDriveLine(`${ZWJ} ${ZWNJ}${TAB}`)).toBeUndefined();
+    expect(cleanDriveLine(`r${ZWJ}`)).toBe(`r${ZWJ}`);
+  });
 });
 
 describe("roles_note and the decision reason use PR 5's note cleaner", () => {
@@ -58,6 +64,10 @@ describe("roles_note and the decision reason use PR 5's note cleaner", () => {
     expect(cleanReviewReason(`CNC${RLO} operators${LF}two${ZWNJ}shifts${ZWSP}`)).toBe(
       `CNC operators${LF}two${ZWNJ}shifts`,
     );
+  });
+
+  it("a note of joiners, spaces and newlines only is no note (stored as null)", () => {
+    expect(cleanReviewReason(`${ZWNJ} ${LF}${ZWJ}`)).toBeUndefined();
   });
 });
 

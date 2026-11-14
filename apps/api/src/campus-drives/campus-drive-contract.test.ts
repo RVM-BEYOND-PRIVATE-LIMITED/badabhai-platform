@@ -124,6 +124,34 @@ describe("drive-request contract — the feed", () => {
   });
 });
 
+describe("drive-request contract — every drive time is within ±14:00 of UTC (PR 5's IsoDateTime)", () => {
+  const times: [string, (time: string) => boolean][] = [
+    [
+      "decision decided_at",
+      (t) =>
+        CampusDriveDecisionBodySchema.safeParse({ ...DRIVE_DECISION_BODY_EXAMPLE, decided_at: t })
+          .success,
+    ],
+    [
+      "feed changed_since",
+      (t) => CampusDriveRequestsQuerySchema.safeParse({ changed_since: t }).success,
+    ],
+  ];
+
+  it.each(times)("%s: accepts Z, IST and the widest real offsets", (_name, ok) => {
+    expect(ok("2026-11-14T10:00:00.000Z")).toBe(true);
+    expect(ok("2026-11-14T15:30:00.000+05:30")).toBe(true);
+    expect(ok("2026-11-15T00:00:00.000+14:00")).toBe(true);
+    expect(ok("2026-11-13T20:00:00.000-14:00")).toBe(true);
+  });
+
+  it.each(times)("%s: refuses an offset past ±14:00 (Postgres refuses past ±15:59)", (_n, ok) => {
+    expect(ok("2026-11-15T00:01:00.000+14:01")).toBe(false);
+    expect(ok("2026-11-15T02:00:00.000+16:00")).toBe(false);
+    expect(ok("2026-11-13T18:00:00.000-16:00")).toBe(false);
+  });
+});
+
 describe("drive-request contract — the mock serves both routes", () => {
   const TOKEN = "mock-token-for-tests";
   const handle = createCampusLinkMock({ token: TOKEN });

@@ -1,4 +1,4 @@
-import { isDroppedFromNote } from "../campus-link/campus-characters";
+import { hasVisibleCharacter, isDroppedFromNote } from "../campus-link/campus-characters";
 
 /**
  * #2746 PR 6 — THE CONTACT NAME, made safe to store and to show (to RVM's placement team).
@@ -12,7 +12,8 @@ import { isDroppedFromNote } from "../campus-link/campus-characters";
  *     are removed;
  *   - format characters (`\p{Cf}`: bidi overrides, zero-width space, the BOM) are removed EXCEPT
  *     ZWNJ and ZWJ, which Indic spellings of a name need.
- * What is left is trimmed; a name of nothing else is no name (the service refuses it).
+ * What is left is trimmed; a name with no VISIBLE character left (only spaces or ZWNJ / ZWJ, PR 5's
+ * `hasVisibleCharacter`, the rule a Campus label follows) is no name (the service refuses it).
  */
 
 /** Spelled by code point so no editor or tool can turn them into something else. */
@@ -31,7 +32,7 @@ export function cleanDriveLine(raw: string): string | undefined {
     else if (!isDroppedFromNote(ch)) kept += ch;
   }
   const cleaned = kept.trim();
-  return cleaned.length > 0 ? cleaned : undefined;
+  return hasVisibleCharacter(cleaned) ? cleaned : undefined;
 }
 
 const DECIMAL_DIGIT = /\p{Nd}/u;

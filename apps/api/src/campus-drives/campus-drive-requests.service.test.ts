@@ -499,13 +499,30 @@ describe("the body's rules", () => {
     expect(table.rows[0]!.rolesNote).toBe(`Pay 15,000 to 18,000 a month, kaa${ZWNJ}m${ZWJ}gar`);
   });
 
-  it("a contact name with nothing visible in it is refused", async () => {
-    const { service } = world();
-    const ZWSP = String.fromCharCode(0x200b);
+  it.each([
+    ["zero-width spaces", String.fromCharCode(0x200b, 0x200b)],
+    [
+      "joiners and a space (kept characters that render blank)",
+      String.fromCharCode(0x200c, 0x20, 0x200d),
+    ],
+  ])("a contact name of %s is refused", async (_name, contactName) => {
+    const { service, table } = world();
     const err = await refusal(() =>
-      service.create(COMPANY, body({ contact_name: `${ZWSP}${ZWSP}` }), "key-0000001", CTX),
+      service.create(COMPANY, body({ contact_name: contactName }), "key-0000001", CTX),
     );
     expect(err.getResponse()).toMatchObject({ reason: "contact_name_required" });
+    expect(table.rows).toEqual([]);
+  });
+
+  it("a roles note of joiners and spaces only is stored as no note", async () => {
+    const { service, table } = world();
+    await service.create(
+      COMPANY,
+      body({ roles_note: String.fromCharCode(0x200c, 0x20, 0x200d) }),
+      "key-0000001",
+      CTX,
+    );
+    expect(table.rows[0]!.rolesNote).toBeNull();
   });
 
   it("job_posting_id must be the company's OWN posting: foreign and unknown are the same 404", async () => {

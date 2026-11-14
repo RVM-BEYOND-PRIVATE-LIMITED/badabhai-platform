@@ -126,8 +126,9 @@ function feedSince(changedSince: string | undefined): string | undefined {
  * `DECISION_NOT_ALLOWED` (with the `status`) store nothing. The company's cancel takes the same
  * row lock, so the two serialise.
  *
- * NO PENDING-ROW FLOOR, unlike the review (#2746 PR 5): a review row goes back to `pending` when the
- * company edits the posting, so a decision made before that reset must not land after it. A drive
+ * NO RESET FLOOR, unlike the review (#2746 PR 5, `CAMPUS_RESET_FLOOR_TOLERANCE_MS`): a review row
+ * goes back to `pending` when the company edits the posting, so a decision dated well before that
+ * reset is `POSTING_CHANGED` rather than landing after it. A drive
  * request never goes back to `requested` and the company cannot edit it (only cancel it, which is
  * final), so there is no reset for a late decision to land behind; `requested` accepts any time
  * that passes the clock rule.

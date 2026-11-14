@@ -456,10 +456,12 @@ although the request did not change.
 
 - `decision`: `scheduled` | `declined` | `completed`. Cancelling is the company's alone.
 - `decided_by_ref` (required): the staff member, a uuid. Stored as a reference, never resolved.
-- `decided_at` (required): when the staff member decided, by Campus's clock. The review's rule:
-  before `2026-01-01T00:00:00Z` or more than 60 seconds ahead of BadaBhai's clock is 400
-  `VALIDATION_FAILED`. A `completed` dated (as a day in India) before the drive's
-  `scheduled_on` is 409 `DECISION_NOT_ALLOWED`: a drive cannot have happened before its day.
+- `decided_at` (required): when the staff member decided, by Campus's clock. The review's clock
+  rule: before `2026-01-01T00:00:00Z`, more than 60 seconds ahead of BadaBhai's clock, or a UTC
+  offset beyond ±14:00 is 400 `VALIDATION_FAILED`. The review's reset floor does not apply: a
+  drive request never goes back to `requested`. A `completed` dated (as a day in India) before
+  the drive's `scheduled_on` is 409 `DECISION_NOT_ALLOWED`: a drive cannot have happened before
+  its day.
 - `scheduled_on` and `campus_drive_ref`: required with `scheduled`, refused with the others.
   `scheduled_on` runs from today in India to a year after it; otherwise 400 `VALIDATION_FAILED`.
   `campus_drive_ref` is Campus's id for its drive record (1–200 characters of
