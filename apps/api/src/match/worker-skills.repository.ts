@@ -688,10 +688,10 @@ export class WorkerSkillsRepository {
       WHERE jr.worker_id = ${workerId}::uuid
         AND jr.job_posting_id = ${jobPostingId}::uuid
         AND jp.status = 'open'
-        AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
         -- #2566 — hidden leaves every worker surface, apply included. Hiding keeps the reach
         -- rows, so without this a worker holding a card could still apply to a hidden job.
         AND jp.hidden_at IS NULL
+        AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
       LIMIT 1
     `);
     const list = rows as unknown as { match_tier: number; matched_skill_id: string }[];
