@@ -101,6 +101,7 @@ describe.skipIf(!RUN)("#2752 institute link — against Postgres", () => {
       rvm,
       pii,
       eventsService,
+      { RVM_CONSENT_RECHECK_SECONDS: 300 } as never,
     );
   });
 

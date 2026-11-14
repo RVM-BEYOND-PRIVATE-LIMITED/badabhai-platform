@@ -665,7 +665,7 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "CampusLink",
     ctor: CampusLinkController,
-    routes: { ping: [CS] },
+    routes: { ping: [CS], unlinkStudent: [CS] },
   },
   // Referral attribution (ADR-0020/0022): the invited_worker_id is the SESSION worker, so
   // a caller can only ever attribute THEMSELVES to a code (XB-A). B4 added an OPTIONAL

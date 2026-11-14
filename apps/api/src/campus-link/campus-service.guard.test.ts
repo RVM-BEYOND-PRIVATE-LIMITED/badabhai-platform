@@ -12,7 +12,12 @@ import {
 import type { ServerConfig } from "@badabhai/config";
 import type { SubjectRateLimit } from "../common/rate-limit/subject-rate-limit.service";
 import type { CampusCallAudit, CampusCallAuditRepository } from "./campus-call-audit.repository";
-import { CampusServiceGuard, matchTokenSlot, normaliseAddress } from "./campus-service.guard";
+import {
+  CampusServiceGuard,
+  matchTokenSlot,
+  normaliseAddress,
+  routeTemplate,
+} from "./campus-service.guard";
 import { CAMPUS_CALL_ID_HEADER, CAMPUS_SERVICE_TOKEN_HEADER } from "./campus-link.contract";
 
 const TOKEN = "campus-token-live-0123456789abcdef";
@@ -68,7 +73,7 @@ function call(token: string | undefined, ip: string | undefined = CAMPUS_IP) {
   const path = "/internal/campus/v1/ping";
   const context = {
     switchToHttp: () => ({
-      getRequest: () => ({ headers, ip, method: "GET", path, originalUrl: path }),
+      getRequest: () => ({ headers, ip, method: "GET", path, originalUrl: path, route: { path } }),
       getResponse: () => ({
         setHeader: (name: string, value: string) => {
           responseHeaders[name] = value;
@@ -277,5 +282,17 @@ describe("normaliseAddress", () => {
     expect(normaliseAddress("203.0.113.7")).toBe("203.0.113.7");
     expect(normaliseAddress("::1")).toBe("::1");
     expect(normaliseAddress(undefined)).toBeNull();
+  });
+});
+
+describe("routeTemplate", () => {
+  it("is the declared route, so a student reference in the path never reaches the audit row", () => {
+    expect(routeTemplate({ route: { path: "/internal/campus/v1/students/:student_ref" } })).toBe(
+      "/internal/campus/v1/students/:student_ref",
+    );
+  });
+
+  it("falls back to a marker, never to the concrete path, when no route matched", () => {
+    expect(routeTemplate({ route: undefined })).toBe("(unmatched)");
   });
 });

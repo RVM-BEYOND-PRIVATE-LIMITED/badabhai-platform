@@ -9,8 +9,9 @@ RVMBeyond_jobportal#155 and #154.
   `campus-link.examples.ts` is parsed against its schema in CI.
 - **Mock:** `pnpm --filter @badabhai/api build && pnpm --filter @badabhai/api campus:mock -- --port=4100 --token=<test token>`.
   Same paths, headers, schemas and errors; examples plus in-memory state; no database.
-- **Status:** `GET ping` is live behind the flag. The other routes are the contract Campus builds
-  against; each lands as the rest of #2752 (and #2746 for postings and review) is built.
+- **Status:** `GET ping` and `DELETE students/:student_ref` are live behind the flag. The other
+  routes are the contract Campus builds against; each lands as the rest of #2752 (and #2746 for
+  postings and review) is built.
 
 ## Rules for every call
 
@@ -50,19 +51,19 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 
 ## Routes
 
-| Method and path                     | Purpose                                                 | Lands with         |
-| ----------------------------------- | ------------------------------------------------------- | ------------------ |
-| `GET ping`                          | Proves flag, address and token                          | **live** (this PR) |
-| `GET job-postings`                  | Postings whose audience includes RVM students           | #2752 + #2746      |
-| `PUT job-postings/:id/review`       | Placement team approves or rejects                      | #2752 + #2746      |
-| `POST job-postings`                 | Placement team posts for a company                      | #2752 + #2746      |
-| `GET companies?phone=`              | Find a company by exact phone                           | #2752              |
-| `POST applications`                 | A student applies                                       | #2752 + #2746      |
-| `GET applications`                  | Status feed Campus polls                                | #2752              |
-| `DELETE applications/:external_ref` | Student withdraws                                       | #2752              |
-| `PUT search-grants/:grant_ref`      | Named-company search grant, after the student's own yes | #2752              |
-| `DELETE search-grants/:grant_ref`   | Revoke a grant                                          | #2752              |
-| `DELETE students/:student_ref`      | Unlink a student (consent withdrawn or deleted)         | #2752              |
+| Method and path                     | Purpose                                                 | Lands with    |
+| ----------------------------------- | ------------------------------------------------------- | ------------- |
+| `GET ping`                          | Proves flag, address and token                          | **live**      |
+| `GET job-postings`                  | Postings whose audience includes RVM students           | #2752 + #2746 |
+| `PUT job-postings/:id/review`       | Placement team approves or rejects                      | #2752 + #2746 |
+| `POST job-postings`                 | Placement team posts for a company                      | #2752 + #2746 |
+| `GET companies?phone=`              | Find a company by exact phone                           | #2752         |
+| `POST applications`                 | A student applies                                       | #2752 + #2746 |
+| `GET applications`                  | Status feed Campus polls                                | #2752         |
+| `DELETE applications/:external_ref` | Student withdraws                                       | #2752         |
+| `PUT search-grants/:grant_ref`      | Named-company search grant, after the student's own yes | #2752         |
+| `DELETE search-grants/:grant_ref`   | Revoke a grant                                          | #2752         |
+| `DELETE students/:student_ref`      | Unlink a student (consent withdrawn or deleted)         | **live**      |
 
 Mounted behind the same guard by their own issues: campus-drive requests and decisions (#2746),
 credit waivers (#2750).
@@ -212,6 +213,11 @@ Answers
 Unlinks: no new opens, copied fields erased, the BadaBhai row deleted when he has no BadaBhai
 account of his own. Answers `{ "student_ref", "state": "unlinked" }`.
 
+Call it when the student withdraws his RVM consent or asks RVM to delete him. Idempotent: a
+reference BadaBhai never linked, or one already unlinked, answers the same and changes nothing.
+Contacts companies opened before the unlink stay with them. A later consent links him again on his
+next application.
+
 ## Decisions behind this shape (answers to Campus's points of 13 Nov 2026)
 
 1. **Header:** `X-Service-Token`, as the Student API. Two live tokens during a rotation.
@@ -245,6 +251,32 @@ linked student (apply, grant):
 Manual list (`audit_logs`, ids and a reason code): `institute_link.phone_mismatch`
 (`phone_held_by_another_worker`, `worker_signs_in_himself`) and `institute_link.refused`
 (`worker_linked_to_another_ref`, `worker_suspended`, `worker_deletion_scheduled`).
+
+## Inside BadaBhai: who may see or open a linked student (#2752 part C)
+
+Not routes. These rules hold with `CAMPUS_LINK_ENABLED` off too, because a link outlives the flag.
+
+1. **Search.** An actively linked student never appears in a company's candidate search, even if
+   he also accepted BadaBhai's own consent in the worker app (issue question 2: hidden while the
+   link is active).
+2. **Opening** (`InstituteOpenGate`, asked by unlock, reveal and résumé disclosure). A company opens
+   him only if he applied to one of its jobs, through Campus or the worker app. His own BadaBhai
+   consent does not widen that while the link is active. Every refusal is the same neutral body a
+   company gets for anyone it may not open.
+3. **Consent re-read before an open.** A confirmation older than `RVM_CONSENT_RECHECK_SECONDS`
+   (default 300) is read again from RVM's Student API. RVM's `NOT_AVAILABLE` withdraws the link
+   and erases the copied facts (`worker.institute_unlinked`, reason `consent_not_confirmed`), so a
+   missed unlink call cannot leave him open. It never deletes a row: RVM gives that answer for any
+   reason, an inactive account included. An outage refuses the open and ends nothing.
+4. **Unlink** (`DELETE students/:student_ref`, reason `campus_request`). The link is withdrawn and
+   its course, branch, status and score are erased. A row the link created is deleted with his
+   applications when he never used it as a BadaBhai account (no BadaBhai consent, PIN or device);
+   anyone else keeps his row, name and profile. Event `worker.institute_unlinked` v1: `worker_id`,
+   `institute_code`, `reason` (`campus_request` | `consent_not_confirmed`), `worker_deleted`; ids
+   only. Audit rows record the route template, never the reference in the path.
+5. **Send `DELETE students/:student_ref` only for a withdrawal or a deletion request.** A retried
+   DELETE that arrives after he consented again still unlinks him; his next application links him
+   again.
 
 ## Open decisions (owner, before the route is built)
 
