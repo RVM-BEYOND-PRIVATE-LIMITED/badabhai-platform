@@ -648,6 +648,12 @@ export const facelessApplicantSchema = z.object({
    * every row while it does not — the board reads which from the rows (`hasSavedStages`).
    */
   stage: z.enum(APPLICANT_STAGES).optional(),
+
+  /**
+   * #2752 part E — `"rvm"` while the applicant is an actively linked RVM student, else
+   * absent. Display only; it never changes rank or unlock behaviour.
+   */
+  instituteCode: z.string().optional(),
 });
 export type FacelessApplicant = z.infer<typeof facelessApplicantSchema>;
 
@@ -1117,6 +1123,8 @@ export const reachApplicantWireSchema = z.object({
   cityLabel: z.string().nullable().optional(),
   levelFit: levelFitSchema.optional(),
   stage: applicantStageWireSchema.optional(),
+  /** #2752 part E — "rvm" while actively linked to RVM through Campus, else null. Display only. */
+  instituteCode: z.string().nullable().optional(),
 });
 
 /**
@@ -1144,6 +1152,8 @@ export const matchCandidateWireSchema = z.object({
   tradeLevels: z.array(tradeLevelBadgeWireSchema).optional(),
   levelFit: levelFitSchema.optional(),
   stage: applicantStageWireSchema.optional(),
+  /** #2752 part E — "rvm" while actively linked to RVM through Campus, else null. Display only. */
+  instituteCode: z.string().nullable().optional(),
 });
 
 /**

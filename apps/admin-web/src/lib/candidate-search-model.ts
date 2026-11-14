@@ -64,6 +64,8 @@ export interface CandidateSearchFilters {
   deletion_scheduled?: boolean;
   flagged?: boolean;
   is_test_account?: boolean;
+  /** #2752 part D — true = linked RVM students only, false = everyone else, absent = all. */
+  institute_linked?: boolean;
   form_level?: Array<"easy" | "medium" | "hard">;
 }
 
@@ -117,6 +119,8 @@ export interface CandidateRow {
   referral_source: string | null;
   /** Present only when the identity layer disclosed names; absent otherwise (analysts, cap). */
   name?: string | null;
+  /** #2752 part D — `"rvm"` while actively linked to RVM through Campus, else null. */
+  institute_code?: string | null;
 }
 
 export interface CandidateFacet {
@@ -162,7 +166,13 @@ const NUMBER_FILTERS = [
   "role_experience_months_max",
 ] as const;
 
-const BOOLEAN_FILTERS = ["has_resume", "deletion_scheduled", "flagged", "is_test_account"] as const;
+const BOOLEAN_FILTERS = [
+  "has_resume",
+  "deletion_scheduled",
+  "flagged",
+  "is_test_account",
+  "institute_linked",
+] as const;
 
 const DATE_FILTERS = [
   "last_active_from",
@@ -415,6 +425,12 @@ export function candidateFilterChips(filters: CandidateSearchFilters): Candidate
     out.push({
       key: "is_test_account",
       label: filters.is_test_account ? "Test accounts" : "Real accounts",
+    });
+  }
+  if (filters.institute_linked !== undefined) {
+    out.push({
+      key: "institute_linked",
+      label: filters.institute_linked ? "RVM students" : "Not RVM students",
     });
   }
   return out;

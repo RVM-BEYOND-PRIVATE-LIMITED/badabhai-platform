@@ -12,9 +12,9 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_system_ui.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
+import '../../../core/widgets/bb_brand_mark.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_field.dart';
-import '../../../core/widgets/bb_logo.dart';
 import '../../../core/widgets/bb_otp_input.dart';
 import 'signup_screen.dart';
 import 'widgets/auth_form_support.dart';
@@ -573,7 +573,7 @@ class _LoginScreenState extends State<LoginScreen> {
       ];
 }
 
-/// Blue band: haldi mark IN LINE with the headline (one horizontal row).
+/// Blue band: the two-person BadaBhai mark centred above the headline.
 class _BrandHeader extends StatelessWidget {
   const _BrandHeader();
 
@@ -594,20 +594,20 @@ class _BrandHeader extends StatelessWidget {
               AppSpacing.gutter,
               AppSpacing.s5,
             ),
-            child: Row(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                // #2590 — the real BadaBhai mark, not a stock handshake icon.
-                const BbLogo.onBlue(size: AppSpacing.brandMark),
-                const SizedBox(width: AppSpacing.s4),
-                Expanded(
-                  child: Text(
-                    'Hire faster,\nbada bhai ke saath.',
-                    style: AppTypography.header(
-                      size: AppTypography.sizeXl,
-                      weight: FontWeight.w800,
-                      color: AppColors.onBlue,
-                    ),
+                // The two-person BadaBhai mark, centred and large above the
+                // headline; it is the same mark the Post-a-job header uses.
+                const BbBrandMark.onBlue(size: 88),
+                const SizedBox(height: AppSpacing.s4),
+                Text(
+                  'Hire faster,\nbada bhai ke saath.',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.header(
+                    size: AppTypography.sizeXl,
+                    weight: FontWeight.w800,
+                    color: AppColors.onBlue,
                   ),
                 ),
               ],

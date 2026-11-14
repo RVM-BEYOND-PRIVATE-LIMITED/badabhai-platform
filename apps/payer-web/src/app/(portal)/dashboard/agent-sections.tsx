@@ -3,7 +3,6 @@ import { requireAgent } from "../../../lib/auth/roles";
 import { agencyFlags } from "../../../lib/config";
 import { getAgencyReferralsSummary, listAgencyJobs } from "../../../lib/payer-api";
 import { assertNoAgencyPII } from "../../../lib/assert-no-agency-pii";
-import { formatInr } from "../../../lib/format";
 import { summarizeAgencyJobs } from "../../../lib/agency-summary";
 import { kAnonCount, tradeLabel } from "../../../lib/agency-view";
 import { lowBalanceThreshold } from "../../../lib/pricing-config";
@@ -39,7 +38,6 @@ import { RetryButton } from "../../../components/retry-button";
 export interface AgentSectionsProps {
   credits: CreditBalance | null;
   unlocks: UnlockHistoryItem[] | null;
-  unitPriceInr: number | null;
 }
 
 const GLANCE_ROWS = 3;
@@ -47,7 +45,6 @@ const GLANCE_ROWS = 3;
 export async function AgentSections({
   credits = null,
   unlocks = null,
-  unitPriceInr = null,
 }: Partial<AgentSectionsProps> = {}) {
   // 1) SERVER-enforced role gate — employer → neutral 404, before any agency read runs.
   await requireAgent();
@@ -118,15 +115,8 @@ export async function AgentSections({
               </span>
             )
           }
-          caption={
-            credits === null ? (
-              "Not available right now"
-            ) : unitPriceInr !== null ? (
-              <>
-                <span className="bb-mono">{formatInr(unitPriceInr)}</span> per contact unlock
-              </>
-            ) : undefined
-          }
+          // No per-unlock price (#2744): the caption only says when the balance could not be read.
+          caption={credits === null ? "Not available right now" : undefined}
           foot={
             <PortalLink className="dash-kpi__link" href="/credits" pendingLabel="Credits">
               <Icon name="plus" /> Top-up

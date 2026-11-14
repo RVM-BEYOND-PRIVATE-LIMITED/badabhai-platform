@@ -28,6 +28,19 @@ abstract class PayerApiClient {
   /// [Applicant] carries an opaque worker UUID + coarse facets, never a name.
   Future<List<Applicant>> fetchApplicants(String jobId);
 
+  /// Move one applicant on the posting's saved New / Shortlist / Passed board
+  /// (`PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage`, #2137).
+  ///
+  /// [stage] is `new | shortlist | passed`. A `passed` applicant stays on the
+  /// FEED (the server never filters it); the client hides it by [Applicant.stage].
+  /// Returns false when the server does not save stages (neutral 404 — flag off,
+  /// or the worker is no longer on that feed); true when saved (or a no-op).
+  Future<bool> setApplicantStage({
+    required String jobId,
+    required String workerId,
+    required String stage,
+  });
+
   // --- All-candidates search (ADR-0040, phase E2; owner rulings 2026-11-03) --
   // Every worker in the eligible pool (the API decides membership), MASKED and
   // ordered by the payer's filters. Company and agency sessions alike — it does

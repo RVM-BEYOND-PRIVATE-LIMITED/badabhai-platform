@@ -17,7 +17,7 @@ import 'payer_token_store.dart';
 const Duration kRequestTimeout = Duration(seconds: 15);
 
 /// HTTP verbs [PayerHttp] speaks.
-enum PayerMethod { get, post, patch, delete }
+enum PayerMethod { get, post, patch, put, delete }
 
 /// A decoded payer-API response: the HTTP status + the parsed JSON body (`{}`
 /// when empty / non-object). Mirrors the worker app's `AuthResponse`.
@@ -209,6 +209,7 @@ class PayerHttp {
           PayerMethod.get => _client.get(uri, headers: headers),
           PayerMethod.post => _client.post(uri, headers: headers, body: encoded),
           PayerMethod.patch => _client.patch(uri, headers: headers, body: encoded),
+          PayerMethod.put => _client.put(uri, headers: headers, body: encoded),
           PayerMethod.delete => _client.delete(uri, headers: headers, body: encoded),
         }
             .timeout(kRequestTimeout);

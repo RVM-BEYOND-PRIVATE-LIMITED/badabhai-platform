@@ -713,6 +713,11 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                   <Avatar masked size={44} aria-hidden="true" />
                   <div className="applicant__id">
                     <span className="bb-mono applicant__id-code">{opaqueId(a.workerId)}</span>
+                    {/* #2752 part E — information, not a warning: the brand badge says this
+                        applicant came through BadaBhai Campus. Rank and unlock are unchanged. */}
+                    {a.instituteCode === "rvm" ? (
+                      <Badge tone="brand">RVM student</Badge>
+                    ) : null}
                     {a.tradeLabel ? (
                       <span className="applicant__trade">{a.tradeLabel}</span>
                     ) : null}

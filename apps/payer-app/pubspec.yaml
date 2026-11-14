@@ -64,6 +64,11 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
+  assets:
+    # The official two-person BadaBhai mark (the brand lockup's glyph, no
+    # wordmark), shown in the Post a Job header.
+    - assets/brand/badabhai-mark.png
+
   fonts:
     # Data font — ₹, IDs, phone, counts. Self-hosted (real binaries) so numbers
     # render identically with no network. Sourced from the BadaBhai Design System.

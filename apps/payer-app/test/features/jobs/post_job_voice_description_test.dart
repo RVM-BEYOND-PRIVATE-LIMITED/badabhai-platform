@@ -132,11 +132,21 @@ void main() {
     await tester.pump();
   }
 
+  Future<void> goToStep(WidgetTester tester, int step) async {
+    final Finder tab = find.byKey(Key('post_job_step_$step'));
+    await tester.ensureVisible(tab);
+    await tester.pumpAndSettle();
+    await tester.tap(tab);
+    await tester.pumpAndSettle();
+  }
+
   Future<void> pickTrade(WidgetTester tester) async {
     await tester.tap(find.text('— pick the role —'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Welder').last);
     await tester.pumpAndSettle();
+    // The wizard keeps the description and its voice control on step 4.
+    await goToStep(tester, 3);
   }
 
   String descriptionText(WidgetTester tester) {
@@ -218,6 +228,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await goToStep(tester, 3);
 
     await tester.tap(find.byKey(const Key('voice_description_button')));
     await tester.pumpAndSettle();

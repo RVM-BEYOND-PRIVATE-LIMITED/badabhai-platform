@@ -154,3 +154,39 @@ describe("sorting", () => {
     });
   });
 });
+
+describe("#2752 part D — RVM students", () => {
+  it("reads the linked/not-linked filter from a view URL", () => {
+    expect(parseCandidateQuery("?institute_linked=true").filters.institute_linked).toBe(true);
+    expect(parseCandidateQuery("?institute_linked=false").filters.institute_linked).toBe(false);
+    expect(parseCandidateQuery("?institute_linked=").filters.institute_linked).toBeUndefined();
+  });
+
+  it("writes it back to a view URL and the panel form", () => {
+    const params = candidateViewParams({
+      filters: { institute_linked: true },
+      sort: "last_active_at",
+      dir: "desc",
+      page: 1,
+      page_size: 50,
+    });
+    expect(params.institute_linked).toBe("true");
+    expect(candidateFiltersToForm({ institute_linked: false }).institute_linked).toBe("false");
+    expect(candidateFormToFilters({ institute_linked: "true" })).toEqual({
+      institute_linked: true,
+    });
+  });
+
+  it("labels the chip as RVM students, never as a warning", () => {
+    expect(candidateFilterChips({ institute_linked: true })).toEqual([
+      { key: "institute_linked", label: "RVM students" },
+    ]);
+    expect(candidateFilterChips({ institute_linked: false })).toEqual([
+      { key: "institute_linked", label: "Not RVM students" },
+    ]);
+  });
+
+  it("counts it as an active filter", () => {
+    expect(hasCandidateFilters({ institute_linked: false })).toBe(true);
+  });
+});

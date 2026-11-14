@@ -12,6 +12,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_system_ui.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
+import '../../../core/widgets/bb_brand_mark.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_otp_input.dart';
@@ -432,7 +433,8 @@ class _SignupScreenState extends State<SignupScreen> {
       ];
 }
 
-/// Compact blue top bar for sign-up (back + title).
+/// Compact blue top bar for sign-up: back on the left, the two-person BadaBhai
+/// mark centred and large.
 class _SignupTopBar extends StatelessWidget {
   const _SignupTopBar({this.onBack});
 
@@ -452,27 +454,24 @@ class _SignupTopBar extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.s2,
+              AppSpacing.s3,
               AppSpacing.s2,
-              AppSpacing.gutter,
-              AppSpacing.s2,
+              AppSpacing.s3,
             ),
-            child: Row(
+            child: Stack(
+              alignment: Alignment.center,
               children: <Widget>[
-                IconButton(
-                  onPressed: onBack,
-                  icon: const Icon(Icons.arrow_back_rounded,
-                      color: AppColors.onBlue),
-                  tooltip: 'Back',
+                Row(
+                  children: <Widget>[
+                    IconButton(
+                      onPressed: onBack,
+                      icon: const Icon(Icons.arrow_back_rounded,
+                          color: AppColors.onBlue),
+                      tooltip: 'Back',
+                    ),
+                  ],
                 ),
-                const SizedBox(width: AppSpacing.s1),
-                Text(
-                  'Sign up',
-                  style: AppTypography.header(
-                    size: AppTypography.sizeLg,
-                    weight: FontWeight.w800,
-                    color: AppColors.onBlue,
-                  ),
-                ),
+                const BbBrandMark.onBlue(size: 72),
               ],
             ),
           ),

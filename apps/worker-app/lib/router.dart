@@ -9,6 +9,8 @@ import 'core/referral/pending_referral_store.dart';
 import 'core/theme/onboarding_theme.dart';
 import 'core/widgets/bb_bottom_nav.dart';
 import 'features/auth/domain/auth_session_manager.dart';
+import 'features/availability_prompt/domain/availability_prompt_gate.dart';
+import 'features/availability_prompt/presentation/availability_prompt_sheet.dart';
 import 'features/notifications/domain/notifications_repository.dart';
 
 import 'features/splash/presentation/splash_screen.dart';
@@ -935,20 +937,56 @@ class _ShellScaffoldState extends State<_ShellScaffold>
     // signed-in worker past onboarding, so the prompt can never interrupt
     // consent -> chat profiling or the PIN screens.
     WidgetsBinding.instance.addPostFrameCallback(
-      (_) => unawaited(_maybePromptEmployerSharing()),
+      (_) => unawaited(_runEntryPrompts()),
     );
+  }
+
+  /// The shell's entry prompts, in order, at most ONE per entry: a prompt that
+  /// opened ends the turn, so two prompts never stack on top of each other.
+  Future<void> _runEntryPrompts() async {
+    if (await _maybePromptEmployerSharing()) return;
+    await _maybePromptAvailability();
   }
 
   /// The one-time employer-sharing prompt for an existing worker (2026-11-04).
   /// The gate answers yes at most once per launch and fails quiet; the prompt
   /// opens only while the shell itself is on top, never over a screen the
-  /// worker opened while the check was in flight.
-  Future<void> _maybePromptEmployerSharing() async {
-    if (!locator.isRegistered<EmployerSharingPromptGate>()) return;
+  /// worker opened while the check was in flight. True when it opened.
+  Future<bool> _maybePromptEmployerSharing() async {
+    if (!locator.isRegistered<EmployerSharingPromptGate>()) return false;
     final bool due = await locator<EmployerSharingPromptGate>().claim();
-    if (!due || !mounted) return;
-    if (ModalRoute.isCurrentOf(context) == false) return;
+    if (!due || !mounted) return false;
+    if (ModalRoute.isCurrentOf(context) == false) return false;
     unawaited(GoRouter.of(context).push<bool>(Routes.employerSharing));
+    return true;
+  }
+
+  /// #2748 item 1d — the ask for an EMPTY availability, behind a Remote Config
+  /// switch (off by default). Same rules as the prompt above: the gate answers
+  /// at most once per launch and fails quiet, and the sheet opens only while
+  /// the shell itself is on top.
+  ///
+  /// A "not now" is remembered for this worker on this device, so it is asked
+  /// once. A sheet that closed because the shell itself left the navigator (a
+  /// logout, a deep link) was never answered, so that is not remembered.
+  ///
+  /// A save refreshes the Profile tab, which prints the availability, when it
+  /// is the tab on screen; off screen it refetches on its way back into view.
+  Future<void> _maybePromptAvailability() async {
+    if (!locator.isRegistered<AvailabilityPromptGate>()) return;
+    final AvailabilityPromptGate gate = locator<AvailabilityPromptGate>();
+    final AvailabilityPrompt? prompt = await gate.claim();
+    if (prompt == null || !mounted) return;
+    if (ModalRoute.isCurrentOf(context) == false) return;
+    final bool saved =
+        await showAvailabilityPromptSheet(context, prompt: prompt);
+    if (!mounted) return;
+    if (saved) {
+      if (_tabFocus.value == TabIndex.profile) _tabFocus.refocus();
+      return;
+    }
+    if (ModalRoute.of(context)?.isActive != true) return;
+    await gate.recordDismissal();
   }
 
   @override

@@ -389,6 +389,7 @@ class Applicant extends Equatable {
     this.matchedSkillLabel,
     this.lastWorkedAt,
     this.levelFit,
+    this.stage,
     this.unlocked = false,
     this.unlockId,
   });
@@ -434,6 +435,10 @@ class Applicant extends Equatable {
   /// outside the 4). Display only — the server's order is authoritative.
   final String? levelFit;
 
+  /// The payer's saved board stage for this posting (`new | shortlist |
+  /// passed`), or null when the server does not save stages (flag off).
+  final String? stage;
+
   final bool unlocked;
 
   /// The granted unlock id (set once a paid unlock succeeds) — carried so the
@@ -474,6 +479,7 @@ class Applicant extends Equatable {
         matchedSkillLabel: matchedSkillLabel,
         lastWorkedAt: lastWorkedAt,
         levelFit: levelFit,
+        stage: stage,
         unlocked: unlocked ?? this.unlocked,
         unlockId: unlockId ?? this.unlockId,
       );
@@ -496,6 +502,7 @@ class Applicant extends Equatable {
         matchedSkillLabel,
         lastWorkedAt,
         levelFit,
+        stage,
         unlocked,
         unlockId,
       ];

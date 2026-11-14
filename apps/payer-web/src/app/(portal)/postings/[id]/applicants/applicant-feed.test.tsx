@@ -436,6 +436,18 @@ describe("applicant feed — (e) hot badge reflects the backend boolean, not a c
   });
 });
 
+describe("#2752 part E — the RVM student label", () => {
+  it("marks only the applicant the backend tags as an RVM student", () => {
+    mount([{ ...A, instituteCode: "rvm" }, B]);
+    expect((deepText().match(/RVM student/g) ?? []).length).toBe(1);
+  });
+
+  it("shows no label for a worker whose instituteCode is absent", () => {
+    mount([A, B, C]);
+    expect(deepText()).not.toContain("RVM student");
+  });
+});
+
 describe("applicant feed — (g) after a granted reveal the row MOVES TO CONTACTED (local)", () => {
   it("unlock → routed reveal → Mark as contacted flips the row to a Contacted state, no extra network", async () => {
     unlockAction.mockResolvedValue(GRANTED);

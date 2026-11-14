@@ -76,7 +76,54 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  int stepForLabel(String label) {
+    if (label.endsWith('· Match') ||
+        label == 'CNC operating' ||
+        label == 'Skills this role needs' ||
+        label == 'Trade level') {
+      return 1;
+    }
+    switch (label) {
+      case 'Pay min ₹/mo':
+      case 'Pay max ₹/mo':
+      case 'Exp min (yrs)':
+      case 'Exp max (yrs)':
+      case 'In-hand':
+      case 'Gross':
+      case 'CTC':
+      case 'Day':
+      case 'Night':
+      case 'Rotational':
+      case 'Immediately':
+      case 'Within weeks':
+      case 'Flexible':
+      case 'Immediate':
+      case 'Soon':
+        return 2;
+      case 'Description':
+      case '+ Add benefit':
+      case '+ Add requirement':
+        return 3;
+      default:
+        return 0;
+    }
+  }
+
+  Future<void> goToStep(WidgetTester tester, int step) async {
+    final Finder tab = find.byKey(Key('post_job_step_$step'));
+    await tester.ensureVisible(tab);
+    await tester.pumpAndSettle();
+    await tester.tap(tab);
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> ensureVisible(WidgetTester tester, String label) async {
+    if (find.text(label).evaluate().isNotEmpty) return;
+    await goToStep(tester, stepForLabel(label));
+  }
+
   Future<void> typeInto(WidgetTester tester, String label, String value) async {
+    await ensureVisible(tester, label);
     final Finder field = find.ancestor(
       of: find.text(label),
       matching: find.byType(Column),
@@ -89,12 +136,14 @@ void main() {
   }
 
   Future<void> tapChip(WidgetTester tester, String label) async {
+    await ensureVisible(tester, label);
     await tester.tap(find.text(label).last);
     await tester.pumpAndSettle();
   }
 
-  /// Pick the company job's trade from the 16-trade role picker (#2635).
+  /// Pick the company job's trade from the 16-trade dropdown (#2635).
   Future<void> pickTrade(WidgetTester tester) async {
+    await goToStep(tester, 0);
     await tester.tap(find.text('— pick the role —'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Welder').last);
@@ -107,6 +156,7 @@ void main() {
     required Key fieldKey,
     required String phrase,
   }) async {
+    await ensureVisible(tester, addLabel);
     await tester.tap(find.text(addLabel));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(fieldKey), phrase);
@@ -146,6 +196,7 @@ void main() {
   /// Never `pumpAndSettle` after a successful post: the button keeps its
   /// spinner (the screen hands off and stays submitting).
   Future<void> tapPost(WidgetTester tester) async {
+    await goToStep(tester, 4);
     await tester.tap(find.text('Post job'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));

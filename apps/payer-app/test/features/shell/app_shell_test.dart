@@ -315,7 +315,7 @@ void main() {
       // Post brings its own pinned action bar — the nav no longer stacks
       // under it.
       expect(find.byType(BbBottomNav), findsNothing);
-      expect(find.text('Post job'), findsOneWidget);
+      expect(find.text('Aage badhein'), findsOneWidget);
 
       await systemBack(tester);
       expect(find.byType(BbBottomNav), findsOneWidget);
@@ -418,8 +418,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Leave'));
       await tester.pumpAndSettle();
-      expect(find.byType(JobPostingChatScreen, skipOffstage: false),
-          findsNothing);
+      expect(
+          find.byType(JobPostingChatScreen, skipOffstage: false), findsNothing);
       expect(navId(tester), 'jobs');
     });
 
@@ -431,8 +431,8 @@ void main() {
       await tester.tap(chatBack());
       await tester.pumpAndSettle();
       expect(find.text('Leave this chat?'), findsNothing);
-      expect(find.byType(JobPostingChatScreen, skipOffstage: false),
-          findsNothing);
+      expect(
+          find.byType(JobPostingChatScreen, skipOffstage: false), findsNothing);
       expect(navId(tester), 'jobs');
     });
 
@@ -454,8 +454,8 @@ void main() {
       expect(find.text('Leave this chat?'), findsOneWidget);
       await tester.tap(find.text('Leave'));
       await tester.pumpAndSettle();
-      expect(find.byType(JobPostingChatScreen, skipOffstage: false),
-          findsNothing);
+      expect(
+          find.byType(JobPostingChatScreen, skipOffstage: false), findsNothing);
       expect(navId(tester), 'jobs');
     });
   });

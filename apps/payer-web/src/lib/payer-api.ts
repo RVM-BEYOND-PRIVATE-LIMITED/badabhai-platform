@@ -282,6 +282,8 @@ function toWeightedApplicant(a: ReachApplicantWire): FacelessApplicant {
     // "Level needed" fit (#2548). Absent on an old backend; `null` means no
     // level sort. Both read as "no tag", never a guessed level.
     levelFit: a.levelFit ?? undefined,
+    // #2752 part E — the Campus link label, carried verbatim (null → absent).
+    ...(a.instituteCode ? { instituteCode: a.instituteCode } : {}),
     ...savedStage(a),
   };
 }
@@ -315,6 +317,8 @@ function toMatchCandidate(a: MatchCandidateWire): FacelessApplicant {
     ...(a.tradeLevels !== undefined ? { tradeLevels: a.tradeLevels } : {}),
     // "Level needed" fit (#2548) — carried verbatim; absent/null = no tag.
     levelFit: a.levelFit ?? undefined,
+    // #2752 part E — the Campus link label, carried verbatim (null → absent).
+    ...(a.instituteCode ? { instituteCode: a.instituteCode } : {}),
     ...savedStage(a),
   };
 }

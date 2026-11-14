@@ -3,7 +3,7 @@
 /**
  * BadaBhai Design System — MaskedCandidate (the payer demand-loop row).
  *
- * The product's core privacy motif: browse masked → unlock for ₹40 → contact. Client
+ * The product's core privacy motif: browse masked → unlock → contact. Client
  * primitive (unlock handler). Presentational only.
  *
  * PRIVACY (CLAUDE.md §2): while `masked` (the default), the real `name` is NEVER
@@ -24,7 +24,10 @@ export interface MaskedCandidateProps extends HTMLAttributes<HTMLDivElement> {
   verified?: boolean;
   /** Masked = blurred name/photo + unlock CTA. @default true */
   masked?: boolean;
-  /** Unlock price label. @default '₹40' */
+  /**
+   * The unlock button's label. No price is built in (#2744: no per-unlock price in copy); a
+   * screen that has one to show passes it. @default 'Unlock'
+   */
   price?: string;
   /** Optional match/relevance badge text. */
   matchLabel?: string;
@@ -39,7 +42,7 @@ export function MaskedCandidate({
   location,
   verified = true,
   masked = true,
-  price = "₹40",
+  price = "Unlock",
   matchLabel,
   onUnlock,
   className = "",

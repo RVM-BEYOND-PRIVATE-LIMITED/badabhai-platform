@@ -15,7 +15,6 @@ import 'package:payer_app/core/theme/app_motion.dart';
 import 'package:payer_app/core/widgets/bb_action_bar.dart';
 import 'package:payer_app/core/widgets/bb_button.dart';
 import 'package:payer_app/core/widgets/bb_shake.dart';
-import 'package:payer_app/core/widgets/bb_step_progress.dart';
 import 'package:payer_app/features/jobs/presentation/post_job_screen.dart';
 
 /// #357 — the Company post-a-job form shipped FABRICATED prefills
@@ -479,13 +478,72 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Which wizard step owns [label] (the redesign splits the form across four
+  /// tabs; helpers auto-navigate so the behaviour tests stay read-through).
+  int stepForLabel(String label) {
+    if (label.endsWith('· Match') ||
+        label == 'CNC operating' ||
+        label == 'Skills this role needs' ||
+        label == 'Trade level') {
+      return 1;
+    }
+    switch (label) {
+      case 'Pay min ₹/mo':
+      case 'Pay max ₹/mo':
+      case 'Exp min (yrs)':
+      case 'Exp max (yrs)':
+      case 'In-hand':
+      case 'Gross':
+      case 'CTC':
+      case 'Day':
+      case 'Night':
+      case 'Rotational':
+      case 'Immediately':
+      case 'Within weeks':
+      case 'Flexible':
+      case 'Immediate':
+      case 'Soon':
+        return 2;
+      case 'Description':
+      case '+ Add benefit':
+      case '+ Add requirement':
+        return 3;
+      default:
+        return 0;
+    }
+  }
+
+  Future<void> goToStep(WidgetTester tester, int step) async {
+    final Finder tab = find.byKey(Key('post_job_step_$step'));
+    await tester.ensureVisible(tab);
+    await tester.pumpAndSettle();
+    await tester.tap(tab);
+    await tester.pumpAndSettle();
+  }
+
+  /// Jump to the step that owns [label] and assert [message] is shown there.
+  Future<void> expectErrorAt(
+    WidgetTester tester,
+    String label,
+    String message,
+  ) async {
+    await goToStep(tester, stepForLabel(label));
+    expect(find.text(message), findsOneWidget, reason: message);
+  }
+
+  Future<void> ensureVisible(WidgetTester tester, String label) async {
+    if (find.text(label).evaluate().isNotEmpty) return;
+    await goToStep(tester, stepForLabel(label));
+  }
+
   /// Type into the field that currently shows [label] (BbField renders the label
-  /// as a sibling Text above its TextField).
+  /// as a sibling Text above its TextField). Navigates to the owning step first.
   Future<void> typeInto(
     WidgetTester tester,
     String label,
     String value,
   ) async {
+    await ensureVisible(tester, label);
     final Finder field = find.ancestor(
       of: find.text(label),
       matching: find.byType(Column),
@@ -501,19 +559,22 @@ void main() {
   /// `_submitting` true (it hands off to `onBack`), so the button keeps its
   /// spinner and the tree never goes idle. Fixed pumps let the toast appear.
   Future<void> tapPost(WidgetTester tester) async {
+    await goToStep(tester, 4);
     await tester.tap(find.text('Post job'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
   }
 
-  /// Tap an enum chip by its visible label.
+  /// Tap an enum chip by its visible label. Navigates to the owning step first.
   Future<void> tapChip(WidgetTester tester, String label) async {
+    await ensureVisible(tester, label);
     await tester.tap(find.text(label).last);
     await tester.pumpAndSettle();
   }
 
-  /// Pick the company job's trade from the 16-trade role picker (#2635).
+  /// Pick the company job's trade from the 16-trade dropdown (#2635).
   Future<void> pickTrade(WidgetTester tester, [String label = 'Welder']) async {
+    await goToStep(tester, 0);
     await tester.tap(find.text('— pick the role —'));
     await tester.pumpAndSettle();
     await tester.tap(find.text(label).last);
@@ -522,7 +583,8 @@ void main() {
 
   /// [text] shown AT the company trade picker (inside the role's anchor).
   Finder atTradePicker(String text) => find.descendant(
-        of: find.ancestor(of: find.text('Role'), matching: find.byType(BbShake)),
+        of: find.ancestor(
+            of: find.text('Role'), matching: find.byType(BbShake)),
         matching: find.text(text),
       );
 
@@ -534,6 +596,7 @@ void main() {
     required Key fieldKey,
     required String phrase,
   }) async {
+    await ensureVisible(tester, addLabel);
     await tester.tap(find.text(addLabel));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(fieldKey), phrase);
@@ -652,7 +715,15 @@ void main() {
       // A server whose catalogue answers nothing — where the old form fell
       // back to both free lists.
       await pump(tester, PayerRole.company, spy: _SpyApi());
-      expect(find.text('Role'), findsOneWidget);
+      // The trade picker is the first field, labelled "Trade", inside its
+      // anchored control.
+      expect(
+        find.descendant(
+          of: find.byType(BbShake),
+          matching: find.text('Role'),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Role (card illustration)'), findsNothing);
       expect(find.text('Trade (optional)'), findsNothing);
     });
@@ -740,7 +811,7 @@ void main() {
       await tapPost(tester);
 
       expect(api.created, isEmpty);
-      expect(find.text('Add the description'), findsOneWidget);
+      await expectErrorAt(tester, 'Description', 'Add the description');
     });
 
     testWidgets('pay band is rejected when max is below min', (
@@ -753,7 +824,11 @@ void main() {
       await tapPost(tester);
 
       expect(api.created, isEmpty);
-      expect(find.text('Max pay must be at least the min.'), findsOneWidget);
+      await expectErrorAt(
+        tester,
+        'Pay min ₹/mo',
+        'Max pay must be at least the min.',
+      );
     });
   });
 
@@ -1015,7 +1090,7 @@ void main() {
 
       // "kitna haath me aayega" — the band alone does not answer it.
       expect(api.created, isEmpty);
-      expect(find.text('Pick the pay type'), findsOneWidget);
+      await expectErrorAt(tester, 'In-hand', 'Pick the pay type');
     });
 
     testWidgets('company — a missing experience window is refused', (
@@ -1028,7 +1103,7 @@ void main() {
       await tapPost(tester);
 
       expect(api.created, isEmpty);
-      expect(find.text('Add the experience'), findsOneWidget);
+      await expectErrorAt(tester, 'Exp min (yrs)', 'Add the experience');
     });
 
     testWidgets('company — an empty requirement row is refused', (
@@ -1055,7 +1130,7 @@ void main() {
       await tapPost(tester);
 
       expect(api.created, isEmpty);
-      expect(find.text('Add a requirement'), findsOneWidget);
+      await expectErrorAt(tester, '+ Add requirement', 'Add a requirement');
     });
 
     testWidgets('no enum chip starts selected — nothing lands unchosen', (
@@ -1070,10 +1145,9 @@ void main() {
       await tapPost(tester);
 
       expect(api.createdAgency, isEmpty);
-      // Both are refused at their own controls (#2595); the trade follows the
-      // one role pick (#2718).
-      expect(find.text('Pick the role'), findsOneWidget);
-      expect(find.text('Pick needed by'), findsOneWidget);
+      // Both are refused at their own chips (#2595).
+      await expectErrorAt(tester, 'Welder', 'Pick the role');
+      await expectErrorAt(tester, 'Immediately', 'Pick needed by');
     });
   });
 
@@ -1087,6 +1161,7 @@ void main() {
     ) async {
       await pump(tester, PayerRole.company);
 
+      await ensureVisible(tester, '+ Add benefit');
       await tester.tap(find.text('+ Add benefit'));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -1100,10 +1175,12 @@ void main() {
       expect(find.text('Benefit 1'), findsNothing);
     });
 
-    testWidgets('a phone-shaped phrase is refused at entry (no PII on the wire)',
+    testWidgets(
+        'a phone-shaped phrase is refused at entry (no PII on the wire)',
         (WidgetTester tester) async {
       await pump(tester, PayerRole.company);
 
+      await ensureVisible(tester, '+ Add benefit');
       await tester.tap(find.text('+ Add benefit'));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -1160,7 +1237,8 @@ void main() {
 
     bool focused(WidgetTester tester, String label) => tester
         .widget<EditableText>(
-          find.descendant(of: boxOf(label), matching: find.byType(EditableText)),
+          find.descendant(
+              of: boxOf(label), matching: find.byType(EditableText)),
         )
         .focusNode
         .hasFocus;
@@ -1172,19 +1250,21 @@ void main() {
       await tapPost(tester);
 
       expect(api.created, isEmpty);
-      for (final String error in <String>[
-        'Add the job title',
-        'Add the city',
-        'Add the pay band',
-        'Pick the pay type',
-        'Add the experience',
-        'Pick the shift',
-        'Pick needed by',
-        'Add the description',
-        'Add a benefit',
-        'Add a requirement',
-      ]) {
-        expect(find.text(error), findsOneWidget, reason: error);
+      // Each reason lives on the step that owns its field; navigate to it.
+      const Map<String, String> expected = <String, String>{
+        'Job title': 'Add the job title',
+        'City': 'Add the city',
+        'Pay min ₹/mo': 'Add the pay band',
+        'In-hand': 'Pick the pay type',
+        'Exp min (yrs)': 'Add the experience',
+        'Night': 'Pick the shift',
+        'Immediate': 'Pick needed by',
+        'Description': 'Add the description',
+        '+ Add benefit': 'Add a benefit',
+        '+ Add requirement': 'Add a requirement',
+      };
+      for (final MapEntry<String, String> entry in expected.entries) {
+        await expectErrorAt(tester, entry.key, entry.value);
       }
       // The six toast branches are gone.
       expect(find.byType(SnackBar), findsNothing);
@@ -1210,6 +1290,7 @@ void main() {
       await typeInto(tester, 'Pay min ₹/mo', '30000');
       await typeInto(tester, 'Pay max ₹/mo', '20000');
       await tapPost(tester);
+      await goToStep(tester, 2);
       expect(find.text('Max pay must be at least the min.'), findsOneWidget);
       await typeInto(tester, 'Pay min ₹/mo', '18000');
       await tester.pumpAndSettle();
@@ -1220,6 +1301,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Add the job title'), findsNothing);
       await tapPost(tester);
+      await goToStep(tester, 0);
       expect(find.text('Add the job title'), findsOneWidget);
     });
 
@@ -1231,18 +1313,8 @@ void main() {
       await typeInto(tester, 'Job title', 'Fitter');
       await pickTrade(tester);
       await typeInto(tester, 'City', 'Pune');
-      // Scroll to the very end of the form.
-      await tester.drag(
-        find.byType(SingleChildScrollView),
-        const Offset(0, -6000),
-      );
-      await tester.pumpAndSettle();
-      final Rect viewport =
-          tester.getRect(find.byType(SingleChildScrollView));
-      expect(
-        tester.getRect(find.text('Pay min ₹/mo')).bottom,
-        lessThan(viewport.top),
-      );
+      // Post from the Preview step: the first gap is the pay band on step 3.
+      await goToStep(tester, 4);
       haptics.clear();
 
       await tester.tap(find.text('Post job'));
@@ -1253,9 +1325,12 @@ void main() {
           of: find.text('Pay min ₹/mo'),
           matching: find.byType(BbShake),
         );
+        if (shake.evaluate().isEmpty) continue;
         final double dx = tester
             .widget<Transform>(
-              find.descendant(of: shake, matching: find.byType(Transform)).first,
+              find
+                  .descendant(of: shake, matching: find.byType(Transform))
+                  .first,
             )
             .transform
             .getTranslation()
@@ -1265,6 +1340,9 @@ void main() {
       }
 
       // The first invalid field is on screen with its reason under it…
+      final Rect viewport = tester.getRect(
+        find.byKey(const Key('post_job_form_scroll')),
+      );
       final Rect payMin = tester.getRect(find.text('Pay min ₹/mo'));
       expect(payMin.top, greaterThanOrEqualTo(viewport.top));
       expect(payMin.bottom, lessThanOrEqualTo(viewport.bottom));
@@ -1310,9 +1388,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(api.createdAgency, hasLength(1));
-      expect(find.text('Must not contain links.'), findsOneWidget);
+      // The post lands on the first refused step, at the area box…
       expect(find.text('Must not contain a company name.'), findsOneWidget);
-      // Each at its own box, not a toast that names no field…
       expect(
         find.descendant(
           of: find.ancestor(
@@ -1331,13 +1408,15 @@ void main() {
       // An edit elsewhere leaves both on show…
       await typeInto(tester, 'Job title', 'Lathe operator');
       await tester.pumpAndSettle();
-      expect(find.text('Must not contain links.'), findsOneWidget);
       expect(find.text('Must not contain a company name.'), findsOneWidget);
+      await goToStep(tester, 3);
+      expect(find.text('Must not contain links.'), findsOneWidget);
 
       // …changing THE field clears its own.
       await typeInto(tester, 'Description', 'Turning work on Fanuc controls.');
       await tester.pumpAndSettle();
       expect(find.text('Must not contain links.'), findsNothing);
+      await goToStep(tester, 0);
       expect(find.text('Must not contain a company name.'), findsOneWidget);
 
       // A standing refusal never blocks the next Post: the server judges it.
@@ -1365,6 +1444,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(api.created, hasLength(1));
+      await goToStep(tester, 0);
       expect(
         find.descendant(
           of: find.ancestor(
@@ -1451,18 +1531,38 @@ void main() {
       WidgetTester tester,
     ) async {
       await pump(tester, PayerRole.company);
-      const List<String> chain = <String>[
+      // The wizard splits the chain across steps; each step walks its own
+      // mounted boxes, and the last experience box ends it with "done".
+      const List<String> roleChain = <String>[
         'Company / org name',
         'Job title',
         'City',
         'Area (optional)',
         'Location note (optional, not shown to workers)',
+      ];
+      for (final String label in roleChain) {
+        expect(
+          tester.widget<TextField>(boxOf(label)).textInputAction,
+          TextInputAction.next,
+          reason: label,
+        );
+      }
+
+      await tester.tap(boxOf(roleChain.first));
+      await tester.pump();
+      for (int i = 1; i < roleChain.length; i++) {
+        await tester.testTextInput.receiveAction(TextInputAction.next);
+        await tester.pump();
+        expect(focused(tester, roleChain[i]), isTrue, reason: roleChain[i]);
+      }
+
+      await goToStep(tester, 2);
+      const List<String> payChain = <String>[
         'Pay min ₹/mo',
         'Pay max ₹/mo',
         'Exp min (yrs)',
-        'Exp max (yrs)',
       ];
-      for (final String label in chain.take(chain.length - 1)) {
+      for (final String label in payChain) {
         expect(
           tester.widget<TextField>(boxOf(label)).textInputAction,
           TextInputAction.next,
@@ -1474,13 +1574,16 @@ void main() {
         TextInputAction.done,
       );
 
-      await tester.tap(boxOf(chain.first));
+      await tester.tap(boxOf(payChain.first));
       await tester.pump();
-      for (int i = 1; i < chain.length; i++) {
+      for (final String label in payChain.skip(1)) {
         await tester.testTextInput.receiveAction(TextInputAction.next);
         await tester.pump();
-        expect(focused(tester, chain[i]), isTrue, reason: chain[i]);
+        expect(focused(tester, label), isTrue, reason: label);
       }
+      await tester.testTextInput.receiveAction(TextInputAction.next);
+      await tester.pump();
+      expect(focused(tester, 'Exp max (yrs)'), isTrue);
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump();
       expect(focused(tester, 'Exp max (yrs)'), isFalse);
@@ -1495,7 +1598,7 @@ void main() {
       expect(focused(tester, 'Company / org name'), isTrue);
 
       await tester.drag(
-        find.byType(SingleChildScrollView),
+        find.byKey(const Key('post_job_form_scroll')),
         const Offset(0, -300),
       );
       await tester.pumpAndSettle();
@@ -1506,11 +1609,23 @@ void main() {
       WidgetTester tester,
     ) async {
       await pump(tester, PayerRole.company);
-      final Scaffold scaffold = tester.widget<Scaffold>(find.descendant(
-        of: find.byType(PostJobScreen),
-        matching: find.byType(Scaffold),
-      ));
-      expect(scaffold.bottomNavigationBar, isA<BbActionBar>());
+      // The redesign wraps the shared bar in a bordered white surface.
+      expect(
+        find.descendant(
+          of: find.byType(PostJobScreen),
+          matching: find.byType(BbActionBar),
+        ),
+        findsOneWidget,
+      );
+      // Steps 1–3 advance; the last step posts.
+      expect(
+        find.descendant(
+          of: find.byType(BbActionBar),
+          matching: find.text('Aage badhein'),
+        ),
+        findsOneWidget,
+      );
+      await goToStep(tester, 4);
       expect(
         find.descendant(
           of: find.byType(BbActionBar),
@@ -1520,36 +1635,36 @@ void main() {
       );
     });
 
-    testWidgets('the progress bar counts the four sections as they complete', (
+    testWidgets('the wizard moves step by step and shows its progress', (
       WidgetTester tester,
     ) async {
       await pump(tester, PayerRole.company);
-      // Nothing is done on an untouched form: the skills section is the
-      // picked trade's own form, so it waits for the trade (#2635).
-      expect(find.text('0 of 4 sections done'), findsOneWidget);
+      expect(find.text('STEP 1 OF 5: ROLE & LOCATION'), findsOneWidget);
+      expect(find.text('20%'), findsOneWidget);
 
-      // Picking the trade completes it (the trade carries its own skill)…
+      // Step 1 validates before it advances: a blank company is refused…
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+      expect(find.text('STEP 1 OF 5: ROLE & LOCATION'), findsOneWidget);
+
+      // …and a complete first step moves to Skills.
+      await typeInto(tester, 'Company / org name', 'Acme');
       await pickTrade(tester);
-      expect(find.text('1 of 4 sections done'), findsOneWidget);
-
-      // …and the title + city complete the first.
       await typeInto(tester, 'Job title', 'Fitter');
       await typeInto(tester, 'City', 'Pune');
-      expect(find.text('2 of 4 sections done'), findsOneWidget);
-      // The bar FILLS to the new step over 300ms (transform only).
-      double fill() => tester
-          .widget<Transform>(find.byKey(BbStepProgress.fillKey))
-          .transform
-          .storage[0];
-      await tester.pump(const Duration(milliseconds: 150));
-      expect(fill(), inExclusiveRange(0.25, 0.5));
+      await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
-      expect(fill(), 0.5);
+      expect(find.text('STEP 2 OF 5: SKILLS & MATCHING'), findsOneWidget);
+      expect(find.text('40%'), findsOneWidget);
 
-      await fillCardContent(tester, city: 'Pune');
-      await tester.pumpAndSettle();
-      expect(find.text('4 of 4 sections done'), findsOneWidget);
-      expect(fill(), 1);
+      // The tabs jump straight to any step.
+      await goToStep(tester, 3);
+      expect(find.text('STEP 4 OF 5: PERKS & DETAILS'), findsOneWidget);
+      expect(find.text('80%'), findsOneWidget);
+
+      await goToStep(tester, 4);
+      expect(find.text('STEP 5 OF 5: PREVIEW'), findsOneWidget);
+      expect(find.text('100%'), findsOneWidget);
     });
 
     testWidgets('Back on an untouched form leaves at once', (
@@ -1588,6 +1703,8 @@ void main() {
     ) async {
       await pump(tester, PayerRole.agency);
       await tapChip(tester, 'Night');
+      // Back only leaves from the first step; the chip pick stays dirty.
+      await goToStep(tester, 0);
       await tester.tap(find.byIcon(Icons.arrow_back_rounded));
       await tester.pumpAndSettle();
       expect(find.text('Discard this job?'), findsOneWidget);
@@ -1636,12 +1753,14 @@ void main() {
         PayerRole.company,
         spy: _V1SpyApi(trades: _companyTrades),
       );
+      await goToStep(tester, 4);
       final FilledButton post = tester.widget<FilledButton>(find.ancestor(
         of: find.text('Post job'),
         matching: find.byType(FilledButton),
       ));
       expect(post.onPressed, isNotNull);
 
+      await goToStep(tester, 0);
       await typeInto(tester, 'Job title', 'Fitter');
       await fillCardContent(tester);
       await tapPost(tester);
@@ -1734,6 +1853,7 @@ void main() {
       await pump(tester, PayerRole.company, spy: spy);
 
       await pickTrade(tester);
+      await goToStep(tester, 1);
       // Past the 350ms debounce.
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
@@ -1749,6 +1869,7 @@ void main() {
       final _V1SpyApi spy = _V1SpyApi();
       await pump(tester, PayerRole.agency, spy: spy);
 
+      await goToStep(tester, 1);
       await tester.tap(find.text('CNC operating'));
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();

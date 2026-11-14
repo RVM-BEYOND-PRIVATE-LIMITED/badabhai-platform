@@ -1420,6 +1420,8 @@ class HttpPayerApiClient implements PayerApiClient {
         lastWorkedAt: row['lastWorkedAt'] as String?,
         // #2548 — display-only level fit; absent or null = no level sort.
         levelFit: row['levelFit'] as String?,
+        // #2137 — the saved board stage; absent while the server flag is off.
+        stage: row['stage'] as String?,
       );
     }
     final List<dynamic> components =
@@ -1446,7 +1448,26 @@ class HttpPayerApiClient implements PayerApiClient {
       matchedSkillLabel: row['matched_skill_label'] as String?,
       lastWorkedAt: row['last_worked_at'] as String?,
       levelFit: row['levelFit'] as String?,
+      // #2137 — the saved board stage; absent while the server flag is off.
+      stage: row['stage'] as String?,
     );
+  }
+
+  @override
+  Future<bool> setApplicantStage({
+    required String jobId,
+    required String workerId,
+    required String stage,
+  }) async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.put,
+      '/payer/reach/jobs/$jobId/applicants/$workerId/stage',
+      body: <String, dynamic>{'stage': stage},
+    );
+    // Neutral 404: flag off / not this payer's posting / no longer on the feed.
+    if (res.statusCode == 404) return false;
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    return true;
   }
 
   ApplicantSignal _signalFromRow(Map<String, dynamic> row) => ApplicantSignal(

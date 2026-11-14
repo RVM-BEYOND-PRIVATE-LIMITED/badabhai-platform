@@ -1611,6 +1611,21 @@ details[open] > summary > .disclosure__caret {
   border-color: var(--divider);
 }
 
+/* #2752 part D — an RVM student in the Candidates list. Information, not a warning: the same
+   brand tint the portal uses for a positive/selected state, with brand-coloured type. */
+.pill--brand {
+  background: var(--brand-tint);
+  color: var(--text-primary);
+  border-color: var(--brand-border);
+}
+
+.candidate-id {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
 /* A page-level banner for a state the operator must not miss (suspension, pending delete). */
 .notice {
   padding: var(--space-4) var(--space-5);

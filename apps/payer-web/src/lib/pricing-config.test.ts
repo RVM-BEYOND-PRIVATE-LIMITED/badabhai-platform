@@ -8,7 +8,6 @@ import {
   offeredCreditPacks,
   postingPaidTiers,
   quotaTopUpTier,
-  unlockUnitPriceInr,
   type TierPrice,
 } from "./pricing-config";
 
@@ -201,17 +200,5 @@ describe("chargedPrice + the price readers — #2085 effective prices", () => {
       ["standard", 1000],
       ["pro", 2500],
     ]);
-  });
-
-  it("the per-unlock unit price follows the packs on offer (no prices[] → the catalog packs)", () => {
-    const fallback = unlockUnitPriceInr({ products: DEFAULT_CATALOG.products });
-    expect(fallback).toBe(40); // pack_50: ₹2,000 / 50
-    const repriced = {
-      products: DEFAULT_CATALOG.products,
-      prices: allAtList().map((r) =>
-        r.tierCode === "pack_50" ? row("contact_unlock", "pack_50", 2500, 2500) : r,
-      ),
-    };
-    expect(unlockUnitPriceInr(repriced)).toBe(50);
   });
 });

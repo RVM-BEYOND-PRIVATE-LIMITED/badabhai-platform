@@ -197,6 +197,14 @@ class MockPayerApiClient implements PayerApiClient {
   Future<List<Applicant>> fetchApplicants(String jobId) async =>
       _applicantsFrom(_candidates);
 
+  @override
+  Future<bool> setApplicantStage({
+    required String jobId,
+    required String workerId,
+    required String stage,
+  }) async =>
+      true;
+
   // --- All-candidates search (canned, deterministic) ------------------------
   // A small synthetic pool run through the SAME rules the route documents:
   // filters reorder (matches first, nobody removed) unless `strict`; an

@@ -18,6 +18,7 @@ import 'package:payer_app/core/theme/app_spacing.dart';
 import 'package:payer_app/core/theme/app_system_ui.dart';
 import 'package:payer_app/core/theme/app_theme.dart';
 import 'package:payer_app/core/widgets/bb_avatar.dart';
+import 'package:payer_app/core/widgets/bb_brand_mark.dart';
 import 'package:payer_app/core/widgets/bb_logo.dart';
 import 'package:payer_app/features/auth/presentation/signup_screen.dart';
 import 'package:payer_app/features/find/presentation/find_screen.dart';
@@ -99,7 +100,7 @@ void main() {
       expect(find.bySemanticsLabel('BadaBhai'), findsOneWidget);
     });
 
-    testWidgets('login header shows the real logo, not a handshake icon',
+    testWidgets('login header shows the real two-person mark, centred',
         (WidgetTester tester) async {
       GoogleFonts.config.allowRuntimeFetching = false;
       await GetIt.instance.reset();
@@ -112,13 +113,13 @@ void main() {
       await tester.pumpWidget(const PayerApp());
       await tester.pumpAndSettle();
 
-      expect(find.byType(BbLogo), findsOneWidget);
+      expect(find.byType(BbBrandMark), findsOneWidget);
       expect(find.byIcon(Icons.handshake), findsNothing);
       expect(find.byIcon(Icons.handshake_rounded), findsNothing);
       // The blue brand band runs under the status bar: light icons on it.
       expect(
         find.ancestor(
-          of: find.byType(BbLogo),
+          of: find.byType(BbBrandMark),
           matching: find.byWidgetPredicate((Widget w) =>
               w is AnnotatedRegion<SystemUiOverlayStyle> &&
               w.value == AppSystemUi.onDark),

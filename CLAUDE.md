@@ -339,6 +339,12 @@ Before considering any work complete:
 - Documentation updated
 - No breaking changes introduced
 
+## Build Artifacts
+
+Never create or build an APK (or any other installable artifact) unless the
+user explicitly asks for it in the current turn. Do not run `flutter build apk`
+implicitly, even after finishing issue work.
+
 ## Merged Means On main
 
 A merged PR is not proof your work shipped. Squash-merge collapses only the

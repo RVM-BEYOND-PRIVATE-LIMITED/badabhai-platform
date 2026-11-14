@@ -102,6 +102,19 @@ export function CandidateFilters({
             </select>
           </label>
 
+          <label className="field">
+            <span className="field__label">RVM students</span>
+            <select
+              className="field__input"
+              value={form.institute_linked ?? ""}
+              onChange={(e) => set("institute_linked", e.target.value)}
+            >
+              <option value="">All</option>
+              <option value="true">RVM students only</option>
+              <option value="false">Everyone else</option>
+            </select>
+          </label>
+
           {field("trade_id", "Trade id", { placeholder: "dom_welder", list: "cf-trades" })}
           <datalist id="cf-trades">
             {(counts?.by_trade ?? []).map((facet) => (

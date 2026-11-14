@@ -17,24 +17,32 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/number_input.dart';
 import '../../../core/widgets/bb_action_bar.dart';
-import '../../../core/widgets/bb_badge.dart';
-import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_chip_select.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_field_error.dart';
 import '../../../core/widgets/bb_focus_chain.dart';
 import '../../../core/widgets/bb_form_errors.dart';
-import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_leave_guard.dart';
 import '../../../core/widgets/bb_shake.dart';
-import '../../../core/widgets/bb_step_progress.dart';
 import '../../../core/widgets/bb_toast.dart';
+import 'widgets/job_card_preview.dart';
 import 'widgets/job_content_input.dart';
 import 'widgets/job_form_rules.dart';
 import 'widgets/match_skill_picker.dart';
 import 'widgets/trade_posting_fields.dart';
 import 'widgets/voice_description_control.dart';
+
+// --- Redesign brand kit (#2713) --------------------------------------------
+// Scoped to the Post a job wizard so the locked app-wide tokens stay untouched.
+const Color _kBrandBlue = Color(0xFF05194C);
+const Color _kBrandYellow = Color(0xFFFFB32C);
+const Color _kCanvas = Color(0xFFF2F4F8);
+const Color _kPaper = Color(0xFFFFFFFF);
+const Color _kMuted = Color(0xFF667085);
+const Color _kHairline = Color(0xFFD8DEE9);
+const Color _kProgressTrack = Color(0xFFE5E9F1);
+const Color _kPillIdle = Color(0xFFF2F4F8);
 
 /// Availability of the Matching-V1 demand-skill vocabulary, resolved once at
 /// load.
@@ -201,6 +209,133 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// A trade chip refused at the match-skill cap, explained under the trade
   /// fields; cleared by the next accepted change.
   String? _skillCapError;
+
+  // --- The 5-step wizard (#2713 redesign) -------------------------------------
+  // The form is split into focused steps instead of one endless scroll:
+  // Role & Location → Skills & Matching → Pay & Shift → Perks & Details →
+  // Preview. The Preview renders the worker's own job card from the values
+  // entered; every existing field and the submit contract are unchanged.
+  int _step = 0;
+  static const int _stepCount = 5;
+  static const List<String> _stepNames = <String>[
+    'Role & Location',
+    'Skills & Matching',
+    'Pay & Shift',
+    'Perks & Details',
+    'Preview',
+  ];
+  static const List<String> _stepShortNames = <String>[
+    'Job',
+    'Skills',
+    'Pay & Shift',
+    'Perks',
+    'Preview',
+  ];
+
+  /// The fields each step owns, used to validate only the step being left and
+  /// to jump to the first error on the final post.
+  List<Set<JobFormField>> get _stepFieldSets => _isAgency
+      ? const <Set<JobFormField>>[
+          <JobFormField>{
+            JobFormField.tradeKey,
+            JobFormField.role,
+            JobFormField.title,
+            JobFormField.city,
+            JobFormField.area,
+            JobFormField.location,
+          },
+          <JobFormField>{JobFormField.skills},
+          <JobFormField>{
+            JobFormField.payMin,
+            JobFormField.payMax,
+            JobFormField.payType,
+            JobFormField.expMin,
+            JobFormField.expMax,
+            JobFormField.neededBy,
+            JobFormField.shift,
+          },
+          <JobFormField>{
+            JobFormField.description,
+            JobFormField.benefits,
+            JobFormField.requirements,
+          },
+        ]
+      : const <Set<JobFormField>>[
+          <JobFormField>{
+            JobFormField.org,
+            JobFormField.role,
+            JobFormField.title,
+            JobFormField.city,
+            JobFormField.area,
+            JobFormField.location,
+          },
+          <JobFormField>{JobFormField.skills},
+          <JobFormField>{
+            JobFormField.payMin,
+            JobFormField.payMax,
+            JobFormField.payType,
+            JobFormField.expMin,
+            JobFormField.expMax,
+            JobFormField.neededBy,
+            JobFormField.shift,
+          },
+          <JobFormField>{
+            JobFormField.description,
+            JobFormField.benefits,
+            JobFormField.requirements,
+          },
+          // Preview owns no input: it only renders what the four steps hold.
+          <JobFormField>{},
+        ];
+
+  /// What this step still needs, exactly as [_validate] words it.
+  Map<JobFormField, String> _errorsForStep(int step) {
+    final Set<JobFormField> fields = _stepFieldSets[step];
+    return <JobFormField, String>{
+      for (final MapEntry<JobFormField, String> entry in _validate().entries)
+        if (fields.contains(entry.key)) entry.key: entry.value,
+    };
+  }
+
+  /// The step that owns the first open field — where a refused post lands.
+  int _firstErrorStep() => _firstStepForFields(<JobFormField>{
+        ..._validate().keys,
+        ..._form.refusals.keys,
+      });
+
+  /// The first step owning any of [fields], so a server refusal can be shown
+  /// at its control instead of a toast (the control may live on another step).
+  int _firstStepForFields(Iterable<JobFormField> fields) {
+    final Set<JobFormField> open = fields.toSet();
+    for (int i = 0; i < _stepCount; i++) {
+      if (_stepFieldSets[i].intersection(open).isNotEmpty) return i;
+    }
+    return _step;
+  }
+
+  /// Whether this branch's wizard renders [field] on one of its steps.
+  bool _showsField(JobFormField field) =>
+      _stepFieldSets.any((Set<JobFormField> step) => step.contains(field));
+
+  /// Move forward one step, refusing with inline errors if this step is
+  /// incomplete; the last step posts.
+  void _goNext() {
+    if (_step >= _stepCount - 1) {
+      _submit();
+      return;
+    }
+    final Map<JobFormField, String> errors = _errorsForStep(_step);
+    if (errors.isNotEmpty) {
+      setState(() => _form.show(errors));
+      return;
+    }
+    setState(() {
+      _step += 1;
+      // The completed step's inline errors are no longer on screen; drop them
+      // (standing server refusals stay pinned until their control changes).
+      _form.show(const <JobFormField, String>{});
+    });
+  }
 
   static const BbLeavePrompt _leavePrompt = BbLeavePrompt(
     title: 'Discard this job?',
@@ -383,24 +518,27 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// the form: while the catalogue loads, or if it did not, the same spot says
   /// so (with a Retry) and carries the role's inline error, so a post refused
   /// for want of a trade is told why where the trade goes.
-  Widget _roleField() {
+  Widget _roleField({
+    String label = kPostingTradePickerLabel,
+    String emptyLabel = '— pick the role —',
+  }) {
     if (_postingTradesLoading || _postingTrades.isEmpty) {
       return PostingTradePickerPlaceholder(
         loading: _postingTradesLoading,
         failure: _postingTradesFailure,
         onRetry: _loadPostingTrades,
         errorText: _form[JobFormField.role],
+        label: label,
       );
     }
     return BbSelect<String?>(
-      label: kPostingTradePickerLabel,
+      label: label,
       value: _roleKind,
       items: <String?>[
         null,
         ..._postingTrades.map((PostingTradeForm t) => t.roleKind)
       ],
-      labelOf: (String? kind) =>
-          _formForKind(kind)?.roleLabel ?? '— pick the role —',
+      labelOf: (String? kind) => _formForKind(kind)?.roleLabel ?? emptyLabel,
       errorText: _form[JobFormField.role],
       onChanged: (String? kind) {
         final PostingTradeForm? form = _formForKind(kind);
@@ -579,18 +717,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
     }
   }
 
-  /// Whether the company skills section is complete: a trade is picked from
-  /// the catalogue, which seeds its own match skill (#2635 — a company job's
-  /// match set comes from its trade). It does NOT require a non-zero reach
-  /// preview: reach is dynamic — the backend's `reconcileReachForWorker` links
-  /// workers who join later to an existing open posting — so a zero-reach-today
-  /// job is still worth posting.
-  ///
-  /// #2595 — Post is never held disabled on a missing pick (a dead button never
-  /// said why): the missing trade is an inline error at the role ([_validate]);
-  /// this getter drives the progress bar.
-  bool get _companyCanPost => _tradeForm != null && _pickedSkillIds.isNotEmpty;
-
   /// A pay/experience box → int, or null when it is empty. The boxes take
   /// digits only (#2595) — the pay ones show Indian grouping ("18,000"), which
   /// [parseWholeNumber] reads straight through.
@@ -635,72 +761,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
       // No separate "pick a skill" rule for the company: its picked trade
       // always carries its own match skill, and the trade is required above.
     };
-  }
-
-  /// The four sections the progress bar counts (#2595), as the controls each
-  /// holds — a section is done when none of them has an error. Optional ones
-  /// (area, the location note, vacancies, an agency's skills) never count.
-  static const List<Set<JobFormField>> _companySections = <Set<JobFormField>>[
-    <JobFormField>{
-      JobFormField.org,
-      JobFormField.title,
-      JobFormField.role,
-      JobFormField.city,
-    },
-    <JobFormField>{
-      JobFormField.payMin,
-      JobFormField.payMax,
-      JobFormField.payType,
-      JobFormField.expMin,
-      JobFormField.expMax,
-      JobFormField.shift,
-      JobFormField.neededBy,
-    },
-    <JobFormField>{JobFormField.skills},
-    <JobFormField>{
-      JobFormField.description,
-      JobFormField.benefits,
-      JobFormField.requirements,
-    },
-  ];
-
-  static const List<Set<JobFormField>> _agencySections = <Set<JobFormField>>[
-    <JobFormField>{
-      JobFormField.role,
-      JobFormField.title,
-      JobFormField.city,
-    },
-    <JobFormField>{
-      JobFormField.payMin,
-      JobFormField.payMax,
-      JobFormField.payType,
-      JobFormField.expMin,
-      JobFormField.expMax,
-    },
-    <JobFormField>{JobFormField.neededBy, JobFormField.shift},
-    <JobFormField>{
-      JobFormField.description,
-      JobFormField.benefits,
-      JobFormField.requirements,
-    },
-  ];
-
-  List<Set<JobFormField>> get _sections =>
-      _isAgency ? _agencySections : _companySections;
-
-  /// How many of [_sections] are complete right now.
-  int _sectionsDone() {
-    // A box the server refused is not done either, until it is changed.
-    final Set<JobFormField> open = <JobFormField>{
-      ..._validate().keys,
-      ..._form.refusals.keys,
-    };
-    // The company skills section is its trade's form: not done before a trade
-    // is picked (#2635).
-    if (!_isAgency && !_companyCanPost) open.add(JobFormField.skills);
-    return _sections
-        .where((Set<JobFormField> section) => section.intersection(open).isEmpty)
-        .length;
   }
 
   /// A keystroke in any box: drop the inline errors it fixed. Nothing NEW is
@@ -797,7 +857,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
     // used to be six toast branches that NAMED one field at a time.
     final Map<JobFormField, String> errors = _validate();
     if (errors.isNotEmpty) {
-      setState(() => _form.show(errors));
+      // Land on the step that owns the first refused control, so the error is
+      // always on screen when it is revealed.
+      setState(() {
+        _step = _firstErrorStep();
+        _form.show(errors);
+      });
       return;
     }
     if (_isAgency) {
@@ -1084,10 +1149,15 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// company name, and links — so the message names all three.
   void _showPostFailure(Object error) {
     if (error is PayerApiException) {
+      // A field may live on a step that is not mounted right now; place it if
+      // this branch's wizard owns it, then jump there so the refusal is seen.
       final ({Map<JobFormField, String> placed, List<String> rest}) placement =
-          placeServerErrors(error.fieldErrors, isShown: _form.hasAnchor);
+          placeServerErrors(error.fieldErrors, isShown: _showsField);
       if (placement.placed.isNotEmpty) {
-        setState(() => _form.refuse(placement.placed, valueOf: _valueOf));
+        setState(() {
+          _step = _firstStepForFields(placement.placed.keys);
+          _form.refuse(placement.placed, valueOf: _valueOf);
+        });
         if (placement.rest.isNotEmpty) {
           showBbToast(
             context,
@@ -1233,95 +1303,77 @@ class _PostJobScreenState extends State<PostJobScreen> {
     // "Max pay must be at least the min"), and those rebuild through setState
     // rather than [_onInputChanged]. Errors only ever drop here.
     if (!_form.isEmpty) _form.settle(_validate());
+    final bool last = _step == _stepCount - 1;
+    // Held only while the company form's trade catalogue or match vocabulary is
+    // still loading (what the post needs is not known yet). Every other reason
+    // is an inline error on tap, never a dead button that does not say why.
+    final bool canAdvance =
+        _isAgency || (!_postingTradesLoading && _matchV1 != _MatchV1.loading);
+    final List<Widget> stepContent =
+        _isAgency ? _agencyStep(_step) : _companyStep(_step);
     return BbLeaveGuard(
       hasUnsavedChanges: () => _hasUnsavedChanges,
       prompt: _leavePrompt,
       watch: _inputs,
-      // Transparent so this inner Scaffold never paints over the shell surface
-      // — it exists only to pin the primary action below a form that can
-      // outgrow the fold (the shared bar the Edit screens use too).
       child: Scaffold(
-        backgroundColor: Colors.transparent,
-        bottomNavigationBar: BbActionBar(
-          child: BbButton(
-            label: 'Post job',
-            iconLeft: Icons.send_rounded,
-            block: true,
-            loading: _submitting,
-            // Held only while the company form's trade catalogue or match
-            // vocabulary is still loading (what the post needs is not known
-            // yet). Everything else — including a trade not yet picked, or a
-            // catalogue that did not load — is an inline error on tap (#2595),
-            // never a dead button that does not say why.
-            onPressed: (_isAgency ||
-                    (!_postingTradesLoading && _matchV1 != _MatchV1.loading))
-                ? _submit
-                : null,
+        backgroundColor: _kCanvas,
+        bottomNavigationBar: Container(
+          decoration: const BoxDecoration(
+            color: _kPaper,
+            border: Border(top: BorderSide(color: _kHairline)),
+          ),
+          child: BbActionBar(
+            child: _WizardCta(
+              last: last,
+              loading: _submitting,
+              onPressed: canAdvance ? _goNext : null,
+            ),
           ),
         ),
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            // The header and the progress stay pinned while the form scrolls.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.gutter,
-                AppSpacing.s2,
-                AppSpacing.gutter,
-                AppSpacing.s3,
-              ),
-              child: ListBody(
-                children: <Widget>[
-                  Row(
-                    children: <Widget>[
-                      BbIconButton(
-                        icon: Icons.arrow_back_rounded,
-                        semanticLabel: 'Back',
-                        onPressed: _leave,
-                      ),
-                      const SizedBox(width: AppSpacing.s3),
-                      Text(
-                        'Post a job',
-                        style: AppTypography.header(
-                          size: AppTypography.sizeLg,
-                          weight: FontWeight.w800,
-                        ),
-                      ),
-                      const Spacer(),
-                      const BbBadge('Free', tone: BbBadgeTone.success),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.s3),
-                  // Typing does not rebuild the form; the bar listens to the
-                  // boxes itself (picks rebuild it with the form).
-                  ListenableBuilder(
-                    listenable: _inputs,
-                    builder: (BuildContext context, Widget? _) =>
-                        BbStepProgress(
-                      done: _sectionsDone(),
-                      total: _sections.length,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _wizardHeader(),
             Expanded(
-              // Every field is built (not a lazy list) so the first invalid
-              // one can always be scrolled to; a drag closes the keyboard.
               child: SingleChildScrollView(
+                key: const Key('post_job_form_scroll'),
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: const EdgeInsets.fromLTRB(
                   AppSpacing.gutter,
-                  AppSpacing.s1,
+                  AppSpacing.s4,
                   AppSpacing.gutter,
                   AppSpacing.s6,
                 ),
-                // Branch on the locked session role: the agency posts to a
-                // DIFFERENT (faceless demand) contract that DOES accept
-                // trade/pay/experience.
-                child: ListBody(
-                  children: _isAgency ? _agencyFields() : _companyFields(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    // The four input steps use a slightly tighter type scale
+                    // than the Preview card; the preview keeps its own.
+                    if (last)
+                      ...stepContent
+                    else
+                      MediaQuery(
+                        data: MediaQuery.of(context).copyWith(
+                          textScaler: const TextScaler.linear(0.88),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: stepContent,
+                        ),
+                      ),
+                    const SizedBox(height: AppSpacing.s6),
+                    Text(
+                      '100% FREE',
+                      textAlign: TextAlign.center,
+                      style: AppTypography.body(
+                        size: AppTypography.size2xs,
+                        weight: FontWeight.w700,
+                        color: _kMuted.withValues(alpha: 0.55),
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1330,6 +1382,203 @@ class _PostJobScreenState extends State<PostJobScreen> {
       ),
     );
   }
+
+  /// The redesign header: back, centred title + "HIRING IN …", avatar, the
+  /// step meter and the four jump tabs. Pinned above the scrolling step.
+  Widget _wizardHeader() => Container(
+        color: _kPaper,
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.gutter,
+          AppSpacing.s3,
+          AppSpacing.gutter,
+          AppSpacing.s3,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                _WizardBackButton(
+                  onPressed:
+                      _step == 0 ? _leave : () => setState(() => _step -= 1),
+                ),
+                const SizedBox(width: AppSpacing.s3),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        'Post a job',
+                        textAlign: TextAlign.center,
+                        style: AppTypography.header(
+                          size: AppTypography.sizeLg,
+                          weight: FontWeight.w800,
+                          color: _kBrandBlue,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      ListenableBuilder(
+                        listenable: _inputs,
+                        builder: (BuildContext context, Widget? _) => Text(
+                          _hiringSubtitle(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: AppTypography.body(
+                            size: AppTypography.size2xs,
+                            weight: FontWeight.w700,
+                            color: _kMuted,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.s3),
+                const _WizardLogo(),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            _stepMeter(),
+            const SizedBox(height: AppSpacing.s2),
+            _stepTabs(),
+          ],
+        ),
+      );
+
+  /// "HIRING IN PUNE MIDC" — the place the job is for, from the same city/area
+  /// boxes the card renders. Blank until the payer types one.
+  String _hiringSubtitle() {
+    final String where = <String>[
+      _city.text.trim().toUpperCase(),
+      _area.text.trim().toUpperCase(),
+    ].where((String part) => part.isNotEmpty).join(' ');
+    return where.isEmpty ? 'HIRING DETAILS' : 'HIRING IN $where';
+  }
+
+  /// "STEP 1 OF 4: ROLE & LOCATION" + "25%" over the brand progress rail.
+  Widget _stepMeter() {
+    final int percent = ((_step + 1) / _stepCount * 100).round();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                'STEP ${_step + 1} OF $_stepCount: '
+                '${_stepNames[_step].toUpperCase()}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.body(
+                  size: AppTypography.size2xs,
+                  weight: FontWeight.w800,
+                  color: _kMuted,
+                  letterSpacing: 0.7,
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.s2),
+            Text(
+              '$percent%',
+              style: AppTypography.body(
+                size: AppTypography.size2xs,
+                weight: FontWeight.w800,
+                color: _kBrandBlue,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.gap6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadii.pill),
+          child: SizedBox(
+            height: 4,
+            child: ColoredBox(
+              color: _kProgressTrack,
+              child: TweenAnimationBuilder<double>(
+                tween: Tween<double>(end: _step / (_stepCount - 1)),
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOut,
+                builder: (BuildContext context, double value, Widget? _) =>
+                    FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: value.clamp(0.0, 1.0),
+                  child: const ColoredBox(color: _kBrandBlue),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The four interactive pills — tapping one jumps to that step.
+  Widget _stepTabs() => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            for (int i = 0; i < _stepCount; i++) ...<Widget>[
+              if (i > 0) const SizedBox(width: AppSpacing.s2),
+              _StepPill(
+                key: Key('post_job_step_$i'),
+                number: i + 1,
+                label: _stepShortNames[i],
+                active: i == _step,
+                onTap: () => setState(() => _step = i),
+              ),
+            ],
+          ],
+        ),
+      );
+
+  /// The redesign's "Job details" surface (step 1): a white 16-radius card
+  /// under the wizard header, with a deep-shift-blue title and one line of
+  /// helper copy above the fields.
+  Widget _jobDetailsCard({
+    required String subtitle,
+    required List<Widget> children,
+  }) =>
+      Container(
+        padding: const EdgeInsets.all(AppSpacing.s4),
+        decoration: BoxDecoration(
+          color: _kPaper,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _kHairline),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              'Job details',
+              style: AppTypography.heading(
+                size: AppTypography.sizeMd,
+                weight: FontWeight.w800,
+                color: _kBrandBlue,
+                letterSpacing: -0.3,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s1),
+            Text(
+              subtitle,
+              style: AppTypography.body(
+                size: AppTypography.sizeXs,
+                color: _kMuted,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            ...children,
+          ],
+        ),
+      );
 
   /// A JUL31 section card — paper, 1px hairline, radius 10, elevation 0 — with a
   /// deep-blue normal-face section title. Uses a [ListBody] (never a [Column]) as its
@@ -1343,7 +1592,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
               style: AppTypography.heading(
                 size: AppTypography.sizeMd,
                 weight: FontWeight.w800,
-                color: AppColors.blue,
+                color: _kBrandBlue,
               ),
             ),
             const SizedBox(height: AppSpacing.s3),
@@ -1587,182 +1836,246 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// net-vs-gross, and "kitna haath me aayega" is the worker's first question.
   static String _payTypeLabel(String? v) => jobPayTypeLabel(v) ?? 'Not stated';
 
+  /// The Preview step: the worker's own job card, drawn from the values the
+  /// payer has entered so far. Nothing here is posted or validated; the last
+  /// step's CTA does that.
+  List<Widget> _previewStep() {
+    final String place = <String>[
+      _city.text.trim(),
+      _area.text.trim(),
+    ].where((String part) => part.isNotEmpty).join(', ');
+    return <Widget>[
+      JobCardPreview(
+        title: _title.text,
+        place: place,
+        trade: _isAgency
+            ? (_tradeKey == null ? null : agencyTradeLabel(_tradeKey!))
+            : _tradeForm?.roleLabel,
+        payMin: _intOrNull(_payMin.text),
+        payMax: _intOrNull(_payMax.text),
+        payType: _payType,
+        shift: _shift == null ? null : _shiftLabel(_shift),
+        experience: _previewExperience(),
+        neededBy: _previewNeededBy(),
+        description: _description.text,
+        benefits: _benefits,
+        requirements: _requirements,
+      ),
+    ];
+  }
+
+  /// "1–4 yrs experience", or null when the window is not stated.
+  String? _previewExperience() {
+    final int? min = _intOrNull(_expMin.text);
+    final int? max = _intOrNull(_expMax.text);
+    if (min != null && max != null) {
+      return min == max ? '$min yrs experience' : '$min–$max yrs experience';
+    }
+    if (min != null) return '$min+ yrs experience';
+    if (max != null) return 'Up to $max yrs experience';
+    return null;
+  }
+
+  /// The worker card's Hinglish urgency copy, or null when unset.
+  String? _previewNeededBy() {
+    final String? value = _isAgency ? _neededBy : _companyNeededBy;
+    return switch (value) {
+      'immediate' => 'Turant chahiye',
+      'soon' => 'Jaldi chahiye',
+      'flexible' => 'Flexible',
+      _ => null,
+    };
+  }
+
   /// COMPANY posting inputs. #357: every input here reaches
   /// `POST /payer/job-postings` as its own column — org/title/location/vacancy
   /// band, the worker-card content, and the trade (`role_kind` + its trade
   /// form, #2635). Nothing on this form is prefilled and nothing is dropped.
-  List<Widget> _companyFields() => <Widget>[
-        _sectionCard('Company & role', <Widget>[
-          _anchored(
-            JobFormField.org,
-            BbField(
-              label: 'Company / org name',
-              controller: _org,
-              // Identity name field: keep the keyboard from resurfacing an org
-              // name typed in another app (matches signup + account, #1227).
-              suppressSuggestions: true,
-              errorText: _form[JobFormField.org],
-              flow: _chain[JobFormField.org],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          _titleField(hint: 'e.g. CNC Setter'),
-          const SizedBox(height: AppSpacing.s4),
-          // Migration 0141 — the ROLE is mandatory and it selects the trade
-          // form. #2635 — it is one of the 16 trades, always: there is no free
-          // trade or role list to fall back on (a job posted that way could
-          // never go live), so the picker says why when it cannot load.
-          _anchored(JobFormField.role, _roleField()),
-          const SizedBox(height: AppSpacing.s4),
-          // THE CARD'S PLACE ROW. Its own input since #1725 — the submit used
-          // to reuse the free-text Location below, which is `location_label`
-          // and never reaches a worker.
-          _cityAreaRow(areaHint: 'e.g. Chakan'),
-          const SizedBox(height: AppSpacing.s4),
-          // `location_label` — your own wording for the site. Kept optional and
-          // said plainly to be internal: the worker feed never reads it, so it
-          // can hold the detail the coarse city/area buckets may not. Anchored
-          // for the server's length cap.
-          _anchored(
-            JobFormField.location,
-            BbField(
-              label: 'Location note (optional, not shown to workers)',
-              controller: _location,
-              hint: 'e.g. near Chakan MIDC Phase 2',
-              errorText: _form[JobFormField.location],
-              flow: _chain[JobFormField.location],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          BbChipSelect<String>(
-            label: 'Vacancies',
-            value: _band,
-            options: _bands,
-            labelOf: (String b) => b,
-            onSelected: (String v) => setState(() => _band = v),
-          ),
-        ]),
-        const SizedBox(height: AppSpacing.s4),
-        // Whole rupees, not free text — and sent as the posting's own pay
-        // columns (#1646), no longer folded into the description.
-        _sectionCard('Pay, experience & timing', <Widget>[
-          _payBandRow(),
-          const SizedBox(height: AppSpacing.s4),
-          _payTypeField(),
-          const SizedBox(height: AppSpacing.s4),
-          _experienceRow(),
-          const SizedBox(height: AppSpacing.s4),
-          // Shift + needed-by are worker-visible DISPLAY columns, not match
-          // inputs, so they live here and are offered whether or not Matching
-          // V1 is on. Null stays "Any shift" / "Not set": an unpicked
-          // value sends nothing, so the worker's card never claims a timing the
-          // payer did not choose.
-          _chipField(
-            JobFormField.shift,
-            label: 'Shift',
-            value: _shift,
-            options: const <String>['day', 'night', 'rotational'],
-            labelOf: _shiftLabel,
-            onSelected: (String v) => setState(() => _shift = v),
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          _chipField(
-            JobFormField.neededBy,
-            label: 'Needed by',
-            value: _companyNeededBy,
-            options: const <String>['immediate', 'soon', 'flexible'],
-            labelOf: _companyNeededByLabel,
-            onSelected: (String v) => setState(() => _companyNeededBy = v),
-          ),
-        ]),
-        const SizedBox(height: AppSpacing.s4),
-        // The picked trade's own form (rung + chips) and its reach line — see
-        // [_companySkillsSection]. A server refusal of the skills (the cap)
-        // lands here, inline (#2595).
-        _sectionCard('Skills & matching', <Widget>[
-          _anchored(
-            JobFormField.skills,
-            ListBody(
-              children: <Widget>[
-                ..._companySkillsSection(),
-                BbFieldError(text: _form[JobFormField.skills]),
-              ],
-            ),
-          ),
-        ]),
-        const SizedBox(height: AppSpacing.s4),
-        // The worker-visible chips. #1646 gave the company posting the same
-        // `benefits`/`requirements` columns the agency route had, so these reach
-        // the job card verbatim instead of having nowhere to go. Same caps and
-        // the same entry screen as the agency form (one shared widget).
-        _sectionCard('What workers see', <Widget>[
-          Text(
-            'Shown on the job card exactly as you type it. Leave out company '
-            'names, phone numbers and links.',
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
-              height: 1.45,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          // The card renders a description. The company form used to have no
-          // input for one — `description` was COMPOSED from the trade + the
-          // V1-off skill chips — so a company posting reached the worker with a
-          // "Trade: CNC Setter" line where the work should have been.
-          //
-          // #2720 — the company description also takes a Hinglish voice note
-          // that the server drafts into English (employer-only route).
-          _descriptionField(voice: true),
-          const SizedBox(height: AppSpacing.s4),
-          ..._benefitRequirementFields(),
-        ]),
-        const SizedBox(height: AppSpacing.s4),
-        Container(
-          padding: const EdgeInsets.all(AppSpacing.s3),
-          decoration: BoxDecoration(
-            color: AppColors.successTint,
-            borderRadius: BorderRadius.circular(AppRadii.md),
-            border: Border.all(color: AppColors.success, width: 1.5),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+  List<Widget> _companyStep(int step) {
+    switch (step) {
+      case 0:
+        return <Widget>[
+          _jobDetailsCard(
+            subtitle:
+                'Select trade specialization or pick from the list below.',
             children: <Widget>[
-              const Icon(Icons.verified_user_rounded,
-                  size: 22, color: AppColors.green700),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: RichText(
-                  text: TextSpan(
-                    style: AppTypography.body(
-                      size: AppTypography.sizeSm,
-                      color: AppColors.green700,
-                      height: 1.45,
-                    ),
-                    children: <InlineSpan>[
-                      const TextSpan(
-                        text: 'Confirm this is a real, open role. ',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const TextSpan(
-                        text: 'We verify before workers see it — ghost jobs '
-                            'waste swipes. ',
-                      ),
-                      const TextSpan(
-                        text: "You'll get a Verified job badge once approved. "
-                            'Posting is free.',
-                      ),
-                    ],
-                  ),
+              // The FIRST answer on the page: which of the 16 trades this job
+              // is. One dropdown, every trade, so it is picked rather than
+              // typed — and it selects the trade-specific fields below.
+              _anchored(JobFormField.role, _roleField()),
+              const SizedBox(height: AppSpacing.s4),
+              _anchored(
+                JobFormField.org,
+                BbField(
+                  label: 'Company / org name',
+                  controller: _org,
+                  // Identity name field: keep the keyboard from resurfacing an
+                  // org name typed in another app (matches signup + account).
+                  suppressSuggestions: true,
+                  errorText: _form[JobFormField.org],
+                  flow: _chain[JobFormField.org],
                 ),
+              ),
+              const SizedBox(height: AppSpacing.s4),
+              _titleField(hint: 'e.g. Senior CNC Turning Operator'),
+              const SizedBox(height: AppSpacing.s4),
+              // THE CARD'S PLACE ROW. Its own input since #1725 — the submit
+              // used to reuse the free-text Location below, which is
+              // `location_label` and never reaches a worker.
+              _cityAreaRow(areaHint: 'e.g. Chakan MIDC'),
+              const SizedBox(height: AppSpacing.s4),
+              // `location_label` — your own wording for the site. Kept optional
+              // and said plainly to be internal: the worker feed never reads
+              // it, so it can hold the detail the coarse buckets may not.
+              _anchored(
+                JobFormField.location,
+                BbField(
+                  label: 'Location note (optional, not shown to workers)',
+                  controller: _location,
+                  hint: 'e.g. near Chakan MIDC Phase 2',
+                  errorText: _form[JobFormField.location],
+                  flow: _chain[JobFormField.location],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.s4),
+              BbChipSelect<String>(
+                label: 'Vacancies',
+                value: _band,
+                options: _bands,
+                labelOf: (String b) => b,
+                onSelected: (String v) => setState(() => _band = v),
               ),
             ],
           ),
-        ),
-        // #357 removed a fake 'Boost this posting' toggle; #2589 removed the
-        // line that pointed to buying boosts / plans — no payment information
-        // of any kind in the app (those live on payer-web only).
-      ];
+        ];
+      case 1:
+        return <Widget>[
+          // The picked trade's own form (rung + chips) and its reach line — see
+          // [_companySkillsSection]. A server refusal of the skills (the cap)
+          // lands here, inline (#2595).
+          _sectionCard('Skills & matching', <Widget>[
+            _anchored(
+              JobFormField.skills,
+              ListBody(
+                children: <Widget>[
+                  ..._companySkillsSection(),
+                  BbFieldError(text: _form[JobFormField.skills]),
+                ],
+              ),
+            ),
+          ]),
+        ];
+      case 2:
+        return <Widget>[
+          // Whole rupees, not free text — and sent as the posting's own pay
+          // columns (#1646), no longer folded into the description.
+          _sectionCard('Pay, experience & timing', <Widget>[
+            _payBandRow(),
+            const SizedBox(height: AppSpacing.s4),
+            _payTypeField(),
+            const SizedBox(height: AppSpacing.s4),
+            _experienceRow(),
+            const SizedBox(height: AppSpacing.s4),
+            // Shift + needed-by are worker-visible DISPLAY columns, not match
+            // inputs, so they live here and are offered whether or not Matching
+            // V1 is on. Null stays "Any shift" / "Not set".
+            _chipField(
+              JobFormField.shift,
+              label: 'Shift',
+              value: _shift,
+              options: const <String>['day', 'night', 'rotational'],
+              labelOf: _shiftLabel,
+              onSelected: (String v) => setState(() => _shift = v),
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            _chipField(
+              JobFormField.neededBy,
+              label: 'Needed by',
+              value: _companyNeededBy,
+              options: const <String>['immediate', 'soon', 'flexible'],
+              labelOf: _companyNeededByLabel,
+              onSelected: (String v) => setState(() => _companyNeededBy = v),
+            ),
+          ]),
+        ];
+      case 4:
+        return _previewStep();
+      default:
+        return <Widget>[
+          // The worker-visible content. #1646 gave the company posting the same
+          // `benefits`/`requirements` columns the agency route had, so these
+          // reach the job card verbatim instead of having nowhere to go.
+          _sectionCard('What workers see', <Widget>[
+            Text(
+              'Shown on the job card exactly as you type it. Leave out company '
+              'names, phone numbers and links.',
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.textMuted,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            // The card renders a description. The company form used to have no
+            // input for one — `description` was COMPOSED from the trade + the
+            // V1-off skill chips — so a company posting reached the worker with
+            // a "Trade: CNC Setter" line where the work should have been.
+            //
+            // #2720 — the company description also takes a Hinglish voice note
+            // that the server drafts into English (employer-only route).
+            _descriptionField(voice: true),
+            const SizedBox(height: AppSpacing.s4),
+            ..._benefitRequirementFields(),
+          ]),
+          const SizedBox(height: AppSpacing.s4),
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.s3),
+            decoration: BoxDecoration(
+              color: AppColors.successTint,
+              borderRadius: BorderRadius.circular(AppRadii.md),
+              border: Border.all(color: AppColors.success, width: 1.5),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Icon(Icons.verified_user_rounded,
+                    size: 22, color: AppColors.green700),
+                const SizedBox(width: AppSpacing.s2),
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      style: AppTypography.body(
+                        size: AppTypography.sizeSm,
+                        color: AppColors.green700,
+                        height: 1.45,
+                      ),
+                      children: <InlineSpan>[
+                        const TextSpan(
+                          text: 'Confirm this is a real, open role. ',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const TextSpan(
+                          text: 'We verify before workers see it — ghost jobs '
+                              'waste swipes. ',
+                        ),
+                        const TextSpan(
+                          text:
+                              "You'll get a Verified job badge once approved. "
+                              'Posting is free.',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // #357 removed a fake 'Boost this posting' toggle; #2589 removed the
+          // line that pointed to buying boosts / plans — no payment information
+          // of any kind in the app (those live on payer-web only).
+        ];
+    }
+  }
 
   /// The COMPANY skills area: the picked trade's own form ([_tradeSection]) —
   /// its rung and chips — with the live reach line.
@@ -1894,102 +2207,328 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// needed_by + the worker-visible description/shift/benefits/requirements).
   /// No org/employer name — that is not a demand attribute, and the server
   /// rejects one typed into any free-text field.
-  List<Widget> _agencyFields() => <Widget>[
-        _sectionCard('Job details', <Widget>[
-          // #2718 — ONE picker over the 16-trade catalogue. It drives
-          // role_kind; the required trade_key is derived from it.
-          _anchored(JobFormField.role, _roleField()),
-          const SizedBox(height: AppSpacing.s4),
-          _titleField(),
-          const SizedBox(height: AppSpacing.s4),
-          // #357 — was prefilled 'Pune' (and area 'Chakan'); the agency route is
-          // just as real, so these start empty too.
-          _cityAreaRow(),
-        ]),
+  List<Widget> _agencyStep(int step) {
+    switch (step) {
+      case 0:
+        return <Widget>[
+          _jobDetailsCard(
+            subtitle:
+                'Select trade specialization or pick from the list below.',
+            children: <Widget>[
+              // #2718 — ONE picker over the 16-trade catalogue. It drives
+              // role_kind; the required trade_key is derived from it.
+              _anchored(JobFormField.role, _roleField()),
+              const SizedBox(height: AppSpacing.s4),
+              _titleField(hint: 'e.g. Senior CNC Turning Operator'),
+              const SizedBox(height: AppSpacing.s4),
+              // #357 — was prefilled 'Pune' (and area 'Chakan'); the agency
+              // route is just as real, so these start empty too.
+              _cityAreaRow(),
+            ],
+          ),
+        ];
+      case 1:
         // ADR-0050 — the closed demand-skill picker (optional for agency; the
         // twin is served on picked skills). Hidden entirely when the match
         // vocabulary is off, never a free-text fallback.
-        if (_matchV1 != _MatchV1.unavailable) ...<Widget>[
-          const SizedBox(height: AppSpacing.s4),
+        if (_matchV1 == _MatchV1.unavailable) return const <Widget>[];
+        return <Widget>[
           _sectionCard('Skills & matching', _agencySkillsSection()),
-        ],
-        const SizedBox(height: AppSpacing.s4),
-        _sectionCard('Pay, experience & timing', <Widget>[
-          _payBandRow(),
-          const SizedBox(height: AppSpacing.s4),
-          _payTypeField(),
-          const SizedBox(height: AppSpacing.s4),
-          _experienceRow(),
-        ]),
-        const SizedBox(height: AppSpacing.s4),
-        _sectionCard('Timing', <Widget>[
-          _chipField(
-            JobFormField.neededBy,
-            label: 'Needed by',
-            value: _neededBy,
-            options: kAgencyNeededBy,
-            labelOf: agencyNeededByLabel,
-            onSelected: (String v) => setState(() => _neededBy = v),
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          // Null stays "Any shift" — an unpicked shift sends nothing, so the
-          // worker's card never claims a shift the payer did not choose.
-          _chipField(
-            JobFormField.shift,
-            label: 'Shift',
-            value: _shift,
-            options: const <String>['day', 'night', 'rotational'],
-            labelOf: _shiftLabel,
-            onSelected: (String v) => setState(() => _shift = v),
-          ),
-        ]),
-        const SizedBox(height: AppSpacing.s4),
-        // The worker-visible content block. Everything here is rendered VERBATIM
-        // on the worker's job card, so the copy says so and the inputs are
-        // screened at entry (contact details / company names / links are 400s).
-        _sectionCard('What workers see', <Widget>[
-          Text(
-            'Shown on the job card exactly as you type it. Leave out company '
-            'names, phone numbers and links.',
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
-              height: 1.45,
+        ];
+      case 2:
+        return <Widget>[
+          _sectionCard('Pay, experience & timing', <Widget>[
+            _payBandRow(),
+            const SizedBox(height: AppSpacing.s4),
+            _payTypeField(),
+            const SizedBox(height: AppSpacing.s4),
+            _experienceRow(),
+            const SizedBox(height: AppSpacing.s4),
+            _chipField(
+              JobFormField.neededBy,
+              label: 'Needed by',
+              value: _neededBy,
+              options: kAgencyNeededBy,
+              labelOf: agencyNeededByLabel,
+              onSelected: (String v) => setState(() => _neededBy = v),
             ),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          _descriptionField(),
+            const SizedBox(height: AppSpacing.s4),
+            // Null stays "Any shift" — an unpicked shift sends nothing, so the
+            // worker's card never claims a shift the payer did not choose.
+            _chipField(
+              JobFormField.shift,
+              label: 'Shift',
+              value: _shift,
+              options: const <String>['day', 'night', 'rotational'],
+              labelOf: _shiftLabel,
+              onSelected: (String v) => setState(() => _shift = v),
+            ),
+          ]),
+        ];
+      case 4:
+        return _previewStep();
+      default:
+        return <Widget>[
+          // The worker-visible content block. Everything here is rendered
+          // VERBATIM on the worker's job card, so the copy says so and the
+          // inputs are screened at entry.
+          _sectionCard('What workers see', <Widget>[
+            Text(
+              'Shown on the job card exactly as you type it. Leave out company '
+              'names, phone numbers and links.',
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.textMuted,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            _descriptionField(),
+            const SizedBox(height: AppSpacing.s4),
+            ..._benefitRequirementFields(),
+          ]),
           const SizedBox(height: AppSpacing.s4),
-          ..._benefitRequirementFields(),
-        ]),
-        const SizedBox(height: AppSpacing.s4),
-        Container(
-          padding: const EdgeInsets.all(AppSpacing.s3),
-          decoration: BoxDecoration(
-            color: AppColors.infoTint,
-            borderRadius: BorderRadius.circular(AppRadii.md),
-            border: Border.all(color: AppColors.info, width: 1.5),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              const Icon(Icons.info_rounded,
-                  size: 22, color: AppColors.bluePressed),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: Text(
-                  'Pay, experience, shift and timing are printed on the '
-                  "worker's job card — that is why we ask for all of them. "
-                  'Posting is free.',
-                  style: AppTypography.body(
-                    size: AppTypography.sizeSm,
-                    color: AppColors.bluePressed,
-                    height: 1.45,
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.s3),
+            decoration: BoxDecoration(
+              color: AppColors.infoTint,
+              borderRadius: BorderRadius.circular(AppRadii.md),
+              border: Border.all(color: AppColors.info, width: 1.5),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Icon(Icons.info_rounded,
+                    size: 22, color: AppColors.bluePressed),
+                const SizedBox(width: AppSpacing.s2),
+                Expanded(
+                  child: Text(
+                    'Pay, experience, shift and timing are printed on the '
+                    "worker's job card — that is why we ask for all of them. "
+                    'Posting is free.',
+                    style: AppTypography.body(
+                      size: AppTypography.sizeSm,
+                      color: AppColors.bluePressed,
+                      height: 1.45,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
+          ),
+        ];
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Redesign chrome (#2713): the header controls, the numbered step tabs and the
+// docked Safety-Yellow CTA. Kept private and file-local so they cannot leak the
+// wizard's scoped palette into the rest of the app.
+// ---------------------------------------------------------------------------
+
+/// The rounded-square back control in the redesign header.
+class _WizardBackButton extends StatelessWidget {
+  const _WizardBackButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Back',
+      child: Material(
+        color: _kPaper,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: _kHairline),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onPressed,
+          child: const SizedBox(
+            width: 40,
+            height: 40,
+            child: Icon(Icons.arrow_back_rounded, size: 20, color: _kBrandBlue),
           ),
         ),
-      ];
+      ),
+    );
+  }
+}
+
+/// The official BadaBhai two-person mark (the brand lockup's glyph, no
+/// wordmark) on the wizard's dark-blue theme disc. The dark circular plate
+/// keeps BOTH figures legible on the light header: the yellow worker pops
+/// against the blue, and the ivory companion would vanish on the paper header
+/// without it.
+class _WizardLogo extends StatelessWidget {
+  const _WizardLogo();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'BadaBhai',
+      image: true,
+      child: Container(
+        width: 40,
+        height: 40,
+        padding: const EdgeInsets.all(6),
+        decoration: const BoxDecoration(
+          color: _kBrandBlue,
+          shape: BoxShape.circle,
+        ),
+        child: Image.asset(
+          'assets/brand/badabhai-mark.png',
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          excludeFromSemantics: true,
+        ),
+      ),
+    );
+  }
+}
+
+/// One numbered step tab — filled deep blue when active, paper with a hairline
+/// when idle. Tapping jumps to that step.
+class _StepPill extends StatelessWidget {
+  const _StepPill({
+    super.key,
+    required this.number,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final int number;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color foreground = active ? _kPaper : _kMuted;
+    return Semantics(
+      button: true,
+      selected: active,
+      label: 'Step $number $label',
+      child: Material(
+        color: active ? _kBrandBlue : _kPaper,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          onTap: onTap,
+          child: Container(
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadii.sm),
+              border: Border.all(
+                color: active ? _kBrandBlue : _kHairline,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Container(
+                  width: 18,
+                  height: 18,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color:
+                        active ? _kPaper.withValues(alpha: 0.16) : _kPillIdle,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Text(
+                    '$number',
+                    style: AppTypography.body(
+                      size: 10,
+                      weight: FontWeight.w800,
+                      color: foreground,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  maxLines: 1,
+                  style: AppTypography.body(
+                    size: 11,
+                    weight: FontWeight.w700,
+                    color: foreground,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The docked wizard action: "Aage badhein →" until the last step, "Post job"
+/// there. Safety Yellow with deep-shift-blue text, per the brand kit.
+class _WizardCta extends StatelessWidget {
+  const _WizardCta({
+    required this.last,
+    required this.loading,
+    required this.onPressed,
+  });
+
+  final bool last;
+  final bool loading;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool enabled = onPressed != null && !loading;
+    return SizedBox(
+      height: AppSpacing.controlLg,
+      child: FilledButton(
+        onPressed: enabled
+            ? () {
+                AppHaptics.tap();
+                onPressed!();
+              }
+            : null,
+        style: FilledButton.styleFrom(
+          backgroundColor: _kBrandYellow,
+          foregroundColor: _kBrandBlue,
+          disabledBackgroundColor: _kBrandYellow.withValues(alpha: 0.45),
+          disabledForegroundColor: _kBrandBlue.withValues(alpha: 0.55),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          textStyle: AppTypography.heading(
+            size: AppTypography.sizeBase,
+            weight: FontWeight.w700,
+          ),
+        ),
+        child: loading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: _kBrandBlue,
+                ),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(last ? 'Post job' : 'Aage badhein'),
+                  if (!last) ...<Widget>[
+                    const SizedBox(width: AppSpacing.s2),
+                    const Icon(Icons.arrow_forward_rounded, size: 18),
+                  ],
+                ],
+              ),
+      ),
+    );
+  }
 }

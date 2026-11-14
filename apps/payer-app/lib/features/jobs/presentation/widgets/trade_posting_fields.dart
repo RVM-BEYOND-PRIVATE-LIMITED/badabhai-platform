@@ -31,7 +31,11 @@ class PostingTradePickerPlaceholder extends StatelessWidget {
     required this.failure,
     required this.onRetry,
     this.errorText,
+    this.label = kPostingTradePickerLabel,
   });
+
+  /// The label above the placeholder (the post form says "Trade").
+  final String label;
 
   /// The catalogue read is in flight.
   final bool loading;
@@ -50,7 +54,7 @@ class PostingTradePickerPlaceholder extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Text(
-          kPostingTradePickerLabel,
+          label,
           style: AppTypography.body(
             size: AppTypography.sizeSm,
             weight: FontWeight.w700,

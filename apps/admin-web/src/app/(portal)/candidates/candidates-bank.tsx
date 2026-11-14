@@ -498,8 +498,15 @@ export function bankColumns(
       width: "id",
       group: "Identity",
       cell: (row) => (
-        <span className="mono" title={row.worker_id}>
-          {shortId(row.worker_id)}
+        <span className="candidate-id">
+          <span className="mono" title={row.worker_id}>
+            {shortId(row.worker_id)}
+          </span>
+          {row.institute_code === "rvm" ? (
+            <span className="pill pill--brand" title="Linked to BadaBhai through Campus">
+              RVM student
+            </span>
+          ) : null}
         </span>
       ),
       title: (row) => (named ? undefined : row.worker_id),
