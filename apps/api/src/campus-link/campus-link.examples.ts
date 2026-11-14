@@ -61,6 +61,7 @@ export const REVIEW_BODY_EXAMPLE: z.input<typeof CampusReviewBodySchema> = {
   reviewer_ref: STAFF_REF,
   branch_ids: [1],
   content_hash: CONTENT_HASH,
+  decided_at: "2026-11-13T10:00:00.000+05:30",
 };
 
 export const REVIEW_RESPONSE_EXAMPLE: z.input<typeof CampusReviewResponseSchema> = {
@@ -71,6 +72,7 @@ export const REVIEW_RESPONSE_EXAMPLE: z.input<typeof CampusReviewResponseSchema>
 
 /** #2746 — the whole current list; list position is the order companies see. */
 export const TARGETING_OPTIONS_BODY_EXAMPLE: z.input<typeof CampusTargetingOptionsBodySchema> = {
+  as_of: "2026-11-13T08:00:00.000+05:30",
   branches: [
     { id: 1, name: "Faridabad" },
     { id: 2, name: "Pune" },

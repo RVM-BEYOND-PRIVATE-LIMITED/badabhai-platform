@@ -3969,13 +3969,17 @@ const StaffRefLayout = z
  * #2746 PR 5 — the placement team (BadaBhai Campus, `PUT job-postings/:id/review`) DECIDED the RVM
  * part of a posting: approved or rejected, for the content whose hash it stores. Emitted in the
  * decision's transaction, once per decision that changed the review row; a replay of the same
- * decision on the same content changes nothing and emits nothing.
+ * decision (same `decided_at`) changes nothing and emits nothing, and an older or conflicting one
+ * is refused (`DECISION_SUPERSEDED`) and emits nothing.
  *
  * THE HISTORY OF A REVIEW. A company edit returns the row to `pending` and clears every decision
  * column (`jpir_decision_chk`), so these events are where earlier decisions live.
  *
  *   - `previous_state`: the review as a reader saw it just before (the live-hash rule: a decision on
- *     older content reads `pending`); `null` when the posting had no review row.
+ *     older content reads `pending`). A posting with no review row gets a `pending` one in the
+ *     decision's transaction, so a first decision reports `pending`.
+ *   - `decided_at`: when the reviewer decided, by Campus's clock (stored as `reviewed_at`); the
+ *     envelope's `occurred_at` is when BadaBhai recorded it.
  *   - `branch_ids` / `course_ids`: the NARROWING the decision stored, which replaces the posting's
  *     own targeting for RVM students; `null` = not narrowed. Never empty (`jpir_narrowing_chk`).
  *   - `content_hash`: `postingReviewContentHash` of the content decided on, so a reader can tell
@@ -3991,8 +3995,9 @@ export const JobPostingRvmReviewedPayload = z
     job_posting_id: uuidSchema,
     institute_code: z.enum(RVM_REVIEW_INSTITUTE_VALUES),
     state: z.enum(["approved", "rejected"]),
-    previous_state: z.enum(["pending", "approved", "rejected"]).nullable(),
+    previous_state: z.enum(["pending", "approved", "rejected"]),
     reviewer_ref: StaffRefLayout,
+    decided_at: isoDateTimeSchema,
     branch_ids: z.array(z.number().int().positive()).min(1).max(50).nullable(),
     course_ids: z.array(z.string().min(1).max(64)).min(1).max(100).nullable(),
     has_reason: z.boolean(),
@@ -4019,11 +4024,13 @@ const TargetingOptionCounts = z
  * #2746 PR 5 — BadaBhai Campus REPLACED the list of RVM branches and courses a company may target
  * (`PUT targeting-options`, `rvm_targeting_options`). Emitted in the write's transaction, only when
  * something changed. COUNTS ONLY: no ref and no label (labels are reference data, but the spine
- * needs only how much moved; the rows say what).
+ * needs only how much moved; the rows say what). `as_of` is when Campus read the list, by its
+ * clock: the list applied is the newest by it.
  */
 export const JobPostingRvmTargetingOptionsSetPayload = z
   .object({
     institute_code: z.enum(RVM_REVIEW_INSTITUTE_VALUES),
+    as_of: isoDateTimeSchema,
     branches: TargetingOptionCounts,
     courses: TargetingOptionCounts,
   })

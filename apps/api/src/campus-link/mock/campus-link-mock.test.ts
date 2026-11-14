@@ -117,7 +117,13 @@ describe("Campus contract mock", () => {
 
     const fresh = handle(request("PUT", path, { body: REVIEW_BODY_EXAMPLE }));
     const stale = handle(
-      request("PUT", path, { body: { ...REVIEW_BODY_EXAMPLE, content_hash: "0".repeat(64) } }),
+      request("PUT", path, {
+        body: {
+          ...REVIEW_BODY_EXAMPLE,
+          content_hash: "0".repeat(64),
+          decided_at: "2026-11-13T11:00:00.000+05:30",
+        },
+      }),
     );
     const noHash = handle(
       request("PUT", path, {
@@ -131,6 +137,28 @@ describe("Campus contract mock", () => {
     expect(CampusErrorBodySchema.parse(stale.body).error.code).toBe("POSTING_CHANGED");
     expect(noHash.status).toBe(400);
     expect(CampusErrorBodySchema.parse(noHash.body).error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("keeps the newest decision by decided_at: a replay answers it, an older or clashing one is DECISION_SUPERSEDED (#2746)", () => {
+    const handle = createCampusLinkMock({ token: TOKEN });
+    const path = "job-postings/" + POSTING_EXAMPLE.id + "/review";
+    const approve = { ...REVIEW_BODY_EXAMPLE, decided_at: "2026-11-13T10:00:00.000+05:30" };
+    const reject = { ...approve, state: "rejected", decided_at: "2026-11-13T10:05:00.000+05:30" };
+
+    expect(handle(request("PUT", path, { body: approve })).status).toBe(200);
+    expect(handle(request("PUT", path, { body: reject })).status).toBe(200);
+    const late = handle(request("PUT", path, { body: approve }));
+    const clash = handle(request("PUT", path, { body: { ...reject, state: "approved" } }));
+    const replay = handle(request("PUT", path, { body: reject }));
+
+    expect(late.status).toBe(409);
+    expect(CampusErrorBodySchema.parse(late.body).error.code).toBe("DECISION_SUPERSEDED");
+    expect(clash.status).toBe(409);
+    expect(replay.status).toBe(200);
+    expect(CampusReviewResponseSchema.parse(replay.body)).toMatchObject({
+      review_state: "rejected",
+      reviewed_at: reject.decided_at,
+    });
   });
 
   it("takes a targeting-options list and answers counts that parse against the contract (#2746)", () => {

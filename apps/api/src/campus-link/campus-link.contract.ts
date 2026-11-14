@@ -45,8 +45,19 @@ export const CAMPUS_ERROR_CODES = [
   "RVM_UNAVAILABLE",
   /** #2746: the posting changed after the reviewer saw it (its `content_hash` moved). */
   "POSTING_CHANGED",
+  /**
+   * #2746: a newer decision (`decided_at`) or list (`as_of`) is already held, or one at the same
+   * instant that differs. Nothing was stored; do not retry this body.
+   */
+  "DECISION_SUPERSEDED",
 ] as const;
 export type CampusErrorCode = (typeof CAMPUS_ERROR_CODES)[number];
+
+/**
+ * #2746 — how far ahead of BadaBhai's clock a Campus `decided_at` / `as_of` may be. Further ahead
+ * is 400 `VALIDATION_FAILED`: a time from the future would outrank every later decision.
+ */
+export const CAMPUS_MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
 
@@ -76,8 +87,28 @@ export const Phone10Schema = z.string().regex(/^[6-9]\d{9}$/);
 /** An RVM location id: the same number as Campus's `allowed_location_ids`. */
 export const BranchIdSchema = z.number().int().positive();
 
-/** A Scheduler course id. Matching happens on the id once the Student API returns one. */
-export const CourseIdSchema = z.string().min(1).max(64);
+/**
+ * Characters no id may hold: control (`Cc`), format (`Cf`: bidi overrides, zero-width), lone
+ * surrogates (`Cs`), private use (`Co`), unassigned (`Cn`) and every separator (`Z`: spaces, line
+ * and paragraph separators). A NUL would reach Postgres and fail the row (22021); a lone surrogate
+ * is rewritten to U+FFFD by the driver, so two distinct ids would collapse into one key.
+ */
+const ID_FORBIDDEN_CHARACTERS = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}\p{Z}]/u;
+
+/**
+ * A Scheduler course id. Matching happens on the id once the Student API returns one. Trimmed;
+ * no hidden or separator character (`ID_FORBIDDEN_CHARACTERS`). Deliberately no charset beyond
+ * that: the Scheduler's id format is not confirmed.
+ */
+export const CourseIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine(
+    (id) => !ID_FORBIDDEN_CHARACTERS.test(id),
+    "no control, format, separator, surrogate, private-use or unassigned characters",
+  );
 
 const IsoDateTime = z.string().datetime({ offset: true });
 const Id = z.string().uuid();
@@ -195,44 +226,66 @@ export const CampusReviewBodySchema = z.strictObject({
    * is 409 `POSTING_CHANGED` and stores nothing, so an approval never lands on content nobody saw.
    */
   content_hash: ContentHashSchema,
+  /**
+   * REQUIRED (owner decision 2026-11-14): when the reviewer decided, by Campus's clock. The row
+   * keeps the newest decision only: a decision older than the one held, or one at the same
+   * instant that differs, is 409 `DECISION_SUPERSEDED`; the same decision again is a replay.
+   * More than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of BadaBhai's clock is 400 `VALIDATION_FAILED`.
+   */
+  decided_at: IsoDateTime,
 });
 
 export const CampusReviewResponseSchema = z.object({
   posting_id: Id,
   review_state: z.enum(REVIEW_STATES),
+  /** The decision's `decided_at`, echoed: BadaBhai stores Campus's decision time as the review time. */
   reviewed_at: IsoDateTime,
 });
 
 // ─── PUT targeting-options (#2746) ───────────────────────────────────────────
 
 /**
- * No control or invisible format character (`\p{Cc}`, `\p{Cf}`): an option's id is matched and its
- * label is shown to companies, so neither may hide a character (posting targeting refuses a
- * newline in a course id, `job_postings_rvm_targeting_chk`).
+ * Characters a targeting label may not hold: control (`Cc`), format (`Cf`), lone surrogates
+ * (`Cs`), private use (`Co`), unassigned (`Cn`), and line or paragraph separators (`Zl`, `Zp`).
+ * A label is shown to companies verbatim, so nothing in it may be invisible or rewritten by the
+ * driver. Ordinary spaces are allowed.
  */
-const NO_HIDDEN_CHARACTERS = /^[^\p{Cc}\p{Cf}]*$/u;
+const LABEL_FORBIDDEN_CHARACTERS = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}\p{Zl}\p{Zp}]/u;
 
 /**
- * The largest branch id BadaBhai stores: `rvm_targeting_options.ref` holds it as at most ten
- * digits (`rto_branch_ref_chk`).
+ * The bounds of one targeting list. Chosen so the LARGEST valid body, in plain UTF-8, fits the
+ * api's 100 kB JSON limit (Express's default): 50 branches (the most a posting may target) and
+ * 100 courses (likewise), each label up to 150 characters, each course id up to 64. Every Indian
+ * script character is 3 bytes, so the worst case is about 90 kB. `rto_label_chk` allows 200; the
+ * body stops at 150 for the size bound.
  */
-const MAX_TARGETING_BRANCH_ID = 9_999_999_999;
+export const CAMPUS_TARGETING_LIMITS = {
+  branches: 50,
+  courses: 100,
+  labelLength: 150,
+  /** `rvm_targeting_options.ref` holds a branch id as at most ten digits (`rto_branch_ref_chk`). */
+  maxBranchId: 9_999_999_999,
+} as const;
 
 /** A place or course name as companies see it: reference data, never personal data (`rto_label_chk`). */
 const TargetingLabelSchema = z
   .string()
   .trim()
   .min(1)
-  .max(200)
-  .regex(NO_HIDDEN_CHARACTERS, "no control or format characters");
+  .max(CAMPUS_TARGETING_LIMITS.labelLength)
+  .refine(
+    (label) => !LABEL_FORBIDDEN_CHARACTERS.test(label),
+    "no control, format, surrogate, private-use, unassigned or line-separator characters",
+  );
 
 const TargetingBranchSchema = z.strictObject({
-  id: BranchIdSchema.max(MAX_TARGETING_BRANCH_ID),
+  id: BranchIdSchema.max(CAMPUS_TARGETING_LIMITS.maxBranchId),
   name: TargetingLabelSchema,
 });
 
+/** The course id is the shared `CourseIdSchema`, so a review narrowing and an option agree. */
 const TargetingCourseSchema = z.strictObject({
-  id: CourseIdSchema.regex(NO_HIDDEN_CHARACTERS, "no control or format characters"),
+  id: CourseIdSchema,
   name: TargetingLabelSchema,
 });
 
@@ -247,13 +300,22 @@ function idsUnique(entries: readonly { id: number | string }[]): boolean {
  * holds that is not in the list is marked inactive, never deleted, because postings hold the refs.
  * Both lists are required (an empty one retires every option of that kind); an id appears at most
  * once in its list.
+ *
+ * `as_of` (REQUIRED): when Campus read this list, by its clock. A list is applied only when it is
+ * newer than the last one applied; an older or same-instant list that differs from what is held is
+ * 409 `DECISION_SUPERSEDED`, so a late retry never puts back an option Campus has since removed.
+ * More than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of BadaBhai's clock is 400 `VALIDATION_FAILED`.
  */
 export const CampusTargetingOptionsBodySchema = z.strictObject({
   branches: z
     .array(TargetingBranchSchema)
-    .max(200)
+    .max(CAMPUS_TARGETING_LIMITS.branches)
     .refine(idsUnique, "each branch id at most once"),
-  courses: z.array(TargetingCourseSchema).max(500).refine(idsUnique, "each course id at most once"),
+  courses: z
+    .array(TargetingCourseSchema)
+    .max(CAMPUS_TARGETING_LIMITS.courses)
+    .refine(idsUnique, "each course id at most once"),
+  as_of: IsoDateTime,
 });
 
 /** What one kind's replacement did. `listed` is the number now active. */

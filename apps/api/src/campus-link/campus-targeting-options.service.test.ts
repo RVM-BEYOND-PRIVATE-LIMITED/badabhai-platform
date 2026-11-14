@@ -1,10 +1,13 @@
 import "reflect-metadata";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { Database } from "@badabhai/db";
 
 import type { EventsService } from "../events/events.service";
+import { CAMPUS_MAX_CLOCK_SKEW_MS } from "./campus-link.contract";
 import type {
   CampusTargetingOptionsRepository,
+  ListTiming,
   StoredTargetingOption,
 } from "./campus-targeting-options.repository";
 import {
@@ -41,7 +44,10 @@ const STORED: StoredTargetingOption[] = [
   stored({ kind: "course", ref: "cnc", label: "CNC Programming", sortOrder: 0 }),
 ];
 
+const AS_OF = "2026-11-14T09:00:00.000+05:30";
+
 const LIST: CampusTargetingOptionsList = {
+  as_of: AS_OF,
   branches: [
     { id: 1, name: "Faridabad" }, // unchanged
     { id: 2, name: "Pune City" }, // relabelled
@@ -70,6 +76,7 @@ describe("planTargetingReplacement", () => {
 
   it("takes the order from list position: a move is an update", () => {
     const plan = planTargetingReplacement(STORED, {
+      as_of: AS_OF,
       branches: [
         { id: 2, name: "Pune" },
         { id: 1, name: "Faridabad" },
@@ -86,6 +93,7 @@ describe("planTargetingReplacement", () => {
 
   it("the same list again plans nothing", () => {
     const plan = planTargetingReplacement(STORED, {
+      as_of: AS_OF,
       branches: [
         { id: 1, name: "Faridabad" },
         { id: 2, name: "Pune" },
@@ -98,18 +106,22 @@ describe("planTargetingReplacement", () => {
   });
 
   it("an empty list retires every active option of the kind and leaves inactive ones alone", () => {
-    const plan = planTargetingReplacement(STORED, { branches: [], courses: [] });
+    const plan = planTargetingReplacement(STORED, { as_of: AS_OF, branches: [], courses: [] });
     expect(plan.retire).toEqual({ branch: ["1", "2", "3"], course: ["cnc"] });
     expect(plan.counts.branches.deactivated).toBe(3);
   });
 
   it("keys a branch by its id as text, the form rvm_targeting_options.ref stores", () => {
-    const plan = planTargetingReplacement([], { branches: [{ id: 12, name: "X" }], courses: [] });
+    const plan = planTargetingReplacement([], {
+      as_of: AS_OF,
+      branches: [{ id: 12, name: "X" }],
+      courses: [],
+    });
     expect(plan.writes[0]!.ref).toBe("12");
   });
 });
 
-function make(rows: StoredTargetingOption[] = STORED) {
+function make(rows: StoredTargetingOption[] = STORED, timing: ListTiming = "newer") {
   const tx = { tx: true } as unknown as Database;
   const calls: string[] = [];
   const repo = {
@@ -117,9 +129,16 @@ function make(rows: StoredTargetingOption[] = STORED) {
     lockForReplace: vi.fn(async () => {
       calls.push("lock");
     }),
+    listTiming: vi.fn(async () => {
+      calls.push("timing");
+      return timing;
+    }),
     listAll: vi.fn(async () => {
       calls.push("list");
       return rows;
+    }),
+    stampAll: vi.fn(async () => {
+      calls.push("stamp");
     }),
     upsert: vi.fn(async () => {
       calls.push("upsert");
@@ -143,9 +162,10 @@ describe("CampusTargetingOptionsService.replace", () => {
   it("locks, reads, upserts and retires in one transaction, and answers the counts", async () => {
     const { service, repo, tx, calls } = make();
     const counts = await service.replace(LIST, CALL);
-    expect(calls).toEqual(["lock", "list", "upsert", "retire"]);
+    expect(calls).toEqual(["lock", "timing", "list", "upsert", "retire", "stamp"]);
     expect(repo.withTransaction).toHaveBeenCalledTimes(1);
-    expect(repo.upsert).toHaveBeenCalledWith(tx, expect.any(Array));
+    expect(repo.upsert).toHaveBeenCalledWith(tx, expect.any(Array), AS_OF);
+    expect(repo.stampAll).toHaveBeenCalledWith(tx, AS_OF);
     expect(repo.retire).toHaveBeenCalledWith(tx, { branch: ["3"], course: ["cnc"] });
     expect(counts.branches).toEqual({ listed: 4, added: 1, updated: 2, deactivated: 1 });
   });
@@ -161,6 +181,7 @@ describe("CampusTargetingOptionsService.replace", () => {
     });
     expect(emitted.payload).toEqual({
       institute_code: "rvm",
+      as_of: AS_OF,
       branches: { listed: 4, added: 1, updated: 2, deactivated: 1 },
       courses: { listed: 1, added: 1, updated: 0, deactivated: 1 },
     });
@@ -173,6 +194,7 @@ describe("CampusTargetingOptionsService.replace", () => {
     await service.replace(LIST, CALL);
     expect(repo.writeAudit).toHaveBeenCalledWith(tx, CALL.callId, {
       institute_code: "rvm",
+      as_of: AS_OF,
       branches: { listed: 4, added: 1, updated: 2, deactivated: 1 },
       courses: { listed: 1, added: 1, updated: 0, deactivated: 1 },
       event_id: "eeeeeeee-0000-4000-8000-000000000002",
@@ -182,6 +204,7 @@ describe("CampusTargetingOptionsService.replace", () => {
   it("the same list again emits nothing and writes no audit row (idempotent by content)", async () => {
     const { service, events, repo } = make();
     const same: CampusTargetingOptionsList = {
+      as_of: AS_OF,
       branches: [
         { id: 1, name: "Faridabad" },
         { id: 2, name: "Pune" },
@@ -193,5 +216,59 @@ describe("CampusTargetingOptionsService.replace", () => {
     expect(counts.branches).toEqual({ listed: 3, added: 0, updated: 0, deactivated: 0 });
     expect(events.emit).not.toHaveBeenCalled();
     expect(repo.writeAudit).not.toHaveBeenCalled();
+  });
+
+  it("a list not newer than the one applied, and different from it: 409 DECISION_SUPERSEDED, nothing written", async () => {
+    for (const timing of ["same", "older"] as const) {
+      const { service, repo, events } = make(STORED, timing);
+      const err = await service.replace(LIST, CALL).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toEqual({ code: "DECISION_SUPERSEDED" });
+      expect(repo.upsert).not.toHaveBeenCalled();
+      expect(repo.retire).not.toHaveBeenCalled();
+      expect(repo.stampAll).not.toHaveBeenCalled();
+      expect(events.emit).not.toHaveBeenCalled();
+      expect(repo.writeAudit).not.toHaveBeenCalled();
+    }
+  });
+
+  it("a list not newer than the one applied, and equal to what is held: the replay, 200, nothing written", async () => {
+    const same: CampusTargetingOptionsList = {
+      as_of: AS_OF,
+      branches: [
+        { id: 1, name: "Faridabad" },
+        { id: 2, name: "Pune" },
+        { id: 3, name: "Ahmedabad" },
+      ],
+      courses: [{ id: "cnc", name: "CNC Programming" }],
+    };
+    for (const timing of ["same", "older"] as const) {
+      const { service, repo } = make(STORED, timing);
+      const counts = await service.replace(same, CALL);
+      expect(counts.branches).toEqual({ listed: 3, added: 0, updated: 0, deactivated: 0 });
+      expect(repo.stampAll).not.toHaveBeenCalled();
+    }
+  });
+
+  it("the first list ever (nothing applied) is applied", async () => {
+    const { service, repo } = make([], "none");
+    await service.replace(LIST, CALL);
+    expect(repo.upsert).toHaveBeenCalledTimes(1);
+    expect(repo.stampAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses an as_of more than the skew bound ahead of BadaBhai's clock, before the transaction", async () => {
+    const { service, repo } = make();
+    const ahead = new Date(Date.now() + CAMPUS_MAX_CLOCK_SKEW_MS + 60_000).toISOString();
+    const err = await service.replace({ ...LIST, as_of: ahead }, CALL).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(JSON.stringify((err as BadRequestException).getResponse())).toContain("as_of");
+    expect(repo.withTransaction).not.toHaveBeenCalled();
   });
 });

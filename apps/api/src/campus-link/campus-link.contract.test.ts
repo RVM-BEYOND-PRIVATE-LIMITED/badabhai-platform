@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import {
   CAMPUS_ERROR_CODES,
+  CAMPUS_TARGETING_LIMITS,
+  CourseIdSchema,
   CampusApplicationPageSchema,
   CampusApplicationSchema,
   CampusApplyBodySchema,
@@ -23,6 +25,7 @@ import {
   StudentRefSchema,
 } from "./campus-link.contract";
 import * as examples from "./campus-link.examples";
+import { largestTargetingBody } from "./campus-targeting.test-support";
 
 const PAIRS: ReadonlyArray<[string, z.ZodType, unknown]> = [
   ["posting", CampusPostingSchema, examples.POSTING_EXAMPLE],
@@ -207,11 +210,13 @@ describe("Campus contract v1 — PUT targeting-options (#2746)", () => {
     expect(parse({ courses: [{ id: `cnc${NEWLINE}x`, name: "CNC" }] })).toBe(false);
   });
 
-  it("bounds labels to rto_label_chk (1 to 200 after trimming) and course ids to 64", () => {
+  it("bounds labels to 1 to 150 characters after trimming (rto_label_chk allows 200) and course ids to 64", () => {
     expect(parse({ branches: [{ id: 1, name: "   " }] })).toBe(false);
-    expect(parse({ branches: [{ id: 1, name: "x".repeat(201) }] })).toBe(false);
+    expect(parse({ branches: [{ id: 1, name: "x".repeat(150) }] })).toBe(true);
+    expect(parse({ branches: [{ id: 1, name: "x".repeat(151) }] })).toBe(false);
     expect(parse({ courses: [{ id: "c".repeat(65), name: "Long" }] })).toBe(false);
     const trimmed = CampusTargetingOptionsBodySchema.parse({
+      as_of: list.as_of,
       branches: [{ id: 1, name: "  Faridabad  " }],
       courses: [],
     });
@@ -221,5 +226,133 @@ describe("Campus contract v1 — PUT targeting-options (#2746)", () => {
   it("refuses an unknown key, at the top or on an option", () => {
     expect(parse({ batches: [] })).toBe(false);
     expect(parse({ branches: [{ id: 1, name: "Faridabad", sort: 1 }] })).toBe(false);
+  });
+});
+
+/** Code points no editor may turn into something else. */
+const cp = (codePoint: number) => String.fromCharCode(codePoint);
+const NUL = cp(0x00);
+const LINE_SEP = cp(0x2028);
+const PARA_SEP = cp(0x2029);
+const PRIVATE_USE = cp(0xe000);
+const UNASSIGNED = cp(0x0378);
+const HIGH_SURROGATE = cp(0xd800);
+const LOW_SURROGATE = cp(0xdc00);
+const NBSP = cp(0x00a0);
+const KA = cp(0x0915); // Devanagari letter KA: 3 bytes in UTF-8
+
+describe("Campus contract v1 — every decision carries its time (#2746, owner 14 Nov 2026)", () => {
+  it("requires decided_at on the review, an ISO time with an offset", () => {
+    const { decided_at: _omitted, ...withoutTime } = examples.REVIEW_BODY_EXAMPLE;
+    expect(CampusReviewBodySchema.safeParse(withoutTime).success).toBe(false);
+    expect(
+      CampusReviewBodySchema.safeParse({ ...examples.REVIEW_BODY_EXAMPLE, decided_at: "yesterday" })
+        .success,
+    ).toBe(false);
+    expect(
+      CampusReviewBodySchema.safeParse({
+        ...examples.REVIEW_BODY_EXAMPLE,
+        decided_at: "2026-11-14T10:00:00",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires as_of on the targeting list", () => {
+    const { as_of: _omitted, ...withoutTime } = examples.TARGETING_OPTIONS_BODY_EXAMPLE;
+    expect(CampusTargetingOptionsBodySchema.safeParse(withoutTime).success).toBe(false);
+  });
+
+  it("names DECISION_SUPERSEDED after every code that existed before", () => {
+    expect(CAMPUS_ERROR_CODES.indexOf("DECISION_SUPERSEDED")).toBe(CAMPUS_ERROR_CODES.length - 1);
+    expect(CAMPUS_ERROR_CODES).toContain("POSTING_CHANGED");
+  });
+});
+
+describe("Campus contract v1 — CourseIdSchema, shared by the review, the options and the feed", () => {
+  const ok = (id: string) => CourseIdSchema.safeParse(id).success;
+
+  it("trims, and refuses an id of whitespace only", () => {
+    expect(CourseIdSchema.parse("  cnc-programming  ")).toBe("cnc-programming");
+    expect(ok("   ")).toBe(false);
+    expect(ok(NBSP)).toBe(false);
+  });
+
+  it("refuses control (a NUL would be a 22021 in Postgres), format and separator characters", () => {
+    expect(ok("cnc" + NUL)).toBe(false);
+    expect(ok("cnc programming")).toBe(false);
+    expect(ok("cnc" + NBSP + "x")).toBe(false);
+    expect(ok("cnc" + LINE_SEP + "x")).toBe(false);
+    expect(ok("cnc" + PARA_SEP + "x")).toBe(false);
+  });
+
+  it("refuses lone surrogates (the driver would collapse two of them into one U+FFFD key)", () => {
+    expect(ok("cnc" + HIGH_SURROGATE)).toBe(false);
+    expect(ok("cnc" + LOW_SURROGATE)).toBe(false);
+    // Two ids that differ only in their lone surrogate never reach the database together.
+    expect(
+      CampusTargetingOptionsBodySchema.safeParse({
+        as_of: examples.TARGETING_OPTIONS_BODY_EXAMPLE.as_of,
+        branches: [],
+        courses: [
+          { id: "c" + HIGH_SURROGATE, name: "One" },
+          { id: "c" + LOW_SURROGATE, name: "Two" },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("refuses private-use and unassigned code points, and imposes no charset beyond that", () => {
+    expect(ok("cnc" + PRIVATE_USE)).toBe(false);
+    expect(ok("cnc" + UNASSIGNED)).toBe(false);
+    expect(ok("CNC_101.v2:a/b")).toBe(true);
+    expect(ok(KA.repeat(64))).toBe(true);
+  });
+
+  it("the review's narrowing refuses the same ids (a NUL is a 400, not a 500)", () => {
+    expect(
+      CampusReviewBodySchema.safeParse({
+        ...examples.REVIEW_BODY_EXAMPLE,
+        course_ids: ["a" + NUL],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("Campus contract v1 — targeting labels and the body's size", () => {
+  const list = examples.TARGETING_OPTIONS_BODY_EXAMPLE;
+  const label = (name: string) =>
+    CampusTargetingOptionsBodySchema.safeParse({ ...list, branches: [{ id: 1, name }] }).success;
+
+  it("refuses line and paragraph separators, private-use, unassigned and lone surrogates in a label", () => {
+    expect(label("Fari" + LINE_SEP + "dabad")).toBe(false);
+    expect(label("Fari" + PARA_SEP + "dabad")).toBe(false);
+    expect(label("Fari" + PRIVATE_USE + "dabad")).toBe(false);
+    expect(label("Fari" + UNASSIGNED + "dabad")).toBe(false);
+    expect(label("Fari" + HIGH_SURROGATE + "dabad")).toBe(false);
+    // Ordinary spaces and any script stay.
+    expect(label("Faridabad Sector 24")).toBe(true);
+    expect(label(KA.repeat(20))).toBe(true);
+  });
+
+  it("caps the lists at 50 branches and 100 courses (what one posting may target)", () => {
+    const branches = (n: number) => Array.from({ length: n }, (_, i) => ({ id: i + 1, name: "B" }));
+    const courses = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ id: "c" + String(i), name: "C" }));
+    const parse = (b: number, c: number) =>
+      CampusTargetingOptionsBodySchema.safeParse({
+        as_of: list.as_of,
+        branches: branches(b),
+        courses: courses(c),
+      }).success;
+    expect(CAMPUS_TARGETING_LIMITS).toMatchObject({ branches: 50, courses: 100, labelLength: 150 });
+    expect(parse(50, 100)).toBe(true);
+    expect(parse(51, 0)).toBe(false);
+    expect(parse(0, 101)).toBe(false);
+  });
+
+  it("the LARGEST valid body, in plain UTF-8, fits the api's 100 kB JSON limit", () => {
+    const body = largestTargetingBody();
+    expect(CampusTargetingOptionsBodySchema.safeParse(body).success).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(body), "utf8")).toBeLessThanOrEqual(100 * 1024);
   });
 });

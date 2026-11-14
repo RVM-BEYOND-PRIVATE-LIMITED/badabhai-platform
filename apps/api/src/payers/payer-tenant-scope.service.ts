@@ -42,6 +42,8 @@ export interface PayerSelfTenancy {
  *    themselves, so each keeps its own error handling unchanged.
  *  - {@link resolveSelfView} — `GET`/`PATCH /payer/me`: the same org PLUS the tenant key whose
  *    org name a posting carries (O-10), from the same single read; a denial is all-`null`.
+ *  - {@link resolveReadOnly} — a service caller reading a STORED payer's tenant key (#2746 PR 5,
+ *    Campus): the same decision, never a heal or any other write; no key is `null`.
  *
  * In Phase 1 no tenant predicate reads the scope yet, so `on` changes only which org those
  * four callers report for a team member (R2: the team org, not the most recent membership).
@@ -122,6 +124,31 @@ export class PayerTenantScopeService {
     }
     this.logDenial(actorPayerId, choice.kind === "denied" ? choice.reason : "no_membership");
     return { org: null, tenantKey: null };
+  }
+
+  /**
+   * The tenant scope for a STORED payer reference, for a service caller that acts for no payer
+   * (#2746 PR 5: Campus's review reads a posting OWNER's tenant key for the pilot check). The same
+   * decision as {@link resolve}, with ONE difference: it NEVER WRITES. No heal and no solo org, in
+   * any mode, because a call that is not the payer's own must not create tenancy rows for them.
+   *
+   *   - `off` / `shadow`: as {@link resolve} (those modes never heal; the key is the payer itself).
+   *   - `on`: `null` when the payer has no membership to act in (where {@link resolve} would heal)
+   *     or tenancy denies them (logged as every denial is). A read error propagates.
+   *
+   * The caller turns `null` into its own neutral answer (Campus: the 404).
+   */
+  async resolveReadOnly(payerId: string): Promise<PayerTenantScope | null> {
+    const mode = this.mode();
+    if (mode !== "on") return this.resolve(payerId);
+    const choice = chooseActingOrg(
+      await this.orgs.listActiveMembershipsWithAnchor(payerId),
+      payerId,
+      "on",
+    );
+    if (choice.kind === "resolved") return choice.scope;
+    this.logDenial(payerId, choice.kind === "denied" ? choice.reason : "no_membership");
+    return null;
   }
 
   /**

@@ -55,6 +55,23 @@ describe("cleanReviewReason", () => {
     expect(cleanReviewReason(undefined)).toBeUndefined();
   });
 
+  it("strips line and paragraph separators, private-use and unassigned code points", () => {
+    const LINE_SEP = ch(0x2028); // Zl
+    const PARA_SEP = ch(0x2029); // Zp
+    const PRIVATE_USE = ch(0xe000); // Co
+    const UNASSIGNED = ch(0x0378); // Cn (a hole in the Greek block)
+    expect(cleanReviewReason(`one${LINE_SEP}two${PARA_SEP}three`)).toBe("onetwothree");
+    expect(cleanReviewReason(`a${PRIVATE_USE}b${UNASSIGNED}c`)).toBe("abc");
+  });
+
+  it("strips lone surrogates, which the driver would rewrite to U+FFFD, and keeps a real pair", () => {
+    const HIGH = ch(0xd800);
+    const LOW = ch(0xdc00);
+    const EMOJI = String.fromCodePoint(0x1f600); // a valid surrogate PAIR, one visible character
+    expect(cleanReviewReason(`x${HIGH}y${LOW}z`)).toBe("xyz");
+    expect(cleanReviewReason(`ok ${EMOJI}`)).toBe(`ok ${EMOJI}`);
+  });
+
   it("keeps visible non-Latin text untouched", () => {
     const hindi = "वेतन कम है";
     expect(cleanReviewReason(hindi)).toBe(hindi);

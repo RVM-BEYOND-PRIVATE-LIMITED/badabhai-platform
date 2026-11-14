@@ -183,20 +183,20 @@ describe("job_posting.rvm_reviewed (#2746 PR 5)", () => {
     state: "approved",
     previous_state: "pending",
     reviewer_ref: STAFF,
+    decided_at: "2026-11-14T10:00:00.000+05:30",
     branch_ids: [1],
     course_ids: null,
     has_reason: false,
     content_hash: HASH,
   };
 
-  it("accepts an approval, a rejection with a note, a first decision and a re-decision", () => {
+  it("accepts an approval, a rejection with a note and a re-decision", () => {
     expect(validateEvent(reviewedEvent(valid)).success).toBe(true);
     expect(
       validateEvent(
         reviewedEvent({ ...valid, state: "rejected", has_reason: true, branch_ids: null }),
       ).success,
     ).toBe(true);
-    expect(validateEvent(reviewedEvent({ ...valid, previous_state: null })).success).toBe(true);
     expect(
       validateEvent(reviewedEvent({ ...valid, previous_state: "approved", state: "rejected" }))
         .success,
@@ -214,7 +214,11 @@ describe("job_posting.rvm_reviewed (#2746 PR 5)", () => {
     ).toBe(false);
   });
 
-  it("refuses a pending decision, an empty narrowing and a malformed hash", () => {
+  it("refuses a pending decision, a missing previous state or decision time, an empty narrowing and a malformed hash", () => {
+    expect(validateEvent(reviewedEvent({ ...valid, previous_state: null })).success).toBe(false);
+    const { decided_at: _omitted, ...noTime } = valid;
+    expect(validateEvent(reviewedEvent(noTime)).success).toBe(false);
+    expect(validateEvent(reviewedEvent({ ...valid, decided_at: "yesterday" })).success).toBe(false);
     expect(validateEvent(reviewedEvent({ ...valid, state: "pending" })).success).toBe(false);
     expect(validateEvent(reviewedEvent({ ...valid, branch_ids: [] })).success).toBe(false);
     expect(validateEvent(reviewedEvent({ ...valid, course_ids: [] })).success).toBe(false);
@@ -238,10 +242,17 @@ describe("job_posting.rvm_targeting_options_set (#2746 PR 5)", () => {
     };
   }
   const counts = { listed: 4, added: 1, updated: 0, deactivated: 2 };
-  const valid = { institute_code: "rvm", branches: counts, courses: counts };
+  const valid = {
+    institute_code: "rvm",
+    as_of: "2026-11-14T09:00:00.000+05:30",
+    branches: counts,
+    courses: counts,
+  };
 
-  it("accepts counts per kind", () => {
+  it("accepts counts per kind with the list time, and refuses a list without one", () => {
     expect(validateEvent(optionsEvent(valid)).success).toBe(true);
+    const { as_of: _omitted, ...noTime } = valid;
+    expect(validateEvent(optionsEvent(noTime)).success).toBe(false);
   });
 
   it("refuses refs, labels or a negative count: counts only", () => {

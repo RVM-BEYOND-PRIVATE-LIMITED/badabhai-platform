@@ -15,6 +15,7 @@ import { CampusPostingReviewService } from "./campus-posting-review.service";
 import { CampusReviewController } from "./campus-review.controller";
 import { CampusServiceGuard } from "./campus-service.guard";
 import { CampusTargetingOptionsService } from "./campus-targeting-options.service";
+import { largestTargetingBody } from "./campus-targeting.test-support";
 
 const getMeta = (key: string, target: unknown): unknown[] =>
   (Reflect.getMetadata(key, target as object) as unknown[] | undefined) ?? [];
@@ -215,7 +216,11 @@ describe("Campus review routes over HTTP", () => {
       courses: { listed: 2, added: 2, updated: 0, deactivated: 0 },
     });
     expect(targeting.replace).toHaveBeenCalledWith(
-      { branches: [{ id: 1, name: "Faridabad" }], courses: TARGETING_OPTIONS_BODY_EXAMPLE.courses },
+      {
+        as_of: TARGETING_OPTIONS_BODY_EXAMPLE.as_of,
+        branches: [{ id: 1, name: "Faridabad" }],
+        courses: TARGETING_OPTIONS_BODY_EXAMPLE.courses,
+      },
       expect.objectContaining({ callId: res.headers.get("x-campus-call-id") }),
     );
   });
@@ -236,5 +241,62 @@ describe("Campus review routes over HTTP", () => {
     expect(duplicate.res.status).toBe(400);
     expect(duplicate.code).toBe("VALIDATION_FAILED");
     expect(targeting.replace).not.toHaveBeenCalled();
+  });
+
+  it("PUT targeting-options: the LARGEST valid body passes the real JSON parser (100 kB) and reaches the service", async () => {
+    const { base, targeting } = await boot();
+    const body = largestTargetingBody();
+    expect(Buffer.byteLength(JSON.stringify(body), "utf8")).toBeGreaterThan(80 * 1024);
+    const { res } = await put(base + "/targeting-options", body);
+    expect(res.status).toBe(200);
+    expect(targeting.replace).toHaveBeenCalledTimes(1);
+  });
+
+  // The parser refuses it before any route runs. The api-wide AllExceptionsFilter answers a non-Nest
+  // error (body-parser 413 included) as 500 today; that is the filter, not this route (PR 5 report).
+  it("PUT targeting-options: a body past the 100 kB parser limit is refused and the service never runs", async () => {
+    const { base, targeting } = await boot();
+    const res = await fetch(base + "/targeting-options", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-service-token": TOKEN,
+        "idempotency-key": "outbox:0001",
+      },
+      body: JSON.stringify({ padding: "x".repeat(101 * 1024) }),
+    });
+    await res.arrayBuffer();
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(targeting.replace).not.toHaveBeenCalled();
+  });
+
+  it("lone surrogates sent as JSON escapes are refused with 400, never stored as U+FFFD", async () => {
+    const { base, targeting } = await boot();
+    // JSON.stringify escapes a lone surrogate, so the wire carries the escape text and the parser
+    // hands the lone code unit back to the schema.
+    const high = String.fromCharCode(0xd800);
+    const low = String.fromCharCode(0xdc00);
+    const { res, code } = await put(base + "/targeting-options", {
+      as_of: TARGETING_OPTIONS_BODY_EXAMPLE.as_of,
+      branches: [],
+      courses: [
+        { id: "c" + high, name: "One" },
+        { id: "c" + low, name: "Two" },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(code).toBe("VALIDATION_FAILED");
+    expect(targeting.replace).not.toHaveBeenCalled();
+  });
+
+  it("PUT review: a NUL in course_ids is a 400 VALIDATION_FAILED, not a database error", async () => {
+    const { base, reviews } = await boot();
+    const { res, code } = await put(base + "/job-postings/" + POSTING + "/review", {
+      ...REVIEW_BODY_EXAMPLE,
+      course_ids: ["cnc" + String.fromCharCode(0)],
+    });
+    expect(res.status).toBe(400);
+    expect(code).toBe("VALIDATION_FAILED");
+    expect(reviews.review).not.toHaveBeenCalled();
   });
 });

@@ -1,13 +1,15 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { ConflictException, Injectable, Logger } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import { RVM_INSTITUTE_CODE, type RvmTargetingKind } from "@badabhai/db";
 import type { z } from "zod";
 import { EventsService } from "../events/events.service";
 import type {
+  CampusErrorCode,
   CampusTargetingOptionsBodySchema,
   CampusTargetingOptionsResponseSchema,
 } from "./campus-link.contract";
 import type { CampusCall } from "./campus-call";
+import { assertNotAheadOfBadaBhai } from "./campus-clock";
 import {
   CampusTargetingOptionsRepository,
   type StoredTargetingOption,
@@ -87,13 +89,20 @@ function changed(counts: CampusTargetingOptionsResult): boolean {
  * mounted only behind `CampusServiceGuard`; no other gate: the options are global, and the company
  * side, `GET /payer/job-postings/audience-options`, is switched per company already).
  *
- * Campus sends the WHOLE current list. One transaction, serialised by an advisory lock: upsert the
- * listed options (label, order = list position, active), retire every active option not listed,
- * and — only when something changed — emit `job_posting.rvm_targeting_options_set` v1 (counts
- * only) and write the `audit_logs` row. Never a delete: postings hold the refs, and a posting that
- * targets a retired option keeps it (`PostingAudienceService` lets a company re-send what it
- * already holds). The same list again changes nothing and emits nothing, so the PUT is idempotent
- * by content (the `Idempotency-Key` is required and checked, not stored).
+ * Campus sends the WHOLE current list, with the `as_of` it read it at. An `as_of` more than
+ * `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of BadaBhai's clock is 400 `VALIDATION_FAILED`. One
+ * transaction, serialised by an advisory lock:
+ *   - `as_of` NEWER than the last applied list (or nothing applied yet): upsert the listed options
+ *     (label, order = list position, active), retire every active option not listed, stamp every
+ *     row with `as_of` (the high-water mark, `CampusTargetingOptionsRepository`), and — only when
+ *     the list changed — emit `job_posting.rvm_targeting_options_set` v1 (counts only) and write
+ *     the `audit_logs` row;
+ *   - `as_of` the same as or older than the last applied list: when the list equals what is held,
+ *     a replay (200, nothing written); when it differs, 409 `DECISION_SUPERSEDED`, nothing written,
+ *     so a late retry never puts back an option Campus has since removed.
+ * Never a delete: postings hold the refs, and a posting that targets a retired option keeps it
+ * (`PostingAudienceService` lets a company re-send what it already holds). The `Idempotency-Key` is
+ * required and checked, not stored: the same body again is the replay above.
  */
 @Injectable()
 export class CampusTargetingOptionsService {
@@ -108,16 +117,32 @@ export class CampusTargetingOptionsService {
     list: CampusTargetingOptionsList,
     call: CampusCall,
   ): Promise<CampusTargetingOptionsResult> {
+    assertNotAheadOfBadaBhai("as_of", list.as_of);
     return this.repo.withTransaction(async (tx) => {
       await this.repo.lockForReplace(tx);
+      const timing = await this.repo.listTiming(tx, list.as_of);
       const plan = planTargetingReplacement(await this.repo.listAll(tx), list);
-      await this.repo.upsert(tx, plan.writes);
-      await this.repo.retire(tx, plan.retire);
       const { counts } = plan;
+
+      if (timing === "same" || timing === "older") {
+        // Not newer than what is applied: a replay of the same list, or a late one that differs.
+        if (changed(counts)) {
+          this.logger.log("campus targeting options: refused, a newer list is applied");
+          throw new ConflictException({
+            code: "DECISION_SUPERSEDED" satisfies CampusErrorCode,
+          });
+        }
+        return counts;
+      }
+
+      await this.repo.upsert(tx, plan.writes, list.as_of);
+      await this.repo.retire(tx, plan.retire);
+      await this.repo.stampAll(tx, list.as_of);
 
       if (changed(counts)) {
         const payload: PayloadInputOf<"job_posting.rvm_targeting_options_set"> = {
           institute_code: RVM_INSTITUTE_CODE,
+          as_of: list.as_of,
           branches: counts.branches,
           courses: counts.courses,
         };
@@ -132,6 +157,7 @@ export class CampusTargetingOptionsService {
         });
         await this.repo.writeAudit(tx, call.callId, {
           institute_code: RVM_INSTITUTE_CODE,
+          as_of: list.as_of,
           branches: counts.branches,
           courses: counts.courses,
           event_id: event.event_id,

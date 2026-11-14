@@ -1387,10 +1387,14 @@ jobs:
       #   * campus-review.db — #2746 PR 5, Campus records the placement team's RVM review: an
       #                    approval stores the hash of the content as locked and only when it is
       #                    the hash the reviewer saw (409 POSTING_CHANGED otherwise, nothing
-      #                    written), re-decision and replay, narrowing within the posting's
-      #                    targeting, targeting options retired never deleted, and on two
-      #                    connections the posting-before-review lock order against a company edit
-      #                    (waits, no 40P01). Row locks and the hash need a real Postgres.
+      #                    written), the newest decision by decided_at (a late retry, a reversed
+      #                    delivery and an equal-time clash are DECISION_SUPERSEDED), replay,
+      #                    narrowing within the posting's targeting, no tenancy row written in
+      #                    mode on, targeting options retired never deleted and kept newest by
+      #                    as_of, and on two connections the posting-before-review lock order
+      #                    against a company edit (waits, no 40P01), two racing decisions on the
+      #                    review row and two first decisions with no row. Row locks and the hash
+      #                    need a real Postgres.
       #
       # They need nothing but a MIGRATED Postgres, which the steps above already built:
       # this job's service container gets the whole chain (journal-driven, 0000 → head —

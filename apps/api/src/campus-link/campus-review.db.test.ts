@@ -30,8 +30,11 @@ import { MatchSkillsService } from "../match/match-skills.service";
 import { PublishReachService } from "../match/publish-reach.service";
 import { ReachWidenRepository } from "../match/reach-widen.repository";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
+import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { defaultModeResolver } from "../payers/payer-tenant-scope.test-support";
 import type { CampusCall } from "./campus-call";
+import { CAMPUS_MAX_CLOCK_SKEW_MS } from "./campus-link.contract";
 import { CampusPostingReviewRepository } from "./campus-posting-review.repository";
 import {
   CampusPostingReviewService,
@@ -49,13 +52,18 @@ import { CampusTargetingOptionsService } from "./campus-targeting-options.servic
  *
  *   - an approval stores `postingReviewContentHash` of the content as locked, and only when that is
  *     the hash the reviewer saw (409 `POSTING_CHANGED` otherwise, with nothing written);
+ *   - the newest decision wins by `decided_at`: a late retry, a reversed delivery and an
+ *     equal-time conflict are 409 `DECISION_SUPERSEDED` and store nothing; the same decision again
+ *     is the replay; a time from BadaBhai's future is refused;
  *   - a company edit after approval reads `pending` through `approvedForRvmStudents`, whether or not
  *     a writer reset the row;
- *   - a re-decision replaces the earlier one; a replay writes nothing;
  *   - narrowing outside the posting's own targeting is refused;
- *   - `PUT targeting-options` retires what left the list and never deletes;
+ *   - in tenancy mode `on`, a Campus call writes no tenancy row for an owner without a membership;
+ *   - `PUT targeting-options` retires what left the list, never deletes, and keeps the newest list
+ *     by `as_of`;
  *   - THE LOCK ORDER, on two connections: a review and a company edit wait for each other at the
- *     POSTING row, never deadlock (no 40P01), and never leave an approval of content nobody saw.
+ *     POSTING row and never deadlock (no 40P01); two decisions serialise on the REVIEW row, and the
+ *     second reports the first as its `previous_state`; two first decisions do not race an insert.
  *
  * ── HOW TO RUN ────────────────────────────────────────────────────────────────
  *   RUN_DB_TESTS=1 DATABASE_URL=<a migrated LOCAL database> \
@@ -106,17 +114,28 @@ const DTO = {
 const ON = { JOB_AUDIENCE_ROLLOUT: "on" };
 
 /**
+ * Campus's decision clock for this suite: each call is one second later than the last, all in the
+ * past, so every fresh decision is newer than the one before it unless a test pins a time.
+ */
+let campusClock = Date.now() - 60 * 60_000;
+function decidedNow(): string {
+  campusClock += 1000;
+  return new Date(campusClock).toISOString();
+}
+
+/**
  * `EventsService` that can HOLD its next emit: the caller's transaction then stays open, holding
  * every row lock it took, until released. Both write paths emit inside their transaction after
  * their row writes, so this freezes a real company edit or a real review at its most-locked point.
+ * `entered` resolves with the HOLDER's backend pid, so a lock wait can be pinned to it.
  */
 class GatedEvents extends EventsService {
-  private held: { entered: () => void; release: Promise<void> } | null = null;
+  private held: { entered: (pid: number) => void; release: Promise<void> } | null = null;
 
-  holdNext(): { entered: Promise<void>; release: () => void } {
-    let entered!: () => void;
+  holdNext(): { entered: Promise<number>; release: () => void } {
+    let entered!: (pid: number) => void;
     let release!: () => void;
-    const enteredP = new Promise<void>((resolve) => (entered = resolve));
+    const enteredP = new Promise<number>((resolve) => (entered = resolve));
     const releaseP = new Promise<void>((resolve) => (release = resolve));
     this.held = { entered, release: releaseP };
     return { entered: enteredP, release };
@@ -126,11 +145,29 @@ class GatedEvents extends EventsService {
     const held = this.held;
     this.held = null;
     if (held !== null) {
-      held.entered();
+      const tx = params.tx;
+      if (tx === undefined) throw new Error("GatedEvents: the held emit must run on a transaction");
+      const rows = (await tx.execute(dsql`SELECT pg_backend_pid() AS pid`)) as unknown as {
+        pid: number;
+      }[];
+      held.entered(rows[0]!.pid);
       await held.release;
     }
     return super.emit(params);
   }
+}
+
+/**
+ * The holder's pid once the held call reaches its hold, or a fast failure if the held call settles
+ * first (an error before the hold must not wait for the suite's timeout).
+ */
+async function reached(hold: Promise<number>, held: Promise<unknown>): Promise<number> {
+  return Promise.race([
+    hold,
+    held.then((outcome) => {
+      throw new Error(`the held call finished before its hold: ${String(outcome)}`);
+    }),
+  ]);
 }
 
 describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)", () => {
@@ -158,17 +195,18 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     );
   }
 
-  /** The real review service; `db` lets the targeting suite run inside a rolled-back transaction. */
+  /** The real review service; `tenancy` defaults to the default mode (`off`) resolver. */
   function reviewService(
     env: Record<string, string> = ON,
     eventsImpl: EventsService = eventsService,
+    tenancy: PayerTenantScopeService = defaultModeResolver(),
   ): CampusPostingReviewService {
     const config = loadServerConfig({ NODE_ENV: "test", ...env });
     return new CampusPostingReviewService(
       new CampusPostingReviewRepository(client.db),
       new PostingAudienceRepository(client.db),
       new FeatureRolloutService(config, new FeaturePilotRepository(client.db)),
-      defaultModeResolver(),
+      tenancy,
       eventsImpl,
     );
   }
@@ -177,7 +215,13 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     contentHash: string,
     over: Partial<CampusReviewDecision> = {},
   ): CampusReviewDecision {
-    return { state: "approved", reviewer_ref: REVIEWER, content_hash: contentHash, ...over };
+    return {
+      state: "approved",
+      reviewer_ref: REVIEWER,
+      content_hash: contentHash,
+      decided_at: decidedNow(),
+      ...over,
+    };
   }
 
   /** A published posting for `owner` with an RVM audience. */
@@ -266,16 +310,18 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
   }
 
   /**
-   * Waits until a backend of this database is queued for a ROW lock on `relation` in `mode`, or
-   * until `gaveUp()` (the call it watches has finished). True when the wait was seen.
+   * Waits until a backend BLOCKED BY `holderPid` is queued for a ROW lock on `relation` in `mode`,
+   * or until `gaveUp()` (the call it watches has finished). True when the wait was seen.
    *
-   * Read from `pg_locks`, not the statement text: `pg_stat_activity.query` is cut at
-   * `track_activity_query_size` (1 kB by default), which the content-hash expression outgrows
-   * before the locking clause. A row-lock waiter holds the heavyweight TUPLE lock of the row lock
-   * it wants while it waits on the holder: `RowShareLock` for `FOR SHARE`, `ExclusiveLock` for
-   * `FOR NO KEY UPDATE` (a plain UPDATE), `AccessExclusiveLock` for `FOR UPDATE`.
+   * Scoped to the holder (`pg_blocking_pids`), so another session's lock can never satisfy it, and
+   * read from `pg_locks`, not the statement text: `pg_stat_activity.query` is cut at
+   * `track_activity_query_size` (1 kB by default), which the content-hash expression outgrows. A
+   * row-lock waiter holds the heavyweight TUPLE lock of the row lock it wants while it waits:
+   * `RowShareLock` for `FOR SHARE`, `ExclusiveLock` for `FOR NO KEY UPDATE` (a plain UPDATE),
+   * `AccessExclusiveLock` for `FOR UPDATE`.
    */
   async function sawRowLockWait(
+    holderPid: number,
     relation: string,
     mode: "RowShareLock" | "ExclusiveLock" | "AccessExclusiveLock",
     gaveUp: () => boolean,
@@ -286,9 +332,8 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
         SELECT count(*)::int AS n
           FROM pg_locks l
           JOIN pg_class c ON c.oid = l.relation
-          JOIN pg_stat_activity a ON a.pid = l.pid
          WHERE l.locktype = 'tuple' AND c.relname = ${relation} AND l.mode = ${mode}
-           AND a.datname = current_database() AND a.wait_event_type = 'Lock'`;
+           AND ${holderPid}::int = ANY (pg_blocking_pids(l.pid))`;
       if ((row?.n ?? 0) > 0) return true;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
@@ -296,7 +341,7 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
   }
 
   beforeAll(async () => {
-    // Three connections are in use at once in the lock tests (edit, review, observer).
+    // Three connections are in use at once in the lock tests (holder, waiter, observer).
     client = createDbClient(DATABASE_URL, { max: 5 });
     await cleanup(client);
     await seed(client);
@@ -324,20 +369,21 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
 
   // ── The decision stores the hash of the content it saw ──────────────────────
 
-  it("an approval stores the hash of the current content, evented and audited, reach untouched", async () => {
+  it("an approval stores decided_at and the hash of the current content, evented and audited, reach untouched", async () => {
     const id = await openPosting({ audience: "both" });
     const reachBefore = await reachRows(id);
     expect(reachBefore).toBeGreaterThanOrEqual(1);
     const seen = await hashOf(id);
     expect(await approved(id)).toBe(false);
 
-    const answer = await reviewService().review(
-      id,
-      decision(seen, { branch_ids: [BRANCH_A] }),
-      CALL,
-    );
+    const body = decision(seen, { branch_ids: [BRANCH_A] });
+    const answer = await reviewService().review(id, body, CALL);
 
-    expect(answer).toMatchObject({ posting_id: id, review_state: "approved" });
+    expect(answer).toEqual({
+      posting_id: id,
+      review_state: "approved",
+      reviewed_at: body.decided_at,
+    });
     const row = await review(id);
     expect(row).toMatchObject({
       state: "approved",
@@ -347,7 +393,8 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
       reason: null,
       content_hash: seen,
     });
-    expect(Date.parse(answer.reviewed_at)).toBe(Date.parse(row!.reviewed_at!));
+    // Campus's decision time is the review time.
+    expect(Date.parse(row!.reviewed_at!)).toBe(Date.parse(body.decided_at));
     expect(await approved(id)).toBe(true);
 
     expect(await reviewedEvents(id)).toEqual([
@@ -357,6 +404,7 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
         state: "approved",
         previous_state: "pending",
         reviewer_ref: REVIEWER,
+        decided_at: body.decided_at,
         branch_ids: [BRANCH_A],
         course_ids: null,
         has_reason: false,
@@ -383,13 +431,12 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     expect(await decisionAudits(id)).toEqual([]);
   }, 60_000);
 
-  it("the write statement itself stores nothing for a hash that is not the posting's (defence in depth)", async () => {
-    // The service refuses a stale hash before it writes; this is the statement's own guard, which
-    // holds even for a caller that skipped that check.
+  it("the write statement itself stores nothing for a stale hash or an older time (defence in depth)", async () => {
+    // The service refuses both before it writes; this is the statement's own guard, which holds
+    // even for a caller that skipped those checks.
     const id = await openPosting();
-    const before = await review(id);
     const repo = new CampusPostingReviewRepository(client.db);
-    const write = (jobPostingId: string, expectedContentHash: string) =>
+    const write = (expectedContentHash: string, decidedAt: string, jobPostingId = id) =>
       repo.withTransaction((tx) =>
         repo.writeDecision(tx, {
           jobPostingId,
@@ -399,21 +446,26 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
           branchIds: null,
           courseIds: null,
           expectedContentHash,
+          decidedAt,
         }),
       );
+    const before = await review(id);
+    const hash = await hashOf(id);
 
-    expect(await write(id, "0".repeat(64))).toEqual({
+    expect(await write("0".repeat(64), decidedNow())).toEqual({
       outcome: "posting_changed",
-      contentHash: await hashOf(id),
+      contentHash: hash,
     });
     expect(await review(id)).toEqual(before);
-    expect(await write(uuid(0x2746500f), "0".repeat(64))).toEqual({ outcome: "missing" });
+    expect(await write(hash, decidedNow(), uuid(0x2746500f))).toEqual({ outcome: "missing" });
 
-    const stored = await write(id, await hashOf(id));
-    expect(stored).toMatchObject({ outcome: "written", contentHash: await hashOf(id) });
-    expect(await write(id, await hashOf(id))).toEqual({
-      outcome: "unchanged",
-      contentHash: await hashOf(id),
+    const t2 = decidedNow();
+    expect(await write(hash, t2)).toEqual({ outcome: "written", contentHash: hash });
+    // The same time, or an older one, is not applied.
+    expect(await write(hash, t2)).toEqual({ outcome: "not_applied", contentHash: hash });
+    expect(await write(hash, new Date(Date.parse(t2) - 1000).toISOString())).toEqual({
+      outcome: "not_applied",
+      contentHash: hash,
     });
   }, 60_000);
 
@@ -452,40 +504,36 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     expect(await approved(id)).toBe(false);
   }, 60_000);
 
-  it("a re-decision replaces the earlier one; a replay writes nothing more", async () => {
+  // ── The newest decision wins (decided_at) ───────────────────────────────────
+
+  it("approve(t1), reject(t2), then a late replay of approve(t1): 409 DECISION_SUPERSEDED and the row stays rejected", async () => {
     const id = await openPosting();
     const seen = await hashOf(id);
     const svc = reviewService();
-    await svc.review(
-      id,
-      decision(seen, { branch_ids: [BRANCH_A], reason: "Fits the CNC batch" }),
-      CALL,
-    );
-    const first = await review(id);
-    expect(first).toMatchObject({ state: "approved", reason: "Fits the CNC batch" });
+    const approveT1 = decision(seen, { branch_ids: [BRANCH_A], reason: "Fits the CNC batch" });
+    const rejectT2 = decision(seen, { state: "rejected", reviewer_ref: REVIEWER_2 });
 
-    const rejected = await svc.review(
-      id,
-      decision(seen, { state: "rejected", reviewer_ref: REVIEWER_2 }),
-      CALL,
-    );
-    const second = await review(id);
-    expect(second).toMatchObject({
+    await svc.review(id, approveT1, CALL);
+    const rejected = await svc.review(id, rejectT2, CALL);
+    const afterReject = await review(id);
+    expect(afterReject).toMatchObject({
       state: "rejected",
       reviewer_ref: REVIEWER_2,
       reason: null,
       branch_ids: null,
       content_hash: seen,
     });
+
+    expect(await refusal(svc.review(id, approveT1, CALL))).toEqual({
+      status: 409,
+      code: "DECISION_SUPERSEDED",
+    });
+    expect(await review(id)).toEqual(afterReject);
     expect(await approved(id)).toBe(false);
 
-    const replay = await svc.review(
-      id,
-      decision(seen, { state: "rejected", reviewer_ref: REVIEWER_2 }),
-      CALL,
-    );
-    expect(replay).toEqual(rejected);
-    expect(await review(id)).toEqual(second);
+    // The replay of the decision the row holds is the 200 no-op, with its own time.
+    expect(await svc.review(id, rejectT2, CALL)).toEqual(rejected);
+    expect(await review(id)).toEqual(afterReject);
 
     const history = await reviewedEvents(id);
     expect(history.map((e) => [e.previous_state, e.state])).toEqual([
@@ -496,6 +544,61 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     expect(JSON.stringify(history)).not.toContain("Fits the CNC batch");
     expect(await decisionAudits(id)).toHaveLength(2);
   }, 60_000);
+
+  it("two decisions delivered in reverse order: the newer one stands, the older is refused", async () => {
+    const id = await openPosting();
+    const seen = await hashOf(id);
+    const svc = reviewService();
+    const earlier = decision(seen); // approve at t1
+    const later = decision(seen, { state: "rejected" }); // reject at t2 > t1
+
+    await svc.review(id, later, CALL);
+    expect(await refusal(svc.review(id, earlier, CALL))).toEqual({
+      status: 409,
+      code: "DECISION_SUPERSEDED",
+    });
+    expect((await review(id))?.state).toBe("rejected");
+    expect(await reviewedEvents(id)).toHaveLength(1);
+  }, 60_000);
+
+  it("an equal-time conflict: the same decided_at with another decision is refused, nothing stored", async () => {
+    const id = await openPosting();
+    const seen = await hashOf(id);
+    const svc = reviewService();
+    const first = decision(seen);
+    await svc.review(id, first, CALL);
+    const held = await review(id);
+
+    for (const clash of [
+      { ...first, state: "rejected" as const },
+      { ...first, reviewer_ref: REVIEWER_2 },
+      { ...first, branch_ids: [BRANCH_A] },
+      { ...first, reason: "A different note" },
+    ]) {
+      expect(await refusal(svc.review(id, clash, CALL))).toEqual({
+        status: 409,
+        code: "DECISION_SUPERSEDED",
+      });
+    }
+    expect(await review(id)).toEqual(held);
+    expect(await reviewedEvents(id)).toHaveLength(1);
+  }, 60_000);
+
+  it("a decided_at from BadaBhai's future is refused with 400, nothing stored", async () => {
+    const id = await openPosting();
+    const before = await review(id);
+    const ahead = new Date(Date.now() + CAMPUS_MAX_CLOCK_SKEW_MS + 60_000).toISOString();
+
+    expect(
+      await refusal(
+        reviewService().review(id, decision(await hashOf(id), { decided_at: ahead }), CALL),
+      ),
+    ).toEqual({ status: 400, code: "VALIDATION_FAILED" });
+    expect(await review(id)).toEqual(before);
+    expect(await reviewedEvents(id)).toEqual([]);
+  }, 60_000);
+
+  // ── Narrowing, and which postings ───────────────────────────────────────────
 
   it("narrowing outside the posting's targeting is refused, and nothing is written", async () => {
     const targeted = await openPosting({ rvm_branch_ids: [BRANCH_A] });
@@ -590,6 +693,30 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     ).toBe(404);
   }, 90_000);
 
+  it("tenancy mode on: an owner with no membership is the neutral 404, and NO tenancy row is written", async () => {
+    // PILOT has a `payers` row and no membership: the request path would heal it a solo org.
+    const id = await openPosting({}, PILOT);
+    const tenancyRows = async () => {
+      const [row] = await client.sql<{ orgs: number; members: number }[]>`
+        SELECT (SELECT count(*)::int FROM payer_orgs WHERE root_payer_id = ${PILOT}::uuid) AS orgs,
+               (SELECT count(*)::int FROM payer_members WHERE member_payer_id = ${PILOT}::uuid) AS members`;
+      return row!;
+    };
+    expect(await tenancyRows()).toEqual({ orgs: 0, members: 0 });
+    const onMode = new PayerTenantScopeService(
+      loadServerConfig({ NODE_ENV: "test", PAYER_ORG_TENANCY_MODE: "on" }),
+      new PayerOrgsRepository(client.db),
+    );
+
+    const refused = await refusal(
+      reviewService(ON, eventsService, onMode).review(id, decision(await hashOf(id)), CALL),
+    );
+
+    expect(refused.status).toBe(404);
+    expect(await tenancyRows()).toEqual({ orgs: 0, members: 0 });
+    expect((await review(id))?.state).toBe("pending");
+  }, 60_000);
+
   // ── The lock order, on two connections ──────────────────────────────────────
 
   it("a review sent while a company edit holds the posting waits at the posting, then answers 409 (no deadlock)", async () => {
@@ -608,7 +735,7 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
         (e: unknown) => e,
       );
     // The edit's transaction now holds the posting (FOR NO KEY UPDATE + UPDATE) and the review row.
-    await hold.entered;
+    const holder = await reached(hold.entered, editing);
 
     let settled = false;
     const reviewing = reviewService(ON, eventsService)
@@ -624,7 +751,9 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     try {
       // It waits at the POSTING row (`FOR SHARE`), the first lock of the house order — not at the
       // review row, which the edit also holds.
-      expect(await sawRowLockWait("job_postings", "RowShareLock", () => settled)).toBe(true);
+      expect(await sawRowLockWait(holder, "job_postings", "RowShareLock", () => settled)).toBe(
+        true,
+      );
       expect(settled).toBe(false);
     } finally {
       hold.release();
@@ -653,7 +782,7 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
         (e: unknown) => e,
       );
     // The review's transaction holds the posting (FOR SHARE) and its written review row.
-    await hold.entered;
+    const holder = await reached(hold.entered, reviewing);
 
     let settled = false;
     const editing = companyService()
@@ -668,7 +797,9 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
 
     try {
       // The edit's UPDATE waits at the POSTING row, not at the review row: one order, no cycle.
-      expect(await sawRowLockWait("job_postings", "ExclusiveLock", () => settled)).toBe(true);
+      expect(await sawRowLockWait(holder, "job_postings", "ExclusiveLock", () => settled)).toBe(
+        true,
+      );
       expect(settled).toBe(false);
     } finally {
       hold.release();
@@ -682,9 +813,83 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     expect(await reviewedEvents(id)).toHaveLength(1);
   }, 60_000);
 
+  it("two decisions race: the second waits on the REVIEW row, then reports the first as its previous_state", async () => {
+    const id = await openPosting();
+    const seen = await hashOf(id);
+    const a = decision(seen); // approve at t1
+    const b = decision(seen, { state: "rejected", reviewer_ref: REVIEWER_2 }); // reject at t2
+
+    const gated = new GatedEvents(new EventsRepository(client.db), { NODE_ENV: "test" } as never);
+    const hold = gated.holdNext();
+    const first = reviewService(ON, gated)
+      .review(id, a, CALL)
+      .then(
+        (answer) => answer,
+        (e: unknown) => e,
+      );
+    // A holds the posting FOR SHARE and its written review row.
+    const holder = await reached(hold.entered, first);
+
+    let settled = false;
+    const second = reviewService()
+      .review(id, b, CALL)
+      .then(
+        (answer) => answer,
+        (e: unknown) => e,
+      )
+      .finally(() => {
+        settled = true;
+      });
+
+    try {
+      // B shares the posting lock and queues on the REVIEW row's FOR UPDATE.
+      expect(
+        await sawRowLockWait(
+          holder,
+          "job_posting_institute_reviews",
+          "AccessExclusiveLock",
+          () => settled,
+        ),
+      ).toBe(true);
+      expect(settled).toBe(false);
+    } finally {
+      hold.release();
+    }
+    expect(await first).toMatchObject({ review_state: "approved" });
+    expect(await second).toMatchObject({ review_state: "rejected" });
+
+    const history = await reviewedEvents(id);
+    expect(history.map((e) => [e.previous_state, e.state])).toEqual([
+      ["pending", "approved"],
+      // B read the state AFTER its row lock, in its own statement: A's approval, not "pending".
+      ["approved", "rejected"],
+    ]);
+    expect((await review(id))?.state).toBe("rejected");
+  }, 60_000);
+
+  it("two identical first decisions on a posting with NO review row: one is written, the other is the replay", async () => {
+    const id = await openPosting();
+    await client.sql`DELETE FROM job_posting_institute_reviews WHERE job_posting_id = ${id}::uuid`;
+    const body = decision(await hashOf(id));
+
+    const [one, two] = await Promise.all([
+      reviewService().review(id, body, CALL),
+      reviewService().review(id, body, CALL),
+    ]);
+
+    expect(one).toEqual({ posting_id: id, review_state: "approved", reviewed_at: body.decided_at });
+    expect(two).toEqual(one);
+    const history = await reviewedEvents(id);
+    expect(history).toHaveLength(1);
+    // The row was created pending in the decision's transaction: never a null previous state.
+    expect(history[0]!.previous_state).toBe("pending");
+    expect(await decisionAudits(id)).toHaveLength(1);
+    expect(await approved(id)).toBe(true);
+  }, 60_000);
+
   // ── PUT targeting-options ───────────────────────────────────────────────────
 
-  it("targeting options: upserts labels and order, retires what left the list, never deletes", async () => {
+  it("targeting options: upserts labels and order, retires what left the list, never deletes, keeps the newest list", async () => {
     // Inside a transaction that is rolled back, because the replacement is GLOBAL: it retires
     // every option not listed, including any the database already held.
     const ROLLBACK = new Error("rollback: the targeting suite leaves no trace");
@@ -713,6 +918,12 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
               n: number;
             }[]
           )[0]!.n;
+        const highWater = async () =>
+          (
+            (await db.execute(
+              dsql`SELECT count(DISTINCT updated_at)::int AS stamps, max(updated_at) AS hw FROM rvm_targeting_options`,
+            )) as unknown as { stamps: number; hw: string }[]
+          )[0]!;
         const optionEvents = async () =>
           (
             (await db.execute(dsql`
@@ -724,22 +935,22 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
           ).map((r) => r.payload);
 
         const totalBefore = await total();
-        const counts = await svc.replace(
-          {
-            branches: [
-              { id: BRANCH_B, name: "Fixture branch B, renamed" },
-              { id: BRANCH_A, name: "Fixture branch A" },
-              { id: BRANCH_RETIRED, name: "Fixture branch back" },
-            ],
-            courses: [{ id: "t2746r-new", name: "Fixture new course" }],
-          },
-          CALL,
-        );
+        // Now, by BadaBhai's clock: newer than the seeded rows' stamp (their insert time).
+        const asOf1 = new Date().toISOString();
+        const list1 = {
+          as_of: asOf1,
+          branches: [
+            { id: BRANCH_B, name: "Fixture branch B, renamed" },
+            { id: BRANCH_A, name: "Fixture branch A" },
+            { id: BRANCH_RETIRED, name: "Fixture branch back" },
+          ],
+          courses: [{ id: "t2746r-new", name: "Fixture new course" }],
+        };
+        const counts = await svc.replace(list1, CALL);
 
         expect(counts.branches).toMatchObject({ listed: 3, added: 0 });
         expect(counts.courses).toMatchObject({ listed: 1, added: 1 });
-        const after = await rows();
-        expect(after).toEqual([
+        expect(await rows()).toEqual([
           {
             kind: "branch",
             ref: String(BRANCH_A),
@@ -785,11 +996,13 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
         ]);
         // Nothing deleted: one row more (the new course), every retired option still there.
         expect(await total()).toBe(totalBefore + 1);
-        const [inactive] = (await db.execute(
-          dsql`SELECT count(*)::int AS n FROM rvm_targeting_options WHERE NOT active`,
-        )) as unknown as { n: number }[];
-        expect(inactive!.n).toBeGreaterThanOrEqual(2);
-        expect(await optionEvents()).toHaveLength(1);
+        // Every row, listed or retired, carries the applied list's as_of: the high-water mark.
+        const mark = await highWater();
+        expect(mark.stamps).toBe(1);
+        expect(Date.parse(mark.hw)).toBe(Date.parse(asOf1));
+        expect(await optionEvents()).toEqual([
+          expect.objectContaining({ as_of: asOf1, institute_code: "rvm" }),
+        ]);
         const [audit] = (await db.execute(dsql`
           SELECT actor_type, entity_type, metadata FROM audit_logs
            WHERE action = 'campus_link.targeting_options_set' AND entity_id = ${CALL.callId}::uuid`)) as unknown as {
@@ -802,21 +1015,39 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
           entity_type: "rvm_targeting_options",
         });
 
-        // The same list again: nothing changes, nothing is emitted.
-        const again = await svc.replace(
-          {
-            branches: [
-              { id: BRANCH_B, name: "Fixture branch B, renamed" },
-              { id: BRANCH_A, name: "Fixture branch A" },
-              { id: BRANCH_RETIRED, name: "Fixture branch back" },
-            ],
-            courses: [{ id: "t2746r-new", name: "Fixture new course" }],
-          },
-          CALL,
-        );
+        // The same list again (same as_of): the replay, nothing changes, nothing is emitted.
+        const again = await svc.replace(list1, CALL);
         expect(again.branches).toEqual({ listed: 3, added: 0, updated: 0, deactivated: 0 });
         expect(again.courses).toEqual({ listed: 1, added: 0, updated: 0, deactivated: 0 });
         expect(await optionEvents()).toHaveLength(1);
+
+        // A late list (older as_of) that differs: refused, nothing written.
+        const before = await rows();
+        const late = await svc
+          .replace(
+            { ...list1, as_of: new Date(Date.parse(asOf1) - 60_000).toISOString(), courses: [] },
+            CALL,
+          )
+          .then(
+            () => undefined,
+            (e: unknown) => e,
+          );
+        expect(late).toBeInstanceOf(ConflictException);
+        expect((late as ConflictException).getResponse()).toEqual({ code: "DECISION_SUPERSEDED" });
+        // The same instant with a different list: refused too.
+        const clash = await svc.replace({ ...list1, courses: [] }, CALL).then(
+          () => undefined,
+          (e: unknown) => e,
+        );
+        expect((clash as ConflictException).getResponse()).toEqual({ code: "DECISION_SUPERSEDED" });
+        expect(await rows()).toEqual(before);
+        expect(Date.parse((await highWater()).hw)).toBe(Date.parse(asOf1));
+
+        // A newer list applies and moves the mark.
+        const asOf2 = new Date(Date.parse(asOf1) + 1000).toISOString();
+        await svc.replace({ ...list1, as_of: asOf2, courses: [] }, CALL);
+        expect((await rows()).find((r) => r.ref === "t2746r-new")?.active).toBe(false);
+        expect(Date.parse((await highWater()).hw)).toBe(Date.parse(asOf2));
         throw ROLLBACK;
       })
       .catch((err: unknown) => {
@@ -875,6 +1106,9 @@ async function cleanup(client: DbClient): Promise<void> {
     DELETE FROM rvm_targeting_options
      WHERE (kind = 'branch' AND ref IN (${String(BRANCH_A)}, ${String(BRANCH_B)}, ${String(BRANCH_RETIRED)}))
         OR (kind = 'course' AND ref IN (${COURSE_A}, ${COURSE_RETIRED}, 't2746r-new'))`;
+  // Only a broken read-only resolve would have written these; remove them before the payer.
+  await sql`DELETE FROM payer_members WHERE member_payer_id = ${PILOT}::uuid`;
+  await sql`DELETE FROM payer_orgs WHERE root_payer_id = ${PILOT}::uuid`;
   await sql`DELETE FROM payers WHERE id = ${PILOT}::uuid`; // its pilot row cascades
   await sql`DELETE FROM worker_skill WHERE worker_id = ${WORKER}::uuid`;
   await sql`DELETE FROM worker_industry_tenure WHERE worker_id = ${WORKER}::uuid`;
