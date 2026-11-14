@@ -151,7 +151,8 @@ Campus posts only for a company **it created** (owner decision, 14 Nov 2026, on 
 review). A phone BadaBhai does not know creates a **pending** company (its owner activates it by
 signing in with a code; the `staff_ref` is in BadaBhai's audit log), and later postings for the
 same phone reuse it. A phone that is a BadaBhai company Campus did not create answers 409
-`COMPANY_NOT_CAMPUS_CREATED`: that company posts for RVM students from its own BadaBhai account, so
+`COMPANY_NOT_CAMPUS_CREATED` (as does a Campus company that is suspended or archived, or that has
+joined another employer's organisation): that company posts for RVM students from its own BadaBhai account, so
 a Campus token can never publish in another employer's name. The posting is open, for RVM
 students, with its review recorded as approved by `staff_ref` against the content as stored.
 Answers `201 { "posting_id", "company_id", "company_created", "review_state": "approved" }`.

@@ -65,6 +65,8 @@ export interface CampusFeedQuery {
 
 /** The `audit_logs.action` a Campus-created company is recorded under (with the staff ref). */
 export const CAMPUS_COMPANY_CREATED_ACTION = "campus_link.company_created";
+/** The `audit_logs.action` for a posting the placement team made from Campus (with the staff ref). */
+export const CAMPUS_POSTING_CREATED_ACTION = "campus_link.posting_created";
 
 /**
  * Data access for the Campus postings routes (#2752 part E): the feed of postings whose audience
@@ -156,6 +158,16 @@ export class CampusPostingsRepository {
     return new Map(rows.map((r) => [r.ref, r.label]));
   }
 
+  /** The company's lifecycle status, or undefined for an unknown id. */
+  async companyStatus(payerId: string, tx: Database = this.db): Promise<PayerStatus | undefined> {
+    const rows = await tx
+      .select({ status: payers.status })
+      .from(payers)
+      .where(eq(payers.id, payerId))
+      .limit(1);
+    return rows[0]?.status;
+  }
+
   /** Whether Campus created this company (only those may be posted for). */
   async isCampusCompany(payerId: string, tx: Database = this.db): Promise<boolean> {
     const rows = await tx
@@ -208,6 +220,15 @@ export class CampusPostingsRepository {
    * or after (and un-approves it by changing the hash).
    */
   async approveAsCreated(tx: Database, jobPostingId: string, reviewerRef: string): Promise<void> {
+    // Who really made the posting: its events name the company as owner, the trail names Campus.
+    await tx.insert(auditLogs).values({
+      actorType: "campus_service",
+      actorId: null,
+      action: CAMPUS_POSTING_CREATED_ACTION,
+      entityType: "job_posting",
+      entityId: jobPostingId,
+      metadata: { institute_code: "rvm", staff_ref: reviewerRef },
+    });
     await tx.execute(
       sql`SELECT 1 FROM job_postings WHERE id = ${jobPostingId}::uuid FOR NO KEY UPDATE`,
     );

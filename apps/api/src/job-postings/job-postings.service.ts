@@ -481,7 +481,9 @@ export class JobPostingsService {
    * #2752 item 5 — a posting the RVM placement team creates for a company from Campus, in the
    * company's resolved scope: the same create as the company form (same validation, events and
    * review row), for RVM students with the targeting Campus sent, and then opened. The Campus
-   * route then records the placement team's approval (`CampusPostingsService`).
+   * route then records the placement team's approval (`CampusPostingsService`). The events name
+   * the company as the posting's owner; who really made it (the Campus staff reference) is the
+   * `campus_link.posting_created` audit row written beside the approval.
    */
   async createForCampus(
     scope: PayerTenantScope,

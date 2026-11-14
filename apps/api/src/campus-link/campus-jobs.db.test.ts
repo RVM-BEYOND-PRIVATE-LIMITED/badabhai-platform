@@ -373,6 +373,89 @@ describe.skipIf(!RUN)("#2752 part E — Campus jobs and applications against Pos
     );
   });
 
+  it("keeps the application he made in the app himself when he withdraws on Campus", async () => {
+    const postingId = await posting("rvm_students");
+    await approve(postingId);
+    // He applies on Campus first, so he is linked; then his own app apply is simulated by marking
+    // the row as not Campus-owned (the path a worker-app apply before Campus takes).
+    const app = await applied(postingId);
+    await client.sql`
+      UPDATE institute_applications SET owns_application = false
+      WHERE external_ref = ${app.externalRef}`;
+
+    await campusApps.withdraw(app.externalRef, CTX);
+
+    expect(await feedRepo.listCandidates(postingId, 0, 50)).toHaveLength(1);
+  });
+
+  it("turns an earlier skip into the apply, and lets him apply again after a withdrawal", async () => {
+    const postingId = await posting("rvm_students");
+    await approve(postingId);
+    const first = await applied(postingId);
+    const workerId = [...touchedWorkers].at(-1)!;
+    await campusApps.withdraw(first.externalRef, CTX);
+    // A skip he made in the app in the meantime.
+    await client.db
+      .insert(applications)
+      .values({ jobPostingId: postingId, workerId, action: "skipped", reason: "other" });
+
+    const again = await campusApps.apply(
+      {
+        external_ref: `campus-app-${randomUUID().slice(0, 12)}`,
+        posting_id: postingId,
+        student_ref: first.studentRef,
+      },
+      CTX,
+    );
+
+    expect(again.created).toBe(true);
+    const rows = await client.db
+      .select()
+      .from(applications)
+      .where(eq(applications.jobPostingId, postingId));
+    expect(rows.map((r) => r.action)).toEqual(["applied"]);
+  });
+
+  it("refuses to post for a Campus company that is suspended", async () => {
+    const phone = phone10();
+    const out = await campusPostings.postForCompany(
+      {
+        company: { phone, name: `Campus Co ${TAG}` },
+        title: "CNC Operator",
+        description: "",
+        city: "Faridabad",
+        openings: 1,
+        branch_ids: [],
+        course_ids: [],
+        staff_ref: STAFF,
+      },
+      CTX,
+    );
+    touchedPayers.push(out.company_id);
+    await client.db
+      .update(payers)
+      .set({ status: "suspended" })
+      .where(eq(payers.id, out.company_id));
+
+    expect(
+      await refusalCode(
+        campusPostings.postForCompany(
+          {
+            company: { phone, name: `Campus Co ${TAG}` },
+            title: "CNC Operator",
+            description: "",
+            city: "Faridabad",
+            openings: 1,
+            branch_ids: [],
+            course_ids: [],
+            staff_ref: STAFF,
+          },
+          CTX,
+        ),
+      ),
+    ).toBe("COMPANY_NOT_CAMPUS_CREATED");
+  });
+
   it("posts for a company it creates, pending, approved by the staff ref, and finds only that company", async () => {
     const phone = phone10();
     const out = await campusPostings.postForCompany(

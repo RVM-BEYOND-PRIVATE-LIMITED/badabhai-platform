@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   applications,
   approvedForRvmStudents,
@@ -93,7 +93,7 @@ export class CampusApplicationsRepository {
     return rows[0];
   }
 
-  /** The Campus application already recorded for this worker and posting, if any. */
+  /** The LIVE Campus application for this worker and posting (a withdrawn one frees the pair). */
   async findForWorkerPosting(
     tx: Database,
     workerId: string,
@@ -106,30 +106,38 @@ export class CampusApplicationsRepository {
         and(
           eq(instituteApplications.workerId, workerId),
           eq(instituteApplications.jobPostingId, postingId),
+          isNull(instituteApplications.withdrawnAt),
         ),
       )
       .limit(1);
     return rows[0];
   }
 
-  /** The worker's applied `applications` row on this posting, if he has one (any surface). */
-  async findApplied(
+  /**
+   * The worker's `applications` row on this posting, if he has one from any surface, applied or
+   * skipped (one row per worker and posting: `applications_worker_posting_uq`). Locked, so a
+   * worker-app decision at the same moment waits for this apply.
+   */
+  async findDecision(
     tx: Database,
     workerId: string,
     postingId: string,
-  ): Promise<string | undefined> {
+  ): Promise<{ id: string; action: string } | undefined> {
     const rows = await tx
-      .select({ id: applications.id })
+      .select({ id: applications.id, action: applications.action })
       .from(applications)
-      .where(
-        and(
-          eq(applications.workerId, workerId),
-          eq(applications.jobPostingId, postingId),
-          eq(applications.action, "applied"),
-        ),
-      )
-      .limit(1);
-    return rows[0]?.id;
+      .where(and(eq(applications.workerId, workerId), eq(applications.jobPostingId, postingId)))
+      .limit(1)
+      .for("update");
+    return rows[0];
+  }
+
+  /** A skip he made in the worker app becomes his apply from Campus. */
+  async turnSkipIntoApply(tx: Database, applicationId: string): Promise<void> {
+    await tx
+      .update(applications)
+      .set({ action: "applied", reason: null, sourceSurface: "other" })
+      .where(and(eq(applications.id, applicationId), eq(applications.action, "skipped")));
   }
 
   /**
@@ -152,6 +160,8 @@ export class CampusApplicationsRepository {
       applicationId: string;
       jobPostingId: string;
       workerId: string;
+      /** True when this Campus record created (or turned) the `applications` row. */
+      ownsApplication: boolean;
       campusAppliedAt: Date | null;
     },
   ): Promise<InstituteApplicationRow> {
@@ -160,11 +170,12 @@ export class CampusApplicationsRepository {
   }
 
   /**
-   * A withdrawal: the company no longer sees him (the `applications` row goes), and the Campus
-   * record keeps the fact so the feed can say `withdrawn`.
+   * A withdrawal: the Campus record keeps the fact so the feed can say `withdrawn`, and the
+   * `applications` row goes ONLY when this record made it. A student who had applied from the
+   * worker app himself keeps that application: withdrawing on Campus is not withdrawing it.
    */
   async withdraw(tx: Database, row: InstituteApplicationRow, now: Date): Promise<void> {
-    if (row.applicationId !== null) {
+    if (row.applicationId !== null && row.ownsApplication) {
       await tx.delete(applications).where(eq(applications.id, row.applicationId));
     }
     await tx
@@ -204,8 +215,8 @@ export class CampusApplicationsRepository {
     limit: number,
   ): Promise<CampusApplicationView[]> {
     const rows = (await executor.execute(sql`
-      SELECT ia.id, ia.institute_code, ia.external_ref, ia.application_id, ia.job_posting_id,
-             ia.worker_id, ia.campus_applied_at, ia.withdrawn_at, ia.created_at, ia.updated_at,
+      SELECT ia.id, ia.institute_code, ia.external_ref, ia.application_id, ia.owns_application,
+             ia.job_posting_id, ia.worker_id, ia.campus_applied_at, ia.withdrawn_at, ia.created_at, ia.updated_at,
              il.student_ref, s.stage, ${CHANGED_AT} AS changed_at
       FROM institute_applications ia
       LEFT JOIN worker_institute_links il ON il.worker_id = ia.worker_id
@@ -234,6 +245,7 @@ function toView(r: Record<string, unknown>): CampusApplicationView {
     instituteCode: r.institute_code as InstituteCode,
     externalRef: String(r.external_ref),
     applicationId: (r.application_id as string | null) ?? null,
+    ownsApplication: r.owns_application === true,
     jobPostingId: String(r.job_posting_id),
     workerId: String(r.worker_id),
     campusAppliedAt: r.campus_applied_at === null ? null : toDate(r.campus_applied_at),

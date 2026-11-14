@@ -2,11 +2,13 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { rvmReviewStateFor, type InstituteCode } from "@badabhai/db";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { isCanonicalUuid } from "../common/uuid";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { JobPostingsService } from "../job-postings/job-postings.service";
 import { PayerCreateJobPostingSchema } from "../job-postings/job-postings.dto";
 import { PayersRepository } from "../payers/payers.repository";
+import { isBarredPayerStatus } from "../payers/payer-barred-status";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { CampusRefusal } from "./campus-errors";
 import type { CampusPostForCompanyBodySchema } from "./campus-link.contract";
@@ -59,7 +61,9 @@ export function decodeFeedCursor(cursor: string): { changedAt: Date; id: string 
   try {
     const [at, id] = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown[];
     const changedAt = new Date(String(at));
-    if (typeof id !== "string" || Number.isNaN(changedAt.getTime())) throw new Error("shape");
+    if (typeof id !== "string" || !isCanonicalUuid(id) || Number.isNaN(changedAt.getTime())) {
+      throw new Error("shape");
+    }
     return { changedAt, id };
   } catch {
     throw new BadRequestException({ code: "VALIDATION_FAILED", message: "cursor is not valid" });
@@ -126,12 +130,9 @@ export class CampusPostingsService {
     body: z.infer<typeof CampusPostForCompanyBodySchema>,
     ctx: RequestContext,
   ): Promise<{ posting_id: string; company_id: string; company_created: boolean }> {
-    const phone = `+91${body.company.phone}`;
-    const { companyId, created } = await this.campusCompanyFor(phone, body, ctx);
-
-    const scope = await this.tenancy.resolve(companyId);
     // The company form's own validation (field limits, the worker-visible place screen), so a
-    // Campus posting can hold nothing the company form would refuse.
+    // Campus posting can hold nothing the company form would refuse. FIRST, so a body the posting
+    // would refuse never leaves a company behind.
     const parsed = PayerCreateJobPostingSchema.safeParse({
       org_label: body.company.name,
       role_title: body.title,
@@ -155,6 +156,14 @@ export class CampusPostingsService {
       });
     }
     const dto = parsed.data;
+
+    const phone = `+91${body.company.phone}`;
+    const { companyId, created } = await this.campusCompanyFor(phone, body, ctx);
+    const scope = await this.tenancy.resolve(companyId);
+    // The posting is owned by the TENANT key. A company Campus created that has since joined
+    // another employer's org would make that employer the owner: refused, so a Campus token never
+    // publishes for a company it did not create.
+    if (scope.tenantKey !== companyId) throw new CampusRefusal("COMPANY_NOT_CAMPUS_CREATED", 409);
     const posting = await this.postings.createForCampus(
       scope,
       dto,
@@ -181,7 +190,8 @@ export class CampusPostingsService {
 
   /**
    * The company to post for: a company Campus created with this phone, or a new pending one. A
-   * phone held by a company Campus did not create is refused.
+   * phone held by a company Campus did not create, or a Campus company that is suspended or
+   * archived, is refused.
    */
   private async campusCompanyFor(
     phone: string,
@@ -195,7 +205,8 @@ export class CampusPostingsService {
         tx,
       );
       if (!created) {
-        if (!(await this.repo.isCampusCompany(id, tx))) {
+        const status = await this.repo.companyStatus(id, tx);
+        if (!(await this.repo.isCampusCompany(id, tx)) || isBarredPayerStatus(status)) {
           throw new CampusRefusal("COMPANY_NOT_CAMPUS_CREATED", 409);
         }
         return { companyId: id, created: false };

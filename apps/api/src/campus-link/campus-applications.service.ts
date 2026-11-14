@@ -79,14 +79,26 @@ export class CampusApplicationsService {
       if (await this.repo.findForWorkerPosting(tx, linked.workerId, body.posting_id)) {
         throw new CampusRefusal("EXTERNAL_REF_CONFLICT", 409);
       }
-      // He may already have applied from the worker app: that row is the one the company sees.
-      const applicationId =
-        (await this.repo.findApplied(tx, linked.workerId, body.posting_id)) ??
-        (await this.insertApplied(tx, linked.workerId, body.posting_id, ctx));
+      // He may already have a decision on it from the worker app. An apply is the row the company
+      // sees and stays his own; a skip becomes this apply.
+      const decision = await this.repo.findDecision(tx, linked.workerId, body.posting_id);
+      let applicationId: string;
+      let ownsApplication = true;
+      if (decision?.action === "applied") {
+        applicationId = decision.id;
+        ownsApplication = false;
+      } else if (decision) {
+        applicationId = decision.id;
+        await this.repo.turnSkipIntoApply(tx, decision.id);
+        await this.emitSubmitted(tx, linked.workerId, body.posting_id, decision.id, ctx);
+      } else {
+        applicationId = await this.insertApplied(tx, linked.workerId, body.posting_id, ctx);
+      }
       const row = await this.repo.insertCampusApplication(tx, {
         instituteCode: RVM,
         externalRef: body.external_ref,
         applicationId,
+        ownsApplication,
         jobPostingId: body.posting_id,
         workerId: linked.workerId,
         campusAppliedAt: body.applied_at === undefined ? null : new Date(body.applied_at),
@@ -154,6 +166,18 @@ export class CampusApplicationsService {
     ctx: RequestContext,
   ): Promise<string> {
     const applicationId = await this.repo.insertApplication(tx, workerId, postingId);
+    await this.emitSubmitted(tx, workerId, postingId, applicationId, ctx);
+    return applicationId;
+  }
+
+  /** `application.submitted`, as every apply emits it (source surface `other`). */
+  private async emitSubmitted(
+    tx: Database,
+    workerId: string,
+    postingId: string,
+    applicationId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
     const payload: PayloadInputOf<"application.submitted"> = {
       worker_id: workerId,
       job_id: postingId,
@@ -170,7 +194,6 @@ export class CampusApplicationsService {
       requestId: ctx.requestId,
       tx,
     });
-    return applicationId;
   }
 
   private async emit(
