@@ -11,6 +11,7 @@ import { sql } from "drizzle-orm";
 import { createDbClient, type Database, type DbClient } from "@badabhai/db";
 import { AdminActionsRepository } from "../admin/admin-actions.repository";
 import { AdminCompaniesRepository } from "../admin/companies/admin-companies.repository";
+import { AdminCompaniesService } from "../admin/companies/admin-companies.service";
 import {
   CampusDriveDecisionBodySchema,
   CampusDriveRequestsQuerySchema,
@@ -102,6 +103,10 @@ const LEAVER = uuid(0x2746d0014);
 const WITHDRAWN = uuid(0x2746d0015);
 /** A login (no `payers` row) whose typed contacts are erased while the switch is off. */
 const ERASED_LOGIN = uuid(0x2746d0016);
+/** A company with a team (org `TEAM_ORG`): archived while its member's account is deleted. */
+const TEAM_ROOT = uuid(0x2746d0017);
+const TEAM_MEMBER = uuid(0x2746d0018);
+const TEAM_ORG = uuid(0x2746d0019);
 const COMPANY_POSTING = uuid(0x2746d0020);
 const OTHER_POSTING = uuid(0x2746d0021);
 const STAFF = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
@@ -109,7 +114,7 @@ const STAFF = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 const BRANCH_A = 2746401;
 const BRANCH_B = 2746402;
 const BRANCH_RETIRED = 2746409;
-const COMPANIES = [COMPANY, OTHER, UNVERIFIED, AGENCY, LEAVER, WITHDRAWN];
+const COMPANIES = [COMPANY, OTHER, UNVERIFIED, AGENCY, LEAVER, WITHDRAWN, TEAM_ROOT, TEAM_MEMBER];
 
 /** Synthetic contact: no real person or number. */
 const CONTACT_NAME = "Fixture Contact t2746d";
@@ -756,14 +761,17 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
    * Waits until a statement on `campus_drive_requests` is blocked by the PARKED transaction's
    * backend (`pg_blocking_pids`), so a lock wait elsewhere in the database cannot pass for it.
    */
-  async function waitForLockWaiter(blockerPid: number): Promise<void> {
+  async function waitForLockWaiter(
+    blockerPid: number,
+    statement = "%campus_drive_requests%",
+  ): Promise<void> {
     expect(blockerPid, "the parked transaction's backend pid").toBeGreaterThan(0);
     for (let i = 0; i < 100; i += 1) {
       const [row] = await client.sql<{ n: number }[]>`
         SELECT count(*)::int AS n FROM pg_stat_activity
          WHERE datname = current_database()
            AND ${blockerPid}::int = ANY(pg_blocking_pids(pid))
-           AND query ILIKE '%campus_drive_requests%'`;
+           AND query ILIKE ${statement}`;
       if ((row?.n ?? 0) >= 1) return;
       await new Promise((r) => setTimeout(r, 50));
     }
@@ -827,6 +835,122 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     } finally {
       parked.release();
       await Promise.allSettled([cancelling, deciding ?? Promise.resolve()]);
+    }
+  }, 30_000);
+
+  it("a decision on a company suspended while it waited for the row lock is 409 COMPANY_WITHDRAWN (security re-check L3)", async () => {
+    const made = await company().create(WITHDRAWN, body({ openings: 72 }), "t2746d-key-0072", CTX);
+    // The suspend runs on its own connection and parks AFTER its re-stamp, holding the request row.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let parked!: () => void;
+    const holding = new Promise<void>((r) => (parked = r));
+    let pid = 0;
+    const suspending = raceClient.db.transaction(async (raw) => {
+      const tx = raw as unknown as Database;
+      await new AdminActionsRepository(raceClient.db).suspendPayer(WITHDRAWN, tx);
+      pid = await backendPid(tx);
+      parked();
+      await gate;
+    });
+    let deciding: Promise<unknown> | undefined;
+    try {
+      await holding;
+      deciding = campus().decide(made.id, decision(), CALL);
+      await waitForLockWaiter(pid);
+      release();
+      const [suspended, decided] = await Promise.allSettled([suspending, deciding]);
+      expect(suspended.status).toBe("fulfilled");
+      expect(decided.status).toBe("rejected");
+      const reason = (decided as PromiseRejectedResult).reason;
+      expect(sqlStateOf(reason)).not.toBe("40P01");
+      expect((reason as ConflictException).getResponse()).toMatchObject({
+        code: "COMPANY_WITHDRAWN",
+      });
+      expect((await stored({ id: made.id }))[0]!.status).toBe("requested");
+    } finally {
+      release();
+      await Promise.allSettled([suspending, deciding ?? Promise.resolve()]);
+      await client.db.transaction((raw) =>
+        new AdminActionsRepository(client.db).reinstatePayer(WITHDRAWN, raw as unknown as Database),
+      );
+    }
+  }, 30_000);
+
+  it("a company archive against a QA delete of its team member on two connections: no 40P01, both finish (migration re-check F1)", async () => {
+    // TEAM_MEMBER typed the contact on TEAM_ROOT's request (a team member under tenancy `on`).
+    const [row] = await client.sql<{ id: string; updated_at: string }[]>`
+      INSERT INTO campus_drive_requests (payer_id, created_by, branch_ids, preferred_from,
+             preferred_to, openings, contact_name_enc, contact_phone_enc, idempotency_key)
+      VALUES (${TEAM_ROOT}::uuid, ${TEAM_MEMBER}::uuid, '[]'::jsonb, ${PREFERRED_FROM}::date,
+              ${PREFERRED_TO}::date, 5, ${pii.encrypt(CONTACT_NAME)}, ${pii.encrypt(CONTACT_PHONE)},
+              't2746d-key-0081')
+      RETURNING id, updated_at::text AS updated_at`;
+
+    // The QA delete of the member parks inside its transaction, right after its payers row delete
+    // and before it erases the contacts the member typed (so it holds payers[TEAM_MEMBER]).
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let parked!: () => void;
+    const holding = new Promise<void>((r) => (parked = r));
+    let pid = 0;
+    const erasure = new CampusDriveContactErasureRepository(raceClient.db);
+    const eraseEnteredBy = erasure.eraseEnteredBy.bind(erasure);
+    erasure.eraseEnteredBy = async (payerId, executor) => {
+      pid = await backendPid(executor!);
+      parked();
+      await gate;
+      return eraseEnteredBy(payerId, executor);
+    };
+    const deletion = new PayerAccountDeletionService(
+      raceClient.db,
+      new PayersRepository(raceClient.db, pii),
+      { revokeAllForPayer: async () => 0 } as never,
+      events,
+      erasure,
+    );
+    const archive = new AdminCompaniesService(
+      new AdminCompaniesRepository(client.db),
+      new AdminActionsRepository(client.db),
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { revokeAllForPayer: async () => undefined } as never,
+      {} as never,
+      events,
+    );
+
+    const deleting = deletion.execute(TEAM_MEMBER, CTX);
+    let archiving: Promise<unknown> | undefined;
+    try {
+      await holding;
+      archiving = archive.archiveCompany(
+        { id: STAFF, role: "ops_admin", sid: "s" } as never,
+        TEAM_ROOT,
+        { reason_code: "inactive", reason_text: "Company confirmed it has stopped hiring" },
+        CTX,
+      );
+      // The archive waits on the member's row: locked BEFORE it re-stamps any request.
+      await waitForLockWaiter(pid, "%payers%");
+      release();
+      const [deleted, archived] = await Promise.allSettled([deleting, archiving]);
+      for (const r of [deleted, archived]) {
+        if (r.status === "rejected") expect(sqlStateOf(r.reason)).not.toBe("40P01");
+      }
+      expect(deleted).toMatchObject({ status: "fulfilled", value: { deleted: true } });
+      expect(archived).toMatchObject({ status: "fulfilled", value: { changed: true } });
+      const [after] = await stored({ id: row!.id });
+      expect(after).toMatchObject({ contact_name_enc: null, contact_phone_enc: null });
+      // The archive's re-stamp came after the delete's erasure stamp, near the archive's commit.
+      expect(Date.parse(after!.updated_at)).toBeGreaterThan(Date.parse(row!.updated_at));
+      const [root] = await client.sql<{ status: string }[]>`
+        SELECT status FROM payers WHERE id = ${TEAM_ROOT}::uuid`;
+      expect(root!.status).toBe("archived");
+    } finally {
+      release();
+      await Promise.allSettled([deleting, archiving ?? Promise.resolve()]);
     }
   }, 30_000);
 
@@ -955,6 +1079,15 @@ async function seed(client: DbClient): Promise<void> {
   await payer(AGENCY, "agent", "Fixture Agency t2746d");
   await payer(LEAVER, "employer", "Leaver Login t2746d");
   await payer(WITHDRAWN, "employer", "Withdrawn Works t2746d");
+  await payer(TEAM_ROOT, "employer", "Team Works t2746d");
+  await payer(TEAM_MEMBER, "employer", "Team Member Login t2746d");
+  await sql`
+    INSERT INTO payer_orgs (id, root_payer_id, name_enc, status)
+    VALUES (${TEAM_ORG}::uuid, ${TEAM_ROOT}::uuid, ${pii.encrypt("Team Works t2746d")}, 'active')`;
+  await sql`
+    INSERT INTO payer_members (org_id, member_payer_id, org_role, status)
+    VALUES (${TEAM_ORG}::uuid, ${TEAM_ROOT}::uuid, 'owner', 'active'),
+           (${TEAM_ORG}::uuid, ${TEAM_MEMBER}::uuid, 'recruiter', 'active')`;
   for (const id of [COMPANY, OTHER, WITHDRAWN]) {
     await sql`
       INSERT INTO employer_profiles (payer_id, verification_status, gst_number_enc)
@@ -988,6 +1121,7 @@ async function cleanup(client: DbClient): Promise<void> {
   await sql`
     DELETE FROM rvm_targeting_options
      WHERE kind = 'branch' AND ref IN (${String(BRANCH_A)}, ${String(BRANCH_B)}, ${String(BRANCH_RETIRED)})`;
+  await sql`DELETE FROM payer_members WHERE org_id = ${TEAM_ORG}::uuid`;
   await sql`DELETE FROM payer_members WHERE member_payer_id = ANY(${COMPANIES}::uuid[])`;
   await sql`DELETE FROM payer_orgs WHERE root_payer_id = ANY(${COMPANIES}::uuid[])`;
   await sql`DELETE FROM payers WHERE id = ANY(${COMPANIES}::uuid[])`;

@@ -496,6 +496,69 @@ describe("POST drive-requests/:id/decision", () => {
     });
   });
 
+  it("scheduled_on is never before the day the request was made, even when decided_at is earlier (I3)", async () => {
+    // The request is made on 14 Nov (the fake table's clock); Campus dates its decision 10 Nov.
+    const { service, seed, table } = world();
+    const id = await seed(COMPANY);
+    expect(
+      table.rows
+        .find((r) => r.id === id)!
+        .createdAt.toISOString()
+        .slice(0, 10),
+    ).toBe("2026-11-14");
+    const early = (day: string) =>
+      scheduleAt("2026-11-10T05:00:00Z", { scheduled_on: day, campus_drive_ref: `d:${day}` });
+    for (const day of ["2026-11-10", "2026-11-13"]) {
+      const err = await refusal(() => service.decide(id, early(day), CALL));
+      expect(err.getResponse(), day).toMatchObject({
+        code: "VALIDATION_FAILED",
+        issues: [{ path: "scheduled_on" }],
+      });
+    }
+    // A year after the LATER day (the request's), not the decision's.
+    const late = await refusal(() => service.decide(id, early("2027-11-15"), CALL));
+    expect(late.getResponse()).toMatchObject({ issues: [{ path: "scheduled_on" }] });
+    await expect(service.decide(id, early("2026-11-14"), CALL)).resolves.toMatchObject({
+      scheduled_on: "2026-11-14",
+    });
+    // The same body again answers the same way: a replay, judged before the day.
+    await expect(service.decide(id, early("2026-11-14"), CALL)).resolves.toMatchObject({
+      scheduled_on: "2026-11-14",
+    });
+  });
+
+  it("withdrawn is judged on the standing READ AFTER the row lock, in its own statement (security re-check L3)", async () => {
+    const { service, seed, table } = world();
+    const id = await seed(COMPANY);
+    const calls: string[] = [];
+    const lock = table.lockForDecision.bind(table);
+    vi.spyOn(table, "lockForDecision").mockImplementation(async (...args) => {
+      calls.push("lock");
+      return lock(...args);
+    });
+    // The company is suspended between the lock and the standing read: the read decides.
+    vi.spyOn(table, "readStanding").mockImplementation(async () => {
+      calls.push("standing");
+      return {
+        companyStatus: "suspended",
+        companyRole: "employer",
+        companyVerification: "verified",
+        companyHasGst: true,
+      };
+    });
+    const err = await refusal(() => service.decide(id, scheduleAt("2026-11-20T05:00:00Z"), CALL));
+    expect(err.getResponse()).toMatchObject({ code: "COMPANY_WITHDRAWN" });
+    expect(calls).toEqual(["lock", "standing"]);
+  });
+
+  it("a company row that is gone reads as withdrawn (fails closed)", async () => {
+    const { service, seed, table } = world();
+    const id = await seed(COMPANY);
+    vi.spyOn(table, "readStanding").mockResolvedValue(undefined);
+    const err = await refusal(() => service.decide(id, scheduleAt("2026-11-20T05:00:00Z"), CALL));
+    expect(err.getResponse()).toMatchObject({ code: "COMPANY_WITHDRAWN" });
+  });
+
   it("an unknown or malformed id is the neutral 404", async () => {
     const { service } = world();
     for (const id of [uuid(0xdead), "not-a-uuid"]) {

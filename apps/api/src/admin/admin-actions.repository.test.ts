@@ -137,7 +137,7 @@ const ADMIN_ID = "aaaaaaaa-0000-4000-8000-000000000001";
 describe("AdminActionsRepository.suspendPayer — guarded active→suspended (idempotent)", () => {
   it("returns the new status when a row matched (active → suspended)", async () => {
     const m = makeDb([{ status: "suspended" }]);
-    const res = await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID);
+    const res = await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID, m.db);
     expect(res).toEqual({ status: "suspended" });
     // The write set status=suspended and was guarded (the WHERE is a non-null SQL condition).
     expect(m.updates).toHaveLength(2);
@@ -152,7 +152,7 @@ describe("AdminActionsRepository.suspendPayer — guarded active→suspended (id
 
   it("returns undefined when no row matched the guard (already suspended → no-op)", async () => {
     const m = makeDb([]); // guarded WHERE matched nothing
-    const res = await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID);
+    const res = await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID, m.db);
     expect(res).toBeUndefined();
     // Nothing moved, so nothing is re-stamped.
     expect(m.updates).toHaveLength(1);
@@ -165,7 +165,7 @@ describe("AdminActionsRepository.reinstatePayer — guarded suspended→previous
     // (`coalesce(previous_status,'pending')`), so the `set` carries a SQL node rather than
     // a literal — assert on the rendered SQL, which is what actually reaches Postgres.
     const hit = makeDb([{ status: "active" }]);
-    expect(await new AdminActionsRepository(hit.db).reinstatePayer(PAYER_ID)).toEqual({
+    expect(await new AdminActionsRepository(hit.db).reinstatePayer(PAYER_ID, hit.db)).toEqual({
       status: "active",
     });
 
@@ -180,14 +180,14 @@ describe("AdminActionsRepository.reinstatePayer — guarded suspended→previous
     expect(set.previousStatus).toBeNull();
 
     const miss = makeDb([]);
-    expect(await new AdminActionsRepository(miss.db).reinstatePayer(PAYER_ID)).toBeUndefined();
+    expect(await new AdminActionsRepository(miss.db).reinstatePayer(PAYER_ID, miss.db)).toBeUndefined();
   });
 });
 
 describe("AdminActionsRepository.suspendPayer — ADR-0037 widened from-state", () => {
   it("accepts BOTH pending and active, and captures the status it moved out of", async () => {
     const m = makeDb([{ status: "suspended", previousStatus: "active" }]);
-    await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID);
+    await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID, m.db);
 
     // The from-state predicate is an explicit two-value list, NOT `ne('suspended')`.
     // There is no DB CHECK on payers.status, so `ne` would silently accept any future or

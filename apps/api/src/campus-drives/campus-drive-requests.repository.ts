@@ -145,7 +145,7 @@ export interface DriveRequestInsert {
 }
 
 /** The row under the decision's lock, with `decided_at` compared to the body's in SQL. */
-export interface LockedForDecision extends DriveRequestRow, DriveCompanyColumns {
+export interface LockedForDecision extends DriveRequestRow {
   timing: DecisionTiming;
 }
 
@@ -211,8 +211,9 @@ export class CampusDriveRequestsRepository {
    */
   async requesterFacts(
     tenant: TenantKey,
+    executor: Database = this.db,
   ): Promise<DriveCompanyStanding & { isTestAccount: boolean }> {
-    const rows = await this.db
+    const rows = await executor
       .select({
         role: payers.role,
         status: payers.status,
@@ -238,8 +239,12 @@ export class CampusDriveRequestsRepository {
   }
 
   /** Is `postingId` one of the tenant's own postings? `payer_id` is in the WHERE. */
-  async isOwnPosting(tenant: TenantKey, postingId: string): Promise<boolean> {
-    const rows = await this.db
+  async isOwnPosting(
+    tenant: TenantKey,
+    postingId: string,
+    executor: Database = this.db,
+  ): Promise<boolean> {
+    const rows = await executor
       .select({ id: jobPostings.id })
       .from(jobPostings)
       .where(and(eq(jobPostings.id, postingId), eq(jobPostings.payerId, tenant)))
@@ -393,7 +398,8 @@ export class CampusDriveRequestsRepository {
 
   /**
    * The request under `SELECT … FOR UPDATE`, with the body's `decided_at` compared to the stored one
-   * by Postgres (microsecond exact; a JS `Date` keeps only milliseconds).
+   * by Postgres (microsecond exact; a JS `Date` keeps only milliseconds). The company's standing is
+   * NOT read here: see {@link readStanding}.
    */
   async lockForDecision(
     tx: Database,
@@ -405,7 +411,6 @@ export class CampusDriveRequestsRepository {
       const rows = await tx
         .select({
           ...ROW_COLUMNS,
-          ...COMPANY_STANDING,
           timing: sql<DecisionTiming>`CASE
             WHEN ${campusDriveRequests.decidedAt} IS NULL THEN 'none'
             WHEN ${at} < ${campusDriveRequests.decidedAt} THEN 'older'
@@ -413,16 +418,35 @@ export class CampusDriveRequestsRepository {
             ELSE 'newer' END`,
         })
         .from(campusDriveRequests)
-        .innerJoin(payers, eq(payers.id, campusDriveRequests.payerId))
-        .leftJoin(employerProfiles, eq(employerProfiles.payerId, campusDriveRequests.payerId))
         .where(eq(campusDriveRequests.id, id))
         .limit(1)
-        .for("update", { of: campusDriveRequests });
-      const row = rows[0];
-      return row && { ...row, companyHasGst: row.companyHasGst === true };
+        .for("update");
+      return rows[0];
     } catch (err) {
       throw redactQueryParams(err, "campus drive decision lock");
     }
+  }
+
+  /**
+   * The company's standing, for the decision (security re-check L3, migration re-check F2): a
+   * SEPARATE plain statement, run on the decision's transaction AFTER {@link lockForDecision} holds
+   * the request row. Under READ COMMITTED a new statement takes a new snapshot, so it sees a
+   * suspension, an archive or a withdrawn verification that committed while the decision waited
+   * for the row lock (the writer re-stamps the request, so it held that lock). Read in the locking
+   * statement itself it would not: a waited-for `FOR UPDATE` re-checks the locked row only and
+   * keeps the joined company rows of its first snapshot. No lock is taken on `payers` or
+   * `employer_profiles` (no `FOR SHARE`), so the lock order stays payers → requests everywhere.
+   * `undefined` when the company row is gone.
+   */
+  async readStanding(tx: Database, payerId: string): Promise<DriveCompanyColumns | undefined> {
+    const rows = await tx
+      .select(COMPANY_STANDING)
+      .from(payers)
+      .leftJoin(employerProfiles, eq(employerProfiles.payerId, payers.id))
+      .where(eq(payers.id, payerId))
+      .limit(1);
+    const row = rows[0];
+    return row && { ...row, companyHasGst: row.companyHasGst === true };
   }
 
   /** The decision, on the transaction that locked the row. */

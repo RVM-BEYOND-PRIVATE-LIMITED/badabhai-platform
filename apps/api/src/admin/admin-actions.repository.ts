@@ -83,15 +83,18 @@ export class AdminActionsRepository {
    * transition — reading the status first and passing it back in would be a TOCTOU.
    *
    * Returns the new status only when the row actually changed. `tx` runs the write on a
-   * caller-provided transaction (H3) so it commits with the event atomically.
+   * caller-provided transaction (H3) so it commits with the event atomically; it is REQUIRED
+   * (#2746 PR 6, security re-check L4): the status and the drive-request re-stamp below must commit
+   * together, never as two autocommits.
    *
    * #2746 PR 6 — a suspended company is withdrawn from Campus's drive feed (owner ruling R2), so
    * the moved row re-stamps the company's drive requests on the same `tx`
-   * (`restampCompanyDriveRequests`), as {@link reinstatePayer} does.
+   * (`restampCompanyDriveRequests`), as {@link reinstatePayer} does. The service re-stamps once more
+   * as its transaction's last statement ({@link restampDriveRequests}).
    */
   async suspendPayer(
     id: string,
-    tx: Database = this.db,
+    tx: Database,
   ): Promise<{ status: PayerStatus; previousStatus: PayerStatus | null } | undefined> {
     const [row] = await tx
       .update(payers)
@@ -102,7 +105,7 @@ export class AdminActionsRepository {
       })
       .where(and(eq(payers.id, id), inArray(payers.status, ["pending", "active"])))
       .returning({ status: payers.status, previousStatus: payers.previousStatus });
-    if (row) await restampCompanyDriveRequests(tx, [id]);
+    if (row) await restampCompanyDriveRequests(tx, id);
     return row;
   }
 
@@ -117,11 +120,12 @@ export class AdminActionsRepository {
    *
    * `COALESCE(previous_status, 'pending')` covers rows suspended before the column existed:
    * the unknown case resolves to the LESS privileged state, not the more privileged one.
-   * `previous_status` is cleared so it only ever describes the current suspension.
+   * `previous_status` is cleared so it only ever describes the current suspension. `tx` is
+   * REQUIRED, as for {@link suspendPayer}.
    */
   async reinstatePayer(
     id: string,
-    tx: Database = this.db,
+    tx: Database,
   ): Promise<{ status: PayerStatus } | undefined> {
     const [row] = await tx
       .update(payers)
@@ -132,8 +136,17 @@ export class AdminActionsRepository {
       })
       .where(and(eq(payers.id, id), eq(payers.status, "suspended")))
       .returning({ status: payers.status });
-    if (row) await restampCompanyDriveRequests(tx, [id]);
+    if (row) await restampCompanyDriveRequests(tx, id);
     return row;
+  }
+
+  /**
+   * #2746 PR 6 (security re-check L1) — re-stamp the drive requests keyed on `payerId`, as the LAST
+   * statement of a suspend or reinstate transaction, so the `changed_at` Campus sees is taken just
+   * before the commit, after the inventory freeze, the events and the audit row.
+   */
+  async restampDriveRequests(tx: Database, payerId: string): Promise<void> {
+    await restampCompanyDriveRequests(tx, payerId);
   }
 
   // ----- payer inventory cascade (ADR-0037 Decision 1) ----------------------

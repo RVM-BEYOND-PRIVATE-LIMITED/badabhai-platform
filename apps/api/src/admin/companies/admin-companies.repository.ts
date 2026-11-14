@@ -355,7 +355,7 @@ export class AdminCompaniesRepository {
           set: { ...employerColumns, updatedAt: now },
         });
       if ("verificationStatus" in employerColumns || "gstNumberEnc" in employerColumns) {
-        await restampCompanyDriveRequests(tx, [payerId]);
+        await restampCompanyDriveRequests(tx, payerId);
       }
       return;
     }
@@ -381,6 +381,33 @@ export class AdminCompaniesRepository {
       .for("update")
       .limit(1);
     return row;
+  }
+
+  /**
+   * #2746 PR 6 (migration re-check F1) — lock EVERY login of an archive or restore, `FOR UPDATE`,
+   * in id order, right after {@link lockRoot} and before the first write. So the transaction holds no
+   * drive-request row (each login's archive re-stamps them) while it waits on a login's row: a QA
+   * delete of a team member takes that login's `payers` row and then the requests it typed, and the
+   * two would otherwise lock in opposite orders (40P01). Rows gone already are simply not returned.
+   */
+  async lockLogins(ids: readonly string[], tx: Database): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const rows = await tx
+      .select({ id: payers.id })
+      .from(payers)
+      .where(inArray(payers.id, [...ids]))
+      .orderBy(asc(payers.id))
+      .for("update");
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * #2746 PR 6 (security re-check L1) — re-stamp the drive requests keyed on `payerId`, as the LAST
+   * statement of an archive, restore or company-record transaction, so the `changed_at` Campus sees
+   * is taken just before the commit, after the inventory freeze, the events and the audit row.
+   */
+  async restampDriveRequests(tx: Database, payerId: string): Promise<void> {
+    await restampCompanyDriveRequests(tx, payerId);
   }
 
   /** The company's ACTIVE team logins (linked, not the founder) — the archive cascade's reach. */
@@ -417,7 +444,7 @@ export class AdminCompaniesRepository {
       .where(and(eq(payers.id, id), ne(payers.status, "archived")))
       .returning({ id: payers.id, leftStatus: payers.previousStatus });
     if (!row) return undefined;
-    await restampCompanyDriveRequests(tx, [row.id]);
+    await restampCompanyDriveRequests(tx, row.id);
     return { id: row.id, leftStatus: row.leftStatus ?? "pending" };
   }
 
@@ -441,7 +468,7 @@ export class AdminCompaniesRepository {
       })
       .where(and(eq(payers.id, id), eq(payers.status, "archived")))
       .returning({ id: payers.id, status: payers.status });
-    if (row) await restampCompanyDriveRequests(tx, [row.id]);
+    if (row) await restampCompanyDriveRequests(tx, row.id);
     return row;
   }
 

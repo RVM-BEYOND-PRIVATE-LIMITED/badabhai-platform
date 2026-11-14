@@ -60,8 +60,8 @@ function asciiDigit(ch: string): string {
  * a phone in Devanagari or full-width digits, one with a combining mark after each digit, and an
  * email with a full-width at sign (U+FF20) all passed. The copy closes those:
  *   1. NFKC: full-width digits and letters become ASCII, the full-width at sign becomes `@`;
- *   2. every decimal digit of any script (`p{Nd}`) becomes its ASCII digit;
- *   3. combining marks (`p{M}`) are dropped.
+ *   2. every decimal digit of any script (`\p{Nd}`) becomes its ASCII digit;
+ *   3. combining marks (`\p{M}`) are dropped.
  * ZWJ / ZWNJ, which the note keeps, are stripped by the detector itself before it matches.
  *
  * NOT A SEPARATOR: `/` and `\` (owner decision, security re-check N2/N3). Reading them as a space

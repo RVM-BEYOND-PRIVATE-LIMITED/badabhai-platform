@@ -648,8 +648,9 @@ export const CampusDriveDecisionBodySchema = z.discriminatedUnion("decision", [
     decision: z.literal("scheduled"),
     ...driveDecisionShared,
     /**
-     * From the decision's day in India (`decided_at`'s) to a year after it (400
-     * `VALIDATION_FAILED` otherwise), checked after the replay.
+     * From the later of the decision's day in India (`decided_at`'s) and the request's
+     * (`requested_at`'s) to a year after that (400 `VALIDATION_FAILED` otherwise), checked after
+     * the replay.
      */
     scheduled_on: CampusDateSchema,
     campus_drive_ref: CampusDriveRefSchema,

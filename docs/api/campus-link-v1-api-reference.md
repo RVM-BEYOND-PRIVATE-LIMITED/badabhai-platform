@@ -475,8 +475,9 @@ read: a rename shows the next time an item is read and does not move `changed_at
   the drive's `scheduled_on` is 409 `DECISION_NOT_ALLOWED`: a drive cannot have happened before
   its day.
 - `scheduled_on` and `campus_drive_ref`: required with `scheduled`, refused with the others.
-  `scheduled_on` runs from the DECISION's day in India (the day of `decided_at`, not BadaBhai's
-  today) to a year after it; otherwise 400 `VALIDATION_FAILED`, nothing stored. It is checked
+  `scheduled_on` runs from the LATER of the decision's day in India (the day of `decided_at`, not
+  BadaBhai's today) and the day in India the request was made (`requested_at`) to a year after
+  that; otherwise 400 `VALIDATION_FAILED`, nothing stored. It is checked
   after the replay below, so the same body retried after midnight still answers its 200 replay.
   `campus_drive_ref` is Campus's id for its drive record (1–200 characters of
   `A-Z a-z 0-9 . _ : -`), stored as sent.

@@ -120,11 +120,14 @@ function feedSince(changedSince: string | undefined): string | undefined {
  *
  * A DECISION: `decided_at` checked by the shared Campus clock rule (`assertCampusTime`: not before
  * `CAMPUS_EARLIEST_DECISION_TIME`, not more than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead; 400 before any
- * read); the request row `FOR UPDATE`; then withdrawn → 409 `COMPANY_WITHDRAWN`; then
- * `judgeDriveDecision` (ordering by `decided_at`, then the transitions, then a completion no earlier
- * than the drive's date; `campus-drive-transitions.ts`); then, for a write only, a `scheduled_on`
- * from the DECISION's day in India (`decided_at`'s, not the server's today) to a year after it
- * (400). After the replay on purpose: a same-body retry after midnight answers its 200 replay.
+ * read); the request row `FOR UPDATE`; then the company's standing, re-read in its own statement
+ * after the lock (`readStanding`: a fresh snapshot, so a suspension that committed while this
+ * waited for the lock is seen), withdrawn → 409 `COMPANY_WITHDRAWN`; then `judgeDriveDecision`
+ * (ordering by `decided_at`, then the transitions, then a completion no earlier than the drive's
+ * date; `campus-drive-transitions.ts`); then, for a write only, a `scheduled_on` from the LATER of
+ * the decision's day in India (`decided_at`'s, not the server's today) and the request's own day
+ * (`created_at`'s) to a year after that (400). After the replay on purpose: a same-body retry after
+ * midnight answers its 200 replay.
  * A write stores Campus's `decided_at`, emits
  * `campus_drive.decided` v1 and writes the staff member's `audit_logs` row (actor = the
  * `decided_by_ref`, `CAMPUS_STAFF_ACTOR_TYPE`) in the same transaction. A replay writes nothing and
@@ -203,7 +206,11 @@ export class CampusDriveDecisionsService {
     return this.repo.withTransaction(async (tx) => {
       const held = await this.repo.lockForDecision(tx, id, body.decided_at);
       if (held === undefined) throw neutralNotFound();
-      if (withdrawn(held)) {
+      // The standing in a SEPARATE statement, after the row lock (security re-check L3): a fresh
+      // snapshot, so a suspension that committed while this waited for the lock is seen. A company
+      // row that is gone is withdrawn (fail closed).
+      const standing = await this.repo.readStanding(tx, held.payerId);
+      if (standing === undefined || withdrawn(standing)) {
         this.logOutcome(id, input.decision, "company_withdrawn");
         throw campusConflict("COMPANY_WITHDRAWN", {
           message:
@@ -230,7 +237,9 @@ export class CampusDriveDecisionsService {
         case "write": {
           // The drive's day, after the replay (a same-body retry is 200 whatever the date), against
           // the decision's own day in India. A 400 here stores nothing: the transaction rolls back.
-          if (input.scheduledOn !== null) assertDriveDay(input.scheduledOn, input.decidedOn);
+          if (input.scheduledOn !== null) {
+            assertDriveDay(input.scheduledOn, laterDay(input.decidedOn, indiaDay(held.createdAt)));
+          }
           const written = await this.repo.writeDecision(tx, id, {
             ...outcome.write,
             decidedAt: body.decided_at,
@@ -355,18 +364,27 @@ export class CampusDriveDecisionsService {
   }
 }
 
+/** The later of two `YYYY-MM-DD` days. */
+function laterDay(a: string, b: string): string {
+  return a > b ? a : b;
+}
+
 /**
- * SECURITY REVIEW L1, N7 — a drive is scheduled for a day from the DECISION's day in India
- * (`decidedOn`, from `decided_at`) to a year after it. A day before the decision cannot be a drive
- * the company can still attend, and one years out is a typo; 400 `VALIDATION_FAILED` naming
- * `scheduled_on`. Bounded by the decision's day, not the server's: the same body is judged the
- * same way whenever it arrives (migration review L1).
+ * SECURITY REVIEW L1, N7, I3 — a drive is scheduled for a day from `floorDay` to a year after it:
+ * the LATER of the decision's day in India (from `decided_at`) and the day in India the request was
+ * made (`created_at`). A day before the decision, or before the company even asked, cannot be a
+ * drive the company can still attend, and one years out is a typo; 400 `VALIDATION_FAILED` naming
+ * `scheduled_on`. Both days come from the body and the stored row, never the server's clock, so the
+ * same body is judged the same way whenever it arrives (migration review L1, F3).
  */
-function assertDriveDay(scheduledOn: string, decidedOn: string): void {
-  if (scheduledOn < decidedOn) {
-    throw campusInvalid("scheduled_on", "before the decision's day in India (decided_at)");
+function assertDriveDay(scheduledOn: string, floorDay: string): void {
+  if (scheduledOn < floorDay) {
+    throw campusInvalid(
+      "scheduled_on",
+      "before the decision's day in India (decided_at) or the day the request was made",
+    );
   }
-  if (scheduledOn > addDays(decidedOn, DRIVE_MAX_DAYS_AHEAD)) {
+  if (scheduledOn > addDays(floorDay, DRIVE_MAX_DAYS_AHEAD)) {
     throw campusInvalid("scheduled_on", "more than a year after the decision's day in India");
   }
 }

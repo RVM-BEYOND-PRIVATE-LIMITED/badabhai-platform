@@ -156,7 +156,7 @@ export class MemoryDriveRequests {
     }
   }
 
-  async requesterFacts(tenant: TenantKey) {
+  async requesterFacts(tenant: TenantKey, _tx?: unknown) {
     const facts = this.facts.get(tenant);
     if (facts === undefined) {
       return {
@@ -170,7 +170,7 @@ export class MemoryDriveRequests {
     return { ...facts, status: facts.status === undefined ? "active" : facts.status };
   }
 
-  async isOwnPosting(tenant: TenantKey, postingId: string): Promise<boolean> {
+  async isOwnPosting(tenant: TenantKey, postingId: string, _tx?: unknown): Promise<boolean> {
     return this.postings.get(postingId) === tenant;
   }
 
@@ -274,7 +274,12 @@ export class MemoryDriveRequests {
     const stored = row.decidedAt?.getTime();
     const timing: DecisionTiming =
       stored === undefined ? "none" : body < stored ? "older" : body === stored ? "same" : "newer";
-    return { ...row, ...this.standingOf(row.payerId), timing };
+    return { ...row, timing };
+  }
+
+  /** The company's standing, read apart from the lock (as the real repository does). */
+  async readStanding(_tx: unknown, payerId: string): Promise<DriveCompanyColumns | undefined> {
+    return this.standingOf(payerId);
   }
 
   async writeDecision(_tx: unknown, id: string, write: DecisionStore) {

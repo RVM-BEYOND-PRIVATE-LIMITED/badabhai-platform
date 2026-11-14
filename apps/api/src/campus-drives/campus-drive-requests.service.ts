@@ -9,6 +9,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { Database } from "@badabhai/db";
 import { containsHardIdentifier } from "../common/hard-identifier";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { inFlightConflict } from "../common/idempotency/in-flight-conflict";
@@ -311,10 +312,11 @@ export class CampusDriveRequestsService {
   private async assertCreatable(
     scope: PayerTenantScope,
     request: NormalisedRequest,
+    tx: Database,
   ): Promise<{ isTest: boolean }> {
     // The tenant's (the anchor's) standing: the four facts R2 reads, so no request is withdrawn
     // from birth (migration review L2). The role, then the account, then the verification.
-    const facts = await this.repo.requesterFacts(scope.tenantKey);
+    const facts = await this.repo.requesterFacts(scope.tenantKey, tx);
     if (facts.role !== "employer") throw new ForbiddenException(ROLE_REFUSAL);
     if (facts.status !== "active") {
       this.logger.log(
@@ -367,14 +369,17 @@ export class CampusDriveRequestsService {
         throw refused(
           400,
           DRIVE_REQUEST_REFUSAL_REASONS.rolesNoteIdentifier,
-          "roles_note looks like it holds contact details or an ID; put the contact person in contact_name and contact_phone, and write a number range with words or commas (15,000 to 18,000), not as one long run of digits",
+          "roles_note looks like it holds contact details or an ID; put the contact person in contact_name and contact_phone, and write a number range with words (15,000 to 18,000)",
           { identifier },
         );
       }
     }
 
     const { jobPostingId, branchIds } = request;
-    if (jobPostingId !== null && !(await this.repo.isOwnPosting(scope.tenantKey, jobPostingId))) {
+    if (
+      jobPostingId !== null &&
+      !(await this.repo.isOwnPosting(scope.tenantKey, jobPostingId, tx))
+    ) {
       // The same 404 for a foreign and an unknown posting: no oracle.
       throw new NotFoundException();
     }
@@ -418,8 +423,11 @@ export class CampusDriveRequestsService {
     const stored = await this.repo.findByIdempotencyKey(scope.tenantKey, idempotencyKey);
     if (stored !== undefined) return this.answerRepeat(scope, stored, request);
 
-    const { isTest } = await this.assertCreatable(scope, request);
     const created = await this.repo.withTransaction(async (tx) => {
+      // Every check of a NEW request runs on the insert's transaction (migration re-check F7), so
+      // the tenant's standing is read right before the insert, not before the transaction opened.
+      // A refusal rolls the transaction back: nothing is written.
+      const { isTest } = await this.assertCreatable(scope, request, tx);
       const row = await this.repo.insert(tx, {
         payerId: scope.tenantKey,
         createdBy: scope.actorPayerId,

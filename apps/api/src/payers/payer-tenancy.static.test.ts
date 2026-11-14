@@ -130,6 +130,11 @@ const NAMED_EXCEPTIONS: readonly string[] = [
   // deletion erases the campus-drive contacts the deleted LOGIN typed (`created_by`), in whichever
   // company's request they sit. Owner ruling 14 Nov 2026 (ADR-0063 §3.6); security review.
   "campus-drives/campus-drive-contact-erasure.repository.ts CampusDriveContactErasureRepository.eraseEnteredBy",
+  // #2746 PR 6 — keyed on the payers / employer_profiles ROW THAT MOVED, not on a tenant key
+  // (plan §4, beside suspendPayerInventory and eraseEnteredBy): a standing writer (suspend,
+  // archive, a verification change) re-stamps the drive requests that read that row
+  // (security re-check L4, ADR-0063 §3.6).
+  "campus-drives/campus-drive-feed-stamp.ts restampCompanyDriveRequests",
 ];
 
 // THE OLD `UNCONVERTED` ALLOWLIST IS GONE (Phase 3). Phase 2 emptied it, one domain per PR:

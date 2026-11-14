@@ -334,7 +334,7 @@ export class PayersRepository {
         .set({ status: "active", updatedAt: new Date() })
         .where(and(eq(payers.id, id), eq(payers.status, "pending")))
         .returning({ id: payers.id });
-      if (row) await restampCompanyDriveRequests(executor, [row.id]);
+      if (row) await restampCompanyDriveRequests(executor, row.id);
       return row;
     };
     if (tx !== undefined) return run(tx);

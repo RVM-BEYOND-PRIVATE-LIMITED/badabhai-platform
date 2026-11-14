@@ -171,6 +171,10 @@ export class AdminActionsService {
           reasonText: reason.reason_text,
         });
       }
+      // #2746 PR 6 (security re-check L1) — LAST statement before the commit: re-stamp the
+      // company's drive requests so the changed_at Campus sees is taken after everything above
+      // (Campus re-reads a two-minute window behind its last changed_at).
+      await this.actions.restampDriveRequests(tx, payerId);
     });
     if (conflict) throw new ConflictException("Payer status changed concurrently; retry");
     await this.revokeSessions(payerId);
@@ -231,6 +235,10 @@ export class AdminActionsService {
           reasonText: reason.reason_text,
         });
       }
+      // #2746 PR 6 (security re-check L1) — LAST statement before the commit: re-stamp the
+      // company's drive requests so the changed_at Campus sees is taken after everything above
+      // (Campus re-reads a two-minute window behind its last changed_at).
+      await this.actions.restampDriveRequests(tx, payerId);
     });
     if (conflict) throw new ConflictException("Payer status changed concurrently; retry");
     return { target_id: payerId, changed: true };

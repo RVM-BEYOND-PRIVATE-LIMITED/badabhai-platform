@@ -416,6 +416,17 @@ describe("who may ask: a verified employer only", () => {
     },
   );
 
+  it("the standing is read on the INSERT's transaction, not before it opened (migration re-check F7)", async () => {
+    const { service, table } = world();
+    const facts = vi.spyOn(table, "requesterFacts");
+    const posting = vi.spyOn(table, "isOwnPosting");
+    await service.create(COMPANY, body({ job_posting_id: OWN_POSTING }), "key-0000001", CTX);
+    expect(facts).toHaveBeenCalledTimes(1);
+    expect(facts.mock.calls[0]![1]).toEqual({ memoryTx: true });
+    expect(posting.mock.calls[0]![2]).toEqual({ memoryTx: true });
+    expect(table.transactions).toBe(1);
+  });
+
   it("the account is checked before the verification: a suspended, unverified company hears company_not_active", async () => {
     const { service, table } = world();
     table.facts.set(COMPANY, {
@@ -516,6 +527,9 @@ describe("the body's rules", () => {
     ["an enrolment number", "Enrolment no 2021/ME/0456", "credential_id"],
     ["a passport number", "Passport no K/1234567", "credential_id"],
     ["a voter ID", "Voter ID No: XYZ/987/6543", "credential_id"],
+    // Security re-check I1: NFKC composes A + U+0301 into one letter, so the copy loses the PAN;
+    // only the screen of the note as stored catches it. Built from code points.
+    ["a PAN with a combining mark after it", `PAN ABCDE1234A${String.fromCharCode(0x301)}`, "pan"],
   ])("roles_note with %s → 400 roles_note_has_identifier", async (_n, note, identifier) => {
     const { service, table } = world();
     const err = await refusal(() =>
@@ -563,6 +577,17 @@ describe("the body's rules", () => {
       expect(table.rows[0]!.rolesNote).toBe(note);
     },
   );
+
+  it("the refusal tells the company to write a range with words (re-check I2)", async () => {
+    const { service } = world();
+    const err = await refusal(() =>
+      service.create(COMPANY, body({ roles_note: "Pay 15,000-18,000" }), "key-0000001", CTX),
+    );
+    expect(err.getResponse()).toMatchObject({
+      reason: "roles_note_has_identifier",
+      message: expect.stringContaining("with words (15,000 to 18,000)"),
+    });
+  });
 
   it("the screen reads a NORMALISED copy; the stored note is the cleaned ORIGINAL", async () => {
     const { service, table } = world();
