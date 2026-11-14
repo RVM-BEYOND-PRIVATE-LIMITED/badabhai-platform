@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   HttpException,
   Logger,
   NotFoundException,
@@ -13,15 +12,16 @@ import { validateEvent } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
 import { defaultModeResolver, resolverOver } from "../payers/payer-tenant-scope.test-support";
+import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import {
+  CAMPUS_EARLIEST_DECISION_TIME,
+  CAMPUS_MAX_CLOCK_SKEW_MS,
   CampusDriveDecisionBodySchema,
   CampusDriveRequestPageSchema,
   CampusDriveRequestsQuerySchema,
 } from "../campus-link/campus-link.contract";
-import {
-  CampusDriveDecisionsService,
-  DRIVE_DECISION_MAX_CLOCK_SKEW_MS,
-} from "./campus-drive-decisions.service";
+import { CampusDriveDecisionsService } from "./campus-drive-decisions.service";
 import {
   MemoryDriveRequests,
   capturingEvents,
@@ -316,6 +316,17 @@ describe("POST drive-requests/:id/decision", () => {
     }
     expect(table.rows[0]!.decisionReason).toBe(REASON);
     expect((events.emitted[0]!.payload as { has_reason: boolean }).has_reason).toBe(true);
+    // PR 5's note cleaner: ZWNJ / ZWJ (Indic spellings) stay, a zero-width space goes.
+    const ZWNJ = String.fromCharCode(0x200c);
+    const ZWJ = String.fromCharCode(0x200d);
+    const ZWSP = String.fromCharCode(0x200b);
+    const other = await seed(COMPANY);
+    await service.decide(
+      other,
+      decisionAt("declined", "2026-11-20T05:00:00Z", { reason: `a${ZWNJ}b${ZWJ}c${ZWSP}d` }),
+      CALL,
+    );
+    expect(table.rows.find((r) => r.id === other)!.decisionReason).toBe(`a${ZWNJ}b${ZWJ}cd`);
     const spine = JSON.stringify([events.emitted, table.audits]);
     for (const secret of [REASON, CONTACT_NAME, "9812345678", NOTE]) {
       expect(spine).not.toContain(secret);
@@ -324,11 +335,25 @@ describe("POST drive-requests/:id/decision", () => {
     expect(lines.length).toBeGreaterThan(0);
   });
 
-  it("a decided_at more than five minutes ahead of BadaBhai's clock is 400, before any read", async () => {
+  it("the shared clock rule: 60 s skew, 2026-01-01 floor, both 400 before any read", async () => {
+    expect(CAMPUS_MAX_CLOCK_SKEW_MS).toBe(60_000);
     const { service, seed, table } = world();
     const id = await seed(COMPANY);
     const findOwner = vi.spyOn(table, "findOwner");
-    const ahead = new Date(Date.now() + DRIVE_DECISION_MAX_CLOCK_SKEW_MS + 1000).toISOString();
+    for (const early of ["2025-12-31T23:59:59.999Z", "0001-01-01T00:00:00Z"]) {
+      const err = await refusal(() => service.decide(id, scheduleAt(early), CALL));
+      expect(err.getResponse(), early).toMatchObject({
+        code: "VALIDATION_FAILED",
+        issues: [{ path: "decided_at" }],
+      });
+    }
+    expect(findOwner).not.toHaveBeenCalled();
+    // The floor itself is accepted (and reads the request, as any decision does).
+    await expect(
+      service.decide(id, scheduleAt(CAMPUS_EARLIEST_DECISION_TIME), CALL),
+    ).resolves.toMatchObject({ status: "scheduled" });
+    findOwner.mockClear();
+    const ahead = new Date(Date.now() + CAMPUS_MAX_CLOCK_SKEW_MS + 1000).toISOString();
     const err = await refusal(() => service.decide(id, scheduleAt(ahead), CALL));
     expect(err).toBeInstanceOf(BadRequestException);
     expect(err.getResponse()).toMatchObject({
@@ -336,8 +361,8 @@ describe("POST drive-requests/:id/decision", () => {
       issues: [{ path: "decided_at" }],
     });
     expect(findOwner).not.toHaveBeenCalled();
-    // Within the skew is accepted.
-    const nearly = new Date(Date.now() + DRIVE_DECISION_MAX_CLOCK_SKEW_MS - 1000).toISOString();
+    // Within the skew is accepted (a newer reschedule of the request scheduled at the floor).
+    const nearly = new Date(Date.now() + CAMPUS_MAX_CLOCK_SKEW_MS - 1000).toISOString();
     await expect(service.decide(id, scheduleAt(nearly), CALL)).resolves.toMatchObject({
       status: "scheduled",
     });
@@ -466,18 +491,24 @@ describe("POST drive-requests/:id/decision", () => {
     });
   });
 
-  it("a request owner tenancy refuses (org tenancy `on`, no usable org) reads as not live: 404", async () => {
+  it("an owner with no tenant key (org tenancy `on`, no membership) is not live: 404, and nothing is written to tenancy", async () => {
     const table = new MemoryDriveRequests();
     const pii = testPii();
-    const denied = {
-      resolve: async () => {
-        throw new ForbiddenException("Not permitted for this organization");
-      },
+    // The REAL resolver in mode `on` over a company with no membership at all: `resolve` would
+    // heal it with a solo org (a write); a Campus call must not.
+    const orgs = {
+      listActiveMembershipsWithAnchor: vi.fn(async () => []),
+      ensureSoloOrg: vi.fn(async () => null),
     };
+    const tenancy = new PayerTenantScopeService(
+      loadServerConfig({ NODE_ENV: "test", PAYER_ORG_TENANCY_MODE: "on" }),
+      orgs as unknown as PayerOrgsRepository,
+    );
+    const resolve = vi.spyOn(tenancy, "resolve");
     const service = new CampusDriveDecisionsService(
       table.asRepository(),
       rolloutWith({ CAMPUS_DRIVE_REQUESTS_ROLLOUT: "pilot" }, [COMPANY]),
-      denied as never,
+      tenancy,
       pii,
       capturingEvents().service as unknown as EventsService,
     );
@@ -501,6 +532,9 @@ describe("POST drive-requests/:id/decision", () => {
     expect((await service.list(CampusDriveRequestsQuerySchema.parse({}))).drive_requests).toEqual(
       [],
     );
+    expect(orgs.listActiveMembershipsWithAnchor).toHaveBeenCalled();
+    expect(orgs.ensureSoloOrg).not.toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
   });
 
   it("under org tenancy `on` a company is live by its anchor's pilot place", async () => {

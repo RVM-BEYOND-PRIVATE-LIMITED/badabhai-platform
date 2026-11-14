@@ -62,6 +62,14 @@ describe("drive-request contract — the decision body", () => {
     expect(parse({ ...scheduled, campus_drive_ref: "drive for asha" })).toBe(false);
     expect(parse({ ...scheduled, campus_drive_ref: "x".repeat(201) })).toBe(false);
   });
+
+  it("campus_drive_ref is ASCII-only: stricter than the shared id rule, so no hidden character passes", () => {
+    // Built from code points: ZWSP, ZWJ, RLO, NUL, a non-breaking space, a lone surrogate.
+    for (const code of [0x200b, 0x200d, 0x202e, 0x00, 0xa0, 0xd800]) {
+      const ref = `campus-drive${String.fromCharCode(code)}417`;
+      expect(parse({ ...scheduled, campus_drive_ref: ref }), code.toString(16)).toBe(false);
+    }
+  });
 });
 
 describe("drive-request contract — dates are real calendar days", () => {
@@ -96,9 +104,10 @@ describe("drive-request contract — the feed", () => {
     ).toBe(true);
   });
 
-  it("names the two new conflict codes after every code that existed before", () => {
-    expect(CAMPUS_ERROR_CODES).toContain("DECISION_SUPERSEDED");
-    expect(CAMPUS_ERROR_CODES).toContain("DECISION_NOT_ALLOWED");
+  it("shares the review's DECISION_SUPERSEDED (once) and appends DECISION_NOT_ALLOWED last", () => {
+    expect(CAMPUS_ERROR_CODES.filter((c) => c === "DECISION_SUPERSEDED")).toHaveLength(1);
+    expect(CAMPUS_ERROR_CODES.at(-1)).toBe("DECISION_NOT_ALLOWED");
+    expect(new Set(CAMPUS_ERROR_CODES).size).toBe(CAMPUS_ERROR_CODES.length);
     expect(CAMPUS_ERROR_CODES.slice(0, 11)).toEqual([
       "ADDRESS_NOT_ALLOWED",
       "UNAUTHENTICATED",

@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -13,8 +12,10 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 import { isCanonicalUuid } from "../common/uuid";
 import { EventsService } from "../events/events.service";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
-import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { CampusCall } from "../campus-link/campus-call";
+import { assertCampusTime } from "../campus-link/campus-clock";
+import { cleanReviewReason } from "../campus-link/campus-review-reason";
 import type {
   CampusDriveDecisionBodySchema,
   CampusDriveDecisionResponseSchema,
@@ -24,13 +25,11 @@ import type {
   CampusErrorCode,
 } from "../campus-link/campus-link.contract";
 import { decodeDriveCursor, encodeDriveCursor } from "./campus-drive-cursor";
-import type { CampusDriveCall } from "./campus-drive-http";
 import {
   CampusDriveRequestsRepository,
   type DriveFeedRow,
   type DriveRequestRow,
 } from "./campus-drive-requests.repository";
-import { cleanDriveText } from "./campus-drive-text";
 import { judgeDriveDecision, type DriveDecisionInput } from "./campus-drive-transitions";
 
 /** The parsed query of `GET drive-requests`. */
@@ -42,14 +41,6 @@ export type CampusDriveRequestPage = z.input<typeof CampusDriveRequestPageSchema
 /** The answer to `POST drive-requests/:id/decision`. */
 export type CampusDriveDecisionResult = z.input<typeof CampusDriveDecisionResponseSchema>;
 type CampusDriveRequestItem = z.input<typeof CampusDriveRequestSchema>;
-
-/**
- * How far ahead of BadaBhai's clock a Campus `decided_at` may be. Further ahead is 400
- * `VALIDATION_FAILED`: a time from the future would outrank every later decision. The same five
- * minutes as #2746 PR 5's `CAMPUS_MAX_CLOCK_SKEW_MS` (`campus-link.contract.ts`, not on this
- * branch's base): one of the two goes when the branches meet.
- */
-export const DRIVE_DECISION_MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 /** The house neutral 404: nothing in it says whether the request exists. */
 function neutralNotFound(): NotFoundException {
@@ -80,20 +71,34 @@ function campusInvalid(path: string, message: string): BadRequestException {
  * THE SWITCH (capabilities only, R81). `campus_drive_requests` off everywhere → both routes are the
  * neutral 404 before any read (`isLiveForServiceCaller`). In `pilot` that check is true for every
  * company, so each request's OWNER is then checked with `isEnabledFor` and the owner's tenant key
- * (`PayerTenantScopeService.resolve`): the feed leaves out, and a decision 404s for, every company
- * not live — a company off the pilot list, or one tenancy refuses.
+ * (`PayerTenantScopeService.resolveReadOnly`: the same decision a request by that company makes,
+ * but never a heal or any other write, so a Campus call writes no tenancy row): the feed leaves
+ * out, and a decision 404s for, every company not live — a company off the pilot list, or one
+ * tenancy gives no key (no membership, a denial).
  *
  * THE FEED discloses each listed request's CONTACT (name and phone, decrypted) and the company's
  * display name to RVM's placement team, which calls the company to arrange the drive: the purpose
  * the contact was collected for. Test companies' requests are listed with `is_test: true`.
  *
- * A DECISION: `decided_at` within five minutes of BadaBhai's clock (400 otherwise, before any
+ * A DECISION: `decided_at` checked by the shared Campus clock rule (`assertCampusTime`: not before
+ * `CAMPUS_EARLIEST_DECISION_TIME`, not more than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead; 400 before any
  * read), the request row `FOR UPDATE`, then `judgeDriveDecision` (ordering by `decided_at`, then
  * the transitions; `campus-drive-transitions.ts`). A write stores Campus's `decided_at`, emits
  * `campus_drive.decided` v1 and writes the staff member's `audit_logs` row (actor = the
- * `decided_by_ref`, `campus_staff`) in the same transaction. A replay writes nothing and answers
- * the row as it is. `DECISION_SUPERSEDED` and `DECISION_NOT_ALLOWED` (with the `status`) store
- * nothing. The company's cancel takes the same row lock, so the two serialise.
+ * `decided_by_ref`, `CAMPUS_STAFF_ACTOR_TYPE`) in the same transaction. A replay writes nothing and
+ * answers the held decision, only while it is still the request's current state (a request the
+ * company cancelled since answers `DECISION_NOT_ALLOWED`). `DECISION_SUPERSEDED` and
+ * `DECISION_NOT_ALLOWED` (with the `status`) store nothing. The company's cancel takes the same
+ * row lock, so the two serialise.
+ *
+ * NO PENDING-ROW FLOOR, unlike the review (#2746 PR 5): a review row goes back to `pending` when the
+ * company edits the posting, so a decision made before that reset must not land after it. A drive
+ * request never goes back to `requested` and the company cannot edit it (only cancel it, which is
+ * final), so there is no reset for a late decision to land behind; `requested` accepts any time
+ * that passes the clock rule.
+ *
+ * The decision's `reason` is cleaned by PR 5's note cleaner (`cleanReviewReason`): hidden
+ * characters removed, newlines and the Indic joiners ZWNJ / ZWJ kept.
  *
  * LOGS AND EVENTS CARRY IDS, ENUMS AND DATES: never the contact, the roles note or the reason.
  */
@@ -141,19 +146,10 @@ export class CampusDriveDecisionsService {
   async decide(
     requestId: string,
     body: CampusDriveDecisionBody,
-    call: CampusDriveCall,
+    call: CampusCall,
   ): Promise<CampusDriveDecisionResult> {
-    // The body first: a time from BadaBhai's future would outrank every later decision.
-    const decidedAtMs = Date.parse(body.decided_at);
-    if (
-      !Number.isFinite(decidedAtMs) ||
-      decidedAtMs - Date.now() > DRIVE_DECISION_MAX_CLOCK_SKEW_MS
-    ) {
-      throw campusInvalid(
-        "decided_at",
-        `more than ${DRIVE_DECISION_MAX_CLOCK_SKEW_MS / 60_000} minutes ahead of BadaBhai's clock`,
-      );
-    }
+    // The body first: a time before the floor or from BadaBhai's future is 400, before any read.
+    assertCampusTime("decided_at", body.decided_at);
     // A malformed id cannot name a request: the same 404 as an unknown one, before any read.
     if (!isCanonicalUuid(requestId)) throw neutralNotFound();
     if (!this.rollout.isLiveForServiceCaller("campus_drive_requests")) throw neutralNotFound();
@@ -168,7 +164,7 @@ export class CampusDriveDecisionsService {
     const input: DriveDecisionInput = {
       decision: body.decision,
       decidedByRef: body.decided_by_ref.toLowerCase(),
-      reason: cleanDriveText(body.reason) ?? null,
+      reason: cleanReviewReason(body.reason) ?? null,
       scheduledOn: body.decision === "scheduled" ? body.scheduled_on : null,
       campusDriveRef: body.decision === "scheduled" ? body.campus_drive_ref : null,
     };
@@ -212,21 +208,14 @@ export class CampusDriveDecisionsService {
 
   /**
    * Is `campus_drive_requests` live for this request's OWNER? The tenant key comes from
-   * `PayerTenantScopeService`, exactly as a request by that company resolves it; a tenancy refusal
-   * (`on` mode: an inactive org, a denial) fails closed as "not live".
+   * `PayerTenantScopeService.resolveReadOnly`: the same decision a request by that company makes,
+   * but it never heals or creates a solo org, so a Campus call writes no tenancy row. No key (no
+   * membership, a denial) fails closed as "not live": the neutral 404, or left out of the feed.
    */
   private async liveForOwner(owner: string): Promise<boolean> {
-    let tenantKey: TenantKey;
-    try {
-      tenantKey = (await this.tenancy.resolve(owner)).tenantKey;
-    } catch (err) {
-      if (!(err instanceof ForbiddenException)) throw err;
-      this.logger.warn(
-        `campus drive: owner tenancy refused (tenant=${owner}); treated as not live`,
-      );
-      return false;
-    }
-    return this.rollout.isEnabledFor("campus_drive_requests", tenantKey);
+    const scope = await this.tenancy.resolveReadOnly(owner);
+    if (scope === null) return false;
+    return this.rollout.isEnabledFor("campus_drive_requests", scope.tenantKey);
   }
 
   /** The owners in a page that are live, each company read once however many requests it has. */
@@ -245,7 +234,7 @@ export class CampusDriveDecisionsService {
     previousStatus: "requested" | "scheduled",
     input: DriveDecisionInput,
     body: CampusDriveDecisionBody,
-    call: CampusDriveCall,
+    call: CampusCall,
   ): Promise<void> {
     const payload: PayloadInputOf<"campus_drive.decided"> = {
       campus_drive_request_id: written.id,

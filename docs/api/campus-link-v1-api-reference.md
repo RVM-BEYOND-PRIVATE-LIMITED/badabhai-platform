@@ -55,7 +55,6 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 | 409    | `DECISION_SUPERSEDED`      | A newer decision or list is held, or a differing one at the same time           | No                 |
 | 429    | `RATE_LIMITED`             | Over the per-minute cap                                                         | Yes, after a pause |
 | 503    | `RVM_UNAVAILABLE`          | RVM's Student API did not answer; nothing was created                           | Yes, same key      |
-| 409    | `DECISION_SUPERSEDED`      | A newer decision is held, or one at the same `decided_at` that differs          | No                 |
 | 409    | `DECISION_NOT_ALLOWED`     | The drive request's `status` (in the body) allows no such decision              | No                 |
 
 ## Routes
@@ -436,14 +435,15 @@ Query: `status` (`requested`|`scheduled`|`declined`|`completed`|`cancelled`), `c
 
 - `decision`: `scheduled` | `declined` | `completed`. Cancelling is the company's alone.
 - `decided_by_ref` (required): the staff member, a uuid. Stored as a reference, never resolved.
-- `decided_at` (required): when the staff member decided, by Campus's clock. More than five
-  minutes ahead of BadaBhai's clock is 400 `VALIDATION_FAILED`.
+- `decided_at` (required): when the staff member decided, by Campus's clock. The review's rule:
+  before `2026-01-01T00:00:00Z` or more than 60 seconds ahead of BadaBhai's clock is 400
+  `VALIDATION_FAILED`.
 - `scheduled_on` and `campus_drive_ref`: required with `scheduled`, refused with the others.
   `campus_drive_ref` is Campus's id for its drive record (1–200 characters of
   `A-Z a-z 0-9 . _ : -`), stored as sent.
 - `reason` (optional, ≤ 500 characters): the company sees it as written, so write it for them.
-  Control and invisible format characters are removed (newlines kept); a reason of nothing else
-  counts as no reason.
+  Hidden characters are removed as from a review note: control and invisible format characters
+  go, newlines and ZWNJ / ZWJ (Indic spellings) stay; a reason of nothing else counts as no reason.
 
 Answers `200 { "drive_request_id", "status", "scheduled_on", "campus_drive_ref", "decided_at",
 "changed_at" }`: the request as it now stands. The `Idempotency-Key` is required and checked, not
@@ -452,15 +452,19 @@ stored: the decision is idempotent by content.
 **The newest decision wins, by `decided_at`** (the owner's rule for Campus decisions, 14 Nov 2026),
 checked under the request's row lock before anything else:
 
-| Body's `decided_at` against the held decision | Answer                                                    |
-| --------------------------------------------- | --------------------------------------------------------- |
-| Older                                         | 409 `DECISION_SUPERSEDED`, nothing stored                 |
-| The same instant, the same decision           | 200, the request unchanged (a replay: no write, no event) |
-| The same instant, any field different         | 409 `DECISION_SUPERSEDED`, nothing stored                 |
-| Newer, or no decision held yet                | The transition rules below                                |
+| Body's `decided_at` against the held decision      | Answer                                                    |
+| -------------------------------------------------- | --------------------------------------------------------- |
+| Older                                              | 409 `DECISION_SUPERSEDED`, nothing stored                 |
+| The same instant, the same decision, still current | 200, the request unchanged (a replay: no write, no event) |
+| The same instant, any field different              | 409 `DECISION_SUPERSEDED`, nothing stored                 |
+| Newer, or no decision held yet                     | The transition rules below                                |
 
 "The same decision" is the same `decision`, `decided_by_ref` and `reason`, and for `scheduled` the
 same `scheduled_on` and `campus_drive_ref`. The same instant in another offset is the same instant.
+A replay answers the held decision only while it is still the request's status: once the company
+has cancelled, the same body is `DECISION_NOT_ALLOWED` (below). There is no pending-row floor as on
+the review: a drive request never goes back to `requested` and the company cannot edit it, so a
+request with no decision accepts any `decided_at` the clock rule allows.
 
 **Transitions.** Anything not listed is 409 `DECISION_NOT_ALLOWED` with the current `status` in the
 body, and stores nothing:
@@ -479,7 +483,8 @@ of the decision the company then cancelled, is 409 `DECISION_NOT_ALLOWED` (`stat
 Cancelling never touches Campus's drive record: read it in the feed.
 
 Which requests can be decided: 404 (no code) for an id that is not a request, and for every request
-while `CAMPUS_DRIVE_REQUESTS_ROLLOUT` is off or its company is not in the pilot.
+while `CAMPUS_DRIVE_REQUESTS_ROLLOUT` is off, its company is not in the pilot, or tenancy gives the
+company no key. That check is read-only: a Campus call never writes a tenancy row.
 
 A decision that changed the request writes, in one transaction, the request, the event
 `campus_drive.decided` v1 (ids, enums and dates: never the reason text) and an `audit_logs` row

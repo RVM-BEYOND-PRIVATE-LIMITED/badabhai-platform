@@ -281,8 +281,13 @@ describe("Campus contract v1 — every decision carries its time (#2746, owner 1
   });
 
   it("names DECISION_SUPERSEDED after every code that existed before", () => {
-    expect(CAMPUS_ERROR_CODES.indexOf("DECISION_SUPERSEDED")).toBe(CAMPUS_ERROR_CODES.length - 1);
-    expect(CAMPUS_ERROR_CODES).toContain("POSTING_CHANGED");
+    // Right after POSTING_CHANGED; only #2746 PR 6's DECISION_NOT_ALLOWED comes after it.
+    expect(CAMPUS_ERROR_CODES.indexOf("DECISION_SUPERSEDED")).toBe(
+      CAMPUS_ERROR_CODES.indexOf("POSTING_CHANGED") + 1,
+    );
+    expect(CAMPUS_ERROR_CODES.slice(CAMPUS_ERROR_CODES.indexOf("DECISION_SUPERSEDED") + 1)).toEqual(
+      ["DECISION_NOT_ALLOWED"],
+    );
   });
 });
 

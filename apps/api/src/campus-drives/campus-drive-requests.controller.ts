@@ -16,9 +16,9 @@ import {
   CampusDriveDecisionBodySchema,
   CampusDriveRequestsQuerySchema,
 } from "../campus-link/campus-link.contract";
+import { campusCallIdOf } from "../campus-link/campus-call";
 import { CampusIdempotencyKey, CampusZodPipe } from "../campus-link/campus-request";
 import { CampusServiceGuard } from "../campus-link/campus-service.guard";
-import { driveCallIdOf } from "./campus-drive-http";
 import {
   CampusDriveDecisionsService,
   type CampusDriveDecisionBody,
@@ -61,6 +61,6 @@ export class CampusDriveRequestsController {
     @Ctx() ctx: RequestContext,
     @Res({ passthrough: true }) res: Response,
   ): Promise<CampusDriveDecisionResult> {
-    return this.decisions.decide(id, body, { ctx, callId: driveCallIdOf(res) });
+    return this.decisions.decide(id, body, { ctx, callId: campusCallIdOf(res) });
   }
 }

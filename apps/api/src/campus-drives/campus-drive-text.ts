@@ -1,49 +1,35 @@
-/**
- * #2746 PR 6 — FREE TEXT ON A CAMPUS-DRIVE REQUEST, made safe to store and to show.
- *
- * Three fields are typed by one party and read by another: the company's `roles_note` (read by
- * RVM's placement team in Campus), the contact person's name (read by the placement team) and the
- * placement team's decision `reason` (shown to the company as written). Before any of them is
- * stored, every character a reader cannot see, or that the driver would rewrite, is removed:
- *   - control characters (`\p{Cc}`) except the newline, which a multi-line note needs (a CR is
- *     dropped, so CRLF becomes LF);
- *   - invisible format characters (`\p{Cf}`: bidi overrides and isolates, zero-width spaces and
- *     joiners, the BOM). A bidi override can make the reader see text other than what is stored
- *     (security review of #2746 PR 4);
- *   - line and paragraph separators (`\p{Zl}`, `\p{Zp}`), which break a line where no newline is;
- *   - private-use (`\p{Co}`) and unassigned (`\p{Cn}`) code points, which render as nothing or as
- *     anything (the set PR 5's review-reason cleaner uses);
- *   - lone surrogates (`\p{Cs}`), which the driver rewrites to U+FFFD.
- * What is left is trimmed; a value that was only such characters is no value at all.
- *
- * Applied AFTER the zod parse (trimmed, length-capped), so the result is never longer than the cap
- * and fits the table's `char_length` CHECKs. A name may not hold a newline: it is one line.
- */
+import { isDroppedFromNote } from "../campus-link/campus-characters";
 
-/** Every character the text may not keep; the newline is put back by the replacer. */
-const HIDDEN_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}\p{Cs}]/gu;
+/**
+ * #2746 PR 6 — THE CONTACT NAME, made safe to store and to show (to RVM's placement team).
+ *
+ * The multi-line texts of a drive request (the company's `roles_note`, the placement team's
+ * decision `reason`) use #2746 PR 5's note cleaner, `cleanReviewReason`. A name is one line, so
+ * on top of the same character rule (`isDroppedFromNote`, `campus-link/campus-characters.ts`) a
+ * tab or a line break becomes a space, and "Ravi<LF>Sharma" is stored as "Ravi Sharma":
+ *   - control characters (`\p{Cc}`), lone surrogates (`\p{Cs}`), private-use (`\p{Co}`) and
+ *     unassigned (`\p{Cn}`) code points, and line and paragraph separators (`\p{Zl}`, `\p{Zp}`)
+ *     are removed;
+ *   - format characters (`\p{Cf}`: bidi overrides, zero-width space, the BOM) are removed EXCEPT
+ *     ZWNJ and ZWJ, which Indic spellings of a name need.
+ * What is left is trimmed; a name of nothing else is no name (the service refuses it).
+ */
 
 /** Spelled by code point so no editor or tool can turn them into something else. */
-const TAB = String.fromCharCode(0x09);
-const NEWLINE = String.fromCharCode(0x0a);
-const CARRIAGE_RETURN = String.fromCharCode(0x0d);
+const LINE_BREAKS: ReadonlySet<string> = new Set([
+  String.fromCharCode(0x09),
+  String.fromCharCode(0x0a),
+  String.fromCharCode(0x0d),
+]);
+const SPACE = String.fromCharCode(0x20);
 
-/** Multi-line text (`roles_note`, `reason`) as BadaBhai stores it, or `undefined` when empty. */
-export function cleanDriveText(raw: string | undefined): string | undefined {
-  if (raw === undefined) return undefined;
-  const cleaned = raw.replace(HIDDEN_CHARACTERS, (ch) => (ch === NEWLINE ? ch : "")).trim();
-  return cleaned.length > 0 ? cleaned : undefined;
-}
-
-/**
- * One-line text (the contact name): a tab or a line break becomes a space, every other hidden
- * character is removed, so "Ravi<LF>Sharma" is stored as "Ravi Sharma".
- */
+/** The contact name as BadaBhai stores it, or `undefined` when nothing visible is left. */
 export function cleanDriveLine(raw: string): string | undefined {
-  const cleaned = raw
-    .replace(HIDDEN_CHARACTERS, (ch) =>
-      ch === TAB || ch === NEWLINE || ch === CARRIAGE_RETURN ? " " : "",
-    )
-    .trim();
+  let kept = "";
+  for (const ch of raw) {
+    if (LINE_BREAKS.has(ch)) kept += SPACE;
+    else if (!isDroppedFromNote(ch)) kept += ch;
+  }
+  const cleaned = kept.trim();
   return cleaned.length > 0 ? cleaned : undefined;
 }

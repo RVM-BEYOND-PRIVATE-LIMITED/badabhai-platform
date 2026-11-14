@@ -535,7 +535,11 @@ export const CampusDateSchema = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD")
   .refine(isRealCalendarDate, "not a valid date");
 
-/** Campus's id for the drive it created: `cdr_refs_chk`'s charset, so never a name or an email. */
+/**
+ * Campus's id for the drive it created: `cdr_refs_chk`'s charset, so never a name or an email.
+ * ASCII letters, digits and `. _ : -` only, which is stricter than the shared id rule
+ * (`hasForbiddenIdCharacter`, `./campus-characters`): no space, no format or hidden character.
+ */
 export const CampusDriveRefSchema = z.string().regex(/^[A-Za-z0-9._:-]{1,200}$/);
 
 /**
@@ -600,11 +604,15 @@ const driveDecisionShared = {
   /**
    * When the placement team decided, by Campus's clock. The NEWEST decision wins: an older one, or
    * one at the same instant with any other field different, is 409 `DECISION_SUPERSEDED`; the same
-   * decision again is a replay (200, nothing written). More than five minutes ahead of BadaBhai's
-   * clock is 400 `VALIDATION_FAILED`.
+   * decision again is a replay (200, nothing written) while that decision is still the request's
+   * state. Before `CAMPUS_EARLIEST_DECISION_TIME` or more than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of
+   * BadaBhai's clock is 400 `VALIDATION_FAILED` (the review's rule, `assertCampusTime`).
    */
   decided_at: IsoDateTime,
-  /** Shown to the company as written: write it for them. Hidden characters are removed. */
+  /**
+   * Shown to the company as written: write it for them. Hidden characters are removed as from a
+   * review note (newlines and ZWNJ / ZWJ kept).
+   */
   reason: z.string().trim().min(1).max(500).optional(),
 };
 

@@ -32,7 +32,8 @@ import {
   CampusDriveRequestsRepository,
   type DriveRequestRow,
 } from "./campus-drive-requests.repository";
-import { cleanDriveLine, cleanDriveText } from "./campus-drive-text";
+import { cleanReviewReason } from "../campus-link/campus-review-reason";
+import { cleanDriveLine } from "./campus-drive-text";
 import { DRIVE_CANCELLABLE_STATUSES } from "./campus-drive-transitions";
 
 /** Machine-readable `reason`s on this service's 4xx; the company app branches on these. */
@@ -129,7 +130,8 @@ function shape(dto: PayerCreateCampusDriveRequestDto): NormalisedRequest {
     preferredFrom: dto.preferred_from,
     preferredTo: dto.preferred_to,
     openings: dto.openings,
-    rolesNote: cleanDriveText(dto.roles_note) ?? null,
+    // A note, like the review's: PR 5's cleaner (hidden characters out, newlines and ZWNJ / ZWJ in).
+    rolesNote: cleanReviewReason(dto.roles_note) ?? null,
     contactName,
     contactPhone: dto.contact_phone,
   };

@@ -380,16 +380,18 @@ describe("the body's rules", () => {
     expect(table.rows).toEqual([]);
   });
 
-  it("a note with numbers in words is accepted, and hidden characters are removed before it is stored", async () => {
+  it("a note with numbers in words is accepted; hidden characters go, the Indic joiners stay (PR 5's note rule)", async () => {
     const { service, table } = world();
     const RLO = String.fromCharCode(0x202e);
+    const ZWNJ = String.fromCharCode(0x200c);
+    const ZWJ = String.fromCharCode(0x200d);
     await service.create(
       COMPANY,
-      body({ roles_note: `Pay 15,000 to 18,000 ${RLO}a month` }),
+      body({ roles_note: `Pay 15,000 to 18,000 ${RLO}a month, kaa${ZWNJ}m${ZWJ}gar` }),
       "key-0000001",
       CTX,
     );
-    expect(table.rows[0]!.rolesNote).toBe("Pay 15,000 to 18,000 a month");
+    expect(table.rows[0]!.rolesNote).toBe(`Pay 15,000 to 18,000 a month, kaa${ZWNJ}m${ZWJ}gar`);
   });
 
   it("a contact name with nothing visible in it is refused", async () => {

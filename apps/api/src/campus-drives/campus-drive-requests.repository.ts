@@ -9,6 +9,7 @@ import {
   type CampusDriveRequestStatus,
   type Database,
 } from "@badabhai/db";
+import { CAMPUS_STAFF_ACTOR_TYPE } from "../campus-link/campus-posting-review.repository";
 import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import type { DriveCursor } from "./campus-drive-cursor";
@@ -144,13 +145,6 @@ export interface DecisionAudit {
 
 /** `audit_logs.action` of a Campus staff decision on a drive request. */
 export const CAMPUS_DRIVE_DECISION_AUDIT_ACTION = "campus_link.drive_request_decided";
-
-/**
- * `audit_logs.actor_type` of a decision: a Campus placement-team member, by reference. The same
- * value as #2746 PR 5's `CAMPUS_STAFF_ACTOR_TYPE` (`campus-posting-review.repository.ts`, not on
- * this branch's base), so both kinds of staff decision filter as one actor.
- */
-export const CAMPUS_STAFF_ACTOR_TYPE = "campus_staff";
 
 /**
  * #2746 PR 6 — `campus_drive_requests`. DATABASE ACCESS ONLY: who may ask, the ordering and the
@@ -393,7 +387,11 @@ export class CampusDriveRequestsRepository {
     return rows[0];
   }
 
-  /** The decision's `audit_logs` row, on the decision's transaction. Ids, enums and dates only. */
+  /**
+   * The decision's `audit_logs` row, on the decision's transaction. Ids, enums and dates only. The
+   * actor type is the review's (`CAMPUS_STAFF_ACTOR_TYPE`), so every Campus staff decision filters
+   * as one actor.
+   */
   async writeDecisionAudit(tx: Database, audit: DecisionAudit): Promise<void> {
     await tx.insert(auditLogs).values({
       actorType: CAMPUS_STAFF_ACTOR_TYPE,

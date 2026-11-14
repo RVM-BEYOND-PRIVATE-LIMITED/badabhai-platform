@@ -7,6 +7,7 @@ import {
   type ExecutionContext,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
+import { loadServerConfig } from "@badabhai/config";
 import { createDbClient, type DbClient } from "@badabhai/db";
 import {
   CampusDriveDecisionBodySchema,
@@ -21,6 +22,8 @@ import { PayerAccountDeletionService } from "../payers/payer-account-deletion.se
 import { PayerRoleGuard } from "../payers/payer-role.guard";
 import { PayersRepository } from "../payers/payers.repository";
 import { defaultModeResolver } from "../payers/payer-tenant-scope.test-support";
+import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { CampusDriveContactErasureRepository } from "./campus-drive-contact-erasure.repository";
 import { CampusDriveDecisionsService } from "./campus-drive-decisions.service";
 import { PayerCreateCampusDriveRequestSchema } from "./campus-drive-requests.dto";
@@ -42,6 +45,8 @@ import { PayerCampusDriveRequestsController } from "./payer-campus-drive-request
  *     `(payer_id, idempotency_key)` is the lasting guard). An agency account cannot ask;
  *   - tenancy in the query: another company's request and posting are the same 404 as unknown;
  *   - ordering in SQL: `decided_at` compared by Postgres, microsecond exact, whatever the offset;
+ *   - tenancy read-only: under `PAYER_ORG_TENANCY_MODE=on` a company with no membership is not live
+ *     for Campus (404, left out of the feed) and a Campus call writes no tenancy row;
  *   - THE RACE: a Campus decision and the company's cancel on two connections serialise on the
  *     request row's `FOR UPDATE` (the second waits — seen in `pg_stat_activity` — then decides
  *     against the committed row), never a 40P01, and one wins cleanly either way round;
@@ -445,6 +450,34 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
       CampusDriveRequestsQuerySchema.parse({ changed_since: last.changed_at, limit: "200" }),
     );
     expect(since.drive_requests.map((r) => r.id)).toContain(last.id);
+  }, 30_000);
+
+  it("tenancy `on`: a Campus call resolves the owner read-only — no membership is the 404, and no tenancy row is written", async () => {
+    const made = await company().create(COMPANY, body({ openings: 15 }), "t2746d-key-0015", CTX);
+    const orgRows = async () =>
+      (
+        await client.sql<{ n: number }[]>`
+          SELECT (SELECT count(*)::int FROM payer_orgs WHERE root_payer_id = ${COMPANY}::uuid)
+               + (SELECT count(*)::int FROM payer_members WHERE member_payer_id = ${COMPANY}::uuid) AS n`
+      )[0]!.n;
+    expect(await orgRows()).toBe(0);
+    const onMode = new CampusDriveDecisionsService(
+      new CampusDriveRequestsRepository(client.db),
+      rolloutWith({ CAMPUS_DRIVE_REQUESTS_ROLLOUT: "pilot" }, [COMPANY]),
+      new PayerTenantScopeService(
+        loadServerConfig({ NODE_ENV: "test", PAYER_ORG_TENANCY_MODE: "on" }),
+        new PayerOrgsRepository(client.db),
+      ),
+      pii,
+      events,
+    );
+    const err = await caught(() => onMode.decide(made.id, decision(), CALL));
+    expect(err).toBeInstanceOf(NotFoundException);
+    const feed = await onMode.list(CampusDriveRequestsQuerySchema.parse({ limit: "200" }));
+    expect(feed.drive_requests.map((r) => r.id)).not.toContain(made.id);
+    // `resolve` would have healed the company with a solo org and an owner membership.
+    expect(await orgRows()).toBe(0);
+    expect((await stored({ id: made.id }))[0]!.status).toBe("requested");
   }, 30_000);
 
   // ── The race ────────────────────────────────────────────────────────────────
