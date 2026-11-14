@@ -900,3 +900,68 @@ describe("AuthService (real OTP)", () => {
     expect(sessions.create).toHaveBeenCalledWith("worker-1", "device-row-1");
   });
 });
+
+describe("AuthService — first sign-in of a Campus-linked worker (#2752)", () => {
+  function build(found: { id: string; status: string; isTestAccount?: boolean }) {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const tx = { marker: "tx" };
+    const activatePending = vi
+      .fn()
+      .mockImplementation(async (id: string) =>
+        found.status === "pending" ? { ...found, id, status: "active" } : undefined,
+      );
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue({ isTestAccount: false, ...found }),
+      createOrGetByPhoneHash: vi.fn(),
+      markTestAccount: vi.fn(),
+      activatePending,
+      withTransaction: vi.fn(async (work: (t: unknown) => Promise<unknown>) => work(tx)),
+    };
+    const sessions = makeSessions();
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      sessions as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+    return { svc, emit, workers, tx };
+  }
+
+  it("activates a pending row and emits worker.created once, on the same transaction", async () => {
+    const { svc, emit, workers, tx } = build({ id: "w-pending", status: "pending" });
+
+    const res = await svc.verifyOtp(PHONE, "123456", ctx);
+
+    expect(res.worker_id).toBe("w-pending");
+    expect(workers.activatePending).toHaveBeenCalledWith("w-pending", "hmac:13", tx);
+    const created = emit.mock.calls.filter(([p]) => p.event_name === "worker.created");
+    expect(created).toHaveLength(1);
+    expect(created[0]![0]).toMatchObject({
+      payload: { worker_id: "w-pending", status: "active" },
+      idempotencyKey: "worker.created:w-pending",
+      tx,
+    });
+  });
+
+  it("leaves an active worker alone: no activation, no worker.created", async () => {
+    const { svc, emit, workers } = build({ id: "w-active", status: "active" });
+
+    await svc.verifyOtp(PHONE, "123456", ctx);
+
+    expect(workers.withTransaction).not.toHaveBeenCalled();
+    expect(emit.mock.calls.some(([p]) => p.event_name === "worker.created")).toBe(false);
+  });
+
+  it("emits nothing when a concurrent sign-in already activated the row", async () => {
+    const { svc, emit, workers } = build({ id: "w-raced", status: "pending" });
+    workers.activatePending.mockResolvedValue(undefined);
+
+    const res = await svc.verifyOtp(PHONE, "123456", ctx);
+
+    expect(res.worker_id).toBe("w-raced");
+    expect(emit.mock.calls.some(([p]) => p.event_name === "worker.created")).toBe(false);
+  });
+});
