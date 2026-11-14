@@ -86,6 +86,8 @@ const TENANT_TABLES: Record<string, string> = {
   // #2746 (migration 0162) — keyed by the tenant key, as the census (C5) already counts them.
   campusDriveRequests: "campus_drive_requests",
   featurePilotPayers: "feature_pilot_payers",
+  // #2752 item 10 — a named-company search grant is keyed by the company's tenant key.
+  instituteSearchGrants: "institute_search_grants",
 };
 const SQL_TABLE = new RegExp(
   `\\b(?:from|join|into|update)\\s+(?:public\\.)?(${Object.values(TENANT_TABLES).join("|")})\\b`,

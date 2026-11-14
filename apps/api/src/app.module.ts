@@ -36,6 +36,7 @@ import { ResumeDisclosureModule } from "./disclosures/resume-disclosure.module";
 import { PayersModule } from "./payers/payers.module";
 import { PayerPortalModule } from "./payer-portal/payer-portal.module";
 import { CandidatesModule } from "./candidates/candidates.module";
+import { CampusJobsModule } from "./campus-link/campus-jobs.module";
 import { CampusLinkModule } from "./campus-link/campus-link.module";
 import { CampusReviewModule } from "./campus-link/campus-review.module";
 import { AgencyModule } from "./agency/agency.module";
@@ -133,6 +134,8 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // #2752 — BadaBhai Campus's service API under /internal/campus/v1, behind its own
     // CampusServiceGuard. INERT until CAMPUS_LINK_ENABLED is on: every route is a neutral 404.
     CampusLinkModule,
+    // #2752 part E — the Campus jobs and applications routes (one-way onto the link module).
+    CampusJobsModule,
     // #2746 PR 5 — Campus records the placement team's RVM review and sets the targeting options,
     // behind the same guard and flag. Its own module, so CampusLinkModule is imported, not edited.
     CampusReviewModule,

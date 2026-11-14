@@ -111,6 +111,11 @@ export interface CandidateRow {
    */
   matchedSkillId: string | null;
   /**
+   * #2752 — the institute he is actively linked to (`rvm`: an RVM student, through BadaBhai
+   * Campus), or null. Display only, the applicant list's label (plan 4.4); never a rank input.
+   */
+  instituteCode: string | null;
+  /**
    * The rungs the worker stated, per trade skill — a LIVE lookup from
    * `worker_profile_skill` (latest profile wins per skill), for the level badge
    * only. Same contract as `matchedSkillId` above: display-only, never a rank
@@ -415,10 +420,15 @@ export class MatchFeedRepository {
              a.last_worked_at, a.created_at, a.engine_version,
              a.trade_level AS frozen_trade_level, a.level_confirmed AS frozen_level_confirmed,
              jr.matched_skill_id,
+             il.institute_code,
              ${tradeLevelsColumn("a.worker_id")} AS trade_levels
       FROM applications a
       -- ELIGIBILITY, NOT RANK (ADR-0031 (b)): the applicant must not be pending deletion.
       INNER JOIN workers w ON w.id = a.worker_id
+      -- DISPLAY ONLY (#2752 plan 4.4): the "RVM student" label for an actively linked institute
+      -- student. A primary-key probe; never a rank input and never a filter.
+      LEFT JOIN worker_institute_links il
+        ON il.worker_id = a.worker_id AND il.status = 'active'
       -- DISPLAY ONLY (the E18 badge). LEFT so a candidate whose reach row was pruned
       -- (skills re-derived, posting edited) still appears on the list he applied to —
       -- "Ranking never removes anyone" (Policy 6). It contributes NOTHING to the
@@ -540,6 +550,8 @@ type CandidateSqlRow = {
   frozen_trade_level: string | null;
   frozen_level_confirmed: boolean | null;
   matched_skill_id: string | null;
+  /** Selected by `listCandidates` only (the applicant list's label). */
+  institute_code?: string | null;
   trade_levels: unknown;
 };
 
@@ -663,6 +675,7 @@ function toCandidateRow(r: CandidateSqlRow): CandidateRow {
     createdAt: r.created_at instanceof Date ? r.created_at : new Date(r.created_at),
     engineVersion: r.engine_version,
     matchedSkillId: r.matched_skill_id,
+    instituteCode: typeof r.institute_code === "string" ? r.institute_code : null,
     tradeLevels: parseTradeLevels(r.trade_levels),
     frozenTradeLevel: typeof r.frozen_trade_level === "string" ? r.frozen_trade_level : null,
     frozenLevelConfirmed:

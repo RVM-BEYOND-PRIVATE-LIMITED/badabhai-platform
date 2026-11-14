@@ -549,6 +549,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
       matchTier, effectiveTier,            // number | null (null when no rank snapshot)
       skillMonths, industryMonths,         // number | null
       lastWorkedAt, matchedSkillLabel, engineVersion,  // string | null
+      instituteCode,                       // "rvm" for an RVM student (BadaBhai Campus, #2752), else null
       tradeLevels,                         // [ TradeLevelBadge ] — live, display only (Middle Way P5)
       levelFit                             // 'meets' | 'not_confirmed' | 'below' | null (engine v1.1)
   } ] }
@@ -588,7 +589,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
     posting: { id, title, kind: 'agency_job' } }
   // company posting applicant — the V1 candidate row
   { workerId, applicationId, rank, matchTier, effectiveTier, skillMonths, industryMonths,
-    lastWorkedAt, matchedSkillLabel, engineVersion, tradeLevels, levelFit,
+    lastWorkedAt, matchedSkillLabel, engineVersion, instituteCode, tradeLevels, levelFit,
     posting: { id, title, kind: 'company_posting' } }
   ```
 

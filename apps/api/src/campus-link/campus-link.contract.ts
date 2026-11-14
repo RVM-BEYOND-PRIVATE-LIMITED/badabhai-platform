@@ -5,7 +5,9 @@ import { isCanonicalUuid } from "../common/uuid";
 import {
   hasForbiddenIdCharacter,
   hasForbiddenLabelCharacter,
+  hasForbiddenTextCharacter,
   hasVisibleCharacter,
+  normaliseTextLayout,
 } from "./campus-characters";
 
 /**
@@ -60,6 +62,10 @@ export const CAMPUS_ERROR_CODES = [
    * newer decision stands.
    */
   "DECISION_SUPERSEDED",
+  // #2752 item 5 (owner decision 2026-11-14): the phone is a BadaBhai company Campus did not create.
+  "COMPANY_NOT_CAMPUS_CREATED",
+  // A retry of POST job-postings with the same key while the first is still running.
+  "REQUEST_IN_PROGRESS",
 ] as const;
 export type CampusErrorCode = (typeof CAMPUS_ERROR_CODES)[number];
 
@@ -236,6 +242,7 @@ export const CampusPostingSchema = z.object({
   /** Empty means every course. The name is for display and for matching until ids are shared. */
   courses: z.array(z.object({ id: CourseIdSchema, name: z.string() })),
   review_state: z.enum(REVIEW_STATES),
+  /** A feed position, not a version: upsert by `id`, as a repeated value can carry a newer state. */
   changed_at: IsoDateTime,
   /**
    * The hash of the content above, as of this read (#2746, owner decision 2026-11-14). Send it back
@@ -311,16 +318,24 @@ export const CAMPUS_TARGETING_LIMITS = {
  * separator character, except ZWNJ / ZWJ, which Indic spellings need (`hasForbiddenLabelCharacter`).
  * Spaces are allowed.
  */
-const TargetingLabelSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(CAMPUS_TARGETING_LIMITS.labelLength)
-  .refine(
-    (label) => !hasForbiddenLabelCharacter(label),
-    "no control, format (but ZWNJ/ZWJ), surrogate, private-use, unassigned or line-separator characters",
-  )
-  .refine(hasVisibleCharacter, "at least one visible character");
+const TargetingLabelSchema = campusLabel(CAMPUS_TARGETING_LIMITS.labelLength);
+
+/**
+ * A one-line text a company or a student reads, under the label rule above, with at least one
+ * visible character (joiners and spaces alone pass the character rule yet render blank).
+ */
+function campusLabel(max: number) {
+  return z
+    .string()
+    .trim()
+    .min(1)
+    .max(max)
+    .refine(
+      (label) => !hasForbiddenLabelCharacter(label),
+      "no control, format (but ZWNJ/ZWJ), surrogate, private-use, unassigned or line-separator characters",
+    )
+    .refine(hasVisibleCharacter, "at least one visible character");
+}
 
 const TargetingBranchSchema = z.strictObject({
   id: BranchIdSchema.max(CAMPUS_TARGETING_LIMITS.maxBranchId),
@@ -383,22 +398,33 @@ export const CampusTargetingOptionsResponseSchema = z.object({
 
 // ─── POST job-postings (the placement team posts for a company) ──────────────
 
+// The texts companies and students read follow `./campus-characters` (#2746 PR 5's rules): a name
+// or a title cannot hide a bidi override or a zero-width character.
 export const CampusPostForCompanyBodySchema = z.strictObject({
   /**
-   * Found by exact phone, or created as a pending company that its owner activates by code.
-   * OPEN OWNER DECISION before this route is built: whether Campus may publish in the name of an
-   * EXISTING active company without that company confirming (a leaked Campus token could then post
-   * as any employer whose phone it knows). See the API reference, "Open decisions".
+   * A company Campus created with this phone, or a new pending one its owner activates by code.
+   * A phone that is a BadaBhai company Campus did NOT create is refused (`COMPANY_NOT_CAMPUS_CREATED`;
+   * owner decision 2026-11-14 on the security review): a Campus token never publishes in another
+   * employer's name.
    */
   company: z.strictObject({
     phone: Phone10Schema,
-    name: z.string().trim().min(1).max(200),
+    name: campusLabel(200),
   }),
-  title: z.string().trim().min(1).max(200),
-  description: z.string().trim().max(20_000),
-  city: z.string().trim().min(1).max(100),
-  state: z.string().trim().min(1).max(100).optional(),
-  location_label: z.string().trim().min(1).max(300).optional(),
+  title: campusLabel(200),
+  /** Several lines; a CR LF or a tab is normalised, any other hidden character refused. */
+  description: z
+    .string()
+    .trim()
+    .max(20_000)
+    .transform(normaliseTextLayout)
+    .refine(
+      (text) => !hasForbiddenTextCharacter(text),
+      "no control (but a line end or tab), format (but ZWNJ/ZWJ), surrogate, private-use, unassigned or line-separator characters",
+    ),
+  city: campusLabel(100),
+  state: campusLabel(100).optional(),
+  location_label: campusLabel(300).optional(),
   /** Stored as the matching `vacancy_band`. */
   openings: z.number().int().min(1).max(1000),
   pay: z
@@ -444,8 +470,14 @@ export const CampusApplyBodySchema = z.strictObject({
   external_ref: CampusExternalRefSchema,
   posting_id: Id,
   student_ref: StudentRefSchema,
-  /** Kept as information only. BadaBhai orders and dates applications by its own clock. */
-  applied_at: IsoDateTime.optional(),
+  /**
+   * Kept as information only. BadaBhai orders and dates applications by its own clock. Stored, so
+   * not before `CAMPUS_EARLIEST_DECISION_TIME` (a year-0000 time would fail the `timestamptz` cast).
+   */
+  applied_at: IsoDateTime.refine(
+    (value) => Date.parse(value) >= Date.parse(CAMPUS_EARLIEST_DECISION_TIME),
+    `not before ${CAMPUS_EARLIEST_DECISION_TIME}`,
+  ).optional(),
 });
 
 export const CampusApplicationSchema = z.object({
@@ -454,6 +486,7 @@ export const CampusApplicationSchema = z.object({
   posting_id: Id,
   student_ref: StudentRefSchema,
   stage: z.enum(CAMPUS_APPLICATION_STAGES),
+  /** A feed position, not a version: upsert by `application_id`, as with the posting feed. */
   changed_at: IsoDateTime,
 });
 

@@ -3,7 +3,12 @@ import { z } from "zod";
 import type { ServerConfig } from "@badabhai/config";
 import { INSTITUTE_STUDENT_STATUSES } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
-import { CAMPUS_SERVICE_TOKEN_HEADER, StudentRefSchema } from "./campus-link.contract";
+import {
+  CAMPUS_SERVICE_TOKEN_HEADER,
+  CampusExternalRefSchema,
+  StudentRefSchema,
+} from "./campus-link.contract";
+import { isCanonicalUuid } from "../common/uuid";
 
 /** Injection token for the `fetch` the client calls; tests substitute a stub. */
 export const RVM_STUDENT_API_FETCH = Symbol("RVM_STUDENT_API_FETCH");
@@ -57,10 +62,47 @@ export class RvmStudentApiUnavailableError extends Error {
   }
 }
 
+/**
+ * A named-company consent request as RVM answers it (Scheduler_Backend#162 item 10, with the
+ * company asked for on 14 Nov 2026). Open on unknown keys: it carries no personal data, only refs
+ * and states. `company.ref` is BadaBhai's company id; until RVM returns it, no grant can be
+ * bound to a company and every grant is refused.
+ */
+export const RvmConsentRequestSchema = z.object({
+  request_id: z.string().min(1).max(200),
+  company: z
+    .object({ ref: z.string().max(64).refine(isCanonicalUuid, "must be a uuid") })
+    .optional(),
+  students: z
+    .array(
+      z.object({
+        student_ref: z.string().min(1).max(128),
+        state: z.enum(["pending", "yes", "no", "expired", "not_available"]),
+      }),
+    )
+    .max(1_000),
+});
+
+/** What a consent read tells a grant: the company asked for, and each student's answer. */
+export type RvmConsentLookup =
+  | {
+      kind: "found";
+      /** Lower-cased; null when RVM did not say, which binds no grant. */
+      companyRef: string | null;
+      /** Lower-cased student ref → his answer. */
+      answers: ReadonlyMap<
+        string,
+        z.infer<typeof RvmConsentRequestSchema>["students"][number]["state"]
+      >;
+    }
+  | { kind: "not_available" };
+
 const NotAvailableBodySchema = z.object({ code: z.literal("NOT_AVAILABLE") });
 
 /** Six short fields fit in well under this; anything longer is not the agreed reply. */
 const MAX_BODY_CHARS = 16_384;
+/** A consent request lists up to a thousand short refs. */
+const MAX_CONSENT_BODY_CHARS = 131_072;
 
 function parseJson(text: string): unknown {
   try {
@@ -92,11 +134,58 @@ export class RvmStudentApiClient {
     // Checked here as well as by callers: the ref goes into the URL path, and a value such as
     // `..` survives encodeURIComponent and would point the token at another route.
     const ref = StudentRefSchema.parse(studentRef);
+    const reply = await this.get(
+      `/internal/campus/students/${encodeURIComponent(ref)}`,
+      MAX_BODY_CHARS,
+    );
+    if (reply.kind === "not_available") return reply;
+
+    const parsed = RvmStudentReadSchema.safeParse(reply.body);
+    if (!parsed.success) throw new RvmStudentApiUnavailableError("contract");
+    return { kind: "available", student: parsed.data };
+  }
+
+  /**
+   * Reads one named-company consent request and its answers (#2752 item 10). RVM's 404
+   * `NOT_AVAILABLE` (an unknown request) is a refusal; anything else unusable throws
+   * {@link RvmStudentApiUnavailableError}, never a "no".
+   */
+  async readConsentRequest(requestId: string): Promise<RvmConsentLookup> {
+    const id = CampusExternalRefSchema.parse(requestId);
+    const reply = await this.get(
+      `/internal/campus/consent-requests/${encodeURIComponent(id)}`,
+      MAX_CONSENT_BODY_CHARS,
+    );
+    if (reply.kind === "not_available") return reply;
+
+    const parsed = RvmConsentRequestSchema.safeParse(reply.body);
+    if (!parsed.success || parsed.data.request_id !== id) {
+      throw new RvmStudentApiUnavailableError("contract");
+    }
+    // One answer per student: a student listed twice is an off-contract reply, never "the last
+    // answer wins".
+    const refs = parsed.data.students.map((s) => s.student_ref.toLowerCase());
+    if (new Set(refs).size !== refs.length) throw new RvmStudentApiUnavailableError("contract");
+    return {
+      kind: "found",
+      companyRef: parsed.data.company?.ref.toLowerCase() ?? null,
+      answers: new Map(parsed.data.students.map((s) => [s.student_ref.toLowerCase(), s.state])),
+    };
+  }
+
+  /**
+   * One GET to the Student API with the BadaBhai token. Only RVM's own 404 `NOT_AVAILABLE` is a
+   * refusal; a bare 404 (a wrong base URL, a missing route) is an outage, never "withdrawn".
+   */
+  private async get(
+    path: string,
+    maxBodyChars: number,
+  ): Promise<{ kind: "body"; body: unknown } | { kind: "not_available" }> {
     const base = this.config.RVM_STUDENT_API_BASE_URL;
     const token = this.config.RVM_STUDENT_API_TOKEN;
     if (!base || !token) throw new RvmStudentApiUnavailableError("not_configured");
 
-    const url = `${base.replace(/\/+$/, "")}/internal/campus/students/${encodeURIComponent(ref)}`;
+    const url = `${base.replace(/\/+$/, "")}${path}`;
     let res: Response;
     let text: string;
     try {
@@ -112,22 +201,16 @@ export class RvmStudentApiClient {
       const timedOut = err instanceof Error && err.name === "TimeoutError";
       throw new RvmStudentApiUnavailableError(timedOut ? "timeout" : "network");
     }
-    if (text.length > MAX_BODY_CHARS) throw new RvmStudentApiUnavailableError("contract");
+    if (text.length > maxBodyChars) throw new RvmStudentApiUnavailableError("contract");
 
     const body = parseJson(text);
-
     if (res.status === 404) {
-      // Only RVM's own refusal counts as one. A bare 404 (a wrong base URL, a missing route)
-      // must not read as "this student withdrew".
       if (NotAvailableBodySchema.safeParse(body).success) return { kind: "not_available" };
       throw new RvmStudentApiUnavailableError("http_status", "404");
     }
     if (res.status !== 200) {
       throw new RvmStudentApiUnavailableError("http_status", String(res.status));
     }
-
-    const parsed = RvmStudentReadSchema.safeParse(body);
-    if (!parsed.success) throw new RvmStudentApiUnavailableError("contract");
-    return { kind: "available", student: parsed.data };
+    return { kind: "body", body };
   }
 }

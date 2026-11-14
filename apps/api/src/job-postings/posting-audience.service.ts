@@ -147,6 +147,19 @@ export class PostingAudienceService {
   }
 
   /**
+   * #2752 item 5 — the audience of a posting the RVM placement team creates for a company from
+   * Campus: RVM students, with the targeting Campus sent (validated against the active options).
+   * NO SWITCH READ: the `job_audience` switch gates a company CHOOSING an audience on its own form;
+   * a Campus posting is for RVM students by what it is, whoever the company is.
+   */
+  resolveForInstitute(targeting: {
+    rvm_branch_ids: number[];
+    rvm_course_ids: string[];
+  }): Promise<PostingAudienceWrite | null> {
+    return this.resolveWrite({ audience: "rvm_students", ...targeting }, DEFAULT_STATE);
+  }
+
+  /**
    * Decide the columns a request writes against the posting as it stands (an update passes the row
    * it LOCKED). `null` when the result equals what is stored — not a change. Throws the 400s.
    */

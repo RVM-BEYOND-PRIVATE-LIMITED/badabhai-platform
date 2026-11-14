@@ -9,8 +9,8 @@ import { InstituteLinkService } from "./institute-link.service";
  *
  * - `not_linked`: he is not an active institute student. The caller's own rule (his BadaBhai
  *   `employer_sharing` consent) decides, exactly as before.
- * - `open`: an active student, he applied to one of this company's jobs, and RVM still confirms
- *   his consent.
+ * - `open`: an active student, he applied to one of this company's jobs or this company holds his
+ *   named-company search grant, and RVM still confirms his consent.
  * - `closed`: an active student and any of that failed, a read included. The caller refuses with
  *   its one neutral body, so a company cannot tell a student from anyone else it may not open.
  */
@@ -24,10 +24,10 @@ export type InstituteOpener = { readonly tenant: TenantKey } | { readonly unlock
 
 /**
  * The institute rule for opening a worker (#2752 item 9): a linked student opens only for a
- * company he applied to. His RVM consent ("share my profile with companies I apply to") is the
- * only consent he gave, and his own BadaBhai consent does not widen it while the link is active
- * (issue question 2, default: the tag rule wins). Named-company grants (item 10) add a second
- * way in when they land.
+ * company he applied to, or one that holds his named-company search grant (item 10, his own yes
+ * read from RVM). His RVM consent ("share my profile with companies I apply to") is the only
+ * consent he gave, and his own BadaBhai consent does not widen it while the link is active
+ * (issue question 2, default: the tag rule wins).
  *
  * Asked by every open: `UnlockService.requestUnlock`, its `reveal`, and
  * `ResumeDisclosureService.requestDisclosure`. Each asks BEFORE its advisory lock, where it read
@@ -54,11 +54,14 @@ export class InstituteOpenGate {
       const link = await this.repo.findActiveByWorker(workerId);
       if (!link) return "not_linked";
       // Cheap and local first: a company he never applied to is refused without asking RVM.
-      const applied =
+      // "A company he applied to, or that holds his grant" (#2752 items 9 and 10).
+      const entitled =
         "tenant" in opener
-          ? await this.repo.hasAppliedToTenant(workerId, opener.tenant)
-          : await this.repo.hasAppliedToUnlockHolder(workerId, opener.unlockId);
-      if (!applied) return "closed";
+          ? (await this.repo.hasAppliedToTenant(workerId, opener.tenant)) ||
+            (await this.repo.hasLiveGrantForTenant(workerId, opener.tenant))
+          : (await this.repo.hasAppliedToUnlockHolder(workerId, opener.unlockId)) ||
+            (await this.repo.hasLiveGrantForUnlockHolder(workerId, opener.unlockId));
+      if (!entitled) return "closed";
       return (await this.links.confirmConsent(link, ctx)) ? "open" : "closed";
     } catch (err) {
       this.logger.warn(

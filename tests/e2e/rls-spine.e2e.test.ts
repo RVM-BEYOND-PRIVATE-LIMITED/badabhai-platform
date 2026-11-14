@@ -238,6 +238,12 @@ const LOCKED_TABLES = [
   "campus_drive_requests",
   // 0162 (#2746): the pilot list behind each off/pilot/on switch (opaque payer ids).
   "feature_pilot_payers",
+  // 0163 (#2752): named-company search grants (opaque company and worker ids, a consent ref and
+  // a match skill id) and Campus applications (opaque ids, a Campus ref, dates).
+  "institute_search_grants",
+  "institute_applications",
+  // 0163 (#2752): the companies Campus created (opaque payer ids) — the only ones it may post for.
+  "institute_companies",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

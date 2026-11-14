@@ -118,3 +118,72 @@ describe("RvmStudentApiClient.readStudent", () => {
     expect((await failureOf(noToken.api.readStudent(REF))).failure).toBe("not_configured");
   });
 });
+
+describe("RvmStudentApiClient.readConsentRequest (#2752 item 10)", () => {
+  const REQUEST = "consent-req-000456";
+  const COMPANY = "7D3F2A10-5B8E-4C1D-9A6F-0E2B4C6D8F10";
+
+  it("reads the company and each student's answer, lower-casing both refs", async () => {
+    const { api, fetchImpl } = client(() =>
+      json(200, {
+        request_id: REQUEST,
+        company: { ref: COMPANY, name: "Sharma Precision Works" },
+        students: [{ student_ref: REF.toUpperCase(), state: "yes", text_version: "v1" }],
+      }),
+    );
+
+    const lookup = await api.readConsentRequest(REQUEST);
+
+    expect(fetchImpl.mock.calls[0]![0]).toBe(
+      `http://127.0.0.1:4000/internal/campus/consent-requests/${REQUEST}`,
+    );
+    expect(lookup).toEqual({
+      kind: "found",
+      companyRef: COMPANY.toLowerCase(),
+      answers: new Map([[REF, "yes"]]),
+    });
+  });
+
+  it("reads a reply that names no company as binding none", async () => {
+    const { api } = client(() => json(200, { request_id: REQUEST, students: [] }));
+    await expect(api.readConsentRequest(REQUEST)).resolves.toMatchObject({ companyRef: null });
+  });
+
+  it("treats RVM's NOT_AVAILABLE as a refusal and a bare 404 as an outage", async () => {
+    const refused = client(() => json(404, { code: "NOT_AVAILABLE" }));
+    await expect(refused.api.readConsentRequest(REQUEST)).resolves.toEqual({
+      kind: "not_available",
+    });
+    const bare = client(() => json(404, {}));
+    expect((await failureOf(bare.api.readConsentRequest(REQUEST))).failure).toBe("http_status");
+  });
+
+  it("refuses a reply for another request, or with an unknown state, as off-contract", async () => {
+    const other = client(() => json(200, { request_id: "consent-req-999999", students: [] }));
+    expect((await failureOf(other.api.readConsentRequest(REQUEST))).failure).toBe("contract");
+    const odd = client(() =>
+      json(200, { request_id: REQUEST, students: [{ student_ref: REF, state: "maybe" }] }),
+    );
+    expect((await failureOf(odd.api.readConsentRequest(REQUEST))).failure).toBe("contract");
+  });
+
+  it("refuses a reply that lists one student twice as off-contract, never the last answer", async () => {
+    const twice = client(() =>
+      json(200, {
+        request_id: REQUEST,
+        company: { ref: COMPANY },
+        students: [
+          { student_ref: REF, state: "no" },
+          { student_ref: REF.toUpperCase(), state: "yes" },
+        ],
+      }),
+    );
+    expect((await failureOf(twice.api.readConsentRequest(REQUEST))).failure).toBe("contract");
+  });
+
+  it("refuses a request id that is not a code before anything leaves the process", async () => {
+    const { api, fetchImpl } = client(() => json(200, {}));
+    await expect(api.readConsentRequest("../students")).rejects.toThrow();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});

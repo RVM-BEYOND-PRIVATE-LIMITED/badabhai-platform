@@ -1,8 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, exists, notExists, or, sql } from "drizzle-orm";
+import { and, eq, exists, isNull, notExists, or, sql } from "drizzle-orm";
 import {
   applications,
   auditLogs,
+  instituteSearchGrants,
   jobPostings,
   jobs,
   unlocks,
@@ -195,6 +196,60 @@ export class InstituteLinkRepository {
       )
       .limit(1);
     return rows.length > 0;
+  }
+
+  /**
+   * Whether this tenant holds a LIVE named-company search grant for him (#2752 item 10): the
+   * institute rule's second way in, beside an application.
+   */
+  async hasLiveGrantForTenant(workerId: string, tenant: TenantKey): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: instituteSearchGrants.id })
+      .from(instituteSearchGrants)
+      .where(
+        and(
+          eq(instituteSearchGrants.workerId, workerId),
+          eq(instituteSearchGrants.payerId, tenant),
+          isNull(instituteSearchGrants.revokedAt),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /** The same for the company that HOLDS an unlock, joined in SQL (ADR-0053 T5). */
+  async hasLiveGrantForUnlockHolder(workerId: string, unlockId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: instituteSearchGrants.id })
+      .from(unlocks)
+      .innerJoin(
+        instituteSearchGrants,
+        and(
+          eq(instituteSearchGrants.workerId, unlocks.workerId),
+          eq(instituteSearchGrants.payerId, unlocks.payerId),
+        ),
+      )
+      .where(
+        and(
+          eq(unlocks.id, unlockId),
+          eq(unlocks.workerId, workerId),
+          isNull(instituteSearchGrants.revokedAt),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /** Revokes every live search grant he gave: the unlink's "no new opens", grants included. */
+  async revokeGrantsOfWorker(tx: Database, workerId: string, now: Date): Promise<number> {
+    const rows = await tx
+      .update(instituteSearchGrants)
+      .set({ revokedAt: now })
+      .where(
+        and(eq(instituteSearchGrants.workerId, workerId), isNull(instituteSearchGrants.revokedAt)),
+      )
+      .returning({ id: instituteSearchGrants.id });
+    return rows.length;
   }
 
   /**

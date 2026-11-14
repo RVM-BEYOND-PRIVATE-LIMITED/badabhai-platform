@@ -316,6 +316,7 @@ function candidatesOf(postingId: string): CandidateRow[] {
   const rows: CandidateRow[] = APPLICATIONS.filter(
     (a) => a.jobPostingId === postingId && listed(a),
   ).map((a) => ({
+    instituteCode: null,
     applicationId: a.id,
     workerId: a.workerId,
     matchTier: a.matchTier ?? null,
@@ -722,6 +723,8 @@ describe("PayerApplicantInboxService — a row is EXACTLY its per-posting feed r
 
 describe("PayerApplicantInboxService — faceless (no name, phone or other identifier)", () => {
   const ALLOWED = new Set([
+    // #2752 — the "RVM student" label (an institute code or null), never identity.
+    "instituteCode",
     // ApplicantRowDto
     "workerId",
     "rank",

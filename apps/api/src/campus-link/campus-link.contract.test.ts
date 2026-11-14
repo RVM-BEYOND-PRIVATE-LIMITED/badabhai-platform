@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import {
+  CAMPUS_EARLIEST_DECISION_TIME,
   CAMPUS_ERROR_CODES,
   CAMPUS_TARGETING_LIMITS,
   CourseIdSchema,
@@ -269,8 +270,13 @@ describe("Campus contract v1 — every decision carries its time (#2746, owner 1
   });
 
   it("names DECISION_SUPERSEDED after every code that existed before", () => {
-    expect(CAMPUS_ERROR_CODES.indexOf("DECISION_SUPERSEDED")).toBe(CAMPUS_ERROR_CODES.length - 1);
-    expect(CAMPUS_ERROR_CODES).toContain("POSTING_CHANGED");
+    // Right after POSTING_CHANGED; only #2752 Part E's codes, merged after PR 5, follow it.
+    const at = CAMPUS_ERROR_CODES.indexOf("DECISION_SUPERSEDED");
+    expect(at).toBe(CAMPUS_ERROR_CODES.indexOf("POSTING_CHANGED") + 1);
+    expect(CAMPUS_ERROR_CODES.slice(at + 1)).toEqual([
+      "COMPANY_NOT_CAMPUS_CREATED",
+      "REQUEST_IN_PROGRESS",
+    ]);
   });
 });
 
@@ -368,6 +374,62 @@ describe("Campus contract v1 — targeting labels and the body's size", () => {
     const body = largestTargetingBody();
     expect(CampusTargetingOptionsBodySchema.safeParse(body).success).toBe(true);
     expect(Buffer.byteLength(JSON.stringify(body), "utf8")).toBeLessThanOrEqual(100 * 1024);
+  });
+});
+
+describe("Campus contract v1 — POST job-postings texts follow the shared character rules (#2752 Part E)", () => {
+  const body = examples.POST_FOR_COMPANY_BODY_EXAMPLE;
+  const accepts = (patch: Record<string, unknown>) =>
+    CampusPostForCompanyBodySchema.safeParse({ ...body, ...patch }).success;
+  const CR = cp(0x0d);
+  const TAB = cp(0x09);
+
+  it("refuses a company name, title or place that hides a bidi override, an isolate or a zero-width space", () => {
+    expect(accepts({ company: { ...body.company, name: "Sharma" + RLO + "Works" } })).toBe(false);
+    expect(accepts({ title: "CNC" + ZWSP_L + " Operator" })).toBe(false);
+    expect(accepts({ city: "Fari" + NEWLINE + "dabad" })).toBe(false);
+    expect(accepts({ state: "Har" + LRI + "yana" })).toBe(false);
+    expect(accepts({ location_label: "Plot 7" + NUL + " Sector 24" })).toBe(false);
+    // ZWNJ / ZWJ stay, as in every Campus label; so do ordinary spaces and any script.
+    expect(accepts({ title: "x" + ZWNJ + "y" + ZWJ + "z" })).toBe(true);
+    expect(accepts({ title: KA.repeat(10) + " Operator" })).toBe(true);
+  });
+
+  it("refuses a name, title or place of joiners and spaces only (it would render blank)", () => {
+    expect(accepts({ company: { ...body.company, name: ZWJ + ZWNJ } })).toBe(false);
+    expect(accepts({ title: ZWNJ + " " + ZWJ })).toBe(false);
+    expect(accepts({ city: ZWJ })).toBe(false);
+    expect(accepts({ location_label: NBSP + ZWNJ })).toBe(false);
+  });
+
+  it("keeps a description's lines, turns CR LF into a newline and a tab into a space", () => {
+    const parsed = CampusPostForCompanyBodySchema.parse({
+      ...body,
+      description: "Day shift" + CR + NEWLINE + "3-axis" + TAB + "lathe" + CR + "Faridabad",
+    });
+    expect(parsed.description).toBe("Day shift" + NEWLINE + "3-axis lathe" + NEWLINE + "Faridabad");
+  });
+
+  it("refuses any other hidden character in a description, never cleaning it silently", () => {
+    expect(accepts({ description: "Day" + RLO + " shift" })).toBe(false);
+    expect(accepts({ description: "Day" + NUL + " shift" })).toBe(false);
+    expect(accepts({ description: "Day" + LINE_SEP + "shift" })).toBe(false);
+    expect(accepts({ description: "Day" + ZWNJ + " shift" })).toBe(true);
+  });
+});
+
+describe("Campus contract v1 — a stored applied_at is not before the link (#2752 Part E)", () => {
+  const apply = (applied_at: string) =>
+    CampusApplyBodySchema.safeParse({ ...examples.APPLY_BODY_EXAMPLE, applied_at }).success;
+
+  it("refuses a year-0000 or pre-2026 applied_at (it would fail the timestamptz cast, a 500)", () => {
+    expect(apply("0000-01-01T00:00:00.000Z")).toBe(false);
+    expect(apply("2025-12-31T23:59:59.999Z")).toBe(false);
+  });
+
+  it("accepts CAMPUS_EARLIEST_DECISION_TIME itself and anything after", () => {
+    expect(apply(CAMPUS_EARLIEST_DECISION_TIME)).toBe(true);
+    expect(apply("2026-11-14T15:30:00.000+05:30")).toBe(true);
   });
 });
 
