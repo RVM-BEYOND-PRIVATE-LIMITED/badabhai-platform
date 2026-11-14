@@ -162,6 +162,10 @@ export class RvmStudentApiClient {
     if (!parsed.success || parsed.data.request_id !== id) {
       throw new RvmStudentApiUnavailableError("contract");
     }
+    // One answer per student: a student listed twice is an off-contract reply, never "the last
+    // answer wins".
+    const refs = parsed.data.students.map((s) => s.student_ref.toLowerCase());
+    if (new Set(refs).size !== refs.length) throw new RvmStudentApiUnavailableError("contract");
     return {
       kind: "found",
       companyRef: parsed.data.company?.ref.toLowerCase() ?? null,

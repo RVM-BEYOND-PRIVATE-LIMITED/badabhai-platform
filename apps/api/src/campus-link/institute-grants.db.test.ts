@@ -321,6 +321,20 @@ describe.skipIf(!RUN)("#2752 named-company search grants — against Postgres", 
     expect(await gate.decide(g.workerId, { tenant: companyA.tenant }, CTX)).toBe("closed");
   });
 
+  it("does not grant again on a consent already spent on a revoked grant", async () => {
+    const g = await granted();
+    await grants.revoke(g.grantRef, CTX);
+
+    await expect(
+      grants.grant(
+        grantRef(),
+        { company_id: companyA.id, student_ref: g.ref, consent_ref: g.consentRef },
+        CTX,
+      ),
+    ).rejects.toBeInstanceOf(StudentNotAvailableError);
+    expect((await grantRows(g.workerId)).filter((r) => r.revokedAt === null)).toHaveLength(0);
+  });
+
   it("refuses to revoke a ref it never stored", async () => {
     await expect(grants.revoke(grantRef(), CTX)).rejects.toBeInstanceOf(GrantNotFoundError);
   });

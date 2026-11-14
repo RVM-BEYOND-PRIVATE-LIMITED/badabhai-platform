@@ -41,7 +41,7 @@
 --   DROP TABLE "institute_applications";
 --   DROP TABLE "institute_search_grants";
 --   DROP TABLE "institute_companies";
---   DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1794640564853;
+--   DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1794643462491;
 --   COMMIT;
 -- In the same code change, remove the three tables from LOCKED_TABLES in
 -- tests/e2e/rls-spine.e2e.test.ts and the 0163 entries from schema-contract.ts.
@@ -54,6 +54,7 @@ CREATE TABLE "institute_applications" (
 	"application_id" uuid,
 	"job_posting_id" uuid NOT NULL,
 	"worker_id" uuid NOT NULL,
+	"owns_application" boolean DEFAULT false NOT NULL,
 	"campus_applied_at" timestamp with time zone,
 	"withdrawn_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -97,6 +98,7 @@ ALTER TABLE "institute_companies" ADD CONSTRAINT "institute_companies_payer_id_p
 ALTER TABLE "institute_search_grants" ADD CONSTRAINT "institute_search_grants_payer_id_payers_id_fk" FOREIGN KEY ("payer_id") REFERENCES "public"."payers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "institute_search_grants" ADD CONSTRAINT "institute_search_grants_worker_id_workers_id_fk" FOREIGN KEY ("worker_id") REFERENCES "public"."workers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "institute_applications_ref_uq" ON "institute_applications" USING btree ("institute_code","external_ref");--> statement-breakpoint
+CREATE UNIQUE INDEX "institute_applications_live_uq" ON "institute_applications" USING btree ("institute_code","worker_id","job_posting_id") WHERE "institute_applications"."withdrawn_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "institute_applications_feed_idx" ON "institute_applications" USING btree ("institute_code","updated_at","id");--> statement-breakpoint
 CREATE INDEX "institute_applications_worker_idx" ON "institute_applications" USING btree ("worker_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "institute_search_grants_ref_uq" ON "institute_search_grants" USING btree ("institute_code","grant_ref");--> statement-breakpoint
