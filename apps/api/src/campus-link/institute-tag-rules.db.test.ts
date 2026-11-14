@@ -20,9 +20,11 @@ import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
+import { ConsentRepository } from "../consent/consent.repository";
 import { EventsRepository } from "../events/events.repository";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
+import { InstituteAiGate, InstituteAiRefusedError } from "./institute-ai-gate.service";
 import { InstituteLinkRepository } from "./institute-link.repository";
 import { InstituteLinkService } from "./institute-link.service";
 import { InstituteOpenGate } from "./institute-open-gate.service";
@@ -452,6 +454,41 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
       await links.linkStudent(ref, CTX);
 
       expect(await linkOf(own.id)).toMatchObject({ status: "active", course: "CNC Programming" });
+    });
+  });
+
+  describe("the AI gate (item 13)", () => {
+    const aiGate = () =>
+      new InstituteAiGate(new InstituteLinkRepository(client.db), new ConsentRepository(client.db));
+
+    it("lets a worker who was never linked through", async () => {
+      const own = await ownWorker(phone10());
+      await expect(aiGate().assertMayRunAi(own.id)).resolves.toBeUndefined();
+    });
+
+    it("refuses a linked student until he accepts BadaBhai's own consent", async () => {
+      const { workerId } = await linkedStudent();
+      await expect(aiGate().assertMayRunAi(workerId)).rejects.toBeInstanceOf(
+        InstituteAiRefusedError,
+      );
+
+      await client.db.insert(workerConsents).values({
+        workerId,
+        consentVersion: "test-2752c",
+        purposes: ["profiling"],
+        acceptedAt: new Date(),
+      });
+      await expect(aiGate().assertMayRunAi(workerId)).resolves.toBeUndefined();
+    });
+
+    it("still refuses him once the link is withdrawn, with no BadaBhai consent", async () => {
+      const { workerId, ref } = await linkedStudent();
+      await links.unlinkStudent(ref, "consent_not_confirmed", CTX);
+
+      expect((await linkOf(workerId))?.status).toBe("withdrawn");
+      await expect(aiGate().assertMayRunAi(workerId)).rejects.toBeInstanceOf(
+        InstituteAiRefusedError,
+      );
     });
   });
 

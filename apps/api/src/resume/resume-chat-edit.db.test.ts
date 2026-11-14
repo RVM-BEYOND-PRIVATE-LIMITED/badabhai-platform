@@ -16,6 +16,8 @@ import {
 import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import type { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import type { AiService } from "../ai/ai.service";
+import { InstituteAiGate } from "../campus-link/institute-ai-gate.service";
+import { InstituteLinkRepository } from "../campus-link/institute-link.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import { ConsentRepository } from "../consent/consent.repository";
 import { EventsRepository } from "../events/events.repository";
@@ -185,6 +187,8 @@ describe.skipIf(!RUN)(
             queued.push(data);
           },
         } as unknown as Queue<ResumeGenerateJobData>,
+        // #2752 — the real institute AI gate on this database (nobody here is a linked student).
+        new InstituteAiGate(new InstituteLinkRepository(db), new ConsentRepository(db)),
       );
       processor = new ResumeGenerateProcessor(
         service,

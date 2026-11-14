@@ -146,6 +146,7 @@ describe("a refusal survives a re-render", () => {
       { savePolishedDescriptions: vi.fn(async () => undefined) } as never,
       { saveAttributePolish: vi.fn(async () => true) } as never,
       { record: vi.fn(async () => undefined) } as never,
+      { assertMayRunAi: vi.fn(async () => undefined) } as never, // #2752 institute AI gate
     );
     return { svc, polishWorkHistory };
   }
