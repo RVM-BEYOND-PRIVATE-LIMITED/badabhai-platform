@@ -632,6 +632,8 @@ describe("listFeed — ADR-0050 §4.4 read fences for an agency TWIN", () => {
     // The posting-side gate is unchanged, plus #2566's hidden state (separate from status).
     expect(sql).toContain("AND jp.status = 'open'");
     expect(sql).toContain("AND jp.hidden_at IS NULL");
+    // #2746 — and the audience read lock, on the aliased posting, beside hidden_at.
+    expect(sql).toContain(`AND jp.audience IN ('badabhai_workers', 'both')`);
   });
 
   it("hides a twin from a worker who already decided on its SOURCE job (applications.job_id)", async () => {

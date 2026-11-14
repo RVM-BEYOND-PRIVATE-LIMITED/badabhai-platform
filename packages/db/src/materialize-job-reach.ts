@@ -33,8 +33,14 @@
  *   A skipped posting's existing `job_reach` rows are left untouched — repairing its
  *   stored set is an API/ops action (republish or edit), not a rebuild side effect.
  *
- * THE STATEMENT (per posting — one INSERT..SELECT, no app-side loop over workers). It is the
- * same statement `WorkerSkillsRepository.materializeReachForPosting` runs in the API:
+ * A posting NO BADABHAI WORKER MAY SEE (#2746, `job_postings.audience = 'rvm_students'`) is
+ * CLEARED, not skipped: every `job_reach` row it holds is deleted and none is written, whatever
+ * its stored set says. A full run visits every open posting of every audience so that a leftover
+ * row (an audience change whose re-materialize failed after commit) is repaired here.
+ *
+ * THE STATEMENT (per posting — one INSERT..SELECT, no app-side loop over workers). It IS the
+ * statement `WorkerSkillsRepository.materializeReachForPosting` runs in the API — both call
+ * `materializeJobReachWithin` (agency-twin.ts), which also carries the audience rule:
  *
  *   INSERT INTO job_reach (job_posting_id, worker_id, match_tier, matched_skill_id)
  *   SELECT $job, ws.worker_id,
@@ -81,7 +87,9 @@
  */
 import { asc, eq, sql as dsql } from "drizzle-orm";
 
+import { materializeJobReachWithin } from "./agency-twin";
 import { createDbClient, type Database } from "./client";
+import { reachesBadaBhaiWorkers } from "./job-visibility";
 import { jobPostings } from "./schema";
 import {
   argValue,
@@ -117,6 +125,13 @@ export type PostingReachOutcome =
       reason: ReachSkipReason;
       /** For `reach_missing_match_skill_ids`: the posted ids the stored set lacks. */
       missingMatchSkillIds: string[];
+    }
+  | {
+      /** #2746 — a live posting no BadaBhai worker may see: its rows go, none is written. */
+      kind: "cleared";
+      jobPostingId: string;
+      /** Rows removed (dry run: would be removed). */
+      rowsDeleted: number;
     }
   | {
       kind: "materialized";
@@ -166,15 +181,25 @@ function rowsOf<T>(result: unknown): T[] {
   return Array.isArray(result) ? (result as T[]) : [];
 }
 
-/** Read one posting's status + stored skill sets; `FOR UPDATE` when about to write. */
+/**
+ * Read one posting's status, stored skill sets and whether a BadaBhai worker may see it;
+ * `FOR UPDATE` when about to write. The audience test is the shared SQL fragment, evaluated by
+ * Postgres — this file never spells an audience value.
+ */
 async function readPosting(
   exec: Executor,
   jobPostingId: string,
   lock: boolean,
-): Promise<{ status: string; sets: StoredSkillSets } | null> {
-  const rows = rowsOf<{ status: string; match_skill_ids: unknown; reach_skill_ids: unknown }>(
+): Promise<{ status: string; sets: StoredSkillSets; reachesBadaBhaiWorkers: boolean } | null> {
+  const rows = rowsOf<{
+    status: string;
+    match_skill_ids: unknown;
+    reach_skill_ids: unknown;
+    reaches_badabhai_workers: boolean;
+  }>(
     await exec.execute(dsql`
-      SELECT status, match_skill_ids, reach_skill_ids
+      SELECT status, match_skill_ids, reach_skill_ids,
+             ${reachesBadaBhaiWorkers(dsql`audience`)} AS reaches_badabhai_workers
       FROM job_postings
       WHERE id = ${jobPostingId}::uuid
       ${lock ? dsql`FOR UPDATE` : dsql``}
@@ -188,7 +213,19 @@ async function readPosting(
       matchSkillIds: asStringArray(row.match_skill_ids),
       reachSkillIds: asStringArray(row.reach_skill_ids),
     },
+    // Only a literal TRUE admits the posting: a NULL or a driver surprise fails closed.
+    reachesBadaBhaiWorkers: row.reaches_badabhai_workers === true,
   };
+}
+
+/** Rows a posting holds now — the dry run's count for a posting that would be cleared. */
+async function countReachRows(db: Database, jobPostingId: string): Promise<number> {
+  const rows = rowsOf<{ n: number }>(
+    await db.execute(dsql`
+      SELECT count(*)::int AS n FROM job_reach WHERE job_posting_id = ${jobPostingId}::uuid
+    `),
+  );
+  return rows[0]?.n ?? 0;
 }
 
 function skipped(
@@ -203,8 +240,13 @@ function skipped(
  * Materialize ONE posting's `job_reach` rows from its STORED `reach_skill_ids`.
  *
  * Dry run: reads only, and reports what `--apply` would insert / refresh / delete.
- * Apply: one transaction — lock the posting row, re-check it, upsert, delete stale.
- * Never writes `job_postings`.
+ * Apply: one transaction — lock the posting row, re-check it, then the shared ③ core
+ * (`materializeJobReachWithin`): upsert, delete stale. Never writes `job_postings`.
+ *
+ * The order of the gates is the contract: a non-live posting is never touched; a live posting
+ * no BadaBhai worker may see is CLEARED before its stored set is even looked at (an RVM-only
+ * posting with an untrustworthy set must still lose its rows); only then can the stored-set gate
+ * skip a posting and leave its rows alone.
  */
 export async function materializePostingReach(
   db: Database,
@@ -214,6 +256,9 @@ export async function materializePostingReach(
   if (!opts.apply) {
     const posting = await readPosting(db, jobPostingId, false);
     if (posting === null || !isLiveStatus(posting.status)) return skipped(jobPostingId, "not_live");
+    if (!posting.reachesBadaBhaiWorkers) {
+      return { kind: "cleared", jobPostingId, rowsDeleted: await countReachRows(db, jobPostingId) };
+    }
     const problem = storedReachProblem(posting.sets);
     if (problem !== null) {
       return skipped(jobPostingId, problem.reason, problem.missingMatchSkillIds);
@@ -221,69 +266,36 @@ export async function materializePostingReach(
     return countPlanned(db, jobPostingId, posting.sets.reachSkillIds);
   }
 
-  return db.transaction(async (tx) => {
+  return db.transaction(async (raw) => {
+    const tx = raw as unknown as Database;
     const posting = await readPosting(tx, jobPostingId, true);
     if (posting === null || !isLiveStatus(posting.status)) return skipped(jobPostingId, "not_live");
+    if (!posting.reachesBadaBhaiWorkers) {
+      // An empty reach set is the core's "clear this posting" — and the core would refuse to
+      // write a row for this posting even if it were handed the stored set.
+      const cleared = await materializeJobReachWithin(tx, jobPostingId, [], []);
+      return { kind: "cleared", jobPostingId, rowsDeleted: cleared.deleted };
+    }
     const problem = storedReachProblem(posting.sets);
     if (problem !== null) {
       return skipped(jobPostingId, problem.reason, problem.missingMatchSkillIds);
     }
 
-    // ⚠️ ARRAYS MUST GO THROUGH `dsql.param()`. Drizzle's `sql` template expands a bare
-    // JS array into a comma-separated list of placeholders — `($2, $3)` — which is a
-    // RECORD, so `${posted}::text[]` fails at runtime with
-    //   42846: cannot cast type record to text[]
-    // `dsql.param(x)` binds the array as ONE parameter, which postgres.js serializes as a
-    // real Postgres array. (Verified against a live Postgres 18 — the bare form errors,
-    // the param form works.) Do not "simplify" these back to `${posted}`.
-    const posted = dsql.param([...posting.sets.matchSkillIds]);
-    const reach = dsql.param([...posting.sets.reachSkillIds]);
-
-    // ── THE ③ STATEMENT ────────────────────────────────────────────────────
-    // `xmax = 0` is true only for a freshly inserted tuple, so one statement reports
-    // inserted vs refreshed without a second probe.
-    const upserted = rowsOf<{ inserted: boolean }>(
-      await tx.execute(dsql`
-        INSERT INTO job_reach (job_posting_id, worker_id, match_tier, matched_skill_id)
-        SELECT ${jobPostingId}::uuid,
-               ws.worker_id,
-               MIN(CASE WHEN ws.skill_id = ANY(${posted}::text[]) THEN 1 ELSE 2 END),
-               (ARRAY_AGG(ws.skill_id ORDER BY (ws.skill_id = ANY(${posted}::text[])) DESC,
-                                               ws.months_bucketed DESC))[1]
-        FROM worker_skill ws
-        WHERE ws.skill_id = ANY(${reach}::text[]) AND ws.wants
-        GROUP BY ws.worker_id
-        ON CONFLICT (job_posting_id, worker_id) DO UPDATE
-          SET match_tier       = EXCLUDED.match_tier,
-              matched_skill_id = EXCLUDED.matched_skill_id,
-              computed_at      = now()
-        RETURNING (xmax = 0) AS inserted
-      `),
-    );
-    const rowsInserted = upserted.filter((r) => r.inserted).length;
-
-    // Stale: reached before, not reachable through the STORED set now. Scoped to this posting.
-    const removed = rowsOf<unknown>(
-      await tx.execute(dsql`
-        DELETE FROM job_reach jr
-        WHERE jr.job_posting_id = ${jobPostingId}::uuid
-          AND NOT EXISTS (
-            SELECT 1 FROM worker_skill ws
-            WHERE ws.worker_id = jr.worker_id
-              AND ws.skill_id = ANY(${reach}::text[])
-              AND ws.wants
-          )
-        RETURNING 1
-      `),
+    // ── THE ③ STATEMENT — the shared core, the same one the API publish path runs ──
+    const written = await materializeJobReachWithin(
+      tx,
+      jobPostingId,
+      posting.sets.matchSkillIds,
+      posting.sets.reachSkillIds,
     );
 
     return {
       kind: "materialized",
       jobPostingId,
-      reachableWorkers: upserted.length,
-      rowsInserted,
-      rowsUpdated: upserted.length - rowsInserted,
-      rowsDeleted: removed.length,
+      reachableWorkers: written.upserted,
+      rowsInserted: written.inserted,
+      rowsUpdated: written.upserted - written.inserted,
+      rowsDeleted: written.deleted,
     };
   });
 }
@@ -334,6 +346,8 @@ export interface MaterializeRunSummary {
   rowsDeleted: number;
   /** Postings skipped by the stored-set gate — fix through the API, then re-run. */
   skipped: Extract<PostingReachOutcome, { kind: "skipped" }>[];
+  /** #2746 — live postings no BadaBhai worker may see; their rows count in `rowsDeleted`. */
+  clearedIds: string[];
   /** Materialized postings that reach nobody. */
   zeroReachIds: string[];
 }
@@ -341,6 +355,10 @@ export interface MaterializeRunSummary {
 /**
  * The posting ids a run covers. Default: every `open` posting. With `onlyPostingId`: that
  * posting, only when it is live (`open`/`paused`) — never a draft, closed or expired one.
+ *
+ * EVERY AUDIENCE, deliberately (#2746). Leaving `rvm_students` postings out here would make a
+ * full rebuild unable to clear the rows an RVM-only posting still holds; the per-posting core
+ * clears them instead, and the run reports them on their own counter.
  */
 export async function selectPostingIds(
   db: Database,
@@ -371,12 +389,18 @@ export async function runMaterializeJobReach(
     rowsUpdated: 0,
     rowsDeleted: 0,
     skipped: [],
+    clearedIds: [],
     zeroReachIds: [],
   };
   for (const id of ids) {
     const outcome = await materializePostingReach(db, id, { apply: opts.apply });
     if (outcome.kind === "skipped") {
       summary.skipped.push(outcome);
+      continue;
+    }
+    if (outcome.kind === "cleared") {
+      summary.clearedIds.push(id);
+      summary.rowsDeleted += outcome.rowsDeleted;
       continue;
     }
     summary.postingsMaterialized += 1;
@@ -419,9 +443,10 @@ async function main(): Promise<void> {
       "postings processed": summary.postingsProcessed,
       "postings materialized": summary.postingsMaterialized,
       "postings SKIPPED (stored set)": summary.skipped.length,
+      "postings CLEARED (no BadaBhai audience)": summary.clearedIds.length,
       "job_reach rows inserted": summary.rowsInserted,
       "job_reach rows refreshed": summary.rowsUpdated,
-      "job_reach rows deleted (stale)": summary.rowsDeleted,
+      "job_reach rows deleted (stale or cleared)": summary.rowsDeleted,
       "postings reaching ZERO workers": summary.zeroReachIds.length,
     });
 

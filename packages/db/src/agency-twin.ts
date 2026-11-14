@@ -13,7 +13,7 @@
  *   - {@link disarmAgencyTwins}      — the kill switch's one action (§7).
  *   - {@link listAgencyJobIds}       — the sweep's keyset enumeration of agency jobs.
  *   - {@link materializeJobReachWithin} — the moment-③ statement on a caller's executor; the
- *                                      api's posting publish runs the same function.
+ *                                      api's posting publish and D5 run the same function.
  *
  * WHAT A TWIN IS NOT (the ADR's constraints, enforced here and by the ADR-0050 §4.1 migration's CHECKs):
  *   - never agent-owned: `payer_id` is NULL (C2, `job_postings_twin_owner_chk`);
@@ -32,6 +32,7 @@ import type { JobPostingStatus } from "@badabhai/types";
 import { and, asc, eq, gt, inArray, sql as dsql } from "drizzle-orm";
 
 import type { Database } from "./client";
+import { reachesBadaBhaiWorkers } from "./job-visibility";
 import { screenJobTextForConversion } from "./match-v1-derive";
 import { jobPostings, jobs, payers, type JobStatus } from "./schema";
 
@@ -505,55 +506,120 @@ function columnsOf(v: AgencyTwinValues) {
 /** `job_reach` is kept only for a LIVE twin (open/paused — the reconcile's own scope). */
 const isLive = (status: JobPostingStatus): boolean => status === "open" || status === "paused";
 
+/** What one {@link materializeJobReachWithin} call wrote. Counts only. */
+export interface JobReachWriteCounts {
+  /** Rows the upsert covered: the workers the posting reaches now. */
+  upserted: number;
+  /** Of those, rows that did not exist before. */
+  inserted: number;
+  /** Rows removed: workers who no longer qualify, or every row of a non-BadaBhai posting. */
+  deleted: number;
+}
+
+function firstCountRow<T>(result: unknown): Partial<T> {
+  return (Array.isArray(result) ? (result[0] as Partial<T> | undefined) : undefined) ?? {};
+}
+
 /**
  * MOMENT ③ on a caller's executor — materialize one posting's ENTIRE reach set from its stored
- * posted + reach ids, and delete the rows the set no longer qualifies. The statement the api's
- * `WorkerSkillsRepository.materializeReachForPosting` runs (it delegates here), and the shape
- * D5 (`materialize-job-reach.ts`) runs per posting: `MIN(CASE …)` is best-tier-wins (E6) and
+ * posted + reach ids, and delete the rows the set no longer qualifies. EVERY reach write for one
+ * posting runs this: the api's `WorkerSkillsRepository.materializeReachForPosting` (publish,
+ * unpause, edit, ops widen, widen expiry), the agency-twin sync, and D5
+ * (`materialize-job-reach.ts`). `MIN(CASE …)` is best-tier-wins (E6) and
  * `ARRAY_AGG(… ORDER BY direct DESC, months DESC)[1]` names the skill that achieved the tier.
  * An empty reach set clears the posting's rows.
+ *
+ * #2746 — A POSTING NO BADABHAI WORKER MAY SEE REACHES NOBODY. The audience is read in the
+ * statement itself ({@link reachesBadaBhaiWorkers}), not by the caller, so no path can write a
+ * `job_reach` row for an `rvm_students` posting, and the purge deletes every row such a posting
+ * still holds (an audience change on a live posting re-runs this to clear it). The stored reach
+ * set is left as it is: it is the posting's resolved set, and a later change back to a BadaBhai
+ * audience materializes from it unchanged.
  */
 export async function materializeJobReachWithin(
   executor: Database,
   jobPostingId: string,
   postedSkillIds: readonly string[],
   reachSkillIds: readonly string[],
-): Promise<void> {
+): Promise<JobReachWriteCounts> {
   if (reachSkillIds.length === 0) {
-    await executor.execute(
-      dsql`DELETE FROM job_reach WHERE job_posting_id = ${jobPostingId}::uuid`,
+    const cleared = firstCountRow<{ deleted: number }>(
+      await executor.execute(dsql`
+        WITH removed AS (
+          DELETE FROM job_reach WHERE job_posting_id = ${jobPostingId}::uuid RETURNING 1
+        )
+        SELECT count(*)::int AS deleted FROM removed
+      `),
     );
-    return;
+    return { upserted: 0, inserted: 0, deleted: cleared.deleted ?? 0 };
   }
+  // ⚠️ `dsql.param` binds each array as ONE parameter. A bare JS array expands to a RECORD and
+  // `::text[]` then fails at runtime with 42846 (verified against a live Postgres in D5).
   const posted = dsql.param([...postedSkillIds]);
   const reach = dsql.param([...reachSkillIds]);
 
-  await executor.execute(dsql`
-    INSERT INTO job_reach (job_posting_id, worker_id, match_tier, matched_skill_id)
-    SELECT ${jobPostingId}::uuid,
-           ws.worker_id,
-           MIN(CASE WHEN ws.skill_id = ANY(${posted}::text[]) THEN 1 ELSE 2 END),
-           (ARRAY_AGG(ws.skill_id ORDER BY (ws.skill_id = ANY(${posted}::text[])) DESC,
-                                           ws.months_bucketed DESC))[1]
-    FROM worker_skill ws
-    WHERE ws.skill_id = ANY(${reach}::text[]) AND ws.wants
-    GROUP BY ws.worker_id
-    ON CONFLICT (job_posting_id, worker_id) DO UPDATE
-      SET match_tier       = EXCLUDED.match_tier,
-          matched_skill_id = EXCLUDED.matched_skill_id,
-          computed_at      = now()
-  `);
-
-  await executor.execute(dsql`
-    DELETE FROM job_reach jr
-    WHERE jr.job_posting_id = ${jobPostingId}::uuid
-      AND NOT EXISTS (
-        SELECT 1 FROM worker_skill ws
-        WHERE ws.worker_id = jr.worker_id
-          AND ws.skill_id = ANY(${reach}::text[])
-          AND ws.wants
+  // `xmax = 0` is true only for a freshly inserted tuple, so one statement reports inserted vs
+  // refreshed without a second probe. The EXISTS is uncorrelated with `ws`: Postgres evaluates it
+  // once (a one-time filter), so the index-only scan on `worker_skill_reach_idx` is unchanged.
+  const upsert = firstCountRow<{ upserted: number; inserted: number }>(
+    await executor.execute(dsql`
+      WITH upserted AS (
+        INSERT INTO job_reach (job_posting_id, worker_id, match_tier, matched_skill_id)
+        SELECT ${jobPostingId}::uuid,
+               ws.worker_id,
+               MIN(CASE WHEN ws.skill_id = ANY(${posted}::text[]) THEN 1 ELSE 2 END),
+               (ARRAY_AGG(ws.skill_id ORDER BY (ws.skill_id = ANY(${posted}::text[])) DESC,
+                                               ws.months_bucketed DESC))[1]
+        FROM worker_skill ws
+        WHERE ws.skill_id = ANY(${reach}::text[]) AND ws.wants
+          AND EXISTS (
+            SELECT 1 FROM job_postings jp
+            WHERE jp.id = ${jobPostingId}::uuid
+              AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
+          )
+        GROUP BY ws.worker_id
+        ON CONFLICT (job_posting_id, worker_id) DO UPDATE
+          SET match_tier       = EXCLUDED.match_tier,
+              matched_skill_id = EXCLUDED.matched_skill_id,
+              computed_at      = now()
+        RETURNING (xmax = 0) AS inserted
       )
-  `);
+      SELECT count(*)::int AS upserted, (count(*) FILTER (WHERE inserted))::int AS inserted
+      FROM upserted
+    `),
+  );
+
+  // Stale: reached before, not reachable now — through the STORED set, or at all because the
+  // posting is not for BadaBhai workers. Scoped to this posting.
+  const purge = firstCountRow<{ deleted: number }>(
+    await executor.execute(dsql`
+      WITH removed AS (
+        DELETE FROM job_reach jr
+        WHERE jr.job_posting_id = ${jobPostingId}::uuid
+          AND (
+            NOT EXISTS (
+              SELECT 1 FROM job_postings jp
+              WHERE jp.id = jr.job_posting_id
+                AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
+            )
+            OR NOT EXISTS (
+              SELECT 1 FROM worker_skill ws
+              WHERE ws.worker_id = jr.worker_id
+                AND ws.skill_id = ANY(${reach}::text[])
+                AND ws.wants
+            )
+          )
+        RETURNING 1
+      )
+      SELECT count(*)::int AS deleted FROM removed
+    `),
+  );
+
+  return {
+    upserted: upsert.upserted ?? 0,
+    inserted: upsert.inserted ?? 0,
+    deleted: purge.deleted ?? 0,
+  };
 }
 
 /** The source columns the twin reads, joined to its AGENT owner (the agency scope, §5). */

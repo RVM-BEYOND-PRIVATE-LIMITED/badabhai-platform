@@ -534,6 +534,17 @@ describe("reconcileReachForWorker — the per-worker job_reach rebuild", () => {
     expect(insert.sql).toContain("ON CONFLICT (job_posting_id, worker_id) DO UPDATE");
   });
 
+  it("#2746 — re-inserts only on postings a BadaBhai worker may see; the DELETE clears all live ones", async () => {
+    const { repo, captured } = makeDb();
+    await repo.reconcileReachForWorker(WORKER, SKILLS);
+    // The worker side of reach applies the same rule as the publish side.
+    expect(captured.statements[1]!.sql).toContain(
+      `AND jp.audience IN ('badabhai_workers', 'both')`,
+    );
+    // The clear is NOT audience-scoped: a row he holds on an RVM-only posting goes with the rest.
+    expect(captured.statements[0]!.sql).not.toContain("audience");
+  });
+
   it("runs both statements on the TRANSACTION (never a delete that outlives its insert)", async () => {
     const { repo, captured } = makeDb();
     await repo.reconcileReachForWorker(WORKER, SKILLS);
@@ -813,13 +824,34 @@ describe("materializeReachForPosting — publish-time reach set", () => {
     const { repo, captured } = makeDb();
     await repo.materializeReachForPosting(POSTING, POSTED, REACH);
     // Order: the posting id, then posted (twice — the CASE and the ARRAY_AGG order),
-    // then reach. If posted and reach were the same binding, a related-skill worker
-    // would be materialized as tier 1.
-    expect(captured.statements[0]!.params).toEqual([POSTING, POSTED, POSTED, REACH]);
+    // then reach, then the posting id again for the #2746 audience probe. If posted and
+    // reach were the same binding, a related-skill worker would be materialized as tier 1.
+    expect(captured.statements[0]!.params).toEqual([POSTING, POSTED, POSTED, REACH, POSTING]);
     expect(captured.statements[0]!.sql).toContain(
       "MIN(CASE WHEN ws.skill_id = ANY($2::text[]) THEN 1 ELSE 2 END)",
     );
     expect(captured.statements[0]!.sql).toContain("ws.skill_id = ANY($4::text[]) AND ws.wants");
+  });
+
+  it("#2746 — writes a row only while the posting's audience reaches BadaBhai workers", async () => {
+    const { repo, captured } = makeDb();
+    await repo.materializeReachForPosting(POSTING, POSTED, REACH);
+    const insert = captured.statements[0]!.sql;
+    // The audience is read IN the statement, through the shared fragment: no caller can hand
+    // it a reach set for an RVM-only posting and get rows back.
+    expect(insert).toContain("SELECT 1 FROM job_postings jp");
+    expect(insert).toContain("WHERE jp.id = $5::uuid");
+    expect(insert).toContain(`AND jp.audience IN ('badabhai_workers', 'both')`);
+  });
+
+  it("#2746 — the purge deletes every row of a posting no BadaBhai worker may see", async () => {
+    const { repo, captured } = makeDb();
+    await repo.materializeReachForPosting(POSTING, POSTED, REACH);
+    const purge = captured.statements[1]!.sql;
+    // NOT EXISTS (visible posting) OR NOT EXISTS (qualifying skill): either leg drops the row.
+    expect(purge).toMatch(
+      /NOT EXISTS \(\s*SELECT 1 FROM job_postings jp\s+WHERE jp\.id = jr\.job_posting_id\s+AND jp\.audience IN \('badabhai_workers', 'both'\)\s*\)\s*OR NOT EXISTS/,
+    );
   });
 
   it("upserts, so re-publishing a posting cannot duplicate a worker's reach row", async () => {
@@ -955,6 +987,25 @@ describe("findReachRow — the apply gate", () => {
     expect(statusPredicates(feedStatements[0]!)).toEqual(gate);
   });
 
+  it("#2746 — applies the V1 FEED's audience test too: an RVM-only posting is the same 404", async () => {
+    const audience = `jp.audience IN ('badabhai_workers', 'both')`;
+    const feedStatements: string[] = [];
+    const feed = new MatchFeedRepository({
+      execute: (stmt: unknown) => {
+        feedStatements.push(compile(stmt).sql);
+        return Promise.resolve([]);
+      },
+    } as unknown as Database);
+    await feed.listFeed(WORKER, 10, {});
+
+    const { repo, captured } = makeDb({ exec: [[]] });
+    await repo.findReachRow(WORKER, POSTING);
+
+    // A reach row left over from before an audience change must not open the apply gate.
+    expect(captured.statements[0]!.sql).toContain(`AND ${audience}`);
+    expect(feedStatements[0]!).toContain(`AND ${audience}`);
+  });
+
   it("normalises the tier to the closed set {1,2} — only an exact 1 is tier 1", async () => {
     // The column is an integer. Anything that is not 1 is "reached through a related
     // skill", and a stray 0/3 must never be handed to the rank key as a new best tier
@@ -1032,5 +1083,13 @@ describe("listPostingIdsReaching", () => {
     // `?|` is the jsonb key-existence operator the reach GIN index is built for; the
     // status pair keeps a paused posting countable, matching the reconcile scope.
     expect(q.params).toEqual(["open", "paused", ["mskill_fitter"]]);
+  });
+
+  it("#2746 — counts only postings a BadaBhai worker may see, as the reconcile writes", async () => {
+    const { repo, captured } = makeDb({ rows: [] });
+    await repo.listPostingIdsReaching(["mskill_fitter"]);
+    expect(compile(captured.where).sql).toContain(
+      `"job_postings"."audience" IN ('badabhai_workers', 'both')`,
+    );
   });
 });

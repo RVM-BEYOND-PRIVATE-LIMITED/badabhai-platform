@@ -532,6 +532,13 @@ describe("#1823 findOpenPostingsForFeed — the §2.1 predicates, each separate"
     expect(text).toMatch(/"job_postings"\."published_at" is not null/i);
   });
 
+  it("(1c) #2746 — only an audience a BadaBhai worker may see, by the shared fragment", async () => {
+    const { sql: text, params } = await whereOf({ wantedSkillIds: [] });
+    expect(text).toContain(`"job_postings"."audience" IN ('badabhai_workers', 'both')`);
+    // Literal, not bound: the fragment adds no parameter.
+    expect(params).not.toContain("badabhai_workers");
+  });
+
   it("(3a)(3b)(4) are THREE separate NOT EXISTS — the applied anti-joins and the twin guard", async () => {
     const { sql: text, params } = await whereOf({ wantedSkillIds: [] });
     // Split at each NOT EXISTS: [prefix, (3a), (3b), (4)].
@@ -653,6 +660,14 @@ describe("#1823 findOpenPostingRef — existence of an OPEN posting, id only", (
     expect(text).toMatch(/"job_postings"\."status" = \$\d/);
     expect(params).toEqual(["p-1", "open"]);
     expect(captured.limit).toBe(1);
+  });
+
+  it("#2746 — an RVM-only posting is not a decision target (the same undefined as unknown)", async () => {
+    const { repo, captured } = makeDb([]);
+    await repo.findOpenPostingRef("p-1");
+    const { sql: text } = compile(captured.where);
+    expect(text).toContain('"job_postings"."hidden_at" is null');
+    expect(text).toContain(`"job_postings"."audience" IN ('badabhai_workers', 'both')`);
   });
 
   it("returns undefined on a miss", async () => {

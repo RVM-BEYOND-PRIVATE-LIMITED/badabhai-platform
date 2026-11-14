@@ -102,6 +102,16 @@ describe("findWorkerVisibleJobById — BOTH statements gate on status='open'", (
     expect(where).toContain('"status"');
     expect(queries[index]!.limit).toBe(1);
   });
+
+  it("#2746 — the posting fallback also excludes an RVM-only posting (the same neutral 404)", async () => {
+    const { repo, queries } = makeDb([], []);
+    await repo.findWorkerVisibleJobById(JOB_ID);
+    expect(render(queries[1]!.where)).toContain(
+      `"job_postings"."audience" IN ('badabhai_workers', 'both')`,
+    );
+    // The legacy `jobs` table has no audience: agency/seed jobs are BadaBhai-worker jobs.
+    expect(render(queries[0]!.where)).not.toContain("audience");
+  });
 });
 
 describe("findWorkerVisibleJobById — the PII-free SHOW set (ADR-0024 §Surfaces)", () => {
@@ -233,6 +243,21 @@ describe("searchOpenPostings — the filters #822 specifies", () => {
     const { repo, queries } = makeSearchDb();
     await repo.searchOpenPostings(SEARCH_ARGS);
     expect(compile(queries[0]!.where).sql).toMatch(/"status" = \$\d/);
+  });
+
+  it("#2746 — ALWAYS excludes an RVM-only posting, for the search box and the companion alike", async () => {
+    const audience = `"job_postings"."audience" IN ('badabhai_workers', 'both')`;
+    const box = makeSearchDb();
+    await box.repo.searchOpenPostings({ ...SEARCH_ARGS, q: "fitter", city: "pune" });
+    expect(compile(box.queries[0]!.where).sql).toContain(audience);
+    // ADR-0044 — the companion's "new jobs" read is this method with a window.
+    const companion = makeSearchDb();
+    await companion.repo.searchOpenPostings({
+      ...SEARCH_ARGS,
+      profileSkillIds: ["mskill_fitter"],
+      publishedAfter: new Date("2026-11-01T00:00:00.000Z"),
+    });
+    expect(compile(companion.queries[0]!.where).sql).toContain(audience);
   });
 
   it("city is a PARTIAL, case-insensitive match — never the feed's exact equality", async () => {

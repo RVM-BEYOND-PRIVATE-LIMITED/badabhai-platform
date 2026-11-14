@@ -602,6 +602,13 @@ export async function materializeDemoReach(
       // D5 would skip it too — the seed wrote an unmaterializable posting. That is a bug here.
       throw new Error(`[${NAME}] D5 skipped demo posting ${p.postingId} (${outcome.reason}).`);
     }
+    if (outcome.kind === "cleared") {
+      // A demo posting is a BadaBhai-worker posting; D5 clearing one means the seed wrote a
+      // non-BadaBhai audience (#2746). That is a bug here too.
+      throw new Error(
+        `[${NAME}] D5 cleared demo posting ${p.postingId} (not a BadaBhai audience).`,
+      );
+    }
     out.materialized += 1;
     out.rowsInserted += outcome.rowsInserted;
     out.rowsUpdated += outcome.rowsUpdated;
