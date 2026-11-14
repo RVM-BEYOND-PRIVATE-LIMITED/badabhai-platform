@@ -2,6 +2,7 @@ import { z } from "zod";
 import { VACANCY_BANDS } from "@badabhai/types";
 import type { JobPayType, JobShift } from "@badabhai/db";
 import { isCanonicalUuid } from "../common/uuid";
+import { hasForbiddenIdCharacter, hasForbiddenLabelCharacter } from "./campus-characters";
 
 /**
  * THE CAMPUS LINK CONTRACT, v1 (#2752 item 1): every route BadaBhai Campus calls under
@@ -43,12 +44,35 @@ export const CAMPUS_ERROR_CODES = [
   "AUDIENCE_EXCLUDES_RVM",
   "STUDENT_NOT_AVAILABLE",
   "RVM_UNAVAILABLE",
+  /** #2746: the posting changed after the reviewer saw it (its `content_hash` moved). */
+  "POSTING_CHANGED",
+  /**
+   * #2746: a newer decision (`decided_at`) or list (`as_of`) is already held, or one at the same
+   * instant that differs. Nothing was stored; do not retry this body.
+   */
+  "DECISION_SUPERSEDED",
   // #2752 item 5 (owner decision 2026-11-14): the phone is a BadaBhai company Campus did not create.
   "COMPANY_NOT_CAMPUS_CREATED",
   // A retry of POST job-postings with the same key while the first is still running.
   "REQUEST_IN_PROGRESS",
 ] as const;
 export type CampusErrorCode = (typeof CAMPUS_ERROR_CODES)[number];
+
+/**
+ * #2746 — how far ahead of BadaBhai's clock a Campus `decided_at` / `as_of` may be. Further ahead
+ * is 400 `VALIDATION_FAILED`: a time from the future would outrank every later decision, and a
+ * Campus clock that far ahead would lock out corrections for that long. The same bound is the
+ * tolerance for a decision made just before a company edit reset the review (see the review
+ * service's pending-row floor).
+ */
+export const CAMPUS_MAX_CLOCK_SKEW_MS = 60 * 1000;
+
+/**
+ * #2746 — the earliest `decided_at` / `as_of` BadaBhai accepts: before the link existed, so no
+ * real decision is older. Earlier is 400 `VALIDATION_FAILED` (a year-0000 time parses in
+ * JavaScript but not as a Postgres `timestamptz`).
+ */
+export const CAMPUS_EARLIEST_DECISION_TIME = "2026-01-01T00:00:00.000Z";
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
 
@@ -78,11 +102,34 @@ export const Phone10Schema = z.string().regex(/^[6-9]\d{9}$/);
 /** An RVM location id: the same number as Campus's `allowed_location_ids`. */
 export const BranchIdSchema = z.number().int().positive();
 
-/** A Scheduler course id. Matching happens on the id once the Student API returns one. */
-export const CourseIdSchema = z.string().min(1).max(64);
+/**
+ * A Scheduler course id. Matching happens on the id once the Student API returns one. Trimmed;
+ * no control, format, surrogate, private-use, unassigned or separator character, except a plain
+ * ASCII space inside the id (`hasForbiddenIdCharacter`, `./campus-characters`). A NUL would reach
+ * Postgres and fail the row (22021); a lone surrogate is rewritten to U+FFFD by the driver, so two
+ * distinct ids would collapse into one key. Deliberately no charset beyond that: the Scheduler's
+ * id format is not confirmed.
+ */
+export const CourseIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine(
+    (id) => !hasForbiddenIdCharacter(id),
+    "no control, format, separator (but a plain space), surrogate, private-use or unassigned characters",
+  );
 
 const IsoDateTime = z.string().datetime({ offset: true });
 const Id = z.string().uuid();
+
+/**
+ * #2746 — what a review decision is FOR: the sha256 (lower-case hex) of every field an RVM student
+ * sees, computed by BadaBhai (`postingReviewContentHash`). The feed exposes it, the review echoes
+ * it; Campus never computes it. Opaque: it changes whenever the posting's student-visible content
+ * does, and when BadaBhai changes what the hash covers.
+ */
+export const ContentHashSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
 export const POSTING_AUDIENCES = ["rvm_students", "both"] as const;
 export const REVIEW_STATES = ["pending", "approved", "rejected"] as const;
@@ -157,6 +204,12 @@ export const CampusPostingSchema = z.object({
   courses: z.array(z.object({ id: CourseIdSchema, name: z.string() })),
   review_state: z.enum(REVIEW_STATES),
   changed_at: IsoDateTime,
+  /**
+   * The hash of the content above, as of this read (#2746, owner decision 2026-11-14). Send it back
+   * unchanged on `PUT job-postings/:id/review`: a decision counts only for the content its reviewer
+   * saw, and a posting that changed since answers 409 `POSTING_CHANGED`.
+   */
+  content_hash: ContentHashSchema,
 });
 
 export const CampusPostingPageSchema = z.object({
@@ -177,12 +230,117 @@ export const CampusReviewBodySchema = z.strictObject({
   branch_ids: z.array(BranchIdSchema).min(1).max(50).optional(),
   course_ids: z.array(CourseIdSchema).min(1).max(100).optional(),
   reason: z.string().trim().min(1).max(500).optional(),
+  /**
+   * REQUIRED (owner decision 2026-11-14): the posting's `content_hash` from the feed read the
+   * reviewer decided on. BadaBhai compares it with the posting's hash under a row lock; a mismatch
+   * is 409 `POSTING_CHANGED` and stores nothing, so an approval never lands on content nobody saw.
+   */
+  content_hash: ContentHashSchema,
+  /**
+   * REQUIRED (owner decision 2026-11-14): when the reviewer decided, by Campus's clock. The row
+   * keeps the newest decision only: a decision older than the one held, or one at the same
+   * instant that differs, is 409 `DECISION_SUPERSEDED`; the same decision again is a replay.
+   * More than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of BadaBhai's clock is 400 `VALIDATION_FAILED`.
+   */
+  decided_at: IsoDateTime,
 });
 
 export const CampusReviewResponseSchema = z.object({
   posting_id: Id,
   review_state: z.enum(REVIEW_STATES),
+  /** The decision's `decided_at`, echoed: BadaBhai stores Campus's decision time as the review time. */
   reviewed_at: IsoDateTime,
+});
+
+// ─── PUT targeting-options (#2746) ───────────────────────────────────────────
+
+/**
+ * The bounds of one targeting list. Chosen so the LARGEST valid body, in plain UTF-8, fits the
+ * api's 100 kB JSON limit (Express's default): 50 branches (the most a posting may target) and
+ * 100 courses (likewise), each label up to 150 characters, each course id up to 64. Every Indian
+ * script character is 3 bytes, so the worst case is about 90 kB. `rto_label_chk` allows 200; the
+ * body stops at 150 for the size bound.
+ */
+export const CAMPUS_TARGETING_LIMITS = {
+  branches: 50,
+  courses: 100,
+  labelLength: 150,
+  /** `rvm_targeting_options.ref` holds a branch id as at most ten digits (`rto_branch_ref_chk`). */
+  maxBranchId: 9_999_999_999,
+} as const;
+
+/**
+ * A place or course name as companies see it: reference data, never personal data (`rto_label_chk`).
+ * Shown verbatim, so no control, format, surrogate, private-use, unassigned, line or paragraph
+ * separator character, except ZWNJ / ZWJ, which Indic spellings need (`hasForbiddenLabelCharacter`).
+ * Spaces are allowed.
+ */
+const TargetingLabelSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(CAMPUS_TARGETING_LIMITS.labelLength)
+  .refine(
+    (label) => !hasForbiddenLabelCharacter(label),
+    "no control, format (but ZWNJ/ZWJ), surrogate, private-use, unassigned or line-separator characters",
+  );
+
+const TargetingBranchSchema = z.strictObject({
+  id: BranchIdSchema.max(CAMPUS_TARGETING_LIMITS.maxBranchId),
+  name: TargetingLabelSchema,
+});
+
+/** The course id is the shared `CourseIdSchema`, so a review narrowing and an option agree. */
+const TargetingCourseSchema = z.strictObject({
+  id: CourseIdSchema,
+  name: TargetingLabelSchema,
+});
+
+/** True when no two entries share an id. */
+function idsUnique(entries: readonly { id: number | string }[]): boolean {
+  return new Set(entries.map((e) => e.id)).size === entries.length;
+}
+
+/**
+ * THE WHOLE CURRENT LIST of branches and courses a company may target. Campus sends every option
+ * it offers, each time; the position in its list is the order companies see. An option BadaBhai
+ * holds that is not in the list is marked inactive, never deleted, because postings hold the refs.
+ * Both lists are required and NON-EMPTY (an applied list must stamp at least one row, the
+ * high-water mark below; to retire an option, leave it out of a list that still names another);
+ * an id appears at most once in its list.
+ *
+ * `as_of` (REQUIRED): when Campus read this list, by its clock. A list is applied only when it is
+ * newer than the last one applied; an older or same-instant list that differs from what is held is
+ * 409 `DECISION_SUPERSEDED`, so a late retry never puts back an option Campus has since removed.
+ * More than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of BadaBhai's clock is 400 `VALIDATION_FAILED`.
+ */
+export const CampusTargetingOptionsBodySchema = z.strictObject({
+  branches: z
+    .array(TargetingBranchSchema)
+    .min(1)
+    .max(CAMPUS_TARGETING_LIMITS.branches)
+    .refine(idsUnique, "each branch id at most once"),
+  courses: z
+    .array(TargetingCourseSchema)
+    .min(1)
+    .max(CAMPUS_TARGETING_LIMITS.courses)
+    .refine(idsUnique, "each course id at most once"),
+  as_of: IsoDateTime,
+});
+
+/** What one kind's replacement did. `listed` is the number now active. */
+export const CampusTargetingOptionCountsSchema = z.object({
+  listed: z.number().int().min(0),
+  added: z.number().int().min(0),
+  /** Label or order changed, or the option came back after being inactive. */
+  updated: z.number().int().min(0),
+  /** Left the list: inactive now, kept for the postings that target it. */
+  deactivated: z.number().int().min(0),
+});
+
+export const CampusTargetingOptionsResponseSchema = z.object({
+  branches: CampusTargetingOptionCountsSchema,
+  courses: CampusTargetingOptionCountsSchema,
 });
 
 // ─── POST job-postings (the placement team posts for a company) ──────────────

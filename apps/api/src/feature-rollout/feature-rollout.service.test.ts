@@ -156,7 +156,12 @@ describe("the rollout switches and the pilot list have ONE reader each", () => {
 describe("isLiveForServiceCaller is a SERVICE-caller check, used only where it was reviewed", () => {
   // In `pilot` it is true for every company, so a payer path calling it would skip the pilot
   // list (security review of #2746 PR 2, M1). Each entry here is a reviewed, company-less caller.
-  const ALLOWED_CALLERS: readonly string[] = [];
+  const ALLOWED_CALLERS: readonly string[] = [
+    // #2746 PR 5 — Campus's review route: `job_audience` off everywhere → the neutral 404 before
+    // any read. NOT the company check: the posting owner's pilot place is then read with
+    // `isEnabledFor` and the owner's tenant key (`PayerTenantScopeService`).
+    "campus-link/campus-posting-review.service.ts",
+  ];
 
   it("its call sites are exactly the allow-list", () => {
     expect(filesMatching(/\.isLiveForServiceCaller\(/)).toEqual([...ALLOWED_CALLERS].sort());

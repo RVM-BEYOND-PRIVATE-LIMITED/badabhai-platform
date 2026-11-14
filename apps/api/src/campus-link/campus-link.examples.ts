@@ -12,6 +12,8 @@ import type {
   CampusReviewResponseSchema,
   CampusSearchGrantBodySchema,
   CampusSearchGrantSchema,
+  CampusTargetingOptionsBodySchema,
+  CampusTargetingOptionsResponseSchema,
   CampusUnlinkResponseSchema,
 } from "./campus-link.contract";
 
@@ -25,6 +27,8 @@ import type {
 const COMPANY_ID = "7d3f2a10-5b8e-4c1d-9a6f-0e2b4c6d8f10";
 const STUDENT_REF = "3c9e7b21-4f6a-4d8e-b1c2-a3d4e5f60718";
 const STAFF_REF = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+/** A fictional `content_hash`: BadaBhai computes the real one; Campus only echoes it. */
+const CONTENT_HASH = "dae961f775f42c5205c320f1bc9eed1046f92b7856b4f97b1e3a1eed94300fc9";
 
 export const POSTING_EXAMPLE: z.input<typeof CampusPostingSchema> = {
   id: "b2c4e6f8-1a3b-4c5d-8e7f-90a1b2c3d4e5",
@@ -44,6 +48,7 @@ export const POSTING_EXAMPLE: z.input<typeof CampusPostingSchema> = {
   courses: [{ id: "cnc-programming", name: "CNC Programming" }],
   review_state: "approved",
   changed_at: "2026-11-13T09:30:00.000+05:30",
+  content_hash: CONTENT_HASH,
 };
 
 export const POSTING_PAGE_EXAMPLE: z.input<typeof CampusPostingPageSchema> = {
@@ -55,12 +60,36 @@ export const REVIEW_BODY_EXAMPLE: z.input<typeof CampusReviewBodySchema> = {
   state: "approved",
   reviewer_ref: STAFF_REF,
   branch_ids: [1],
+  content_hash: CONTENT_HASH,
+  decided_at: "2026-11-13T10:00:00.000+05:30",
 };
 
 export const REVIEW_RESPONSE_EXAMPLE: z.input<typeof CampusReviewResponseSchema> = {
   posting_id: POSTING_EXAMPLE.id,
   review_state: "approved",
   reviewed_at: "2026-11-13T10:00:00.000+05:30",
+};
+
+/** #2746 — the whole current list; list position is the order companies see. */
+export const TARGETING_OPTIONS_BODY_EXAMPLE: z.input<typeof CampusTargetingOptionsBodySchema> = {
+  as_of: "2026-11-13T08:00:00.000+05:30",
+  branches: [
+    { id: 1, name: "Faridabad" },
+    { id: 2, name: "Pune" },
+    { id: 3, name: "Ahmedabad" },
+    { id: 4, name: "Lucknow" },
+  ],
+  courses: [
+    { id: "cnc-programming", name: "CNC Programming" },
+    { id: "cad-design", name: "CAD Design" },
+  ],
+};
+
+export const TARGETING_OPTIONS_RESPONSE_EXAMPLE: z.input<
+  typeof CampusTargetingOptionsResponseSchema
+> = {
+  branches: { listed: 4, added: 0, updated: 1, deactivated: 0 },
+  courses: { listed: 2, added: 1, updated: 0, deactivated: 1 },
 };
 
 export const POST_FOR_COMPANY_BODY_EXAMPLE: z.input<typeof CampusPostForCompanyBodySchema> = {

@@ -38,6 +38,7 @@ import { PayerPortalModule } from "./payer-portal/payer-portal.module";
 import { CandidatesModule } from "./candidates/candidates.module";
 import { CampusJobsModule } from "./campus-link/campus-jobs.module";
 import { CampusLinkModule } from "./campus-link/campus-link.module";
+import { CampusReviewModule } from "./campus-link/campus-review.module";
 import { AgencyModule } from "./agency/agency.module";
 import { AgencyTwinModule } from "./agency-twin/agency-twin.module";
 import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
@@ -135,6 +136,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     CampusLinkModule,
     // #2752 part E — the Campus jobs and applications routes (one-way onto the link module).
     CampusJobsModule,
+    // #2746 PR 5 — Campus records the placement team's RVM review and sets the targeting options,
+    // behind the same guard and flag. Its own module, so CampusLinkModule is imported, not edited.
+    CampusReviewModule,
     // Agency Supply Portal demand slice (ADR-0022): agent-only `/payer/agency/*` routes
     // (jobs CRUD + invites + referrals summary) + the consent-gated attribution seam.
     AgencyModule,

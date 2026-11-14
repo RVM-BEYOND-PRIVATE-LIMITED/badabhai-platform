@@ -100,7 +100,13 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "apps/api/src/admin/admin-entities.repository.ts":
     "The admin posting list and detail project the audience READ-ONLY for the console. Admin code, " +
     "never a worker path (PAIRING_EXEMPT).",
-  // #2752 part E — the Campus side.
+  // #2746 PR 5 — Campus's review of the RVM part of a posting.
+  "apps/api/src/campus-link/campus-posting-review.repository.ts":
+    "The Campus review reads the audience as a VALUE (an RVM part or 409 AUDIENCE_EXCLUDES_RVM; " +
+    "the TS twin `audienceReachesRvmStudents` decides) and `hidden_at` for its neutral 404. A " +
+    "service-credential path for the placement team, never a BadaBhai worker read " +
+    "(PAIRING_EXEMPT).",
+  // #2752 part E — the Campus feed.
   "apps/api/src/campus-link/campus-postings.repository.ts":
     "The Campus feed selects through reachesRvmStudents() and projects the audience READ-ONLY " +
     "onto the Campus wire (`rvm_students` | `both`). An RVM-facing read, never a worker path.",
@@ -123,6 +129,10 @@ const PAIRING_EXEMPT: readonly RegExp[] = [
   /^apps\/api\/src\/agency\//,
   /^packages\/db\/src\/materialize-job-reach\.ts$/,
   /^packages\/db\/src\/seed-[\w-]+\.ts$/,
+  // #2746 PR 5 — Campus's review (placement team, service credential): it refuses a hidden
+  // posting; it reads no posting FOR a worker. One file, not the directory: #2752's student-facing
+  // read lives in campus-link too and must face this rule on its own merits.
+  /^apps\/api\/src\/campus-link\/campus-posting-review\.repository\.ts$/,
 ];
 
 /**
@@ -276,8 +286,9 @@ describe("#2746 — every worker read that tests hidden_at also tests the audien
   const workerReads = [...CODE.entries()].filter(
     ([file, text]) => !exempt(file) && !CAMPUS_READS.test(file) && HIDDEN_ON_POSTINGS.test(text),
   );
+  // The exempt Campus review (#2746 PR 5) reads no posting for a student; every other one does.
   const campusReads = [...CODE.entries()].filter(
-    ([file, text]) => CAMPUS_READS.test(file) && HIDDEN_ON_POSTINGS.test(text),
+    ([file, text]) => !exempt(file) && CAMPUS_READS.test(file) && HIDDEN_ON_POSTINGS.test(text),
   );
 
   it("finds the known worker reads (a scan of nothing would pass vacuously)", () => {
@@ -321,6 +332,9 @@ describe("#2746 — every worker read that tests hidden_at also tests the audien
     expect(exempt("apps/api/src/admin-postings/admin-postings.repository.ts")).toBe(true);
     expect(exempt("apps/api/src/jobs/jobs.repository.ts")).toBe(false);
     expect(exempt("apps/api/src/chat-companion/chat-companion.service.ts")).toBe(false);
+    // The Campus review is exempt as ONE file; the rest of campus-link is not.
+    expect(exempt("apps/api/src/campus-link/campus-posting-review.repository.ts")).toBe(true);
+    expect(exempt("apps/api/src/campus-link/institute-link.repository.ts")).toBe(false);
   });
 });
 

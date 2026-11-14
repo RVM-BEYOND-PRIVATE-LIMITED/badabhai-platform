@@ -39,6 +39,10 @@ export interface TargetingOptionRow {
  * `updateOwned`); the Campus decision (#2746 PR 5) must take the posting row first too, or a
  * company edit and a decision on one posting can deadlock.
  *
+ * ONE CLOCK (#2746 PR 5 migration review, L3): every review-row write here stamps `updated_at =
+ * clock_timestamp()`, the database's clock at the write, as the Campus decision's writes do. Campus's
+ * feed cursor reads that column, so app and database clocks must not be mixed on it.
+ *
  * The one read on behalf of a company, {@link reviewStatesFor}, is TENANT-SCOPED in the query
  * (ADR-0053 §5.2), like every company posting read: an id from another company reads nothing.
  */
@@ -89,7 +93,12 @@ export class PostingAudienceRepository {
   async ensurePendingReview(jobPostingId: string, tx: Database): Promise<void> {
     await tx
       .insert(jobPostingInstituteReviews)
-      .values({ jobPostingId, instituteCode: RVM_INSTITUTE_CODE, state: "pending" })
+      .values({
+        jobPostingId,
+        instituteCode: RVM_INSTITUTE_CODE,
+        state: "pending",
+        updatedAt: sql`clock_timestamp()`,
+      })
       .onConflictDoNothing();
   }
 
@@ -109,7 +118,7 @@ export class PostingAudienceRepository {
         branchIds: null,
         courseIds: null,
         contentHash: null,
-        updatedAt: new Date(),
+        updatedAt: sql`clock_timestamp()`,
       })
       .where(
         and(
@@ -129,7 +138,7 @@ export class PostingAudienceRepository {
   async touchReview(jobPostingId: string, tx: Database): Promise<void> {
     await tx
       .update(jobPostingInstituteReviews)
-      .set({ updatedAt: new Date() })
+      .set({ updatedAt: sql`clock_timestamp()` })
       .where(
         and(
           eq(jobPostingInstituteReviews.jobPostingId, jobPostingId),

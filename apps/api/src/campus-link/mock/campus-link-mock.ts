@@ -13,6 +13,7 @@ import {
   CampusPostingsQuerySchema,
   CampusReviewBodySchema,
   CampusSearchGrantBodySchema,
+  CampusTargetingOptionsBodySchema,
   StudentRefSchema,
   type CampusErrorCode,
 } from "../campus-link.contract";
@@ -60,6 +61,10 @@ export function createCampusLinkMock(options: { token: string }) {
       changed_at: string;
     }
   >();
+
+  /** The newest decision / list held, by Campus's own time, and what it was. */
+  let review: { at: number; fingerprint: string; state: string } | null = null;
+  let targeting: { at: number; fingerprint: string } | null = null;
 
   return function handle(req: MockRequest): MockResponse {
     const url = new URL(req.url, "http://mock");
@@ -109,10 +114,43 @@ export function createCampusLinkMock(options: { token: string }) {
         const body = parseBody(req.body, CampusReviewBodySchema, url.pathname);
         if ("status" in body) return body;
         if (segments[1] !== KNOWN_POSTING_ID) return notFound(url.pathname);
+        const { decided_at, ...decision } = body.data;
+        const at = Date.parse(decided_at);
+        const fingerprint = JSON.stringify({
+          ...decision,
+          branch_ids: [...(decision.branch_ids ?? [])].sort(),
+          course_ids: [...(decision.course_ids ?? [])].sort(),
+        });
+        const answer = { posting_id: KNOWN_POSTING_ID, reviewed_at: decided_at };
+        // The real route's order: time first, then the content hash.
+        if (review !== null && at <= review.at) {
+          return at === review.at && fingerprint === review.fingerprint
+            ? ok({ ...answer, review_state: review.state })
+            : error(409, "DECISION_SUPERSEDED", url.pathname);
+        }
+        // The posting "changed" unless the body echoes the hash the example feed shows.
+        if (decision.content_hash !== examples.POSTING_EXAMPLE.content_hash) {
+          return error(409, "POSTING_CHANGED", url.pathname);
+        }
+        review = { at, fingerprint, state: decision.state };
+        return ok({ ...answer, review_state: decision.state });
+      }
+
+      case "PUT targeting-options": {
+        const body = parseBody(req.body, CampusTargetingOptionsBodySchema, url.pathname);
+        if ("status" in body) return body;
+        const { as_of, ...list } = body.data;
+        const at = Date.parse(as_of);
+        const fingerprint = JSON.stringify(list);
+        if (targeting !== null && at <= targeting.at && fingerprint !== targeting.fingerprint) {
+          return error(409, "DECISION_SUPERSEDED", url.pathname);
+        }
+        if (targeting === null || at > targeting.at) targeting = { at, fingerprint };
+        // No stored rows here: every option reads as new, and nothing is retired.
+        const counts = (listed: number) => ({ listed, added: listed, updated: 0, deactivated: 0 });
         return ok({
-          posting_id: KNOWN_POSTING_ID,
-          review_state: body.data.state,
-          reviewed_at: now,
+          branches: counts(body.data.branches.length),
+          courses: counts(body.data.courses.length),
         });
       }
 

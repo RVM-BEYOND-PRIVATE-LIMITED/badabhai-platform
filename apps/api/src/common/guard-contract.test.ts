@@ -66,6 +66,7 @@ import { CampusApplicationsController } from "../campus-link/campus-applications
 import { CampusGrantsController } from "../campus-link/campus-grants.controller";
 import { CampusJobsController } from "../campus-link/campus-jobs.controller";
 import { CampusLinkController } from "../campus-link/campus-link.controller";
+import { CampusReviewController } from "../campus-link/campus-review.controller";
 import { ReferralAttributionController } from "../referrals/referral-attribution.controller";
 import { ReferralBonusController } from "../referrals/referral-bonus.controller";
 // BL-3 — 17 controllers independently found missing from this contract (11 platform-wide
@@ -662,6 +663,13 @@ const CONTRACT: ControllerContract[] = [
     ctor: SkillsController,
     routes: { nearestAliases: [SI], recordUnresolved: [SI] },
   },
+  // #2746 PR 5 — Campus's RVM review and targeting-options writes: the same CampusServiceGuard
+  // (and so the same flag, token, allow-list, cap and per-call audit row) and nothing else.
+  {
+    name: "CampusReview",
+    ctor: CampusReviewController,
+    routes: { reviewPosting: [CS], setTargetingOptions: [CS] },
+  },
   // #2752 — BadaBhai Campus's ONLY credential. CampusServiceGuard (its own hashed token, an
   // address allow-list, a per-minute cap, an audit row per call) and never InternalServiceGuard,
   // whose shared secret opens the ops routes that return personal data.
@@ -864,6 +872,9 @@ const CONTRACT: ControllerContract[] = [
       buyPlan: [P, R],
       buyBoost: [P, R],
       topUpQuota: [P, R],
+      // #2746 PR 4 — GET audience-options: the class pair, employer accounts only
+      // (@PayerRoles('employer')); a neutral 404 while job_audience is off for the company.
+      audienceOptions: [P, R],
     },
   },
   { name: "PayerOrgInvites", ctor: PayerOrgInvitesController, routes: { accept: [P] } },
@@ -919,6 +930,9 @@ describe("API authz contract — guards on every controller route", () => {
       // ADR-0040 / E2 — pages the whole consented pool to any payer; a third route must not
       // join this class unpinned.
       CandidateSearchController,
+      // #2746 PR 5 — a service credential's write surface (review, targeting); a third route
+      // must not join this class unpinned.
+      CampusReviewController,
     ] as Ctor[]) {
       it(`${ctor.name} lists every route it serves`, () => {
         const proto = ctor.prototype as Record<string, unknown>;

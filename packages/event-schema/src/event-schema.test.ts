@@ -165,6 +165,107 @@ describe("job_posting.audience_set (#2746)", () => {
   });
 });
 
+describe("job_posting.rvm_reviewed (#2746 PR 5)", () => {
+  const HASH = "a".repeat(64);
+  const STAFF = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+  function reviewedEvent(payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: "job_posting.rvm_reviewed",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "job_posting", subject_id: UUID_B },
+      payload,
+    };
+  }
+  const valid = {
+    job_posting_id: UUID_B,
+    institute_code: "rvm",
+    state: "approved",
+    previous_state: "pending",
+    reviewer_ref: STAFF,
+    decided_at: "2026-11-14T10:00:00.000+05:30",
+    branch_ids: [1],
+    course_ids: null,
+    has_reason: false,
+    content_hash: HASH,
+  };
+
+  it("accepts an approval, a rejection with a note and a re-decision", () => {
+    expect(validateEvent(reviewedEvent(valid)).success).toBe(true);
+    expect(
+      validateEvent(
+        reviewedEvent({ ...valid, state: "rejected", has_reason: true, branch_ids: null }),
+      ).success,
+    ).toBe(true);
+    expect(
+      validateEvent(reviewedEvent({ ...valid, previous_state: "approved", state: "rejected" }))
+        .success,
+    ).toBe(true);
+  });
+
+  it("takes any layout-valid staff uuid (not only RFC versions), never a name or an email", () => {
+    expect(
+      validateEvent(
+        reviewedEvent({ ...valid, reviewer_ref: "00000000-0000-0000-0000-000000000000" }),
+      ).success,
+    ).toBe(true);
+    expect(
+      validateEvent(reviewedEvent({ ...valid, reviewer_ref: "asha@rvm.example" })).success,
+    ).toBe(false);
+  });
+
+  it("refuses a pending decision, a missing previous state or decision time, an empty narrowing and a malformed hash", () => {
+    expect(validateEvent(reviewedEvent({ ...valid, previous_state: null })).success).toBe(false);
+    const { decided_at: _omitted, ...noTime } = valid;
+    expect(validateEvent(reviewedEvent(noTime)).success).toBe(false);
+    expect(validateEvent(reviewedEvent({ ...valid, decided_at: "yesterday" })).success).toBe(false);
+    expect(validateEvent(reviewedEvent({ ...valid, state: "pending" })).success).toBe(false);
+    expect(validateEvent(reviewedEvent({ ...valid, branch_ids: [] })).success).toBe(false);
+    expect(validateEvent(reviewedEvent({ ...valid, course_ids: [] })).success).toBe(false);
+    expect(validateEvent(reviewedEvent({ ...valid, content_hash: "ABC" })).success).toBe(false);
+  });
+
+  it("refuses the reason text, a label or any other free text: ids and enums only", () => {
+    expect(validateEvent(reviewedEvent({ ...valid, reason: "not a fit" })).success).toBe(false);
+    expect(validateEvent(reviewedEvent({ ...valid, branch_label: "Pune" })).success).toBe(false);
+  });
+});
+
+describe("job_posting.rvm_targeting_options_set (#2746 PR 5)", () => {
+  function optionsEvent(payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: "job_posting.rvm_targeting_options_set",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "job_posting", subject_id: null },
+      payload,
+    };
+  }
+  const counts = { listed: 4, added: 1, updated: 0, deactivated: 2 };
+  const valid = {
+    institute_code: "rvm",
+    as_of: "2026-11-14T09:00:00.000+05:30",
+    branches: counts,
+    courses: counts,
+  };
+
+  it("accepts counts per kind with the list time, and refuses a list without one", () => {
+    expect(validateEvent(optionsEvent(valid)).success).toBe(true);
+    const { as_of: _omitted, ...noTime } = valid;
+    expect(validateEvent(optionsEvent(noTime)).success).toBe(false);
+  });
+
+  it("refuses refs, labels or a negative count: counts only", () => {
+    expect(
+      validateEvent(optionsEvent({ ...valid, branches: { ...counts, refs: ["1"] } })).success,
+    ).toBe(false);
+    expect(validateEvent(optionsEvent({ ...valid, labels: ["Pune"] })).success).toBe(false);
+    expect(
+      validateEvent(optionsEvent({ ...valid, courses: { ...counts, added: -1 } })).success,
+    ).toBe(false);
+  });
+});
+
 describe("voice_note.uploaded duration guard", () => {
   function voiceEvent(duration: number): Record<string, unknown> {
     return {
@@ -3480,8 +3581,11 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 272 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed + the B13 ai.fallback_alert_raised/cleared pair + the payer.account_deleted QA seam + the #2701 restricted-session issue + the six #2566 admin posting-control events + the B2 ai.cost_recorded_v2 + the #2564 payer.archived/restored/company_updated trio + the three B5 Candidates search/audit events + the #2752 worker.institute_linked + its worker.institute_unlinked + the two named-company search grant events + the #2746 job_posting.audience_set + the #2752 Campus application pair and payer.institute_company_created)", () => {
-    expect(EVENT_NAMES).toHaveLength(272);
+  it("exposes all 274 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed + the B13 ai.fallback_alert_raised/cleared pair + the payer.account_deleted QA seam + the #2701 restricted-session issue + the six #2566 admin posting-control events + the B2 ai.cost_recorded_v2 + the #2564 payer.archived/restored/company_updated trio + the three B5 Candidates search/audit events + the #2752 worker.institute_linked + its worker.institute_unlinked + the two named-company search grant events + the #2746 job_posting.audience_set + the #2752 Campus application pair and payer.institute_company_created + the #2746 PR 5 job_posting.rvm_reviewed and job_posting.rvm_targeting_options_set)", () => {
+    expect(EVENT_NAMES).toHaveLength(274);
+    // #2746 PR 5 — the Campus review decision and the targeting-options replacement (new names).
+    expect(isEventName("job_posting.rvm_reviewed")).toBe(true);
+    expect(isEventName("job_posting.rvm_targeting_options_set")).toBe(true);
     // #2746 — a company set or changed who sees a posting (a new name; no schema mutated).
     expect(isEventName("job_posting.audience_set")).toBe(true);
     // B5 (#2559) — the Candidates lookup audit + search-cap breach + budget alert (new names).

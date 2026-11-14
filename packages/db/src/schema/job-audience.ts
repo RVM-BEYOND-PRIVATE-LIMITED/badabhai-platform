@@ -136,6 +136,11 @@ export const rvmTargetingOptions = pgTable(
     label: text("label").notNull(),
     active: boolean("active").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
+    // #2746 PR 5: NOT a BadaBhai write time. Every applied `PUT targeting-options` stamps EVERY row
+    // with Campus's `as_of` for that list, so `max(updated_at)` is the last applied `as_of`, the
+    // high-water mark a late list is refused against (`CampusTargetingOptionsRepository`). A hand
+    // insert or fix-up must set it too: to the `as_of` of the list it belongs to, never `now()`
+    // ahead of it, or Campus's next list reads as older and is refused.
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
