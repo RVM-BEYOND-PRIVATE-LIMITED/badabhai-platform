@@ -281,10 +281,6 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
                     : "Standard"
                 : undefined;
             const perUnlock = Math.round(p.priceInr / p.credits);
-            const saving =
-              p.listPriceInr !== undefined && p.listPriceInr > p.priceInr
-                ? Math.round(((p.listPriceInr - p.priceInr) / p.listPriceInr) * 100)
-                : null;
             return (
               <Card
                 key={p.code}
@@ -292,7 +288,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
               >
                 {best ? (
                   <span className="cred-pack__ribbon">
-                    <Icon name="medal" /> BEST VALUE{saving !== null ? ` · SAVE ${saving}%` : ""}
+                    <Icon name="medal" /> BEST VALUE
                   </span>
                 ) : null}
                 <div className="cred-pack__head">
@@ -304,7 +300,6 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
                     <s className="price-was">{formatInr(p.listPriceInr)}</s>
                   ) : null}
                   <strong className="bb-mono">{formatInr(p.priceInr)}</strong>
-                  <span className="cred-pack__gst">+ GST</span>
                 </div>
                 <p className="cred-pack__line">
                   <Icon name="check" /> <span className="bb-mono">{p.credits}</span> unlock credits

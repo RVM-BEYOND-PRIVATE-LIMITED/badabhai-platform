@@ -6,11 +6,11 @@ import {
   offeredCreditPacks,
   unlockUnitPriceInr,
 } from "../../../lib/pricing-config";
-import { addMonthsIso } from "../../../lib/credit-history";
 import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
 
 /**
- * CREDITS PAGE render tests — assert the page actually surfaces the nudge / history / expiry
+ * CREDITS PAGE render tests — assert the page actually surfaces the nudge / history (and no
+ * credit expiry or invoice, which the server does not apply yet — #2741)
  * and that packs + unit price + the nudge threshold are PROVABLY config-sourced (not literals).
  *
  * The data seam (`payer-api`) is mocked so we control the balance + unlock/top-up ledger; but
@@ -254,15 +254,18 @@ describe("credits page — (b) history renders unlock + top-up rows", () => {
   });
 });
 
-describe("credits page — (c) expiry shows purchase + 12 months", () => {
-  it("renders the purchase date and the +12-month expiry date", async () => {
+describe("credits page — (c) #2741: nothing the server does not do", () => {
+  it("shows no credit expiry, validity date or invoice promise", async () => {
     const purchased = "2026-01-10T08:00:00.000Z";
     const { joined } = await render({ balance: 50, topUps: [topUp({ createdAt: purchased })] });
-    expect(joined).toMatch(/Credit Expiry/i);
-    expect(joined).toContain("2026-01-10"); // purchased
-    // +12 months via the same pure helper the page uses → 2027-01-10.
-    expect(joined).toContain(addMonthsIso(purchased, 12).slice(0, 10));
-    expect(joined).toContain("2027-01-10");
+    expect(joined).toContain("2026-01-10"); // the purchase itself still shows in the history
+    // The server stores no expiry, spends credits in no set order and issues no invoice (BB-D-04).
+    expect(joined).not.toMatch(/Credit Expiry/i);
+    expect(joined).not.toMatch(/valid until|valid for|validity/i);
+    expect(joined).not.toMatch(/expir/i);
+    expect(joined).not.toMatch(/oldest credits/i);
+    expect(joined).not.toMatch(/invoice/i);
+    expect(joined).not.toContain("2027-01-10"); // no browser-computed +12-month date
   });
 });
 
@@ -387,8 +390,8 @@ describe("credits page — (f) D-6: the LIVE catalog drives the render; fallback
 /**
  * UI-1 PAGE SPINE — the screen composes onto the shared primitives (page-head / stat-row /
  * section / panel--table / alert / state) instead of its own `dash-title` / `credits-section` /
- * `credits-state` / `credits-empty` names, and BOTH data surfaces (history + expiry) now carry
- * a real empty state and a real error state rather than rendering nothing at all.
+ * `credits-state` / `credits-empty` names, and the history surface carries a real empty state
+ * and a real error state rather than rendering nothing at all.
  */
 describe("credits page — (g) UI-1 page spine + real empty/error states", () => {
   it("renders the spine primitives and none of the retired bespoke class names", async () => {
@@ -427,14 +430,12 @@ describe("credits page — (g) UI-1 page spine + real empty/error states", () =>
     expect(joined).toMatch(/running low/i); // intent of (a) preserved through the new markup
   });
 
-  it("an EMPTY history/expiry renders a real empty state, never a missing panel", async () => {
+  it("an EMPTY history renders a real empty state, never a missing panel", async () => {
     const { flat, classes } = await render({ balance: 50 });
-    // Both panels are present…
+    // The panel is present…
     expect(flat).toContain("Credit Movement & History");
-    expect(flat).toMatch(/Credit Expiry/i);
-    // …and each says what is empty and what to do next.
+    // …and says what is empty and what to do next.
     expect(flat).toContain("No recent credit movements");
-    expect(flat).toContain("Nothing expiring soon");
     expect(classes).toContain("cred-empty");
   });
 
@@ -493,13 +494,13 @@ describe("credits page — (h) PR-D2 wallet hero + scrollable ledgers", () => {
     expect(classes.some((c) => c.includes("cred-hero__num"))).toBe(true);
   });
 
-  it("each ledger is a focusable, labelled region wrapping a no-wrap table", async () => {
+  it("the ledger is a focusable, labelled region wrapping a no-wrap table", async () => {
     setData({ balance: 50, unlocks: [unlock()], topUps: [topUp()] });
     const tree = (await CreditsPage()) as ReactElement;
     const wraps = byClass(tree, "tablewrap");
-    expect(wraps).toHaveLength(2);
+    expect(wraps).toHaveLength(1);
     const labels = wraps.map((w) => (w.props as Record<string, unknown>)["aria-label"]);
-    expect(labels).toEqual(["Credit history", "Credit expiry"]);
+    expect(labels).toEqual(["Credit history"]);
     for (const w of wraps) {
       const props = w.props as Record<string, unknown>;
       expect(props.tabIndex).toBe(0);
