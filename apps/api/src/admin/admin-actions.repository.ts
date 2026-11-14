@@ -15,6 +15,7 @@ import {
   workerFlags,
   workers,
 } from "@badabhai/db";
+import { restampCompanyDriveRequests } from "../campus-drives/campus-drive-feed-stamp";
 import { DATABASE } from "../database/database.module";
 import type { WorkerStatus } from "@badabhai/types";
 
@@ -83,6 +84,10 @@ export class AdminActionsRepository {
    *
    * Returns the new status only when the row actually changed. `tx` runs the write on a
    * caller-provided transaction (H3) so it commits with the event atomically.
+   *
+   * #2746 PR 6 — a suspended company is withdrawn from Campus's drive feed (owner ruling R2), so
+   * the moved row re-stamps the company's drive requests on the same `tx`
+   * (`restampCompanyDriveRequests`), as {@link reinstatePayer} does.
    */
   async suspendPayer(
     id: string,
@@ -97,6 +102,7 @@ export class AdminActionsRepository {
       })
       .where(and(eq(payers.id, id), inArray(payers.status, ["pending", "active"])))
       .returning({ status: payers.status, previousStatus: payers.previousStatus });
+    if (row) await restampCompanyDriveRequests(tx, [id]);
     return row;
   }
 
@@ -126,6 +132,7 @@ export class AdminActionsRepository {
       })
       .where(and(eq(payers.id, id), eq(payers.status, "suspended")))
       .returning({ status: payers.status });
+    if (row) await restampCompanyDriveRequests(tx, [id]);
     return row;
   }
 

@@ -30,6 +30,7 @@ import {
   type PayerRole,
   type PayerStatus,
 } from "@badabhai/db";
+import { restampCompanyDriveRequests } from "../../campus-drives/campus-drive-feed-stamp";
 import { DATABASE } from "../../database/database.module";
 
 /** The list/detail filter, already resolved to keyed lookups (no plaintext reaches SQL). */
@@ -327,6 +328,10 @@ export class AdminCompaniesRepository {
    * Create-or-update the company record for its kind on the caller's transaction. An employer
    * writes `employer_profiles`, an agency `agency_profiles`; the service has already refused the
    * other kind's fields, so every column named here exists on the target table.
+   *
+   * #2746 PR 6 — an employer write that sets the verification or the GSTIN can withdraw the company
+   * from Campus's drive feed or bring it back (owner ruling R2), so it re-stamps the company's drive
+   * requests on the same `tx` (`restampCompanyDriveRequests`).
    */
   async upsertProfile(
     role: PayerRole,
@@ -349,6 +354,9 @@ export class AdminCompaniesRepository {
           target: employerProfiles.payerId,
           set: { ...employerColumns, updatedAt: now },
         });
+      if ("verificationStatus" in employerColumns || "gstNumberEnc" in employerColumns) {
+        await restampCompanyDriveRequests(tx, [payerId]);
+      }
       return;
     }
     const { industry: _i, companySize: _c, hiringLocations: _h, ...agencyColumns } = columns;
@@ -396,7 +404,8 @@ export class AdminCompaniesRepository {
   /**
    * Archive ONE login: `status → archived`, `previous_status ← the status it left` (in-statement,
    * no read-then-write). Guarded on not-already-archived so a retry is a no-op. Returns the status
-   * the login left, or undefined when nothing moved.
+   * the login left, or undefined when nothing moved. A moved login re-stamps the drive requests
+   * keyed on it (#2746 PR 6, owner ruling R2: an archived company is withdrawn from Campus).
    */
   async archiveLogin(
     id: string,
@@ -408,6 +417,7 @@ export class AdminCompaniesRepository {
       .where(and(eq(payers.id, id), ne(payers.status, "archived")))
       .returning({ id: payers.id, leftStatus: payers.previousStatus });
     if (!row) return undefined;
+    await restampCompanyDriveRequests(tx, [row.id]);
     return { id: row.id, leftStatus: row.leftStatus ?? "pending" };
   }
 
@@ -415,7 +425,8 @@ export class AdminCompaniesRepository {
    * Restore ONE login to the status it held before the archive. A NULL `previous_status` cannot
    * occur for a row this archive wrote; it falls back to `pending`, the fail-closed direction
    * (ADR-0037's reinstate rule). `previous_status` is cleared so it only ever describes a
-   * CURRENT archive or suspension.
+   * CURRENT archive or suspension. A moved login re-stamps the drive requests keyed on it, as the
+   * archive does.
    */
   async restoreLogin(
     id: string,
@@ -430,6 +441,7 @@ export class AdminCompaniesRepository {
       })
       .where(and(eq(payers.id, id), eq(payers.status, "archived")))
       .returning({ id: payers.id, status: payers.status });
+    if (row) await restampCompanyDriveRequests(tx, [row.id]);
     return row;
   }
 

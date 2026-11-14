@@ -7,7 +7,10 @@ import {
   type ExecutionContext,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { createDbClient, type DbClient } from "@badabhai/db";
+import { sql } from "drizzle-orm";
+import { createDbClient, type Database, type DbClient } from "@badabhai/db";
+import { AdminActionsRepository } from "../admin/admin-actions.repository";
+import { AdminCompaniesRepository } from "../admin/companies/admin-companies.repository";
 import {
   CampusDriveDecisionBodySchema,
   CampusDriveRequestsQuerySchema,
@@ -51,11 +54,14 @@ import { PayerCampusDriveRequestsController } from "./payer-campus-drive-request
  *   - owner ruling R1: the switch gates NEW requests only — off or removed from the pilot, a
  *     company still cancels, and Campus still lists and decides, cancellations and erasures
  *     included;
- *   - owner ruling R2: a company whose verification is withdrawn or whose account is suspended is
- *     shown to Campus with status and dates only and cannot be decided, and the withdrawal and the
- *     reinstatement both reach the feed (its `changed_at` follows the company record);
+ *   - owner ruling R2, through the REAL admin writers (migration review M1): a verification
+ *     change, a GSTIN removal, a suspension and an archive each re-stamp the company's requests in
+ *     their own transaction, so the request re-enters the feed with a newer `changed_at` and the
+ *     withdrawn shape (no contact, no roles note), and cannot be decided; each restore brings the
+ *     full item back the same way; a login, which stamps `payers.updated_at`, moves nothing;
  *   - THE RACE: a Campus decision and the company's cancel on two connections serialise on the
- *     request row's `FOR UPDATE` (the second waits — seen in `pg_stat_activity` — then decides
+ *     request row's `FOR UPDATE` (the second waits on the parked backend — `pg_blocking_pids` —
+ *     then decides
  *     against the committed row), never a 40P01, and one wins cleanly either way round;
  *   - DPDP erasure: the account deletion erases the contacts a login entered on requests that
  *     outlive it, in the row delete's transaction (a delete that fails — the `employer_profiles`
@@ -343,13 +349,15 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     const gate = new Promise<void>((r) => (release = r));
     let inserted!: () => void;
     const holding = new Promise<void>((r) => (inserted = r));
+    let pidA = 0;
     const insertA = repoA.insert.bind(repoA);
-    repoA.insert = async (...args) => {
-      const row = await insertA(...args);
-      inserts.push({ who: "A", row });
+    repoA.insert = async (tx, row) => {
+      const made = await insertA(tx, row);
+      inserts.push({ who: "A", row: made });
+      pidA = await backendPid(tx);
       inserted();
       await gate;
-      return row;
+      return made;
     };
     const repoB = new CampusDriveRequestsRepository(raceClient.db);
     const insertB = repoB.insert.bind(repoB);
@@ -374,8 +382,8 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
         "t2746d-key-0003",
         CTX,
       );
-      // B's insert is a lock waiter on A's uncommitted key.
-      await waitForLockWaiter();
+      // B's insert is a lock waiter on A's uncommitted key: blocked by A's backend, not any other.
+      await waitForLockWaiter(pidA);
       release();
       const [a, b] = await Promise.allSettled([creatingA, creatingB]);
       expect(a.status).toBe("fulfilled");
@@ -599,65 +607,117 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
 
   // ── Owner ruling R2: withdrawn from Campus ──────────────────────────────────
 
-  it("R2: verification withdrawn, then the account suspended — the feed strips the item and a decision is 409; reinstated, both come back, and every change reaches the feed", async () => {
+  it("R2 through the REAL admin writers: verification, GSTIN, suspension and archive each re-enter the feed with a newer changed_at, withdrawn; each restore brings the full item back the same way", async () => {
     const made = await company().create(WITHDRAWN, body({ openings: 71 }), "t2746d-key-0071", CTX);
+    const companies = new AdminCompaniesRepository(client.db);
+    const actions = new AdminActionsRepository(client.db);
+    const inTx = <T>(work: (tx: Database) => Promise<T>): Promise<T> =>
+      client.db.transaction((tx) => work(tx as unknown as Database));
     const itemOf = async (since?: string) =>
       (await feedOf(since === undefined ? {} : { changed_since: since })).drive_requests.find(
         (r) => r.id === made.id,
       );
-    const full = (await itemOf())!;
-    expect(full).toMatchObject({ company_withdrawn: false, roles_note: ROLES_NOTE });
-    expect(full.contact).toEqual({ name: CONTACT_NAME, phone: CONTACT_PHONE });
 
-    // An admin withdraws the verification (the company-record writer stamps updated_at).
-    await client.sql`
-      UPDATE employer_profiles SET verification_status = 'pending', updated_at = clock_timestamp()
-       WHERE payer_id = ${WITHDRAWN}::uuid`;
-    const stripped = await itemOf(full.changed_at);
-    expect(stripped).toMatchObject({
-      company_withdrawn: true,
-      contact: null,
-      roles_note: null,
-      status: "requested",
-      preferred_from: PREFERRED_FROM,
-      preferred_to: PREFERRED_TO,
-    });
-    expect(Date.parse(stripped!.changed_at)).toBeGreaterThan(Date.parse(full.changed_at));
-    const refused = await caught(() => campus().decide(made.id, decision(), CALL));
-    expect((refused as ConflictException).getResponse()).toMatchObject({
-      code: "COMPANY_WITHDRAWN",
-    });
+    let last = (await itemOf())!;
+    expect(last).toMatchObject({ company_withdrawn: false, roles_note: ROLES_NOTE });
+    expect(last.contact).toEqual({ name: CONTACT_NAME, phone: CONTACT_PHONE });
+
+    /**
+     * After a writer: read from the last `changed_at`, as Campus polls, the request is there with a
+     * STRICTLY newer `changed_at` (microsecond UTC text, so a string compare is a time compare), in
+     * the withdrawn or the full shape.
+     */
+    const reenters = async (writer: string, withdrawn: boolean) => {
+      const next = await itemOf(last.changed_at);
+      expect(next, `${writer}: the request re-entered the feed`).toBeDefined();
+      expect(next!.changed_at > last.changed_at, `${writer}: ${next!.changed_at}`).toBe(true);
+      if (withdrawn) {
+        expect(next, writer).toMatchObject({
+          company_withdrawn: true,
+          contact: null,
+          roles_note: null,
+          openings: 71,
+          branch_ids: [BRANCH_A, BRANCH_B],
+          preferred_from: PREFERRED_FROM,
+          preferred_to: PREFERRED_TO,
+        });
+        expect(JSON.stringify(next), writer).not.toContain(CONTACT_NAME);
+      } else {
+        expect(next, writer).toMatchObject({ company_withdrawn: false, roles_note: ROLES_NOTE });
+        expect(next!.contact, writer).toEqual({ name: CONTACT_NAME, phone: CONTACT_PHONE });
+      }
+      last = next!;
+    };
+    const refusedWhileWithdrawn = async (writer: string) => {
+      const reschedule = decision({ decided_at: new Date(Date.now() - 1_000).toISOString() });
+      const err = await caught(() => campus().decide(made.id, reschedule, CALL));
+      expect((err as ConflictException).getResponse(), writer).toMatchObject({
+        code: "COMPANY_WITHDRAWN",
+      });
+    };
+
+    // The admin Companies surface withdraws the verification, then approves the company again.
+    await inTx((tx) =>
+      companies.upsertProfile("employer", WITHDRAWN, { verificationStatus: "pending" }, tx),
+    );
+    await reenters("verification withdrawn", true);
+    await refusedWhileWithdrawn("verification withdrawn");
     expect((await stored({ id: made.id }))[0]!.status).toBe("requested");
-
-    // Reinstated: the full item comes back in the feed, and the decision goes through.
-    await client.sql`
-      UPDATE employer_profiles SET verification_status = 'verified', updated_at = clock_timestamp()
-       WHERE payer_id = ${WITHDRAWN}::uuid`;
-    const back = await itemOf(stripped!.changed_at);
-    expect(back).toMatchObject({ company_withdrawn: false, roles_note: ROLES_NOTE });
-    expect(back!.contact).toEqual({ name: CONTACT_NAME, phone: CONTACT_PHONE });
+    await inTx((tx) =>
+      companies.upsertProfile("employer", WITHDRAWN, { verificationStatus: "verified" }, tx),
+    );
+    await reenters("verification restored", false);
     await expect(campus().decide(made.id, decision(), CALL)).resolves.toMatchObject({
       status: "scheduled",
     });
+    last = (await itemOf())!;
 
-    // The account suspended (the admin writer stamps payers.updated_at): withdrawn again.
-    const beforeSuspend = (await itemOf())!.changed_at;
-    await client.sql`
-      UPDATE payers SET status = 'suspended', previous_status = 'active', updated_at = clock_timestamp()
-       WHERE id = ${WITHDRAWN}::uuid`;
-    expect(await itemOf(beforeSuspend)).toMatchObject({ company_withdrawn: true, contact: null });
-    const reschedule = decision({
-      decided_at: new Date(Date.now() - 1_000).toISOString(),
-      scheduled_on: addDays(DRIVE_DAY, 1),
+    // The GSTIN removed, then put back.
+    await inTx((tx) =>
+      companies.upsertProfile(
+        "employer",
+        WITHDRAWN,
+        { gstNumberEnc: null, gstNumberHash: null },
+        tx,
+      ),
+    );
+    await reenters("GSTIN removed", true);
+    await refusedWhileWithdrawn("GSTIN removed");
+    await inTx((tx) =>
+      companies.upsertProfile(
+        "employer",
+        WITHDRAWN,
+        { gstNumberEnc: pii.encrypt("27ABCDE1234F1Z5") },
+        tx,
+      ),
+    );
+    await reenters("GSTIN restored", false);
+
+    // The account suspended (ADR-0037), then reinstated.
+    expect(await inTx((tx) => actions.suspendPayer(WITHDRAWN, tx))).toMatchObject({
+      status: "suspended",
     });
-    const suspended = await caught(() => campus().decide(made.id, reschedule, CALL));
-    expect((suspended as ConflictException).getResponse()).toMatchObject({
-      code: "COMPANY_WITHDRAWN",
+    await reenters("suspended", true);
+    await refusedWhileWithdrawn("suspended");
+    expect(await inTx((tx) => actions.reinstatePayer(WITHDRAWN, tx))).toMatchObject({
+      status: "active",
     });
-    await client.sql`
-      UPDATE payers SET status = 'active', previous_status = NULL, updated_at = clock_timestamp()
-       WHERE id = ${WITHDRAWN}::uuid`;
-    expect(await itemOf()).toMatchObject({ company_withdrawn: false });
+    await reenters("reinstated", false);
+
+    // The company archived (#2564), then restored.
+    expect(await inTx((tx) => companies.archiveLogin(WITHDRAWN, tx))).toMatchObject({
+      id: WITHDRAWN,
+    });
+    await reenters("archived", true);
+    await refusedWhileWithdrawn("archived");
+    expect(await inTx((tx) => companies.restoreLogin(WITHDRAWN, tx))).toMatchObject({
+      status: "active",
+    });
+    await reenters("restored", false);
+
+    // A login stamps payers.updated_at and changes no standing: the request does not move.
+    await new PayersRepository(client.db, pii).recordLogin(WITHDRAWN);
+    expect((await itemOf())!.changed_at).toBe(last.changed_at);
   }, 30_000);
 
   // ── The race ────────────────────────────────────────────────────────────────
@@ -672,33 +732,42 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     const gate = new Promise<void>((r) => (release = r));
     let locked!: () => void;
     const holding = new Promise<void>((r) => (locked = r));
+    const parked = { pid: 0 };
     const lockForDecision = repo.lockForDecision.bind(repo);
-    repo.lockForDecision = async (...args) => {
-      const row = await lockForDecision(...args);
+    repo.lockForDecision = async (tx, id, decidedAt) => {
+      const row = await lockForDecision(tx, id, decidedAt);
+      parked.pid = await backendPid(tx);
       locked();
       await gate;
       return row;
     };
     const lockOwn = repo.lockOwn.bind(repo);
-    repo.lockOwn = async (...args) => {
-      const row = await lockOwn(...args);
+    repo.lockOwn = async (tx, tenant, id) => {
+      const row = await lockOwn(tx, tenant, id);
+      parked.pid = await backendPid(tx);
       locked();
       await gate;
       return row;
     };
-    return { repo, release, holding };
+    return { repo, release, holding, parked };
   }
 
-  async function waitForLockWaiter(): Promise<void> {
+  /**
+   * Waits until a statement on `campus_drive_requests` is blocked by the PARKED transaction's
+   * backend (`pg_blocking_pids`), so a lock wait elsewhere in the database cannot pass for it.
+   */
+  async function waitForLockWaiter(blockerPid: number): Promise<void> {
+    expect(blockerPid, "the parked transaction's backend pid").toBeGreaterThan(0);
     for (let i = 0; i < 100; i += 1) {
       const [row] = await client.sql<{ n: number }[]>`
         SELECT count(*)::int AS n FROM pg_stat_activity
-         WHERE datname = current_database() AND wait_event_type = 'Lock'
+         WHERE datname = current_database()
+           AND ${blockerPid}::int = ANY(pg_blocking_pids(pid))
            AND query ILIKE '%campus_drive_requests%'`;
       if ((row?.n ?? 0) >= 1) return;
       await new Promise((r) => setTimeout(r, 50));
     }
-    throw new Error("the second transaction never waited on the row lock");
+    throw new Error(`no statement waited on the parked backend ${blockerPid}`);
   }
 
   it("decision first, cancel waits: the drive is scheduled, then cancelled from scheduled; no 40P01", async () => {
@@ -709,7 +778,7 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     try {
       await parked.holding;
       cancelling = company().cancel(COMPANY, made.id, CTX);
-      await waitForLockWaiter();
+      await waitForLockWaiter(parked.parked.pid);
       parked.release();
       const [decided, cancelled] = await Promise.allSettled([deciding, cancelling]);
       for (const r of [decided, cancelled]) {
@@ -737,7 +806,7 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     try {
       await parked.holding;
       deciding = campus().decide(made.id, decision(), CALL);
-      await waitForLockWaiter();
+      await waitForLockWaiter(parked.parked.pid);
       parked.release();
       const [cancelled, decided] = await Promise.allSettled([cancelling, deciding]);
       expect(cancelled).toMatchObject({ status: "fulfilled", value: { status: "cancelled" } });
@@ -865,6 +934,14 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     expect(await stored({ id: made.id })).toEqual([]);
   }, 30_000);
 });
+
+/** The backend pid of the connection running `tx`. */
+async function backendPid(tx: Database): Promise<number> {
+  const rows = (await tx.execute(sql`SELECT pg_backend_pid()::int AS pid`)) as unknown as {
+    pid: number;
+  }[];
+  return Number(rows[0]!.pid);
+}
 
 async function seed(client: DbClient): Promise<void> {
   const { sql } = client;

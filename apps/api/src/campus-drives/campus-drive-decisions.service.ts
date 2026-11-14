@@ -24,7 +24,7 @@ import {
   type CampusErrorCode,
 } from "../campus-link/campus-link.contract";
 import { decodeDriveCursor, encodeDriveCursor } from "./campus-drive-cursor";
-import { indiaDay, latestDriveDay } from "./campus-drive-dates";
+import { addDays, DRIVE_MAX_DAYS_AHEAD, indiaDay } from "./campus-drive-dates";
 import { driveCompanyWithdrawn } from "./campus-drive-eligibility";
 import {
   CampusDriveRequestsRepository,
@@ -104,21 +104,28 @@ function feedSince(changedSince: string | undefined): string | undefined {
  * WITHDRAWN FROM CAMPUS (owner ruling R2). A company that would not pass the create check today
  * (verification withdrawn, GSTIN removed), or whose account an admin suspended or archived, is
  * WITHDRAWN (`driveCompanyWithdrawn`, read in the same statement as the request). Its requests stay
- * in the feed with status and dates only, flagged `company_withdrawn`: no contact and no roles
- * note. A decision on one is 409 `COMPANY_WITHDRAWN`, nothing stored. The full item comes back as
- * soon as the company is verified or reinstated: the standing is read live, and the feed's
- * `changed_at` follows the company record, so Campus pulls the request again either way.
+ * in the feed, flagged `company_withdrawn`, WITHOUT the contact and the roles note (both `null`);
+ * every other field stays: status, company id and name, posting, branches, dates, openings,
+ * schedule, the latest decision and its reason, `is_test`, the times (security re-check N4). A
+ * decision on one is 409 `COMPANY_WITHDRAWN`, nothing stored. The full item comes back as
+ * soon as the company is verified or reinstated: the standing is read live, and every writer of it
+ * re-stamps the company's requests in its own transaction (`restampCompanyDriveRequests`), so the
+ * request's own `updated_at`, the feed's `changed_at`, moves and Campus pulls it again.
+ * Withdrawn is checked BEFORE the replay: a same-body retry of a decision that was stored before
+ * the withdrawal answers 409 `COMPANY_WITHDRAWN` too, although the decision is stored.
  *
  * THE FEED discloses each listed request's CONTACT (name and phone, decrypted) and the company's
  * display name to RVM's placement team, which calls the company to arrange the drive: the purpose
  * the contact was collected for. Test companies' requests are listed with `is_test: true`.
  *
  * A DECISION: `decided_at` checked by the shared Campus clock rule (`assertCampusTime`: not before
- * `CAMPUS_EARLIEST_DECISION_TIME`, not more than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead), and a
- * `scheduled_on` from today in India to a year ahead (400, before any read); the request row
- * `FOR UPDATE`; then withdrawn → 409 `COMPANY_WITHDRAWN`; then `judgeDriveDecision` (ordering by
- * `decided_at`, then the transitions, then a completion no earlier than the drive's date;
- * `campus-drive-transitions.ts`). A write stores Campus's `decided_at`, emits
+ * `CAMPUS_EARLIEST_DECISION_TIME`, not more than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead; 400 before any
+ * read); the request row `FOR UPDATE`; then withdrawn → 409 `COMPANY_WITHDRAWN`; then
+ * `judgeDriveDecision` (ordering by `decided_at`, then the transitions, then a completion no earlier
+ * than the drive's date; `campus-drive-transitions.ts`); then, for a write only, a `scheduled_on`
+ * from the DECISION's day in India (`decided_at`'s, not the server's today) to a year after it
+ * (400). After the replay on purpose: a same-body retry after midnight answers its 200 replay.
+ * A write stores Campus's `decided_at`, emits
  * `campus_drive.decided` v1 and writes the staff member's `audit_logs` row (actor = the
  * `decided_by_ref`, `CAMPUS_STAFF_ACTOR_TYPE`) in the same transaction. A replay writes nothing and
  * answers the held decision, only while it is still the request's current state (a request the
@@ -167,7 +174,7 @@ export class CampusDriveDecisionsService {
       drive_requests: page.map((row) => this.item(row)),
       next_cursor:
         rows.length > query.limit && last !== undefined
-          ? encodeDriveCursor("campus", { at: last.feedChangedKey, id: last.id })
+          ? encodeDriveCursor("campus", { at: last.changedKey, id: last.id })
           : null,
     };
   }
@@ -180,7 +187,6 @@ export class CampusDriveDecisionsService {
   ): Promise<CampusDriveDecisionResult> {
     // The body first: a time before the floor or from BadaBhai's future is 400, before any read.
     assertCampusTime("decided_at", body.decided_at);
-    if (body.decision === "scheduled") assertDriveDay(body.scheduled_on);
     // A malformed id cannot name a request: the same 404 as an unknown one, before any read.
     if (!isCanonicalUuid(requestId)) throw neutralNotFound();
 
@@ -222,6 +228,9 @@ export class CampusDriveDecisionsService {
               : { status: held.status },
           );
         case "write": {
+          // The drive's day, after the replay (a same-body retry is 200 whatever the date), against
+          // the decision's own day in India. A 400 here stores nothing: the transaction rolls back.
+          if (input.scheduledOn !== null) assertDriveDay(input.scheduledOn, input.decidedOn);
           const written = await this.repo.writeDecision(tx, id, {
             ...outcome.write,
             decidedAt: body.decided_at,
@@ -304,7 +313,8 @@ export class CampusDriveDecisionsService {
 
   /**
    * One feed item: the contact and the company name decrypted for the placement team. A withdrawn
-   * company's request keeps its status and dates only: no contact, no roles note (owner ruling R2).
+   * company's request drops its contact and its roles note and keeps every other field (owner
+   * ruling R2; security re-check N4).
    */
   private item(row: DriveFeedRow): CampusDriveRequestItem {
     const companyWithdrawn = withdrawn(row);
@@ -335,7 +345,7 @@ export class CampusDriveDecisionsService {
       is_test: row.isTest,
       requested_at: row.createdKey,
       cancelled_at: row.cancelledKey,
-      changed_at: row.feedChangedKey,
+      changed_at: row.changedKey,
     };
   }
 
@@ -346,14 +356,17 @@ export class CampusDriveDecisionsService {
 }
 
 /**
- * SECURITY REVIEW L1 — a drive is scheduled for a day from today in India to a year ahead. A date
- * in the past cannot be a drive the company can still attend, and one years out is a typo; 400
- * `VALIDATION_FAILED` naming `scheduled_on`, before any read.
+ * SECURITY REVIEW L1, N7 — a drive is scheduled for a day from the DECISION's day in India
+ * (`decidedOn`, from `decided_at`) to a year after it. A day before the decision cannot be a drive
+ * the company can still attend, and one years out is a typo; 400 `VALIDATION_FAILED` naming
+ * `scheduled_on`. Bounded by the decision's day, not the server's: the same body is judged the
+ * same way whenever it arrives (migration review L1).
  */
-function assertDriveDay(scheduledOn: string, now: Date = new Date()): void {
-  const today = indiaDay(now);
-  if (scheduledOn < today) throw campusInvalid("scheduled_on", "before today in India");
-  if (scheduledOn > latestDriveDay(now)) {
-    throw campusInvalid("scheduled_on", "more than a year after today in India");
+function assertDriveDay(scheduledOn: string, decidedOn: string): void {
+  if (scheduledOn < decidedOn) {
+    throw campusInvalid("scheduled_on", "before the decision's day in India (decided_at)");
+  }
+  if (scheduledOn > addDays(decidedOn, DRIVE_MAX_DAYS_AHEAD)) {
+    throw campusInvalid("scheduled_on", "more than a year after the decision's day in India");
   }
 }

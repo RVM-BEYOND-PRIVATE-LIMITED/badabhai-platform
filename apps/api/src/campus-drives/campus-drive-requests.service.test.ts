@@ -385,6 +385,50 @@ describe("who may ask: a verified employer only", () => {
     expect((await service.list(COMPANY, { limit: 20 })).drive_requests).toHaveLength(1);
     expect((await service.list(MEMBER, { limit: 20 })).drive_requests).toHaveLength(1);
   });
+
+  it.each(["suspended", "archived", "pending"] as const)(
+    "under tenancy `on`, a team member of a company whose account is %s gets 403 company_not_active: the anchor's status is read, as R2 reads it (migration review L2)",
+    async (status) => {
+      const tenancy = resolverOver(
+        loadServerConfig({ NODE_ENV: "test", PAYER_ORG_TENANCY_MODE: "on" }),
+        [{ anchor: COMPANY, members: [MEMBER] }],
+      );
+      const { service, table, events } = world({ tenancy });
+      // The member's own login is active and verified-looking; the COMPANY (the anchor) is not.
+      table.facts.set(MEMBER, {
+        role: "employer",
+        verificationStatus: "verified",
+        hasGstNumber: true,
+        isTestAccount: false,
+      });
+      table.facts.set(COMPANY, {
+        role: "employer",
+        status,
+        verificationStatus: "verified",
+        hasGstNumber: true,
+        isTestAccount: false,
+      });
+      const err = await refusal(() => service.create(MEMBER, body(), "key-0000001", CTX));
+      expect(err).toBeInstanceOf(ForbiddenException);
+      expect(err.getResponse()).toMatchObject({ reason: "company_not_active" });
+      expect(table.rows).toEqual([]);
+      expect(events.emitted).toEqual([]);
+    },
+  );
+
+  it("the account is checked before the verification: a suspended, unverified company hears company_not_active", async () => {
+    const { service, table } = world();
+    table.facts.set(COMPANY, {
+      role: "employer",
+      status: "suspended",
+      verificationStatus: "pending",
+      hasGstNumber: false,
+      isTestAccount: false,
+    });
+    const err = await refusal(() => service.create(COMPANY, body(), "key-0000001", CTX));
+    expect(err.getResponse()).toMatchObject({ reason: "company_not_active" });
+    expect(table.rows).toEqual([]);
+  });
 });
 
 describe("the body's rules", () => {
@@ -457,13 +501,21 @@ describe("the body's rules", () => {
     // the shared detector missed on the raw note. Built from code points.
     ["Devanagari digits", `call ${DEVANAGARI_PHONE}`, "phone"],
     ["full-width digits", `call ${FULLWIDTH_PHONE}`, "phone"],
-    ["a slash inside the number", "call 98765/43210", "phone"],
-    ["a backslash inside the number", `call 98765${String.fromCharCode(0x5c)}43210`, "phone"],
     ["a combining mark after each digit", `call ${COMBINING_PHONE}`, "phone"],
     ["a ZWJ inside the number", `call 98765${String.fromCharCode(0x200d)}43210`, "phone"],
     ["a Mongolian vowel separator", `call 98765${String.fromCharCode(0x180e)}43210`, "phone"],
     ["a full-width at sign", `mail ravi${String.fromCharCode(0xff20)}example.com`, "email"],
     ["ASCII and Devanagari digits mixed", `call 98765${DEVANAGARI_PHONE.slice(5)}`, "phone"],
+    // Security re-check N1: IDs written with `/`, which the detector matches on the note itself
+    // (a copy alone, with `/` read as a space, lost every one). Both are screened.
+    ["a bank account (A/c no, letters)", "A/c no SBIN12345", "credential_id"],
+    ["a bank account (A/c no, digits)", "A/c no 12345678", "credential_id"],
+    ["a vehicle registration", "Reg No: MH/2019/1234", "credential_id"],
+    ["a registration number", "Regn. No. MH/12/AB/1234", "credential_id"],
+    ["a roll number", "Roll no 21/CS/045", "credential_id"],
+    ["an enrolment number", "Enrolment no 2021/ME/0456", "credential_id"],
+    ["a passport number", "Passport no K/1234567", "credential_id"],
+    ["a voter ID", "Voter ID No: XYZ/987/6543", "credential_id"],
   ])("roles_note with %s → 400 roles_note_has_identifier", async (_n, note, identifier) => {
     const { service, table } = world();
     const err = await refusal(() =>
@@ -475,6 +527,42 @@ describe("the body's rules", () => {
     expect(JSON.stringify(err.getResponse())).not.toContain(note);
     expect(table.rows).toEqual([]);
   });
+
+  it.each([
+    ["class years", "2024/2025/2026 pass-outs"],
+    ["a salary range with a slash", "12000/18000"],
+    ["a date range", "12/11/2026 - 15/11/2026"],
+    ["machine models", "VMC 850/1060/1260"],
+    ["two PIN codes", "411057/411018"],
+  ])(
+    "roles_note with %s is accepted: `/` is not a separator (owner decision, re-check N2/N3)",
+    async (_n, note) => {
+      const { service, table } = world();
+      await service.create(COMPANY, body({ roles_note: note }), "key-0000001", CTX);
+      expect(table.rows[0]!.rolesNote).toBe(note);
+    },
+  );
+
+  it.each([
+    ["a slash", "/"],
+    ["a backslash", String.fromCharCode(0x5c)],
+    ["a division slash (U+2215)", String.fromCharCode(0x2215)],
+    ["a fraction slash (U+2044)", String.fromCharCode(0x2044)],
+    ["a colon", ":"],
+    ["a tilde", "~"],
+    ["an asterisk", "*"],
+    ["a plus", "+"],
+    ["an equals sign", "="],
+    ["a katakana middle dot (U+30FB)", String.fromCharCode(0x30fb)],
+  ])(
+    "KNOWN GAP (risk R86, #2812): a phone split by %s is NOT refused yet; flip this when #2812 lands",
+    async (_n, separator) => {
+      const { service, table } = world();
+      const note = `call 98765${separator}43210`;
+      await service.create(COMPANY, body({ roles_note: note }), "key-0000001", CTX);
+      expect(table.rows[0]!.rolesNote).toBe(note);
+    },
+  );
 
   it("the screen reads a NORMALISED copy; the stored note is the cleaned ORIGINAL", async () => {
     const { service, table } = world();

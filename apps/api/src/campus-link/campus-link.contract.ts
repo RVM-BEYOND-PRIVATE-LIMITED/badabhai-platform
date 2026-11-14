@@ -553,9 +553,10 @@ export const CampusDriveRefSchema = z.string().regex(/^[A-Za-z0-9._:-]{1,200}$/)
  * The drive-request feed: EVERY request (no rollout filter, owner ruling R1). Ordered by
  * `changed_at`, then id. `changed_since` returns requests changed at or after the instant; an
  * instant before `CAMPUS_EARLIEST_DECISION_TIME` (the epoch, year 0000) is read as that floor, not
- * refused. Poll with the largest `changed_at` you processed MINUS TWO MINUTES and process items by
- * (`id`, `changed_at`), because a write commits a moment after it is stamped; an item may come back
- * unchanged. Follow `next_cursor` until it is `null`.
+ * refused. Poll with the largest `changed_at` you processed MINUS TWO MINUTES, because a write
+ * commits a moment after it is stamped, and apply every item read in the overlap window, upserting
+ * by id; a repeated id and changed_at may carry a newer state. Follow `next_cursor` until it is
+ * `null`.
  */
 export const CampusDriveRequestsQuerySchema = z.strictObject({
   status: z.enum(CAMPUS_DRIVE_REQUEST_STATUSES).optional(),
@@ -570,9 +571,11 @@ export const CampusDriveRequestSchema = z.object({
   company: z.object({ id: Id, name: z.string() }),
   /**
    * Owner ruling R2: the company is withdrawn from Campus (verification or GSTIN removed, account
-   * suspended or archived). The item then carries status and dates only: `contact` and
-   * `roles_note` are `null`, and a decision is 409 `COMPANY_WITHDRAWN`. Back to `false`, with
-   * the full item, once the company is reinstated.
+   * suspended or archived). The item then KEEPS every field but two: `id`, `status`, `company`
+   * (id and display name), `job_posting_id`, `branch_ids`, the preferred dates, `openings`,
+   * `scheduled_on`, `campus_drive_ref`, `decided_at`, `decided_by_ref`, `reason`, `is_test` and the
+   * times; it DROPS `contact` and `roles_note` (both `null`). A decision is 409
+   * `COMPANY_WITHDRAWN`. Back to `false`, with the full item, once the company is reinstated.
    */
   company_withdrawn: z.boolean(),
   /** One of the company's own postings, as context for the roles. Not necessarily for RVM. */
@@ -605,8 +608,10 @@ export const CampusDriveRequestSchema = z.object({
   requested_at: IsoDateTime,
   cancelled_at: IsoDateTime.nullable(),
   /**
-   * When BadaBhai last changed the item, microsecond UTC: the request, or its company's account or
-   * company record (a withdrawal or a reinstatement moves it). The feed's order, filter and cursor.
+   * When BadaBhai last wrote the request, microsecond UTC, by the database's clock: its own writes,
+   * and the re-stamp every writer of its company's standing runs in its own transaction (a
+   * withdrawal or a reinstatement moves it). The feed's order, filter and cursor. The standing and
+   * the company name are read with the item.
    */
   changed_at: IsoDateTime,
 });
@@ -642,7 +647,10 @@ export const CampusDriveDecisionBodySchema = z.discriminatedUnion("decision", [
   z.strictObject({
     decision: z.literal("scheduled"),
     ...driveDecisionShared,
-    /** From today in India to a year after it (400 `VALIDATION_FAILED` otherwise). */
+    /**
+     * From the decision's day in India (`decided_at`'s) to a year after it (400
+     * `VALIDATION_FAILED` otherwise), checked after the replay.
+     */
     scheduled_on: CampusDateSchema,
     campus_drive_ref: CampusDriveRefSchema,
   }),

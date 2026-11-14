@@ -65,9 +65,11 @@ export interface DriveCompanyStanding extends DriveRequesterFacts {
  * OWNER RULING R2, 14 NOV 2026 — is this company WITHDRAWN from Campus? Withdrawn = it would not
  * pass the create check today (not an employer, no admin approval, no GSTIN: the SAME reads as
  * {@link driveRequesterStanding}), or its account is not `active` (suspended or archived by an
- * admin). Campus's feed then shows its requests with status and dates only (no contact, no roles
- * note), and a decision on them is 409 `COMPANY_WITHDRAWN`. Read live on every call, so the full
- * item comes back as soon as the company is verified or reinstated again.
+ * admin). Campus's feed then shows its requests without the contact and the roles note (every
+ * other field kept), and a decision on them is 409 `COMPANY_WITHDRAWN`. Read live on every call,
+ * and every writer of these facts re-stamps the company's requests (`restampCompanyDriveRequests`),
+ * so the full item comes back in the feed as soon as the company is verified or reinstated again.
+ * The create check reads the same four facts, so no request is created withdrawn.
  */
 export function driveCompanyWithdrawn(standing: DriveCompanyStanding): boolean {
   return (

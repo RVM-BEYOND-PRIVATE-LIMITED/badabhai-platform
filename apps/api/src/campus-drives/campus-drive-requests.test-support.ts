@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { loadServerConfig, type ServerConfig } from "@badabhai/config";
-import type { CampusDriveRequestStatus } from "@badabhai/db";
+import type { CampusDriveRequestStatus, PayerStatus } from "@badabhai/db";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import type { FeaturePilotRepository } from "../feature-rollout/feature-pilot.repository";
@@ -90,7 +90,11 @@ export function uuid(n: number): string {
  */
 export class MemoryDriveRequests {
   readonly rows: (DriveRequestRow & { companyNameEnc: string })[] = [];
-  readonly facts = new Map<string, DriveRequesterFacts & { isTestAccount: boolean }>();
+  /** tenant → the create check's facts; `status` defaults to `active` when not given. */
+  readonly facts = new Map<
+    string,
+    DriveRequesterFacts & { isTestAccount: boolean; status?: PayerStatus | null }
+  >();
   /** posting id → owning tenant. */
   readonly postings = new Map<string, string>();
   /** tenant → company name ciphertext (Campus's feed). */
@@ -153,14 +157,17 @@ export class MemoryDriveRequests {
   }
 
   async requesterFacts(tenant: TenantKey) {
-    return (
-      this.facts.get(tenant) ?? {
+    const facts = this.facts.get(tenant);
+    if (facts === undefined) {
+      return {
         role: null,
+        status: null,
         isTestAccount: false,
         verificationStatus: null,
         hasGstNumber: false,
-      }
-    );
+      };
+    }
+    return { ...facts, status: facts.status === undefined ? "active" : facts.status };
   }
 
   async isOwnPosting(tenant: TenantKey, postingId: string): Promise<boolean> {
@@ -253,7 +260,7 @@ export class MemoryDriveRequests {
           (r.changedKey === filter.after.at && r.id > filter.after.id),
       )
       .slice(0, limit + 1)
-      .map((r) => ({ ...r, ...this.standingOf(r.payerId), feedChangedKey: r.changedKey }));
+      .map((r) => ({ ...r, ...this.standingOf(r.payerId) }));
   }
 
   async lockForDecision(

@@ -17,7 +17,7 @@ import { redactQueryParams } from "../common/db-error";
 import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import type { DriveCursor } from "./campus-drive-cursor";
-import type { DriveRequesterFacts } from "./campus-drive-eligibility";
+import type { DriveCompanyStanding } from "./campus-drive-eligibility";
 import type { DecisionTiming, DriveDecisionWrite } from "./campus-drive-transitions";
 
 /** Postgres's microsecond UTC text for a timestamp: a cursor key (a JS `Date` keeps only ms). */
@@ -86,17 +86,6 @@ export interface DriveCompanyColumns {
   companyHasGst: boolean;
 }
 
-/**
- * When a feed item last changed: the request, its company's account, or its company record. An
- * admin's withdrawal (verification, GSTIN, suspension, archive) stamps `payers.updated_at` or
- * `employer_profiles.updated_at` and not the request, so the feed's order, filter and cursor read
- * the GREATEST of the three (NULL-safe: a missing company record is ignored), and Campus pulls the
- * request again, stripped or restored. The same shape as PR 4's posting feed
- * (`GREATEST(review.updated_at, job_postings.updated_at)`). Not served by an index: the table is
- * small (a request per company drive), and the expression must be the cursor's key.
- */
-const FEED_CHANGED = sql`GREATEST(${campusDriveRequests.updatedAt}, ${payers.updatedAt}, ${employerProfiles.updatedAt})`;
-
 /** One request as stored (contact as ciphertext), with its microsecond cursor keys. */
 export interface DriveRequestRow {
   id: string;
@@ -131,11 +120,12 @@ export interface DriveRequestRow {
   cancelledKey: string | null;
 }
 
-/** A row of Campus's feed: the request, its company's name (ciphertext) and standing. */
+/**
+ * A row of Campus's feed: the request, its company's name (ciphertext) and standing, both read
+ * live. The item's `changed_at` and the cursor key are the request's own `changedKey`.
+ */
 export interface DriveFeedRow extends DriveRequestRow, DriveCompanyColumns {
   companyNameEnc: string;
-  /** {@link FEED_CHANGED}, microsecond UTC text: the item's `changed_at` and the cursor key. */
-  feedChangedKey: string;
 }
 
 /** The columns a create writes. The contact arrives ALREADY ENCRYPTED. */
@@ -213,15 +203,19 @@ export class CampusDriveRequestsRepository {
   }
 
   /**
-   * The facts the verified-employer rule reads, for the tenant's own `payers` row and its company
-   * record (`employer_profiles`, 1:1). No row at all reads as "not an employer, not verified".
+   * The facts the create check reads, for the TENANT's own `payers` row (the org's anchor under
+   * tenancy `on`, never the acting login's) and its company record (`employer_profiles`, 1:1):
+   * the same four the R2 withdrawn rule reads on Campus's routes (role, account status,
+   * verification, GSTIN), so a request is never created withdrawn (migration review L2). No row at
+   * all reads as "not an employer, not active, not verified".
    */
   async requesterFacts(
     tenant: TenantKey,
-  ): Promise<DriveRequesterFacts & { isTestAccount: boolean }> {
+  ): Promise<DriveCompanyStanding & { isTestAccount: boolean }> {
     const rows = await this.db
       .select({
         role: payers.role,
+        status: payers.status,
         isTestAccount: payers.isTestAccount,
         verificationStatus: employerProfiles.verificationStatus,
         hasGstNumber: sql<boolean>`(${employerProfiles.gstNumberEnc} IS NOT NULL)`,
@@ -232,7 +226,13 @@ export class CampusDriveRequestsRepository {
       .limit(1);
     const row = rows[0];
     if (row === undefined) {
-      return { role: null, isTestAccount: false, verificationStatus: null, hasGstNumber: false };
+      return {
+        role: null,
+        status: null,
+        isTestAccount: false,
+        verificationStatus: null,
+        hasGstNumber: false,
+      };
     }
     return { ...row, hasGstNumber: row.hasGstNumber === true };
   }
@@ -356,20 +356,24 @@ export class CampusDriveRequestsRepository {
 
   /**
    * Campus's feed: EVERY request (owner ruling R1: no switch filter, so nothing is skipped), in
-   * change order ({@link FEED_CHANGED} ASC, id ASC), with each company's name as ciphertext and its
-   * standing. Reads `limit + 1`.
+   * change order (`updated_at` ASC, id ASC: `campus_drive_requests_changed_idx`), with each
+   * company's name as ciphertext and its standing, read live. Reads `limit + 1`.
+   *
+   * The order, filter and cursor read the REQUEST's `updated_at` only (migration review M1). Every
+   * writer of a company's standing re-stamps its requests in its own transaction
+   * (`restampCompanyDriveRequests`, `campus-drive-feed-stamp.ts`), so a withdrawal or a
+   * reinstatement moves the request, on the database's clock, like any request write.
    */
   async listFeed(filter: DriveFeedFilter, limit: number): Promise<DriveFeedRow[]> {
     const keyset =
       filter.after === undefined
         ? undefined
-        : sql`(${FEED_CHANGED}, ${campusDriveRequests.id}) > (${filter.after.at}::timestamptz, ${filter.after.id}::uuid)`;
+        : sql`(${campusDriveRequests.updatedAt}, ${campusDriveRequests.id}) > (${filter.after.at}::timestamptz, ${filter.after.id}::uuid)`;
     return this.db
       .select({
         ...ROW_COLUMNS,
         ...COMPANY_STANDING,
         companyNameEnc: payers.orgNameEnc,
-        feedChangedKey: microsecondText(FEED_CHANGED),
       })
       .from(campusDriveRequests)
       .innerJoin(payers, eq(payers.id, campusDriveRequests.payerId))
@@ -379,11 +383,11 @@ export class CampusDriveRequestsRepository {
           filter.status === undefined ? undefined : eq(campusDriveRequests.status, filter.status),
           filter.changedSince === undefined
             ? undefined
-            : gte(FEED_CHANGED, sql`${filter.changedSince}::timestamptz`),
+            : gte(campusDriveRequests.updatedAt, sql`${filter.changedSince}::timestamptz`),
           keyset,
         ),
       )
-      .orderBy(asc(FEED_CHANGED), asc(campusDriveRequests.id))
+      .orderBy(asc(campusDriveRequests.updatedAt), asc(campusDriveRequests.id))
       .limit(limit + 1);
   }
 

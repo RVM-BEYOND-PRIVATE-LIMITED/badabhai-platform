@@ -3,7 +3,7 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Database, creditLedger, payerCredits } from "@badabhai/db";
+import { type Database, campusDriveRequests, creditLedger, payerCredits } from "@badabhai/db";
 import { AdminActionsRepository } from "./admin-actions.repository";
 
 const dialect = new PgDialect();
@@ -140,15 +140,22 @@ describe("AdminActionsRepository.suspendPayer — guarded active→suspended (id
     const res = await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID);
     expect(res).toEqual({ status: "suspended" });
     // The write set status=suspended and was guarded (the WHERE is a non-null SQL condition).
-    expect(m.updates).toHaveLength(1);
+    expect(m.updates).toHaveLength(2);
     expect(m.updates[0]!.set).toMatchObject({ status: "suspended" });
     expect(m.updates[0]!.where).toBeDefined();
+    // #2746 PR 6 (migration review M1): then the company's drive requests are re-stamped, on the
+    // same executor, so Campus's feed sees the withdrawal.
+    expect(m.updates[1]!.table).toBe(campusDriveRequests);
+    expect(Object.keys(m.updates[1]!.set)).toEqual(["updatedAt"]);
+    expect(dialect.sqlToQuery(m.updates[1]!.where as SQL).params).toEqual([PAYER_ID]);
   });
 
   it("returns undefined when no row matched the guard (already suspended → no-op)", async () => {
     const m = makeDb([]); // guarded WHERE matched nothing
     const res = await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID);
     expect(res).toBeUndefined();
+    // Nothing moved, so nothing is re-stamped.
+    expect(m.updates).toHaveLength(1);
   });
 });
 

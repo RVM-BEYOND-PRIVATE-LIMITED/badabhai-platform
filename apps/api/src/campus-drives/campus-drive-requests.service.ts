@@ -39,6 +39,11 @@ import { DRIVE_CANCELLABLE_STATUSES } from "./campus-drive-transitions";
 
 /** Machine-readable `reason`s on this service's 4xx; the company app branches on these. */
 export const DRIVE_REQUEST_REFUSAL_REASONS = {
+  /**
+   * 403: the company's account (the tenant's anchor row) is not `active`: suspended, archived or
+   * never activated. The account half of the R2 withdrawn rule (migration review L2).
+   */
+  notActive: "company_not_active",
   /** 403: not a verified employer; `missing` lists what is missing (`campus-drive-eligibility`). */
   notVerified: DRIVE_REQUESTER_NOT_VERIFIED,
   /** 400: `preferred_from` is before today in India. */
@@ -143,9 +148,10 @@ function shape(dto: PayerCreateCampusDriveRequestDto): NormalisedRequest {
  * CREATE, IN ORDER: the body (zod, strict), the key (required), tenancy, the switch, the contact
  * name, then the Redis reservation. Under it, a key this company has already used answers FIRST
  * (the stored request, or 409 for a different body), so a retry the next day still gets its
- * request. Only a new request then meets the rest: the employer check, the dates (from ≥ today in
- * India, to ≤ a year after it), the roles note (hidden characters removed; a NORMALISED copy
- * screened for a hard identifier, the cleaned original stored), the
+ * request. Only a new request then meets the rest: the employer check (the tenant's role, account
+ * status, verification and GSTIN: the four facts Campus's withdrawn rule reads), the dates (from ≥
+ * today in India, to ≤ a year after it), the roles note (hidden characters removed; the note AND a
+ * normalised copy screened for a hard identifier, the cleaned note stored), the
  * posting (the company's own, checked in the query), the branches (active options). Then ONE
  * transaction: the row (contact as AES ciphertext, `is_test` from `payers.is_test_account`) and
  * `campus_drive.requested` v1. A refused attempt writes no row, so the key stays free for a
@@ -306,8 +312,20 @@ export class CampusDriveRequestsService {
     scope: PayerTenantScope,
     request: NormalisedRequest,
   ): Promise<{ isTest: boolean }> {
+    // The tenant's (the anchor's) standing: the four facts R2 reads, so no request is withdrawn
+    // from birth (migration review L2). The role, then the account, then the verification.
     const facts = await this.repo.requesterFacts(scope.tenantKey);
     if (facts.role !== "employer") throw new ForbiddenException(ROLE_REFUSAL);
+    if (facts.status !== "active") {
+      this.logger.log(
+        `campus drive request refused: tenant=${scope.tenantKey} account=${facts.status ?? "none"}`,
+      );
+      throw refused(
+        403,
+        DRIVE_REQUEST_REFUSAL_REASONS.notActive,
+        "Only an active company account can ask for a campus drive",
+      );
+    }
     const standing = driveRequesterStanding(facts);
     if (!standing.eligible) {
       this.logger.log(
@@ -338,14 +356,18 @@ export class CampusDriveRequestsService {
     }
 
     if (request.rolesNote !== null) {
-      // The NORMALISED copy is screened (security review M1); the cleaned original is stored.
-      const identifier = containsHardIdentifier(screeningCopyOf(request.rolesNote));
+      // BOTH the note as stored and its normalised copy are screened, and either refuses (security
+      // review M1, re-check N1): the copy catches other scripts' digits and full-width characters,
+      // the note what normalising could break up. The cleaned note is stored.
+      const identifier =
+        containsHardIdentifier(request.rolesNote) ??
+        containsHardIdentifier(screeningCopyOf(request.rolesNote));
       if (identifier !== null) {
         // The class only (`phone`, `email`, …), never the text that matched.
         throw refused(
           400,
           DRIVE_REQUEST_REFUSAL_REASONS.rolesNoteIdentifier,
-          "roles_note looks like it holds contact details or an ID; put the contact person in contact_name and contact_phone, and write number ranges in words (15,000 to 18,000)",
+          "roles_note looks like it holds contact details or an ID; put the contact person in contact_name and contact_phone, and write a number range with words or commas (15,000 to 18,000), not as one long run of digits",
           { identifier },
         );
       }

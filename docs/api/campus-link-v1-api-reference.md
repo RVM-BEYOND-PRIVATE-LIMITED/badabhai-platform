@@ -371,6 +371,11 @@ whether its company was removed from the pilot or the switch is off everywhere, 
 cancellation and an erasure of its contact reach the feed. Nothing is skipped, so a page holds
 `limit` items unless it is the last.
 
+**The drive switch does not stop disclosure** (security re-check N5). Off, it stops new requests
+only: this feed keeps returning the contact of every existing request. The kill-switches are
+`CAMPUS_LINK_ENABLED` (the whole link, every route here the neutral 404) and rotating the Campus
+token.
+
 Only a verified employer can make a request: admin approval plus a GSTIN on file, and nothing else
 (owner ruling 14 Nov 2026; the phone route can be added later). Agency accounts cannot.
 
@@ -379,14 +384,18 @@ Query: `status` (`requested`|`scheduled`|`declined`|`completed`|`cancelled`), `c
 `id`; `changed_since` returns requests changed at or after the instant. A `changed_since` before
 `2026-01-01T00:00:00Z` (a first sync sending the epoch) is read as that date, never refused.
 
-`changed_at` is when BadaBhai last changed the ITEM: the request itself, or its company's account or
-company record. A company withdrawn or reinstated by an admin therefore comes back in the feed
-although the request did not change.
+`changed_at` is when BadaBhai last wrote the request, by the database's clock: a create, a
+decision, a cancel, an erasure of its contact, or a change to its company's standing. Every
+writer of that standing (an admin's suspension or reinstatement, a company archive or restore, a
+change to the company's verification or GSTIN) re-stamps the company's requests in the same
+transaction, so a company withdrawn or reinstated comes back in the feed with a newer
+`changed_at`. The standing itself, and the company's display name, are read when the feed is
+read: a rename shows the next time an item is read and does not move `changed_at`.
 
 - **Overlap window: two minutes.** A write is stamped a moment before it commits, so a poll can miss
   a request stamped just before the last one it saw. Poll with `changed_since` = the largest
-  `changed_at` you processed **minus two minutes**, and process items by (`id`, `changed_at`):
-  the same pair again is the same state.
+  `changed_at` you processed **minus two minutes**, and apply every item read in the overlap
+  window, upserting by id; a repeated id and changed_at may carry a newer state.
 - **Paging.** Follow `next_cursor` until it is `null`. An item may come back unchanged.
 
 ```json
@@ -429,10 +438,13 @@ although the request did not change.
   entered it was deleted); the request then comes back in the feed with `contact: null`, and
   Campus should drop its own copy.
 - **`company_withdrawn: true`** (owner ruling R2): the company is no longer verified (its admin
-  approval or its GSTIN was removed) or its account is suspended or archived. The item then keeps
-  its status and dates only: `contact` and `roles_note` are `null`, and a decision is 409
-  `COMPANY_WITHDRAWN`. Drop the contact you hold. When the company is reinstated the full item
-  comes back (`company_withdrawn: false`) and decisions work again.
+  approval or its GSTIN was removed) or its account is suspended or archived. The item then
+  KEEPS `id`, `status`, `company` (id and display name), `job_posting_id`, `branch_ids`,
+  `preferred_from`, `preferred_to`, `openings`, `scheduled_on`, `campus_drive_ref`, `decided_at`,
+  `decided_by_ref`, `reason`, `is_test`, `requested_at`, `cancelled_at` and `changed_at`, and
+  DROPS `contact` and `roles_note` (both `null`). A decision is 409 `COMPANY_WITHDRAWN`. Drop the
+  contact and the roles note you hold. When the company is reinstated the full item comes back
+  (`company_withdrawn: false`, a newer `changed_at`) and decisions work again.
 - **Campus's copy of the contact** (owner, 14 Nov 2026). BadaBhai's erasure reaches the copy Campus
   holds only through the feed's `contact: null`, which needs the request row to exist. A
   whole-company delete removes the rows (`ON DELETE CASCADE`) and sends Campus no signal, so that
@@ -463,7 +475,9 @@ although the request did not change.
   the drive's `scheduled_on` is 409 `DECISION_NOT_ALLOWED`: a drive cannot have happened before
   its day.
 - `scheduled_on` and `campus_drive_ref`: required with `scheduled`, refused with the others.
-  `scheduled_on` runs from today in India to a year after it; otherwise 400 `VALIDATION_FAILED`.
+  `scheduled_on` runs from the DECISION's day in India (the day of `decided_at`, not BadaBhai's
+  today) to a year after it; otherwise 400 `VALIDATION_FAILED`, nothing stored. It is checked
+  after the replay below, so the same body retried after midnight still answers its 200 replay.
   `campus_drive_ref` is Campus's id for its drive record (1–200 characters of
   `A-Z a-z 0-9 . _ : -`), stored as sent.
 - `reason` (optional, ≤ 500 characters): the company sees it as written, so write it for them.
@@ -487,8 +501,8 @@ checked under the request's row lock before anything else:
 "The same decision" is the same `decision`, `decided_by_ref` and `reason`, and for `scheduled` the
 same `scheduled_on` and `campus_drive_ref`. The same instant in another offset is the same instant.
 A replay answers the held decision only while it is still the request's status: once the company
-has cancelled, the same body is `DECISION_NOT_ALLOWED` (below). There is no pending-row floor as on
-the review: a drive request never goes back to `requested` and the company cannot edit it, so a
+has cancelled, the same body is `DECISION_NOT_ALLOWED` (below). There is no reset floor as on the
+review: a drive request never goes back to `requested` and the company cannot edit it, so a
 request with no decision accepts any `decided_at` the clock rule allows.
 
 **Transitions.** Anything not listed is 409 `DECISION_NOT_ALLOWED` with the current `status` in the
@@ -509,8 +523,9 @@ Cancelling never touches Campus's drive record: read it in the feed.
 
 Which requests can be decided: every request that exists, whatever the rollout switch says (404, no
 code, for an id that is not a request). A request whose company is withdrawn is 409
-`COMPANY_WITHDRAWN`, nothing stored, until the company is reinstated. No tenancy is read or
-written.
+`COMPANY_WITHDRAWN`, nothing stored, until the company is reinstated. That is checked before the
+replay: the same body retried after a withdrawal answers 409 `COMPANY_WITHDRAWN` although the
+decision it carries is stored (the feed shows it). No tenancy is read or written.
 
 A decision that changed the request writes, in one transaction, the request, the event
 `campus_drive.decided` v1 (ids, enums and dates: never the reason text) and an `audit_logs` row

@@ -224,7 +224,7 @@ describe("withdrawn from Campus (owner ruling R2)", () => {
   ];
 
   it.each(WITHDRAWALS)(
-    "%s: the feed keeps status and dates only, a decision is 409 COMPANY_WITHDRAWN; reinstated, both come back",
+    "%s: the feed drops the contact and the roles note and keeps the rest, a decision is 409 COMPANY_WITHDRAWN; reinstated, both come back",
     async (_name, change) => {
       const { service, seed, table, events } = world();
       const id = await seed(COMPANY);
@@ -420,10 +420,10 @@ describe("POST drive-requests/:id/decision", () => {
     });
   });
 
-  it("scheduled_on runs from today in India to a year after it; anything else is 400 before any read", async () => {
-    const { service, seed, table } = world();
+  it("scheduled_on runs from the decision's day in India to a year after it; anything else is 400 and stores nothing", async () => {
+    const { service, seed, table, events } = world();
     const id = await seed(COMPANY);
-    const lock = vi.spyOn(table, "lockForDecision");
+    const before = table.digest();
     for (const day of ["2026-11-19", "2027-11-21", "2099-12-05"]) {
       const err = await refusal(() =>
         service.decide(id, scheduleAt("2026-11-20T05:00:00Z", { scheduled_on: day }), CALL),
@@ -433,14 +433,67 @@ describe("POST drive-requests/:id/decision", () => {
         issues: [{ path: "scheduled_on" }],
       });
     }
-    expect(lock).not.toHaveBeenCalled();
-    // Today and a year ahead are both fine.
+    expect(table.digest()).toBe(before);
+    expect(events.emitted).toEqual([]);
+    // The decision's day and a year after it are both fine.
     await expect(
       service.decide(id, scheduleAt("2026-11-20T05:00:00Z", { scheduled_on: "2026-11-20" }), CALL),
     ).resolves.toMatchObject({ scheduled_on: "2026-11-20" });
     await expect(
       service.decide(id, scheduleAt("2026-11-20T05:01:00Z", { scheduled_on: "2027-11-20" }), CALL),
     ).resolves.toMatchObject({ scheduled_on: "2027-11-20" });
+  });
+
+  it("scheduled_on is bounded by decided_at's India day, not the server's (migration review L1)", async () => {
+    // 01:30 IST on 21 Nov at BadaBhai; Campus decided at 23:30 IST on 20 Nov, for the 20th.
+    vi.setSystemTime(new Date("2026-11-20T20:00:00.000Z"));
+    const { service, seed } = world();
+    const id = await seed(COMPANY);
+    await expect(
+      service.decide(id, scheduleAt("2026-11-20T18:00:00Z", { scheduled_on: "2026-11-20" }), CALL),
+    ).resolves.toMatchObject({ scheduled_on: "2026-11-20" });
+    // A year after the DECISION's day, not after the server's.
+    const other = await seed(COMPANY);
+    await expect(
+      service.decide(
+        other,
+        scheduleAt("2026-11-20T18:00:00Z", { scheduled_on: "2027-11-21" }),
+        CALL,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("a same-body retry after midnight in India answers its 200 replay (the replay is judged before the drive's day)", async () => {
+    vi.setSystemTime(new Date("2026-11-20T18:10:00.000Z")); // 23:40 IST, 20 Nov
+    const { service, seed, table, events } = world();
+    const id = await seed(COMPANY);
+    const sent = scheduleAt("2026-11-20T18:00:00Z", { scheduled_on: "2026-11-20" });
+    const first = await service.decide(id, sent, CALL);
+    const before = table.digest();
+    const emitted = events.emitted.length;
+    vi.setSystemTime(new Date("2026-11-21T00:00:00.000Z")); // 05:30 IST, 21 Nov
+    await expect(service.decide(id, sent, CALL)).resolves.toEqual(first);
+    expect(table.digest()).toBe(before);
+    expect(events.emitted).toHaveLength(emitted);
+  });
+
+  it("a replay after the company is withdrawn answers 409 COMPANY_WITHDRAWN although the decision is stored", async () => {
+    const { service, seed, table } = world();
+    const id = await seed(COMPANY);
+    const sent = scheduleAt("2026-11-20T05:00:00Z");
+    await service.decide(id, sent, CALL);
+    table.standing.set(COMPANY, {
+      companyStatus: "suspended",
+      companyRole: "employer",
+      companyVerification: "verified",
+      companyHasGst: true,
+    });
+    const err = await refusal(() => service.decide(id, sent, CALL));
+    expect(err.getResponse()).toMatchObject({ code: "COMPANY_WITHDRAWN" });
+    expect(table.rows.find((r) => r.id === id)).toMatchObject({
+      status: "scheduled",
+      scheduledOn: "2026-12-05",
+    });
   });
 
   it("an unknown or malformed id is the neutral 404", async () => {

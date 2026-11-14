@@ -37,12 +37,6 @@ export function cleanDriveLine(raw: string): string | undefined {
 
 const DECIMAL_DIGIT = /\p{Nd}/u;
 const COMBINING_MARK = /\p{M}/u;
-/** `/` and `\`: read as separators, like a space, so `98765/43210` screens as a phone. */
-const SLASHES: ReadonlySet<string> = new Set([
-  String.fromCharCode(0x2f),
-  String.fromCharCode(0x5c),
-]);
-
 /**
  * The ASCII digit a decimal digit (`\p{Nd}`) stands for. Unicode keeps every script's digits as a
  * contiguous run of ten in order (0 to 9), and a run of several such tens stays aligned, so the
@@ -58,25 +52,30 @@ function asciiDigit(ch: string): string {
 }
 
 /**
- * SECURITY REVIEW M1 (#2746 PR 6) — the copy of a `roles_note` the hard-identifier screen reads.
- * NEVER STORED: the note is stored as cleaned (`cleanReviewReason`), and only this copy is screened.
+ * SECURITY REVIEW M1, N1-N3 (#2746 PR 6) — the copy of a `roles_note` the hard-identifier screen
+ * reads IN ADDITION to the note itself (the service screens both, and either refuses). NEVER
+ * STORED: the note is stored as cleaned (`cleanReviewReason`), and this copy is only screened.
  *
  * The shared detector (`common/hard-identifier.ts`, unchanged here) reads ASCII digits and `@`, so
- * a phone in Devanagari or full-width digits, one with a combining mark after each digit, one split
- * by `/`, and an email with a full-width at sign (U+FF20) all passed. The copy closes those:
+ * a phone in Devanagari or full-width digits, one with a combining mark after each digit, and an
+ * email with a full-width at sign (U+FF20) all passed. The copy closes those:
  *   1. NFKC: full-width digits and letters become ASCII, the full-width at sign becomes `@`;
- *   2. every decimal digit of any script (`\p{Nd}`) becomes its ASCII digit;
- *   3. combining marks (`\p{M}`) are dropped;
- *   4. `/` and `\` become a space, which the detector already treats as a separator.
+ *   2. every decimal digit of any script (`p{Nd}`) becomes its ASCII digit;
+ *   3. combining marks (`p{M}`) are dropped.
  * ZWJ / ZWNJ, which the note keeps, are stripped by the detector itself before it matches.
+ *
+ * NOT A SEPARATOR: `/` and `\` (owner decision, security re-check N2/N3). Reading them as a space
+ * refused ordinary drive text (`2024/2025/2026 pass-outs` as an Aadhaar, `12000/18000`,
+ * `12/11/2026 - 15/11/2026`, `VMC 850/1060/1260` and `411057/411018` as phones), and a copy alone
+ * lost the detector's match on an ID written with `/` (`A/c no 12345678`, `Reg No: MH/2019/1234`),
+ * which is why the note itself is screened too. The known gap, a phone split by `/`, `\`, U+2215, U+2044,
+ * `:`, `~`, `*`, `+`, `=` or U+30FB, is risk R86; the shared fix is #2812.
  */
 export function screeningCopyOf(note: string): string {
   let out = "";
   for (const ch of note.normalize("NFKC")) {
     if (COMBINING_MARK.test(ch)) continue;
-    if (SLASHES.has(ch)) out += SPACE;
-    else if (DECIMAL_DIGIT.test(ch)) out += asciiDigit(ch);
-    else out += ch;
+    out += DECIMAL_DIGIT.test(ch) ? asciiDigit(ch) : ch;
   }
   return out;
 }

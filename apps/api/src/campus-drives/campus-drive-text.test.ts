@@ -88,14 +88,19 @@ describe("screeningCopyOf — the roles-note copy the hard-identifier screen rea
     expect(screeningCopyOf(digits(zero))).toBe("9876543210");
   });
 
-  it("drops combining marks, reads a slash and a backslash as a space, and folds the full-width at sign", () => {
+  it("drops combining marks and folds the full-width at sign", () => {
     expect(screeningCopyOf("9876543210".split("").join(String.fromCharCode(0x301)))).toBe(
       "9876543210",
     );
-    expect(screeningCopyOf(`98765/43210${String.fromCharCode(0x5c)}1`)).toBe("98765 43210 1");
     expect(screeningCopyOf(`ravi${String.fromCharCode(0xff20)}example.com`)).toBe(
       "ravi@example.com",
     );
+  });
+
+  it("keeps a slash and a backslash as they are: not separators (owner decision, re-check N2/N3)", () => {
+    const BACKSLASH = String.fromCharCode(0x5c);
+    expect(screeningCopyOf(`98765/43210${BACKSLASH}1`)).toBe(`98765/43210${BACKSLASH}1`);
+    expect(screeningCopyOf("2024/2025/2026 pass-outs")).toBe("2024/2025/2026 pass-outs");
   });
 
   it("leaves ordinary words and ASCII digits as they are", () => {
