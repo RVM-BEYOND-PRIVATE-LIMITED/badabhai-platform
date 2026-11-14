@@ -50,6 +50,22 @@ export const RVM_STUDENT_AUDIENCES = [
   "both",
 ] as const satisfies readonly JobPostingAudience[];
 
+/** An audience with an RVM part: what a Campus read may ever hold. */
+export type RvmStudentAudience = (typeof RVM_STUDENT_AUDIENCES)[number];
+
+const RVM_AUDIENCE_LITERALS = RVM_STUDENT_AUDIENCES.map((audience) => `'${audience}'`).join(", ");
+
+/**
+ * THE ONE SQL SPELLING of "this posting has an RVM part" (#2752 part E): `<audience> IN
+ * ('rvm_students', 'both')`, the Campus side's twin of {@link reachesBadaBhaiWorkers}. Every
+ * Campus read that tests `hidden_at` / `status = 'open'` puts this beside them; approval is a
+ * separate test (`approvedForRvmStudents`). Same column default and raw-alias form as the worker
+ * fragment.
+ */
+export function reachesRvmStudents(audience: SQLWrapper = jobPostings.audience): SQL {
+  return sql`${audience} IN (${sql.raw(RVM_AUDIENCE_LITERALS)})`;
+}
+
 /**
  * The TypeScript twin of {@link reachesBadaBhaiWorkers}, for code that holds a row rather than a
  * statement (the write path, the zero-reach alert). Same list, so the two cannot disagree.

@@ -1198,6 +1198,65 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. A writable grant lets any PostgREST role put a company on a pilot, switching on " +
       "features (real payments, from #2749) that are meant for the pilot list only",
   },
+  // 0163 (#2752 parts C3 and E): named-company search grants and Campus applications. Company
+  // search and the open gate read the grants table with the flag OFF too (a grant outlives the
+  // flag), and the company's applicant list labels Campus applications, so both are
+  // APPLY-BEFORE-DEPLOY `table` entries as well as locks.
+  {
+    id: "0163-institute-search-grants-table",
+    migration: "0163_institute_grants_applications",
+    kind: "table",
+    table: "institute_search_grants",
+    requiredBy:
+      "CandidateSearchRepository's pool (a granted student joins that company's pool) on every " +
+      "company search and city facet, and InstituteOpenGate.decide on every unlock, reveal and " +
+      "resume disclosure",
+    failureMode:
+      "every company candidate search 500s (relation does not exist), and every open of a linked " +
+      "student is refused (the gate fails closed)",
+  },
+  {
+    id: "0163-institute-search-grants-rls",
+    migration: "0163_institute_grants_applications",
+    kind: "rls",
+    table: "institute_search_grants",
+    requiredBy: "no code path - FORCE + four REVOKEs HAND-APPENDED, as the entries above",
+    failureMode:
+      "SILENT. A writable grant lets any PostgREST role put a student in a company's search and " +
+      "let that company open him without his consent",
+  },
+  {
+    id: "0163-institute-applications-table",
+    migration: "0163_institute_grants_applications",
+    kind: "table",
+    table: "institute_applications",
+    requiredBy: "the company applicant list's RVM-student label and the Campus applications routes",
+    failureMode:
+      "the company applicant list 500s (relation does not exist) for every company, and Campus " +
+      "applications cannot be taken",
+  },
+  {
+    id: "0163-institute-companies-rls",
+    migration: "0163_institute_grants_applications",
+    kind: "rls",
+    table: "institute_companies",
+    requiredBy:
+      "no code path - FORCE + four REVOKEs HAND-APPENDED; the table is named only by the Campus " +
+      "routes behind CAMPUS_LINK_ENABLED",
+    failureMode:
+      "SILENT. A writable grant lets any PostgREST role mark an existing company as Campus-created, " +
+      "which lets the Campus credential publish postings in that company's name",
+  },
+  {
+    id: "0163-institute-applications-rls",
+    migration: "0163_institute_grants_applications",
+    kind: "rls",
+    table: "institute_applications",
+    requiredBy: "no code path - FORCE + four REVOKEs HAND-APPENDED, as the entries above",
+    failureMode:
+      "SILENT. Every PostgREST role could read which workers applied through Campus to which " +
+      "posting, and write an application that a company would see",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

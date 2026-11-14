@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConsentRepository } from "../consent/consent.repository";
+import { PayersModule } from "../payers/payers.module";
+import { CampusGrantsController } from "./campus-grants.controller";
 import { CampusLinkController } from "./campus-link.controller";
 import { CampusCallAuditRepository } from "./campus-call-audit.repository";
 import { CampusServiceGuard } from "./campus-service.guard";
@@ -7,6 +9,8 @@ import { InstituteAiGate } from "./institute-ai-gate.service";
 import { InstituteLinkRepository } from "./institute-link.repository";
 import { InstituteLinkService } from "./institute-link.service";
 import { InstituteOpenGate } from "./institute-open-gate.service";
+import { InstituteSearchGrantsRepository } from "./institute-search-grants.repository";
+import { InstituteSearchGrantsService } from "./institute-search-grants.service";
 import { RvmStudentApiClient } from "./rvm-student-api.client";
 
 /**
@@ -22,9 +26,17 @@ import { RvmStudentApiClient } from "./rvm-student-api.client";
  * dependency is the @Global DATABASE, so providing it adds no edge, while importing ConsentModule
  * would pull in AuthModule (a forwardRef) and give this module, which unlocks, disclosures,
  * profiles, résumé, profiling and voice all import, a way into a cycle.
+ *
+ * `PayersModule` (one-way: it imports nothing from here) — `PayerTenantScopeService`, so a grant
+ * is stored under the company's TENANT key, the key its search and its opens are asked by.
+ *
+ * Part E's jobs and applications routes live in `CampusJobsModule`, which imports this one: they
+ * need `JobPostingsModule`, whose tree reaches the modules that import this one, so here it would
+ * close a cycle.
  */
 @Module({
-  controllers: [CampusLinkController],
+  imports: [PayersModule],
+  controllers: [CampusLinkController, CampusGrantsController],
   providers: [
     CampusCallAuditRepository,
     CampusServiceGuard,
@@ -33,6 +45,8 @@ import { RvmStudentApiClient } from "./rvm-student-api.client";
     InstituteLinkRepository,
     InstituteLinkService,
     InstituteOpenGate,
+    InstituteSearchGrantsRepository,
+    InstituteSearchGrantsService,
     RvmStudentApiClient,
   ],
   exports: [

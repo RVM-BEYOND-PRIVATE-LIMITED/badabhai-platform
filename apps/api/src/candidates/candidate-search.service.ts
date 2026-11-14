@@ -16,6 +16,7 @@ import { EffectiveFactsService } from "../profiles/effective-facts.service";
 import { MatchConfigService } from "../match/match-config.service";
 import type { TradeLevelBadge } from "../match/match-candidates.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { encodeCandidateCursor, searchFingerprint } from "./candidate-search.cursor";
 import {
   CANDIDATE_SEARCH_MAX_ROLES,
@@ -61,9 +62,11 @@ export interface CandidateTradeLevelRow {
  * ADR-0036 rank key, MASKED. Identity stays behind `POST /payer/unlocks`, which already takes a
  * search row's `workerId` with `job_id: null`; this read reveals nothing that route guards.
  *
- * NO TENANT SCOPE, ON PURPOSE: nothing here is owned — the pool is the same for every payer, the
- * rows carry no payer data, and the read writes nothing but its audit event. Ownership questions
- * (an unlock, a résumé, a stage) live on the routes that act, each resolving its own tenant.
+ * ONE TENANT-SCOPED BRANCH (#2752 item 10): the pool is the same for every payer EXCEPT that an
+ * institute student a company holds a named-company search grant for is in THAT company's pool
+ * alone. So the tenant is resolved once per search, and only that branch reads it; the rows still
+ * carry no payer data, and the read writes nothing but its audit event. Every other ownership
+ * question (an unlock, a résumé, a stage) lives on the route that acts.
  *
  * READS, BOUNDED: one statement for the counts + page (one row past it decides `nextCursor`),
  * then two batched detail reads for the page's workers (their other wanted roles, and their
@@ -90,6 +93,9 @@ export class CandidateSearchService {
     // #2561 — the live admin-correction overlay (ADR-0062 §3.2 point 1). Optional so the
     // pre-#2561 unit constructions keep projecting base values.
     @Optional() private readonly effectiveFacts?: EffectiveFactsService,
+    // #2752 item 10 — the searching company's tenant key, for its named-company search grants.
+    // Optional on the narrowing side: absent, no grant is read, so the pool is only ever smaller.
+    @Optional() private readonly tenancy?: PayerTenantScopeService,
   ) {}
 
   async search(
@@ -122,7 +128,11 @@ export class CandidateSearchService {
     }
     const cityFilter = city === null ? null : await this.cityFilterFor(city);
 
+    const tenant =
+      this.tenancy === undefined ? undefined : (await this.tenancy.resolve(actorPayerId)).tenantKey;
+
     const { counts, rows } = await this.repo.searchPool({
+      tenant,
       skillIds,
       relatedSkillIds,
       experience: dto.experience === null ? null : experienceRange(dto.experience),

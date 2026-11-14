@@ -606,6 +606,7 @@ describe("listCandidates — row mapping", () => {
       createdAt: new Date("2026-07-20T08:00:00.000Z"),
       engineVersion: "v1.0",
       matchedSkillId: "mskill_cnc_turner",
+      instituteCode: null,
       // Middle Way P5 — the mock row carries no trade_levels, so the badge is empty.
       tradeLevels: [],
       // v1.1 — no frozen rung on the mock row: null, never a guessed rung.
@@ -773,6 +774,7 @@ describe("listRankedCandidatesByApplication — the posting rank, from the ONE r
       createdAt: new Date("2026-07-20T08:00:00.000Z"),
       engineVersion: "v1.0",
       matchedSkillId: null,
+      instituteCode: null,
       // Middle Way P5 — the mock row carries no trade_levels, so the badge is empty.
       tradeLevels: [],
       frozenTradeLevel: null,

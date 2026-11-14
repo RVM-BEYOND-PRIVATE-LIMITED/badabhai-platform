@@ -13,7 +13,8 @@ import { stripComments } from "./lifecycle-writer-scan";
  *     `eq(jobPostings.audience, …)` in a service, a `row.audience === …` in TypeScript — is how an
  *     RVM-only job leaks the day a fourth audience lands or one copy is edited. So every non-test
  *     source under `apps/api/src` and `packages/db/src` is swept, comments stripped and every
- *     `reachesBadaBhaiWorkers(…)` call removed, for an audience literal, an audience comparison or
+ *     fragment call removed (`reachesBadaBhaiWorkers(…)`, and its Campus twin
+ *     `reachesRvmStudents(…)` since #2752 part E), for an audience literal, an audience comparison or
  *     ANY reference to the `job_postings.audience` column. Every hit must be on the ALLOW-LIST
  *     below with its reason. The list is driven both ways (the ops-guard-adoption pattern): a
  *     listed file that no longer hits is a stale entry and fails too.
@@ -24,7 +25,9 @@ import { stripComments } from "./lifecycle-writer-scan";
  * (3) PAIRED WITH `hidden_at`. Every worker read that tests a posting's `hidden_at` must also call
  *     the fragment — #2566 put `hidden_at` on exactly the worker reads, so a new read that copies
  *     that test without the audience is the leak this catches. Company, admin and agency code and
- *     the D5/seed scripts are out of this rule (see PAIRING_EXEMPT).
+ *     the D5/seed scripts are out of this rule (see PAIRING_EXEMPT). A Campus read (#2752 part E)
+ *     serves RVM students instead: it pairs `hidden_at` with `reachesRvmStudents`, never with the
+ *     worker fragment.
  *
  * (4) NO SWITCH (security review of PR 2, M2). `JOB_AUDIENCE_ROLLOUT` is the ROLLBACK lever:
  *     turning it off must hide the new fields, never re-expose an RVM-only job. So the fragment,
@@ -70,8 +73,11 @@ const AUDIENCE_COLUMN_REFS: readonly Rule[] = [
   { name: ".includes(… audience)", pattern: /\.includes\(\s*[\w.]*audience\b/i },
 ];
 
-/** The fragment applied conditionally. Never allowed, in any file. */
-const CONDITIONAL_FRAGMENT = /(?:[?:]|&&|\|\|)\s*reachesBadaBhaiWorkers\(/;
+/** The audience fragments: the worker side, and the Campus side (#2752 part E). */
+const FRAGMENTS = ["reachesBadaBhaiWorkers", "reachesRvmStudents"] as const;
+
+/** A fragment applied conditionally. Never allowed, in any file. */
+const CONDITIONAL_FRAGMENT = /(?:[?:]|&&|\|\|)\s*(?:reachesBadaBhaiWorkers|reachesRvmStudents)\(/;
 
 /** Files that may spell or reference an audience, each with the reason. Repo-relative paths. */
 const ALLOWED: Readonly<Record<string, string>> = {
@@ -100,6 +106,10 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "the TS twin `audienceReachesRvmStudents` decides) and `hidden_at` for its neutral 404. A " +
     "service-credential path for the placement team, never a BadaBhai worker read " +
     "(PAIRING_EXEMPT).",
+  // #2752 part E — the Campus feed.
+  "apps/api/src/campus-link/campus-postings.repository.ts":
+    "The Campus feed selects through reachesRvmStudents() and projects the audience READ-ONLY " +
+    "onto the Campus wire (`rvm_students` | `both`). An RVM-facing read, never a worker path.",
 };
 
 /** A posting's `hidden_at` tested — the mark of a worker read since #2566. */
@@ -133,6 +143,9 @@ const PAIRING_EXEMPT: readonly RegExp[] = [
  */
 const ADMIN_MIRROR_FOLLOW_UP = "apps/api/src/admin/admin-empty-feed.repository.ts";
 
+/** The Campus reads (#2752 part E): they serve RVM students, never a BadaBhai worker. */
+const CAMPUS_READS = /^apps\/api\/src\/campus-link\//;
+
 function sourceFilesUnder(dir: string): string[] {
   const base = join(REPO_ROOT, ...dir.split("/"));
   if (!existsSync(base)) return [];
@@ -158,15 +171,19 @@ function code(file: string): string {
   return stripComments(readFileSync(join(REPO_ROOT, ...file.split("/")), "utf8"));
 }
 
-/** Replace every `reachesBadaBhaiWorkers(…)` call (balanced parentheses) with a bare call. */
+/** Replace every fragment call (balanced parentheses) with a bare call. */
 function stripFragmentCalls(src: string): string {
-  const marker = "reachesBadaBhaiWorkers(";
+  return FRAGMENTS.reduce(stripCallsOf, src);
+}
+
+function stripCallsOf(src: string, name: string): string {
+  const marker = `${name}(`;
   let out = "";
   let from = 0;
   for (;;) {
     const at = src.indexOf(marker, from);
     if (at < 0) return out + src.slice(from);
-    out += `${src.slice(from, at)}reachesBadaBhaiWorkers()`;
+    out += `${src.slice(from, at)}${name}()`;
     let depth = 1;
     let i = at + marker.length;
     while (i < src.length && depth > 0) {
@@ -234,6 +251,7 @@ describe("#2746 — the audience rule has one spelling", () => {
     // The sanctioned use, and a résumé renderer's unrelated `audience` variable, are not hits.
     expect(rulesHit("AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}")).toEqual([]);
     expect(rulesHit("reachesBadaBhaiWorkers(jobPostings.audience)")).toEqual([]);
+    expect(rulesHit("filters.push(reachesRvmStudents(sql`jp.audience`))")).toEqual([]);
     expect(rulesHit(`audience === "worker" ? a : b`)).toEqual([]);
     expect(rulesHit("buildResumeRenderInput(row, audience, opts)")).toEqual([]);
   });
@@ -253,6 +271,7 @@ describe("#2746 — the fragment is never applied conditionally", () => {
       "x ? y : reachesBadaBhaiWorkers()",
       "on && reachesBadaBhaiWorkers()",
       "a || reachesBadaBhaiWorkers(sql`jp.audience`)",
+      "campus ? reachesRvmStudents(sql`jp.audience`) : undefined",
     ]) {
       expect(CONDITIONAL_FRAGMENT.test(sample), sample).toBe(true);
     }
@@ -265,7 +284,11 @@ describe("#2746 — the fragment is never applied conditionally", () => {
 describe("#2746 — every worker read that tests hidden_at also tests the audience", () => {
   const exempt = (file: string) => PAIRING_EXEMPT.some((re) => re.test(file));
   const workerReads = [...CODE.entries()].filter(
-    ([file, text]) => !exempt(file) && HIDDEN_ON_POSTINGS.test(text),
+    ([file, text]) => !exempt(file) && !CAMPUS_READS.test(file) && HIDDEN_ON_POSTINGS.test(text),
+  );
+  // The exempt Campus review (#2746 PR 5) reads no posting for a student; every other one does.
+  const campusReads = [...CODE.entries()].filter(
+    ([file, text]) => !exempt(file) && CAMPUS_READS.test(file) && HIDDEN_ON_POSTINGS.test(text),
   );
 
   it("finds the known worker reads (a scan of nothing would pass vacuously)", () => {
@@ -285,6 +308,22 @@ describe("#2746 — every worker read that tests hidden_at also tests the audien
       .filter(([, text]) => !text.includes("reachesBadaBhaiWorkers("))
       .map(([file]) => file);
     expect(unpaired, "add reachesBadaBhaiWorkers() beside the hidden_at test").toEqual([]);
+  });
+
+  it("each Campus read calls reachesRvmStudents, never the worker fragment", () => {
+    expect(campusReads.map(([file]) => file)).toEqual(
+      expect.arrayContaining([
+        "apps/api/src/campus-link/campus-applications.repository.ts",
+        "apps/api/src/campus-link/campus-postings.repository.ts",
+      ]),
+    );
+    const wrong = campusReads
+      .filter(
+        ([, text]) =>
+          !text.includes("reachesRvmStudents(") || text.includes("reachesBadaBhaiWorkers("),
+      )
+      .map(([file]) => file);
+    expect(wrong, "pair a Campus read's hidden_at test with reachesRvmStudents()").toEqual([]);
   });
 
   it("the exemptions are the named ones, and the admin feed mirror is a recorded follow-up", () => {

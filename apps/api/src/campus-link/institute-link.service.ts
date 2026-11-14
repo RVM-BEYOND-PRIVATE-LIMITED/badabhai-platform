@@ -174,7 +174,11 @@ export class InstituteLinkService {
       const workerDeleted =
         reason === "campus_request" &&
         (await this.repo.deleteLinkCreatedPendingWorker(tx, link.workerId, RVM));
-      if (!workerDeleted) await this.repo.withdrawAndErase(tx, link.workerId, now);
+      if (!workerDeleted) {
+        await this.repo.withdrawAndErase(tx, link.workerId, now);
+        // No company finds or opens him by a grant either (a deleted row took them with it).
+        await this.repo.revokeGrantsOfWorker(tx, link.workerId, now);
+      }
       await this.emitUnlinked(tx, link.workerId, reason, workerDeleted, now, ctx);
     });
   }

@@ -42,6 +42,11 @@ import { profileCorrections } from "./profile-correction";
 import { adminCandidateIndex, adminCandidateIndexCursor } from "./admin-candidate-index";
 import { workerAdminOverrides } from "./admin-override";
 import { workerInstituteLinks, workerOrigins } from "./institute-link";
+import {
+  instituteApplications,
+  instituteCompanies,
+  instituteSearchGrants,
+} from "./institute-campus";
 import { workerProfilingTiers } from "./worker-profiling-tier";
 import { workerResumeSkins } from "./worker-resume-skin";
 import { payerApplicantStages } from "./payer-applicant-stage";
@@ -154,6 +159,8 @@ export * from "./institute-link";
 export * from "./job-audience";
 export * from "./campus-drive";
 export * from "./feature-pilot";
+// #2752 — named-company search grants and Campus applications.
+export * from "./institute-campus";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -452,4 +459,8 @@ export const schema = {
   rvmTargetingOptions,
   campusDriveRequests,
   featurePilotPayers,
+  // #2752 - named-company search grants and Campus applications (migration 0163).
+  instituteSearchGrants,
+  instituteApplications,
+  instituteCompanies,
 };
