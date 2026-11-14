@@ -676,12 +676,15 @@ export class ApplicationsService {
    * becomes an application key.
    *
    * Returns the source job id for a twin, null for any other posting. A twin whose source is not
-   * OPEN is the identical neutral 404 — no write, no event (no existence oracle).
+   * OPEN, or is hidden by an admin (#2566 — source status and hide always win, as on the feed), is
+   * the identical neutral 404 — no write, no event (no existence oracle).
    */
   private async resolveTwinSource(jobPostingId: string): Promise<string | null> {
     const twin = await this.repo.findAgencyTwinSource(jobPostingId);
     if (!twin) return null;
-    if (twin.sourceStatus !== "open") throw new NotFoundException("Job not found");
+    if (twin.sourceStatus !== "open" || twin.sourceHiddenAt !== null) {
+      throw new NotFoundException("Job not found");
+    }
     return twin.sourceJobId;
   }
 

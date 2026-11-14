@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { CampusLinkModule } from "../campus-link/campus-link.module";
 import { ConsentModule } from "../consent/consent.module";
 import { PayersModule } from "../payers/payers.module";
 import { StorageModule } from "../storage/storage.module";
@@ -51,9 +52,12 @@ import { GeneralRoadReader } from "../resume/general-road.reader";
  * keys every disclosure by. It is IMPORTED, never provided here: a second provider would be a
  * second resolver instance outside the single-reader pin. A one-way edge — PayersModule imports
  * nothing from disclosures — so it cannot form a cycle.
+ *
+ * `CampusLinkModule` (#2752) — for `InstituteOpenGate`: a linked institute student is disclosed
+ * only to a company he applied to. Imported for the same single-instance reason, and one-way too.
  */
 @Module({
-  imports: [ConsentModule, StorageModule, PayersModule],
+  imports: [ConsentModule, StorageModule, PayersModule, CampusLinkModule],
   controllers: [ResumeDisclosureController],
   providers: [
     ResumeDisclosureService,

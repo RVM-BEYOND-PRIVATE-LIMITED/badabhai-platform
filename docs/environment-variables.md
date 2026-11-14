@@ -346,7 +346,16 @@ NestJS boot assertion).
     refused, even when listed: behind an untrusted hop it is the proxy's address, not Campus's.
   - `CAMPUS_SERVICE_MAX_PER_MINUTE` (default 600): calls per UTC minute after the token check,
     fail-closed on a Redis outage.
-  Declared in compose (`${CAMPUS_LINK_ENABLED:-false}` and `${…:-}` for the other three) but NOT yet
+  - `RVM_STUDENT_API_BASE_URL`, `RVM_STUDENT_API_TOKEN` (`optionalSecret`), `RVM_STUDENT_API_TIMEOUT_MS`
+    (default 5000): RVM's Student API (Scheduler_Backend#162), read by `RvmStudentApiClient` for
+    a linked student's six agreed fields, token in `X-Service-Token`. Unset, every read fails
+    closed and no student is linked; a slow or failed read is retryable and creates nothing.
+  - `RVM_CONSENT_RECHECK_SECONDS` (default 300, at most 86400): how long a confirmed RVM consent
+    stands before a company's open (unlock, reveal, résumé disclosure) of a linked student re-reads
+    it. RVM's refusal on that read withdraws the link and erases the copied facts (it never deletes
+    a row); an outage refuses the open and ends nothing. Read with the flag off too, because a link
+    outlives the flag.
+  Declared in compose (`${CAMPUS_LINK_ENABLED:-false}` and `${…:-}` for the others) but NOT yet
   bridged in `ci.yml`: the bridge lands with the pilot, so production stays off until then.
 - **Payer all-candidates search cap (ADR-0040 / E2, owner rulings 2026-11-03)** —
   `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR`, api only (default 120 pages per payer login per UTC hour,

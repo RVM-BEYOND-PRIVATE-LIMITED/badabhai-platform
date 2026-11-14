@@ -193,6 +193,8 @@ function setup(
     config,
     renderQueue as unknown as Queue<ResumeRenderJobData>,
     generateQueue as unknown as Queue<ResumeGenerateJobData>,
+    // #2752 — the institute AI gate: nobody here is a linked student.
+    { assertMayRunAi: vi.fn(async () => undefined) } as never,
   );
   EVENTS.set(svc, events);
   return {

@@ -40,6 +40,8 @@ import { PayerApplicantStagesService } from "../payer-portal/payer-applicant-sta
 import { APPLICANT_NOT_FOUND } from "../payer-portal/payer-applicant-stage.dto";
 import { UnlocksRepository } from "../unlocks/unlocks.repository";
 import { UnlockService } from "../unlocks/unlocks.service";
+import { InstituteLinkRepository } from "../campus-link/institute-link.repository";
+import { InstituteOpenGate } from "../campus-link/institute-open-gate.service";
 import { PaymentGateway } from "../unlocks/payment-gateway";
 import {
   INVITE_NOT_ACCEPTABLE_MESSAGE,
@@ -181,6 +183,8 @@ describe.skipIf(!RUN)(
         {} as never, // MatchConfigService — read only on the signup free-tier grant
         payers,
         tenancy,
+        // #2752 — the real institute gate on this database (nobody here is a linked student).
+        new InstituteOpenGate(new InstituteLinkRepository(client.db), {} as never),
       );
 
       // A and B sign up; each founds a solo org.
@@ -1238,6 +1242,7 @@ describe.skipIf(!RUN)(
         events,
         config,
         tenancy,
+        {} as never, // InstituteOpenGate — no disclosure is requested in this block
       );
       const postingPlans = new PayerPostingPlansService(postings, plans, disclosures, tenancy);
       return { postings, plans, postingPlans };
@@ -2016,6 +2021,8 @@ describe.skipIf(!RUN)(
         { get: async () => DEFAULT_MATCH_CONFIG } as never,
         payers,
         tenancy,
+        // #2752 — the real institute gate on this database (nobody here is a linked student).
+        new InstituteOpenGate(new InstituteLinkRepository(client.db), {} as never),
       );
       const disclosures = new ResumeDisclosureService(
         new ResumeDisclosureRepository(client.db),
@@ -2031,6 +2038,8 @@ describe.skipIf(!RUN)(
         events,
         config,
         tenancy,
+        // #2752 — the real institute gate on this database (nobody here is a linked student).
+        new InstituteOpenGate(new InstituteLinkRepository(client.db), {} as never),
       );
       const relay = new RelayService(new RelayRepository(client.db), unlocks, events, tenancy);
       const postings = new JobPostingsService(
