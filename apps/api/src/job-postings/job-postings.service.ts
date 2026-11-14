@@ -697,10 +697,11 @@ export class JobPostingsService {
     // same trade gate. A posting the RVM placement team created from Campus opened without that
     // gate (it reached no worker); without this check a later audience edit to `both` or
     // `badabhai_workers` would put a trade-less posting on worker surfaces.
+    const requested = audienceRequest?.audience;
     const widensToWorkers =
-      audienceRequest?.audience !== undefined &&
+      requested !== undefined &&
       !audienceReachesBadaBhaiWorkers(current.audience) &&
-      audienceReachesBadaBhaiWorkers(audienceRequest.audience);
+      audienceReachesBadaBhaiWorkers(requested);
     if (widensToWorkers && current.status !== "draft" && !postingTradeFor(roleAfter)) {
       throw postingTradeRequired();
     }

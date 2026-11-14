@@ -151,7 +151,7 @@ export class CampusApplicationsService {
 
   private assertGate(gate: Awaited<ReturnType<CampusApplicationsRepository["postingGate"]>>): void {
     if (!gate) throw new CampusRefusal("POSTING_NOT_OPEN", 404);
-    if (!CampusApplicationsRepository.reachesRvm(gate.audience)) {
+    if (!gate.reachesRvm) {
       throw new CampusRefusal("AUDIENCE_EXCLUDES_RVM", 409);
     }
     if (gate.status !== "open" || gate.hidden) throw new CampusRefusal("POSTING_NOT_OPEN", 409);

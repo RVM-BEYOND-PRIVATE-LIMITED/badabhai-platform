@@ -4,11 +4,10 @@ import {
   applications,
   approvedForRvmStudents,
   instituteApplications,
-  RVM_STUDENT_AUDIENCES,
+  reachesRvmStudents,
   type Database,
   type InstituteApplicationRow,
   type InstituteCode,
-  type JobPostingAudience,
 } from "@badabhai/db";
 import type { ApplicantStage } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
@@ -17,7 +16,8 @@ import { DATABASE } from "../database/database.module";
 export interface CampusPostingGate {
   status: string;
   hidden: boolean;
-  audience: JobPostingAudience;
+  /** `reachesRvmStudents`: the audience has an RVM part. */
+  reachesRvm: boolean;
   /** `approvedForRvmStudents`: an approval of the content as it is now. */
   approved: boolean;
 }
@@ -60,22 +60,25 @@ export class CampusApplicationsRepository {
   ): Promise<CampusPostingGate | undefined> {
     const lock = tx === this.db ? sql`` : sql` FOR SHARE OF jp`;
     const rows = (await tx.execute(sql`
-      SELECT jp.status, (jp.hidden_at IS NOT NULL) AS hidden, jp.audience,
+      SELECT jp.status, (jp.hidden_at IS NOT NULL) AS hidden,
+             ${reachesRvmStudents(sql`jp.audience`)} AS reaches_rvm,
              ${approvedForRvmStudents("jp")} AS approved
       FROM job_postings jp
       WHERE jp.id = ${postingId}::uuid${lock}
     `)) as unknown as {
       status: string;
       hidden: boolean;
-      audience: JobPostingAudience;
+      reaches_rvm: boolean;
       approved: boolean;
     }[];
-    return rows[0];
-  }
-
-  /** Whether the audience includes RVM students (`RVM_STUDENT_AUDIENCES`). */
-  static reachesRvm(audience: JobPostingAudience): boolean {
-    return (RVM_STUDENT_AUDIENCES as readonly string[]).includes(audience);
+    const row = rows[0];
+    if (!row) return undefined;
+    return {
+      status: row.status,
+      hidden: row.hidden,
+      reachesRvm: row.reaches_rvm,
+      approved: row.approved,
+    };
   }
 
   /** The Campus application Campus knows by this ref, with its student and stage. */

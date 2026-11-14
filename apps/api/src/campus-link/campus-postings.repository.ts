@@ -6,16 +6,16 @@ import {
   jobPostingInstituteReviews,
   payers,
   postingReviewContentHash,
+  reachesRvmStudents,
   rvmReviewStateNow,
   rvmTargetingOptions,
-  RVM_STUDENT_AUDIENCES,
   type Database,
   type InstituteCode,
   type InstituteReviewState,
   type JobPayType,
-  type JobPostingAudience,
   type JobShift,
   type PayerStatus,
+  type RvmStudentAudience,
 } from "@badabhai/db";
 import type { VacancyBand } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
@@ -42,7 +42,8 @@ export interface CampusFeedRow {
   benefits: string[] | null;
   /** Open AND not hidden: the only state in which it takes applications. */
   takesApplications: boolean;
-  audience: JobPostingAudience;
+  /** Only an audience with an RVM part reaches this read (`reachesRvmStudents`). */
+  audience: RvmStudentAudience;
   /** The review's narrowed lists when it has them, else the posting's own. */
   branchIds: number[];
   courseIds: string[];
@@ -93,13 +94,7 @@ export class CampusPostingsRepository {
     const stateNow = rvmReviewStateNow({ posting: "jp", review: "r" });
     const branchIds = sql`COALESCE(r.branch_ids, jp.rvm_branch_ids)`;
     const courseIds = sql`COALESCE(r.course_ids, jp.rvm_course_ids)`;
-    const filters = [
-      sql`jp.audience IN (${sql.join(
-        RVM_STUDENT_AUDIENCES.map((a) => sql`${a}`),
-        sql`, `,
-      )})`,
-      sql`jp.payer_id IS NOT NULL`,
-    ];
+    const filters = [reachesRvmStudents(sql`jp.audience`), sql`jp.payer_id IS NOT NULL`];
     if (q.changedSince === undefined) {
       filters.push(sql`jp.status = 'open' AND jp.hidden_at IS NULL`);
     } else {
@@ -281,7 +276,7 @@ function toFeedRow(r: Record<string, unknown>): CampusFeedRow {
     requirements: (r.requirements as string[] | null) ?? null,
     benefits: (r.benefits as string[] | null) ?? null,
     takesApplications: r.takes_applications === true,
-    audience: r.audience as JobPostingAudience,
+    audience: r.audience as RvmStudentAudience,
     branchIds: (r.branch_ids as number[] | null) ?? [],
     courseIds: (r.course_ids as string[] | null) ?? [],
     reviewStateNow: (r.review_state_now as InstituteReviewState | null) ?? null,

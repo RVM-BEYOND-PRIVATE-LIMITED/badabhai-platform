@@ -43,7 +43,7 @@ export interface CampusPostingAnswer {
   requirements: string[];
   benefits: string[];
   status: "open" | "closed";
-  audience: "rvm_students" | "both";
+  audience: CampusFeedRow["audience"];
   branch_ids: number[];
   courses: { id: string; name: string }[];
   review_state: "pending" | "approved" | "rejected";
@@ -247,7 +247,7 @@ function toAnswer(row: CampusFeedRow, labels: Map<string, string>): CampusPostin
     requirements: row.requirements ?? [],
     benefits: row.benefits ?? [],
     status: row.takesApplications ? "open" : "closed",
-    audience: row.audience === "both" ? "both" : "rvm_students",
+    audience: row.audience,
     branch_ids: row.branchIds,
     courses: row.courseIds.map((id) => ({ id, name: labels.get(id) ?? id })),
     review_state: rvmReviewStateFor(row.audience, row.reviewStateNow) ?? "pending",
