@@ -532,9 +532,17 @@ function firstCountRow<T>(result: unknown): Partial<T> {
  * #2746 — A POSTING NO BADABHAI WORKER MAY SEE REACHES NOBODY. The audience is read in the
  * statement itself ({@link reachesBadaBhaiWorkers}), not by the caller, so no path can write a
  * `job_reach` row for an `rvm_students` posting, and the purge deletes every row such a posting
- * still holds (an audience change on a live posting re-runs this to clear it). The stored reach
- * set is left as it is: it is the posting's resolved set, and a later change back to a BadaBhai
- * audience materializes from it unchanged.
+ * still holds. Nothing in this PR changes an audience on a live posting: #2746 PR 4's audience
+ * write is what calls this to clear (or rebuild) one, and until it lands such a posting keeps
+ * stale rows that the worker reads refuse to serve (risk R83). The stored reach set is left as it
+ * is: it is the posting's resolved set, and a later change back to a BadaBhai audience
+ * materializes from it unchanged.
+ *
+ * THE POSTING ROW IS READ `FOR SHARE` FIRST, on the caller's transaction, so a materialization
+ * serializes with a concurrent audience UPDATE instead of committing rows read under the old
+ * audience after the change cleared them. D5 and the agency-twin sync already hold a stronger
+ * lock on the row in the same transaction, which this does not conflict with. Concurrent
+ * materializations of one posting still run side by side (SHARE does not block SHARE).
  */
 export async function materializeJobReachWithin(
   executor: Database,
@@ -542,6 +550,9 @@ export async function materializeJobReachWithin(
   postedSkillIds: readonly string[],
   reachSkillIds: readonly string[],
 ): Promise<JobReachWriteCounts> {
+  await executor.execute(
+    dsql`SELECT 1 FROM job_postings WHERE id = ${jobPostingId}::uuid FOR SHARE`,
+  );
   if (reachSkillIds.length === 0) {
     const cleared = firstCountRow<{ deleted: number }>(
       await executor.execute(dsql`
@@ -590,7 +601,10 @@ export async function materializeJobReachWithin(
   );
 
   // Stale: reached before, not reachable now — through the STORED set, or at all because the
-  // posting is not for BadaBhai workers. Scoped to this posting.
+  // posting is not for BadaBhai workers. Scoped to this posting. The audience probe is
+  // UNCORRELATED (it names the posting by the bound id, like the upsert's), so Postgres evaluates
+  // it once per statement; correlated on `jr.job_posting_id` it became a hashed subquery over
+  // every BadaBhai posting on each call.
   const purge = firstCountRow<{ deleted: number }>(
     await executor.execute(dsql`
       WITH removed AS (
@@ -599,7 +613,7 @@ export async function materializeJobReachWithin(
           AND (
             NOT EXISTS (
               SELECT 1 FROM job_postings jp
-              WHERE jp.id = jr.job_posting_id
+              WHERE jp.id = ${jobPostingId}::uuid
                 AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
             )
             OR NOT EXISTS (

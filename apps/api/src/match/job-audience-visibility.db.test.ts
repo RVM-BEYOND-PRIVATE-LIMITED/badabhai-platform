@@ -37,9 +37,11 @@ import { WorkerSkillsRepository } from "./worker-skills.repository";
  * `both` and `badabhai_workers` (the column default) are served exactly as before on every path.
  *
  * NO SWITCH (security review of PR 2, M2): the rule is unconditional. The last block builds the
- * real `ApplicationsService` from `loadServerConfig` DEFAULTS and from each feed mode derived from
- * them, and the RVM-only posting is excluded in every one — no flag is consulted, so no flag can
- * re-expose it. (`job-visibility.static.test.ts` in @badabhai/db pins the same thing structurally.)
+ * real `ApplicationsService` from `loadServerConfig` — the defaults, and every combination of the
+ * `JOB_AUDIENCE_ROLLOUT` switch (off / pilot / on, with the owning company ON the pilot list) and
+ * the three feed modes — and the RVM-only posting is excluded in every one: no switch is consulted,
+ * so none can re-expose it. (`job-visibility.static.test.ts` in @badabhai/db pins the same thing
+ * structurally, for the repositories and for the services that choose between them.)
  *
  * FIXTURE DATES ARE IN 2099 so these cards head any deck a shared database also carries.
  *
@@ -64,6 +66,8 @@ const CORRELATION = uuid(0x27460001);
 const CTX: RequestContext = { correlationId: CORRELATION, requestId: "job-audience-visibility-db" };
 const OPS_ACTOR = uuid(0x27460002);
 const CREATED_BY = uuid(0x27460003);
+/** The company that owns every fixture posting — and sits on the `job_audience` pilot list. */
+const PAYER = uuid(0x27460004);
 
 /** Wants SKILL; holds a reach row on all three served-shape postings. */
 const WORKER = uuid(0x27461001);
@@ -249,13 +253,35 @@ describe.skipIf(!RUN)("#2746 an RVM-only posting reaches no BadaBhai worker, on 
 
   // ── M2: no switch is involved ───────────────────────────────────────────────
 
-  describe("with the API config at its DEFAULTS, and every feed mode derived from them", () => {
-    const defaults = loadServerConfig({ NODE_ENV: "test" });
-    const modes: [string, ServerConfig][] = [
-      ["defaults", defaults],
-      ["defaults + union", { ...defaults, FEED_POSTINGS_UNION_ENABLED: true }],
-      ["defaults + V1", { ...defaults, MATCH_V1_ENABLED: true }],
+  describe("with the API config at its DEFAULTS, and every rollout switch x feed mode", () => {
+    // Each mode goes through the REAL parser, so a switch value is exactly what production would
+    // hold. `pilot` is exercised with the owning company ON the `job_audience` pilot list (seeded).
+    const FEED_MODES: [string, Record<string, string>][] = [
+      ["legacy", {}],
+      ["union", { FEED_POSTINGS_UNION_ENABLED: "true" }],
+      ["V1", { MATCH_V1_ENABLED: "true" }],
     ];
+    const ROLLOUTS = ["(default)", "off", "pilot", "on"] as const;
+    const modes: [string, ServerConfig][] = ROLLOUTS.flatMap((rollout) =>
+      FEED_MODES.map(([feed, env]): [string, ServerConfig] => [
+        `JOB_AUDIENCE_ROLLOUT=${rollout}, ${feed} feed`,
+        loadServerConfig({
+          NODE_ENV: "test",
+          ...env,
+          ...(rollout === "(default)" ? {} : { JOB_AUDIENCE_ROLLOUT: rollout }),
+        }),
+      ]),
+    );
+    const defaults = loadServerConfig({ NODE_ENV: "test" });
+
+    it("the modes are what they say: the default switch is off, and pilot/on parse as set", () => {
+      expect(defaults.JOB_AUDIENCE_ROLLOUT).toBe("off");
+      expect(modes.map(([, c]) => c.JOB_AUDIENCE_ROLLOUT)).toEqual([
+        ...Array<string>(6).fill("off"),
+        ...Array<string>(3).fill("pilot"),
+        ...Array<string>(3).fill("on"),
+      ]);
+    });
 
     it.each(modes)(
       "%s: the feed never serves the RVM-only posting",
@@ -290,8 +316,14 @@ describe.skipIf(!RUN)("#2746 an RVM-only posting reaches no BadaBhai worker, on 
       30_000,
     );
 
-    it("defaults + V1: the `both` posting still takes the apply — only the RVM part is gated", async () => {
-      const service = applicationsService({ ...defaults, MATCH_V1_ENABLED: true });
+    it("switch on + V1: the `both` posting still takes the apply — only the RVM part is gated", async () => {
+      const service = applicationsService(
+        loadServerConfig({
+          NODE_ENV: "test",
+          MATCH_V1_ENABLED: "true",
+          JOB_AUDIENCE_ROLLOUT: "on",
+        }),
+      );
       const out = await service.apply(WORKER, P_BOTH, { rank: 1, source_surface: "feed" }, CTX);
       expect(out.action).toBe("applied");
     }, 30_000);
@@ -321,6 +353,20 @@ async function seed(client: DbClient): Promise<void> {
     INSERT INTO worker_industry_tenure (worker_id, industry_id, calendar_months)
     VALUES (${WORKER}::uuid, ${INDUSTRY}, 48)
   `;
+  // The owning company, on the `job_audience` pilot list: the `pilot` modes below then switch the
+  // capability ON for exactly the company whose RVM-only posting must stay off worker paths.
+  await sql`
+    INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+    VALUES (${PAYER}::uuid, 'employer', 'enc:t2746-visibility', 'hash:t2746-visibility',
+            'enc:org-t2746-visibility', 'active')
+    ON CONFLICT (id) DO NOTHING
+  `;
+  await sql`
+    INSERT INTO feature_pilot_payers (feature, payer_id, added_by, reason)
+    VALUES ('job_audience', ${PAYER}::uuid, 'test:job-audience-visibility.db',
+            'M2 proof: a pilot company with an RVM-only posting')
+    ON CONFLICT DO NOTHING
+  `;
 
   const posting = async (
     id: string,
@@ -330,9 +376,10 @@ async function seed(client: DbClient): Promise<void> {
     published: string | null,
   ) => {
     await sql`
-      INSERT INTO job_postings (id, created_by, org_label, role_title, vacancy_band, status,
-                                audience, match_skill_ids, reach_skill_ids, published_at, city)
-      VALUES (${id}::uuid, ${CREATED_BY}::uuid, 'Audience Fixture',
+      INSERT INTO job_postings (id, created_by, payer_id, org_label, role_title, vacancy_band,
+                                status, audience, match_skill_ids, reach_skill_ids, published_at,
+                                city)
+      VALUES (${id}::uuid, ${CREATED_BY}::uuid, ${PAYER}::uuid, 'Audience Fixture',
               ${`${TITLE_TOKEN} VMC Operator`}, '1', ${status}, ${audience},
               ${JSON.stringify(skills)}::jsonb, ${JSON.stringify(skills)}::jsonb,
               ${published}::timestamptz, 'Pune')
@@ -355,5 +402,7 @@ async function cleanup(client: DbClient): Promise<void> {
   await sql`DELETE FROM worker_skill WHERE worker_id = ${WORKER}::uuid`;
   await sql`DELETE FROM worker_industry_tenure WHERE worker_id = ${WORKER}::uuid`;
   await sql`DELETE FROM workers WHERE id = ${WORKER}::uuid`;
+  // The pilot row cascades with its payer.
+  await sql`DELETE FROM payers WHERE id = ${PAYER}::uuid`;
   await client.db.delete(events).where(eq(events.correlationId, CORRELATION));
 }
