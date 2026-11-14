@@ -123,6 +123,27 @@ export class InstituteSearchGrantsRepository {
     return rows[0];
   }
 
+  /** Whether this consent ref already granted this company this worker (a grant since revoked). */
+  async consentRefSpent(
+    tx: Database,
+    tenant: TenantKey,
+    workerId: string,
+    consentRef: string,
+  ): Promise<boolean> {
+    const rows = await tx
+      .select({ id: instituteSearchGrants.id })
+      .from(instituteSearchGrants)
+      .where(
+        and(
+          eq(instituteSearchGrants.payerId, tenant),
+          eq(instituteSearchGrants.workerId, workerId),
+          eq(instituteSearchGrants.consentRef, consentRef),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
   /** Revokes one grant by id; a grant already revoked keeps its first revocation time. */
   async revoke(tx: Database, id: string, now: Date): Promise<InstituteSearchGrantRow | undefined> {
     const rows = await tx

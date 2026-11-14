@@ -1,5 +1,5 @@
 {
-  "id": "1350f45f-8206-4377-a32f-691ba0ab26c4",
+  "id": "dd29baff-cfd2-4b41-a2bf-e2cf029a8914",
   "prevId": "1bd9efcd-4246-42c6-a86a-bde8f1a88470",
   "version": "7",
   "dialect": "postgresql",
@@ -17797,6 +17797,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "owns_application": {
+          "name": "owns_application",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "campus_applied_at": {
           "name": "campus_applied_at",
           "type": "timestamp with time zone",
@@ -17842,6 +17849,34 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "institute_applications_live_uq": {
+          "name": "institute_applications_live_uq",
+          "columns": [
+            {
+              "expression": "institute_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "worker_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "job_posting_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"institute_applications\".\"withdrawn_at\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}

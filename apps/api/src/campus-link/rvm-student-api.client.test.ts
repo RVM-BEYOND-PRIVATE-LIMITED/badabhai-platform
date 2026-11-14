@@ -167,6 +167,20 @@ describe("RvmStudentApiClient.readConsentRequest (#2752 item 10)", () => {
     expect((await failureOf(odd.api.readConsentRequest(REQUEST))).failure).toBe("contract");
   });
 
+  it("refuses a reply that lists one student twice as off-contract, never the last answer", async () => {
+    const twice = client(() =>
+      json(200, {
+        request_id: REQUEST,
+        company: { ref: COMPANY },
+        students: [
+          { student_ref: REF, state: "no" },
+          { student_ref: REF.toUpperCase(), state: "yes" },
+        ],
+      }),
+    );
+    expect((await failureOf(twice.api.readConsentRequest(REQUEST))).failure).toBe("contract");
+  });
+
   it("refuses a request id that is not a code before anything leaves the process", async () => {
     const { api, fetchImpl } = client(() => json(200, {}));
     await expect(api.readConsentRequest("../students")).rejects.toThrow();

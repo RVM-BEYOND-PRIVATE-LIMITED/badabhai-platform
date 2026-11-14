@@ -118,8 +118,21 @@ export class InstituteSearchGrantsService {
       await this.repo.lockRef(tx, RVM, grantRef);
       const raced = await this.repo.findByRef(RVM, grantRef, tx);
       if (raced) return raced;
+      // The link must STILL be active, read under its own lock: an unlink between the link above
+      // and this write would otherwise leave a live grant on a withdrawn link, revived on re-link
+      // without a new yes. Lock order grant ref → student ref; the unlink takes only the latter.
+      await this.linkRepo.lockStudentRef(tx, RVM, studentRef);
+      const current = await this.linkRepo.findByRefForUpdate(tx, RVM, studentRef);
+      if (current?.status !== "active" || current.workerId !== linked.workerId) {
+        throw new StudentNotAvailableError();
+      }
       const live = await this.repo.findLive(tx, tenant, linked.workerId, RVM);
       if (live) throw new GrantRefConflictError();
+      // One yes is one grant: a consent already spent on a grant that was revoked does not grant
+      // again under a new ref. A fresh request to the student is needed.
+      if (await this.repo.consentRefSpent(tx, tenant, linked.workerId, body.consent_ref)) {
+        throw new StudentNotAvailableError();
+      }
 
       const now = new Date();
       const inserted = await this.repo.insertLive(tx, {

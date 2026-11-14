@@ -129,6 +129,16 @@ describe("the keys", () => {
     expect(FLAT).toContain(`"payer_id" uuid PRIMARY KEY NOT NULL`);
   });
 
+  it("one LIVE Campus record per student and posting; a withdrawal frees the pair", () => {
+    expect(FLAT).toContain(
+      'CREATE UNIQUE INDEX "institute_applications_live_uq" ON "institute_applications" USING btree ("institute_code","worker_id","job_posting_id") WHERE "institute_applications"."withdrawn_at" IS NULL',
+    );
+  });
+
+  it("a Campus record owns the applications row only when it made it (default: no)", () => {
+    expect(FLAT).toContain('"owns_application" boolean DEFAULT false NOT NULL');
+  });
+
   it("a withdrawn Campus application no longer points at an applications row", () => {
     expect(FLAT).toContain(
       `CONSTRAINT "institute_applications_withdrawn_chk" CHECK ("institute_applications"."withdrawn_at" IS NULL OR "institute_applications"."application_id" IS NULL)`,

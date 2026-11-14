@@ -1,5 +1,14 @@
 import { sql } from "drizzle-orm";
-import { check, index, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  check,
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { applications, jobPostings } from "./job";
 import { payers } from "./payer";
 import { workers } from "./worker";
@@ -94,6 +103,11 @@ export const instituteApplications = pgTable(
     workerId: uuid("worker_id")
       .notNull()
       .references(() => workers.id, { onDelete: "cascade" }),
+    /**
+     * True when THIS record created the `applications` row. A student who had already applied
+     * from the worker app keeps that row on a Campus withdrawal: only a row Campus made is removed.
+     */
+    ownsApplication: boolean("owns_application").notNull().default(false),
     campusAppliedAt: timestamp("campus_applied_at", { withTimezone: true }),
     withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -101,6 +115,10 @@ export const instituteApplications = pgTable(
   },
   (t) => [
     uniqueIndex("institute_applications_ref_uq").on(t.instituteCode, t.externalRef),
+    // One LIVE Campus record per student and posting; after a withdrawal he may apply again.
+    uniqueIndex("institute_applications_live_uq")
+      .on(t.instituteCode, t.workerId, t.jobPostingId)
+      .where(sql`${t.withdrawnAt} IS NULL`),
     index("institute_applications_feed_idx").on(t.instituteCode, t.updatedAt, t.id),
     index("institute_applications_worker_idx").on(t.workerId),
     check("institute_applications_institute_chk", sql`${t.instituteCode} IN ('rvm')`),
