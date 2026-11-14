@@ -8,6 +8,7 @@ import {
 import { EventsService } from "../events/events.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
+import { InstituteAiGate } from "../campus-link/institute-ai-gate.service";
 import { toAiJobUsage } from "../ai/ai-job-usage";
 import { AiService } from "../ai/ai.service";
 import { AiJobsRepository } from "../profiles/ai-jobs.repository";
@@ -45,6 +46,9 @@ export class VoiceTranscriptionService {
     // 0083 — the same six call sites as `aiCost`, one table further. Also from the @Global
     // `AiModule`, so this module still gains no import edge.
     private readonly aiTraces: AiTraceRecorder,
+    // #2752 item 13 — no transcription for an institute student without BadaBhai's own
+    // consent. A queued job also retries off his request. CampusLinkModule, a one-way edge.
+    private readonly instituteAi: InstituteAiGate,
   ) {}
 
   /**
@@ -249,6 +253,8 @@ export class VoiceTranscriptionService {
           ...(translateToEnglish === undefined ? {} : { translate_to_english: translateToEnglish }),
       };
 
+      // #2752 item 13 — refused before the provider call, on this job's failure path.
+      await this.instituteAi.assertMayRunAi(ownerId);
       const result = await this.ai.transcribe(request, { correlationId, requestId });
 
       // THE COST RECORD, EMITTED BEFORE THE DEGRADED-RESULT THROW BELOW — deliberately (#738).

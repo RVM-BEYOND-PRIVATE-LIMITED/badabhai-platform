@@ -983,6 +983,33 @@ describe("findReachRow — the apply gate", () => {
     expect(sql).not.toContain("paused");
   });
 
+  it("counts a reach row ONLY on a posting that is not hidden (#2566)", async () => {
+    // An admin hide keeps the posting's reach rows. Without this a worker holding a hidden
+    // job's card could still apply or skip, and the company would see the applicant.
+    const { repo, captured } = makeDb({ exec: [[]] });
+    await repo.findReachRow(WORKER, POSTING);
+    expect(captured.statements[0]!.sql).toContain("jp.hidden_at IS NULL");
+  });
+
+  it("uses the V1 FEED's hidden predicate verbatim — a hidden job is neither served nor appliable", async () => {
+    const hiddenPredicates = (sql: string) => sql.match(/jp\.hidden_at\s+IS\s+NULL/g) ?? [];
+
+    const feedStatements: string[] = [];
+    const feed = new MatchFeedRepository({
+      execute: (stmt: unknown) => {
+        feedStatements.push(compile(stmt).sql);
+        return Promise.resolve([]);
+      },
+    } as unknown as Database);
+    await feed.listFeed(WORKER, 10, {});
+
+    const { repo, captured } = makeDb({ exec: [[]] });
+    await repo.findReachRow(WORKER, POSTING);
+
+    expect(hiddenPredicates(captured.statements[0]!.sql)).toEqual(["jp.hidden_at IS NULL"]);
+    expect(hiddenPredicates(feedStatements[0]!)).toContain("jp.hidden_at IS NULL");
+  });
+
   it("uses the V1 FEED's open-status predicate verbatim — the gate and the feed cannot drift", async () => {
     const statusPredicates = (sql: string) =>
       sql.match(/jp\.status\s*(?:=\s*'[^']*'|IN\s*\([^)]*\))/g) ?? [];
