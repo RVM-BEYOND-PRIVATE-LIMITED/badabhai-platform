@@ -46,8 +46,9 @@ import { PayerCampusDriveRequestsController } from "./payer-campus-drive-request
  *     request row's `FOR UPDATE` (the second waits — seen in `pg_stat_activity` — then decides
  *     against the committed row), never a 40P01, and one wins cleanly either way round;
  *   - DPDP erasure: the account deletion erases the contacts a login entered on requests that
- *     outlive it, `cdr_contact_chk` refuses a half-erasure, and the company's own requests go with
- *     its `payers` row.
+ *     outlive it, in the row delete's transaction (a delete that fails — the `employer_profiles`
+ *     FK holds every verified company — erases nothing), `cdr_contact_chk` refuses a half-erasure,
+ *     and the company's own requests go with its `payers` row.
  *
  * ── HOW TO RUN ────────────────────────────────────────────────────────────────
  *   RUN_DB_TESTS=1 DATABASE_URL=<a migrated LOCAL database> \
@@ -559,6 +560,40 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
          WHERE id = ${made.id}::uuid`,
     );
     expect(sqlStateOf(undated)).toBe("23514");
+  }, 30_000);
+
+  it("a QA delete that FAILS (the employer_profiles FK holds a verified company) erases no contact", async () => {
+    // A request OTHER owns that COMPANY's login typed: erased if the erasure ever committed alone.
+    const [row] = await client.sql<{ id: string }[]>`
+      INSERT INTO campus_drive_requests (payer_id, created_by, branch_ids, preferred_from,
+             preferred_to, openings, contact_name_enc, contact_phone_enc, idempotency_key)
+      VALUES (${OTHER}::uuid, ${COMPANY}::uuid, '[]'::jsonb, '2099-12-01', '2099-12-02', 2,
+              ${pii.encrypt(CONTACT_NAME)}, ${pii.encrypt(CONTACT_PHONE)}, 't2746d-key-0039')
+      RETURNING id`;
+    const deletion = new PayerAccountDeletionService(
+      client.db,
+      new PayersRepository(client.db, pii),
+      { revokeAllForPayer: async () => 0 } as never,
+      events,
+      new CampusDriveContactErasureRepository(client.db),
+    );
+    // COMPANY has an employer_profiles row (it is verified), and that FK is NO ACTION.
+    const err = await caught(() => deletion.execute(COMPANY, CTX));
+    expect(sqlStateOf(err)).toBe("23503");
+
+    const [payer] = await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM payers WHERE id = ${COMPANY}::uuid`;
+    expect(payer!.n).toBe(1);
+    const [after] = await stored({ id: row!.id });
+    expect(after!.contact_erased_at).toBeNull();
+    expect(after!.contact_name_enc).toMatch(/^v1\./);
+    expect(after!.contact_phone_enc).toMatch(/^v1\./);
+    // COMPANY's own requests are intact too, contacts and all.
+    const own = await stored({ payerId: COMPANY });
+    expect(own.length).toBeGreaterThan(0);
+    expect(own.every((r) => r.contact_erased_at === null && r.contact_name_enc !== null)).toBe(
+      true,
+    );
   }, 30_000);
 
   it("deleting a login erases the contacts it entered on requests that outlive it; Campus then lists contact: null", async () => {

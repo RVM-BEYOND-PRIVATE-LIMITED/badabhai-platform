@@ -365,6 +365,9 @@ The placement team's queue (#2746). PULL, NOT PUSH: Campus reads the requests he
 decision back; BadaBhai never calls Campus about a drive. With `CAMPUS_DRIVE_REQUESTS_ROLLOUT` off
 this is the neutral 404. In `pilot`, only requests of companies on the pilot list are listed.
 
+Only a verified employer can make a request: admin approval plus a GSTIN on file, and nothing else
+(owner ruling 14 Nov 2026; the phone route can be added later). Agency accounts cannot.
+
 Query: `status` (`requested`|`scheduled`|`declined`|`completed`|`cancelled`), `changed_since`
 (ISO 8601 with offset), `cursor`, `limit` (1–200, default 100). Ordered by `changed_at`, then
 `id`; `changed_since` returns requests changed at or after the instant.

@@ -32,7 +32,7 @@ describe("who may ask for a campus drive: a verified employer", () => {
     ).toEqual({ eligible: false, missing: ["admin_approval", "gst_number"] });
   });
 
-  it("an approved company without a GST number is NOT verified: the phone-verified-owner alternative is not built (pending owner decision)", () => {
+  it("an approved company without a GSTIN is NOT verified: a phone-verified owner does not count (owner ruling 14 Nov 2026)", () => {
     expect(
       driveRequesterStanding({
         role: "employer",

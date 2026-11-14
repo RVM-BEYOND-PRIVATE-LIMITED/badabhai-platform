@@ -128,7 +128,7 @@ const NAMED_EXCEPTIONS: readonly string[] = [
   "agency/agency-kyc.repository.ts AgencyKycRepository.markVerified",
   // #2746 PR 6 — the person, not the tenant (plan §4, beside payers.repository.ts): the account
   // deletion erases the campus-drive contacts the deleted LOGIN typed (`created_by`), in whichever
-  // company's request they sit. Proposed in ADR-0063 §3.6, pending the owner's ruling.
+  // company's request they sit. Owner ruling 14 Nov 2026 (ADR-0063 §3.6); security review.
   "campus-drives/campus-drive-contact-erasure.repository.ts CampusDriveContactErasureRepository.eraseEnteredBy",
 ];
 

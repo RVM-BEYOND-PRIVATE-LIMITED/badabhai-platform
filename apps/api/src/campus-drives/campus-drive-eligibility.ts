@@ -1,8 +1,9 @@
 import type { PayerProfileVerificationStatus, PayerRole } from "@badabhai/db";
 
 /**
- * #2746 PR 6 — WHO MAY ASK FOR A CAMPUS DRIVE: only a VERIFIED employer (the issue's default,
- * brief section 7: "admin approval plus a GST number or a phone-verified owner").
+ * #2746 PR 6 — WHO MAY ASK FOR A CAMPUS DRIVE: only a VERIFIED employer. OWNER RULING 14 NOV 2026:
+ * admin approval plus a GSTIN on file, and nothing else; a phone-verified owner does NOT count (the
+ * brief's section 7 offered it as an alternative to the GSTIN). The phone route can be added later.
  *
  * WHAT EACH PART MEANS IN THIS CODEBASE, read against the company record (`employer_profiles`,
  * 1:1 with the company's tenant key — owner ruling D4, #2564):
@@ -12,15 +13,13 @@ import type { PayerProfileVerificationStatus, PayerRole } from "@badabhai/db";
  *     writer; no company can set it. No row, or any other status, is not approved.
  *   - GST ON FILE = `employer_profiles.gst_number_enc IS NOT NULL`. Written only by the same admin
  *     surface, after `GstinSchema` validated it.
- *   - PHONE-VERIFIED OWNER has NO meaning in code today, so it is NOT an alternative here (STOPPED,
- *     pending an owner decision; the options are in the PR report). `payers.status = 'active'`
- *     means one OTP was verified on the configured channel (`PAYER_LOGIN_METHOD`, default
+ *   - PHONE-VERIFIED OWNER is ruled out, and has no meaning in code today anyway: `payers.status =
+ *     'active'` means one OTP was verified on the configured channel (`PAYER_LOGIN_METHOD`, default
  *     `email_otp`), and nothing records which channel or which contact; an admin-created login is
- *     active with no OTP at all; and `PATCH /payer/me` changes the phone with no verification.
+ *     active with no OTP at all; and `PATCH /payer/me` changes the phone with no verification. A
+ *     later phone route needs that verification defined first, then a branch here.
  *
- * So, until that decision: VERIFIED = ADMIN APPROVAL AND GST ON FILE. That is the issue's rule
- * with its second alternative missing, which can only REFUSE a company the full rule would admit
- * (fail closed), never admit one it would refuse.
+ * So: VERIFIED = ADMIN APPROVAL AND GST ON FILE.
  *
  * The record is read for the TENANT key (ADR-0053: the company is the org, keyed by its anchor).
  * With `PAYER_ORG_TENANCY_MODE=on` a team member is judged by the company's record. In `off` /

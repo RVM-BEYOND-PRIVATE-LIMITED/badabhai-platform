@@ -21,10 +21,11 @@ const ERASED = {
  * request again with `contact: null` and Campus learns to drop its own copy.
  *
  * WHERE IT RUNS TODAY. `PayerAccountDeletionService` (the only payer erasure that exists, the
- * QA-only `POST /payer/me/delete/immediate`) calls {@link eraseEnteredBy} before it deletes the
- * login: the requests of the login's OWN tenant go with the `payers` row (`ON DELETE CASCADE`),
- * but under `PAYER_ORG_TENANCY_MODE=on` a team member's requests belong to the company's tenant
- * key and would otherwise keep the contact that member typed. {@link eraseOne} is for an ops
+ * QA-only `POST /payer/me/delete/immediate`) calls {@link eraseEnteredBy} on the SAME transaction
+ * as the login's row delete, so the erasure commits only if the delete does: the requests of the
+ * login's OWN tenant go with the `payers` row (`ON DELETE CASCADE`), but under
+ * `PAYER_ORG_TENANCY_MODE=on` a team member's requests belong to the company's tenant key and
+ * would otherwise keep the contact that member typed. {@link eraseOne} is for an ops
  * erasure of one request on the contact person's own request; no route calls it yet.
  *
  * Provided by `PayersModule` (the deletion service's module) rather than imported from
