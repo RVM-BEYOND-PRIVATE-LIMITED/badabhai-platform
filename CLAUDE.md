@@ -311,6 +311,19 @@ Payment flows belong exclusively to web applications.
 
 ---
 
+## November 2026 workflow (docs/nov_2026)
+
+Read the current work order before starting. The rules from the 12-13 Nov 2026
+documents apply to every screen:
+
+- The server decides access, ordering, fee status and every rupee figure; the app only displays.
+- Money arrives as integer paise; the client formats, never calculates.
+- Phone numbers stay masked in lists and never reach logs.
+- No list export or download from the apps.
+- Mobile apps carry no payment screens.
+- RVM's Jobs tab opens BadaBhai Campus in a web view; jobs are not rebuilt in the app.
+- Test on a low-end Android phone over patchy 4G.
+
 # 13. Before Starting Any Task
 
 Always:

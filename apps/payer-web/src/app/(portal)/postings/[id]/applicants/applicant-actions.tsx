@@ -740,7 +740,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                       E18: the RAW tier is what the badge says. A tier-2 worker promoted
                       into tier-1 ORDERING by the 36-month floor is still shown as
                       "related" — the company opted into that breadth and should see
-                      plainly what it is looking at before spending ₹40 to unlock him.
+                      plainly what it is looking at before spending credits to unlock him.
                       Info tone, not brand: Safety Yellow is the Unlock CTA's colour, and a
                       yellow label on every related card competed with it (W3-A).
                     */}

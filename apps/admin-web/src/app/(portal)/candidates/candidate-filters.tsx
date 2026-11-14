@@ -110,8 +110,8 @@ export function CandidateFilters({
               onChange={(e) => set("institute_linked", e.target.value)}
             >
               <option value="">All</option>
-              <option value="true">RVM students only</option>
-              <option value="false">Everyone else</option>
+              <option value="true">RVM students</option>
+              <option value="false">Not RVM students</option>
             </select>
           </label>
 
