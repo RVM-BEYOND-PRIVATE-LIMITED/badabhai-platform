@@ -114,3 +114,26 @@ export const instituteApplications = pgTable(
 
 export type InstituteSearchGrantRow = typeof instituteSearchGrants.$inferSelect;
 export type InstituteApplicationRow = typeof instituteApplications.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// institute_companies — a company an institute's placement team created on BadaBhai (#2752 item 5).
+//
+// `POST job-postings` from Campus may publish ONLY for a company it created itself (owner decision
+// taken 2026-11-14 on the security review): an existing BadaBhai company posts for RVM students
+// itself, from its own account, so a Campus credential can never publish in another employer's
+// name. This row is the proof of "created by Campus", and `GET companies?phone=` answers only
+// these. The company is created `pending`; its owner activates it by signing in with a code.
+// The Campus staff member who created it is in `audit_logs` (`campus_link.company_created`).
+// ---------------------------------------------------------------------------
+
+export const instituteCompanies = pgTable(
+  "institute_companies",
+  {
+    payerId: uuid("payer_id")
+      .primaryKey()
+      .references(() => payers.id, { onDelete: "cascade" }),
+    instituteCode: text("institute_code").$type<InstituteCode>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("institute_companies_institute_chk", sql`${t.instituteCode} IN ('rvm')`)],
+).enableRLS();

@@ -1220,6 +1220,18 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "applications cannot be taken",
   },
   {
+    id: "0163-institute-companies-rls",
+    migration: "0163_institute_grants_applications",
+    kind: "rls",
+    table: "institute_companies",
+    requiredBy:
+      "no code path - FORCE + four REVOKEs HAND-APPENDED; the table is named only by the Campus " +
+      "routes behind CAMPUS_LINK_ENABLED",
+    failureMode:
+      "SILENT. A writable grant lets any PostgREST role mark an existing company as Campus-created, " +
+      "which lets the Campus credential publish postings in that company's name",
+  },
+  {
     id: "0163-institute-applications-rls",
     migration: "0163_institute_grants_applications",
     kind: "rls",

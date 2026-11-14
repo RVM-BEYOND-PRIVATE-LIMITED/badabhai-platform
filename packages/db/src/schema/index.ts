@@ -42,7 +42,11 @@ import { profileCorrections } from "./profile-correction";
 import { adminCandidateIndex, adminCandidateIndexCursor } from "./admin-candidate-index";
 import { workerAdminOverrides } from "./admin-override";
 import { workerInstituteLinks, workerOrigins } from "./institute-link";
-import { instituteApplications, instituteSearchGrants } from "./institute-campus";
+import {
+  instituteApplications,
+  instituteCompanies,
+  instituteSearchGrants,
+} from "./institute-campus";
 import { workerProfilingTiers } from "./worker-profiling-tier";
 import { workerResumeSkins } from "./worker-resume-skin";
 import { payerApplicantStages } from "./payer-applicant-stage";
@@ -458,4 +462,5 @@ export const schema = {
   // #2752 - named-company search grants and Campus applications (migration 0163).
   instituteSearchGrants,
   instituteApplications,
+  instituteCompanies,
 };

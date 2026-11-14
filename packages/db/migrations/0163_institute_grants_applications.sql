@@ -1,8 +1,8 @@
 -- ==============================================================================
--- 0163 - named-company search grants and Campus applications (#2752 items 10 and 8)
+-- 0163 - search grants, Campus applications and Campus-created companies (#2752 items 10, 8, 5)
 -- ==============================================================================
 --
--- Additive. Two new tables; no existing column, constraint or row is touched.
+-- Additive. Three new tables; no existing column, constraint or row is touched.
 --   * institute_search_grants - a company may find an institute student in ITS search, after
 --     BadaBhai read his own yes from the institute by consent_ref. One live grant per company,
 --     worker and institute; a revoke stamps revoked_at. Carries the one match skill (and its
@@ -11,8 +11,10 @@
 --     (external_ref, unique per institute for good), the applications row the company sees, and
 --     withdrawn_at. A SIDE TABLE so that applications gains no column (a bare select on it names
 --     every model column, which would make a column APPLY-BEFORE-DEPLOY on the feed).
--- Both cascade on worker deletion (DPDP); grants also on company deletion; a Campus application
--- on posting deletion, and its application_id goes null when the applications row is deleted.
+--   * institute_companies - a company the placement team created from Campus. Campus may publish
+--     ONLY for these (owner decision 2026-11-14), and GET companies answers only these.
+-- All cascade on worker or company deletion (DPDP); a Campus application also on posting
+-- deletion, and its application_id goes null when the applications row is deleted.
 -- Ids, codes and dates only: no name, phone, course text or free text.
 --
 -- APPLY ORDER: AFTER 0162, and BEFORE the build that reads these tables (#2752 part C3 / part E)
@@ -24,21 +26,24 @@
 -- (empty tables, six indexes, the grants). The lock_timeout turns a busy moment into a retry
 -- (55P03) rather than a stall.
 --
--- ROLLBACK. Only with the API rolled back to a build that reads neither table, and only on EMPTY
--- tables; with rows it needs the owner's sign-off (it drops grants students consented to and
--- Campus's application ids, so a Campus retry would create a second application).
+-- ROLLBACK. Only with the API rolled back to a build that reads none of the tables, and only on
+-- EMPTY tables; with rows it needs the owner's sign-off (it drops grants students consented to,
+-- Campus's application ids, so a Campus retry would create a second application, and the record
+-- of which companies Campus created).
 --   BEGIN; SET LOCAL lock_timeout = '3s';
 --   DO $$ BEGIN
 --     IF EXISTS (SELECT 1 FROM "institute_search_grants")
 --        OR EXISTS (SELECT 1 FROM "institute_applications")
+--        OR EXISTS (SELECT 1 FROM "institute_companies")
 --     THEN RAISE EXCEPTION '0163 rollback refused: the tables hold rows (owner sign-off needed)';
 --     END IF;
 --   END $$;
 --   DROP TABLE "institute_applications";
 --   DROP TABLE "institute_search_grants";
---   DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1794638689397;
+--   DROP TABLE "institute_companies";
+--   DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1794640564853;
 --   COMMIT;
--- In the same code change, remove both tables from LOCKED_TABLES in
+-- In the same code change, remove the three tables from LOCKED_TABLES in
 -- tests/e2e/rls-spine.e2e.test.ts and the 0163 entries from schema-contract.ts.
 -- ==============================================================================
 SET lock_timeout='3s';--> statement-breakpoint
@@ -59,6 +64,14 @@ CREATE TABLE "institute_applications" (
 );
 --> statement-breakpoint
 ALTER TABLE "institute_applications" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE TABLE "institute_companies" (
+	"payer_id" uuid PRIMARY KEY NOT NULL,
+	"institute_code" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "institute_companies_institute_chk" CHECK ("institute_companies"."institute_code" IN ('rvm'))
+);
+--> statement-breakpoint
+ALTER TABLE "institute_companies" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE TABLE "institute_search_grants" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"institute_code" text NOT NULL,
@@ -80,6 +93,7 @@ ALTER TABLE "institute_search_grants" ENABLE ROW LEVEL SECURITY;--> statement-br
 ALTER TABLE "institute_applications" ADD CONSTRAINT "institute_applications_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "institute_applications" ADD CONSTRAINT "institute_applications_job_posting_id_job_postings_id_fk" FOREIGN KEY ("job_posting_id") REFERENCES "public"."job_postings"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "institute_applications" ADD CONSTRAINT "institute_applications_worker_id_workers_id_fk" FOREIGN KEY ("worker_id") REFERENCES "public"."workers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "institute_companies" ADD CONSTRAINT "institute_companies_payer_id_payers_id_fk" FOREIGN KEY ("payer_id") REFERENCES "public"."payers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "institute_search_grants" ADD CONSTRAINT "institute_search_grants_payer_id_payers_id_fk" FOREIGN KEY ("payer_id") REFERENCES "public"."payers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "institute_search_grants" ADD CONSTRAINT "institute_search_grants_worker_id_workers_id_fk" FOREIGN KEY ("worker_id") REFERENCES "public"."workers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "institute_applications_ref_uq" ON "institute_applications" USING btree ("institute_code","external_ref");--> statement-breakpoint
@@ -102,4 +116,9 @@ ALTER TABLE "institute_applications" FORCE ROW LEVEL SECURITY;--> statement-brea
 REVOKE ALL ON TABLE "institute_applications" FROM PUBLIC;--> statement-breakpoint
 REVOKE ALL ON TABLE "institute_applications" FROM anon;--> statement-breakpoint
 REVOKE ALL ON TABLE "institute_applications" FROM authenticated;--> statement-breakpoint
-REVOKE ALL ON TABLE "institute_applications" FROM service_role;
+REVOKE ALL ON TABLE "institute_applications" FROM service_role;--> statement-breakpoint
+ALTER TABLE "institute_companies" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+REVOKE ALL ON TABLE "institute_companies" FROM PUBLIC;--> statement-breakpoint
+REVOKE ALL ON TABLE "institute_companies" FROM anon;--> statement-breakpoint
+REVOKE ALL ON TABLE "institute_companies" FROM authenticated;--> statement-breakpoint
+REVOKE ALL ON TABLE "institute_companies" FROM service_role;
