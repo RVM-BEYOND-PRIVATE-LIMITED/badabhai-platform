@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { sql as dsql, type SQL } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /**
  * DB access for the payer's ALL-CANDIDATES search (`POST /payer/candidates/search`, ADR-0040,
@@ -22,7 +23,16 @@ import { DATABASE } from "../database/database.module";
  *   - `status` is `pending` or `active` — an ALLOWLIST, so a suspended worker, and any status
  *     added later, fails closed;
  *   - he holds at least one `worker_skill` row with `wants = true` (ADR-0036 §1). A skill he
- *     turned off is invisible here: it can neither match a filter nor appear on his card.
+ *     turned off is invisible here: it can neither match a filter nor appear on his card;
+ *   - he is NOT an actively linked institute student (#2752 item 9). His RVM consent covers only
+ *     the companies he applies to, so he is out of search even on the day he also accepts
+ *     BadaBhai's own consent in the worker app (issue question 2: hidden while the link is
+ *     active). Without that consent he is already out (no row, no wanted skill); this is the
+ *     second lock. Unflagged: the rule holds with the Campus link switched off.
+ * ONE OTHER WAY IN (#2752 item 10): an actively linked student the SEARCHING company holds a live
+ * named-company search grant for is in THAT company's pool only, on the grant's skill (months
+ * unrecorded), with no BadaBhai consent row needed: his own yes for that company was read from the
+ * institute. No other company's search ever sees the grant.
  * NEVER WIDEN THIS TO MAKE ROWS APPEAR (E2_BUILD "THE EMPTY-RESULT TRAP"): a search that returns
  * a worker who never consented has already disclosed him.
  *
@@ -97,6 +107,12 @@ export interface CandidatePoolQuery {
    * employer would see (or that he is not in the pool at all), never a re-implementation of it.
    */
   onlyWorkerId?: string;
+  /**
+   * #2752 item 10 — the searching company's tenant key. An actively linked institute student
+   * this company holds a LIVE named-company search grant for joins ITS pool (and no other), on the
+   * skill his course maps to. Absent = no grant is read at all (the admin card read passes none).
+   */
+  tenant?: TenantKey;
 }
 
 /** One candidate in the pool, before labelling. */
@@ -135,12 +151,23 @@ export interface CandidateRoleRow {
  * worker row's `updated_at`. Shared by the search and the city facet so the two can never
  * disagree about who is in the population.
  */
-function consentingWorkers(onlyWorkerId: string | null = null): SQL {
+function consentingWorkers(onlyWorkerId: string | null = null, tenant?: TenantKey): SQL {
   const only =
     onlyWorkerId === null
       ? dsql``
       : dsql`
       AND w.id = ${onlyWorkerId}::uuid`;
+  const granted =
+    tenant === undefined
+      ? dsql``
+      : dsql`
+        OR (
+          EXISTS (
+            SELECT 1 FROM worker_institute_links il
+            WHERE il.worker_id = w.id AND il.status = 'active'
+          )
+          AND EXISTS (${liveGrantRows(tenant, dsql`w.id`)})
+        )`;
   return dsql`
     SELECT w.id AS worker_id,
            NULLIF(btrim(w.current_city), '') AS current_city,
@@ -149,16 +176,40 @@ function consentingWorkers(onlyWorkerId: string | null = null): SQL {
     WHERE w.deletion_scheduled_at IS NULL
       AND w.status IN ('pending', 'active')
       AND (
-        SELECT bool_and(c.revoked_at IS NULL AND c.purposes @> '["employer_sharing"]'::jsonb)
-        FROM worker_consents c
-        WHERE c.worker_id = w.id
-          AND c.accepted_at = (
-            SELECT max(c2.accepted_at) FROM worker_consents c2 WHERE c2.worker_id = w.id
+        (
+          (
+            SELECT bool_and(
+              c.revoked_at IS NULL AND c.purposes @> '["employer_sharing"]'::jsonb
+            )
+            FROM worker_consents c
+            WHERE c.worker_id = w.id
+              AND c.accepted_at = (
+                SELECT max(c2.accepted_at) FROM worker_consents c2 WHERE c2.worker_id = w.id
+              )
+          ) IS TRUE
+          AND EXISTS (
+            SELECT 1 FROM worker_skill ws0 WHERE ws0.worker_id = w.id AND ws0.wants
           )
-      ) IS TRUE
-      AND EXISTS (
-        SELECT 1 FROM worker_skill ws0 WHERE ws0.worker_id = w.id AND ws0.wants
+          AND NOT EXISTS (
+            SELECT 1 FROM worker_institute_links il
+            WHERE il.worker_id = w.id AND il.status = 'active'
+          )
+        )${granted}
       )${only}`;
+}
+
+/**
+ * #2752 item 10 — the searching company's live grants that carry a skill, aliased `ws` with the
+ * columns of a `worker_skill` row, so the role CASE written over `ws.skill_id` serves both.
+ */
+function liveGrantRows(tenant: TenantKey, workerId?: SQL): SQL {
+  const forWorker = workerId === undefined ? dsql`` : dsql` AND ws.worker_id = ${workerId}`;
+  return dsql`
+    SELECT ws.worker_id, ws.skill_id, ws.industry_id, 0 AS months_bucketed
+    FROM institute_search_grants ws
+    WHERE ws.payer_id = ${tenant}::uuid
+      AND ws.revoked_at IS NULL
+      AND ws.skill_id IS NOT NULL${forWorker}`;
 }
 
 /** `[min, max)` over an int expression. */
@@ -232,14 +283,25 @@ export function candidateSearchStatement(q: CandidatePoolQuery): SQL {
         )`;
   const anchorWorker = q.after === null ? null : q.after.workerId;
 
+  // #2752 item 10 — a granted student's one role is his grant's, months unrecorded (0).
+  const grantedRoles =
+    q.tenant === undefined
+      ? dsql``
+      : dsql`
+      UNION ALL
+      SELECT ws.worker_id, ws.skill_id, ws.industry_id AS ws_industry_id, ws.months_bucketed,
+             ${matchClass} AS match_class
+      FROM (${liveGrantRows(q.tenant)}) ws
+      JOIN consenting cw ON cw.worker_id = ws.worker_id`;
+
   return dsql`
-    WITH consenting AS (${consentingWorkers(q.onlyWorkerId ?? null)}),
+    WITH consenting AS (${consentingWorkers(q.onlyWorkerId ?? null, q.tenant)}),
     wanted AS (
       SELECT ws.worker_id, ws.skill_id, ws.industry_id AS ws_industry_id, ws.months_bucketed,
              ${matchClass} AS match_class
       FROM worker_skill ws
       JOIN consenting cw ON cw.worker_id = ws.worker_id
-      WHERE ws.wants
+      WHERE ws.wants${grantedRoles}
     ),
     lead AS (
       SELECT DISTINCT ON (worker_id)

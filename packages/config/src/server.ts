@@ -631,6 +631,33 @@ export const serverEnvSchema = z.object({
   // two feeds and drains an outbox once a minute; 600 leaves room for a backlog without letting a
   // stolen token page through everything in seconds. Fail closed when Redis is down.
   CAMPUS_SERVICE_MAX_PER_MINUTE: positiveIntFromString(600),
+  // RVM's Student API (Scheduler_Backend#162), which BadaBhai reads a linked student's six agreed
+  // fields from, under his consent. Base URL of the Scheduler's student process and the token it
+  // issued BadaBhai (sent in `X-Service-Token`). Unset = every read fails closed: no student is
+  // linked. `optionalSecret`, because compose passes an unset variable as "".
+  // https only (plain http is allowed for a loopback host, for local work): the reply carries a
+  // student's name and phone, and the request carries the token.
+  RVM_STUDENT_API_BASE_URL: optionalSecret(
+    z
+      .string()
+      .url()
+      .refine((raw) => {
+        const url = new URL(raw);
+        const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+        return url.protocol === "https:" || (url.protocol === "http:" && loopback);
+      }, "must be https (plain http only for a loopback host)"),
+  ),
+  RVM_STUDENT_API_TOKEN: optionalSecret(z.string().min(16)),
+  // A read slower than this counts as RVM being down: retryable, and nothing is created.
+  RVM_STUDENT_API_TIMEOUT_MS: positiveIntFromString(5_000),
+  // How long a confirmed RVM consent stands before a company's open re-reads it (#2752 part C).
+  // A linked student opens only while RVM still answers for him, so this bounds how long a
+  // withdrawal RVM has not told Campus about can go unnoticed. Seconds.
+  // At most a day, so a typo cannot switch the re-read off.
+  RVM_CONSENT_RECHECK_SECONDS: positiveIntFromString(300).refine(
+    (seconds) => seconds <= 86_400,
+    "must be at most 86400 (a day)",
+  ),
 
   // #2746 — ROLLOUT SWITCHES, one per feature: off (nobody) | pilot (the companies listed for
   // that feature in `feature_pilot_payers`) | on (everyone). Default off; empty reads as off.

@@ -304,6 +304,8 @@ function makeService(
     // would still pass while the alert silently never worked.
     payers as never,
     opts.tenancy ?? tenancyService("off"),
+    // #2752 — the institute open gate: nobody here is an institute student.
+    { decide: vi.fn(async () => "not_linked") } as never,
   );
   return { svc, payments, events, razorpay, pricing, payers, ...fake };
 }
@@ -819,6 +821,7 @@ describe("PAYMENTS_ENABLE_REAL=false — the mock path is unchanged and remains 
       { get: vi.fn().mockResolvedValue(DEFAULT_MATCH_CONFIG) } as never,
       { findAuthFacts: vi.fn(async () => ({ role: "employer", status: "active" })) } as never,
       tenancyService("off"),
+      { decide: vi.fn(async () => "not_linked") } as never, // #2752 — no institute students here
     );
     return { svc, events, razorpay, repo: fake.repo };
   }

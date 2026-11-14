@@ -6295,3 +6295,53 @@ export const WorkerAdminCorrectionSupersededPayload = z
 export type WorkerAdminCorrectionSupersededPayload = z.infer<
   typeof WorkerAdminCorrectionSupersededPayload
 >;
+
+// ---------------------------------------------------------------------------
+// #2752 — the Campus link: a worker linked as an institute's student. IDS ONLY: never his
+// name, phone, phone hash, student reference, course or branch. `worker_created` says whether
+// the link created his BadaBhai row (no sign-in yet, status `pending`) or found one he made
+// himself. `worker.created` is NOT emitted for a link-created row; it fires once, at his first
+// worker-app sign-in.
+// ---------------------------------------------------------------------------
+export const InstituteCodeEnum = z.enum(["rvm"]);
+
+export const WorkerInstituteLinkedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    institute_code: InstituteCodeEnum,
+    worker_created: z.boolean(),
+  })
+  .strict();
+export type WorkerInstituteLinkedPayload = z.infer<typeof WorkerInstituteLinkedPayload>;
+
+// #2752 part C — the link ended: the institute told BadaBhai his consent is withdrawn or he asked
+// to be deleted (`campus_request`), or a company's open re-read his consent and the institute no
+// longer answered for him (`consent_not_confirmed`). IDS ONLY, like the linked event.
+// `worker_deleted` says whether the link-created row (never used as a BadaBhai account) was
+// erased with it, which only `campus_request` does; otherwise the row stays and only the copied
+// facts go.
+export const InstituteUnlinkReasonEnum = z.enum(["campus_request", "consent_not_confirmed"]);
+
+export const WorkerInstituteUnlinkedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    institute_code: InstituteCodeEnum,
+    reason: InstituteUnlinkReasonEnum,
+    worker_deleted: z.boolean(),
+  })
+  .strict();
+export type WorkerInstituteUnlinkedPayload = z.infer<typeof WorkerInstituteUnlinkedPayload>;
+
+// #2752 item 10 — a named-company search grant: a company may find (and open) an institute
+// student in its own search after BadaBhai read his own yes from the institute. IDS ONLY: never
+// his name, phone, student reference, course, the consent ref or the Campus grant ref. One
+// payload for both facts (granted, revoked); each is its own event name.
+export const WorkerInstituteSearchGrantPayload = z
+  .object({
+    grant_id: uuidSchema,
+    worker_id: uuidSchema,
+    payer_id: uuidSchema,
+    institute_code: InstituteCodeEnum,
+  })
+  .strict();
+export type WorkerInstituteSearchGrantPayload = z.infer<typeof WorkerInstituteSearchGrantPayload>;

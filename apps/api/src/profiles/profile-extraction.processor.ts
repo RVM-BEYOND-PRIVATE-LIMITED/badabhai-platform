@@ -76,6 +76,7 @@ import { ProfilesRepository } from "./profiles.repository";
 import { ProfilesService } from "./profiles.service";
 import { ProfileCompletionLedgerRepository } from "./profile-completion-ledger.repository";
 import { ConsentRepository } from "../consent/consent.repository";
+import { InstituteAiGate } from "../campus-link/institute-ai-gate.service";
 import { hasActiveConsent } from "../consent/consent-active";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import { ResumeImportRepository } from "../profiling/resume-import/resume-import.repository";
@@ -441,6 +442,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // 0083 — the prompt/completion sibling of `aiCost`, emitted from the SAME delegate
     // ({@link recordAiCost}) so the two cannot drift apart call site by call site.
     private readonly aiTraces: AiTraceRecorder,
+    // #2752 item 13 — no extraction for an institute student without BadaBhai's own consent.
+    // This job also runs off the request (the abandonment sweep, a correction rebuild), where
+    // no ConsentGuard stood in front of it. CampusLinkModule, a one-way edge.
+    private readonly instituteAi: InstituteAiGate,
     // Phase C reads ONE flag: `CHAT_LLM_INTERVIEW_ENABLED`. Off, and this processor makes exactly
     // the calls it made before — the whole LLM-led change stays behind a single switch, on the
     // extraction side as much as on the interview side.
@@ -720,6 +725,8 @@ export class ProfileExtractionProcessor extends WorkerHost {
       ) {
         throw new Error("consent is not active; the accepted résumé update is not extracted");
       }
+      // #2752 item 13 — before any AI spend, on the same thrown path as the check above.
+      await this.instituteAi.assertMayRunAi(workerId);
 
       // THE CONVERSATION IS READ LAZILY (ADR-0045 §3.4). Every model path reads it exactly as
       // before — see `redactedConversation` — but a general-road handover builds its profile with

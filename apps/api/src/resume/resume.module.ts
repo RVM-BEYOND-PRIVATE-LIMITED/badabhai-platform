@@ -1,5 +1,6 @@
 import { WorkHistoryPolishService } from "./work-history-polish.service";
 import { Module, forwardRef } from "@nestjs/common";
+import { CampusLinkModule } from "../campus-link/campus-link.module";
 import { BullModule } from "@nestjs/bullmq";
 import { AuthModule } from "../auth/auth.module";
 import { ProfilesModule } from "../profiles/profiles.module";
@@ -35,6 +36,9 @@ import { ResumeRerenderService } from "./resume-rerender.service";
  */
 @Module({
   imports: [
+    // #2752 item 13 — InstituteAiGate for ResumeService and WorkHistoryPolishService.
+    // ACYCLIC: CampusLinkModule imports no module.
+    CampusLinkModule,
     AuthModule, // for WorkerAuthGuard (worker-authenticated PDF download)
     ProfilesModule, // for ProfilesRepository
     forwardRef(() => ProfilingModule), // for TradeFormRepository (read-only pack answers)
