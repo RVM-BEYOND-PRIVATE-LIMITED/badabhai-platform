@@ -16,6 +16,7 @@
 const ALWAYS_FORBIDDEN = /[\p{Cc}\p{Cs}\p{Co}\p{Cn}\p{Zl}\p{Zp}]/u;
 const FORMAT = /\p{Cf}/u;
 const SEPARATOR = /\p{Z}/u;
+const WHITESPACE = /\s/u;
 
 const SPACE = String.fromCharCode(0x20);
 const NEWLINE = String.fromCharCode(0x0a);
@@ -46,6 +47,22 @@ export function hasForbiddenLabelCharacter(label: string): boolean {
   for (const ch of label) {
     if (ALWAYS_FORBIDDEN.test(ch)) return true;
     if (FORMAT.test(ch) && !INDIC_JOINERS.has(ch)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether `text` shows anything: at least one character that is not a separator, whitespace or a
+ * joiner. A label of joiners and spaces only passes the character rules yet renders blank, so a
+ * label must have one (security re-check L3), and a note without one is no note.
+ */
+export function hasVisibleCharacter(text: string): boolean {
+  for (const ch of text) {
+    // Separators and whitespace show nothing, and neither does a control or format character: the
+    // ZWNJ / ZWJ joiners are format (`Cf`) characters, so they never count as visible.
+    if (SEPARATOR.test(ch) || WHITESPACE.test(ch)) continue;
+    if (ALWAYS_FORBIDDEN.test(ch) || FORMAT.test(ch)) continue;
+    return true;
   }
   return false;
 }

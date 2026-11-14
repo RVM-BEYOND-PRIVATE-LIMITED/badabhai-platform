@@ -57,6 +57,12 @@ describe("cleanReviewReason", () => {
     expect(cleanReviewReason(`${ZWSP}  spaced  ${RLO}`)).toBe("spaced");
   });
 
+  it("treats a note of joiners (and spaces or newlines) only as no note: nothing visible is left", () => {
+    const ZWNJ = ch(0x200c);
+    expect(cleanReviewReason(`${ZWJ}${ZWNJ}`)).toBeUndefined();
+    expect(cleanReviewReason(`${ZWJ} ${NEWLINE}${ZWNJ}`)).toBeUndefined();
+  });
+
   it("treats a note left empty as no note at all", () => {
     expect(cleanReviewReason(`${ZWSP}${RLO}${NUL}`)).toBeUndefined();
     expect(cleanReviewReason(`${NEWLINE}${NEWLINE}`)).toBeUndefined();

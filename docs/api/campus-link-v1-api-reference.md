@@ -22,8 +22,8 @@ RVMBeyond_jobportal#155 and #154.
 | Writes                          | Every `POST`, `PUT` and `DELETE` carries `Idempotency-Key`: 8–200 characters of `A-Z a-z 0-9 . _ : -`. Missing or malformed → 400 `IDEMPOTENCY_KEY_REQUIRED`.                                            |
 | Lasting idempotency             | Redis remembers a key for minutes, except on the two PUTs in the next row. The guards that last are `external_ref` on applications and `grant_ref` on grants: the same ref again answers its row.        |
 | Review and targeting writes     | `PUT job-postings/:id/review` and `PUT targeting-options` check the key but do not store it. Retrying the SAME body (same `decided_at` / `as_of`) is safe: it answers what is held and changes nothing.  |
-| Decision time                   | `decided_at` (review) and `as_of` (targeting) are Campus's clock. The newest wins; an older one, or the same instant with different content, is 409 `DECISION_SUPERSEDED`.                               |
-| Clock skew                      | `decided_at` / `as_of`: from 2026-01-01, at most 60 seconds ahead of BadaBhai's clock (`CAMPUS_MAX_CLOCK_SKEW_MS`), else 400 `VALIDATION_FAILED`. Keep the Campus server on NTP.                         |
+| Decision time                   | `decided_at` / `as_of` are Campus's clock; the newest wins (older or same-time-different: 409 `DECISION_SUPERSEDED`). A review gone pending refuses one 10+ min older: 409 `POSTING_CHANGED`.            |
+| Clock skew                      | From 2026-01-01, offset within ±14:00, at most 60 s ahead of BadaBhai's clock, else 400 `VALIDATION_FAILED`. Keep the Campus server NTP-synced: the review's floor tolerates 10 min behind.              |
 | Body size                       | 100 kB of JSON at most (Express's default). The largest valid `PUT targeting-options` body is about 90 kB; anything larger is refused before validation.                                                 |
 | Call id                         | Every authenticated answer carries `X-Campus-Call-Id`, the id of BadaBhai's audit row for that call. Log it to correlate.                                                                                |
 | Flag                            | With `CAMPUS_LINK_ENABLED` off every route answers a neutral 404.                                                                                                                                        |
@@ -49,8 +49,8 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 | 409    | `POSTING_NOT_APPROVED`       | Posting's RVM review is pending or rejected                                           | No                 |
 | 409    | `AUDIENCE_EXCLUDES_RVM`      | Posting is for BadaBhai workers only                                                  | No                 |
 | 409    | `STUDENT_NOT_AVAILABLE`      | RVM refuses the student (no consent, not linked, any reason); no row is created       | No                 |
-| 409    | `POSTING_CHANGED`            | The posting changed after the reviewer saw it; fetch it again                         | No, not same body  |
-| 409    | `DECISION_SUPERSEDED`        | A newer decision or list is held, or one at the same time that differs                | No                 |
+| 409    | `POSTING_CHANGED`            | Changed (or its review reset) since the reviewer saw it; re-fetch, re-review          | No, not same body  |
+| 409    | `DECISION_SUPERSEDED`        | A newer decision or list is held, or a differing one at the same time                 | No                 |
 | 409    | `COMPANY_NOT_CAMPUS_CREATED` | `POST job-postings` for a phone that is a BadaBhai company Campus did not create      | No                 |
 | 409    | `REQUEST_IN_PROGRESS`        | The same `POST job-postings` key while the first request still runs                   | Yes, after a pause |
 | 429    | `RATE_LIMITED`               | Over the per-minute cap                                                               | Yes, after a pause |
@@ -150,8 +150,8 @@ Two fields are **required** besides `state` and `reviewer_ref`:
   decided on. BadaBhai compares it with the posting's hash under a row lock; if the posting changed
   since, the answer is `409 POSTING_CHANGED` and nothing is stored (no decision, no event). Fetch
   the posting again, show the reviewer the new content, and send the decision with the new hash.
-- `decided_at`: when the reviewer decided, by Campus's clock (ISO 8601 with an offset, from
-  2026-01-01T00:00:00Z on). BadaBhai stores it as the review time and answers it back as
+- `decided_at`: when the reviewer decided, by Campus's clock (ISO 8601 with an offset within
+  ±14:00, from 2026-01-01T00:00:00Z on). BadaBhai stores it as the review time and answers it back as
   `reviewed_at`. The posting keeps the NEWEST decision: a decision older than the one held, or one
   at the same instant that differs from it (state, reviewer, reason, narrowing or hash), is
   `409 DECISION_SUPERSEDED` and stores nothing. So a late retry can never undo a newer decision.
@@ -182,29 +182,32 @@ The checks, in order:
 
 | Answer                      | When                                                                                                                                                                                   |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400 `VALIDATION_FAILED`     | The body fails the schema, or `decided_at` is before 2026-01-01 or more than 60 seconds ahead of BadaBhai's clock                                                                      |
+| 400 `VALIDATION_FAILED`     | The body fails the schema, or `decided_at` is before 2026-01-01, has an offset past ±14:00, or is more than 60 s ahead of BadaBhai's clock                                             |
 | 404 (no code)               | The id is not a posting, or the posting is a draft, is hidden by BadaBhai, has no owning company, or the company is not in the RVM-audience rollout; `CAMPUS_LINK_ENABLED` off as well |
 | 409 `AUDIENCE_EXCLUDES_RVM` | The posting is for BadaBhai workers only                                                                                                                                               |
 | 409 `POSTING_NOT_OPEN`      | The posting is closed. Closing is final, so a decision could never reach a student. A paused or suspended posting can be reviewed: it opens again with the same content                |
 | 200 (replay)                | The posting holds this exact decision at this `decided_at`, and its content is unchanged                                                                                               |
-| 409 `DECISION_SUPERSEDED`   | A later decision is held, or a different one at the same `decided_at`, or the review went back to pending more than 60 seconds after `decided_at`                                      |
-| 409 `POSTING_CHANGED`       | `content_hash` is not the posting's hash now (a replay included)                                                                                                                       |
+| 409 `DECISION_SUPERSEDED`   | A later decision is held, or a different one at the same `decided_at`: the newer decision stands, do not re-review                                                                     |
+| 409 `POSTING_CHANGED`       | `content_hash` is not the posting's hash now (a replay included), or the review went back to pending more than 10 minutes after `decided_at`                                           |
 | 400 `VALIDATION_FAILED`     | A narrowed id is outside the posting's own targeting                                                                                                                                   |
 
 Time is checked before content. A decision older than the one held is obsolete whatever the content
-did, so it is `DECISION_SUPERSEDED` (do not re-review it: a newer decision exists); only a current
-decision on changed content is `POSTING_CHANGED` (re-fetch and re-review). A decision is stored only
-when both pass, so neither answer can let the other's stale case through.
+did, so it is `DECISION_SUPERSEDED` (do not re-review it: a newer decision exists). A decision on a
+posting whose review went back to pending after it, or on changed content, is `POSTING_CHANGED`
+(re-fetch and re-review). A decision is stored only when every check passes, and the write itself
+re-checks them, so no answer can let another's stale case through.
 
 Any later edit by the company to a field RVM students see (company name, title, description,
 requirements, benefits, pay, location, shift, experience, vacancy, audience or targeting) returns
 the posting to `pending`. A decision counts only for the content it saw: BadaBhai stores its hash
 with it and compares it on every read, so a posting edited after approval reads `pending` even
-before anything resets it. A posting back at `pending` refuses a decision made more than 60 seconds
-before it went back (`DECISION_SUPERSEDED`): a decision lost in the network cannot land after the
-company edited the posting away and back (A→B→A). A first decision on a posting with no review row
-always applies. Keep the Campus server's clock within 60 seconds of true time. The review never
-changes which BadaBhai workers see the posting.
+before anything resets it. A posting back at `pending` refuses a decision made more than 10 minutes
+before it went back, with `POSTING_CHANGED`: the posting needs a fresh review, and a decision lost
+in the network cannot land after the company edited the posting away and back (A→B→A). The 10
+minutes cover Campus's clock running behind BadaBhai's plus delivery delay; a clock further behind
+would keep answering `POSTING_CHANGED` to fresh reviews, so keep the Campus server NTP-synced. A
+first decision on a posting with no review row always applies. The review never changes which
+BadaBhai workers see the posting.
 
 ### PUT targeting-options
 
@@ -227,7 +230,8 @@ offers, each time; the position in the list is the order companies see.
 }
 ```
 
-`as_of` is **required**: when Campus read this list, by its clock (from 2026-01-01 on). A list is
+`as_of` is **required**: when Campus read this list, by its clock (from 2026-01-01 on, with an
+offset within ±14:00). A list is
 applied only when its `as_of` is newer than the last list applied. An older or same-instant list
 that differs from what is held is `409 DECISION_SUPERSEDED` and changes nothing, so a late retry
 never puts back an option Campus has since removed; one that equals what is held answers `200` with

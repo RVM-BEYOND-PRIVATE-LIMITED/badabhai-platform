@@ -14,7 +14,7 @@ import type { FeatureRolloutService } from "../feature-rollout/feature-rollout.s
 import type { PostingAudienceRepository } from "../job-postings/posting-audience.repository";
 import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
-import { CAMPUS_MAX_CLOCK_SKEW_MS } from "./campus-link.contract";
+import { CAMPUS_MAX_CLOCK_SKEW_MS, CAMPUS_RESET_FLOOR_TOLERANCE_MS } from "./campus-link.contract";
 import type {
   CampusPostingReviewRepository,
   DecisionWrite,
@@ -77,7 +77,15 @@ function decision(over: Partial<CampusReviewDecision> = {}): CampusReviewDecisio
 }
 
 /** The review row as `lockReview` reports it; a pending row unless a test says otherwise. */
-const PENDING: LockedReview = { state: "pending", timing: "none", sameDecision: false };
+const PENDING: LockedReview = {
+  state: "pending",
+  timing: "none",
+  sameDecision: false,
+  insertedByThisCall: false,
+};
+
+/** A row as a test describes it; `insertedByThisCall` defaults to false. */
+type HeldRow = Omit<LockedReview, "insertedByThisCall"> & { insertedByThisCall?: boolean };
 
 interface Setup {
   live?: boolean;
@@ -87,7 +95,7 @@ interface Setup {
   resolveError?: Error;
   unlocked?: LockedReviewTarget | undefined;
   locked?: LockedReviewTarget | undefined;
-  held?: LockedReview;
+  held?: HeldRow;
   stateNow?: InstituteReviewState;
   write?: DecisionWriteResult;
   activeCourses?: readonly string[];
@@ -111,12 +119,22 @@ function make(opts: Setup = {}) {
     withTransaction: vi.fn(async <T>(work: (t: Database) => Promise<T>) => work(tx)),
     lockTarget: vi.fn(async () => locked),
     lockReview: vi.fn(
-      async (_tx: Database, _write: DecisionWrite, _pendingFloorMs: number) => opts.held ?? PENDING,
+      async (
+        _tx: Database,
+        _write: DecisionWrite,
+        _pendingFloorMs: number,
+      ): Promise<LockedReview> => ({
+        ...PENDING,
+        ...opts.held,
+      }),
     ),
     reviewStateNow: vi.fn(async () => opts.stateNow ?? ("pending" as InstituteReviewState)),
     writeDecision: vi.fn(
-      async (_tx: Database, _input: DecisionWrite): Promise<DecisionWriteResult> =>
-        opts.write ?? { outcome: "written", contentHash: HASH },
+      async (
+        _tx: Database,
+        _input: DecisionWrite,
+        _floor: { toleranceMs: number; insertedByThisCall: boolean },
+      ): Promise<DecisionWriteResult> => opts.write ?? { outcome: "written", contentHash: HASH },
     ),
     writeAudit: vi.fn(async () => undefined),
   };
@@ -321,10 +339,10 @@ describe("CampusPostingReviewService — the newest decision wins (decided_at), 
     expectNothingStored(m);
   });
 
-  it("a pending row that went pending after decided_at (beyond the skew): 409 DECISION_SUPERSEDED, nothing written", async () => {
+  it("the reset floor: a review that went pending after decided_at (beyond the tolerance) is 409 POSTING_CHANGED (re-review), nothing written", async () => {
     const m = make({ held: { state: "pending", timing: "before_reset", sameDecision: false } });
     expect(codeOf(await refusal(m.service.review(POSTING, decision(), CALL)))).toBe(
-      "DECISION_SUPERSEDED",
+      "POSTING_CHANGED",
     );
     expectNothingStored(m);
   });
@@ -392,8 +410,17 @@ describe("CampusPostingReviewService — the newest decision wins (decided_at), 
     ).toBe("POSTING_CHANGED");
   });
 
-  it("the write statement's own refusals store nothing: not applied is DECISION_SUPERSEDED, a moved hash POSTING_CHANGED", async () => {
-    const late = make({ write: { outcome: "not_applied", contentHash: HASH } });
+  it("the write statement's own refusals store nothing: not applied is the floor on a pending row, a newer decision on a decided one; a moved hash POSTING_CHANGED", async () => {
+    const floor = make({ write: { outcome: "not_applied", contentHash: HASH } });
+    expect(codeOf(await refusal(floor.service.review(POSTING, decision(), CALL)))).toBe(
+      "POSTING_CHANGED",
+    );
+    expect(floor.events.emit).not.toHaveBeenCalled();
+
+    const late = make({
+      held: { state: "approved", timing: "newer", sameDecision: false },
+      write: { outcome: "not_applied", contentHash: HASH },
+    });
     expect(codeOf(await refusal(late.service.review(POSTING, decision(), CALL)))).toBe(
       "DECISION_SUPERSEDED",
     );
@@ -495,9 +522,25 @@ describe("CampusPostingReviewService — the write, its event and its audit row"
       expectedContentHash: HASH,
       decidedAt: DECIDED_AT,
     };
-    // The skew bound is the pending-row floor's tolerance.
-    expect(repo.lockReview).toHaveBeenCalledWith(tx, expected, CAMPUS_MAX_CLOCK_SKEW_MS);
-    expect(repo.writeDecision).toHaveBeenCalledWith(tx, expected);
+    // The reset floor's own tolerance (not the skew bound), to the lock and to the write statement.
+    expect(repo.lockReview).toHaveBeenCalledWith(tx, expected, CAMPUS_RESET_FLOOR_TOLERANCE_MS);
+    expect(repo.writeDecision).toHaveBeenCalledWith(tx, expected, {
+      toleranceMs: CAMPUS_RESET_FLOOR_TOLERANCE_MS,
+      insertedByThisCall: false,
+    });
+    expect(CAMPUS_RESET_FLOOR_TOLERANCE_MS).toBe(10 * 60 * 1000);
+    expect(CAMPUS_RESET_FLOOR_TOLERANCE_MS).not.toBe(CAMPUS_MAX_CLOCK_SKEW_MS);
+  });
+
+  it("a row this call created reaches the write statement as exempt from the reset floor", async () => {
+    const { service, repo, tx } = make({
+      held: { state: "pending", timing: "none", sameDecision: false, insertedByThisCall: true },
+    });
+    await service.review(POSTING, decision(), CALL);
+    expect(repo.writeDecision).toHaveBeenCalledWith(tx, expect.any(Object), {
+      toleranceMs: CAMPUS_RESET_FLOOR_TOLERANCE_MS,
+      insertedByThisCall: true,
+    });
   });
 
   it("answers the posting, the state and decided_at as the review time", async () => {
@@ -594,7 +637,13 @@ describe("CampusPostingReviewService — the reason is stored clean and never lo
     expect(repo.lockReview.mock.calls[0]![1].reason).toBe(`Pay low${NEWLINE}see note`);
   });
 
-  it("a reason of hidden characters only is stored as no reason (has_reason false)", async () => {
+  it("a reason of hidden characters or joiners only is stored as no reason (has_reason false)", async () => {
+    const ZWJ = String.fromCharCode(0x200d);
+    const ZWNJ = String.fromCharCode(0x200c);
+    const joiners = make();
+    await joiners.service.review(POSTING, decision({ reason: `${ZWJ}${ZWNJ} ${ZWJ}` }), CALL);
+    expect(joiners.repo.writeDecision.mock.calls[0]![1].reason).toBeNull();
+
     const { service, repo, events } = make();
     await service.review(POSTING, decision({ reason: `${ZWSP}${RLO}` }), CALL);
     expect(repo.writeDecision.mock.calls[0]![1].reason).toBeNull();

@@ -21,7 +21,7 @@ import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { CampusCall } from "./campus-call";
 import { assertCampusTime } from "./campus-clock";
 import {
-  CAMPUS_MAX_CLOCK_SKEW_MS,
+  CAMPUS_RESET_FLOOR_TOLERANCE_MS,
   type CampusErrorCode,
   type CampusReviewBodySchema,
   type CampusReviewResponseSchema,
@@ -82,17 +82,23 @@ function reviewable(target: ReviewTarget): target is ReviewTarget & { ownerPayer
  *   1. the same `decided_at` and the same decision (state, reviewer, reason, narrowing, hash) as
  *      the row holds: a replay — 200 with the stored decision, nothing written; but only while
  *      that decision still holds (its hash is the posting's hash now), else 409 `POSTING_CHANGED`;
- *   2. the same `decided_at` with anything different, an older one, or — on a row that was
- *      ALREADY pending — one older than when it became pending (`updated_at`) by more than
- *      `CAMPUS_MAX_CLOCK_SKEW_MS`: 409 `DECISION_SUPERSEDED`. That last floor is what stops a lost
- *      decision landing after a company edit reset the row and then restored the content
- *      (A→B→A, risk R84, closed); a row this call creates is exempt, so a first decision applies;
- *   3. the body's `content_hash` not the posting's hash now: 409 `POSTING_CHANGED`.
+ *   2. THE RESET FLOOR: on a row that was ALREADY pending, a `decided_at` older than when it became
+ *      pending (`updated_at`: a company edit's reset, an audience change, the posting's creation)
+ *      by more than `CAMPUS_RESET_FLOOR_TOLERANCE_MS` (10 min: Campus's clock behind ours, plus
+ *      delivery delay): 409 `POSTING_CHANGED`, logged as `before_reset`. The decision was made
+ *      before the posting needed its current review, so Campus re-fetches and re-reviews. This
+ *      stops a lost decision landing after a company edit reset the row and then restored the
+ *      content (A→B→A, risk R84, closed). A row this call creates is exempt: a first decision
+ *      applies;
+ *   3. the same `decided_at` with anything different, or an older one than the decision held: 409
+ *      `DECISION_SUPERSEDED` (a newer decision stands; do not re-review);
+ *   4. the body's `content_hash` not the posting's hash now: 409 `POSTING_CHANGED`.
  * Time first: a decision older than the one held is obsolete whatever the content did, and saying
  * so stops Campus re-reviewing it; a current decision on changed content is then `POSTING_CHANGED`.
- * A write needs both to pass, and the write statement re-checks both, so neither can let the
- * other's stale case through. Inside the floor's 60 s tolerance a pending row's only guard is the
- * hash: the window R84's closure records.
+ * A write needs the hash, the floor and the time rule to pass, and the write statement re-checks
+ * all three on its own, so none can let another's stale case through. The window left is the
+ * floor's tolerance plus Campus running ahead (`CAMPUS_MAX_CLOCK_SKEW_MS`), about 11 minutes: the
+ * one R84's closure records.
  *
  * NARROWING. A narrowed `branch_ids` / `course_ids` replaces the posting's own for RVM students.
  * Each id must be within the posting's own list; when that list is `[]` (every branch / course),
@@ -170,8 +176,7 @@ export class CampusPostingReviewService {
       if (locked.status === "closed") throw campusConflict("POSTING_NOT_OPEN");
 
       // The review row, AFTER the posting (the house lock order), created pending if missing.
-      // The skew bound is also the floor's tolerance for a decision made just before a reset.
-      const held = await this.repo.lockReview(tx, write, CAMPUS_MAX_CLOCK_SKEW_MS);
+      const held = await this.repo.lockReview(tx, write, CAMPUS_RESET_FLOOR_TOLERANCE_MS);
       // 1–2. Time first (see the class note).
       if (held.timing === "same" && held.sameDecision) {
         // The replay answers the held decision only while it still holds: its stored hash (the
@@ -185,11 +190,17 @@ export class CampusPostingReviewService {
         this.logOutcome(id, write.state, "unchanged");
         return { posting_id: id, review_state: held.state, reviewed_at: write.decidedAt };
       }
-      if (held.timing === "same" || held.timing === "older" || held.timing === "before_reset") {
+      // 2. The reset floor: the posting needs a review the decision predates.
+      if (held.timing === "before_reset") {
+        this.logOutcome(id, write.state, "before_reset");
+        throw campusConflict("POSTING_CHANGED");
+      }
+      // 3. A newer (or a different same-time) decision stands.
+      if (held.timing === "same" || held.timing === "older") {
         this.logOutcome(id, write.state, "superseded");
         throw campusConflict("DECISION_SUPERSEDED");
       }
-      // 3. Then the content.
+      // 4. Then the content.
       if (locked.contentHash !== write.expectedContentHash) {
         this.logOutcome(id, write.state, "posting_changed");
         throw campusConflict("POSTING_CHANGED");
@@ -200,7 +211,10 @@ export class CampusPostingReviewService {
       // Its own statement, after the row lock: a fresh snapshot that sees the decision committed
       // by whoever held the lock before us.
       const previousState = await this.repo.reviewStateNow(id, tx);
-      const written = await this.repo.writeDecision(tx, write);
+      const written = await this.repo.writeDecision(tx, write, {
+        toleranceMs: CAMPUS_RESET_FLOOR_TOLERANCE_MS,
+        insertedByThisCall: held.insertedByThisCall,
+      });
       switch (written.outcome) {
         case "missing":
           throw neutralNotFound();
@@ -209,7 +223,12 @@ export class CampusPostingReviewService {
           this.logOutcome(id, write.state, "posting_changed");
           throw campusConflict("POSTING_CHANGED");
         case "not_applied":
-          // Impossible under the review row's FOR UPDATE lock; refused the same way if it happens.
+          // Impossible under the review row's FOR UPDATE lock; refused as the checks above would:
+          // on a pending row it is the reset floor, on a decided one a newer decision.
+          if (held.state === "pending") {
+            this.logOutcome(id, write.state, "before_reset");
+            throw campusConflict("POSTING_CHANGED");
+          }
           this.logOutcome(id, write.state, "superseded");
           throw campusConflict("DECISION_SUPERSEDED");
         case "written":
