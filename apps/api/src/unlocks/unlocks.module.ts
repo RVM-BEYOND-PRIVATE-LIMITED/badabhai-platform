@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
+import { CampusLinkModule } from "../campus-link/campus-link.module";
 import { ConsentModule } from "../consent/consent.module";
 import { PayersModule } from "../payers/payers.module";
 import { PricingModule } from "../pricing/pricing.module";
@@ -40,6 +41,9 @@ import { RazorpayWebhookGuard } from "./razorpay-webhook.guard";
     // ONLY: the processor lives in ReferralAttributionModule, so this stays a queue
     // registration and NOT a module import (no dependency from `unlocks` into `referrals`).
     BullModule.registerQueue({ name: REFERRAL_BONUS_QUEUE }),
+    // #2752 — InstituteOpenGate: a linked institute student opens only for a company he applied
+    // to. A one-way edge: the Campus link has no dependency on unlocks.
+    CampusLinkModule,
   ],
   // RazorpayWebhookController is the PUBLIC capture surface (ADR-0010 real-payments
   // stream). It lives here, beside the money chokepoint it drives, so the whole payment

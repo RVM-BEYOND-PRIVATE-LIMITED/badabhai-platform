@@ -3,6 +3,7 @@ import type { ResumeImportFailureName } from "@badabhai/types";
 
 import { AiService } from "../../ai/ai.service";
 import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
+import { InstituteAiGate } from "../../campus-link/institute-ai-gate.service";
 import type { RequestContext } from "../../common/request-context";
 import { TRADE_FORM_KINDS, type TradeFormKind } from "../trade-form-router";
 import { ResumeImportRepository } from "./resume-import.repository";
@@ -49,6 +50,9 @@ export class ResumeSummaryService {
     private readonly ai: AiService,
     private readonly aiCost: AiCostRecorder,
     private readonly imports: ResumeImportRepository,
+    // #2752 item 13 — no AI for an institute student without BadaBhai's own consent; import
+    // jobs and the import sweep run off his request. CampusLinkModule, a one-way edge.
+    private readonly instituteAi: InstituteAiGate,
   ) {}
 
   /**
@@ -138,6 +142,7 @@ export class ResumeSummaryService {
     mime: string,
     ctx: RequestContext,
   ): Promise<ResumeSummary | null> {
+    await this.instituteAi.assertMayRunAi(workerId); // #2752 item 13, before the model call
     const out = await this.ai.summarizeResume(
       {
         schema_version: "resume.v1",

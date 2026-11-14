@@ -329,6 +329,8 @@ function make(
     // opposite in form — the trace assertions are about which of the four call sites stores
     // and which deliberately does not, which is what the fake makes visible.
     traces.recorder,
+    // #2752 — the institute AI gate: nobody here is a linked student.
+    { assertMayRunAi: vi.fn(async () => undefined) } as never,
     {
       CHAT_LLM_INTERVIEW_ENABLED: opts.llmInterview ?? false,
       AI_RAW_PII_ENABLED: opts.rawPii ?? false,

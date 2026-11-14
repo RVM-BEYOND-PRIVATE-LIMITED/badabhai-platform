@@ -22,7 +22,12 @@ import { DATABASE } from "../database/database.module";
  *   - `status` is `pending` or `active` — an ALLOWLIST, so a suspended worker, and any status
  *     added later, fails closed;
  *   - he holds at least one `worker_skill` row with `wants = true` (ADR-0036 §1). A skill he
- *     turned off is invisible here: it can neither match a filter nor appear on his card.
+ *     turned off is invisible here: it can neither match a filter nor appear on his card;
+ *   - he is NOT an actively linked institute student (#2752 item 9). His RVM consent covers only
+ *     the companies he applies to, so he is out of search even on the day he also accepts
+ *     BadaBhai's own consent in the worker app (issue question 2: hidden while the link is
+ *     active). Without that consent he is already out (no row, no wanted skill); this is the
+ *     second lock. Unflagged: the rule holds with the Campus link switched off.
  * NEVER WIDEN THIS TO MAKE ROWS APPEAR (E2_BUILD "THE EMPTY-RESULT TRAP"): a search that returns
  * a worker who never consented has already disclosed him.
  *
@@ -158,6 +163,10 @@ function consentingWorkers(onlyWorkerId: string | null = null): SQL {
       ) IS TRUE
       AND EXISTS (
         SELECT 1 FROM worker_skill ws0 WHERE ws0.worker_id = w.id AND ws0.wants
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM worker_institute_links il
+        WHERE il.worker_id = w.id AND il.status = 'active'
       )${only}`;
 }
 

@@ -16,6 +16,7 @@ import {
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import type { AdminFunnelTestAccounts } from "./admin-funnel.dto";
+import { signedUpWorker } from "./admin-worker-scope";
 
 /** The cohort bound — the funnel's single source of cohort truth (see listCohort). */
 export interface FunnelCohortFilter {
@@ -72,9 +73,12 @@ export class AdminFunnelRepository {
 
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-  /** The signup-range / test-account predicate — the ONE cohort definition. */
+  /**
+   * The signup-range / test-account predicate — the ONE cohort definition. A row the Campus link
+   * created that its student never signed in to is no sign-up, so it is never in a cohort (#2752).
+   */
   private cohortClauses(filter: FunnelCohortFilter): SQL[] {
-    const clauses: SQL[] = [];
+    const clauses: SQL[] = [signedUpWorker];
     if (filter.signupFrom !== undefined) clauses.push(gte(workers.createdAt, filter.signupFrom));
     if (filter.signupTo !== undefined) clauses.push(lt(workers.createdAt, filter.signupTo));
     if (filter.testAccounts === "exclude") clauses.push(eq(workers.isTestAccount, false));

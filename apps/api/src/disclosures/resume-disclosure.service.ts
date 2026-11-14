@@ -3,6 +3,7 @@ import type { ServerConfig } from "@badabhai/config";
 import type { DisclosureDenyReason } from "@badabhai/db";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
+import { InstituteOpenGate } from "../campus-link/institute-open-gate.service";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
@@ -69,7 +70,9 @@ type DisclosurePlan =
  * no-oracle (B-C). It is FREE — there is no payment step.
  *
  * FAIL-CLOSED ORDERING (addendum §1; every gate denies + discloses nothing on failure):
- *   [1] employer_sharing consent  → fail → neutral "unavailable" (no oracle)
+ *   [1] employer_sharing consent  → fail → neutral "unavailable" (no oracle); an actively
+ *       linked institute student is judged by {@link InstituteOpenGate} instead (#2752): only a
+ *       company he applied to, with his RVM consent re-confirmed
  *   [1b] ADR-0031 pending-deletion freeze (ruling (b)) → same neutral (re-checked in-tx)
  *   [2] SHARED worker cap (atomic) → fail → neutral "unavailable"
  *   [3] payment                    → REMOVED (free)
@@ -117,6 +120,8 @@ export class ResumeDisclosureService {
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     // ADR-0053 — the ONE tenant resolver (PayersModule, imported by ResumeDisclosureModule).
     private readonly tenancy: PayerTenantScopeService,
+    // #2752 — the institute rule for a linked student (CampusLinkModule, one-way edge).
+    private readonly instituteGate: InstituteOpenGate,
     // TIERED PROFILING — the employer's copy prints the worker's tier exactly as his own copy
     // does (same reader, same transform). Optional so its absence is today's disclosure.
     @Optional() private readonly tierScopes?: ResumeTierScopeReader,
@@ -173,7 +178,7 @@ export class ResumeDisclosureService {
 
     // ---- [1] consent + render-source resolved BEFORE the lock (pool-vs-lock deadlock
     // fix; mirrors UnlockService). Both are tx-external reads on the global pool. ----
-    const consented = await this.isConsentedForSharing(workerId);
+    const consented = await this.isOpenableBy(workerId, tenant, ctx);
     const workerPresent = consented || (await this.workerExists(workerId));
 
     // ---- ADR-0031 payer-surface freeze (ruling (b)) — pending-deletion gate ------
@@ -737,6 +742,21 @@ export class ResumeDisclosureService {
     const owned = await this.repo.findOwnedJobRef(jobPostingId, tenant);
     if (owned === null) return { ok: false };
     return { ok: true, jobPostingId: owned.kind === "posting" ? owned.id : null };
+  }
+
+  /**
+   * Whether the tenant may be handed this worker's résumé (#2752 item 9): the institute rule
+   * for an actively linked student, his own `employer_sharing` consent for everyone else. The
+   * same split as `UnlockService`; both fail closed.
+   */
+  private async isOpenableBy(
+    workerId: string,
+    tenant: TenantKey,
+    ctx: RequestContext,
+  ): Promise<boolean> {
+    const institute = await this.instituteGate.decide(workerId, { tenant }, ctx);
+    if (institute === "not_linked") return this.isConsentedForSharing(workerId);
+    return institute === "open";
   }
 
   /** Fail-closed disclosure-consent read (B-A): latest unrevoked employer_sharing row. */

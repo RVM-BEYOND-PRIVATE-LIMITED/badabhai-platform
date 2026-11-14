@@ -649,7 +649,9 @@ export class WorkerSkillsRepository {
    * holding an id apply to a posting no feed would show him (#1904). `paused` is excluded
    * here even though the reconcile above keeps it in scope: that keeps the reach set warm for
    * a resume, but a paused posting is on no feed. A resume restores apply with no write.
-   * `worker-skills.repository.test.ts` pins this predicate to the feed's.
+   * The same holds for `jp.hidden_at IS NULL` (#2566): an admin hide keeps the reach rows, so
+   * the gate repeats the feed's hidden test. `worker-skills.repository.test.ts` pins both
+   * predicates to the feed's.
    *
    * A predicate, not a decision: what an absent row MEANS (the neutral 404, no event) is
    * decided in `MatchApplyService.buildSnapshot`.
@@ -665,6 +667,9 @@ export class WorkerSkillsRepository {
       WHERE jr.worker_id = ${workerId}::uuid
         AND jr.job_posting_id = ${jobPostingId}::uuid
         AND jp.status = 'open'
+        -- #2566 — hidden leaves every worker surface, apply included. Hiding keeps the reach
+        -- rows, so without this a worker holding a card could still apply to a hidden job.
+        AND jp.hidden_at IS NULL
       LIMIT 1
     `);
     const list = rows as unknown as { match_tier: number; matched_skill_id: string }[];

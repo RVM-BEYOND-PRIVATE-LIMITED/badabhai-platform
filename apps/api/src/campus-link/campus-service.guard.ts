@@ -80,6 +80,17 @@ const NEVER_CAMPUS_OUTSIDE_DEV = (() => {
  *
  * FAIL CLOSED. An empty allow-list refuses every address; no configured hash refuses every token.
  */
+/**
+ * The route as declared (`/internal/campus/v1/students/:student_ref`), never the concrete path.
+ * An audit row outlives an unlink and a DPDP erasure, so it must not keep a student's, an
+ * application's or a grant's reference (#2752 part C review). `req.route` is the layer Express
+ * matched, set before a guard runs; "(unmatched)" if it is ever absent, never the raw path.
+ */
+export function routeTemplate(req: Pick<Request, "route">): string {
+  const path = (req.route as { path?: unknown } | undefined)?.path;
+  return typeof path === "string" ? path : "(unmatched)";
+}
+
 @Injectable()
 export class CampusServiceGuard implements CanActivate {
   private readonly logger = new Logger(CampusServiceGuard.name);
@@ -119,7 +130,7 @@ export class CampusServiceGuard implements CanActivate {
         callId,
         outcome,
         method: req.method,
-        path: req.path,
+        path: routeTemplate(req),
         handler: `${context.getClass().name}.${context.getHandler().name}`,
         tokenSlot,
       });

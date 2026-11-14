@@ -56,9 +56,14 @@ export const CampusExternalRefSchema = CampusIdempotencyKeySchema;
 
 /**
  * The hand-off token's `sub`: the Student API account uuid. Text up to 128 characters on both
- * sides; the uuid shape check is one refine, so relaxing it is a one-line change.
+ * sides; the uuid shape check is one refine, so relaxing it is a one-line change. Lower-cased,
+ * because the uuid check ignores case and the stored reference is unique as written.
  */
-export const StudentRefSchema = z.string().max(128).refine(isCanonicalUuid, "must be a uuid");
+export const StudentRefSchema = z
+  .string()
+  .max(128)
+  .refine(isCanonicalUuid, "must be a uuid")
+  .transform((ref) => ref.toLowerCase());
 
 /** A Campus staff member (reviewer or poster). Stored as a reference, never resolved here. */
 export const StaffRefSchema = z.string().max(128).refine(isCanonicalUuid, "must be a uuid");
