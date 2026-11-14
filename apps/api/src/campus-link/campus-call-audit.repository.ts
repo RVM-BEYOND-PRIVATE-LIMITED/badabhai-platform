@@ -13,7 +13,10 @@ export interface CampusCallAudit {
   callId: string;
   outcome: CampusCallOutcome;
   method: string;
-  /** The request path without its query string. Ids only: no route here takes a name or phone. */
+  /**
+   * The route template (`/internal/campus/v1/students/:student_ref`), never the concrete path, so
+   * no reference a later unlink or erasure must remove is kept here.
+   */
   path: string;
   /** `Controller.handler` that the call was routed to. */
   handler: string;

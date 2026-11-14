@@ -60,10 +60,13 @@ export interface CandidateSearchInput {
 
 export interface CandidateSearchResult {
   /** The explicit projection — lookup material omitted by construction. */
-  rows: Omit<
+  rows: (Omit<
     AdminCandidateIndexRow,
     "phoneHash" | "nameTokenHashes" | "nameTokenKeyId" | "searchDoc" | "projectedAt"
-  >[];
+  > & {
+    /** #2752 — the institute he is actively linked to, read live; null when none. */
+    instituteCode: string | null;
+  })[];
   total: number;
   /** Rows matching via an identity branch (phone OR name) — the audited match_count. */
   identityMatches: number;
@@ -118,6 +121,20 @@ function textArray(values: string[]): SQL {
   )}]`;
 }
 
+/**
+ * #2752 item 12 — the institute a row is ACTIVELY linked to (`rvm`), or null. Read live from
+ * `worker_institute_links` (a primary-key probe per row) rather than projected into the index, so
+ * an unlink shows at once and the index needs no column.
+ *
+ * The outer reference is written QUALIFIED by hand: in a select list Drizzle renders a column
+ * without its table, and inside this subquery a bare `"worker_id"` binds to `il.worker_id`, which
+ * would label every row whenever any link is active.
+ */
+const activeInstituteCode = dsql<string | null>`(
+  SELECT il.institute_code FROM worker_institute_links il
+  WHERE il.worker_id = "admin_candidate_index"."worker_id" AND il.status = 'active'
+)`;
+
 @Injectable()
 export class AdminCandidatesRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -165,6 +182,12 @@ export class AdminCandidatesRepository {
     if (f.is_test_account !== undefined)
       parts.push(eq(adminCandidateIndex.isTestAccount, f.is_test_account));
     if (f.form_level?.length) parts.push(inArray(adminCandidateIndex.formLevel, f.form_level));
+    if (f.institute_linked !== undefined)
+      parts.push(
+        f.institute_linked
+          ? dsql`${activeInstituteCode} IS NOT NULL`
+          : dsql`${activeInstituteCode} IS NULL`,
+      );
     return parts.length > 0 ? and(...parts) : undefined;
   }
 
@@ -243,6 +266,7 @@ export class AdminCandidatesRepository {
         updatedAt: adminCandidateIndex.updatedAt,
         aiCostInr: adminCandidateIndex.aiCostInr,
         referralSource: adminCandidateIndex.referralSource,
+        instituteCode: activeInstituteCode,
       })
       .from(adminCandidateIndex)
       .where(where)

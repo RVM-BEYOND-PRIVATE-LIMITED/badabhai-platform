@@ -77,6 +77,7 @@ function wire() {
     {} as never, // EventsService
     {} as never, // ServerConfig
     tenancy,
+    {} as never, // InstituteOpenGate — no disclosure is requested here
   );
   const seam = new PayerPostingPlansService(
     jobPostings as never,

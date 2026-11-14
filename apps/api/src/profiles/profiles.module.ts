@@ -1,4 +1,5 @@
 import { Module, forwardRef } from "@nestjs/common";
+import { CampusLinkModule } from "../campus-link/campus-link.module";
 import { BullModule } from "@nestjs/bullmq";
 import { AuthModule } from "../auth/auth.module";
 import { ChatModule } from "../chat/chat.module";
@@ -55,6 +56,9 @@ import {
 
 @Module({
   imports: [
+    // #2752 item 13 — InstituteAiGate for ProfileExtractionProcessor.
+    // ACYCLIC: CampusLinkModule imports no module.
+    CampusLinkModule,
     // forwardRef: ChatService also depends on ProfilesService (auto-trigger
     // extraction on the readiness flip), so the two modules reference each other.
     forwardRef(() => ChatModule), // for ChatRepository (transcript)

@@ -1693,6 +1693,19 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerAdminCorrectionSupersededPayload,
   },
+  // #2752 — a worker linked as an institute (Campus) student. Ids only; see the payload.
+  "worker.institute_linked": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerInstituteLinkedPayload,
+  },
+  // #2752 part C — the institute link ended (consent withdrawn, deletion, or not confirmed on an
+  // open). Ids only; see the payload.
+  "worker.institute_unlinked": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerInstituteUnlinkedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

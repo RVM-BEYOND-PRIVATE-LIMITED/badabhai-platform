@@ -14,6 +14,7 @@ import {
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import type { AdminProviderCostBucket, AdminTaskCostBucket } from "./admin-dashboard.dto";
+import { signedUpWorker } from "./admin-worker-scope";
 
 /** The all-time platform spend roll-up. `since` is null when nothing has ever accrued. */
 export interface AdminPlatformCostTotals {
@@ -251,10 +252,12 @@ export class AdminDashboardRepository {
 
   // ---- volume --------------------------------------------------------------
 
+  /** Workers per status. A Campus-linked row he never signed in to is no worker yet (#2752). */
   async countWorkersByStatus(): Promise<AdminKeyCount[]> {
     const rows = await this.db
       .select({ key: workers.status, count: count() })
       .from(workers)
+      .where(signedUpWorker)
       .groupBy(workers.status);
     return rows.map((r) => ({ key: r.key, count: r.count }));
   }
