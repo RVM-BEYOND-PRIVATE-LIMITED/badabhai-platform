@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createDbClient, events, referralClicks, referralLinks, type DbClient } from "@badabhai/db";
+import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
 /**
  * THE REFERRAL ROUND-TRIP — share → click → install → first-touch attribution.
@@ -73,8 +74,7 @@ const freshCode = (): string => randomUUID().replace(/-/g, "").slice(0, 12);
  * — the mint find-or-creates by phone hash, and a reused worker could arrive already
  * holding a claim, which would quietly invalidate the "exactly one" assertions.
  */
-const syntheticPhone = (): string =>
-  `+9100000${String(Math.floor(Math.random() * 100000)).padStart(5, "0")}`;
+const syntheticPhone = syntheticPhoneMinter(67);
 
 async function req(
   method: string,

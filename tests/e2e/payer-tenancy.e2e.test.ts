@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDbClient, type DbClient } from "@badabhai/db";
 import { randomUUID } from "node:crypto";
 import { mintPayerSession } from "./helpers/payer-session";
+import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
 /**
  * Payer self-serve HORIZONTAL AUTHORIZATION (e2e, ADR-0019 R16 / XB-A) against a LIVE
@@ -90,14 +91,10 @@ async function req(
 
 /**
  * A phone in the ONLY range the D-3 mint will serve: `SYNTHETIC_TEST_PHONE_PATTERN`
- * (`/^\+910{5}\d{5}$/`, i.e. `+9100000` + 5 digits) — the reserved, unassignable block.
+ * (`/^\+910{5}\d{5}$/`) — the reserved, unassignable block, inside this suite's own slot.
  * `AuthService.testLogin` refuses anything else, mirrors contact-unlock.e2e.test.ts.
  */
-let phoneSeq = Math.floor(Math.random() * 90_000);
-function syntheticPhone(): string {
-  phoneSeq = (phoneSeq + 1) % 100_000;
-  return `+9100000${String(phoneSeq).padStart(5, "0")}`;
-}
+const syntheticPhone = syntheticPhoneMinter(65);
 
 /**
  * Login a fresh worker via the D-3 test-login mint seam (`POST /auth/test-login`); returns

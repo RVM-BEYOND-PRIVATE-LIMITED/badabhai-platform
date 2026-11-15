@@ -9,6 +9,7 @@ import {
   type DbClient,
 } from "@badabhai/db";
 import { mintPayerSession } from "./helpers/payer-session";
+import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
 /**
  * A COMPANY POSTING REACHES THE WORKER FEED WHILE MATCH_V1 IS OFF (#1823, ADR-0049), against a
@@ -123,10 +124,8 @@ async function req(
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
-/** A phone in the ONLY range the D-3 mint serves (`+9100000` + five digits). */
-function syntheticPhone(): string {
-  return `+9100000${String(Math.floor(Math.random() * 100_000)).padStart(5, "0")}`;
-}
+/** A phone in the ONLY range the D-3 mint serves, inside this suite's own slot. */
+const syntheticPhone = syntheticPhoneMinter(61);
 
 describe.skipIf(!RUN)("Company postings on the legacy feed (e2e, #1823 interim union)", () => {
   let client!: DbClient;
