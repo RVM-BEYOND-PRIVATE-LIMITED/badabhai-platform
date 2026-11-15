@@ -12,7 +12,10 @@ import {
 import type { ServerConfig } from "@badabhai/config";
 import { validateEvent } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
-import { OtpSendCapExceededException } from "../common/otp-send-cap";
+import {
+  OtpSendCapExceededException,
+  PayerSmsSendCapExceededException,
+} from "../common/otp-send-cap";
 import { PAYER_TEST_LOGIN_DOMAIN } from "../payers/payer-test-login.guard";
 import { PayerAuthService } from "./payer-auth.service";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
@@ -32,9 +35,11 @@ const SYNTHETIC_EMAIL = `e2e-1${PAYER_TEST_LOGIN_DOMAIN}`;
 const ORG = "Acme Manufacturing Pvt Ltd";
 const PHONE = "+919876543210";
 
-function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
+function setup(over: { method?: "email_otp" | "whatsapp" | "supabase"; sms?: boolean } = {}) {
   const config = {
     PAYER_LOGIN_METHOD: over.method ?? "email_otp",
+    // #2754 — company SMS codes; off unless a test arms it.
+    PAYER_SMS_OTP_ENABLED: over.sms ?? false,
     OTP_RESEND_COOLDOWN_SECONDS: 30,
     PAYER_PASSWORD_MAX_ATTEMPTS: 5,
     PAYER_PASSWORD_LOCKOUT_SECONDS: 900,
@@ -1326,5 +1331,122 @@ describe("PayerAuthService — OTP suppression for a suspended account (ADR-0037
     await d.svc.requestLogin({ email: EMAIL } as never, CTX);
     expect(d.otp.issueAndSend).toHaveBeenCalledTimes(1);
     expect(d.otp.issueWithoutDelivery).not.toHaveBeenCalled();
+  });
+});
+
+describe("#2754 — a company signs in with an SMS code to its phone", () => {
+  const PHONE_KEY = `phone<${PHONE}>`;
+  const ONE = [{ id: PAYER_ID, role: "employer", status: "active", mustChangePassword: false }];
+  const names = (d: ReturnType<typeof setup>) =>
+    d.events.emit.mock.calls.map(([e]) => (e as { event_name: string }).event_name);
+
+  it("off (the default): a phone gets today's path — the configured route and the v1 event", async () => {
+    const d = setup();
+    d.payers.findByPhone.mockResolvedValue(ONE);
+    await d.svc.requestLogin({ phone: PHONE }, CTX);
+    expect(d.otp.issueAndSend).toHaveBeenCalledWith(
+      expect.objectContaining({ emailHash: PHONE_KEY, route: "default" }),
+    );
+    expect(names(d)).toEqual(["payer.login_requested"]);
+  });
+
+  it("on: a phone naming ONE account gets its code by SMS, recorded as sms_otp on the v2 event", async () => {
+    const d = setup({ sms: true });
+    d.payers.findByPhone.mockResolvedValue(ONE);
+    const res = await d.svc.requestLogin({ phone: PHONE }, CTX);
+    expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
+    expect(d.otp.issueAndSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        emailHash: PHONE_KEY,
+        phone: PHONE,
+        payerId: PAYER_ID,
+        route: "sms",
+      }),
+    );
+    expect(names(d)).toEqual(["payer.login_requested_v2"]);
+    expect(d.events.emit.mock.calls[0]![0]).toMatchObject({
+      payload: { payer_id: PAYER_ID, method: "sms_otp" },
+    });
+    assertNoPiiInEvents(d.events);
+  });
+
+  it("on: a phone two companies share gets NO code, the same neutral answer, and no login event", async () => {
+    const d = setup({ sms: true });
+    d.payers.findByPhone.mockResolvedValue([
+      ...ONE,
+      { id: "bbbbbbbb-0000-4000-8000-000000000002" },
+    ]);
+    const res = await d.svc.requestLogin({ phone: PHONE }, CTX);
+    expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
+    expect(d.otp.issueAndSend).not.toHaveBeenCalled();
+    expect(d.otp.issueWithoutDelivery).toHaveBeenCalledWith(PHONE_KEY, "sms");
+    expect(names(d)).toEqual([]);
+  });
+
+  it("on: an unknown phone reserves on the SMS route too, so the ceiling it counts is the same", async () => {
+    const d = setup({ sms: true });
+    await d.svc.requestLogin({ phone: PHONE }, CTX);
+    expect(d.otp.issueWithoutDelivery).toHaveBeenCalledWith(PHONE_KEY, "sms");
+    expect(d.otp.issueAndSend).not.toHaveBeenCalled();
+  });
+
+  it("on: an EMAIL still goes by the configured channel and the v1 event", async () => {
+    const d = setup({ sms: true });
+    await d.svc.requestLogin({ email: EMAIL }, CTX);
+    expect(d.otp.issueAndSend).toHaveBeenCalledWith(
+      expect.objectContaining({ emailHash: `hmac<${EMAIL}>`, route: "default" }),
+    );
+    expect(names(d)).toEqual(["payer.login_requested"]);
+  });
+
+  it("on: a suspended company's phone is reserved on the SMS route and sent nothing", async () => {
+    const d = setup({ sms: true });
+    d.payers.findByPhone.mockResolvedValue(ONE);
+    d.payers.findById.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    await d.svc.requestLogin({ phone: PHONE }, CTX);
+    expect(d.otp.issueWithoutDelivery).toHaveBeenCalledWith(PHONE_KEY, "sms");
+    expect(d.otp.issueAndSend).not.toHaveBeenCalled();
+    expect(names(d)).toEqual(["payer.otp_suppressed"]);
+  });
+
+  it("on: verify signs in the ONE account the phone names, as session_started_v2 with sms_otp", async () => {
+    const d = setup({ sms: true });
+    d.payers.findByPhone.mockResolvedValue(ONE);
+    const res = await d.svc.verifyLogin({ phone: PHONE, code: "123456" }, CTX);
+    expect(d.otp.verify).toHaveBeenCalledWith(PHONE_KEY, "123456");
+    expect(res.payer_id).toBe(PAYER_ID);
+    expect(names(d)).toEqual(["payer.session_started_v2"]);
+    expect(d.events.emit.mock.calls[0]![0]).toMatchObject({
+      payload: { payer_id: PAYER_ID, method: "sms_otp", is_new_payer: false },
+    });
+    assertNoPiiInEvents(d.events);
+  });
+
+  it("on: verify refuses a phone two companies share (the same 401), and starts no session", async () => {
+    const d = setup({ sms: true });
+    d.payers.findByPhone.mockResolvedValue([
+      ...ONE,
+      { id: "bbbbbbbb-0000-4000-8000-000000000002" },
+    ]);
+    await expect(d.svc.verifyLogin({ phone: PHONE, code: "123456" }, CTX)).rejects.toThrow(
+      "Incorrect or expired code",
+    );
+    expect(d.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it("on: the company-SMS ceiling reports its own event and answers the neutral body", async () => {
+    const d = setup({ sms: true });
+    d.otp.issueWithoutDelivery.mockRejectedValueOnce(
+      new PayerSmsSendCapExceededException({ limit: 500, window: "20261115" }),
+    );
+    const res = await d.svc.requestLogin({ phone: PHONE }, CTX);
+    expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
+    expect(d.events.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event_name: "payer.sms_send_cap_exceeded",
+        payload: { cap: "global_daily", limit: 500, window: "20261115" },
+      }),
+    );
+    expect(names(d)).not.toContain("payer.otp_send_cap_exceeded");
   });
 });

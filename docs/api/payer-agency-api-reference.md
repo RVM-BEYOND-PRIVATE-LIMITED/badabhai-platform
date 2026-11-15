@@ -193,17 +193,18 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 #### `POST /payer/login/request`
 
 - **Auth:** none (public, IP rate-limited).
-- **Body:** `{ email: string }`.
+- **Body:** `{ email: string }` or `{ phone: string }` (E.164, `+91…`; email wins when both are sent).
 - **Response:** `{ status: 'code_sent', resend_in_seconds: number }`.
-- **Events:** `payer.login_requested` (only if email matches an existing account; unknown → nothing emitted).
-- **Mobile gotchas:** No enumeration — unknown emails get the identical timing/response. Code is emailed only.
+- **Events:** `payer.login_requested` (only if the contact matches an existing account; unknown → nothing emitted). A code sent by SMS emits `payer.login_requested_v2` with `method: 'sms_otp'` instead (#2754).
+- **Phone sign-in by SMS (#2754, `PAYER_SMS_OTP_ENABLED`, default off):** with it on, a phone that names **exactly one** company account gets its code by SMS on the company DLT template. A phone that names none, or that two accounts share, gets the same neutral response and no message (those companies keep email sign-in). With it off, a phone gets no SMS. Company SMS has its own daily ceiling (`PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY`, default 500; a breach is the same neutral 429 plus `payer.sms_send_cap_exceeded`).
+- **Mobile gotchas:** No enumeration — unknown contacts get the identical timing/response.
 
 #### `POST /payer/login/verify`
 
 - **Auth:** none (public, IP rate-limited).
-- **Body:** `{ email: string, code: string (4–8 digits) }`.
+- **Body:** `{ email: string, code: string (4–8 digits) }` or `{ phone: string, code }` — the same contact the request carried.
 - **Response:** `{ access_token, token_type: 'Bearer', expires_in_seconds, payer_id (UUID), role: 'employer'|'agent', is_new_payer (always false) }`.
-- **Events:** `payer.session_started`.
+- **Events:** `payer.session_started`; an SMS-code sign-in emits `payer.session_started_v2` with `method: 'sms_otp'` instead (#2754). With SMS on, a phone signs in only the one account it names.
 - **Mobile gotchas:** Token is in the **body**, not `Set-Cookie`. Failure = single neutral `401`. **`is_new_payer` is always `false` — do not branch on it** (verified correction). Single-use code (deleted on success).
 
 #### `POST /payer/refresh`

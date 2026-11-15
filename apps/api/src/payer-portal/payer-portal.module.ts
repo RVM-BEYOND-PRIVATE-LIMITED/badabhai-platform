@@ -21,6 +21,7 @@ import {
   type PayerLoginChannel,
   WhatsAppLoginChannel,
   SupabaseLoginChannel,
+  SmsLoginChannel,
 } from "../payers/payer-login-channel";
 import { ZeptoMailEmailLoginChannel } from "../payers/zeptomail-email-login-channel";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
@@ -167,6 +168,8 @@ import {
     ZeptoMailEmailLoginChannel,
     WhatsAppLoginChannel,
     SupabaseLoginChannel,
+    // #2754 — a company phone's code by SMS (SMS_PROVIDER is global), beside the active channel.
+    SmsLoginChannel,
     MockWhatsAppProvider,
     MetaWhatsAppProvider,
     {
