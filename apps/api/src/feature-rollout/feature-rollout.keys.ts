@@ -5,7 +5,11 @@ import type { ServerConfig } from "@badabhai/config";
  * `feature_pilot_payers.feature` stores; #2747–#2750 add theirs here, with a config field, and need
  * no migration. Keep each key in the table's shape (`fpp_feature_chk`: `^[a-z][a-z0-9_]{1,63}$`).
  */
-export const FEATURE_ROLLOUT_KEYS = ["job_audience", "campus_drive_requests"] as const;
+export const FEATURE_ROLLOUT_KEYS = [
+  "job_audience",
+  "campus_drive_requests",
+  "applicant_facts",
+] as const;
 export type FeatureRolloutKey = (typeof FEATURE_ROLLOUT_KEYS)[number];
 
 /**
@@ -15,4 +19,5 @@ export type FeatureRolloutKey = (typeof FEATURE_ROLLOUT_KEYS)[number];
 export const FEATURE_ROLLOUT_CONFIG = {
   job_audience: "JOB_AUDIENCE_ROLLOUT",
   campus_drive_requests: "CAMPUS_DRIVE_REQUESTS_ROLLOUT",
+  applicant_facts: "APPLICANT_FACTS_ROLLOUT",
 } as const satisfies Record<FeatureRolloutKey, keyof ServerConfig>;

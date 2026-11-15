@@ -3,6 +3,7 @@ import { uuidSchema } from "@badabhai/validators";
 import type { ApplicantPostingKind, ApplicantStage } from "@badabhai/types";
 import type { ApplicantRowDto } from "../reach/reach.dto";
 import type { MatchCandidateRowDto } from "../match/match-candidates.service";
+import type { PrePayWire } from "../match/pre-pay-facts";
 import { decodeInboxCursor, INBOX_CURSOR_MAX_LENGTH } from "./payer-applicant-inbox.cursor";
 import { ApplicantStageSchema } from "./payer-applicant-stage.dto";
 
@@ -96,13 +97,20 @@ export interface InboxPostingRefDto<K extends InboxPostingKind = InboxPostingKin
  *
  * `stage` (owner ruling 2026-10-07) is present on every row while `PAYER_APPLICANT_STAGES_ENABLED`
  * is on — the same value the per-posting feed shows for him — and absent while it is off.
+ *
+ * #2747: `source` on every row and, while `applicant_facts` is on for the company, the pre-pay
+ * facts — the same values the per-posting list shows for him.
  */
 export type InboxApplicantRowDto =
-  | (ApplicantRowDto & { posting: InboxPostingRefDto<"agency_job">; stage?: ApplicantStage })
-  | (MatchCandidateRowDto & {
-      posting: InboxPostingRefDto<"company_posting">;
-      stage?: ApplicantStage;
-    });
+  | PrePayWire<
+      ApplicantRowDto & { posting: InboxPostingRefDto<"agency_job">; stage?: ApplicantStage }
+    >
+  | PrePayWire<
+      MatchCandidateRowDto & {
+        posting: InboxPostingRefDto<"company_posting">;
+        stage?: ApplicantStage;
+      }
+    >;
 
 export interface PayerApplicantInboxDto {
   applicants: InboxApplicantRowDto[];

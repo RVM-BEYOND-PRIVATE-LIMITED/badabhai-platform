@@ -554,6 +554,19 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
       levelFit                             // 'meets' | 'not_confirmed' | 'below' | null (engine v1.1)
   } ] }
   ```
+- **`source` and the facts before paying (#2747, brief 4B.3 and 4B.5).** Both shapes above, the inbox rows below and the search rows (§4.8) carry these keys, appended after the row's own keys:
+  - `source` — **always present**: `'rvm_student'` for an applicant with an active BadaBhai Campus link (the same fact as `instituteCode: "rvm"`), else `'badabhai_worker'`. One list shows both, each labelled. A label, not a filter: nobody is added, removed or reordered by it.
+  - **Only while `APPLICANT_FACTS_ROLLOUT` is on for your company** (`off` | `pilot` | `on`, default `off`; `pilot` = the companies in `feature_pilot_payers` for `applicant_facts`), every row also carries all six keys below. Each key is always present then, and `null` means **"not given"** — print it so. While off, none of the six is sent.
+    ```
+    firstName,      // the first word of his name; never the surname. A "name" with a digit or "@" is null
+    tradeLine,      // his trade from the closed taxonomy; for an RVM student, his course as RVM reports it
+    expectedSalary, // as the résumé prints it: "₹24,000 – ₹28,000 / month", "₹18,000 / month", "₹50,000+ / month", "₹800 / day"
+    machines,       // [ label ] from the closed vocabulary, at most 8; null when none
+    area,           // a gazetteer city; for an RVM student, his branch's city when the branch name is a known city
+    lastActiveOn    // 'yyyy-mm-dd', the IST day he was last active; null when never seen
+    ```
+  - The salary follows the résumé's precedence (an admin correction, then the profile's extraction, then the worker's own band) and never invents a range: a one-sided band prints one figure. A live admin correction also applies to `area` and `tradeLine`.
+  - Still withheld before paying: surname, phone number, photo, employer names, address and anything he typed in his own words. Contact details are bought through `/payer/unlocks`.
 - **"Level needed" sort (engine v1.1, CEO ruling 30 Oct 2026, [ADR-0061](../decisions/0061-level-needed-applicant-sort.md) — behind `LEVEL_NEEDED_SORT_ENABLED`, default off). Company postings only.** When the flag is on, a posting whose `role_kind` is `cnc_turner`, `vmc_milling`, `cnc_grinding` or `cam_programmer` and whose `trade_level` names a rung ("Setter needed" = Setter **and above**) groups its applicants **inside each trade group** (after the effective tier, before months): `meets` first, then `not_confirmed` (no rung stated, a rung this trade's ladder does not know, or an upper rung whose separating question he answered "koi aur" — tag the card **"Level not confirmed"**), then `below`. Months, industry months and recency order each group as before. **Nobody is added or removed**, and the related-trade floor (36 months) is unchanged. The group comes from the rung **frozen on the application at apply time**, so a worker who edits his level later never moves; applications from before migration 0153 have no frozen rung and sit in `not_confirmed`. `levelFit` is `null` on every row when the list has no level sort: the flag is off, the posting says "Any level" (`trade_level` null), or its trade is not one of the four — and then the order is exactly the previous one. `levelFit` is additive: a client that ignores it keeps working.
 - **Events:** agency `jobs` list only: `feed.shown` (one per rendered applier — none for an empty list, actor `payer`, batch all-or-nothing; payload `worker_id`/`job_id`/`rank`/`score`/`hot` — PII-free). The posting list emits nothing (people who already applied are not a feed impression), so a posting-list read is rate-limited (Redis, hourly) but **not durably audited**.
 - **Errors:** `404` as above. `429` on the reach cap. A DB failure is a `5xx`, never folded into the `404`.
@@ -561,7 +574,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   - **FREE — no credit debit.** Spending happens only on unlock/reveal.
   - Agency `jobs` list: every applier, ranked, no limit/offset — virtualize long lists. Posting list: actual applicants, capped server-side. Neither list ever contains a worker who did not apply.
   - Branch on the row shape (`score` vs `applicationId`), never on the id — both lists share the route.
-  - Faceless: opaque `workerId` + banded chips only — **never** display/expect names/phones/employers.
+  - Faceless: opaque `workerId` + banded chips only — **never** display/expect names/phones/employers. The one exception is `firstName`, and only while `APPLICANT_FACTS_ROLLOUT` is on for the company (#2747); never expect a surname or phone here.
   - Neutral `404` for unknown-or-not-owned job. `429` on reach cap. `5xx` → retry with backoff.
   - Safe to cache client-side briefly (≤1h, information-only), but ranks/scores may shift — don't serve stale long.
 
@@ -596,6 +609,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   - `posting.id` is the id the per-posting route and the unlock's `job_id` context take; `posting.title` is the payer's own title (`jobs.title` / `job_postings.role_title`); branch on `posting.kind` (or, as on the per-posting route, on `score` vs `applicationId`).
   - `rank` (and `hot` on an agency row) is the applicant's position on **his posting's** list ("#2 on Welder"), not his position in this inbox. A worker who applied to two of your postings is two rows. On a "Level needed" posting (engine v1.1, see the per-posting route) that rank includes the level group, and `levelFit` is his group on that posting.
   - `stage` — present on every row **only while `PAYER_APPLICANT_STAGES_ENABLED` is on**: the same value the per-posting route shows for him on that posting (a worker's two rows have two independent stages, one per posting). Absent while off.
+  - `source`, and the six facts while `APPLICANT_FACTS_ROLLOUT` is on for your company — exactly as on the per-posting route (§4.5, "`source` and the facts before paying").
 
 - **Membership:** the per-posting lists' — `action = 'applied'` only, never a worker inside the deletion grace window (ADR-0031 (b)), and an agency applier only if he has a profile row (the agency list ranks profiles). An application that names both one of your agency jobs and one of your postings is listed once, under the agency job. The per-posting company list stops at 500 rows; this list is paginated instead, so a company posting's applicants ranked 501st and below appear only here, with their true posting `rank`.
 - **Faceless:** the rows carry exactly the per-posting projection — opaque ids, banded chips and rank inputs; no name, phone, employer or contact. Identity is still bought through `/payer/unlocks`.
@@ -752,6 +766,8 @@ Owner rulings 2026-11-03: payer-web's **Candidates** opens on **All candidates**
   ```
 
   `workerId` is the id `POST /payer/unlocks` takes (`job_id: null` for a search row). **Masked:** no name, phone, photo, employer, salary, address or free text — identity is only released by an unlock.
+
+  **#2747:** every row also carries `source` (`'rvm_student'` only for a student your company holds a named-company search grant for, §4.5), and, while `APPLICANT_FACTS_ROLLOUT` is on for your company, the six facts before paying (`firstName`, `tradeLine`, `expectedSalary`, `machines`, `area`, `lastActiveOn`; §4.5). With the switch on, the "no name, no salary" line above becomes "no surname, no phone".
 
 - **Sample candidates (R74, 2026-11-04):** `isSample: true` marks a synthetic-workforce seed row shown for demos, not a person. Clients badge the card "Sample candidate" and offer no unlock. `POST /payer/unlocks` for a sample worker returns the normal neutral `unavailable` body with **no credit debited and no unlock row written** (only `unlock.requested` is recorded). Sample rows are ranked and counted like any other candidate.
 - **Cursor:** opaque base64url of `{ v: 1, f: <search fingerprint>, w: <last worker served>, o: <rows served> }` — it names who you were last shown, never a sort key. Bound to its search: reused under different filters or `strict` → `400`. The next page resumes after that worker's current position (or, if he has left the pool, at position `o`).

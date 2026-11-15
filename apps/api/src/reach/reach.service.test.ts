@@ -6,6 +6,7 @@ import { ReachService } from "./reach.service";
 import type { JobSource } from "./reach.job-source";
 import type { JobSignalRow } from "./reach.repository";
 import type { WorkerProfileSignalRow } from "./reach.mappers";
+import type { ApplicantRowDto } from "./reach.dto";
 import type { PayerTenantScope } from "../payers/payer-tenant-scope";
 import { ownScope } from "../payers/payer-tenant-scope.test-support";
 
@@ -347,6 +348,44 @@ describe("ReachService — Payer-self View A (tryApplicantsForOwnedJob, ADR-0019
       const payload = param.payload as Record<string, unknown>;
       expect(payload).not.toHaveProperty("payer_id");
     }
+  });
+
+  it("#2747: the payer's decorate hook runs on the ranked rows BEFORE feed.shown is written", async () => {
+    const { svc, emitMany, repo } = make([row(1), row(2)], []);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
+    const order: string[] = [];
+    emitMany.mockImplementation(async () => {
+      order.push("emit");
+    });
+    const decorate = vi.fn(async (rows: ApplicantRowDto[]) => {
+      order.push("decorate");
+      return rows.map((r) => ({ ...r, source: "badabhai_worker" }));
+    });
+
+    const res = (await svc.tryApplicantsForOwnedJob(
+      JOB_A,
+      SCOPE,
+      CTX as never,
+      undefined,
+      decorate,
+    ))!;
+
+    expect(order).toEqual(["decorate", "emit"]);
+    expect(res.applicants).toHaveLength(2);
+    for (const a of res.applicants) expect(a).toHaveProperty("source", "badabhai_worker");
+  });
+
+  it("#2747: a decorate hook that fails fails the request with nothing emitted", async () => {
+    const { svc, emit, emitMany, repo } = make([row(1)], []);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
+    const decorate = vi.fn(async () => {
+      throw new Error("facts read failed");
+    });
+    await expect(
+      svc.tryApplicantsForOwnedJob(JOB_A, SCOPE, CTX as never, undefined, decorate),
+    ).rejects.toThrow("facts read failed");
+    expect(emit).not.toHaveBeenCalled();
+    expect(emitMany).not.toHaveBeenCalled();
   });
 });
 
