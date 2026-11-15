@@ -76,6 +76,25 @@ interface JournalEntry {
   tag: string;
 }
 
+/** The ledger's `id` sequence against its rows. READ-ONLY. `name` is null when `id` has none. */
+async function ledgerIdSequence(sql: postgres.Sql): Promise<{
+  name: string | null;
+  maxId: number | null;
+  last: number | null;
+  behind: boolean;
+}> {
+  const [row] = await sql<{ name: string | null; max_id: string | null; last: string | null }[]>`
+    SELECT s.name,
+           (SELECT max(id) FROM drizzle.__drizzle_migrations)::text AS max_id,
+           (SELECT last_value FROM pg_sequences
+             WHERE schemaname || '.' || sequencename = s.name)::text AS last
+      FROM (SELECT pg_get_serial_sequence('drizzle.__drizzle_migrations', 'id') AS name) s`;
+  const maxId = row?.max_id == null ? null : Number(row.max_id);
+  const last = row?.last == null ? null : Number(row.last);
+  const name = row?.name ?? null;
+  return { name, maxId, last, behind: name !== null && maxId !== null && maxId > (last ?? 0) };
+}
+
 
 async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
@@ -181,6 +200,15 @@ async function main(): Promise<void> {
       // taken, in the database, and every local tool reported a clean journal because none of
       // them looked this way round. That is exactly the collision MIGRATIONS.md's numbering
       // rules exist to prevent, and a --doctor that cannot see it is why it happened anyway.
+      // The ledger's own insert path (see the --apply branch): a lagging id sequence fails every
+      // insert, this script's and `db:migrate`'s, with 23505.
+      const idSeq = await ledgerIdSequence(sql);
+      console.log(
+        idSeq.behind
+          ? `\n[doctor] ⚠ ledger id sequence ${idSeq.name} is BEHIND its rows (last=${idSeq.last ?? "never used"}, max id=${idSeq.maxId}): every ledger insert fails until --apply advances it`
+          : `\n[doctor] ledger id sequence ${idSeq.name ?? "(none)"} is not behind its rows (last=${idSeq.last ?? "never used"}, max id=${idSeq.maxId ?? "none"})`,
+      );
+
       const known = new Set(journal.entries.map((e) => String(e.when)));
       const orphans = rows.filter((r) => !known.has(String(r.created_at)));
       console.log(`
@@ -392,6 +420,20 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
+    // THE LEDGER'S ID SEQUENCE CAN FALL BEHIND ITS ROWS. A row written with an explicit `id` (a
+    // hand-written INSERT, a restore) does not move `__drizzle_migrations_id_seq`, and every later
+    // insert, this script's AND `drizzle-kit migrate`'s own, then fails with 23505 on
+    // `__drizzle_migrations_pkey`. Production, 2026-11-15 (#2836): "Key (id)=(177) already
+    // exists", nothing recorded (the transaction rolled back). Reported read-only here; --apply
+    // moves it FORWARD to max(id) inside the insert's transaction, never back.
+    const idSeq = await ledgerIdSequence(sql);
+    if (idSeq.behind) {
+      console.log(
+        `[adopt] ⚠ ledger id sequence ${idSeq.name} is behind its rows (last=${idSeq.last ?? "never used"}, max id=${idSeq.maxId}).` +
+          (APPLY ? " Advancing it before the insert." : " --apply advances it before the insert."),
+      );
+    }
+
     if (!APPLY) {
       console.log("[adopt] verify-only. Re-run with --apply --expect-host <host> to record.");
       return;
@@ -407,6 +449,19 @@ async function main(): Promise<void> {
     // guard, and re-reports what it actually inserted rather than what it intended to.
     let written = 0;
     await sql.begin(async (tx) => {
+      if (idSeq.name !== null) {
+        // Forward only: `setval` to the live max(id), and only when the sequence sits below it.
+        // (A sequence change is not rolled back with the transaction; moving it forward to a row
+        // that exists is harmless either way.)
+        const moved = await tx<{ v: string }[]>`
+          SELECT setval(${idSeq.name}::regclass, m.max_id)::text AS v
+            FROM (SELECT max(id) AS max_id FROM drizzle.__drizzle_migrations) m
+           WHERE m.max_id IS NOT NULL
+             AND m.max_id > COALESCE(
+                   (SELECT last_value FROM pg_sequences
+                     WHERE schemaname || '.' || sequencename = ${idSeq.name}), 0)`;
+        if (moved.length > 0) console.log(`[adopt] ledger id sequence advanced to ${moved[0]!.v}`);
+      }
       for (const entry of clean) {
         const hash = createHash("sha256")
           .update(readFileSync(join(dir, `${entry.tag}.sql`)))

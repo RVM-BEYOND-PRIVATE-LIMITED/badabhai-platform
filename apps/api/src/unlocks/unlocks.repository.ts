@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gte, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import {
   type Database,
   type Unlock,
@@ -150,16 +150,8 @@ export class UnlocksRepository {
         tradeLevel: workerProfileSkills.tradeLevel,
       })
       .from(workerProfiles)
-      .innerJoin(
-        workerProfileSkills,
-        eq(workerProfileSkills.workerProfileId, workerProfiles.id),
-      )
-      .where(
-        and(
-          eq(workerProfiles.workerId, workerId),
-          isNotNull(workerProfileSkills.tradeLevel),
-        ),
-      )
+      .innerJoin(workerProfileSkills, eq(workerProfileSkills.workerProfileId, workerProfiles.id))
+      .where(and(eq(workerProfiles.workerId, workerId), isNotNull(workerProfileSkills.tradeLevel)))
       .orderBy(workerProfileSkills.skillId, desc(workerProfiles.createdAt));
     return rows.flatMap((r) =>
       r.tradeLevel === null ? [] : [{ skillId: r.skillId, tradeLevel: r.tradeLevel }],
@@ -404,6 +396,31 @@ export class UnlocksRepository {
   }
 
   /** Set an unlock to status=revealed and bump reveal_count by 1 (tx-scoped). */
+  /**
+   * #2747 (ADR-0064 §3.4) — store "open for good" on a grant and its relay row: both expiry dates
+   * move to `until`, and nothing else changes (status, reveal count, the routing token). Only ever
+   * moves a date LATER, so a re-run is a no-op and a concurrent writer can never shorten one. Run
+   * under the worker lock, inside the caller's transaction.
+   */
+  async extendOpenUntil(tx: Tx, unlockId: string, until: Date): Promise<void> {
+    await tx
+      .update(unlocks)
+      .set({ expiresAt: until, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(unlocks.id, unlockId),
+          inArray(unlocks.status, ["granted", "revealed"]),
+          // Column-aware comparisons: the driver maps `until` through the column type (a raw Date
+          // inside a hand-written fragment is not serialised).
+          or(isNull(unlocks.expiresAt), lt(unlocks.expiresAt, until)),
+        ),
+      );
+    await tx
+      .update(unlockRouting)
+      .set({ expiresAt: until })
+      .where(and(eq(unlockRouting.unlockId, unlockId), lt(unlockRouting.expiresAt, until)));
+  }
+
   async incrementReveal(tx: Tx, unlockId: string): Promise<number> {
     const rows = await tx
       .update(unlocks)

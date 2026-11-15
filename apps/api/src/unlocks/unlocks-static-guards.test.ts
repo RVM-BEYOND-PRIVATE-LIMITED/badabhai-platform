@@ -52,7 +52,12 @@ describe("Contact Unlock — static privacy guards (ADR-0010 §6 / TD41)", () =>
     ).toEqual([]);
   });
 
-  it("BC-5: exactly one decrypt() site exists on the unlock path", () => {
+  it("BC-5: the decrypt() calls on the unlock path are exactly the two named sites", () => {
+    // Two sites, by name, and nothing else. (1) The reveal's relay wiring (`wireInAppRelay`): the
+    // phone is read to wire the relay and discarded. (2) Since #2747 (ADR-0064 §3.3, amending
+    // ADR-0010 Decision 2): the contact read's `decryptContact`, which decrypts the phone and the
+    // full name for the company that opened him. A new decrypt anywhere else on this path is a new
+    // raw-phone exposure and must be argued in an ADR before this list grows.
     const sites: string[] = [];
     for (const f of tsFiles(UNLOCKS_DIR)) {
       const content = readFileSync(f, "utf8");
@@ -62,7 +67,21 @@ describe("Contact Unlock — static privacy guards (ADR-0010 §6 / TD41)", () =>
     const total = sites.reduce((n, s) => n + Number(s.split("×")[1]), 0);
     expect(
       total,
-      `Expected exactly ONE decrypt() site on the unlock path (the reveal handler). Found: ${sites.join(", ") || "none"}`,
-    ).toBe(1);
+      `Expected exactly THREE decrypt() calls on the unlock path (the reveal's relay wiring, and the contact read's phone + name). Found: ${sites.join(", ") || "none"}`,
+    ).toBe(3);
+
+    const svc = readFileSync(join(UNLOCKS_DIR, "unlocks.service.ts"), "utf8");
+    const between = (from: string, to: string): string => {
+      const start = svc.indexOf(from);
+      const end = svc.indexOf(to, start + 1);
+      expect(start, `${from} not found`).toBeGreaterThan(-1);
+      expect(end, `${to} not found after ${from}`).toBeGreaterThan(start);
+      return svc.slice(start, end);
+    };
+    const count = (text: string) => (text.match(/\.decrypt\(/g) ?? []).length;
+    expect(
+      count(between("private async decryptContact(", "private async emitContactViewed(")),
+    ).toBe(2);
+    expect(count(between("private async wireInAppRelay(", "\n  }\n"))).toBe(1);
   });
 });

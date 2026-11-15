@@ -270,7 +270,9 @@ describe("isThemeOpenFor — THEME_ROLLOUT, for every kind of login (#2820)", ()
     const lines = warn.mock.calls.map((call) => String(call[0]));
     expect(lines).toEqual([
       `feature rollout: pilot list read failed (feature=theme worker=${WORKER.id} sqlstate=42P01); treated as off`,
-      `feature rollout: pilot list read failed (feature=theme tenant=${COMPANY} sqlstate=42P01); treated as off`,
+      // A company goes through `stateFor` (#2747), which logs its own wording; the answer is the
+      // same false.
+      `feature rollout: pilot list read failed (feature=theme tenant=${COMPANY} sqlstate=42P01); answered unavailable (read as off, except where a caller must refuse)`,
       `feature rollout: pilot list read failed (feature=theme admin=${ADMIN.id} sqlstate=42P01); treated as off`,
     ]);
     for (const line of lines) {
@@ -428,7 +430,8 @@ describe("isThemeOpenForPayer — the tenancy resolver runs only in pilot (#2819
     await expect(listFails.service.isThemeOpenForPayer(scopeOf(TENANT))).resolves.toBe(false);
     expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([
       "feature rollout: tenancy resolve failed (feature=theme sqlstate=08006); treated as off",
-      `feature rollout: pilot list read failed (feature=theme tenant=${TENANT} sqlstate=42P01); treated as off`,
+      // The resolved company goes through `stateFor` (#2747), which logs its own wording.
+      `feature rollout: pilot list read failed (feature=theme tenant=${TENANT} sqlstate=42P01); answered unavailable (read as off, except where a caller must refuse)`,
     ]);
   });
 });
@@ -573,9 +576,13 @@ describe("the rollout switches and the pilot list have ONE reader each", () => {
     // `isEnabledFor("theme", …)` would answer for a company only, and `isLiveForServiceCaller`
     // for nobody in particular; every app's theme question is a per-login method (#2819 adds the
     // lazy company-login one; its call sites are pinned in rollout-caller-arguments.static.test.ts).
-    expect(filesMatching(/\.(?:isEnabledFor|isLiveForServiceCaller)\(\s*["'`]theme["'`]/)).toEqual(
-      [],
-    );
+    // `stateFor` (#2747) is the same company-only answer. The service itself is the one place that
+    // may name the key: `isThemeOpenForPayer` asks `stateFor` once the company is resolved.
+    expect(
+      filesMatching(
+        /\.(?:isEnabledFor|stateFor|isLiveForServiceCaller)\(\s*["'`]theme["'`]/,
+      ).filter((file) => file !== "feature-rollout/feature-rollout.service.ts"),
+    ).toEqual([]);
   });
 });
 

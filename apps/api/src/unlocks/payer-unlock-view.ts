@@ -1,5 +1,6 @@
 import type { UnlockStatus } from "@badabhai/db";
 import type { UnlockProjection } from "./unlocks.repository";
+import { OPEN_FOR_GOOD_UNTIL, openUntilOf } from "./open-grant";
 
 /**
  * #2033 — what a PAYER may see of their own unlocks (GET /payer/unlocks).
@@ -29,6 +30,8 @@ type PayerVisibleStoredStatus = (typeof PAYER_VISIBLE_STORED_STATUSES)[number];
 /** The payer-route projection: the ops projection with the status narrowed to the contract. */
 export interface PayerUnlockProjection extends Omit<UnlockProjection, "status"> {
   status: PayerUnlockStatus;
+  /** #2747 — when the contact stops being open; null = no end (`contact_rules` on). */
+  open_until: string | null;
 }
 
 const isPayerVisible = (status: UnlockStatus): status is PayerVisibleStoredStatus =>
@@ -60,7 +63,16 @@ export function toPayerUnlocks(
   const out: PayerUnlockProjection[] = [];
   for (const row of rows) {
     const status = payerUnlockStatus(row.status, row.expires_at, now);
-    if (status !== null) out.push({ ...row, status });
+    if (status === null) continue;
+    // #2747 — a contact stored "for good" (`OPEN_FOR_GOOD_UNTIL`) has no end: `open_until: null`.
+    // Otherwise `open_until` is the stored end, the same instant `expires_at` says.
+    const forGood =
+      row.expires_at !== null && row.expires_at.getTime() >= OPEN_FOR_GOOD_UNTIL.getTime();
+    out.push({
+      ...row,
+      status,
+      open_until: row.expires_at === null ? null : openUntilOf(forGood, row.expires_at),
+    });
   }
   return out;
 }

@@ -64,13 +64,28 @@ Still withheld before paying: the surname, phone number, photo, employer names, 
 
 **RVM student defaults (issue defaults, confirmable):** first name, the course as the trade line and the branch city as the area; the other facts read "not given" unless he filled a BadaBhai profile. His test score and current-or-alumnus status show only after opening.
 
-### 3.3 The contact a credit opens (part B, planned)
+### 3.3 The contact a credit opens (part B, built, `CONTACT_RULES_ROLLOUT`)
 
-`GET /payer/unlocks/:unlockId/contact` returns `full_name`, `phone` and `opened_at` with `Cache-Control: no-store`; the response body is never logged. Each read counts against the per-login hourly limit (`PAYER_DISCLOSURE_MAX_PER_HOUR`) and emits a new event; `contact.revealed` keeps its payload, because showing a number on screen is a different act from a relay reveal. The résumé stays on `POST /payer/resume-disclosures` and prints the full name. One definition of "open" (`isLiveGrant`) serves the reveal, the contact read and the résumé.
+`GET /payer/unlocks/:unlockId/contact` returns `full_name`, `phone` and `opened_at` with `Cache-Control: no-store`; the response body is never logged. Off for the company, the route is a 404. Every refusal is the one neutral body, in this order: not the company's tenant (or unknown); worker erased (`worker_id` null); the row never opened; pending deletion or suspended; consent no longer given (`isOpenableBy`: his own `employer_sharing`, or for an actively linked RVM student the institute rule). Each read counts against the per-login hourly limit (`PAYER_DISCLOSURE_MAX_PER_HOUR`) and writes `contact.viewed` (ids only) BEFORE the answer — if the audit cannot be written, nothing is shown. `contact.revealed` keeps its payload, because showing a number on screen is a different act from a relay reveal.
 
-### 3.4 Open for good (part B, planned)
+The phone and the name are decrypted in one named place, `UnlockService.decryptContact`; the BC-5 static guard (ADR-0010 §6) now pins exactly two decrypt sites on the unlock path — the relay wiring and this one.
 
-An open contact no longer lapses and is never charged twice; past opens are honoured. Shipped apps still receive `expires_at` as a string (a far-future date) and gain `open_until: null`. `GET /payer/unlocks` stops reading `expired` for an open contact. Account deletion (the ADR-0031 freeze, and erasure, which nulls `unlocks.worker_id`) and consent withdrawal close it: "for good" cannot outlive them. The attempt and per-worker caps apply to first opens only.
+The résumé stays on `POST /payer/resume-disclosures` and, while the rule is on, prints the full name instead of the initials (payer route only; the ops route never does). Its salary stays withheld (§3.2).
+
+### 3.4 Open for good (part B, built, `CONTACT_RULES_ROLLOUT`)
+
+One definition of "open", `isOpenGrant` (`apps/api/src/unlocks/open-grant.ts`): `granted` or `revealed`, and — while the rule is on for the company — whatever the stored date; off, unexpired as before. The reveal, the contact read and the résumé's SQL (`hasLiveUnlock`) all use it, so a contact opened under the old window is honoured with no backfill.
+
+Writes keep "for good" after a rollback. A grant made while the rule is on stores `expires_at = 2099-12-31T23:59:59Z` (shipped apps still parse a date) and answers `open_until: null`; a re-open (`POST /payer/unlocks`) or a reveal of a lapsed contact while the rule is on moves its stored dates (grant and relay row) there too, under the worker lock, only ever later (`extendOpenUntil`). Re-opening costs nothing: the held grant is returned with no debit, and the re-open is audited (`unlock.reopened`, not a grant). `GET /payer/unlocks` reads the STORED dates: a contact stored for good has `open_until: null` and never reads `expired`; a lapsed one that would re-open free still reads `expired` until it is re-opened (whether it would depends on the worker's notice, §3.8, which a list of rows does not read). Everything in this section applies only to a worker §3.8 admits.
+
+Erasure (which nulls `unlocks.worker_id`), the ADR-0031 freeze, a suspension and a withdrawn consent close a contact at read time: "for good" cannot outlive them.
+
+Caps limit FIRST opens only: the attempt cap applies until the relay is wired (a repeat reveal returns the same handle), the per-worker daily cap no longer stops a company re-reading the résumé of a contact it opened, and the contact read touches neither.
+
+Residuals, accepted for the pilot:
+
+- **A zero-balance company re-opening by `POST`** still meets the credit precondition (F-1) first and gets the neutral body; its contact read and résumé work without it. Kept so the precondition stays worker-state independent.
+- **The relay of a lapsed past open** resolves on stored dates, so it works again once the company re-opens or reveals it (both free).
 
 ### 3.5 Selected and hired (part C, planned)
 
@@ -84,6 +99,53 @@ A table `outbound_signals` (`destination`, `kind`, unique `dedupe_key`, `payload
 
 One per part, all through `FeatureRolloutService` (off | pilot | on, keyed by the company's tenant key, fail closed): `applicant_facts` (A), the contact rules (B), the outcome stages (C) and the outbound sender (D). A switch gates what is shown or accepted, never stored state: turning a switch off never re-charges an open contact or deletes a stage already saved.
 
+### 3.8 The worker's own notice decides (per worker, whatever the switch)
+
+The approved employer-sharing notice of 2026-11-04 (`docs/product/employer-sharing-consent-notice.md`) tells the worker the opposite of the brief: "Aapka **naam, phone number aur photo** nahi dikhta" before an unlock; an unlock lasts "14 din tak"; the résumé carries his phone but not his "poora naam". Every consent row on that version records that he agreed to THOSE rules. A company's pilot switch cannot change them for him.
+
+So every #2747 rule that the notice contradicts is gated **per worker**, in addition to the company's switch:
+
+- the facts before paying (§3.2),
+- open for good and the free re-open (§3.4),
+- the contact read and the full name on the résumé (§3.3),
+- the re-read exemption from the per-worker caps.
+
+**Who the rules reach.** A BadaBhai worker qualifies only when his LATEST consent row is unrevoked, carries `employer_sharing`, and was given on a notice listed in `BRIEF_CONTACT_NOTICE_VERSIONS` (`packages/types`). An actively linked RVM student qualifies by the institute rule instead. That is RVM's consent line ("Share my profile with companies I apply to", brief 9), and it is the issue's own default for his card.
+
+**Who keeps the old rules.** A worker on the 2026-11-04 notice keeps initials, the 14-day window and no facts before paying. That holds even for a pilot company.
+
+**The list is empty today.** No notice describing the brief exists yet, so for BadaBhai workers the switches change nothing until one is approved and shipped. The steps when it is:
+
+1. Approve the new copy (Prakash, owner).
+2. Ship it in the worker app (Rishi).
+3. Append its version to `EMPLOYER_CONTACT_NOTICE_VERSIONS` **and** `BRIEF_CONTACT_NOTICE_VERSIONS`, and bump `CURRENT_CONSENT_VERSION` / `kConsentVersion`, all in one change.
+
+Workers then move onto it as they re-consent (the one-time prompt).
+
+**Draft of the new notice, for approval** (Latin Hinglish, aap-form). The heading, the buttons and the Settings line stay as they are; the body changes:
+
+> Aapko kaam dilaane ke liye, BadaBhai aapki kaam ki profile companies aur placement agencies ko dikhata hai.
+>
+> Paise dene se pehle woh yeh dekh sakti hain:
+>
+> - Aapka **pehla naam**
+> - Aapka kaam, anubhav, machine aur level
+> - Aapki industry, shehar aur **salary ki ummeed**
+> - Aap aakhri baar kab active the
+>
+> Aapka **poora naam, phone number aur photo** nahi dikhta.
+>
+> Agar koi company paise dekar aapki profile **unlock** karti hai, to woh **hamesha ke liye**:
+>
+> - Aapka **poora naam aur phone number** dekh sakti hai, aur aapka **resume**.
+> - Aapko **BadaBhai ke andar message** kar sakti hai.
+>
+> Jo companies aapko pehle unlock kar chuki hain, unpar bhi yahi lagu hoga.
+>
+> **Dhyaan dein:** Aap jab chaahein **Settings** me jaakar yeh band kar sakte hain. Phir koi company aapka naam ya number nahi dekh paayegi, aur aapko dhoondh ya message nahi kar paayegi. Jo resume pehle dekha ja chuka hai, woh wapas nahi hota.
+
+**Earlier unlocks.** The line "Jo companies aapko pehle unlock kar chuki hain…" is what lets "past opens" apply to him. If the owner strikes it, past opens must be limited to grants made after his acceptance. That change goes in the same code change as the version bump.
+
 ## 4. Security review (part A)
 
 - **Faceless before paying ends** for companies with the switch on. The first name is personal data shown before any payment. It is shown only on rows a company may already see (its own applicants, or its search pool), never logged, cached or emitted.
@@ -92,13 +154,25 @@ One per part, all through `FeatureRolloutService` (off | pilot | on, keyed by th
 - **Free text.** Only closed vocabulary reaches the card, except RVM's course name, which is bounded and comes from RVM's own Student API contract.
 - **Deploy wiring.** A malformed switch value fails the deploy preflight before anything is pulled, so a typo cannot take the API down at boot.
 
-Parts B–D each get their own review before merge (the phone number crossing the API boundary reverses a core rule of ADR-0010 and needs the event and the hourly limit on every read).
+## 4b. Security review (part B)
+
+- **The phone number crosses the API** (ADR-0010 Decision 2 reversed) only to the tenant that holds the open grant, only while the rule is on for it, behind the per-login hourly cap, with an audit row written before every answer and `no-store` on the response.
+- **No new oracle.** Every refusal on the contact read is the one neutral body; the switch-off 404 depends on the caller's own company only.
+- **Fail closed.** A pilot-list read error refuses `POST /payer/unlocks` with the neutral body and no charge (reading a pilot company as off would debit it again for a contact it holds), and is off everywhere else; a decrypt failure is the neutral body (phone) or "not given" (name), logged by unlock id only.
+- **The worker's notice (review HIGH).** Every #2747 rule is gated per worker on §3.8; on the 2026-11-04 notice nothing changes for him. Re-opens are audited (`unlock.reopened`), and a worker who withdrew is never re-opened.
+- **Caps (review MEDIUM).** A repeat reveal of a wired relay is not counted (`reveal_count` feeds the per-worker daily caps: counting it would let one company lock every other company out of a worker for a day); a company's FIRST résumé of a worker is still capped, only a re-read (a `disclosed` row already held) is not.
+- **Smaller fixes.** Sample candidates (R74) never answer the contact read; the deletion freeze is re-read on the row that is decrypted.
+- **Residual: rollback lag on the résumé.** A PDF rendered with the full name is re-signed for its short TTL (`RESUME_SIGNED_URL_TTL_SECONDS`) after the switch goes off, and an ops request for the same company, worker and posting can re-sign it in that window. Same company, minutes long; accepted.
+
+Parts C and D each get their own review before merge.
 
 ## 5. Arming and rollback
 
-Every switch defaults to `off`. Arming is `gh secret set <SWITCH> --env production --body pilot` plus `feature_pilot_payers` rows for the pilot companies, then a redeploy — and only after this ADR is signed. Rollback is the same secret set to `off`.
+Every switch defaults to `off`. For BadaBhai workers the switches do nothing until a notice describing the brief ships (§3.8). Arming is `gh secret set <SWITCH> --env production --body pilot` plus `feature_pilot_payers` rows for the pilot companies, then a redeploy — and only after this ADR is signed. Rollback is the same secret set to `off`. In `pilot`, a pilot list that cannot be read answers "unavailable": everything reads as off, except that `POST /payer/unlocks` refuses (neutral, no charge) a re-grant over a contact the company already holds, so a pilot company is never charged twice on a guess.
 
 ## 6. Open questions (for Akshit; built with the default)
+
+- **RVM students and the phone "for good".** RVM's consent line ("Share my profile with companies I apply to", brief 9) says nothing about the phone number or "for good"; the build treats an actively linked student as covered (the issue's defaults for his card). Confirm with RVM, or give students a notice of their own; until then keep `contact_rules` off for companies that hire RVM students.
 
 - Should an RVM student's test score show before paying? Default: no, only after opening.
 - The photo before or after paying? Default: withheld (the brief is silent).

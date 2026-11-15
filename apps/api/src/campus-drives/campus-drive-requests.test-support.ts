@@ -173,6 +173,21 @@ export class MemoryDriveRequests {
     return { ...facts, status: facts.status === undefined ? "active" : facts.status };
   }
 
+  /** #2768: what the create path did, in order (`lock:<tenant>`, `count:<tenant>`). */
+  readonly createSteps: string[] = [];
+
+  /** The real lock serialises; one in-memory caller at a time needs only the record. */
+  async lockCreates(_tx: unknown, tenant: TenantKey): Promise<void> {
+    this.createSteps.push(`lock:${tenant}`);
+  }
+
+  async countOpen(_tx: unknown, tenant: TenantKey): Promise<number> {
+    this.createSteps.push(`count:${tenant}`);
+    return this.rows.filter(
+      (r) => r.payerId === tenant && (r.status === "requested" || r.status === "scheduled"),
+    ).length;
+  }
+
   async isOwnPosting(tenant: TenantKey, postingId: string, _tx?: unknown): Promise<boolean> {
     return this.postings.get(postingId) === tenant;
   }
@@ -207,7 +222,7 @@ export class MemoryDriveRequests {
     return { ...created };
   }
 
-  async findByIdempotencyKey(tenant: TenantKey, key: string) {
+  async findByIdempotencyKey(tenant: TenantKey, key: string, _tx?: unknown) {
     const row = this.rows.find((r) => r.payerId === tenant && r.idempotencyKey === key);
     return row && { ...row };
   }

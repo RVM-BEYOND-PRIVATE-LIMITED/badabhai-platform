@@ -46,7 +46,24 @@ export interface UnlockGrantedResponse {
   readonly ok: true;
   readonly unlock_id: string;
   readonly status: "granted";
+  /** Still a date string — the shipped apps parse it. Open for good: a far-future date (#2747). */
   readonly expires_at: string;
+  /** #2747 — when the contact stops being open; `null` = no end (`contact_rules` on). */
+  readonly open_until: string | null;
+}
+
+/**
+ * #2747 item 5 (ADR-0064 §3.3) — `GET /payer/unlocks/:unlockId/contact`: what a credit opens, on
+ * screen. Sent with `Cache-Control: no-store`; the body is never logged.
+ */
+export interface ContactReadResponse {
+  readonly ok: true;
+  /** The full name as he gave it; null when he never gave one. */
+  readonly full_name: string | null;
+  /** E.164, e.g. "+919876543210". */
+  readonly phone: string;
+  /** When this company first opened him (the grant). */
+  readonly opened_at: string | null;
 }
 
 /** The reveal success body — an opaque, non-reversible, expiring relay handle ONLY. */

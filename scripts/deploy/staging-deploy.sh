@@ -164,6 +164,13 @@ case "${APPLICANT_FACTS_ROLLOUT-}" in
     exit 1
     ;;
 esac
+case "${CONTACT_RULES_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::CONTACT_RULES_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set CONTACT_RULES_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
 case "${THEME_ROLLOUT-}" in
   "" | off | pilot | on) ;;
   *)
