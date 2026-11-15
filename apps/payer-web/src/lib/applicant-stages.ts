@@ -54,6 +54,15 @@ export function boardTabOf(stage: ApplicantStage): BoardStage {
 }
 
 /**
+ * The row's outcome mark (`selected` / `hired`), or null. The board shows such a row by its own
+ * name and offers no Keep / Pass / Move to New on it: a one-click move there would silently undo a
+ * mark someone else made (and, for an RVM student, the mark RVM is told about).
+ */
+export function outcomeStageOf(stage: ApplicantStage | undefined): "selected" | "hired" | null {
+  return stage === "selected" || stage === "hired" ? stage : null;
+}
+
+/**
  * Does this list come from a server that SAVES stages? True only when it has rows and EVERY row
  * carries a `stage` — the flag-on contract. No row with one is the flag off; a mix is neither
  * (the contract never sends one), so it is read as "not saved": the board stays local and the

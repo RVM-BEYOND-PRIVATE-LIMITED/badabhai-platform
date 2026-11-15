@@ -91,13 +91,16 @@ Residuals, accepted for the pilot:
 
 `APPLICANT_STAGES` gains `selected` and `hired` (`APPLICANT_OUTCOME_STAGES`). The first three are frozen as `APPLICANT_STAGES_V1`. Migration 0166 widens `payer_applicant_stages_stage_chk` by a drop and re-add. It is applied by hand and verified with `pg_get_constraintdef` before the switch goes on.
 
-- **The write.** `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` accepts an outcome stage only while `OUTCOME_STAGES_ROLLOUT` (`outcome_stages`) is on for the company. Off, either value gets exactly the `400` it got before. That is the same validation body, produced by the same pipe over the old schema. It is checked before the posting is looked up, so the refusal says nothing about any posting.
+- **The write.** `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` accepts an outcome stage only while `OUTCOME_STAGES_ROLLOUT` (`outcome_stages`) is on for the company. Off, either value gets the same `400` body it got before: the same validation body, produced by the same pipe over the old schema. It is checked before the posting is looked up, so the refusal says nothing about any posting. Unlike before, the request reaches that check first, so it is charged one unit of the hourly write cap. A re-send of a stage already held is that `400` too, not `changed: false`.
 - **Stored state is honoured.** Every read (both feeds, the inbox, `?stage=`) reports a stored outcome stage as itself, whatever the switch says. Moving an applicant out of one, back to Shortlist for example, is allowed with the switch off.
 - **The events.** `payer.applicant_stage_changed` v1 is pinned to the first three stages and still reports every move between them, byte for byte. A move to or from `selected` or `hired` is `payer.applicant_stage_changed_v2`, with the same fields over the wide set. A refine stops v2 carrying a move v1 can carry, so no move is reported twice.
 - **Switched on before 0166.** The write fails the CHECK (23514) and the transaction rolls back, so nothing is written and no event is emitted. The request answers 500 and the log line names the missing migration.
-- **payer-web** keeps its three tabs. A `selected` or `hired` row shows under Shortlist (`boardTabOf`) until the outcome stages get their own UI (Rishi).
+- **payer-web** keeps its three tabs. A `selected` or `hired` row shows under Shortlist (`boardTabOf`), with its own badge and no move buttons, so nobody undoes a mark without seeing it. The outcome stages get their own UI from Rishi.
 
-A company may mark an applicant it never opened (a student met at a campus drive). RVM's verification, not the mark, decides the reward. A mark on an RVM student reaches RVM through part D (§3.6), not through the event.
+A company may mark an applicant it never opened (a student met at a campus drive). RVM's verification, not the mark, decides the reward. RVM's systems learn of a mark on an RVM student two ways:
+
+- Campus's application-status read (#2752, `GET` of a Campus application) already returns the stored stage, `selected` and `hired` included, while `CAMPUS_LINK_ENABLED` is on. A mark, and an undo of it, shows there as soon as it is saved.
+- The proof prompt and the placement team's task come only from part D's signal (§3.6), behind its own switch. The event plays no part in either.
 
 ### 3.6 The outbound signal to RVM (part D, planned)
 
@@ -173,6 +176,15 @@ Workers then move onto it as they re-consent (the one-time prompt).
 - **Residual: rollback lag on the résumé.** A PDF rendered with the full name is re-signed for its short TTL (`RESUME_SIGNED_URL_TTL_SECONDS`) after the switch goes off, and an ops request for the same company, worker and posting can re-sign it in that window. Same company, minutes long; accepted.
 
 Parts C and D each get their own review before merge.
+
+## 4c. Security review (part C)
+
+An independent review of the stage change found no HIGH or MEDIUM issue. It confirmed that the switch is read with the tenant key and fails closed. It found no existence oracle, and the off-switch `400` is the old body. Every real move emits exactly one event, and the CHECK widening keeps every 0134 stage. Its LOW findings were fixed or written down:
+
+- **The off-switch `400`** is reached after the hourly cap is charged. A re-send of a held outcome stage is that `400` too (§3.5, API reference).
+- **payer-web:** an outcome row showed "Shortlisted" with one-click Pass and Move to New, so a teammate could undo a mark without seeing it. It now shows its own badge and no move buttons.
+- **The inbox Shortlist filter** does not include outcome rows, which the API reference now says.
+- **Campus's application-status read** already shows a stored outcome stage while `CAMPUS_LINK_ENABLED` is on (§3.5).
 
 ## 5. Arming and rollback
 

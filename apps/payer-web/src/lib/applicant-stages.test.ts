@@ -5,6 +5,7 @@ import {
   boardTabOf,
   hasSavedStages,
   isApplicantStage,
+  outcomeStageOf,
   STAGE_LABEL,
 } from "./applicant-stages";
 
@@ -48,6 +49,13 @@ describe("the stage vocabulary", () => {
     expect(boardTabOf("selected")).toBe("shortlist");
     expect(boardTabOf("hired")).toBe("shortlist");
     for (const s of BOARD_STAGES) expect(boardTabOf(s)).toBe(s);
+  });
+
+  it("outcomeStageOf names an outcome mark (the row then shows it and offers no move), else null", () => {
+    expect(outcomeStageOf("selected")).toBe("selected");
+    expect(outcomeStageOf("hired")).toBe("hired");
+    for (const s of BOARD_STAGES) expect(outcomeStageOf(s)).toBeNull();
+    expect(outcomeStageOf(undefined)).toBeNull();
   });
 
   it("isApplicantStage accepts exactly the five", () => {
