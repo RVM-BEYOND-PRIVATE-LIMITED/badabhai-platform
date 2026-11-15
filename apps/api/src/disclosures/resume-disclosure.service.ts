@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { DisclosureDenyReason } from "@badabhai/db";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
+import { onBriefNotice } from "../unlocks/brief-notice";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { InstituteOpenGate } from "../campus-link/institute-open-gate.service";
@@ -188,17 +189,32 @@ export class ResumeDisclosureService {
     // #2747 (ADR-0064 §3.4) — with `contact_rules` on for the company, "live" is the unlock
     // chokepoint's one definition of OPEN (`isOpenGrant`): granted or revealed, whatever its date,
     // so a contact opened long ago still gives its résumé. The payer route only.
-    const openForGood = jobRefPolicy === "payer_owned" && (await this.contactRulesOn(tenant));
+    // The switch alone widens this FIRST gate (still before any consent read); whether the brief's
+    // rules apply to HIM (§3.8) is read with his consent just below, and a worker on the old notice
+    // is held to the dated window there.
+    const rulesOn = jobRefPolicy === "payer_owned" && (await this.contactRulesOn(tenant));
     if (
       jobRefPolicy === "payer_owned" &&
-      !(await this.repo.hasLiveUnlock(tenant, workerId, { openForGood }))
+      !(await this.repo.hasLiveUnlock(tenant, workerId, { openForGood: rulesOn }))
     ) {
       return neutralUnavailable();
     }
 
     // ---- [1] consent + render-source resolved BEFORE the lock (pool-vs-lock deadlock
     // fix; mirrors UnlockService). Both are tx-external reads on the global pool. ----
-    const consented = await this.isOpenableBy(workerId, tenant, ctx);
+    const access = await this.contactAccess(workerId, tenant, ctx);
+    const consented = access.openable;
+    // #2747 §3.8 — full name, open for good and the re-read cap exemption only for a worker whose
+    // consent describes them (or an RVM student, by the institute rule). On the 2026-11-04 notice
+    // he agreed to initials and 14 days: the dated gate applies to him as before.
+    const openForGood = rulesOn && access.brief;
+    if (
+      rulesOn &&
+      !openForGood &&
+      !(await this.repo.hasLiveUnlock(tenant, workerId, { openForGood: false }))
+    ) {
+      return neutralUnavailable();
+    }
     const workerPresent = consented || (await this.workerExists(workerId));
 
     // ---- ADR-0031 payer-surface freeze (ruling (b)) — pending-deletion gate ------
@@ -245,10 +261,11 @@ export class ResumeDisclosureService {
         return { kind: "neutral" };
 
       // ---- [2] SHARED worker-protection cap (atomic, under the lock) --------------
-      // #2747 — with `contact_rules` on, the company holds an OPEN contact for him (checked above),
-      // and the cap was written for FIRST opens: it never stops a company re-reading the résumé
-      // of a contact it already opened. The grant itself was capped when it was made.
-      if (!openForGood && (await this.isOverSharedCap(tx, workerId))) {
+      // #2747 — the cap was written for FIRST disclosures: with the brief's rules on for him it no
+      // longer stops a company RE-reading the résumé of a contact it opened — one that already
+      // holds a `disclosed` row for him. A company's first résumé of him is still capped.
+      const reRead = openForGood && (await this.repo.hasDisclosedTo(tx, tenant, workerId));
+      if (!reRead && (await this.isOverSharedCap(tx, workerId))) {
         await this.recordDeny(tx, tenant, workerId, jobPostingId, "capped");
         return { kind: "neutral" };
       }
@@ -778,27 +795,37 @@ export class ResumeDisclosureService {
    * for an actively linked student, his own `employer_sharing` consent for everyone else. The
    * same split as `UnlockService`; both fail closed.
    */
-  private async isOpenableBy(
+
+  /**
+   * Whether this company may open him (#2752: an actively linked institute student by the institute
+   * rule, every other worker by his latest unrevoked `employer_sharing` consent, B-A), and from the
+   * same reads #2747's second question (ADR-0064 §3.8): do the
+   * brief's rules (full name, open for good) apply to him? An actively linked RVM student: the
+   * institute rule answers both. Any other worker: his latest `employer_sharing` consent, and for
+   * `brief` that consent given on a notice that describes those rules (`onBriefNotice`). Fail closed.
+   */
+  private async contactAccess(
     workerId: string,
     tenant: TenantKey,
     ctx: RequestContext,
-  ): Promise<boolean> {
+  ): Promise<{ openable: boolean; brief: boolean }> {
     const institute = await this.instituteGate.decide(workerId, { tenant }, ctx);
-    if (institute === "not_linked") return this.isConsentedForSharing(workerId);
-    return institute === "open";
-  }
-
-  /** Fail-closed disclosure-consent read (B-A): latest unrevoked employer_sharing row. */
-  private async isConsentedForSharing(workerId: string): Promise<boolean> {
+    if (institute !== "not_linked") {
+      const open = institute === "open";
+      return { openable: open, brief: open };
+    }
     try {
       const latest = await this.consents.findLatestByWorker(workerId);
-      if (!latest || latest.revokedAt !== null) return false;
-      const purposes = (latest.purposes ?? []) as string[];
-      return purposes.includes(EMPLOYER_SHARING);
+      const openable =
+        latest !== undefined &&
+        latest.revokedAt === null &&
+        ((latest.purposes ?? []) as string[]).includes(EMPLOYER_SHARING);
+      return { openable, brief: openable && onBriefNotice(latest) };
     } catch {
-      return false; // fail closed
+      return { openable: false, brief: false };
     }
   }
+
 
   private async workerExists(workerId: string): Promise<boolean> {
     try {

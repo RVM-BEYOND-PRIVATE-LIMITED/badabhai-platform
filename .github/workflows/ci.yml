@@ -1100,9 +1100,10 @@ jobs:
       # contact-unlock.e2e.test.ts fails here; the diagnosis in the suite's own gating
       # comment (tests/e2e/contact-unlock.e2e.test.ts) still stands as the fallback account.
       E2E_UNLOCK_SUITE: "1"
-      # #2747 — contacts open for good + the contact read, so contact-open-for-good.e2e.test.ts
-      # proves "open once, read many times" against the real API. The suite skips without it.
-      CONTACT_RULES_ROLLOUT: "on"
+      # #2747 — the contact rules in PILOT mode: contact-open-for-good.e2e.test.ts puts its own
+      # companies on feature_pilot_payers (the production pilot path), and every other suite keeps
+      # the production default (off). The suite skips without it.
+      CONTACT_RULES_ROLLOUT: "pilot"
       # Set EXPLICITLY rather than inherited. The default is 200/day and it is a GLOBAL,
       # IP-INDEPENDENT counter — unlike OTP_MAX_SENDS_PER_HOUR above, raising the per-IP
       # cap does not cover it. A fresh Redis per job makes 200 probably sufficient today,

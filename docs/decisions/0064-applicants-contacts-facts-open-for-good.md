@@ -76,7 +76,7 @@ The résumé stays on `POST /payer/resume-disclosures` and, while the rule is on
 
 One definition of "open", `isOpenGrant` (`apps/api/src/unlocks/open-grant.ts`): `granted` or `revealed`, and — while the rule is on for the company — whatever the stored date; off, unexpired as before. The reveal, the contact read and the résumé's SQL (`hasLiveUnlock`) all use it, so a contact opened under the old window is honoured with no backfill.
 
-Writes keep "for good" after a rollback. A grant made while the rule is on stores `expires_at = 2099-12-31T23:59:59Z` (shipped apps still parse a date) and answers `open_until: null`; a re-open (`POST /payer/unlocks`) or a reveal of a lapsed contact while the rule is on moves its stored dates (grant and relay row) there too, under the worker lock, only ever later (`extendOpenUntil`). Re-opening costs nothing: the held grant is returned with no debit. `GET /payer/unlocks` stops reading `expired` for an open contact.
+Writes keep "for good" after a rollback. A grant made while the rule is on stores `expires_at = 2099-12-31T23:59:59Z` (shipped apps still parse a date) and answers `open_until: null`; a re-open (`POST /payer/unlocks`) or a reveal of a lapsed contact while the rule is on moves its stored dates (grant and relay row) there too, under the worker lock, only ever later (`extendOpenUntil`). Re-opening costs nothing: the held grant is returned with no debit, and the re-open is audited (`unlock.reopened`, not a grant). `GET /payer/unlocks` reads the STORED dates: a contact stored for good has `open_until: null` and never reads `expired`; a lapsed one that would re-open free still reads `expired` until it is re-opened (whether it would depends on the worker's notice, §3.8, which a list of rows does not read). Everything in this section applies only to a worker §3.8 admits.
 
 Erasure (which nulls `unlocks.worker_id`), the ADR-0031 freeze, a suspension and a withdrawn consent close a contact at read time: "for good" cannot outlive them.
 
@@ -99,6 +99,53 @@ A table `outbound_signals` (`destination`, `kind`, unique `dedupe_key`, `payload
 
 One per part, all through `FeatureRolloutService` (off | pilot | on, keyed by the company's tenant key, fail closed): `applicant_facts` (A), the contact rules (B), the outcome stages (C) and the outbound sender (D). A switch gates what is shown or accepted, never stored state: turning a switch off never re-charges an open contact or deletes a stage already saved.
 
+### 3.8 The worker's own notice decides (per worker, whatever the switch)
+
+The approved employer-sharing notice of 2026-11-04 (`docs/product/employer-sharing-consent-notice.md`) tells the worker the opposite of the brief: "Aapka **naam, phone number aur photo** nahi dikhta" before an unlock; an unlock lasts "14 din tak"; the résumé carries his phone but not his "poora naam". Every consent row on that version records that he agreed to THOSE rules. A company's pilot switch cannot change them for him.
+
+So every #2747 rule that the notice contradicts is gated **per worker**, in addition to the company's switch:
+
+- the facts before paying (§3.2),
+- open for good and the free re-open (§3.4),
+- the contact read and the full name on the résumé (§3.3),
+- the re-read exemption from the per-worker caps.
+
+**Who the rules reach.** A BadaBhai worker qualifies only when his LATEST consent row is unrevoked, carries `employer_sharing`, and was given on a notice listed in `BRIEF_CONTACT_NOTICE_VERSIONS` (`packages/types`). An actively linked RVM student qualifies by the institute rule instead. That is RVM's consent line ("Share my profile with companies I apply to", brief 9), and it is the issue's own default for his card.
+
+**Who keeps the old rules.** A worker on the 2026-11-04 notice keeps initials, the 14-day window and no facts before paying. That holds even for a pilot company.
+
+**The list is empty today.** No notice describing the brief exists yet, so for BadaBhai workers the switches change nothing until one is approved and shipped. The steps when it is:
+
+1. Approve the new copy (Prakash, owner).
+2. Ship it in the worker app (Rishi).
+3. Append its version to `EMPLOYER_CONTACT_NOTICE_VERSIONS` **and** `BRIEF_CONTACT_NOTICE_VERSIONS`, and bump `CURRENT_CONSENT_VERSION` / `kConsentVersion`, all in one change.
+
+Workers then move onto it as they re-consent (the one-time prompt).
+
+**Draft of the new notice, for approval** (Latin Hinglish, aap-form). The heading, the buttons and the Settings line stay as they are; the body changes:
+
+> Aapko kaam dilaane ke liye, BadaBhai aapki kaam ki profile companies aur placement agencies ko dikhata hai.
+>
+> Paise dene se pehle woh yeh dekh sakti hain:
+>
+> - Aapka **pehla naam**
+> - Aapka kaam, anubhav, machine aur level
+> - Aapki industry, shehar aur **salary ki ummeed**
+> - Aap aakhri baar kab active the
+>
+> Aapka **poora naam, phone number aur photo** nahi dikhta.
+>
+> Agar koi company paise dekar aapki profile **unlock** karti hai, to woh **hamesha ke liye**:
+>
+> - Aapka **poora naam aur phone number** dekh sakti hai, aur aapka **resume**.
+> - Aapko **BadaBhai ke andar message** kar sakti hai.
+>
+> Jo companies aapko pehle unlock kar chuki hain, unpar bhi yahi lagu hoga.
+>
+> **Dhyaan dein:** Aap jab chaahein **Settings** me jaakar yeh band kar sakte hain. Phir koi company aapka naam ya number nahi dekh paayegi, aur aapko dhoondh ya message nahi kar paayegi. Jo resume pehle dekha ja chuka hai, woh wapas nahi hota.
+
+**Earlier unlocks.** The line "Jo companies aapko pehle unlock kar chuki hain…" is what lets "past opens" apply to him. If the owner strikes it, past opens must be limited to grants made after his acceptance. That change goes in the same code change as the version bump.
+
 ## 4. Security review (part A)
 
 - **Faceless before paying ends** for companies with the switch on. The first name is personal data shown before any payment. It is shown only on rows a company may already see (its own applicants, or its search pool), never logged, cached or emitted.
@@ -111,13 +158,17 @@ One per part, all through `FeatureRolloutService` (off | pilot | on, keyed by th
 
 - **The phone number crosses the API** (ADR-0010 Decision 2 reversed) only to the tenant that holds the open grant, only while the rule is on for it, behind the per-login hourly cap, with an audit row written before every answer and `no-store` on the response.
 - **No new oracle.** Every refusal on the contact read is the one neutral body; the switch-off 404 depends on the caller's own company only.
-- **Fail closed.** A pilot-list read error is off (the old window, initials); a decrypt failure is the neutral body (phone) or "not given" (name), logged by unlock id only.
+- **Fail closed.** A pilot-list read error refuses `POST /payer/unlocks` with the neutral body and no charge (reading a pilot company as off would debit it again for a contact it holds), and is off everywhere else; a decrypt failure is the neutral body (phone) or "not given" (name), logged by unlock id only.
+- **The worker's notice (review HIGH).** Every #2747 rule is gated per worker on §3.8; on the 2026-11-04 notice nothing changes for him. Re-opens are audited (`unlock.reopened`), and a worker who withdrew is never re-opened.
+- **Caps (review MEDIUM).** A repeat reveal of a wired relay is not counted (`reveal_count` feeds the per-worker daily caps: counting it would let one company lock every other company out of a worker for a day); a company's FIRST résumé of a worker is still capped, only a re-read (a `disclosed` row already held) is not.
+- **Smaller fixes.** Sample candidates (R74) never answer the contact read; the deletion freeze is re-read on the row that is decrypted.
+- **Residual: rollback lag on the résumé.** A PDF rendered with the full name is re-signed for its short TTL (`RESUME_SIGNED_URL_TTL_SECONDS`) after the switch goes off, and an ops request for the same company, worker and posting can re-sign it in that window. Same company, minutes long; accepted.
 
 Parts C and D each get their own review before merge.
 
 ## 5. Arming and rollback
 
-Every switch defaults to `off`. Arming is `gh secret set <SWITCH> --env production --body pilot` plus `feature_pilot_payers` rows for the pilot companies, then a redeploy — and only after this ADR is signed. Rollback is the same secret set to `off`.
+Every switch defaults to `off`. For BadaBhai workers the switches do nothing until a notice describing the brief ships (§3.8). Arming is `gh secret set <SWITCH> --env production --body pilot` plus `feature_pilot_payers` rows for the pilot companies, then a redeploy — and only after this ADR is signed. Rollback is the same secret set to `off`.
 
 ## 6. Open questions (for Akshit; built with the default)
 

@@ -1929,6 +1929,19 @@ export const ContactViewedPayload = z
   })
   .strict();
 
+/**
+ * #2747 item 6 (ADR-0064 §3.4) — a contact the company already held was re-opened while the
+ * brief's rules apply to the worker: its stored dates moved to "for good" and no credit was spent
+ * (so this is NOT a grant, and revenue reads `unlock.granted` only). Ids only.
+ */
+export const UnlockReopenedPayload = z
+  .object({
+    unlock_id: uuidSchema,
+    payer_id: uuidSchema,
+    worker_id: uuidSchema,
+  })
+  .strict();
+
 /** A (mock) credit hold was authorized. `real_call:false` in alpha (mock honesty). */
 export const PaymentAuthorizedPayload = z.object({
   unlock_id: uuidSchema.nullable().default(null),

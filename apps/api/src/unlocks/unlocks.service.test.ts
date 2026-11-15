@@ -1,5 +1,13 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+
+// #2747 (ADR-0064 §3.8) — no notice describing the brief's rules is approved yet, so the real list
+// is empty; these tests add one TEST-ONLY version to prove the gate in both directions. A worker on
+// the real 2026-11-04 notice is the default below and must never get the brief's rules.
+vi.mock("@badabhai/types", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@badabhai/types")>()),
+  BRIEF_CONTACT_NOTICE_VERSIONS: ["test-brief-notice"],
+}));
 import { Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
@@ -91,6 +99,10 @@ interface SetupOpts {
   contactRules?: boolean;
   /** #2747: the worker's encrypted full name (the contact read decrypts it). */
   workerFullName?: string | null;
+  /** #2747 §3.8: the notice version of his latest consent (default: the real 2026-11-04 one). */
+  consentVersion?: string;
+  /** #2747: the pilot list could not be read (`stateFor` → unavailable). */
+  rolloutUnavailable?: boolean;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -187,7 +199,11 @@ function setup(opts: SetupOpts = {}) {
     findLatestByWorker: vi.fn(async () =>
       consentPurposes === null
         ? undefined
-        : { purposes: consentPurposes, revokedAt: opts.consentRevoked ? new Date() : null },
+        : {
+            purposes: consentPurposes,
+            revokedAt: opts.consentRevoked ? new Date() : null,
+            consentVersion: opts.consentVersion ?? "2026-11-04",
+          },
     ),
   };
 
@@ -259,9 +275,14 @@ function setup(opts: SetupOpts = {}) {
     opts.tenancy ?? tenancyService("off"),
     instituteGate as never,
     // #2747 — the rollout service only when a test names the switch; absent reads as off.
-    opts.contactRules === undefined
+    opts.contactRules === undefined && !opts.rolloutUnavailable
       ? undefined
-      : ({ isEnabledFor: vi.fn(async () => opts.contactRules) } as never),
+      : ({
+          isEnabledFor: vi.fn(async () => opts.contactRules === true),
+          stateFor: vi.fn(async () =>
+            opts.rolloutUnavailable ? "unavailable" : opts.contactRules ? "on" : "off",
+          ),
+        } as never),
   );
   return {
     svc,
@@ -2112,6 +2133,8 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
 // =============================================================================================
 // #2747 (ADR-0064 §3.3–3.4) — the `contact_rules` switch: open for good, and the contact read.
 // =============================================================================================
+const BRIEF = "test-brief-notice";
+
 describe("UnlockService — #2747 contact rules: open for good", () => {
   const LAPSED = new Date("2026-01-01T00:00:00.000Z");
   const held = (over: Record<string, unknown> = {}) => ({
@@ -2142,7 +2165,7 @@ describe("UnlockService — #2747 contact rules: open for good", () => {
   });
 
   it("rule on: a lapsed held contact re-opens FREE, stored for good, open_until null", async () => {
-    const t = setup({ contactRules: true, existingUnlock: held() });
+    const t = setup({ consentVersion: BRIEF, contactRules: true, existingUnlock: held() });
     const res = await t.svc.requestUnlock(req, CTX);
     expect(res).toEqual({
       ok: true,
@@ -2164,6 +2187,7 @@ describe("UnlockService — #2747 contact rules: open for good", () => {
 
   it("rule on: a held contact already stored for good is returned with no write", async () => {
     const t = setup({
+      consentVersion: BRIEF,
       contactRules: true,
       existingUnlock: held({ expiresAt: OPEN_FOR_GOOD_UNTIL }),
     });
@@ -2174,7 +2198,7 @@ describe("UnlockService — #2747 contact rules: open for good", () => {
   });
 
   it("rule on: a NEW grant is stored for good (one debit)", async () => {
-    const t = setup({ contactRules: true });
+    const t = setup({ consentVersion: BRIEF, contactRules: true });
     const res = (await t.svc.requestUnlock(req, CTX)) as unknown as Record<string, unknown>;
     expect(t.txMethods.upsertGrant).toHaveBeenCalledWith(
       expect.anything(),
@@ -2186,6 +2210,7 @@ describe("UnlockService — #2747 contact rules: open for good", () => {
 
   it("rule on: a lapsed contact reveals, is stored for good, and a repeat reveal past the attempt cap keeps its handle", async () => {
     const t = setup({
+      consentVersion: BRIEF,
       contactRules: true,
       existingUnlock: held({ status: "revealed", revealCount: 9 }),
       existingRouting: {
@@ -2205,7 +2230,7 @@ describe("UnlockService — #2747 contact rules: open for good", () => {
   });
 
   it("rule on: the attempt cap still limits a FIRST reveal (no relay wired yet)", async () => {
-    const t = setup({ contactRules: true, existingUnlock: held({ revealCount: 9 }) });
+    const t = setup({ consentVersion: BRIEF, contactRules: true, existingUnlock: held({ revealCount: 9 }) });
     expect(await t.svc.reveal("unlock-old", CTX, PAYER)).toEqual(neutralUnavailable());
     expect(t.txMethods.createRouting).not.toHaveBeenCalled();
   });
@@ -2216,8 +2241,8 @@ describe("UnlockService — #2747 contact rules: open for good", () => {
     expect(t.txMethods.extendOpenUntil).not.toHaveBeenCalled();
   });
 
-  it("the payer list: an open contact stops reading expired while the rule is on", async () => {
-    const row = {
+  it("the payer list reads STORED dates: a contact stored for good has no end, a lapsed one reads expired", async () => {
+    const row = (expiresAt: Date) => ({
       unlock_id: "unlock-old",
       payer_id: PAYER,
       worker_id: WORKER,
@@ -2226,22 +2251,87 @@ describe("UnlockService — #2747 contact rules: open for good", () => {
       status: "granted",
       reveal_count: 0,
       granted_at: LAPSED,
-      expires_at: LAPSED,
+      expires_at: expiresAt,
       created_at: LAPSED,
-    };
-    const on = setup({ contactRules: true });
-    on.repo.listByPayerWithStatus.mockResolvedValue([row]);
-    expect((await on.svc.listOwnForPayer(PAYER)).unlocks[0]).toMatchObject({
-      status: "granted",
-      expires_at: OPEN_FOR_GOOD_UNTIL,
-      open_until: null,
     });
-    const off = setup({ contactRules: false });
-    off.repo.listByPayerWithStatus.mockResolvedValue([row]);
-    expect((await off.svc.listOwnForPayer(PAYER)).unlocks[0]).toMatchObject({
-      status: "expired",
-      open_until: LAPSED.toISOString(),
+    const t = setup({ consentVersion: BRIEF, contactRules: true });
+    t.repo.listByPayerWithStatus.mockResolvedValue([row(OPEN_FOR_GOOD_UNTIL), row(LAPSED)]);
+    const [forGood, lapsed] = (await t.svc.listOwnForPayer(PAYER)).unlocks;
+    expect(forGood).toMatchObject({ status: "granted", open_until: null });
+    expect(lapsed).toMatchObject({ status: "expired", open_until: LAPSED.toISOString() });
+  });
+
+  // ---- §3.8: the worker's own notice decides, whatever the company's switch ----
+
+  it("a worker on the 2026-11-04 notice keeps the 14-day window: a lapsed contact is re-granted with a debit", async () => {
+    const t = setup({ contactRules: true, existingUnlock: held() });
+    const res = (await t.svc.requestUnlock(req, CTX)) as unknown as Record<string, unknown>;
+    expect(t.txMethods.extendOpenUntil).not.toHaveBeenCalled();
+    expect(t.txMethods.appendLedger).toHaveBeenCalledTimes(1);
+    expect(res.open_until).not.toBeNull();
+  });
+
+  it("a worker on the 2026-11-04 notice: a new grant is the 14-day window, never for good", async () => {
+    const t = setup({ contactRules: true });
+    await t.svc.requestUnlock(req, CTX);
+    const input = t.txMethods.upsertGrant.mock.calls[0]![1] as { expiresAt: Date };
+    expect(input.expiresAt.getTime()).toBeLessThan(OPEN_FOR_GOOD_UNTIL.getTime());
+  });
+
+  it("a pilot list that cannot be read refuses the unlock: neutral, nothing emitted, nothing charged", async () => {
+    const t = setup({ consentVersion: BRIEF, rolloutUnavailable: true, existingUnlock: held() });
+    expect(await t.svc.requestUnlock(req, CTX)).toEqual(neutralUnavailable());
+    expect(t.repo.getBalance).not.toHaveBeenCalled();
+    expect(t.txMethods.appendLedger).not.toHaveBeenCalled();
+    expect(t.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("a re-open is audited as unlock.reopened (ids only), never as a grant", async () => {
+    const t = setup({ consentVersion: BRIEF, contactRules: true, existingUnlock: held() });
+    await t.svc.requestUnlock(req, CTX);
+    expect(emitted(t.events)).toContain("unlock.reopened");
+    expect(emitted(t.events)).not.toContain("unlock.granted");
+    const ev = t.events.emit.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((e) => e.event_name === "unlock.reopened")!;
+    expect(ev.payload).toEqual({ unlock_id: "unlock-old", payer_id: PAYER, worker_id: WORKER });
+  });
+
+  it("a worker who withdrew consent is never re-opened", async () => {
+    const t = setup({
+      consentVersion: BRIEF,
+      contactRules: true,
+      consentPurposes: ["profiling"],
+      existingUnlock: held(),
     });
+    await t.svc.requestUnlock(req, CTX);
+    expect(t.txMethods.extendOpenUntil).not.toHaveBeenCalled();
+  });
+
+  it("a REPEAT reveal is not counted (reveal_count feeds the per-worker daily caps)", async () => {
+    const t = setup({
+      consentVersion: BRIEF,
+      contactRules: true,
+      existingUnlock: held({ status: "revealed", revealCount: 1 }),
+      existingRouting: {
+        relayHandle: "relay-1",
+        channel: "in_app_relay",
+        expiresAt: OPEN_FOR_GOOD_UNTIL,
+      },
+    });
+    await t.svc.reveal("unlock-old", CTX, PAYER);
+    expect(t.txMethods.incrementReveal).not.toHaveBeenCalled();
+  });
+
+  it("a FIRST reveal is still counted", async () => {
+    const t = setup({ consentVersion: BRIEF, contactRules: true, existingUnlock: held() });
+    await t.svc.reveal("unlock-old", CTX, PAYER);
+    expect(t.txMethods.incrementReveal).toHaveBeenCalledTimes(1);
+  });
+
+  it("a worker on the 2026-11-04 notice: a lapsed contact does not reveal, whatever the switch", async () => {
+    const t = setup({ contactRules: true, existingUnlock: held() });
+    expect(await t.svc.reveal("unlock-old", CTX, PAYER)).toEqual(neutralUnavailable());
   });
 });
 
@@ -2263,6 +2353,7 @@ describe("UnlockService — #2747 the contact read (GET /payer/unlocks/:id/conta
   });
   function contactSetup(opts: SetupOpts = {}) {
     const t = setup({
+      consentVersion: BRIEF,
       contactRules: true,
       projection: projection(),
       workerFullName: "name-ciphertext",
@@ -2359,5 +2450,56 @@ describe("UnlockService — #2747 the contact read (GET /payer/unlocks/:id/conta
       full_name: null,
       phone: SENTINEL_PHONE,
     });
+  });
+});
+
+describe("UnlockService — #2747 the contact read: the notice, sample workers, the freeze row", () => {
+  const projection = {
+    unlock_id: "unlock-1",
+    payer_id: PAYER,
+    worker_id: WORKER,
+    job_id: null,
+    job_posting_id: null,
+    status: "revealed",
+    reveal_count: 1,
+    granted_at: new Date("2025-12-01T10:00:00.000Z"),
+    expires_at: new Date("2025-12-15T10:00:00.000Z"),
+    created_at: new Date("2025-12-01T10:00:00.000Z"),
+  };
+
+  it("a worker on the 2026-11-04 notice: the one neutral body, no decrypt — his number never reaches the screen", async () => {
+    const t = setup({ contactRules: true, projection });
+    expect(await t.svc.readContact("unlock-1", PAYER, CTX)).toEqual(neutralUnavailable());
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
+    expect(t.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("a sample candidate (R74): the one neutral body", async () => {
+    const sample = workforceUuid("worker", 7);
+    const t = setup({
+      consentVersion: BRIEF,
+      contactRules: true,
+      projection: { ...projection, worker_id: sample },
+    });
+    expect(await t.svc.readContact("unlock-1", PAYER, CTX)).toEqual(neutralUnavailable());
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
+  });
+
+  it("a deletion scheduled on the row being decrypted closes it (the freeze re-read on the same row)", async () => {
+    const t = setup({ consentVersion: BRIEF, contactRules: true, projection });
+    let reads = 0;
+    t.workers.findById.mockImplementation((async () => {
+      reads += 1;
+      return {
+        id: WORKER,
+        phoneE164: "ciphertext",
+        fullName: null,
+        // Active at the freeze check, scheduled by the time the row is read for the decrypt.
+        deletionScheduledAt: reads === 1 ? null : new Date(),
+        status: "active",
+      };
+    }) as never);
+    expect(await t.svc.readContact("unlock-1", PAYER, CTX)).toEqual(neutralUnavailable());
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
   });
 });

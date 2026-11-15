@@ -160,6 +160,26 @@ export class ResumeDisclosureRepository {
   }
 
   /** The existing disclosure row for (tenant, worker, posting), or undefined. Tx-scoped. */
+  /**
+   * #2747 — has the TENANT been disclosed this worker's résumé before (any posting)? A re-read of an
+   * opened contact is not a first disclosure, so the shared per-worker cap does not stop it; a
+   * company's FIRST résumé of him still meets the cap. Tx-scoped, under the worker lock.
+   */
+  async hasDisclosedTo(tx: Tx, tenant: TenantKey, workerId: string): Promise<boolean> {
+    const rows = await tx
+      .select({ id: resumeDisclosures.id })
+      .from(resumeDisclosures)
+      .where(
+        and(
+          eq(resumeDisclosures.payerId, tenant),
+          eq(resumeDisclosures.workerId, workerId),
+          eq(resumeDisclosures.status, "disclosed"),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
   async findByPayerWorkerPosting(
     tx: Tx,
     tenant: TenantKey,

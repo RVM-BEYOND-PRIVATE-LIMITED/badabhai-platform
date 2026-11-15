@@ -66,6 +66,7 @@ import {
   OPEN_FOR_GOOD_UNTIL,
   openUntilOf,
 } from "./open-grant";
+import { onBriefNotice } from "./brief-notice";
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
 const EMPLOYER_SHARING = "employer_sharing";
@@ -226,13 +227,18 @@ export class UnlockService {
   ) {}
 
   /**
-   * #2747 — is `contact_rules` on for this company? Off when the rollout service is absent, and
-   * fail closed through it (a pilot-list read error is off): the old 14-day window, never a
-   * wider opening.
+   * #2747 — is `contact_rules` on for this company? Off when the rollout service is absent; a
+   * pilot-list read error is `unavailable` (the unlock path refuses rather than charge a pilot
+   * company again for a contact it holds), and off everywhere else: the old window, never a wider
+   * opening.
    */
+  private async contactRulesState(tenant: TenantKey): Promise<"on" | "off" | "unavailable"> {
+    if (this.rollout === undefined) return "off";
+    return this.rollout.stateFor("contact_rules", tenant);
+  }
+
   private async contactRulesOn(tenant: TenantKey): Promise<boolean> {
-    if (this.rollout === undefined) return false;
-    return this.rollout.isEnabledFor("contact_rules", tenant);
+    return (await this.contactRulesState(tenant)) === "on";
   }
 
   // ===========================================================================
@@ -257,9 +263,13 @@ export class UnlockService {
     const scope = await this.tenancy.resolve(input.payerId);
     const tenant = scope.tenantKey;
     const party = partyOf(scope);
-    // #2747 (ADR-0064 §3.4) — read ONCE per request: with it on, a held contact is re-opened free
-    // whatever its date, and a new grant is stored open for good.
-    const openForGood = await this.contactRulesOn(tenant);
+    // #2747 (ADR-0064 §3.4) — read ONCE per request. With it on (and the brief's rules applying to
+    // this worker, below), a held contact is re-opened free whatever its date and a new grant is
+    // stored open for good. A pilot list that cannot be read refuses NOW, with the neutral body and
+    // nothing emitted or charged: reading a pilot company as "off" would debit it again for a
+    // contact it already holds.
+    const contactRules = await this.contactRulesState(tenant);
+    if (contactRules === "unavailable") return neutralUnavailable();
 
     // #1903 — normalise the caller's job context ONCE, before anything is written or
     // emitted: every row and event below carries `jobContext`, never the raw input. It is
@@ -305,7 +315,11 @@ export class UnlockService {
       // contact even if consent is revoked between here and the grant (the grant is not the
       // disclosure). unknown_worker vs no_consent both return the IDENTICAL neutral body;
       // workerExists only picks the internal audit reason (consented ⇒ worker exists).
-      const consented = await this.isOpenableBy(workerId, { tenant }, ctx);
+      // #2747 — the SAME reads answer whether the brief's contact rules apply to him (§3.8): only
+      // then, and only with the company's `contact_rules` on, is the contact open for good.
+      const access = await this.contactAccess(workerId, { tenant }, ctx);
+      const consented = access.openable;
+      const openForGood = contactRules === "on" && access.brief;
       const workerPresent = consented || (await this.workerExists(workerId));
 
     // ---- ADR-0031 payer-surface freeze (ruling (b)) — pending-deletion gate -----
@@ -346,11 +360,15 @@ export class UnlockService {
         // the org's existing grant and is charged nothing.
         const existing = await this.repo.findByPayerWorker(tx, tenant, workerId);
         if (existing && isOpenGrant(existing, { openForGood })) {
-          // #2747 — with `contact_rules` on, a held contact is open whatever its date (past opens
-          // included) and re-opening it is free. Its stored dates move to "for good" here, under
-          // the worker lock, so switching the rule off later never re-charges it.
+          // #2747 — with `contact_rules` on and the brief's rules applying to him, a held contact
+          // is open whatever its date (past opens included) and re-opening it is free. Its stored
+          // dates move to "for good" here, under the worker lock, so switching the rule off later
+          // never re-charges it. `openForGood` implies his consent passed (`brief` ⇒ `openable`):
+          // a worker who withdrew is never re-opened. The re-open is audited (`unlock.reopened`).
           if (openForGood && needsOpenForGoodDate(existing)) {
             await this.repo.extendOpenUntil(tx, existing.id, OPEN_FOR_GOOD_UNTIL);
+            const reopenedId = existing.id;
+            events.push(() => this.emitReopened(reopenedId, party, workerId, ctx));
             return {
               response: this.grantedResponse(existing.id, OPEN_FOR_GOOD_UNTIL, true),
               events,
@@ -539,9 +557,12 @@ export class UnlockService {
     // before anything else. The ops route names no payer and is unaffected.
     const scope =
       expectedPayerId === undefined ? undefined : await this.tenancy.resolve(expectedPayerId);
-    // #2747 — the company route only (the ops route keeps the window): with `contact_rules` on, an
-    // open contact is revealed whatever its date and its dates are stored "for good" below.
-    const openForGood = scope !== undefined && (await this.contactRulesOn(scope.tenantKey));
+    // #2747 — the company route only (the ops route keeps the window): with `contact_rules` on and
+    // the brief's rules applying to him (resolved with his consent below), an open contact is
+    // revealed whatever its date and its dates are stored "for good". A pilot-list read error is off
+    // here: a reveal charges nothing, so off is the safe answer.
+    const rulesOn = scope !== undefined && (await this.contactRulesOn(scope.tenantKey));
+    let openForGood = false;
     // Consent re-check BEFORE the advisory lock (same pool-vs-lock deadlock fix as
     // requestUnlock): a tx-external consent read inside the locked tx would need a 2nd
     // pool connection while concurrent reveals on this worker hold theirs → deadlock.
@@ -570,12 +591,11 @@ export class UnlockService {
       return neutralUnavailable();
     // #2752 — the institute rule is asked about the company that HOLDS this unlock (the ops
     // route included), by the unlock's id: its holder is read in SQL, never passed as a raw id.
-    if (
-      pre &&
-      pre.worker_id !== null &&
-      !(await this.isOpenableBy(pre.worker_id, { unlockId }, ctx))
-    )
-      return neutralUnavailable();
+    if (pre && pre.worker_id !== null) {
+      const access = await this.contactAccess(pre.worker_id, { unlockId }, ctx);
+      if (!access.openable) return neutralUnavailable();
+      openForGood = rulesOn && access.brief;
+    }
 
     // F-3: unknown/expired/over-cap/revoked all return the NEUTRAL body (not a 404).
     // The transaction does ALL the DB work + returns WHICH events to emit; it does NOT
@@ -680,6 +700,7 @@ export class UnlockService {
         // cannot both miss) means a repeat reveal never re-inserts, never re-decrypts the
         // phone, and answers with the handle the payer already holds.
         const channel: RoutingChannel = "in_app_relay"; // alpha: discloses no number
+        const wiredBefore = routing !== undefined;
         if (!routing) {
           let relayHandle: string;
           try {
@@ -699,7 +720,13 @@ export class UnlockService {
             expiresAt: openUntil,
           });
         }
-        const revealCount = await this.repo.incrementReveal(tx, fresh.id);
+        // #2747 — a REPEAT reveal of a wired relay while the brief's rules apply re-reads nothing
+        // and is not counted: `reveal_count` feeds the per-worker daily caps, so counting it would
+        // let one company lock every other company out of this worker for a day.
+        const repeat = openForGood && wiredBefore;
+        const revealCount = repeat
+          ? fresh.revealCount
+          : await this.repo.incrementReveal(tx, fresh.id);
         // Bound to a const so the deferred closure below carries a definitely-assigned
         // row (TypeScript will not narrow a mutable `let` through a closure).
         const routingRow: UnlockRouting = routing;
@@ -741,9 +768,11 @@ export class UnlockService {
    *   2. the unlock exists and belongs to the company's TENANT (another tenant's is neutral);
    *   3. the worker still exists (erasure SET-NULLs `worker_id`) and the grant is OPEN
    *      (`isOpenGrant` — granted/revealed, any date while the rule is on);
-   *   4. he is not pending deletion or suspended (ADR-0031), re-read now;
-   *   5. the company may still open him: his own `employer_sharing` consent, or for an actively
-   *      linked RVM student the institute rule (`isOpenableBy`, the same gate the grant used).
+   *   4. he is not a sample candidate (R74), not pending deletion or suspended (ADR-0031) — the
+   *      freeze re-read on the row that is decrypted;
+   *   5. the company may still open him, AND the brief's rules apply to him (§3.8): his latest
+   *      consent carries `employer_sharing` on a notice that describes them, or for an actively
+   *      linked RVM student the institute rule (`contactAccess`, the reads the grant used).
    *   "For good" cannot outlive 3–5: an erasure, a deletion freeze or a withdrawn consent closes it.
    *
    * AUDIT BEFORE DISCLOSURE. `contact.viewed` is written first; if it cannot be written, the
@@ -777,8 +806,13 @@ export class UnlockService {
       ) {
         return neutralUnavailable();
       }
+      // R74 — a sample candidate is not a person (an unlock of one made before R74 still exists).
+      if (isSampleWorkerId(workerId)) return neutralUnavailable();
       if (await this.isPayerSurfaceFrozen(workerId)) return neutralUnavailable();
-      if (!(await this.isOpenableBy(workerId, { unlockId }, ctx))) return neutralUnavailable();
+      // His consent, AND the brief's rules (§3.8): a worker on the 2026-11-04 notice agreed to
+      // initials and 14 days, so his number never reaches this screen.
+      const access = await this.contactAccess(workerId, { unlockId }, ctx);
+      if (!access.openable || !access.brief) return neutralUnavailable();
 
       const contact = await this.decryptContact(workerId, unlock.unlock_id);
       if (contact === null) return neutralUnavailable();
@@ -813,6 +847,9 @@ export class UnlockService {
       return null;
     }
     if (!worker?.phoneE164) return null;
+    // ADR-0031 — re-checked on the SAME row that is decrypted, so a deletion scheduled (or a
+    // suspension) while the consent read above ran still closes the contact.
+    if (worker.deletionScheduledAt !== null || worker.status === "suspended") return null;
     let phone: string;
     try {
       phone = this.pii.decrypt(worker.phoneE164);
@@ -830,6 +867,32 @@ export class UnlockService {
       }
     }
     return { phone, fullName };
+  }
+
+  /**
+   * #2747 — a held contact re-opened while the brief's rules apply: its dates moved to "for good",
+   * no credit spent. Ids only; deferred post-commit like the grant's events.
+   */
+  private async emitReopened(
+    unlockId: string,
+    party: EventParty,
+    workerId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const payload: PayloadInputOf<"unlock.reopened"> = {
+      unlock_id: unlockId,
+      payer_id: party.payerId,
+      worker_id: workerId,
+    };
+    await this.events.emit({
+      event_name: "unlock.reopened",
+      actor: { actor_type: "payer", actor_id: party.actorId },
+      subject: { subject_type: "unlock", subject_id: unlockId },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+      idempotencyKey: `unlock.reopened:${unlockId}`,
+    });
   }
 
   private async emitContactViewed(
@@ -903,9 +966,10 @@ export class UnlockService {
       scope.tenantKey,
       PAYER_VISIBLE_STORED_STATUSES,
     );
-    // #2747 — with `contact_rules` on, an open contact stops reading `expired` (`isOpenGrant`).
-    const openForGood = await this.contactRulesOn(scope.tenantKey);
-    return { unlocks: toPayerUnlocks(rows, now, openForGood) };
+    // #2747 — the list reads STORED dates: a contact opened, re-opened or revealed for good never
+    // reads `expired` (`open_until: null`). Whether a lapsed one would re-open free depends on the
+    // worker's own notice (§3.8), which a list of rows does not read; `POST /payer/unlocks` answers it.
+    return { unlocks: toPayerUnlocks(rows, now) };
   }
 
   async getOne(unlockId: string): Promise<UnlockProjection | undefined> {
@@ -1265,30 +1329,40 @@ export class UnlockService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Fail-closed disclosure-consent read (ADR-0010 §D3): the worker's LATEST
-   * worker_consents row must exist, be unrevoked, AND carry the exact
-   * `employer_sharing` purpose. Profiling consent does NOT substitute. Any error →
-   * false (fail closed).
+   * Two questions from ONE set of reads.
+   *
+   * `openable` — may this company open this worker (#2752 item 9)? An actively linked institute
+   * student is decided by the institute rule alone, whatever his own BadaBhai consent says (the tag
+   * rule wins while the link is active); every other worker by his LATEST consent row: unrevoked
+   * and carrying the exact `employer_sharing` purpose (profiling consent does not substitute).
+   *
+   * `brief` — #2747 (ADR-0064 §3.8): do the brief's contact rules apply to him — open for good, his
+   * full name and phone on screen? For an RVM student the institute rule answers it (RVM's consent
+   * line, brief 9). Any other worker also needs that consent given on a notice that describes those
+   * rules (`onBriefNotice`): on the 2026-11-04 notice (14 days, initials) it is false, whatever the
+   * company's switch says. `brief` implies `openable`. Both fail closed.
    */
-  private async isConsentedForSharing(workerId: string): Promise<boolean> {
-    const purposes = await this.latestConsentPurposes(workerId);
-    return purposes !== null && purposes.includes(EMPLOYER_SHARING);
-  }
-
-  /**
-   * Whether this company may open this worker (#2752 item 9). An actively
-   * linked institute student is decided by the institute rule alone, whatever his own BadaBhai
-   * consent says (issue question 2: the tag rule wins while the link is active); every other
-   * worker by his own `employer_sharing` consent, exactly as before. Both fail closed.
-   */
-  private async isOpenableBy(
+  private async contactAccess(
     workerId: string,
     opener: InstituteOpener,
     ctx: RequestContext,
-  ): Promise<boolean> {
+  ): Promise<{ openable: boolean; brief: boolean }> {
     const institute = await this.instituteGate.decide(workerId, opener, ctx);
-    if (institute === "not_linked") return this.isConsentedForSharing(workerId);
-    return institute === "open";
+    if (institute !== "not_linked") {
+      const open = institute === "open";
+      return { openable: open, brief: open };
+    }
+    let latest: Awaited<ReturnType<ConsentRepository["findLatestByWorker"]>>;
+    try {
+      latest = await this.consents.findLatestByWorker(workerId);
+    } catch {
+      return { openable: false, brief: false }; // fail closed
+    }
+    const openable =
+      latest !== undefined &&
+      latest.revokedAt === null &&
+      ((latest.purposes ?? []) as string[]).includes(EMPLOYER_SHARING);
+    return { openable, brief: openable && onBriefNotice(latest) };
   }
 
   /**

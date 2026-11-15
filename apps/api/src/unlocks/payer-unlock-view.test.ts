@@ -82,9 +82,10 @@ describe("toPayerUnlocks", () => {
   });
 });
 
-describe("#2747 — toPayerUnlocks with contact_rules on", () => {
+describe("#2747 — toPayerUnlocks reads stored dates (open for good)", () => {
+  const NOW = new Date("2026-11-15T00:00:00Z");
   const LAPSED = new Date("2026-01-01T00:00:00.000Z");
-  const row = (status: "granted" | "revealed" | "expired"): UnlockProjection => ({
+  const row = (status: "granted" | "revealed" | "expired", expiresAt: Date): UnlockProjection => ({
     unlock_id: "u1",
     payer_id: "p1",
     worker_id: "w1",
@@ -93,23 +94,19 @@ describe("#2747 — toPayerUnlocks with contact_rules on", () => {
     status,
     reveal_count: 0,
     granted_at: LAPSED,
-    expires_at: LAPSED,
+    expires_at: expiresAt,
     created_at: LAPSED,
   });
 
-  it("a lapsed granted or revealed contact reads open for good", () => {
+  it("a contact stored for good has no end and never reads expired", () => {
     for (const status of ["granted", "revealed"] as const) {
-      const [out] = toPayerUnlocks([row(status)], new Date("2026-11-15T00:00:00Z"), true);
-      expect(out).toMatchObject({ status, expires_at: OPEN_FOR_GOOD_UNTIL, open_until: null });
+      const [out] = toPayerUnlocks([row(status, OPEN_FOR_GOOD_UNTIL)], NOW);
+      expect(out).toMatchObject({ status, open_until: null });
     }
   });
 
-  it("a stored expired row keeps its own dates and reads expired", () => {
-    const [out] = toPayerUnlocks([row("expired")], new Date("2026-11-15T00:00:00Z"), true);
-    expect(out).toMatchObject({
-      status: "expired",
-      expires_at: LAPSED,
-      open_until: LAPSED.toISOString(),
-    });
+  it("a lapsed contact still reads expired (re-opening it is POST /payer/unlocks)", () => {
+    const [out] = toPayerUnlocks([row("granted", LAPSED)], NOW);
+    expect(out).toMatchObject({ status: "expired", open_until: LAPSED.toISOString() });
   });
 });

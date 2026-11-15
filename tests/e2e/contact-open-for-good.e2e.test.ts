@@ -1,24 +1,40 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createDbClient, creditLedger, events, unlocks, type DbClient } from "@badabhai/db";
+import {
+  createDbClient,
+  creditLedger,
+  events,
+  featurePilotPayers,
+  unlocks,
+  type DbClient,
+} from "@badabhai/db";
+import { BRIEF_CONTACT_NOTICE_VERSIONS } from "@badabhai/types";
 import { and, eq } from "drizzle-orm";
-import { mintPayerSession } from "./helpers/payer-session";
+import { mintPayerSession, type MintedPayerSession } from "./helpers/payer-session";
 import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
 /**
- * #2747 items 5 and 6 (ADR-0064 §3.3–3.4) — OPEN ONCE, READ MANY TIMES, end to end.
+ * #2747 items 5 and 6 (ADR-0064 §3.3, §3.4, §3.8) — contacts open for good, end to end.
  *
- * Against the running API with `CONTACT_RULES_ROLLOUT=on` (the e2e job's env): a company opens a
- * worker with one credit, reads his full name and phone on screen as often as it likes, re-opens
- * him for nothing, and still reads him after his grant's stored date has passed (a contact opened
- * long ago). One debit, ever. Every read writes `contact.viewed`, which never carries the number.
+ * The e2e job runs the API with `CONTACT_RULES_ROLLOUT=pilot`, so every OTHER suite keeps the
+ * production default (off) and this one puts its own companies on the pilot list
+ * (`feature_pilot_payers`), the path a pilot company takes in production.
  *
- * Opt-in, same harness as contact-unlock.e2e.test.ts (RUN_E2E=1 + E2E_UNLOCK_SUITE=1, the worker
- * and payer test-login seams armed). Skipped unless the API runs with the rule on.
+ *  - Runs now: a worker whose consent is on the 2026-11-04 notice ("14 din tak", initials) keeps
+ *    exactly those rules even for a pilot company — no contact read, the dated window. And no
+ *    company reads a contact it did not open.
+ *  - Arms itself when a notice describing the brief's rules ships (`BRIEF_CONTACT_NOTICE_VERSIONS`
+ *    non-empty): open once, read many times — one credit, the full name and phone as often as the
+ *    company likes, a free re-open, still open after the stored date has passed, one debit ever.
+ *
+ * Opt-in, the same harness as contact-unlock.e2e.test.ts (RUN_E2E=1 + E2E_UNLOCK_SUITE=1, both
+ * test-login seams armed).
  */
+const RULES = process.env.CONTACT_RULES_ROLLOUT ?? "";
 const RUN =
   process.env.RUN_E2E === "1" &&
   process.env.E2E_UNLOCK_SUITE === "1" &&
-  process.env.CONTACT_RULES_ROLLOUT === "on";
+  (RULES === "pilot" || RULES === "on");
+const BRIEF_NOTICE = BRIEF_CONTACT_NOTICE_VERSIONS.at(-1);
 const API_URL = process.env.E2E_API_URL ?? "http://localhost:3001";
 const OPS_TOKEN = process.env.INTERNAL_SERVICE_TOKEN ?? "";
 const TEST_LOGIN_TOKEN = process.env.TEST_LOGIN_TOKEN ?? "";
@@ -26,7 +42,8 @@ const DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   process.env.DATABASE_URL ??
   "postgresql://badabhai:badabhai@localhost:5432/badabhai";
-const CONSENT_VERSION = "2026-11-04";
+/** The approved 2026-11-04 notice: 14 days, initials, no name before an unlock. */
+const OLD_NOTICE = "2026-11-04";
 const FULL_NAME = "Ramesh Kumar Testcase";
 
 const syntheticPhone = syntheticPhoneMinter(70);
@@ -62,110 +79,141 @@ describe.skipIf(!RUN)("Contacts open for good (e2e, #2747)", () => {
     await client?.sql.end({ timeout: 5 });
   });
 
-  it("one credit opens him for good: read many times, re-open free, still open long after", async () => {
-    // A consenting worker with a name on file.
+  /** A consenting worker with a name on file, his consent given on `noticeVersion`. */
+  async function worker(noticeVersion: string): Promise<{ workerId: string; phone: string }> {
     const phone = syntheticPhone();
     const login = await req("POST", "/auth/test-login", { body: { phone }, testLogin: true });
     expect(login.status).toBe(200);
-    const workerId = login.json.worker_id as string;
-    const workerToken = login.json.access_token as string;
+    const token = login.json.access_token as string;
     const consented = await req("POST", "/consent/accept", {
-      body: { consent_version: CONSENT_VERSION, purposes: ["profiling", "employer_sharing"] },
-      token: workerToken,
+      body: { consent_version: noticeVersion, purposes: ["profiling", "employer_sharing"] },
+      token,
     });
     expect(consented.status).toBe(201);
-    const named = await req("PATCH", "/workers/me/name", {
-      body: { full_name: FULL_NAME },
-      token: workerToken,
-    });
+    const named = await req("PATCH", "/workers/me/name", { body: { full_name: FULL_NAME }, token });
     expect(named.status).toBe(200);
+    return { workerId: login.json.worker_id as string, phone };
+  }
 
-    // A company with credits.
+  /** A company with ten credits, on the `contact_rules` pilot list. */
+  async function pilotCompany(): Promise<MintedPayerSession> {
     const company = await mintPayerSession();
     const buy = await req("POST", `/payers/${company.payerId}/credits`, {
       ops: true,
       body: { pack_code: "pack_10" },
     });
     expect(buy.json.balance).toBe(10);
+    await client.db.insert(featurePilotPayers).values({
+      feature: "contact_rules",
+      payerId: company.payerId,
+      addedBy: "e2e",
+      reason: "#2747 e2e pilot company",
+    });
+    return company;
+  }
 
-    // Open once: one debit, open for good.
+  it("a worker on the 2026-11-04 notice keeps its rules, even for a pilot company: the dated window and no contact read", async () => {
+    const w = await worker(OLD_NOTICE);
+    const company = await pilotCompany();
     const grant = await req("POST", "/payer/unlocks", {
       token: company.token,
-      body: { worker_id: workerId },
+      body: { worker_id: w.workerId },
     });
-    expect(grant.status).toBe(200);
-    expect(grant.json).toMatchObject({ ok: true, status: "granted", open_until: null });
-    expect(Number.isNaN(Date.parse(grant.json.expires_at))).toBe(false);
-    const unlockId = grant.json.unlock_id as string;
-
-    // Read many times: the full name and the number, never cached.
-    for (let i = 0; i < 3; i += 1) {
-      const read = await req("GET", `/payer/unlocks/${unlockId}/contact`, { token: company.token });
-      expect(read.status).toBe(200);
-      expect(read.json).toMatchObject({ ok: true, full_name: FULL_NAME, phone });
-      expect(read.headers.get("cache-control")).toBe("no-store");
-    }
-
-    // Re-open: the same grant, nothing charged.
-    const again = await req("POST", "/payer/unlocks", {
+    expect(grant.json).toMatchObject({ ok: true, status: "granted" });
+    expect(grant.json.open_until).not.toBeNull();
+    const read = await req("GET", `/payer/unlocks/${grant.json.unlock_id}/contact`, {
       token: company.token,
-      body: { worker_id: workerId },
     });
-    expect(again.json).toMatchObject({ unlock_id: unlockId, open_until: null });
-
-    // Long after: push the stored date into the past (a contact opened under the old window).
-    await client.db
-      .update(unlocks)
-      .set({ expiresAt: new Date("2025-01-01T00:00:00.000Z") })
-      .where(eq(unlocks.id, unlockId));
-    const later = await req("GET", `/payer/unlocks/${unlockId}/contact`, { token: company.token });
-    expect(later.json).toMatchObject({ ok: true, full_name: FULL_NAME, phone });
-
-    // One debit, ever.
-    const debits = await client.db
-      .select()
-      .from(creditLedger)
-      .where(
-        and(eq(creditLedger.payerId, company.payerId), eq(creditLedger.reason, "unlock_debit")),
-      );
-    expect(debits).toHaveLength(1);
-    const credits = await req("GET", "/payer/credits", { token: company.token });
-    expect(credits.json.balance).toBe(9);
-
-    // Every read audited by id, never with the number or the name.
-    const viewed = (
-      await client.db.select().from(events).where(eq(events.eventName, "contact.viewed"))
-    ).filter((e) => (e.payload as { unlock_id?: string }).unlock_id === unlockId);
-    expect(viewed).toHaveLength(4);
-    for (const e of viewed) {
-      expect(JSON.stringify(e.payload)).not.toContain(phone);
-      expect(JSON.stringify(e.payload)).not.toContain("Ramesh");
-    }
+    expect(read.status).toBe(200);
+    expect(read.json).toEqual({ status: "unavailable" });
+    expect(JSON.stringify(read.json)).not.toContain(w.phone);
   });
 
-  it("another company cannot read a contact it did not open", async () => {
-    const phone = syntheticPhone();
-    const login = await req("POST", "/auth/test-login", { body: { phone }, testLogin: true });
-    const consented = await req("POST", "/consent/accept", {
-      body: { consent_version: CONSENT_VERSION, purposes: ["profiling", "employer_sharing"] },
-      token: login.json.access_token,
-    });
-    expect(consented.status).toBe(201);
-    const owner = await mintPayerSession();
-    await req("POST", `/payers/${owner.payerId}/credits`, {
+  it("a company NOT on the pilot list: the contact route is not there", async () => {
+    const w = await worker(OLD_NOTICE);
+    const company = await mintPayerSession();
+    await req("POST", `/payers/${company.payerId}/credits`, {
       ops: true,
       body: { pack_code: "pack_10" },
     });
     const grant = await req("POST", "/payer/unlocks", {
-      token: owner.token,
-      body: { worker_id: login.json.worker_id },
+      token: company.token,
+      body: { worker_id: w.workerId },
     });
-    const stranger = await mintPayerSession();
+    const read = await req("GET", `/payer/unlocks/${grant.json.unlock_id}/contact`, {
+      token: company.token,
+    });
+    expect(read.status).toBe(404);
+  });
+
+  it.skipIf(BRIEF_NOTICE === undefined)(
+    "one credit opens him for good: read many times, re-open free, still open long after",
+    async () => {
+      const w = await worker(BRIEF_NOTICE!);
+      const company = await pilotCompany();
+
+      const grant = await req("POST", "/payer/unlocks", {
+        token: company.token,
+        body: { worker_id: w.workerId },
+      });
+      expect(grant.json).toMatchObject({ ok: true, status: "granted", open_until: null });
+      const unlockId = grant.json.unlock_id as string;
+
+      for (let i = 0; i < 3; i += 1) {
+        const read = await req("GET", `/payer/unlocks/${unlockId}/contact`, {
+          token: company.token,
+        });
+        expect(read.json).toMatchObject({ ok: true, full_name: FULL_NAME, phone: w.phone });
+        expect(read.headers.get("cache-control")).toBe("no-store");
+      }
+
+      const again = await req("POST", "/payer/unlocks", {
+        token: company.token,
+        body: { worker_id: w.workerId },
+      });
+      expect(again.json).toMatchObject({ unlock_id: unlockId, open_until: null });
+
+      await client.db
+        .update(unlocks)
+        .set({ expiresAt: new Date("2025-01-01T00:00:00.000Z") })
+        .where(eq(unlocks.id, unlockId));
+      const later = await req("GET", `/payer/unlocks/${unlockId}/contact`, {
+        token: company.token,
+      });
+      expect(later.json).toMatchObject({ ok: true, full_name: FULL_NAME, phone: w.phone });
+
+      const debits = await client.db
+        .select()
+        .from(creditLedger)
+        .where(
+          and(eq(creditLedger.payerId, company.payerId), eq(creditLedger.reason, "unlock_debit")),
+        );
+      expect(debits).toHaveLength(1);
+
+      const viewed = (
+        await client.db.select().from(events).where(eq(events.eventName, "contact.viewed"))
+      ).filter((e) => (e.payload as { unlock_id?: string }).unlock_id === unlockId);
+      expect(viewed).toHaveLength(4);
+      for (const e of viewed) {
+        expect(JSON.stringify(e.payload)).not.toContain(w.phone);
+        expect(JSON.stringify(e.payload)).not.toContain("Ramesh");
+      }
+    },
+  );
+
+  it("no company reads a contact it did not open", async () => {
+    const w = await worker(BRIEF_NOTICE ?? OLD_NOTICE);
+    const owner = await pilotCompany();
+    const grant = await req("POST", "/payer/unlocks", {
+      token: owner.token,
+      body: { worker_id: w.workerId },
+    });
+    const stranger = await pilotCompany();
     const read = await req("GET", `/payer/unlocks/${grant.json.unlock_id}/contact`, {
       token: stranger.token,
     });
     expect(read.status).toBe(200);
     expect(read.json).toEqual({ status: "unavailable" });
-    expect(JSON.stringify(read.json)).not.toContain(phone);
+    expect(JSON.stringify(read.json)).not.toContain(w.phone);
   });
 });

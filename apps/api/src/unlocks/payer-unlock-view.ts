@@ -48,12 +48,9 @@ export function payerUnlockStatus(
   status: UnlockStatus,
   expiresAt: Date | null,
   now: Date,
-  openForGood = false,
 ): PayerUnlockStatus | null {
   if (!isPayerVisible(status)) return null;
   if (status === "expired") return "expired";
-  // #2747 — with `contact_rules` on an open contact never lapses (`isOpenGrant`).
-  if (openForGood) return status;
   if (expiresAt !== null && expiresAt.getTime() <= now.getTime()) return "expired";
   return status;
 }
@@ -62,22 +59,19 @@ export function payerUnlockStatus(
 export function toPayerUnlocks(
   rows: readonly UnlockProjection[],
   now: Date,
-  openForGood = false,
 ): PayerUnlockProjection[] {
   const out: PayerUnlockProjection[] = [];
   for (const row of rows) {
-    const status = payerUnlockStatus(row.status, row.expires_at, now, openForGood);
+    const status = payerUnlockStatus(row.status, row.expires_at, now);
     if (status === null) continue;
-    // #2747 — an open contact (granted or revealed) reads as open for good while the rule is on:
-    // `expires_at` is the far-future date the shipped apps can parse, `open_until` is null. A row
-    // that never opened (stored `expired`) keeps its own dates.
-    const open = openForGood && (status === "granted" || status === "revealed");
-    const expiresAt = open ? OPEN_FOR_GOOD_UNTIL : row.expires_at;
+    // #2747 — a contact stored "for good" (`OPEN_FOR_GOOD_UNTIL`) has no end: `open_until: null`.
+    // Otherwise `open_until` is the stored end, the same instant `expires_at` says.
+    const forGood =
+      row.expires_at !== null && row.expires_at.getTime() >= OPEN_FOR_GOOD_UNTIL.getTime();
     out.push({
       ...row,
       status,
-      expires_at: expiresAt,
-      open_until: expiresAt === null ? null : openUntilOf(open, expiresAt),
+      open_until: row.expires_at === null ? null : openUntilOf(forGood, row.expires_at),
     });
   }
   return out;

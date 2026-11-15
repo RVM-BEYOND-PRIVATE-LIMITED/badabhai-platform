@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { sql as dsql } from "drizzle-orm";
 import { CURRENT_PROFILE_ORDER, type Database } from "@badabhai/db";
+import { BRIEF_CONTACT_NOTICE_VERSIONS } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
 
 /** The salary attributes the card reads (`worker_attributes`, one live row per key). */
@@ -36,6 +37,12 @@ export interface PrePayFactsRawRow {
    * (`consentingWorkers`): a tie on `accepted_at` must pass on every tied row. False with no row.
    */
   employerSharing: boolean;
+  /**
+   * #2747 (ADR-0064 §3.8) — that same latest row was given on a notice that DESCRIBES the facts
+   * shown before paying (`BRIEF_CONTACT_NOTICE_VERSIONS`). False on the 2026-11-04 notice, which
+   * tells him his name is not shown before an unlock.
+   */
+  onBriefNotice: boolean;
 }
 
 /**
@@ -76,7 +83,11 @@ export class PrePayFactsRepository {
     }));
   }
 
-  async listForWorkers(workerIds: readonly string[]): Promise<PrePayFactsRawRow[]> {
+  async listForWorkers(
+    workerIds: readonly string[],
+    opts: { readonly briefNoticeVersions?: readonly string[] } = {},
+  ): Promise<PrePayFactsRawRow[]> {
+    const briefVersions = [...(opts.briefNoticeVersions ?? BRIEF_CONTACT_NOTICE_VERSIONS)];
     const ids = [...new Set(workerIds)];
     if (ids.length === 0) return [];
     const [workers, profiles, attributes, seen] = await Promise.all([
@@ -85,6 +96,7 @@ export class PrePayFactsRepository {
         full_name: string | null;
         current_city: string | null;
         employer_sharing: boolean | null;
+        on_brief_notice: boolean | null;
       }>(dsql`
         SELECT w.id, w.full_name, w.current_city,
                (
@@ -96,7 +108,19 @@ export class PrePayFactsRepository {
                    AND c.accepted_at = (
                      SELECT max(c2.accepted_at) FROM worker_consents c2 WHERE c2.worker_id = w.id
                    )
-               ) IS TRUE AS employer_sharing
+               ) IS TRUE AS employer_sharing,
+               (
+                 SELECT bool_and(
+                   c.revoked_at IS NULL
+                   AND c.purposes @> '["employer_sharing"]'::jsonb
+                   AND c.consent_version = ANY(${dsql.param(briefVersions)}::text[])
+                 )
+                 FROM worker_consents c
+                 WHERE c.worker_id = w.id
+                   AND c.accepted_at = (
+                     SELECT max(c2.accepted_at) FROM worker_consents c2 WHERE c2.worker_id = w.id
+                   )
+               ) IS TRUE AS on_brief_notice
         FROM workers w
         WHERE w.id = ANY(${dsql.param(ids)}::uuid[])
       `),
@@ -151,6 +175,7 @@ export class PrePayFactsRepository {
         salaryPeriod: null,
         lastSeenAt: null,
         employerSharing: false,
+        onBriefNotice: false,
       });
     }
     // Keyed in lower case: Postgres prints a uuid that way, and the ids handed in may not be.
@@ -163,6 +188,7 @@ export class PrePayFactsRepository {
       row.fullNameEnc = nonBlank(w.full_name);
       row.workersCity = nonBlank(w.current_city);
       row.employerSharing = w.employer_sharing === true;
+      row.onBriefNotice = w.on_brief_notice === true;
     }
     for (const p of profiles as unknown as Array<Record<string, unknown>>) {
       const row = at(p.worker_id);
