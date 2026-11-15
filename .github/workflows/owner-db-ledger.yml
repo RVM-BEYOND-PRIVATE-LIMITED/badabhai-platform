@@ -1,0 +1,116 @@
+name: Owner DB - adopt ledger rows
+
+# #2836 step 1 — RECORD ALREADY-APPLIED MIGRATIONS in production's Drizzle ledger
+# (`drizzle.__drizzle_migrations`) with `packages/db/adopt-migrations.ts`, from a runner instead
+# of an owner laptop with production's `.env`.
+#
+# WHAT IT CAN DO, AND NOTHING ELSE:
+#   * `verify` (the default): `--doctor` and `--only <tags>` verify-only. READ-ONLY.
+#   * `apply`: the same, then `--only <tags> --apply --expect-host <substring>`, which writes ONLY
+#     the ledger rows (hash, created_at) of migrations whose objects it has verified at depth
+#     (tables, typed columns, indexes, constraints, RLS enabled/forced, every REVOKE held), all or
+#     nothing. It runs NO DDL: an unapplied migration fails verification and nothing is recorded.
+#   * then `db:audit:schema-contract` (read-only), the check MIGRATIONS.md asks for after an adopt.
+#
+# It NEVER runs `db:migrate`, a seed, or any SQL of its own (MIGRATIONS.md: never `db:migrate`
+# against production). Applying a migration's DDL stays a reviewed hand step in the SQL editor.
+#
+# RAILS: manual trigger only (`workflow_dispatch`), `main` only, one run at a time, tags checked
+# against a strict pattern, inputs passed through `env:` (never interpolated into a script), and
+# `--expect-host` REQUIRED for `apply`: read the host the verify run prints, then pass a part of
+# it, so a run against the wrong database refuses. The script prints the host and database name
+# only, never the URL or its password.
+#
+#   gh workflow run owner-db-ledger.yml -f tags=0161_institute_link,0162_job_audience_campus_drives -f mode=verify
+#   gh workflow run owner-db-ledger.yml -f tags=... -f mode=apply -f expect_host=<part of the host>
+
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "Migration tags, comma-separated, exactly as in packages/db/migrations (adopt-migrations.ts --only)"
+        required: true
+        type: string
+      mode:
+        description: "verify = read-only; apply = record the verified rows"
+        required: true
+        type: choice
+        options:
+          - verify
+          - apply
+        default: verify
+      expect_host:
+        description: "apply only: a part of the database host that the verify run printed"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-db-ledger
+  cancel-in-progress: false
+
+jobs:
+  adopt:
+    name: Ledger rows (${{ inputs.mode }})
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      TAGS: ${{ inputs.tags }}
+      MODE: ${{ inputs.mode }}
+      EXPECT_HOST: ${{ inputs.expect_host }}
+    steps:
+      - name: Check the inputs
+        run: |
+          if ! [[ "$TAGS" =~ ^[0-9]{4}_[a-z0-9_-]+(,[0-9]{4}_[a-z0-9_-]+)*$ ]]; then
+            echo "::error::tags must be migration tags separated by commas, e.g. 0161_institute_link,0162_job_audience_campus_drives"
+            exit 1
+          fi
+          if [ "$MODE" = "apply" ] && ! [[ "$EXPECT_HOST" =~ ^[A-Za-z0-9.-]{4,}$ ]]; then
+            echo "::error::apply needs expect_host: a part of the database host the verify run printed"
+            exit 1
+          fi
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::the production environment has no DATABASE_URL"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        # No `version:`: package.json's `packageManager` is the single source (as in ci.yml).
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install the db package's dependencies
+        run: pnpm install --frozen-lockfile --filter "@badabhai/db..."
+
+      - name: Doctor (read-only)
+        working-directory: packages/db
+        run: npx tsx adopt-migrations.ts --doctor
+
+      - name: Verify the tags (read-only)
+        working-directory: packages/db
+        run: npx tsx adopt-migrations.ts --only "$TAGS"
+
+      - name: Record the verified rows
+        if: inputs.mode == 'apply'
+        working-directory: packages/db
+        run: npx tsx adopt-migrations.ts --only "$TAGS" --apply --expect-host "$EXPECT_HOST"
+
+      # Its verdict covers EVERY registered object, not only the tags above, so it can be red for
+      # a migration this run never touched. Read its MISSING lines; it does not fail the adopt.
+      - name: Schema-contract audit (read-only)
+        if: always()
+        continue-on-error: true
+        working-directory: packages/db
+        run: pnpm db:audit:schema-contract

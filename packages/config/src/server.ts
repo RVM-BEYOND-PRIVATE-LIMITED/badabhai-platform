@@ -669,6 +669,10 @@ export const serverEnvSchema = z.object({
   //   APPLICANT_FACTS_ROLLOUT (#2747) — the facts a company sees before paying: first name, trade
   //     line, expected salary, machines, area and last-active day on the applicant and search
   //     cards. Off, those keys are not sent (every row still carries its `source` label).
+  //   CONTACT_RULES_ROLLOUT (#2747) — what a credit opens: the contact stays open for good (no
+  //     14-day lapse, never charged twice), GET /payer/unlocks/:id/contact shows the full name and
+  //     phone, and the résumé prints the full name. Off, the route answers 404 and the 14-day
+  //     window applies; a contact opened while it was on stays open.
   //   OUTCOME_STAGES_ROLLOUT (#2747) — a company marks an applicant `selected` or `hired` on the
   //     board. Off, the stage route refuses both with the 400 it has always given an unknown
   //     stage; a stored one is still read back. Needs migration 0166 applied first.
@@ -679,6 +683,7 @@ export const serverEnvSchema = z.object({
   JOB_AUDIENCE_ROLLOUT: featureRolloutMode,
   CAMPUS_DRIVE_REQUESTS_ROLLOUT: featureRolloutMode,
   APPLICANT_FACTS_ROLLOUT: featureRolloutMode,
+  CONTACT_RULES_ROLLOUT: featureRolloutMode,
   OUTCOME_STAGES_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256

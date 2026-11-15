@@ -340,6 +340,12 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /APPLICANT_FACTS_ROLLOUT:\s*\$\{\{\s*secrets\.APPLICANT_FACTS_ROLLOUT\s*\}\}/,
       /envs:[^\n]*\bAPPLICANT_FACTS_ROLLOUT\b/,
     ],
+    // #2747 — what a credit opens: open for good, the contact read, the full name on the résumé.
+    [
+      "CONTACT_RULES_ROLLOUT",
+      /CONTACT_RULES_ROLLOUT:\s*\$\{\{\s*secrets\.CONTACT_RULES_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bCONTACT_RULES_ROLLOUT\b/,
+    ],
     // #2747 — the outcome stages (`selected` / `hired`) on the applicant board.
     [
       "OUTCOME_STAGES_ROLLOUT",

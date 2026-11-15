@@ -113,7 +113,10 @@ export class PrePayFactsService {
       // grant); every other worker by his own LATEST consent row's `employer_sharing`. Without it
       // — he used the "stop employer contact" exit, or an under-18 declaration withdrew his
       // consent — the card says "not given" for every fact, and his name is never decrypted.
-      const consented = link?.instituteCode === RVM_INSTITUTE_CODE || row.employerSharing;
+      // #2747 §3.8 — and only on a notice that describes facts before paying: a worker whose
+      // latest consent is on the 2026-11-04 notice was told his name is not shown before an unlock.
+      const consented =
+        link?.instituteCode === RVM_INSTITUTE_CODE || (row.employerSharing && row.onBriefNotice);
       if (!consented) {
         out.set(key, EMPTY_PRE_PAY_FACTS);
         continue;

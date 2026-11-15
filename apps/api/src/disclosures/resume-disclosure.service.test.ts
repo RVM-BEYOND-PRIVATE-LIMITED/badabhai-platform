@@ -1,5 +1,12 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+
+// #2747 (ADR-0064 §3.8) — no brief-describing notice is approved yet (the real list is empty); one
+// TEST-ONLY version proves the gate both ways. The default worker is on the real 2026-11-04 notice.
+vi.mock("@badabhai/types", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@badabhai/types")>()),
+  BRIEF_CONTACT_NOTICE_VERSIONS: ["test-brief-notice"],
+}));
 import type { ServerConfig } from "@badabhai/config";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
@@ -137,6 +144,14 @@ interface SetupOpts {
    * which is the only state the clients ever offered the résumé in.
    */
   liveUnlock?: boolean;
+  /** #2747: the `contact_rules` switch for the company (default: no rollout service = off). */
+  contactRules?: boolean;
+  /** #2747 §3.8: the notice version of his latest consent (default: the real 2026-11-04 one). */
+  consentVersion?: string;
+  /** #2747: the tenant already holds a `disclosed` row for him (a re-read). */
+  disclosedBefore?: boolean;
+  /** #2747: his grant has LAPSED — open only by the any-date rule, not by its stored date. */
+  lapsedGrant?: boolean;
   /** #2752: what the institute open gate answers (default: not a linked student). */
   institute?: "not_linked" | "open" | "closed";
 }
@@ -152,6 +167,7 @@ function setup(opts: SetupOpts = {}) {
   const txMethods = {
     lockWorker: vi.fn(async () => undefined),
     findByPayerWorkerPosting: vi.fn(async () => opts.existing),
+    hasDisclosedTo: vi.fn(async () => opts.disclosedBefore ?? false),
     countDisclosuresToPayersSince: vi.fn(async () => opts.dailyCount ?? 0),
     countDistinctPayersSince: vi.fn(async () => opts.weeklyPayers ?? 0),
     // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-check). #2562 adds
@@ -196,7 +212,10 @@ function setup(opts: SetupOpts = {}) {
     // through the locked `tx` handle would be the pool-vs-lock deadlock shape.
     jobPostingExists: vi.fn(async (_id: string) => opts.postingRowExists ?? true),
     // 2026-11-03: the payer route's live-unlock gate — global-pool, repo-only.
-    hasLiveUnlock: vi.fn(async (_tenant: string, _workerId: string) => opts.liveUnlock ?? true),
+    hasLiveUnlock: vi.fn(
+      async (_tenant: string, _workerId: string, o?: { openForGood: boolean }) =>
+        opts.lapsedGrant ? o?.openForGood === true : (opts.liveUnlock ?? true),
+    ),
     // #1899: the payer-scoped ownership read — also global-pool, also repo-only.
     findOwnedJobRef: vi.fn(async (refId: string, payerId: string) => {
       const owned = opts.ownedRefs?.[refId];
@@ -210,7 +229,11 @@ function setup(opts: SetupOpts = {}) {
     findLatestByWorker: vi.fn(async () =>
       consentPurposes === null
         ? undefined
-        : { purposes: consentPurposes, revokedAt: opts.consentRevoked ? new Date() : null },
+        : {
+            purposes: consentPurposes,
+            revokedAt: opts.consentRevoked ? new Date() : null,
+            consentVersion: opts.consentVersion ?? "2026-11-04",
+          },
     ),
   };
 
@@ -318,6 +341,10 @@ function setup(opts: SetupOpts = {}) {
     // `tierScopes` — absent here; its own suite covers it.
     undefined,
     generalRoads as never,
+    // #2747 — the rollout service only when a test names the switch; absent reads as off.
+    opts.contactRules === undefined
+      ? undefined
+      : ({ isEnabledFor: vi.fn(async () => opts.contactRules) } as never),
   );
 
   return {
@@ -1352,7 +1379,7 @@ describe("2026-11-03 — the payer route discloses only a worker the tenant has 
   it("no live unlock → the neutral body, before any consent read, lock, row, render or event", async () => {
     const { t, res } = await asPayer({ liveUnlock: false });
     expect(res).toEqual(NEUTRAL);
-    expect(t.repo.hasLiveUnlock).toHaveBeenCalledWith(PAYER, WORKER);
+    expect(t.repo.hasLiveUnlock).toHaveBeenCalledWith(PAYER, WORKER, { openForGood: false });
     expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
     expect(t.repo.withTransaction).not.toHaveBeenCalled();
     expect(t.txMethods.insertRow).not.toHaveBeenCalled();
@@ -1395,5 +1422,80 @@ describe("2026-11-03 — the payer route discloses only a worker the tenant has 
     );
     expect(res).toMatchObject({ ok: true, status: "disclosed" });
     expect(t.repo.hasLiveUnlock).not.toHaveBeenCalled();
+  });
+});
+
+
+// #2747 (ADR-0064 §3.3–3.4, §3.8) — with `contact_rules` on and the brief's rules applying to the
+// worker, what a credit opens includes the full name and a contact opened long ago still gives its
+// résumé; a RE-read is not stopped by the per-worker cap, a first résumé still is. A worker on the
+// 2026-11-04 notice keeps initials and the dated window, whatever the switch.
+describe("#2747 — the payer route with contact_rules on", () => {
+  const BRIEF = "test-brief-notice";
+  async function asPayer(opts: SetupOpts) {
+    const t = setup(opts);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+      "payer_owned",
+    );
+    return { t, res };
+  }
+
+  it("prints the FULL name, not the initials", async () => {
+    const { t } = await asPayer({ contactRules: true, consentVersion: BRIEF });
+    expect(t.getRenderInput()?.displayName).toBe(REAL_NAME);
+  });
+
+  it("a contact opened long ago (lapsed) still gives its résumé", async () => {
+    const { res } = await asPayer({ contactRules: true, consentVersion: BRIEF, lapsedGrant: true });
+    expect(res).not.toEqual(NEUTRAL);
+  });
+
+  it("a RE-read at the per-worker daily cap is not stopped", async () => {
+    const { t, res } = await asPayer({
+      contactRules: true,
+      consentVersion: BRIEF,
+      dailyCount: 5,
+      disclosedBefore: true,
+    });
+    expect(res).not.toEqual(NEUTRAL);
+    expect(t.renderer.renderPdf).toHaveBeenCalledOnce();
+  });
+
+  it("a company's FIRST résumé of him is still capped", async () => {
+    const { res } = await asPayer({ contactRules: true, consentVersion: BRIEF, dailyCount: 5 });
+    expect(res).toEqual(NEUTRAL);
+  });
+
+  it("still refuses with no open contact, a withdrawn consent or a pending deletion", async () => {
+    expect(
+      (await asPayer({ contactRules: true, consentVersion: BRIEF, liveUnlock: false })).res,
+    ).toEqual(NEUTRAL);
+    expect((await asPayer({ contactRules: true, consentPurposes: null })).res).toEqual(NEUTRAL);
+    expect(
+      (await asPayer({ contactRules: true, consentVersion: BRIEF, pendingDeletion: true })).res,
+    ).toEqual(NEUTRAL);
+  });
+
+  it("a worker on the 2026-11-04 notice: initials, and a LAPSED contact gives nothing", async () => {
+    const { t } = await asPayer({ contactRules: true });
+    expect(t.getRenderInput()?.displayName).toBe(MASKED);
+    expect((await asPayer({ contactRules: true, lapsedGrant: true })).res).toEqual(NEUTRAL);
+  });
+
+  it("rule off: initials, the dated grant and the cap, exactly as before", async () => {
+    const { t } = await asPayer({ contactRules: false, consentVersion: BRIEF });
+    expect(t.getRenderInput()?.displayName).toBe(MASKED);
+    expect(t.repo.hasLiveUnlock).toHaveBeenCalledWith(PAYER, WORKER, { openForGood: false });
+    expect(
+      (await asPayer({ contactRules: false, consentVersion: BRIEF, dailyCount: 5, disclosedBefore: true })).res,
+    ).toEqual(NEUTRAL);
+  });
+
+  it("the ops route never prints the full name, whatever the switch", async () => {
+    const t = setup({ contactRules: true, consentVersion: BRIEF });
+    await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    expect(t.getRenderInput()?.displayName).toBe(MASKED);
   });
 });

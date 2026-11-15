@@ -420,6 +420,8 @@ export const EVENT_REGISTRY = {
   "unlock.denied": { version: 1, domain: "unlock", payload: p.UnlockDeniedPayload },
   "unlock.cap_exceeded": { version: 1, domain: "unlock", payload: p.UnlockCapExceededPayload },
   "contact.revealed": { version: 1, domain: "contact", payload: p.ContactRevealedPayload },
+  "contact.viewed": { version: 1, domain: "contact", payload: p.ContactViewedPayload },
+  "unlock.reopened": { version: 1, domain: "unlock", payload: p.UnlockReopenedPayload },
   "payment.authorized": { version: 1, domain: "payment", payload: p.PaymentAuthorizedPayload },
   "payment.captured": { version: 1, domain: "payment", payload: p.PaymentCapturedPayload },
   "payment.failed": { version: 1, domain: "payment", payload: p.PaymentFailedPayload },
