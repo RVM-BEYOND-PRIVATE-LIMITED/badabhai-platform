@@ -346,6 +346,19 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CONTACT_RULES_ROLLOUT:\s*\$\{\{\s*secrets\.CONTACT_RULES_ROLLOUT\s*\}\}/,
       /envs:[^\n]*\bCONTACT_RULES_ROLLOUT\b/,
     ],
+    // #2768 — open campus-drive requests per company. A tuning number like the one below;
+    // absent, compose holds it at the owner's 3.
+    [
+      "CAMPUS_DRIVE_MAX_OPEN_REQUESTS",
+      /CAMPUS_DRIVE_MAX_OPEN_REQUESTS:\s*\$\{\{\s*secrets\.CAMPUS_DRIVE_MAX_OPEN_REQUESTS\s*\}\}/,
+      /envs:[^\n]*\bCAMPUS_DRIVE_MAX_OPEN_REQUESTS\b/,
+    ],
+    // #2820 — the theme switch: the same grammar and the same arming path.
+    [
+      "THEME_ROLLOUT",
+      /THEME_ROLLOUT:\s*\$\{\{\s*secrets\.THEME_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bTHEME_ROLLOUT\b/,
+    ],
     // #2747 — the outcome stages (`selected` / `hired`) on the applicant board.
     [
       "OUTCOME_STAGES_ROLLOUT",
@@ -458,6 +471,10 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     // are honoured whatever the switch says (a switch gates capabilities, never restrictions).
     ["JOB_AUDIENCE_ROLLOUT", "off"],
     ["CAMPUS_DRIVE_REQUESTS_ROLLOUT", "off"],
+    // #2768 — the zod default: 3 open drive requests per company until the secret says otherwise.
+    ["CAMPUS_DRIVE_MAX_OPEN_REQUESTS", "3"],
+    // #2820 — off is today's apps: every display preference answers `light` and nothing is saved.
+    ["THEME_ROLLOUT", "off"],
     // #2509 — the zod default: 20/hour/IP until the secret (or a box export) says otherwise.
     ["PAYER_AUTH_MAX_PER_IP_PER_HOUR", "20"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's

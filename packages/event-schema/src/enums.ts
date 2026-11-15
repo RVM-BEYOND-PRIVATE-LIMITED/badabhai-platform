@@ -151,6 +151,11 @@ export const EVENT_DOMAINS = [
   // and its posting link is optional. IDS, ENUMS AND DATES ONLY: the contact person, the roles
   // note and the placement team's reason live on the row alone, never on the spine.
   "campus_drive",
+  // #2819 — one login's display preference (`display_prefs`): a worker, a company or agency login,
+  // or an admin chose a theme. A DISTINCT domain from `worker` / `payer` / `admin`: the same row
+  // shape and the same event serve all three logins, and the subject kind rides the payload. IDS
+  // AND ENUMS ONLY: an opaque id, the subject kind and the two themes.
+  "display_prefs",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;

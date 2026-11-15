@@ -1,6 +1,6 @@
 {
-  "id": "81c64aa1-a68d-4a94-a054-b86d497d26cf",
-  "prevId": "8108d261-c603-4d29-b1e0-adcafc385d86",
+  "id": "3615a4ad-2e59-4e2b-9bd7-221f154358bf",
+  "prevId": "77fdc585-7474-4fb0-b1c3-94a73d4fabfb",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -17756,6 +17756,82 @@
       },
       "isRLSEnabled": true
     },
+    "public.feature_pilot_subjects": {
+      "name": "feature_pilot_subjects",
+      "schema": "",
+      "columns": {
+        "feature": {
+          "name": "feature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject_kind": {
+          "name": "subject_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject_id": {
+          "name": "subject_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "added_by": {
+          "name": "added_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "feature_pilot_subjects_pk": {
+          "name": "feature_pilot_subjects_pk",
+          "columns": [
+            "feature",
+            "subject_kind",
+            "subject_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "fps_feature_chk": {
+          "name": "fps_feature_chk",
+          "value": "\"feature_pilot_subjects\".\"feature\" ~ '^[a-z][a-z0-9_]{1,63}$'"
+        },
+        "fps_subject_kind_chk": {
+          "name": "fps_subject_kind_chk",
+          "value": "\"feature_pilot_subjects\".\"subject_kind\" IN ('worker', 'admin')"
+        },
+        "fps_added_by_chk": {
+          "name": "fps_added_by_chk",
+          "value": "\"feature_pilot_subjects\".\"added_by\" ~ '^[A-Za-z0-9._:-]{1,128}$'"
+        },
+        "fps_reason_chk": {
+          "name": "fps_reason_chk",
+          "value": "char_length(\"feature_pilot_subjects\".\"reason\") BETWEEN 1 AND 500"
+        }
+      },
+      "isRLSEnabled": true
+    },
     "public.institute_applications": {
       "name": "institute_applications",
       "schema": "",
@@ -18215,6 +18291,69 @@
         "institute_search_grants_skill_pair_chk": {
           "name": "institute_search_grants_skill_pair_chk",
           "value": "(\"institute_search_grants\".\"skill_id\" IS NULL) = (\"institute_search_grants\".\"industry_id\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.display_prefs": {
+      "name": "display_prefs",
+      "schema": "",
+      "columns": {
+        "subject_kind": {
+          "name": "subject_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject_id": {
+          "name": "subject_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "theme": {
+          "name": "theme",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'light'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "display_prefs_pk": {
+          "name": "display_prefs_pk",
+          "columns": [
+            "subject_kind",
+            "subject_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "display_prefs_subject_kind_chk": {
+          "name": "display_prefs_subject_kind_chk",
+          "value": "\"display_prefs\".\"subject_kind\" IN ('worker', 'payer_user', 'admin')"
+        },
+        "display_prefs_theme_chk": {
+          "name": "display_prefs_theme_chk",
+          "value": "\"display_prefs\".\"theme\" IN ('light', 'dark', 'system')"
         }
       },
       "isRLSEnabled": true

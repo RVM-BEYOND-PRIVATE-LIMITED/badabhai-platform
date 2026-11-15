@@ -244,6 +244,10 @@ const LOCKED_TABLES = [
   "institute_applications",
   // 0163 (#2752): the companies Campus created (opaque payer ids) — the only ones it may post for.
   "institute_companies",
+  // 0164 (#2820): the pilot list for workers and admins (opaque worker / admin ids, no FK).
+  "feature_pilot_subjects",
+  // 0165 (#2819): one login's theme (opaque worker / payer login / admin ids, no FK).
+  "display_prefs",
   // 0167 (#2747 item 8): marks owed to RVM (ids, closed codes and dates; the body is built at send
   // time). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0167.
   "outbound_signals",

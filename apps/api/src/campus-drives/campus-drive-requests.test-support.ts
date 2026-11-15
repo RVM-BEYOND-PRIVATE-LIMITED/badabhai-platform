@@ -3,6 +3,7 @@ import { loadServerConfig, type ServerConfig } from "@badabhai/config";
 import type { CampusDriveRequestStatus, PayerStatus } from "@badabhai/db";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import type { FeaturePilotSubjectsRepository } from "../feature-rollout/feature-pilot-subjects.repository";
 import type { FeaturePilotRepository } from "../feature-rollout/feature-pilot.repository";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import type { TenantKey } from "../payers/payer-tenant-scope";
@@ -73,7 +74,9 @@ export function rolloutWith(
   const pilots = {
     isListed: async (_feature: string, tenant: TenantKey) => pilot.includes(tenant),
   } as unknown as FeaturePilotRepository;
-  return new FeatureRolloutService(config, pilots);
+  // A company feature never reaches the worker / admin list.
+  const subjects = { isListed: async () => false } as unknown as FeaturePilotSubjectsRepository;
+  return new FeatureRolloutService(config, pilots, subjects);
 }
 
 const micros = (d: Date) => `${d.toISOString().slice(0, 23)}000Z`;
@@ -170,6 +173,21 @@ export class MemoryDriveRequests {
     return { ...facts, status: facts.status === undefined ? "active" : facts.status };
   }
 
+  /** #2768: what the create path did, in order (`lock:<tenant>`, `count:<tenant>`). */
+  readonly createSteps: string[] = [];
+
+  /** The real lock serialises; one in-memory caller at a time needs only the record. */
+  async lockCreates(_tx: unknown, tenant: TenantKey): Promise<void> {
+    this.createSteps.push(`lock:${tenant}`);
+  }
+
+  async countOpen(_tx: unknown, tenant: TenantKey): Promise<number> {
+    this.createSteps.push(`count:${tenant}`);
+    return this.rows.filter(
+      (r) => r.payerId === tenant && (r.status === "requested" || r.status === "scheduled"),
+    ).length;
+  }
+
   async isOwnPosting(tenant: TenantKey, postingId: string, _tx?: unknown): Promise<boolean> {
     return this.postings.get(postingId) === tenant;
   }
@@ -204,7 +222,7 @@ export class MemoryDriveRequests {
     return { ...created };
   }
 
-  async findByIdempotencyKey(tenant: TenantKey, key: string) {
+  async findByIdempotencyKey(tenant: TenantKey, key: string, _tx?: unknown) {
     const row = this.rows.find((r) => r.payerId === tenant && r.idempotencyKey === key);
     return row && { ...row };
   }

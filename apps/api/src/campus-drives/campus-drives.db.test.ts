@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { sql } from "drizzle-orm";
+import { loadServerConfig } from "@badabhai/config";
 import { createDbClient, type Database, type DbClient } from "@badabhai/db";
 import { AdminActionsRepository } from "../admin/admin-actions.repository";
 import { AdminCompaniesRepository } from "../admin/companies/admin-companies.repository";
@@ -109,6 +110,8 @@ const TEAM_MEMBER = uuid(0x2746d0018);
 const TEAM_ORG = uuid(0x2746d0019);
 /** A verified employer archived while one of its logins tries to make a request (I-3). */
 const ARCHIVED_CO = uuid(0x2746d001a);
+/** A verified employer for the cap's tests (#2768); each starts it with no request. */
+const CAPPED = uuid(0x2746d001b);
 const COMPANY_POSTING = uuid(0x2746d0020);
 const OTHER_POSTING = uuid(0x2746d0021);
 const STAFF = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
@@ -126,6 +129,7 @@ const COMPANIES = [
   TEAM_ROOT,
   TEAM_MEMBER,
   ARCHIVED_CO,
+  CAPPED,
 ];
 
 /** Synthetic contact: no real person or number. */
@@ -140,6 +144,8 @@ const PREFERRED_TO = addDays(TODAY, 44);
 const DRIVE_DAY = addDays(TODAY, 34);
 
 const ON = { CAMPUS_DRIVE_REQUESTS_ROLLOUT: "on" };
+/** #2768: the cap, out of the way of the tests that are not about it. */
+const ROOMY_CAP = { CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "1000" };
 const pii = testPii();
 
 describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
@@ -147,12 +153,17 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
   let raceClient!: DbClient;
   let events!: EventsService;
 
-  /** The company side over `repo` (and `db` for its other reads), with the switch at `settings`. */
+  /**
+   * The company side over `repo` (and `db` for its other reads), with the switch at `settings`.
+   * `config` is the other server settings: the suite's companies hold many requests, so the cap
+   * (#2768) is roomy unless a test asks for another (`{}` is the real default, 3).
+   */
   function companyOver(
     repo: CampusDriveRequestsRepository,
     db: DbClient["db"],
     settings: Record<string, string> = ON,
     pilot: string[] = [],
+    config: Record<string, string> = ROOMY_CAP,
   ) {
     return new CampusDriveRequestsService(
       repo,
@@ -162,6 +173,7 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
       memoryIdempotency(pii).seam,
       pii,
       new EventsService(new EventsRepository(db), { NODE_ENV: "test" } as never),
+      loadServerConfig({ NODE_ENV: "test", ...config }),
     );
   }
 
@@ -356,7 +368,10 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     });
   }, 30_000);
 
-  it("two creates with one key racing: B's insert waits on A's key, then ON CONFLICT returns no row and B answers A's request", async () => {
+  it("the second guard, with the create lock bypassed: two creates with one key racing, B's insert waits on A's key, then ON CONFLICT returns no row and B answers A's request", async () => {
+    // #2768's create lock now serialises these two before either inserts (the cap tests below
+    // race through it). This test takes the lock out of B's path on purpose, to keep proving the
+    // LASTING guard under it: the unique (payer_id, idempotency_key) and ON CONFLICT DO NOTHING.
     const before = (await eventsNamed("campus_drive.requested")).length;
     const inserts: { who: "A" | "B"; row: DriveRequestRow | undefined }[] = [];
 
@@ -383,6 +398,8 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
       inserts.push({ who: "B", row });
       return row;
     };
+    // B skips the create lock (see above), so it reaches its insert while A still holds the key.
+    repoB.lockCreates = async () => undefined;
 
     const creatingA = companyOver(repoA, client.db).create(
       COMPANY,
@@ -1077,6 +1094,184 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
 
   // ── DPDP erasure ────────────────────────────────────────────────────────────
 
+  // ── The cap (#2768, risk R85; owner ruling 15 Nov 2026) ─────────────────────
+
+  /** CAPPED with no request, so each cap test starts from zero open. */
+  async function emptyCapped(): Promise<void> {
+    await client.sql`DELETE FROM campus_drive_requests WHERE payer_id = ${CAPPED}::uuid`;
+  }
+
+  /** A repository whose insert parks inside its transaction (the create lock held) until released. */
+  function parkedAfterInsert(db: DbClient["db"]) {
+    const repo = new CampusDriveRequestsRepository(db);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let inserted!: () => void;
+    const holding = new Promise<void>((r) => (inserted = r));
+    const parked = { pid: 0 };
+    const insert = repo.insert.bind(repo);
+    repo.insert = async (tx, row) => {
+      const made = await insert(tx, row);
+      parked.pid = await backendPid(tx);
+      inserted();
+      await gate;
+      return made;
+    };
+    return { repo, release, holding, parked };
+  }
+
+  const LIMIT_ONE = { CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "1" };
+  const capRefusal = (err: unknown) => (err as ConflictException).getResponse();
+
+  it("the cap in SQL: 3 open by default; a scheduled request holds its place, a cancel or a decline frees one", async () => {
+    await emptyCapped();
+    const svc = companyOver(new CampusDriveRequestsRepository(client.db), client.db, ON, [], {});
+    const made: { id: string }[] = [];
+    for (let i = 1; i <= 3; i += 1) {
+      made.push(await svc.create(CAPPED, body({ openings: 60 + i }), `t2746d-cap-000${i}`, CTX));
+    }
+    await campus().decide(made[0]!.id, decision(), CALL);
+
+    const full = await caught(() =>
+      svc.create(CAPPED, body({ openings: 64 }), "t2746d-cap-0004", CTX),
+    );
+    expect(full).toBeInstanceOf(ConflictException);
+    expect(capRefusal(full)).toMatchObject({
+      reason: "drive_request_limit_reached",
+      limit: 3,
+      open: 3,
+    });
+    expect(await stored({ payerId: CAPPED })).toHaveLength(3);
+
+    // The company cancels one, the placement team declines another: two places.
+    await svc.cancel(CAPPED, made[1]!.id, CTX);
+    await campus().decide(
+      made[2]!.id,
+      CampusDriveDecisionBodySchema.parse({
+        decision: "declined",
+        decided_by_ref: STAFF,
+        decided_at: new Date(Date.now() - 60_000).toISOString(),
+      }),
+      CALL,
+    );
+    await svc.create(CAPPED, body({ openings: 65 }), "t2746d-cap-0005", CTX);
+    await svc.create(CAPPED, body({ openings: 66 }), "t2746d-cap-0006", CTX);
+    const again = await caught(() =>
+      svc.create(CAPPED, body({ openings: 67 }), "t2746d-cap-0007", CTX),
+    );
+    expect(capRefusal(again)).toMatchObject({ reason: "drive_request_limit_reached", open: 3 });
+    const statuses = (await stored({ payerId: CAPPED })).map((r) => r.status).sort();
+    expect(statuses).toEqual(["cancelled", "declined", "requested", "requested", "scheduled"]);
+  }, 30_000);
+
+  it("two creates at the cap's edge on two connections: B waits on A's create lock, then counts A's row and is refused", async () => {
+    await emptyCapped();
+    const a = parkedAfterInsert(client.db);
+    const creatingA = companyOver(a.repo, client.db, ON, [], LIMIT_ONE).create(
+      CAPPED,
+      body({ openings: 71 }),
+      "t2746d-cap-0011",
+      CTX,
+    );
+    let creatingB: Promise<unknown> | undefined;
+    try {
+      await a.holding;
+      creatingB = companyOver(
+        new CampusDriveRequestsRepository(raceClient.db),
+        raceClient.db,
+        ON,
+        [],
+        LIMIT_ONE,
+      ).create(CAPPED, body({ openings: 72 }), "t2746d-cap-0012", CTX);
+      // B is blocked by A's backend on the create lock. Without it, B would count 0 (A's row is
+      // not committed yet) and insert a second open request.
+      await waitForLockWaiter(a.parked.pid, "%pg_advisory_xact_lock%");
+      a.release();
+      const [ra, rb] = await Promise.allSettled([creatingA, creatingB]);
+      expect(ra.status).toBe("fulfilled");
+      expect(rb.status).toBe("rejected");
+      expect(capRefusal((rb as PromiseRejectedResult).reason)).toMatchObject({
+        reason: "drive_request_limit_reached",
+        limit: 1,
+        open: 1,
+      });
+      expect(await stored({ payerId: CAPPED })).toHaveLength(1);
+    } finally {
+      a.release();
+      await Promise.allSettled([creatingA, creatingB ?? Promise.resolve()]);
+    }
+  }, 30_000);
+
+  it("the same key at the cap on two connections: B waits on A's create lock, then answers A's request, never the cap's 409", async () => {
+    await emptyCapped();
+    const before = (await eventsNamed("campus_drive.requested")).length;
+    const a = parkedAfterInsert(client.db);
+    const creatingA = companyOver(a.repo, client.db, ON, [], LIMIT_ONE).create(
+      CAPPED,
+      body({ openings: 73 }),
+      "t2746d-cap-0013",
+      CTX,
+    );
+    let creatingB: Promise<{ id: string }> | undefined;
+    try {
+      await a.holding;
+      const repoB = new CampusDriveRequestsRepository(raceClient.db);
+      let insertedB = false;
+      const insertB = repoB.insert.bind(repoB);
+      repoB.insert = async (...args) => {
+        insertedB = true;
+        return insertB(...args);
+      };
+      creatingB = companyOver(repoB, raceClient.db, ON, [], LIMIT_ONE).create(
+        CAPPED,
+        body({ openings: 73 }),
+        "t2746d-cap-0013",
+        CTX,
+      );
+      await waitForLockWaiter(a.parked.pid, "%pg_advisory_xact_lock%");
+      a.release();
+      const [ra, rb] = await Promise.allSettled([creatingA, creatingB]);
+      expect(ra.status).toBe("fulfilled");
+      expect(rb.status).toBe("fulfilled");
+      const idA = (ra as PromiseFulfilledResult<{ id: string }>).value.id;
+      expect((rb as PromiseFulfilledResult<{ id: string }>).value.id).toBe(idA);
+      // B found A's row on its own transaction after the lock: it never reached its insert.
+      expect(insertedB).toBe(false);
+      expect(await stored({ payerId: CAPPED })).toHaveLength(1);
+      expect(await eventsNamed("campus_drive.requested")).toHaveLength(before + 1);
+    } finally {
+      a.release();
+      await Promise.allSettled([creatingA, creatingB ?? Promise.resolve()]);
+    }
+  }, 30_000);
+
+  it("the create lock is the company's own: another company's create does not wait on it", async () => {
+    await emptyCapped();
+    const a = parkedAfterInsert(client.db);
+    const creatingA = companyOver(a.repo, client.db, ON, [], LIMIT_ONE).create(
+      CAPPED,
+      body({ openings: 74 }),
+      "t2746d-cap-0014",
+      CTX,
+    );
+    try {
+      await a.holding;
+      // OTHER's create runs to its commit while CAPPED's transaction is still parked.
+      await expect(
+        companyOver(new CampusDriveRequestsRepository(raceClient.db), raceClient.db).create(
+          OTHER,
+          body({ openings: 74 }),
+          "t2746d-cap-0014",
+          CTX,
+        ),
+      ).resolves.toMatchObject({ status: "requested" });
+    } finally {
+      a.release();
+      await creatingA.catch(() => undefined);
+    }
+    await client.sql`DELETE FROM campus_drive_requests WHERE idempotency_key = 't2746d-cap-0014'`;
+  }, 30_000);
+
   it("cdr_contact_chk refuses a half-erasure: the contact is both ciphertexts or neither, dated", async () => {
     const made = await company().create(COMPANY, body({ openings: 31 }), "t2746d-key-0031", CTX);
     const err = await caught(
@@ -1203,6 +1398,7 @@ async function seed(client: DbClient): Promise<void> {
   await payer(TEAM_ROOT, "employer", "Team Works t2746d");
   await payer(ARCHIVED_CO, "employer", "Archived Works t2746d");
   await payer(TEAM_MEMBER, "employer", "Team Member Login t2746d");
+  await payer(CAPPED, "employer", "Capped Works t2746d");
   await sql`
     INSERT INTO payer_orgs (id, root_payer_id, name_enc, status)
     VALUES (${TEAM_ORG}::uuid, ${TEAM_ROOT}::uuid, ${pii.encrypt("Team Works t2746d")}, 'active')`;
@@ -1210,7 +1406,7 @@ async function seed(client: DbClient): Promise<void> {
     INSERT INTO payer_members (org_id, member_payer_id, org_role, status)
     VALUES (${TEAM_ORG}::uuid, ${TEAM_ROOT}::uuid, 'owner', 'active'),
            (${TEAM_ORG}::uuid, ${TEAM_MEMBER}::uuid, 'recruiter', 'active')`;
-  for (const id of [COMPANY, OTHER, WITHDRAWN, ARCHIVED_CO]) {
+  for (const id of [COMPANY, OTHER, WITHDRAWN, ARCHIVED_CO, CAPPED]) {
     await sql`
       INSERT INTO employer_profiles (payer_id, verification_status, gst_number_enc)
       VALUES (${id}::uuid, 'verified', ${pii.encrypt("27ABCDE1234F1Z5")})`;

@@ -62,8 +62,11 @@ const walk = (dir: string): string[] =>
 
 // ── the API side ────────────────────────────────────────────────────────────────────────────
 
-/** GET routes that are authenticated but deliberately carry no capability (the session itself). */
-const SESSION_ONLY_ROUTES = ["admin/me"];
+/**
+ * GET routes that are authenticated but deliberately carry no capability: the session itself, and
+ * the signed-in admin's own theme (#2819), which every admin reads whatever their role.
+ */
+const SESSION_ONLY_ROUTES = ["admin/me", "admin/me/display-prefs"];
 
 interface ApiRoute {
   segments: string[];

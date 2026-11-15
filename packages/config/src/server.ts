@@ -673,6 +673,10 @@ export const serverEnvSchema = z.object({
   //     14-day lapse, never charged twice), GET /payer/unlocks/:id/contact shows the full name and
   //     phone, and the résumé prints the full name. Off, the route answers 404 and the 14-day
   //     window applies; a contact opened while it was on stays open.
+  //   THEME_ROLLOUT (#2820) — who may use a theme other than the app's default (Light), for
+  //     every kind of login: a company by its tenant key in `feature_pilot_payers`, a worker or
+  //     an admin by id in `feature_pilot_subjects` (migration 0164). Closed, the display
+  //     preference answers `light` and saves nothing; a stored choice is kept, not honoured.
   //   OUTCOME_STAGES_ROLLOUT (#2747) — a company marks an applicant `selected` or `hired` on the
   //     board. Off, the stage route refuses both with the 400 it has always given an unknown
   //     stage; a stored one is still read back. Needs migration 0166 applied first.
@@ -688,6 +692,13 @@ export const serverEnvSchema = z.object({
   CAMPUS_DRIVE_REQUESTS_ROLLOUT: featureRolloutMode,
   APPLICANT_FACTS_ROLLOUT: featureRolloutMode,
   CONTACT_RULES_ROLLOUT: featureRolloutMode,
+  // #2768 (risk R85) — how many OPEN campus-drive requests (`requested` or `scheduled`) one
+  // company may hold at once. A new request above it is 409 `drive_request_limit_reached`;
+  // cancelled, declined and completed requests do not count. Owner ruling 15 Nov 2026: 3. Each
+  // request already covers up to 50 branches, so 3 is three separate asks waiting on the
+  // placement team. Empty reads as the default. Counted per tenant (the org under tenancy `on`).
+  CAMPUS_DRIVE_MAX_OPEN_REQUESTS: positiveIntFromString(3),
+  THEME_ROLLOUT: featureRolloutMode,
   OUTCOME_STAGES_ROLLOUT: featureRolloutMode,
   OUTBOUND_SIGNALS_ROLLOUT: featureRolloutMode,
 

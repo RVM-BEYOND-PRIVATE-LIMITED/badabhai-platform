@@ -1513,6 +1513,65 @@ export function isApplicantOutcomeStage(value: unknown): value is ApplicantOutco
   );
 }
 
+// ---- Display preferences: the theme (#2819, migration 0165) ----
+//
+// HERE FOR THE SAME REASON AS THE SKINS ABOVE: `packages/db` spells both sets into CHECK
+// constraints on `display_prefs`, `packages/event-schema` puts them on the spine
+// (`display_prefs.changed`), `packages/validators` parses the route bodies and replies with them,
+// and the apps (worker app, payer app, payer-web, admin-web) build their models from them. Declared
+// once so none of them can drift.
+
+/**
+ * The theme a login may choose. `system` follows the phone's or the browser's setting, live.
+ * A new value is a migration widening `display_prefs_theme_chk` AND a new `display_prefs.changed`
+ * version, because the event's enums are frozen once shipped.
+ */
+export const DISPLAY_THEMES = Object.freeze(["light", "dark", "system"] as const);
+export type DisplayTheme = (typeof DISPLAY_THEMES)[number];
+
+/**
+ * The theme of a login with no stored row, and the theme every route answers while the
+ * `THEME_ROLLOUT` switch is closed for that login: what every app shows today.
+ */
+export const DEFAULT_DISPLAY_THEME: DisplayTheme = "light";
+
+export function isDisplayTheme(value: unknown): value is DisplayTheme {
+  return typeof value === "string" && (DISPLAY_THEMES as readonly string[]).includes(value);
+}
+
+/**
+ * Whose preference a `display_prefs` row is: a worker (`workers.id`), a company or agency LOGIN
+ * (`payers.id` — the person, never the tenant, so two teammates keep two themes) or an admin
+ * (`admin_users.id`). Always the id the realm's auth guard attached, never one from a body.
+ */
+export const DISPLAY_PREFS_SUBJECT_KINDS = Object.freeze([
+  "worker",
+  "payer_user",
+  "admin",
+] as const);
+export type DisplayPrefsSubjectKind = (typeof DISPLAY_PREFS_SUBJECT_KINDS)[number];
+
+/**
+ * The body of `PATCH workers/me/display-prefs`, `PATCH payer/me/display-prefs` and
+ * `PATCH admin/me/display-prefs`. Exactly this key (`updateDisplayPrefsSchema` is strict): an id,
+ * or anything else, is a 400.
+ */
+export interface UpdateDisplayPrefsRequest {
+  readonly theme: DisplayTheme;
+}
+
+/**
+ * The reply of all six routes (`GET` and `PATCH`, in the three realms).
+ *
+ * `theme_open: false` means the `THEME_ROLLOUT` switch is closed for this login (or the server
+ * cannot read preferences yet): show no theme choice and use light. `theme` is then always
+ * `light`, whatever is stored; a stored choice waits for the switch to open again.
+ */
+export interface DisplayPrefsResponse {
+  readonly theme: DisplayTheme;
+  readonly theme_open: boolean;
+}
+
 // ---- Résumé import (ADR-0041) ----
 //
 // THESE LIVE HERE RATHER THAN IN THE SCHEMA because two packages that cannot import each other

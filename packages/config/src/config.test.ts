@@ -945,6 +945,19 @@ describe("loadServerConfig", () => {
       ).toBe(600);
       expect(() => loadServerConfig({ CAMPUS_SERVICE_MAX_PER_MINUTE: "0" })).toThrow();
     });
+
+    it("CAMPUS_DRIVE_MAX_OPEN_REQUESTS defaults to 3 (owner ruling, #2768), also for the empty string", () => {
+      expect(loadServerConfig({}).CAMPUS_DRIVE_MAX_OPEN_REQUESTS).toBe(3);
+      expect(
+        loadServerConfig({ CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "" }).CAMPUS_DRIVE_MAX_OPEN_REQUESTS,
+      ).toBe(3);
+      expect(
+        loadServerConfig({ CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "5" }).CAMPUS_DRIVE_MAX_OPEN_REQUESTS,
+      ).toBe(5);
+      // Zero would refuse every request: switching the feature off is the rollout switch's job.
+      expect(() => loadServerConfig({ CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "0" })).toThrow();
+      expect(() => loadServerConfig({ CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "-1" })).toThrow();
+    });
   });
 
   it("PAYER_APPLICANT_STAGE_MAX_PER_HOUR defaults to 600 and refuses a non-positive cap", () => {
@@ -1081,8 +1094,8 @@ describe("loadServerConfig", () => {
     }
   });
 
-  it.each(["JOB_AUDIENCE_ROLLOUT", "CAMPUS_DRIVE_REQUESTS_ROLLOUT"] as const)(
-    "%s (#2746) is 'off' when unset, empty or blank, and refuses anything but off/pilot/on",
+  it.each(["JOB_AUDIENCE_ROLLOUT", "CAMPUS_DRIVE_REQUESTS_ROLLOUT", "THEME_ROLLOUT"] as const)(
+    "%s (#2746, #2820) is 'off' when unset, empty or blank, and refuses anything but off/pilot/on",
     (name) => {
       const mode = (value?: string) =>
         loadServerConfig(value === undefined ? {} : { [name]: value })[name];
