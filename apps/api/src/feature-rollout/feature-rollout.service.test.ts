@@ -14,7 +14,7 @@ import type { FeaturePilotRepository } from "./feature-pilot.repository";
 import { FEATURE_ROLLOUT_CONFIG, FEATURE_ROLLOUT_KEYS } from "./feature-rollout.keys";
 import { FeatureRolloutService } from "./feature-rollout.service";
 import * as callerModule from "./rollout-caller";
-import { rolloutCaller, type RolloutCaller } from "./rollout-caller";
+import { isSealedRolloutCaller, rolloutCaller, type RolloutCaller } from "./rollout-caller";
 
 // A test may build a key from a literal: the brand guards production call sites, not fixtures.
 const TENANT = "11111111-1111-4111-8111-111111111111" as TenantKey;
@@ -135,6 +135,9 @@ function missingTable(table: string): Error {
   const pg = Object.assign(new Error(`relation "${table}" does not exist`), { code: "42P01" });
   return Object.assign(new Error(`Failed query: select "feature" from "${table}"`), { cause: pg });
 }
+
+const UNSEALED =
+  "feature rollout: no sealed caller (feature=theme caller=unsealed); treated as off";
 
 describe("isThemeOpenFor — THEME_ROLLOUT, for every kind of login (#2820)", () => {
   afterEach(() => vi.restoreAllMocks());
@@ -305,6 +308,7 @@ describe("isThemeOpenFor — THEME_ROLLOUT, for every kind of login (#2820)", ()
   });
 
   it("a caller of no known kind (only a cast can make one) is closed and reads nothing", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const { service, pilots, subjects } = serviceWith(
       { THEME_ROLLOUT: "pilot" },
       async () => true,
@@ -314,7 +318,56 @@ describe("isThemeOpenFor — THEME_ROLLOUT, for every kind of login (#2820)", ()
     await expect(service.isThemeOpenFor(forged)).resolves.toBe(false);
     expect(pilots.isListed).not.toHaveBeenCalled();
     expect(subjects.isListed).not.toHaveBeenCalled();
+    expect(warn.mock.calls.map((call) => String(call[0]))).toEqual([UNSEALED]);
   });
+
+  it("a SPREAD copy of a real caller (no cast needed) is closed under pilot and on, and reads nothing", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    // Both compile: a spread copies the compile-time seal. Only the run-time record stops them.
+    const relabelled: RolloutCaller = {
+      ...rolloutCaller.admin(ADMIN),
+      kind: "worker",
+      workerId: WORKER.id,
+    };
+    const narrowed = rolloutCaller.admin(ADMIN);
+    const retargeted: RolloutCaller =
+      narrowed.kind === "admin"
+        ? { ...narrowed, adminId: "99999999-9999-4999-8999-999999999999" }
+        : narrowed;
+    for (const mode of ["pilot", "on"]) {
+      const { service, pilots, subjects } = serviceWith(
+        { THEME_ROLLOUT: mode },
+        async () => true,
+        async () => true,
+      );
+      for (const copy of [relabelled, retargeted]) {
+        await expect(service.isThemeOpenFor(copy), mode).resolves.toBe(false);
+      }
+      expect(pilots.isListed).not.toHaveBeenCalled();
+      expect(subjects.isListed).not.toHaveBeenCalled();
+      // The real caller it was copied from still answers.
+      await expect(service.isThemeOpenFor(narrowed), mode).resolves.toBe(true);
+    }
+    expect(warn.mock.calls.map((call) => String(call[0]))).toEqual([
+      UNSEALED,
+      UNSEALED,
+      UNSEALED,
+      UNSEALED,
+    ]);
+  });
+
+  it.each([null, undefined, "worker", 42, true])(
+    "never throws, so a route cannot 500: a %s caller answers false (switch on)",
+    async (value) => {
+      vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      const { service } = serviceWith(
+        { THEME_ROLLOUT: "on" },
+        async () => true,
+        async () => true,
+      );
+      await expect(service.isThemeOpenFor(value as unknown as RolloutCaller)).resolves.toBe(false);
+    },
+  );
 });
 
 describe("a RolloutCaller is built only from what an auth guard attached (#2820)", () => {
@@ -324,8 +377,32 @@ describe("a RolloutCaller is built only from what an auth guard attached (#2820)
     expect(await payerCaller(MEMBER, "on")).toMatchObject({ kind: "payer", tenantKey: COMPANY });
   });
 
-  it("the seal is module-private: the builders are the module's only export", () => {
-    expect(Object.keys(callerModule)).toEqual(["rolloutCaller"]);
+  it("the seal is module-private: the builders and the read-only check are the only exports", () => {
+    expect(Object.keys(callerModule).sort()).toEqual(["isSealedRolloutCaller", "rolloutCaller"]);
+    expect(Object.isFrozen(rolloutCaller)).toBe(true);
+  });
+
+  it("a built caller is frozen: it cannot be relabelled or retargeted in place", () => {
+    const caller = rolloutCaller.worker(WORKER);
+    expect(Object.isFrozen(caller)).toBe(true);
+    const writable = caller as unknown as { kind: string; workerId: string };
+    expect(() => {
+      writable.workerId = "99999999-9999-4999-8999-999999999999";
+    }).toThrow(TypeError);
+    expect(() => {
+      writable.kind = "admin";
+    }).toThrow(TypeError);
+    expect(caller).toMatchObject({ kind: "worker", workerId: WORKER.id });
+  });
+
+  it("the check reads the record and adds nothing: only what a builder made passes", () => {
+    const real = rolloutCaller.admin(ADMIN);
+    expect(isSealedRolloutCaller(real)).toBe(true);
+    expect(isSealedRolloutCaller({ ...real })).toBe(false);
+    expect(isSealedRolloutCaller(Object.freeze({ ...real }))).toBe(false);
+    for (const value of [null, undefined, "admin", 0, {}]) {
+      expect(isSealedRolloutCaller(value), String(value)).toBe(false);
+    }
   });
 
   it("a hand-written caller does not compile (typecheck runs over this file)", () => {
@@ -419,6 +496,13 @@ describe("the rollout switches and the pilot list have ONE reader each", () => {
       "feature-rollout/feature-pilot-subjects.repository.ts",
       "feature-rollout/feature-rollout.module.ts",
       "feature-rollout/feature-rollout.service.ts",
+    ]);
+  });
+
+  it("isSealedRolloutCaller has one caller, the service", () => {
+    expect(filesNaming("isSealedRolloutCaller")).toEqual([
+      "feature-rollout/feature-rollout.service.ts",
+      "feature-rollout/rollout-caller.ts",
     ]);
   });
 

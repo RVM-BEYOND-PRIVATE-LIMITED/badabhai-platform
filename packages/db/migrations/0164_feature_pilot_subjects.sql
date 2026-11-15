@@ -23,9 +23,11 @@
 -- sqlstate and ids only): piloted workers and admins see the default theme, companies are
 -- unaffected, and nothing returns 500. Order:
 --   1. Merge. The deploy is safe on a database without this table.
---   2. LEDGER PRE-CHECK: `npx tsx adopt-migrations.ts` verify-only, no --only. Adopting 0164
---      moves the watermark past every lower unrecorded entry, which `db:migrate` then skips
---      forever; confirm everything up to 0163 is live first.
+--   2. LEDGER PRE-CHECK: adopt 0161, 0162 and 0163 FIRST. Their objects are live in production
+--      but their ledger rows are still pending (#2752's adoption step). Run
+--      `npx tsx adopt-migrations.ts` verify-only, no --only, and adopt each of them (and anything
+--      else it reports unrecorded below 0164) before this one. Adopting 0164 moves the watermark
+--      past every lower unrecorded entry, which `db:migrate` then skips forever.
 --   3. Apply this file by hand in one transaction (it takes no lock on a live table: no FK).
 --   4. Adopt the ledger row from main's tree: `npx tsx adopt-migrations.ts --only
 --      0164_feature_pilot_subjects --apply --expect-host <HOST>`, then

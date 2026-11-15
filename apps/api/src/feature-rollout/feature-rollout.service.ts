@@ -6,7 +6,7 @@ import type { TenantKey } from "../payers/payer-tenant-scope";
 import { FeaturePilotSubjectsRepository } from "./feature-pilot-subjects.repository";
 import { FeaturePilotRepository } from "./feature-pilot.repository";
 import { FEATURE_ROLLOUT_CONFIG, type FeatureRolloutKey } from "./feature-rollout.keys";
-import type { RolloutCaller } from "./rollout-caller";
+import { isSealedRolloutCaller, type RolloutCaller } from "./rollout-caller";
 
 /**
  * THE rollout question (#2746 item 1): is a feature on, and is it on for this company? And, for
@@ -52,10 +52,17 @@ export class FeatureRolloutService {
    * #2820 — may this login use a theme other than the app's default? THE theme question for every
    * app; the switch is `THEME_ROLLOUT`. `off` no, `on` yes (neither reads a list), `pilot` only
    * when listed: a company in `feature_pilot_payers` by its tenant key, a worker or an admin in
-   * `feature_pilot_subjects` by its id. NEVER THROWS: a failed read, a missing table (42P01)
-   * included, answers false.
+   * `feature_pilot_subjects` by its id. NEVER THROWS, so a route asking it cannot 500: a failed
+   * read, a missing table (42P01) included, answers false, and so does a caller `rolloutCaller` did
+   * not build (`null`, a non-object, a hand-made or a spread copy), whatever the switch says.
    */
-  isThemeOpenFor(caller: RolloutCaller): Promise<boolean> {
+  async isThemeOpenFor(caller: RolloutCaller): Promise<boolean> {
+    if (!isSealedRolloutCaller(caller)) {
+      this.logger.warn(
+        "feature rollout: no sealed caller (feature=theme caller=unsealed); treated as off",
+      );
+      return false;
+    }
     return this.isEnabledForCaller("theme", caller);
   }
 
@@ -84,7 +91,7 @@ export class FeatureRolloutService {
           this.subjects.isListed(feature, "admin", caller.adminId),
         );
       default:
-        // Unreachable while the union is sealed; a caller of no known kind is nobody's pilot.
+        // Unreachable behind the seal check; a caller of no known kind is nobody's pilot.
         return Promise.resolve(false);
     }
   }

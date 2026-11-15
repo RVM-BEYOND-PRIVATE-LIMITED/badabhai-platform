@@ -42,6 +42,16 @@ const DATABASE_URL =
   process.env.DATABASE_URL ??
   "postgresql://badabhai:badabhai@localhost:5432/badabhai";
 
+/** This suite drops a table (in a rolled-back transaction) and writes fixtures: local only. */
+function assertLocalDatabase(url: string): void {
+  const host = new URL(url).hostname;
+  if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(host)) {
+    throw new Error(
+      `theme-rollout.db runs DDL and writes fixtures; refusing non-local host ${host}`,
+    );
+  }
+}
+
 function uuid(n: number): string {
   return `00000000-0000-4000-8000-${n.toString(16).padStart(12, "0")}`;
 }
@@ -89,6 +99,7 @@ describe.skipIf(!RUN)("#2820 — THEME_ROLLOUT and its pilot lists (Postgres)", 
   }
 
   beforeAll(async () => {
+    assertLocalDatabase(DATABASE_URL);
     client = createDbClient(DATABASE_URL, { max: 2 });
     await cleanup();
     await client.sql`

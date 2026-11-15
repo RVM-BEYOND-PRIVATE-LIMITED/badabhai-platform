@@ -139,6 +139,8 @@ describe("the operator instructions, the manifest and the slot", () => {
     expect(RAW).toContain("42P01");
     expect(RAW).toContain("fails closed");
     expect(RAW).toContain("LEDGER PRE-CHECK");
+    // 0161-0163 are live in production with their ledger rows pending: they are adopted first.
+    expect(RAW).toContain("adopt 0161, 0162 and 0163 FIRST");
   });
 
   it("gives the rollback, with this migration's own ledger row", () => {
