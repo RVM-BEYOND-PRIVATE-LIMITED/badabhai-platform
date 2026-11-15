@@ -1081,8 +1081,8 @@ describe("loadServerConfig", () => {
     }
   });
 
-  it.each(["JOB_AUDIENCE_ROLLOUT", "CAMPUS_DRIVE_REQUESTS_ROLLOUT"] as const)(
-    "%s (#2746) is 'off' when unset, empty or blank, and refuses anything but off/pilot/on",
+  it.each(["JOB_AUDIENCE_ROLLOUT", "CAMPUS_DRIVE_REQUESTS_ROLLOUT", "THEME_ROLLOUT"] as const)(
+    "%s (#2746, #2820) is 'off' when unset, empty or blank, and refuses anything but off/pilot/on",
     (name) => {
       const mode = (value?: string) =>
         loadServerConfig(value === undefined ? {} : { [name]: value })[name];

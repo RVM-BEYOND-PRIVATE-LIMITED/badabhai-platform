@@ -666,12 +666,17 @@ export const serverEnvSchema = z.object({
   //   JOB_AUDIENCE_ROLLOUT — who-sees-this-job (BadaBhai workers / RVM students / both),
   //     branch and course targeting, and the placement team's review of RVM jobs.
   //   CAMPUS_DRIVE_REQUESTS_ROLLOUT — a company asks RVM for a campus drive.
+  //   THEME_ROLLOUT (#2820) — who may use a theme other than the app's default (Light), for
+  //     every kind of login: a company by its tenant key in `feature_pilot_payers`, a worker or
+  //     an admin by id in `feature_pilot_subjects` (migration 0164). Closed, the display
+  //     preference answers `light` and saves nothing; a stored choice is kept, not honoured.
   // Off, the new payer fields are ignored and the new routes answer 404. Campus's own routes
   // additionally need CAMPUS_LINK_ENABLED. A switch gates CAPABILITIES only: stored state (the
   // worker-path audience filter, the RVM review gate) is honoured whatever it says, so switching
   // back to off can never expose an RVM-only job to BadaBhai workers.
   JOB_AUDIENCE_ROLLOUT: featureRolloutMode,
   CAMPUS_DRIVE_REQUESTS_ROLLOUT: featureRolloutMode,
+  THEME_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER

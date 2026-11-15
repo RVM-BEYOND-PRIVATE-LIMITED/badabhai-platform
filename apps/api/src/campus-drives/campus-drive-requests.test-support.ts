@@ -3,6 +3,7 @@ import { loadServerConfig, type ServerConfig } from "@badabhai/config";
 import type { CampusDriveRequestStatus, PayerStatus } from "@badabhai/db";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import type { FeaturePilotSubjectsRepository } from "../feature-rollout/feature-pilot-subjects.repository";
 import type { FeaturePilotRepository } from "../feature-rollout/feature-pilot.repository";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import type { TenantKey } from "../payers/payer-tenant-scope";
@@ -73,7 +74,9 @@ export function rolloutWith(
   const pilots = {
     isListed: async (_feature: string, tenant: TenantKey) => pilot.includes(tenant),
   } as unknown as FeaturePilotRepository;
-  return new FeatureRolloutService(config, pilots);
+  // A company feature never reaches the worker / admin list.
+  const subjects = { isListed: async () => false } as unknown as FeaturePilotSubjectsRepository;
+  return new FeatureRolloutService(config, pilots, subjects);
 }
 
 const micros = (d: Date) => `${d.toISOString().slice(0, 23)}000Z`;

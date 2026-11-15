@@ -334,6 +334,12 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CAMPUS_DRIVE_REQUESTS_ROLLOUT:\s*\$\{\{\s*secrets\.CAMPUS_DRIVE_REQUESTS_ROLLOUT\s*\}\}/,
       /envs:[^\n]*\bCAMPUS_DRIVE_REQUESTS_ROLLOUT\b/,
     ],
+    // #2820 — the theme switch: the same grammar and the same arming path.
+    [
+      "THEME_ROLLOUT",
+      /THEME_ROLLOUT:\s*\$\{\{\s*secrets\.THEME_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bTHEME_ROLLOUT\b/,
+    ],
     // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
     // secret in the confidentiality sense, but bridged through `secrets.*` like the other
     // numbers so a deploy does not depend on the box's shell state; absent, compose holds
@@ -434,6 +440,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     // are honoured whatever the switch says (a switch gates capabilities, never restrictions).
     ["JOB_AUDIENCE_ROLLOUT", "off"],
     ["CAMPUS_DRIVE_REQUESTS_ROLLOUT", "off"],
+    // #2820 — off is today's apps: every display preference answers `light` and nothing is saved.
+    ["THEME_ROLLOUT", "off"],
     // #2509 — the zod default: 20/hour/IP until the secret (or a box export) says otherwise.
     ["PAYER_AUTH_MAX_PER_IP_PER_HOUR", "20"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
