@@ -320,3 +320,11 @@ export const CANDIDATE_INDEX_REBUILD_JOB = "rebuild";
 
 /** How far before the stored watermark each poll tick re-reads (overlap window). */
 export const CANDIDATE_INDEX_OVERLAP_MS = 5 * 60_000;
+
+/**
+ * #2747 item 8 — the outbound-signal sender (`outbound_signals`, migration 0167). One repeatable
+ * tick with NO payload: the table's due pending rows are the work list, and the destination
+ * de-duplicates on each row's id, so a lost or duplicated Redis job is harmless.
+ */
+export const OUTBOUND_SIGNALS_QUEUE = "outbound-signals";
+export const OUTBOUND_SIGNALS_SWEEP_SCHEDULER_ID = "outbound-signals-sweep";

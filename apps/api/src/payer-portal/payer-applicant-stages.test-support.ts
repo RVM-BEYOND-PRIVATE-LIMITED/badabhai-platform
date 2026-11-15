@@ -47,6 +47,14 @@ export function stagesOff(): PayerApplicantStagesService {
         throw new Error("the stages service must not read a rollout switch while its flag is off");
       },
     } as never,
+    {
+      signalsStateFor: () => {
+        throw new Error("the stages service must not read the signal switch while its flag is off");
+      },
+      recordMark: () => {
+        throw new Error("the stages service must not queue a signal while its flag is off");
+      },
+    } as never,
   );
 }
 

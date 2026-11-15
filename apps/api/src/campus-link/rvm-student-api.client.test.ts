@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
-import { RvmStudentApiClient, RvmStudentApiUnavailableError } from "./rvm-student-api.client";
+import {
+  RVM_SELECTION_EVENTS_PATH,
+  RvmSelectionEventBodySchema,
+  RvmStudentApiClient,
+  RvmStudentApiUnavailableError,
+} from "./rvm-student-api.client";
 
 const REF = "3c9e7b21-4f6a-4d8e-b1c2-a3d4e5f60718";
 const TOKEN = "badabhai-token-for-rvm-0123456789";
@@ -185,5 +190,136 @@ describe("RvmStudentApiClient.readConsentRequest (#2752 item 10)", () => {
     const { api, fetchImpl } = client(() => json(200, {}));
     await expect(api.readConsentRequest("../students")).rejects.toThrow();
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #2747 item 8 — THE SIGNAL CONTRACT (Scheduler_Backend#162 item 8): `POST
+ * /internal/campus/selection-events` with `{event_id, student_ref, company, job_title, status,
+ * date}`, the service token, and the event id as the Idempotency-Key.
+ */
+describe("RvmStudentApiClient.postSelectionEvent — the selection-event contract", () => {
+  const EVENT = "7b0f4f64-8a2b-4e0c-9d2e-1f3a4b5c6d7e";
+  const BODY = {
+    event_id: EVENT,
+    student_ref: REF,
+    company: "Sharma Precision Works",
+    job_title: "CNC Operator",
+    status: "selected" as const,
+    date: "2026-11-15",
+  };
+
+  it("POSTs exactly the six agreed keys, with the token, the Idempotency-Key and no redirect", async () => {
+    const { api, fetchImpl } = client(() => json(201, { ok: true }));
+    await expect(api.postSelectionEvent(BODY)).resolves.toEqual({ kind: "accepted" });
+
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("http://127.0.0.1:4000/internal/campus/selection-events");
+    expect(RVM_SELECTION_EVENTS_PATH).toBe("/internal/campus/selection-events");
+    expect(init.method).toBe("POST");
+    const headers = init.headers as Record<string, string>;
+    expect(headers["x-service-token"]).toBe(TOKEN);
+    expect(headers["idempotency-key"]).toBe(EVENT);
+    expect(headers["content-type"]).toBe("application/json");
+    expect(init.redirect).toBe("error");
+    const sent = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(Object.keys(sent).sort()).toEqual(
+      ["company", "date", "event_id", "job_title", "status", "student_ref"].sort(),
+    );
+    expect(sent).toEqual(BODY);
+  });
+
+  it("the body schema is strict: a phone, a name or an amount can never ride along", () => {
+    for (const extra of ["phone", "name", "student_name", "amount", "reward"]) {
+      expect(RvmSelectionEventBodySchema.safeParse({ ...BODY, [extra]: "x" }).success, extra).toBe(
+        false,
+      );
+    }
+    expect(RvmSelectionEventBodySchema.safeParse(BODY).success).toBe(true);
+  });
+
+  it("refuses an off-contract body before anything leaves the process", async () => {
+    const { api, fetchImpl } = client(() => json(201, {}));
+    for (const bad of [
+      { ...BODY, status: "shortlist" },
+      { ...BODY, date: "15/11/2026" },
+      { ...BODY, event_id: "not-a-uuid" },
+      { ...BODY, student_ref: ".." },
+      { ...BODY, company: "" },
+    ]) {
+      await expect(api.postSelectionEvent(bad as never), JSON.stringify(bad)).rejects.toThrow();
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("any 2xx is accepted — a replay of the same event included", async () => {
+    for (const status of [200, 201, 202, 204]) {
+      const { api } = client(() => new Response(status === 204 ? null : "{}", { status }));
+      await expect(api.postSelectionEvent(BODY), String(status)).resolves.toEqual({
+        kind: "accepted",
+      });
+    }
+  });
+
+  it("RVM's own 404 NOT_AVAILABLE is not_available; a bare 404 is an outage", async () => {
+    const own = client(() => json(404, { code: "NOT_AVAILABLE" }));
+    await expect(own.api.postSelectionEvent(BODY)).resolves.toEqual({ kind: "not_available" });
+    const bare = client(() => new Response("Not Found", { status: 404 }));
+    expect((await failureOf(bare.api.postSelectionEvent(BODY))).failure).toBe("http_status");
+  });
+
+  it("400 / 413 / 415 / 422 are refusals no retry can change", async () => {
+    for (const status of [400, 413, 415, 422]) {
+      const { api } = client(() => json(status, { code: "BAD" }));
+      await expect(api.postSelectionEvent(BODY), String(status)).resolves.toEqual({
+        kind: "rejected",
+        status,
+      });
+    }
+  });
+
+  it("401, 403, 409 (RVM still on it, or a rebuilt body), 429 and 5xx are retryable outages", async () => {
+    for (const status of [401, 403, 409, 429, 500, 502, 503]) {
+      const { api } = client(() => json(status, {}));
+      expect((await failureOf(api.postSelectionEvent(BODY))).failure, String(status)).toBe(
+        "http_status",
+      );
+    }
+  });
+
+  it("a timeout and a dropped connection are retryable, and say which", async () => {
+    const slow = client(() => {
+      const err = new Error("timed out");
+      err.name = "TimeoutError";
+      throw err;
+    });
+    expect((await failureOf(slow.api.postSelectionEvent(BODY))).failure).toBe("timeout");
+    const dropped = client(() => {
+      throw new TypeError("fetch failed");
+    });
+    expect((await failureOf(dropped.api.postSelectionEvent(BODY))).failure).toBe("network");
+  });
+
+  it("isConfigured is true only with both the base URL and the token", () => {
+    expect(client(() => json(201, {})).api.isConfigured()).toBe(true);
+    expect(client(() => json(201, {}), { RVM_STUDENT_API_TOKEN: "" }).api.isConfigured()).toBe(
+      false,
+    );
+    expect(client(() => json(201, {}), { RVM_STUDENT_API_BASE_URL: "" }).api.isConfigured()).toBe(
+      false,
+    );
+  });
+
+  it("is not configured without a base URL or token, and sends nothing", async () => {
+    const { api, fetchImpl } = client(() => json(201, {}), { RVM_STUDENT_API_TOKEN: "" });
+    expect((await failureOf(api.postSelectionEvent(BODY))).failure).toBe("not_configured");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("an error never carries the body (company, student ref)", async () => {
+    const { api } = client(() => json(500, { echo: BODY }));
+    const err = await failureOf(api.postSelectionEvent(BODY));
+    expect(err.message).not.toContain(BODY.company);
+    expect(err.message).not.toContain(REF);
   });
 });

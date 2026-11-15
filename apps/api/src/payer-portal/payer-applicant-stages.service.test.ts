@@ -79,6 +79,8 @@ function make(
     tenancy?: PayerTenantScopeService;
     /** #2747 — the `outcome_stages` switch for every company (default off). */
     outcomeStages?: boolean;
+    /** #2747 item 8 — the `outbound_signals` switch for every company (default off). */
+    signals?: boolean | "unavailable";
   } = {},
 ) {
   const repo = memoryStagesRepo({
@@ -97,6 +99,12 @@ function make(
   // The real validation every emitted event goes through, so a payload the registry would refuse
   // fails here exactly as it would in EventsService.
   const rollout = { isEnabledFor: vi.fn(async () => over.outcomeStages ?? false) };
+  const outbound = {
+    signalsStateFor: vi.fn(async () =>
+      over.signals === "unavailable" ? "unavailable" : over.signals === true ? "on" : "off",
+    ),
+    recordMark: vi.fn(async (_mark: Record<string, unknown>, _tx: unknown) => "queued" as const),
+  };
   const emitted: Record<string, unknown>[] = [];
   const emit = vi.fn(async (params: Record<string, unknown>) => {
     const { correlationId, requestId: _r, tx: _tx, ...rest } = params;
@@ -119,8 +127,9 @@ function make(
     { PAYER_APPLICANT_STAGES_ENABLED: over.enabled ?? true },
     over.tenancy ?? defaultModeResolver(),
     rollout as never,
+    outbound as never,
   );
-  return { svc, repo, spied, emit, emitted, rollout };
+  return { svc, repo, spied, emit, emitted, rollout, outbound };
 }
 
 /** What the client receives for a rejection: the real global filter's status + error object. */
@@ -682,5 +691,81 @@ describe("#2747 item 7 — the outcome stages `selected` and `hired` (OUTCOME_ST
     expect(line).not.toContain(APPLICANT); // the posting id only; never the worker
     error.mockRestore();
     expect(d.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("#2747 item 8 — the RVM selection signal is queued IN the stage transaction", () => {
+  it("switch on: a real move into selected, then hired, queues one mark each, on the transaction", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    expect(d.outbound.signalsStateFor).toHaveBeenCalledWith(KEY_A);
+    expect(d.outbound.recordMark).toHaveBeenCalledTimes(2);
+    const [first, tx] = d.outbound.recordMark.mock.calls[0]!;
+    expect(first).toEqual({
+      postingKind: "company_posting",
+      postingId: POSTING_A,
+      workerId: APPLICANT,
+      stage: "selected",
+      at: NOW,
+    });
+    // The same transaction the stage row and its event are written in.
+    expect(tx).toBe(d.emitted[0]!.tx);
+    expect(d.outbound.recordMark.mock.calls[1]![0]).toMatchObject({ stage: "hired" });
+  });
+
+  it("the first move straight to hired (no stored row) queues it too", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.setStage(PAYER_A, JOB_A, APPLICANT, "hired", CTX, NOW);
+    expect(d.outbound.recordMark).toHaveBeenCalledOnce();
+    expect(d.outbound.recordMark.mock.calls[0]![0]).toMatchObject({
+      postingKind: "agency_job",
+      stage: "hired",
+    });
+  });
+
+  it("the company's signal switch off: the mark is saved and nothing is queued", async () => {
+    const d = make({ outcomeStages: true, signals: false });
+    await expect(
+      d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW),
+    ).resolves.toMatchObject({ changed: true });
+    expect(d.outbound.recordMark).not.toHaveBeenCalled();
+  });
+
+  it("a no-op re-send, a move out, and the first three stages queue nothing", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    d.outbound.recordMark.mockClear();
+    d.outbound.signalsStateFor.mockClear();
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW); // no-op
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW); // out
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "passed", CTX, NOW);
+    expect(d.outbound.recordMark).not.toHaveBeenCalled();
+    // Only the no-op is an outcome stage, so only it read the switch.
+    expect(d.outbound.signalsStateFor).toHaveBeenCalledTimes(1);
+  });
+
+  it("the outcome switch off refuses the mark before the signal switch is even read", async () => {
+    const d = make({ outcomeStages: false, signals: true });
+    await rejection(d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW));
+    expect(d.outbound.signalsStateFor).not.toHaveBeenCalled();
+    expect(d.outbound.recordMark).not.toHaveBeenCalled();
+  });
+
+  it("the signal switch cannot be read: the mark is refused (503) and nothing is written", async () => {
+    const d = make({ outcomeStages: true, signals: "unavailable" });
+    const err = await rejection(d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW));
+    expect(httpOutcome(err).status).toBe(503);
+    expect(d.spied.withTransaction).not.toHaveBeenCalled();
+    expect(d.repo.rows.size).toBe(0);
+    expect(d.emit).not.toHaveBeenCalled();
+  });
+
+  it("a failure to queue fails the whole move (the transaction rolls the stage back with it)", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    d.outbound.recordMark.mockRejectedValueOnce(new Error("relation does not exist"));
+    await expect(
+      d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW),
+    ).rejects.toThrow("relation does not exist");
   });
 });
