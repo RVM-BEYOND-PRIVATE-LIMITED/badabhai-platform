@@ -2268,7 +2268,8 @@ jobs:
           CAMPUS_DRIVE_REQUESTS_ROLLOUT: ${{ secrets.CAMPUS_DRIVE_REQUESTS_ROLLOUT }}
           # #2754 — company sign-in by SMS code. INERT UNTIL THE SECRETS EXIST: absent, they render
           # empty and compose resolves them to off / unset / 500. Arming PAYER_SMS_OTP_ENABLED
-          # without FAST2SMS_PAYER_DLT_TEMPLATE_ID (the company template's DLT id) refuses to boot.
+          # without FAST2SMS_PAYER_DLT_TEMPLATE_ID (the company template's DLT id) refuses to boot, and
+          # until #2754 item 3 lands staging-deploy.sh refuses ANY armed value (unproven phones).
           PAYER_SMS_OTP_ENABLED: ${{ secrets.PAYER_SMS_OTP_ENABLED }}
           FAST2SMS_PAYER_DLT_TEMPLATE_ID: ${{ secrets.FAST2SMS_PAYER_DLT_TEMPLATE_ID }}
           PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY: ${{ secrets.PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY }}

@@ -1250,7 +1250,7 @@ export const serverEnvSchema = z.object({
   // The DLT template id approved for the COMPANY sign-in message (#2754 item 2). Separate from
   // FAST2SMS_DLT_TEMPLATE_ID (the worker message): a DLT template is approved for its own text.
   // `optionalSecret`: compose passes it as `${…:-}`, and a blank value is unset, never a boot failure.
-  FAST2SMS_PAYER_DLT_TEMPLATE_ID: optionalSecret(z.string().min(1)),
+  FAST2SMS_PAYER_DLT_TEMPLATE_ID: optionalSecret(z.string().trim().min(1)),
   // The company SMS path's own platform-wide daily ceiling, the SMS twin of
   // PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY. Counted on the existence-independent reserve, so a known
   // and an unknown phone see the same 429. 0 = paused = the company-SMS kill-switch (a
@@ -2964,6 +2964,17 @@ export function assertPayerAuthConfig(
   // template. Armed without one, every company code would go out on the worker template (wrong
   // text, a DLT rejection) or not at all, so refuse to boot instead.
   if (config.PAYER_SMS_OTP_ENABLED) {
+    // NOT YET IN PRODUCTION (security review of #2754 items 1-2): the phone on a company account
+    // is stored unproven (signup, PATCH /payer/me) and is not unique, so an SMS code to it would
+    // make an unproven number a sign-in credential. Development, test and staging only until item
+    // 3 (proven, unique phones) lands; staging-deploy.sh refuses the deploy first.
+    const env = (rawNodeEnv ?? "").trim();
+    if (env !== "development" && env !== "test" && env !== "staging") {
+      problems.push(
+        `PAYER_SMS_OTP_ENABLED is true but NODE_ENV is "${env || "unset"}" — company SMS sign-in ` +
+          "stays off in production until #2754 item 3 (proven, unique phones) lands (fail closed)",
+      );
+    }
     const missing = [
       ["FAST2SMS_API_KEY", config.FAST2SMS_API_KEY],
       ["FAST2SMS_SENDER_ID", config.FAST2SMS_SENDER_ID],

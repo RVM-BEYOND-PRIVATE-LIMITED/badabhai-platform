@@ -60,6 +60,9 @@ import type {
  */
 type PayerLoginContact = { kind: "email"; value: string } | { kind: "phone"; value: string };
 
+/** #2754 — the only numbers a company SMS code may go to: an Indian mobile, in E.164. */
+const INDIAN_MOBILE_E164 = /^\+91[6-9]\d{9}$/;
+
 /** Minimal typed view of the raw Redis commands the password lockout needs. */
 interface RedisPasswordClient {
   incr(key: string): Promise<number>;
@@ -630,12 +633,22 @@ export class PayerAuthService {
   }
 
   /**
-   * #2754 — how a code for this contact travels: a phone goes by SMS while
-   * `PAYER_SMS_OTP_ENABLED` is on; an email, or a phone while it is off, by the configured
-   * channel. Decided from the contact alone, never from the account, so it cannot be an oracle.
+   * #2754 — how a code for this contact travels: an Indian mobile number goes by SMS while
+   * `PAYER_SMS_OTP_ENABLED` is on; an email, any other phone, or a phone while it is off, by the
+   * configured channel. Decided from the contact alone, never from the account, so it cannot be
+   * an oracle.
+   *
+   * `+91` MOBILES ONLY (security review): Fast2SMS delivers to the LAST TEN DIGITS of whatever it
+   * is given, so `+1`, `+44`, `+7`... followed by an Indian number would each be a fresh contact
+   * hash (fresh per-number caps) all landing on the same handset, and a genuinely foreign number
+   * would deliver a company's code to a stranger in India.
    */
   private routeFor(contact: PayerLoginContact): PayerOtpRoute {
-    return contact.kind === "phone" && this.config.PAYER_SMS_OTP_ENABLED ? "sms" : "default";
+    return contact.kind === "phone" &&
+      this.config.PAYER_SMS_OTP_ENABLED &&
+      INDIAN_MOBILE_E164.test(contact.value)
+      ? "sms"
+      : "default";
   }
 
   /**

@@ -382,3 +382,33 @@ describe("#2754 — a company phone's code goes by SMS, under its own daily ceil
     expect(sms.deliver).not.toHaveBeenCalled();
   });
 });
+
+describe("#2754 — the SMS ceiling fails closed", () => {
+  it("a Redis error on the company-SMS counter is a 503 and sends nothing (never uncaps)", async () => {
+    const redis = makeRedis();
+    // Fail ONLY the company-SMS daily counter, so the per-number checks before it all pass.
+    const incr = redis.client.incr.bind(redis.client);
+    redis.client.incr = async (key: string) => {
+      if (key.startsWith("payer_otp:global_sms_sendcount:")) throw new Error("redis down");
+      return incr(key);
+    };
+    const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
+    const channel: PayerLoginChannel = {
+      method: "email_otp",
+      mock: false,
+      deliver: vi.fn().mockResolvedValue(undefined),
+    };
+    const sms = smsStub();
+    const svc = new PayerOtpService(config, pii, channel, queue, sms);
+    await expect(
+      svc.issueAndSend({
+        emailHash: "f".repeat(64),
+        email: "",
+        phone: "+919876543210",
+        payerId: "p2",
+        route: "sms",
+      }),
+    ).rejects.toMatchObject({ status: HttpStatus.SERVICE_UNAVAILABLE });
+    expect(sms.deliver).not.toHaveBeenCalled();
+  });
+});

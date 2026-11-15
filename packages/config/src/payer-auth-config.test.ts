@@ -206,15 +206,34 @@ describe("#2754 — company sign-in by SMS code", () => {
     );
   });
 
-  it("armed WITH the account and its own template boots; off needs neither", () => {
+  it("armed WITH the account and its own template boots in staging; off needs neither", () => {
     expect(() =>
       assertPayerAuthConfig(
         cfg({ JWT_SECRET: REAL_JWT, ...ZEPTO_CREDS, ...SMS_CREDS, PAYER_SMS_OTP_ENABLED: "true" }),
-        "production",
+        "staging",
       ),
     ).not.toThrow();
     expect(() =>
       assertPayerAuthConfig(cfg({ JWT_SECRET: REAL_JWT, ...ZEPTO_CREDS }), "production"),
     ).not.toThrow();
+  });
+
+  it("refuses to boot ARMED in production, fully configured, until #2754 item 3 (proven, unique phones)", () => {
+    expect(() =>
+      assertPayerAuthConfig(
+        cfg({ JWT_SECRET: REAL_JWT, ...ZEPTO_CREDS, ...SMS_CREDS, PAYER_SMS_OTP_ENABLED: "true" }),
+        "production",
+      ),
+    ).toThrow(/stays off in production until #2754 item 3/);
+  });
+
+  it("treats a blank template id as unset, and refuses a whitespace-only one at boot", () => {
+    expect(
+      cfg({ FAST2SMS_PAYER_DLT_TEMPLATE_ID: "" }).FAST2SMS_PAYER_DLT_TEMPLATE_ID,
+    ).toBeUndefined();
+    expect(() => cfg({ FAST2SMS_PAYER_DLT_TEMPLATE_ID: "   " })).toThrow();
+    expect(cfg({ FAST2SMS_PAYER_DLT_TEMPLATE_ID: " 1707 " }).FAST2SMS_PAYER_DLT_TEMPLATE_ID).toBe(
+      "1707",
+    );
   });
 });

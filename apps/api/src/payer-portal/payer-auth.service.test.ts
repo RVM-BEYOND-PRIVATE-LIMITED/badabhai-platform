@@ -1450,3 +1450,77 @@ describe("#2754 — a company signs in with an SMS code to its phone", () => {
     expect(names(d)).not.toContain("payer.otp_send_cap_exceeded");
   });
 });
+
+describe("#2754 — SMS sign-in, the security review's cases", () => {
+  const PHONE_KEY = `phone<${PHONE}>`;
+  const ONE = [{ id: PAYER_ID, role: "employer", status: "active", mustChangePassword: false }];
+  const SHARED = [...ONE, { id: "bbbbbbbb-0000-4000-8000-000000000002" }];
+
+  it.each([["+15551234567"], ["+447911123456"], ["+919876543"]])(
+    "a phone that is not a +91 mobile (%s) never takes the SMS route, even with it on",
+    async (phone) => {
+      const d = setup({ sms: true });
+      d.payers.findByPhone.mockResolvedValue(ONE);
+      await d.svc.requestLogin({ phone }, CTX);
+      const calls = [...d.otp.issueAndSend.mock.calls, ...d.otp.issueWithoutDelivery.mock.calls];
+      expect(JSON.stringify(calls)).not.toContain('"sms"');
+    },
+  );
+
+  it("signup with a phone (SMS on) sends by SMS to a phone that names one account", async () => {
+    const d = setup({ sms: true });
+    d.payers.findByPhone.mockResolvedValue(ONE);
+    await d.svc.signup({ role: "employer", org_name: ORG, phone: PHONE }, CTX);
+    expect(d.otp.issueAndSend).toHaveBeenCalledWith(
+      expect.objectContaining({ emailHash: PHONE_KEY, route: "sms" }),
+    );
+  });
+
+  it("signup with a phone two accounts already share sends nothing (neutral)", async () => {
+    const d = setup({ sms: true });
+    d.payers.createOrGet.mockResolvedValueOnce({ id: PAYER_ID, created: false });
+    d.payers.findByPhone.mockResolvedValue(SHARED);
+    const res = await d.svc.signup({ role: "employer", org_name: ORG, phone: PHONE }, CTX);
+    expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
+    expect(d.otp.issueAndSend).not.toHaveBeenCalled();
+    expect(d.otp.issueWithoutDelivery).toHaveBeenCalledWith(PHONE_KEY, "sms");
+  });
+
+  it("an ARCHIVED company's phone is reserved on the SMS route and sent nothing", async () => {
+    const d = setup({ sms: true });
+    d.payers.findByPhone.mockResolvedValue(ONE);
+    d.payers.findById.mockResolvedValue({ id: PAYER_ID, status: "archived" });
+    await d.svc.requestLogin({ phone: PHONE }, CTX);
+    expect(d.otp.issueWithoutDelivery).toHaveBeenCalledWith(PHONE_KEY, "sms");
+    expect(d.otp.issueAndSend).not.toHaveBeenCalled();
+  });
+
+  it("a KNOWN phone at the company-SMS ceiling answers the neutral body and reports the breach", async () => {
+    const d = setup({ sms: true });
+    d.payers.findByPhone.mockResolvedValue(ONE);
+    d.otp.issueAndSend.mockRejectedValueOnce(
+      new PayerSmsSendCapExceededException({ limit: 500, window: "20261115" }),
+    );
+    const res = await d.svc.requestLogin({ phone: PHONE }, CTX);
+    expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
+    expect(d.events.emit).toHaveBeenCalledWith(
+      expect.objectContaining({ event_name: "payer.sms_send_cap_exceeded" }),
+    );
+  });
+
+  it("the response body is identical for a known, an unknown, a shared and a barred phone", async () => {
+    const bodies: unknown[] = [];
+    for (const [rows, status] of [
+      [ONE, "active"],
+      [[], "active"],
+      [SHARED, "active"],
+      [ONE, "suspended"],
+    ] as const) {
+      const d = setup({ sms: true });
+      d.payers.findByPhone.mockResolvedValue([...rows]);
+      d.payers.findById.mockResolvedValue({ id: PAYER_ID, status });
+      bodies.push(await d.svc.requestLogin({ phone: PHONE }, CTX));
+    }
+    for (const body of bodies) expect(body).toEqual(bodies[0]);
+  });
+});
