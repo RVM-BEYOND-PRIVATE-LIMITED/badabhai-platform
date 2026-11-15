@@ -9,7 +9,12 @@ import type { ServerConfig } from "@badabhai/config";
  * `theme` (#2820): may this login use a theme other than the app's default? Asked only through
  * `FeatureRolloutService.isThemeOpenFor`, for a worker, a company or an admin.
  */
-export const FEATURE_ROLLOUT_KEYS = ["job_audience", "campus_drive_requests", "theme"] as const;
+export const FEATURE_ROLLOUT_KEYS = [
+  "job_audience",
+  "campus_drive_requests",
+  "applicant_facts",
+  "theme",
+] as const;
 export type FeatureRolloutKey = (typeof FEATURE_ROLLOUT_KEYS)[number];
 
 /**
@@ -19,5 +24,6 @@ export type FeatureRolloutKey = (typeof FEATURE_ROLLOUT_KEYS)[number];
 export const FEATURE_ROLLOUT_CONFIG = {
   job_audience: "JOB_AUDIENCE_ROLLOUT",
   campus_drive_requests: "CAMPUS_DRIVE_REQUESTS_ROLLOUT",
+  applicant_facts: "APPLICANT_FACTS_ROLLOUT",
   theme: "THEME_ROLLOUT",
 } as const satisfies Record<FeatureRolloutKey, keyof ServerConfig>;

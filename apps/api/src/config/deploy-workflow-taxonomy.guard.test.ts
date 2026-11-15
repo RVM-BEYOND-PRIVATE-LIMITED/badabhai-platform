@@ -334,6 +334,12 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CAMPUS_DRIVE_REQUESTS_ROLLOUT:\s*\$\{\{\s*secrets\.CAMPUS_DRIVE_REQUESTS_ROLLOUT\s*\}\}/,
       /envs:[^\n]*\bCAMPUS_DRIVE_REQUESTS_ROLLOUT\b/,
     ],
+    // #2747 — the pre-pay facts on the company's applicant and search cards.
+    [
+      "APPLICANT_FACTS_ROLLOUT",
+      /APPLICANT_FACTS_ROLLOUT:\s*\$\{\{\s*secrets\.APPLICANT_FACTS_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bAPPLICANT_FACTS_ROLLOUT\b/,
+    ],
     // #2820 — the theme switch: the same grammar and the same arming path.
     [
       "THEME_ROLLOUT",

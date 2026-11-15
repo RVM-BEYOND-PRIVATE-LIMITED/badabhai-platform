@@ -1,3 +1,4 @@
+import type { PrePayWire } from "../match/pre-pay-facts";
 import { z } from "zod";
 import { INDUSTRIES, isMatchSkillId } from "@badabhai/taxonomy";
 import type { TradeLevelBadge } from "../match/match-candidates.service";
@@ -180,7 +181,11 @@ export interface CandidateSearchResponseDto {
   filtered: boolean;
   /** Echo of the request's mode. */
   strict: boolean;
-  candidates: CandidateSearchRowDto[];
+  /**
+   * #2747: each row also carries `source` (`rvm_student` only for a named-company search grant)
+   * and, while `applicant_facts` is on for the company, the pre-pay facts.
+   */
+  candidates: PrePayWire<CandidateSearchRowDto>[];
   /** Pass back as `cursor` for the next page; null on the last page. */
   nextCursor: string | null;
 }

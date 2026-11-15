@@ -666,6 +666,9 @@ export const serverEnvSchema = z.object({
   //   JOB_AUDIENCE_ROLLOUT — who-sees-this-job (BadaBhai workers / RVM students / both),
   //     branch and course targeting, and the placement team's review of RVM jobs.
   //   CAMPUS_DRIVE_REQUESTS_ROLLOUT — a company asks RVM for a campus drive.
+  //   APPLICANT_FACTS_ROLLOUT (#2747) — the facts a company sees before paying: first name, trade
+  //     line, expected salary, machines, area and last-active day on the applicant and search
+  //     cards. Off, those keys are not sent (every row still carries its `source` label).
   //   THEME_ROLLOUT (#2820) — who may use a theme other than the app's default (Light), for
   //     every kind of login: a company by its tenant key in `feature_pilot_payers`, a worker or
   //     an admin by id in `feature_pilot_subjects` (migration 0164). Closed, the display
@@ -676,6 +679,7 @@ export const serverEnvSchema = z.object({
   // back to off can never expose an RVM-only job to BadaBhai workers.
   JOB_AUDIENCE_ROLLOUT: featureRolloutMode,
   CAMPUS_DRIVE_REQUESTS_ROLLOUT: featureRolloutMode,
+  APPLICANT_FACTS_ROLLOUT: featureRolloutMode,
   THEME_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256

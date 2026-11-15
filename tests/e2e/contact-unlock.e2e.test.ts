@@ -13,6 +13,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { mintPayerSession } from "./helpers/payer-session";
+import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
 /**
  * Contact Unlock + Reveal (ADR-0010, Stream A) end-to-end against a LIVE API + DB.
@@ -78,22 +79,19 @@ async function req(
 
 /**
  * A phone in the ONLY range the D-3 mint will serve: `SYNTHETIC_TEST_PHONE_PATTERN`
- * (`/^\+910{5}\d{5}$/`, i.e. `+9100000` + 5 digits) — the reserved, unassignable block.
- * `AuthService.testLogin` refuses anything else BEFORE finding or creating a worker, so
- * an ordinary-looking `+9196…` number 404s no matter how the seam is configured.
+ * (`/^\+910{5}\d{5}$/`) — the reserved, unassignable block. `AuthService.testLogin`
+ * refuses anything else BEFORE finding or creating a worker, so an ordinary-looking
+ * `+9196…` number 404s no matter how the seam is configured.
  *
  * COUNTER, NOT `Date.now()`. The obvious `+91…${Date.now()}` construction does not work
  * here: only 5 digits of entropy fit, and a timestamp's low digits collide across the
  * fast sequential calls this suite makes — two workers sharing a phone would silently
- * make F-1's "two different workers" comparison test one worker against itself. A
- * counter from a random start is unique within a run by construction; the CI job builds
- * a fresh database each time, so cross-run reuse cannot collide either.
+ * make F-1's "two different workers" comparison test one worker against itself. The
+ * minter walks this suite's own slot from a random start, so it is unique within a run
+ * and never meets another suite's workers; the CI job builds a fresh database each
+ * time, so cross-run reuse cannot collide either.
  */
-let phoneSeq = Math.floor(Math.random() * 90_000);
-function syntheticPhone(): string {
-  phoneSeq = (phoneSeq + 1) % 100_000;
-  return `+9100000${String(phoneSeq).padStart(5, "0")}`;
-}
+const syntheticPhone = syntheticPhoneMinter(60);
 
 /**
  * Mint a fresh worker session via the D-3 test-login seam; returns its id + the sentinel
