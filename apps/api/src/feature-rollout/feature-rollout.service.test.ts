@@ -163,7 +163,7 @@ describe("isLiveForServiceCaller is a SERVICE-caller check, used only where it w
     "campus-link/campus-posting-review.service.ts",
     // #2747 item 8 — the outbound-signal sweep acts for no company: `outbound_signals` off
     // everywhere → it claims nothing. Which marks are QUEUED is decided per company, with
-    // `isEnabledFor` and the tenant key, in OutboundSignalsService.signalsOnFor.
+    // `stateFor` and the tenant key, in OutboundSignalsService.signalsStateFor.
     "outbound-signals/outbound-signals.sender.ts",
   ];
 

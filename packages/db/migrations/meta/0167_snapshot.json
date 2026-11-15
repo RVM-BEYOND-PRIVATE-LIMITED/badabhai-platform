@@ -1,5 +1,5 @@
 {
-  "id": "a37b475d-ea87-4b9f-85fd-b3ef86bd5dc9",
+  "id": "81c64aa1-a68d-4a94-a054-b86d497d26cf",
   "prevId": "8108d261-c603-4d29-b1e0-adcafc385d86",
   "version": "7",
   "dialect": "postgresql",
@@ -18390,7 +18390,7 @@
         },
         "outbound_signals_failure_chk": {
           "name": "outbound_signals_failure_chk",
-          "value": "\"outbound_signals\".\"last_failure\" IS NULL OR \"outbound_signals\".\"last_failure\" IN ('not_configured', 'timeout', 'network', 'http_status', 'contract', 'not_available', 'rejected', 'link_inactive', 'context_missing')"
+          "value": "\"outbound_signals\".\"last_failure\" IS NULL OR \"outbound_signals\".\"last_failure\" IN ('not_configured', 'timeout', 'network', 'http_status', 'contract', 'not_available', 'rejected', 'link_inactive', 'context_missing', 'mark_undone', 'worker_inactive', 'abandoned')"
         },
         "outbound_signals_delivered_chk": {
           "name": "outbound_signals_delivered_chk",

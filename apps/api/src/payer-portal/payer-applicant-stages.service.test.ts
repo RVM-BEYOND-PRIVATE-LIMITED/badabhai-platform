@@ -80,7 +80,7 @@ function make(
     /** #2747 — the `outcome_stages` switch for every company (default off). */
     outcomeStages?: boolean;
     /** #2747 item 8 — the `outbound_signals` switch for every company (default off). */
-    signals?: boolean;
+    signals?: boolean | "unavailable";
   } = {},
 ) {
   const repo = memoryStagesRepo({
@@ -100,7 +100,9 @@ function make(
   // fails here exactly as it would in EventsService.
   const rollout = { isEnabledFor: vi.fn(async () => over.outcomeStages ?? false) };
   const outbound = {
-    signalsOnFor: vi.fn(async () => over.signals ?? false),
+    signalsStateFor: vi.fn(async () =>
+      over.signals === "unavailable" ? "unavailable" : over.signals === true ? "on" : "off",
+    ),
     recordMark: vi.fn(async (_mark: Record<string, unknown>, _tx: unknown) => "queued" as const),
   };
   const emitted: Record<string, unknown>[] = [];
@@ -697,7 +699,7 @@ describe("#2747 item 8 — the RVM selection signal is queued IN the stage trans
     const d = make({ outcomeStages: true, signals: true });
     await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
     await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
-    expect(d.outbound.signalsOnFor).toHaveBeenCalledWith(KEY_A);
+    expect(d.outbound.signalsStateFor).toHaveBeenCalledWith(KEY_A);
     expect(d.outbound.recordMark).toHaveBeenCalledTimes(2);
     const [first, tx] = d.outbound.recordMark.mock.calls[0]!;
     expect(first).toEqual({
@@ -734,20 +736,29 @@ describe("#2747 item 8 — the RVM selection signal is queued IN the stage trans
     const d = make({ outcomeStages: true, signals: true });
     await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
     d.outbound.recordMark.mockClear();
-    d.outbound.signalsOnFor.mockClear();
+    d.outbound.signalsStateFor.mockClear();
     await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW); // no-op
     await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW); // out
     await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "passed", CTX, NOW);
     expect(d.outbound.recordMark).not.toHaveBeenCalled();
     // Only the no-op is an outcome stage, so only it read the switch.
-    expect(d.outbound.signalsOnFor).toHaveBeenCalledTimes(1);
+    expect(d.outbound.signalsStateFor).toHaveBeenCalledTimes(1);
   });
 
   it("the outcome switch off refuses the mark before the signal switch is even read", async () => {
     const d = make({ outcomeStages: false, signals: true });
     await rejection(d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW));
-    expect(d.outbound.signalsOnFor).not.toHaveBeenCalled();
+    expect(d.outbound.signalsStateFor).not.toHaveBeenCalled();
     expect(d.outbound.recordMark).not.toHaveBeenCalled();
+  });
+
+  it("the signal switch cannot be read: the mark is refused (503) and nothing is written", async () => {
+    const d = make({ outcomeStages: true, signals: "unavailable" });
+    const err = await rejection(d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW));
+    expect(httpOutcome(err).status).toBe(503);
+    expect(d.spied.withTransaction).not.toHaveBeenCalled();
+    expect(d.repo.rows.size).toBe(0);
+    expect(d.emit).not.toHaveBeenCalled();
   });
 
   it("a failure to queue fails the whole move (the transaction rolls the stage back with it)", async () => {

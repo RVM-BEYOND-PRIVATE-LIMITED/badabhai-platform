@@ -127,8 +127,12 @@ export type RvmSelectionEventOutcome =
   | { kind: "not_available" }
   | { kind: "rejected"; status: number };
 
-/** Statuses that say the request itself is wrong: retrying the same body cannot help. */
-const SELECTION_EVENT_REFUSALS: ReadonlySet<number> = new Set([400, 409, 413, 415, 422]);
+/**
+ * Statuses that say the request itself is wrong: retrying the same body cannot help. NOT 409: a
+ * conflict can be RVM still processing the same event_id, or a retry whose rebuilt body differs
+ * from one RVM already holds, and either way the attempt cap ends it.
+ */
+const SELECTION_EVENT_REFUSALS: ReadonlySet<number> = new Set([400, 413, 415, 422]);
 
 /** Six short fields fit in well under this; anything longer is not the agreed reply. */
 const MAX_BODY_CHARS = 16_384;
@@ -159,6 +163,16 @@ export class RvmStudentApiClient {
     @Optional() @Inject(RVM_STUDENT_API_FETCH) fetchImpl?: typeof fetch,
   ) {
     this.fetchImpl = fetchImpl ?? fetch;
+  }
+
+  /** Are the base URL and token set? The outbound sender claims nothing until they are. */
+  isConfigured(): boolean {
+    return Boolean(this.config.RVM_STUDENT_API_BASE_URL && this.config.RVM_STUDENT_API_TOKEN);
+  }
+
+  /** The per-request timeout, which the outbound sender sizes its claim lease from. */
+  get timeoutMs(): number {
+    return this.config.RVM_STUDENT_API_TIMEOUT_MS;
   }
 
   async readStudent(studentRef: string): Promise<RvmStudentLookup> {
@@ -211,9 +225,9 @@ export class RvmStudentApiClient {
    *
    * - any 2xx: accepted (a replay of the same event is accepted too);
    * - RVM's own 404 `NOT_AVAILABLE`: the student is not reachable under his RVM consent;
-   * - 400 / 409 / 413 / 415 / 422: a refusal no retry can change (`rejected`);
-   * - anything else (a timeout, a dropped connection, 401/403 while a token is being fixed, 429, a
-   *   5xx, a bare 404): {@link RvmStudentApiUnavailableError}, which the sender retries.
+   * - 400 / 413 / 415 / 422: a refusal no retry can change (`rejected`);
+   * - anything else (a timeout, a dropped connection, 401/403 while a token is being fixed, 409,
+   *   429, a 5xx, a bare 404): {@link RvmStudentApiUnavailableError}, which the sender retries.
    *
    * NEVER LOGS THE BODY: it carries the company name and the student's reference.
    */

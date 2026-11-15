@@ -6,6 +6,7 @@ import { APPLICANT_POSTING_KINDS } from "@badabhai/types";
 import type { OutboundSignalFailure } from "@badabhai/db";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import {
+  RvmSelectionEventBodySchema,
   RvmStudentApiClient,
   RvmStudentApiUnavailableError,
   type RvmSelectionEventBody,
@@ -21,16 +22,36 @@ import { OutboundSignalsRepository, type ClaimedSignal } from "./outbound-signal
 export const OUTBOUND_SWEEP_EVERY_MS = 60_000;
 /** Rows sent per tick: small, so one slow destination never holds a tick for long. */
 export const OUTBOUND_BATCH_LIMIT = 25;
-/** How long a claimed row is held before another sender may take it (a crash mid-send). */
-export const OUTBOUND_LEASE_MS = 5 * 60_000;
-/** After this many failed attempts a row is dead (about a day and a half of back-off). */
+/** The shortest a claim is held before another sender may take the row (a crash mid-send). */
+export const OUTBOUND_MIN_LEASE_MS = 5 * 60_000;
+/** After this many claims a row is dead (about a day and a half of back-off). */
 export const OUTBOUND_MAX_ATTEMPTS = 14;
 const BACKOFF_BASE_MS = 60_000;
 const BACKOFF_CAP_MS = 6 * 3_600_000;
+/** The contract's longest company name and job title (UTF-16 units, as zod counts them). */
+const MAX_TEXT = 200;
 
 /** The wait before attempt `attempt + 1`: 1, 2, 4 … minutes, capped at six hours. */
 export function backoffMs(attempt: number): number {
   return Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, attempt - 1), BACKOFF_CAP_MS);
+}
+
+/**
+ * How long a claim is held: long enough for the slowest possible batch (every send timing out),
+ * so a second sender never re-claims rows the first is still working through.
+ */
+export function leaseMs(timeoutMs: number): number {
+  return Math.max(OUTBOUND_MIN_LEASE_MS, OUTBOUND_BATCH_LIMIT * timeoutMs + 60_000);
+}
+
+/** At most `max` UTF-16 units, never splitting a character. */
+export function capped(text: string, max: number = MAX_TEXT): string {
+  let out = "";
+  for (const ch of text.trim()) {
+    if (out.length + ch.length > max) break;
+    out += ch;
+  }
+  return out;
 }
 
 /** What a selection row's payload must be. A row that is not this is dead, never guessed at. */
@@ -42,9 +63,16 @@ const SelectionPayloadSchema = z.object({
   marked_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
+/** The stored stages under which a signalled mark is still true when it is sent. */
+const STILL_TRUE: Readonly<Record<"selected" | "hired", readonly string[]>> = {
+  selected: ["selected", "hired"],
+  hired: ["hired"],
+};
+
 /** What one tick did — counts only, no ids (BullMQ job-inspection surface). */
 export interface OutboundSweepResult {
   armed: boolean;
+  configured: boolean;
   claimed: number;
   delivered: number;
   retried: number;
@@ -54,30 +82,29 @@ export interface OutboundSweepResult {
 
 type Outcome = "delivered" | "retried" | "dead" | "cancelled";
 
-/** At most `max` characters, never splitting a surrogate pair. */
-function capped(text: string, max: number): string {
-  const trimmed = text.trim();
-  return [...trimmed].slice(0, max).join("");
-}
-
 /**
  * #2747 item 8 (ADR-0064 §3.6) — sends each queued mark on an RVM student to RVM once
  * (`POST /internal/campus/selection-events`, Scheduler_Backend#162 item 8), with back-off and a
  * dead-letter state.
  *
  * THE TABLE IS THE WORK LIST. A repeatable tick with no payload claims due `pending` rows
- * (`SKIP LOCKED`, with a lease), so a lost or duplicated Redis job is harmless, and two senders
- * never take one row. RVM de-duplicates on the row id (`event_id`, also the Idempotency-Key), so a
- * retry after a lost reply cannot open a second prompt or task.
+ * (`SKIP LOCKED`, with a lease that outlasts the slowest batch; each claim counts as an attempt),
+ * so a lost or duplicated Redis job is harmless, two senders never take one row, and a row a
+ * sender keeps crashing on is given up. RVM de-duplicates on the row id (`event_id`, also the
+ * Idempotency-Key), so a retry after a lost reply cannot open a second prompt or task.
  *
- * THE BODY IS BUILT AT SEND TIME: the student ref only while his link is still ACTIVE (otherwise
- * the row is `cancelled` and nothing leaves), the posting's title, and the owner company's name,
- * decrypted here and never stored in clear. No phone, no student name, no money field.
+ * STILL TRUE WHEN SENT. A row is due `OUTBOUND_SEND_DELAY_MS` after the mark, and before anything
+ * leaves the sender re-reads: the stage the board holds now (a mark undone before it went is
+ * `cancelled`), the worker (suspended or scheduled for deletion: `cancelled`) and his RVM link
+ * (ended: `cancelled`). Then it builds the body: the student ref, the posting's title, the company
+ * as students see it (a company posting's `org_label`, the name Campus shows; an agency job's
+ * owner account name, decrypted here and never stored in clear), the stage and the day.
  *
- * OFF IS IDLE. While `OUTBOUND_SIGNALS_ROLLOUT` is off everywhere the tick claims nothing; rows
- * wait and go once it is back on (the kill switch).
+ * OFF IS IDLE. While `OUTBOUND_SIGNALS_ROLLOUT` is off everywhere, or RVM's settings are not set,
+ * the tick claims nothing; rows wait and go once both are in place.
  *
- * LOGS IDS ONLY: the signal id and closed failure codes; never the body or a response.
+ * LOGS IDS ONLY: the signal id, closed failure codes, an HTTP status and an error's class name;
+ * never the body or a response.
  */
 @Processor(OUTBOUND_SIGNALS_QUEUE)
 export class OutboundSignalsSender extends WorkerHost implements OnApplicationBootstrap {
@@ -114,19 +141,21 @@ export class OutboundSignalsSender extends WorkerHost implements OnApplicationBo
   async process(): Promise<OutboundSweepResult> {
     const result: OutboundSweepResult = {
       armed: this.rollout.isLiveForServiceCaller("outbound_signals"),
+      configured: this.rvm.isConfigured(),
       claimed: 0,
       delivered: 0,
       retried: 0,
       dead: 0,
       cancelled: 0,
     };
-    if (!result.armed) return result;
+    if (!result.armed || !result.configured) return result;
 
     const now = this.clock();
     const rows = await this.repo.claimDue(
       now,
-      new Date(now.getTime() + OUTBOUND_LEASE_MS),
+      new Date(now.getTime() + leaseMs(this.rvm.timeoutMs)),
       OUTBOUND_BATCH_LIMIT,
+      OUTBOUND_MAX_ATTEMPTS,
     );
     result.claimed = rows.length;
     for (const row of rows) {
@@ -144,37 +173,20 @@ export class OutboundSignalsSender extends WorkerHost implements OnApplicationBo
   /** One row, start to finish. Never throws: a failure is recorded on the row. */
   private async sendOne(row: ClaimedSignal): Promise<Outcome> {
     const at = this.clock();
+    let body: RvmSelectionEventBody;
     try {
-      const payload = SelectionPayloadSchema.safeParse(row.payload);
-      if (!payload.success || payload.data.worker_id !== row.workerId) {
-        return await this.final(row, "dead", "contract", false);
-      }
-      const p = payload.data;
-      const ctx = await this.repo.selectionContext(row.workerId, p.posting_kind, p.posting_id);
-      // His link ended (consent withdrawn, unlinked) before the signal went: nothing leaves.
-      if (ctx.studentRef === null)
-        return await this.final(row, "cancelled", "link_inactive", false);
-      if (ctx.jobTitle === null || ctx.companyNameEnc === null) {
-        return await this.final(row, "dead", "context_missing", false);
-      }
-      let company: string;
-      try {
-        company = this.pii.decrypt(ctx.companyNameEnc);
-      } catch {
-        return await this.final(row, "dead", "context_missing", false);
-      }
-      const body: RvmSelectionEventBody = {
-        event_id: row.id,
-        student_ref: ctx.studentRef,
-        company: capped(company, 200),
-        job_title: capped(ctx.jobTitle, 200),
-        status: p.stage,
-        date: p.marked_on,
-      };
-      if (body.company === "" || body.job_title === "") {
-        return await this.final(row, "dead", "context_missing", false);
-      }
+      const built = await this.buildBody(row);
+      if (typeof built === "string") return built;
+      body = built;
+    } catch (err) {
+      // A read failed (a dropped connection, say): nothing was sent, so try again later.
+      this.logger.warn(
+        `outbound signal ${row.id}: could not build the body (${err instanceof Error ? err.name : "unknown"})`,
+      );
+      return this.retryOrDie(row, "network", at);
+    }
 
+    try {
       const answer = await this.rvm.postSelectionEvent(body);
       if (answer.kind === "accepted") {
         await this.repo.markDelivered(row.id, at);
@@ -184,10 +196,60 @@ export class OutboundSignalsSender extends WorkerHost implements OnApplicationBo
       this.logger.warn(`outbound signal ${row.id} refused by RVM (status ${answer.status})`);
       return await this.final(row, "dead", "rejected");
     } catch (err) {
-      const failure: OutboundSignalFailure =
-        err instanceof RvmStudentApiUnavailableError ? err.failure : "contract";
-      return this.retryOrDie(row, failure, at);
+      if (err instanceof RvmStudentApiUnavailableError) {
+        return this.retryOrDie(row, err.failure, at);
+      }
+      this.logger.warn(
+        `outbound signal ${row.id}: unexpected send error (${err instanceof Error ? err.name : "unknown"})`,
+      );
+      return this.retryOrDie(row, "contract", at);
     }
+  }
+
+  /**
+   * The body to send, or the outcome when nothing may be sent: the mark is undone, the worker or
+   * his link is no longer there, the posting or company is gone, or the row is off-contract.
+   */
+  private async buildBody(row: ClaimedSignal): Promise<RvmSelectionEventBody | Outcome> {
+    const payload = SelectionPayloadSchema.safeParse(row.payload);
+    if (!payload.success || payload.data.worker_id !== row.workerId) {
+      return this.final(row, "dead", "contract");
+    }
+    const p = payload.data;
+    const ctx = await this.repo.selectionContext(row.workerId, p.posting_kind, p.posting_id);
+    if (ctx.currentStage === null || !STILL_TRUE[p.stage].includes(ctx.currentStage)) {
+      return this.final(row, "cancelled", "mark_undone");
+    }
+    if (!ctx.workerActive) return this.final(row, "cancelled", "worker_inactive");
+    if (ctx.studentRef === null) return this.final(row, "cancelled", "link_inactive");
+    if (ctx.jobTitle === null) return this.final(row, "dead", "context_missing");
+
+    let company: string | null = ctx.companyLabel;
+    if (company === null && ctx.companyNameEnc !== null) {
+      try {
+        company = this.pii.decrypt(ctx.companyNameEnc);
+      } catch {
+        company = null;
+      }
+    }
+    if (company === null) return this.final(row, "dead", "context_missing");
+
+    const candidate = {
+      event_id: row.id,
+      student_ref: ctx.studentRef,
+      company: capped(company),
+      job_title: capped(ctx.jobTitle),
+      status: p.stage,
+      date: p.marked_on,
+    };
+    if (candidate.company === "" || candidate.job_title === "") {
+      return this.final(row, "dead", "context_missing");
+    }
+    // Checked here, before the client: an off-contract body is dead now, never retried 14 times.
+    if (!RvmSelectionEventBodySchema.safeParse(candidate).success) {
+      return this.final(row, "dead", "contract");
+    }
+    return candidate;
   }
 
   private async retryOrDie(
@@ -195,12 +257,18 @@ export class OutboundSignalsSender extends WorkerHost implements OnApplicationBo
     failure: OutboundSignalFailure,
     at: Date,
   ): Promise<Outcome> {
-    const attempt = row.attempts + 1;
-    if (attempt >= OUTBOUND_MAX_ATTEMPTS) {
-      this.logger.warn(`outbound signal ${row.id} dead after ${attempt} attempts (${failure})`);
+    if (row.attempts >= OUTBOUND_MAX_ATTEMPTS) {
+      this.logger.warn(
+        `outbound signal ${row.id} dead after ${row.attempts} attempts (${failure})`,
+      );
       return this.final(row, "dead", failure);
     }
-    await this.repo.markRetry(row.id, failure, new Date(at.getTime() + backoffMs(attempt)), at);
+    await this.repo.markRetry(
+      row.id,
+      failure,
+      new Date(at.getTime() + backoffMs(row.attempts)),
+      at,
+    );
     return "retried";
   }
 
@@ -208,9 +276,8 @@ export class OutboundSignalsSender extends WorkerHost implements OnApplicationBo
     row: ClaimedSignal,
     status: "dead" | "cancelled",
     failure: OutboundSignalFailure,
-    countsAttempt = true,
   ): Promise<Outcome> {
-    await this.repo.markFinal(row.id, status, failure, this.clock(), countsAttempt);
+    await this.repo.markFinal(row.id, status, failure, this.clock());
     return status;
   }
 }

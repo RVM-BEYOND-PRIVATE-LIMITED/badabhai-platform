@@ -9,9 +9,15 @@
 -- and a dead-letter state. RVM de-duplicates on the row id (event_id).
 --
 -- IDS ONLY. `payload` holds the posting kind and id, the worker id, the stage and the
--- IST day of the mark. The body (student ref, company name, job title) is built at send
--- time, so the company name - encrypted at rest on `payers` - is never stored in clear
--- a second time. `last_failure` is a closed code, never a response body. Not PII.
+-- IST day of the mark. The body (student ref, company, job title) is built at send time:
+-- a company posting's own `org_label` (the name Campus shows students), or an agency
+-- job's owner name decrypted from `payers`, so no company name is ever stored here.
+-- `last_failure` is a closed code, never a response body. Not PII.
+--
+-- STILL TRUE WHEN SENT. A row is due ten minutes after the mark; before sending, the sender
+-- re-reads the stage, the worker and his link, and cancels a mark that was undone, a worker
+-- suspended or scheduled for deletion, or a link that ended (`mark_undone`,
+-- `worker_inactive`, `link_inactive`).
 --
 -- ONCE. `dedupe_key` is unique (destination, posting, worker, stage).
 --
@@ -27,6 +33,11 @@
 -- switch on for a company before 0167, its selected / hired marks on RVM students fail
 -- (42P01): the stage transaction rolls back, nothing is written, the request answers
 -- 500. Apply 0164, 0165 and 0166 first (slot order), then this.
+--
+-- LOCKS. CREATE TABLE is instant, but the FOREIGN KEY takes SHARE ROW EXCLUSIVE on
+-- `workers`, which blocks writes to it while it waits behind a long transaction. Apply by
+-- hand in ONE `BEGIN; SET LOCAL lock_timeout = '3s'; ... COMMIT;` and retry on 55P03
+-- (the 0129 / 0130 / 0166 precedent).
 --
 -- RLS: ENABLE is generated; FORCE and the four REVOKEs at the end are HAND-WRITTEN (the
 -- 0117 / 0156 / 0160 / 0161 pattern) - a regenerate drops them silently. Registered as
@@ -60,7 +71,7 @@ CREATE TABLE "outbound_signals" (
 	CONSTRAINT "outbound_signals_status_chk" CHECK ("outbound_signals"."status" IN ('pending', 'delivered', 'dead', 'cancelled')),
 	CONSTRAINT "outbound_signals_attempts_chk" CHECK ("outbound_signals"."attempts" >= 0),
 	CONSTRAINT "outbound_signals_payload_chk" CHECK (jsonb_typeof("outbound_signals"."payload") = 'object'),
-	CONSTRAINT "outbound_signals_failure_chk" CHECK ("outbound_signals"."last_failure" IS NULL OR "outbound_signals"."last_failure" IN ('not_configured', 'timeout', 'network', 'http_status', 'contract', 'not_available', 'rejected', 'link_inactive', 'context_missing')),
+	CONSTRAINT "outbound_signals_failure_chk" CHECK ("outbound_signals"."last_failure" IS NULL OR "outbound_signals"."last_failure" IN ('not_configured', 'timeout', 'network', 'http_status', 'contract', 'not_available', 'rejected', 'link_inactive', 'context_missing', 'mark_undone', 'worker_inactive', 'abandoned')),
 	CONSTRAINT "outbound_signals_delivered_chk" CHECK (("outbound_signals"."status" = 'delivered') = ("outbound_signals"."delivered_at" IS NOT NULL))
 );
 --> statement-breakpoint

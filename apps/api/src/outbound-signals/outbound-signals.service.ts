@@ -5,6 +5,12 @@ import { FeatureRolloutService } from "../feature-rollout/feature-rollout.servic
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { OutboundSignalsRepository } from "./outbound-signals.repository";
 
+/**
+ * How long a mark waits before it is sent: a company that taps "hired" by mistake and moves the
+ * student back within this window never reaches RVM (the sender re-reads the stage before sending).
+ */
+export const OUTBOUND_SEND_DELAY_MS = 10 * 60_000;
+
 /** India Standard Time is UTC+05:30 all year (no daylight saving). */
 const IST_OFFSET_MS = 330 * 60 * 1000;
 
@@ -34,14 +40,15 @@ const KIND_OF: Readonly<Record<ApplicantOutcomeStage, OutboundSignalKind>> = {
  * (Scheduler_Backend#162 item 8). The mark alone never releases the reward: RVM verifies.
  *
  * TWO HALVES, BOTH CALLED BY `PayerApplicantStagesService.setStage`:
- *  - {@link signalsOnFor}, BEFORE the stage transaction: is `OUTBOUND_SIGNALS_ROLLOUT`
- *    (`outbound_signals`) on for this company? Fails closed, like every rollout read.
+ *  - {@link signalsStateFor}, BEFORE the stage transaction: is `OUTBOUND_SIGNALS_ROLLOUT`
+ *    (`outbound_signals`) on for this company? `unavailable` when the pilot list cannot be read:
+ *    the stage service then refuses the mark rather than save it with its signal silently lost.
  *  - {@link recordMark}, INSIDE it, after the stage row is written: queue one row for an
  *    actively linked RVM student, so the saved mark and its signal commit (or roll back)
  *    together. A BadaBhai worker, or a student whose link has ended, gets no row.
  *
  * The row holds ids only; the body (student ref, company, job title) is built when it is sent
- * (`OutboundSignalsSender`). An undone mark sends nothing (#2771 proposes a withdrawal signal).
+ * (`OutboundSignalsSender`), no sooner than {@link OUTBOUND_SEND_DELAY_MS} after the mark. An undone mark sends nothing (#2771 proposes a withdrawal signal).
  */
 @Injectable()
 export class OutboundSignalsService {
@@ -50,8 +57,8 @@ export class OutboundSignalsService {
     private readonly rollout: FeatureRolloutService,
   ) {}
 
-  signalsOnFor(tenantKey: TenantKey): Promise<boolean> {
-    return this.rollout.isEnabledFor("outbound_signals", tenantKey);
+  signalsStateFor(tenantKey: TenantKey): Promise<"on" | "off" | "unavailable"> {
+    return this.rollout.stateFor("outbound_signals", tenantKey);
   }
 
   /**
@@ -81,6 +88,7 @@ export class OutboundSignalsService {
           marked_on: istDayOf(mark.at),
         },
         at: mark.at,
+        sendAfter: new Date(mark.at.getTime() + OUTBOUND_SEND_DELAY_MS),
       },
       tx,
     );

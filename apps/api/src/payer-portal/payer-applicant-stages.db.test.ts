@@ -133,7 +133,7 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
       tenancy,
       { isEnabledFor: async () => outcomeOn } as never,
       // The RVM signal has its own Postgres suite (outbound-signals.db.test.ts).
-      { signalsOnFor: async () => false, recordMark: async () => "not_rvm" } as never,
+      { signalsStateFor: async () => "off", recordMark: async () => "not_rvm" } as never,
     );
     const reach = new ReachService(new ReachRepository(client.db), events, {} as never);
     const candidates = new MatchCandidatesService(new MatchFeedRepository(client.db), {

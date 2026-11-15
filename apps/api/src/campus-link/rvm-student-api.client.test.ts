@@ -268,8 +268,8 @@ describe("RvmStudentApiClient.postSelectionEvent — the selection-event contrac
     expect((await failureOf(bare.api.postSelectionEvent(BODY))).failure).toBe("http_status");
   });
 
-  it("400 / 409 / 413 / 415 / 422 are refusals no retry can change", async () => {
-    for (const status of [400, 409, 413, 415, 422]) {
+  it("400 / 413 / 415 / 422 are refusals no retry can change", async () => {
+    for (const status of [400, 413, 415, 422]) {
       const { api } = client(() => json(status, { code: "BAD" }));
       await expect(api.postSelectionEvent(BODY), String(status)).resolves.toEqual({
         kind: "rejected",
@@ -278,8 +278,8 @@ describe("RvmStudentApiClient.postSelectionEvent — the selection-event contrac
     }
   });
 
-  it("401, 403, 429 and 5xx are retryable outages", async () => {
-    for (const status of [401, 403, 429, 500, 502, 503]) {
+  it("401, 403, 409 (RVM still on it, or a rebuilt body), 429 and 5xx are retryable outages", async () => {
+    for (const status of [401, 403, 409, 429, 500, 502, 503]) {
       const { api } = client(() => json(status, {}));
       expect((await failureOf(api.postSelectionEvent(BODY))).failure, String(status)).toBe(
         "http_status",
@@ -298,6 +298,16 @@ describe("RvmStudentApiClient.postSelectionEvent — the selection-event contrac
       throw new TypeError("fetch failed");
     });
     expect((await failureOf(dropped.api.postSelectionEvent(BODY))).failure).toBe("network");
+  });
+
+  it("isConfigured is true only with both the base URL and the token", () => {
+    expect(client(() => json(201, {})).api.isConfigured()).toBe(true);
+    expect(client(() => json(201, {}), { RVM_STUDENT_API_TOKEN: "" }).api.isConfigured()).toBe(
+      false,
+    );
+    expect(client(() => json(201, {}), { RVM_STUDENT_API_BASE_URL: "" }).api.isConfigured()).toBe(
+      false,
+    );
   });
 
   it("is not configured without a base URL or token, and sends nothing", async () => {

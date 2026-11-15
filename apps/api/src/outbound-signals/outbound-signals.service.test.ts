@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { istDayOf, OutboundSignalsService, selectionDedupeKey } from "./outbound-signals.service";
+import {
+  istDayOf,
+  OUTBOUND_SEND_DELAY_MS,
+  OutboundSignalsService,
+  selectionDedupeKey,
+} from "./outbound-signals.service";
 
 /**
  * #2747 item 8 — the recorder the stage transaction calls. It queues one row for a mark on an
@@ -17,15 +22,15 @@ function make(over: { rvm?: boolean; inserted?: boolean; switchOn?: boolean } = 
     isActiveRvmStudent: vi.fn(async () => over.rvm ?? true),
     insertSelection: vi.fn(async () => over.inserted ?? true),
   };
-  const rollout = { isEnabledFor: vi.fn(async () => over.switchOn ?? false) };
+  const rollout = { stateFor: vi.fn(async () => (over.switchOn ? "on" : "off")) };
   return { svc: new OutboundSignalsService(repo as never, rollout as never), repo, rollout };
 }
 
-describe("signalsOnFor — the company's switch", () => {
-  it("asks `outbound_signals` with the tenant key", async () => {
+describe("signalsStateFor — the company's switch", () => {
+  it("asks `outbound_signals` with the tenant key, keeping `unavailable` apart", async () => {
     const d = make({ switchOn: true });
-    await expect(d.svc.signalsOnFor(TENANT as never)).resolves.toBe(true);
-    expect(d.rollout.isEnabledFor).toHaveBeenCalledWith("outbound_signals", TENANT);
+    await expect(d.svc.signalsStateFor(TENANT as never)).resolves.toBe("on");
+    expect(d.rollout.stateFor).toHaveBeenCalledWith("outbound_signals", TENANT);
   });
 });
 
@@ -54,9 +59,12 @@ describe("recordMark — one row per mark on an RVM student", () => {
           marked_on: "2026-11-15",
         },
         at: new Date("2026-11-15T10:00:00.000Z"),
+        // Due ten minutes later: a mis-tap undone in that window never reaches RVM.
+        sendAfter: new Date("2026-11-15T10:10:00.000Z"),
       },
       TX,
     );
+    expect(OUTBOUND_SEND_DELAY_MS).toBe(10 * 60_000);
   });
 
   it("hired is its own kind and its own key: selected, then hired, is two signals", async () => {

@@ -108,20 +108,28 @@ A table `outbound_signals` (`destination`, `kind`, unique `dedupe_key`, `payload
 
 As built (migration 0167, `apps/api/src/outbound-signals`):
 
-- **Queued in the stage transaction** (`OutboundSignalsService.recordMark`). Only a real move into `selected` or `hired` queues anything, and only for a worker whose RVM link is `active` at that moment, by a company with `OUTBOUND_SIGNALS_ROLLOUT` (`outbound_signals`) on. A no-op, a move out, a BadaBhai worker and a company without the switch queue nothing. The switch is read before the transaction; the link is read inside it.
+- **Queued in the stage transaction** (`OutboundSignalsService.recordMark`). Only a real move into `selected` or `hired` queues anything, and only for a worker whose RVM link is `active` at that moment, by a company with `OUTBOUND_SIGNALS_ROLLOUT` (`outbound_signals`) on. A no-op, a move out, a BadaBhai worker and a company without the switch queue nothing. The switch is read before the transaction; the link is read inside it. A pilot list that cannot be read refuses the mark with a 503 rather than save it with its signal silently lost.
+- **Due ten minutes after the mark.** A mis-tap undone in that window never reaches RVM.
 - **The payload** is `{posting_kind, posting_id, worker_id, stage, marked_on}`, where `marked_on` is the IST day.
-- **The sweep** (`OutboundSignalsSender`, a repeatable BullMQ tick every minute) claims up to 25 due rows with `FOR UPDATE SKIP LOCKED` and a five-minute lease, then builds the body at send time:
+- **The sweep** (`OutboundSignalsSender`, a repeatable BullMQ tick every minute) claims up to 25 due rows with `FOR UPDATE SKIP LOCKED`. Each claim counts as an attempt. The lease outlasts a whole batch timing out, and is never under five minutes. A row a sender keeps crashing on is given up as `abandoned`.
+- **Still true when sent.** Before anything leaves, the sweep re-reads three things and cancels the row when one has changed:
+  - the stage the board holds now: a `selected` row goes while he is `selected` or `hired`, a `hired` row only while he is `hired` (`mark_undone`);
+  - the worker: suspended or scheduled for deletion (`worker_inactive`);
+  - his RVM link: ended (`link_inactive`).
+- **The body** is built at send time:
   - `event_id` is the row id, which is also the Idempotency-Key;
-  - the student ref comes from the link if it is still active; otherwise the row is `cancelled` and nothing leaves;
+  - the student ref;
   - the posting title;
-  - the owner company's name, decrypted only here;
+  - the company as students see it: a company posting's own `org_label`, the name Campus shows, never the account's; an agency job's owner account name, decrypted only here;
   - the stage and the day.
+
+  It is checked against the contract before it is sent, so an off-contract body is dead at once rather than retried.
 - **RVM's answers.**
   - Any 2xx: `delivered`.
   - RVM's `404 NOT_AVAILABLE`: `dead` (`not_available`).
-  - 400, 409, 413, 415 or 422: `dead` (`rejected`).
-  - Anything else (a timeout, a dropped connection, 401/403, 429, a 5xx, a bare 404) is retried after 1, 2, 4 … minutes, capped at six hours. The row is `dead` after 14 attempts, about 32 hours.
-- **The kill switch.** The sweep claims nothing while the switch is off everywhere. Queued rows wait for it to come back on.
+  - 400, 413, 415 or 422: `dead` (`rejected`).
+  - Anything else is retried after 1, 2, 4 … minutes, capped at six hours: a timeout, a dropped connection, 401/403, 409, 429, a 5xx, a bare 404. A 409 can be RVM still working on the same event, or a retry whose rebuilt body differs from one RVM already holds. The row is `dead` after 14 attempts, about 32 hours.
+- **The kill switch.** The sweep claims nothing while the switch is off everywhere, or while RVM's settings are not set. Queued rows wait and keep their attempts. Taking one company off the pilot list stops new marks being queued for it; rows already queued still go.
 - **The dead-letter view** and replay in the admin console are #2770.
 - **Logs** carry the signal id, closed failure codes and an HTTP status only, never the body.
 
@@ -204,6 +212,28 @@ An independent review of the stage change found no HIGH or MEDIUM issue. It conf
 - **payer-web:** an outcome row showed "Shortlisted" with one-click Pass and Move to New, so a teammate could undo a mark without seeing it. It now shows its own badge and no move buttons.
 - **The inbox Shortlist filter** does not include outcome rows, which the API reference now says.
 - **Campus's application-status read** already shows a stored outcome stage while `CAMPUS_LINK_ENABLED` is on (§3.5).
+
+## 4d. Security review (part D)
+
+An independent review found nothing HIGH. It confirmed four things:
+
+- no PII is stored or logged, and the token cannot follow a redirect;
+- queueing needs a real move, both switches, an active link inside the transaction and feed membership on the company's own posting;
+- the CHECKs match the repository's updates;
+- erasure is covered by the cascade.
+
+Its findings, all fixed:
+
+- **MEDIUM:** an undone mark, or a worker frozen after the mark, was still sent. The sender now re-reads the board, the worker and the link, and a row waits ten minutes after the mark.
+- **MEDIUM:** a 409 was treated as a permanent refusal, which could kill a signal RVM still holds. It is now retried.
+- **LOW:**
+  - missing RVM settings used up attempts; the sweep now idles until they are set;
+  - the company name differed from the one Campus shows; a company posting now sends its own `org_label`;
+  - non-RVM errors were retried silently, and an emoji name could fail the 200-character check 14 times; the body is now validated before sending, capped by the contract's own count, and the error class is logged;
+  - a pilot-list read failure lost the signal; the mark is now refused with a 503;
+  - the lease could be shorter than a slow batch; it now outlasts one;
+  - the migration header lacked lock guidance;
+  - a crashing row could be re-claimed forever; each claim now counts, and the row is given up as `abandoned`.
 
 ## 5. Arming and rollback
 

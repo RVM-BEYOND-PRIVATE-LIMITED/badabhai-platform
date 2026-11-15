@@ -32,13 +32,17 @@ export type OutboundSignalKind = (typeof OUTBOUND_SIGNAL_KINDS)[number];
 
 /**
  * `pending` waits for its `next_attempt_at`; `delivered` was accepted; `dead` gave up (attempts
- * exhausted or a refusal no retry can change); `cancelled` will never be sent (the student's link
- * ended before it went).
+ * exhausted or a refusal no retry can change); `cancelled` will never be sent: before it went, the
+ * student's link ended, the mark was undone, or he was suspended or scheduled for deletion.
  */
 export const OUTBOUND_SIGNAL_STATUSES = ["pending", "delivered", "dead", "cancelled"] as const;
 export type OutboundSignalStatus = (typeof OUTBOUND_SIGNAL_STATUSES)[number];
 
-/** Why the last attempt did not deliver. A closed code — never a response body. */
+/**
+ * Why the last attempt did not deliver, or why the row was given up. A closed code, never a response
+ * body. `abandoned`: claimed the maximum number of times without an outcome (a sender crashing on
+ * it).
+ */
 export const OUTBOUND_SIGNAL_FAILURES = [
   "not_configured",
   "timeout",
@@ -49,6 +53,9 @@ export const OUTBOUND_SIGNAL_FAILURES = [
   "rejected",
   "link_inactive",
   "context_missing",
+  "mark_undone",
+  "worker_inactive",
+  "abandoned",
 ] as const;
 export type OutboundSignalFailure = (typeof OUTBOUND_SIGNAL_FAILURES)[number];
 
@@ -92,7 +99,7 @@ export const outboundSignals = pgTable(
     check("outbound_signals_payload_chk", sql`jsonb_typeof(${t.payload}) = 'object'`),
     check(
       "outbound_signals_failure_chk",
-      sql`${t.lastFailure} IS NULL OR ${t.lastFailure} IN ('not_configured', 'timeout', 'network', 'http_status', 'contract', 'not_available', 'rejected', 'link_inactive', 'context_missing')`,
+      sql`${t.lastFailure} IS NULL OR ${t.lastFailure} IN ('not_configured', 'timeout', 'network', 'http_status', 'contract', 'not_available', 'rejected', 'link_inactive', 'context_missing', 'mark_undone', 'worker_inactive', 'abandoned')`,
     ),
     check(
       "outbound_signals_delivered_chk",

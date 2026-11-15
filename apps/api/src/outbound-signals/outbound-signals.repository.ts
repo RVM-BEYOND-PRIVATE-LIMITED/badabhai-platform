@@ -20,7 +20,7 @@ export interface SelectionSignalPayload {
   readonly marked_on: string;
 }
 
-/** One claimed row, as the sender needs it. */
+/** One claimed row, as the sender needs it. `attempts` already counts this claim. */
 export interface ClaimedSignal {
   readonly id: string;
   readonly kind: OutboundSignalKind;
@@ -35,8 +35,17 @@ export interface SelectionSendContext {
   readonly studentRef: string | null;
   /** The posting's title; null when the posting is gone. */
   readonly jobTitle: string | null;
-  /** The owner company's name, still encrypted; null when there is no owner row. */
+  /**
+   * The company as students see it: a company posting's own `org_label` (the reviewed name Campus
+   * shows, never the account's), in clear. Null for an agency job, which has no label.
+   */
+  readonly companyLabel: string | null;
+  /** An agency job's owner account name, still encrypted; null for a company posting. */
   readonly companyNameEnc: string | null;
+  /** The stage the board holds NOW for this applicant on this posting; null for no row (`new`). */
+  readonly currentStage: string | null;
+  /** The worker is `active` and not scheduled for deletion. False when the row is gone too. */
+  readonly workerActive: boolean;
 }
 
 /**
@@ -62,8 +71,9 @@ export class OutboundSignalsRepository {
   }
 
   /**
-   * Queue one selection signal in the caller's transaction. `false` when this mark was signalled
-   * before (the unique `dedupe_key`): a student moved back and marked again sends nothing new.
+   * Queue one selection signal in the caller's transaction, due at `sendAfter`. `false` when this
+   * mark was signalled before (the unique `dedupe_key`): a student moved back and marked again
+   * sends nothing new.
    */
   async insertSelection(
     input: {
@@ -71,6 +81,7 @@ export class OutboundSignalsRepository {
       readonly kind: OutboundSignalKind;
       readonly payload: SelectionSignalPayload;
       readonly at: Date;
+      readonly sendAfter: Date;
     },
     tx: Database,
   ): Promise<boolean> {
@@ -82,7 +93,7 @@ export class OutboundSignalsRepository {
         dedupeKey: input.dedupeKey,
         workerId: input.payload.worker_id,
         payload: { ...input.payload },
-        nextAttemptAt: input.at,
+        nextAttemptAt: input.sendAfter,
         createdAt: input.at,
         updatedAt: input.at,
       })
@@ -92,12 +103,26 @@ export class OutboundSignalsRepository {
   }
 
   /**
-   * Claim up to `limit` due pending rows, oldest first, by pushing each one's `next_attempt_at` to
-   * `leaseUntil`. `SKIP LOCKED`, so two senders never take the same row; a sender that dies
-   * mid-send leaves the row to come due again when the lease runs out (the destination
-   * de-duplicates the retry on the row id).
+   * Claim up to `limit` due pending rows, oldest first. Each claim COUNTS AS AN ATTEMPT and pushes
+   * the row's `next_attempt_at` to `leaseUntil`. `SKIP LOCKED`, so two senders never take the same
+   * row; a sender that dies mid-send leaves the row to come due again when the lease runs out (the
+   * destination de-duplicates the retry on the row id).
+   *
+   * First, a due row that has already been claimed `maxAttempts` times without an outcome (a sender
+   * crashing on it every time) is given up as `dead` / `abandoned`, so it cannot loop forever.
    */
-  async claimDue(now: Date, leaseUntil: Date, limit: number): Promise<ClaimedSignal[]> {
+  async claimDue(
+    now: Date,
+    leaseUntil: Date,
+    limit: number,
+    maxAttempts: number,
+  ): Promise<ClaimedSignal[]> {
+    const at = now.toISOString();
+    await this.db.execute(sql`
+      UPDATE outbound_signals
+      SET status = 'dead', last_failure = 'abandoned', updated_at = ${at}::timestamptz
+      WHERE status = 'pending' AND attempts >= ${maxAttempts}
+        AND next_attempt_at <= ${at}::timestamptz`);
     const rows = await this.db.execute<{
       id: string;
       kind: OutboundSignalKind;
@@ -107,10 +132,12 @@ export class OutboundSignalsRepository {
     }>(sql`
       UPDATE outbound_signals s
       SET next_attempt_at = ${leaseUntil.toISOString()}::timestamptz,
-          updated_at = ${now.toISOString()}::timestamptz
+          attempts = s.attempts + 1,
+          updated_at = ${at}::timestamptz
       WHERE s.id IN (
         SELECT id FROM outbound_signals
-        WHERE status = 'pending' AND next_attempt_at <= ${now.toISOString()}::timestamptz
+        WHERE status = 'pending' AND attempts < ${maxAttempts}
+          AND next_attempt_at <= ${at}::timestamptz
         ORDER BY next_attempt_at, id
         LIMIT ${limit}
         FOR UPDATE SKIP LOCKED
@@ -125,7 +152,7 @@ export class OutboundSignalsRepository {
     }));
   }
 
-  /** Everything a selection body is built from, read now. */
+  /** Everything a selection body is built from, and every reason not to send it, read now. */
   async selectionContext(
     workerId: string,
     postingKind: ApplicantPostingKind,
@@ -133,24 +160,36 @@ export class OutboundSignalsRepository {
   ): Promise<SelectionSendContext> {
     const posting =
       postingKind === "agency_job"
-        ? sql`SELECT j.title AS title, p.org_name_enc AS org_name_enc
+        ? sql`SELECT j.title AS title, NULL::text AS label, p.org_name_enc AS org_name_enc
               FROM jobs j LEFT JOIN payers p ON p.id = j.payer_id
               WHERE j.id = ${postingId}::uuid`
-        : sql`SELECT jp.role_title AS title, p.org_name_enc AS org_name_enc
-              FROM job_postings jp LEFT JOIN payers p ON p.id = jp.payer_id
+        : sql`SELECT jp.role_title AS title, jp.org_label AS label, NULL::text AS org_name_enc
+              FROM job_postings jp
               WHERE jp.id = ${postingId}::uuid`;
     const [link] = await this.db.execute<{ student_ref: string }>(sql`
       SELECT student_ref FROM worker_institute_links
       WHERE worker_id = ${workerId}::uuid
         AND institute_code = ${RVM_INSTITUTE_CODE}
         AND status = 'active'`);
-    const [row] = await this.db.execute<{ title: string | null; org_name_enc: string | null }>(
-      posting,
-    );
+    const [row] = await this.db.execute<{
+      title: string | null;
+      label: string | null;
+      org_name_enc: string | null;
+    }>(posting);
+    const [stage] = await this.db.execute<{ stage: string }>(sql`
+      SELECT stage FROM payer_applicant_stages
+      WHERE posting_kind = ${postingKind} AND posting_id = ${postingId}::uuid
+        AND worker_id = ${workerId}::uuid`);
+    const [worker] = await this.db.execute<{ active: boolean }>(sql`
+      SELECT (status = 'active' AND deletion_scheduled_at IS NULL) AS active
+      FROM workers WHERE id = ${workerId}::uuid`);
     return {
       studentRef: link?.student_ref ?? null,
       jobTitle: row?.title ?? null,
+      companyLabel: row?.label ?? null,
       companyNameEnc: row?.org_name_enc ?? null,
+      currentStage: stage?.stage ?? null,
+      workerActive: worker?.active === true,
     };
   }
 
@@ -158,8 +197,7 @@ export class OutboundSignalsRepository {
     await this.db.execute(sql`
       UPDATE outbound_signals
       SET status = 'delivered', delivered_at = ${at.toISOString()}::timestamptz,
-          attempts = attempts + 1, last_failure = NULL,
-          updated_at = ${at.toISOString()}::timestamptz
+          last_failure = NULL, updated_at = ${at.toISOString()}::timestamptz
       WHERE id = ${id}::uuid AND status = 'pending'`);
   }
 
@@ -172,27 +210,21 @@ export class OutboundSignalsRepository {
   ): Promise<void> {
     await this.db.execute(sql`
       UPDATE outbound_signals
-      SET attempts = attempts + 1, last_failure = ${failure},
-          next_attempt_at = ${nextAt.toISOString()}::timestamptz,
+      SET last_failure = ${failure}, next_attempt_at = ${nextAt.toISOString()}::timestamptz,
           updated_at = ${at.toISOString()}::timestamptz
       WHERE id = ${id}::uuid AND status = 'pending'`);
   }
 
-  /**
-   * The end of the line: `dead` (attempts exhausted, or a refusal no retry can change) or
-   * `cancelled` (never to be sent). `countsAttempt` is false when nothing was sent.
-   */
+  /** The end of the line: `dead` (gave up) or `cancelled` (never to be sent). */
   async markFinal(
     id: string,
     status: "dead" | "cancelled",
     failure: OutboundSignalFailure,
     at: Date,
-    countsAttempt: boolean,
   ): Promise<void> {
     await this.db.execute(sql`
       UPDATE outbound_signals
       SET status = ${status}, last_failure = ${failure},
-          attempts = attempts + ${countsAttempt ? 1 : 0},
           updated_at = ${at.toISOString()}::timestamptz
       WHERE id = ${id}::uuid AND status = 'pending'`);
   }

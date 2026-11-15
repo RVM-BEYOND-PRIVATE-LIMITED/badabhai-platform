@@ -48,7 +48,7 @@ export function stagesOff(): PayerApplicantStagesService {
       },
     } as never,
     {
-      signalsOnFor: () => {
+      signalsStateFor: () => {
         throw new Error("the stages service must not read the signal switch while its flag is off");
       },
       recordMark: () => {

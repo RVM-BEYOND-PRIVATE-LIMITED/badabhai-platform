@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import type { Database } from "@badabhai/db";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import {
@@ -82,7 +88,8 @@ export function readStoredStage(stored: string | null | undefined): ApplicantSta
  * THE SIGNAL TO RVM (#2747 item 8). A real move INTO `selected` or `hired` of an actively linked RVM
  * student, by a company with `OUTBOUND_SIGNALS_ROLLOUT` on, also queues one `outbound_signals` row
  * in the SAME transaction ({@link OutboundSignalsService.recordMark}), so the mark and its signal
- * commit together. A no-op, a move out, or a BadaBhai worker queues nothing; nothing touches
+ * commit together. A pilot list that cannot be read refuses the mark with a 503 (nothing written).
+ * A no-op, a move out, or a BadaBhai worker queues nothing; nothing touches
  * `outbound_signals` (migration 0167) while that switch is off.
  */
 @Injectable()
@@ -150,9 +157,15 @@ export class PayerApplicantStagesService {
     if (postingKind === null) throw new NotFoundException(APPLICANT_NOT_FOUND);
     const key: ApplicantStageKey = { postingKind, postingId, workerId };
 
-    // #2747 item 8: read before the transaction (a pilot-list read is its own query).
-    const signal =
-      isApplicantOutcomeStage(stage) && (await this.outbound.signalsOnFor(scope.tenantKey));
+    // #2747 item 8: read before the transaction (a pilot-list read is its own query). A pilot list
+    // that cannot be read refuses the mark (nothing written) rather than save it with its signal
+    // silently lost; the company retries.
+    let signal = false;
+    if (isApplicantOutcomeStage(stage)) {
+      const state = await this.outbound.signalsStateFor(scope.tenantKey);
+      if (state === "unavailable") throw new ServiceUnavailableException();
+      signal = state === "on";
+    }
     const outcome = await this.writeStage(key, stage, actorPayerId, ctx, now, signal);
 
     return {
