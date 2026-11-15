@@ -22,6 +22,7 @@ import { PayerOrgRoleGuard } from "./payer-org-role.guard";
 import { PayerAccountService } from "./payer-account.service";
 import { PayerAccountDeletionService } from "./payer-account-deletion.service";
 import { PayerAccountController } from "./payer-account.controller";
+import { CampusDriveContactErasureRepository } from "../campus-drives/campus-drive-contact-erasure.repository";
 
 /**
  * Payer portal — IDENTITY + TENANCY FOUNDATION (ADR-0019 Phase 1, mock/staging-only).
@@ -77,6 +78,9 @@ import { PayerAccountController } from "./payer-account.controller";
     PayerOrgRoleGuard,
     PayerAccountService,
     PayerAccountDeletionService,
+    // #2746 PR 6 — the account deletion erases the campus-drive contacts the login entered.
+    // Provided here, not imported: CampusDrivesModule imports this module.
+    CampusDriveContactErasureRepository,
     PayerTenantScopeService,
   ],
   exports: [

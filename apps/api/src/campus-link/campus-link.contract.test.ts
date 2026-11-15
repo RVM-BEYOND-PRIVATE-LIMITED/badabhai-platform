@@ -10,6 +10,10 @@ import {
   CampusApplicationsQuerySchema,
   CampusApplyBodySchema,
   CampusCompanyResponseSchema,
+  CampusDriveDecisionBodySchema,
+  CampusDriveDecisionResponseSchema,
+  CampusDriveRequestPageSchema,
+  CampusDriveRequestSchema,
   CampusIdempotencyKeySchema,
   CampusPostForCompanyBodySchema,
   CampusPostForCompanyResponseSchema,
@@ -57,6 +61,14 @@ const PAIRS: ReadonlyArray<[string, z.ZodType, unknown]> = [
   ["search-grant body", CampusSearchGrantBodySchema, examples.SEARCH_GRANT_BODY_EXAMPLE],
   ["search grant", CampusSearchGrantSchema, examples.SEARCH_GRANT_EXAMPLE],
   ["unlink response", CampusUnlinkResponseSchema, examples.UNLINK_RESPONSE_EXAMPLE],
+  ["drive request", CampusDriveRequestSchema, examples.DRIVE_REQUEST_EXAMPLE],
+  ["drive request page", CampusDriveRequestPageSchema, examples.DRIVE_REQUEST_PAGE_EXAMPLE],
+  ["drive decision body", CampusDriveDecisionBodySchema, examples.DRIVE_DECISION_BODY_EXAMPLE],
+  [
+    "drive decision response",
+    CampusDriveDecisionResponseSchema,
+    examples.DRIVE_DECISION_RESPONSE_EXAMPLE,
+  ],
 ];
 
 describe("Campus contract v1 — every published example parses against its schema", () => {
@@ -270,12 +282,15 @@ describe("Campus contract v1 — every decision carries its time (#2746, owner 1
   });
 
   it("names DECISION_SUPERSEDED after every code that existed before", () => {
-    // Right after POSTING_CHANGED; only #2752 Part E's codes, merged after PR 5, follow it.
+    // Right after POSTING_CHANGED; only #2752 Part E's codes (merged after PR 5), then #2746
+    // PR 6's two drive codes, follow it.
     const at = CAMPUS_ERROR_CODES.indexOf("DECISION_SUPERSEDED");
     expect(at).toBe(CAMPUS_ERROR_CODES.indexOf("POSTING_CHANGED") + 1);
     expect(CAMPUS_ERROR_CODES.slice(at + 1)).toEqual([
       "COMPANY_NOT_CAMPUS_CREATED",
       "REQUEST_IN_PROGRESS",
+      "DECISION_NOT_ALLOWED",
+      "COMPANY_WITHDRAWN",
     ]);
   });
 });
