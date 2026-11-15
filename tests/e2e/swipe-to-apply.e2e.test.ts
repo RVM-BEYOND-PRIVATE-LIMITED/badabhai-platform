@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDbClient, events, jobs, type DbClient, type EventRow } from "@badabhai/db";
+import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
 /**
  * Alpha swipe-to-apply (ADR-0009 Stream B) end-to-end against a LIVE API + DB.
@@ -68,12 +69,11 @@ async function req(
 
 /**
  * A phone in the ONLY range the D-3 mint will serve: SYNTHETIC_TEST_PHONE_PATTERN
- * (`/^\+910{5}\d{5}$/`, i.e. `+9100000` + 5 digits). `AuthService.testLogin` refuses
- * anything else before finding or creating a worker.
+ * (`/^\+910{5}\d{5}$/`), inside this suite's own slot so no other suite's worker (one
+ * that may already hold consent) can come back from the mint. `AuthService.testLogin`
+ * refuses anything else before finding or creating a worker.
  */
-function syntheticPhone(): string {
-  return `+9100000${String(Math.floor(Math.random() * 100_000)).padStart(5, "0")}`;
-}
+const syntheticPhone = syntheticPhoneMinter(68);
 
 /**
  * Login a fresh worker via the D-3 test-login mint seam and return its id + bearer
