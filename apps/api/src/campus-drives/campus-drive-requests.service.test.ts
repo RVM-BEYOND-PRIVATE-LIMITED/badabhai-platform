@@ -13,6 +13,7 @@ import { validateEvent } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
 import type { PostingAudienceRepository } from "../job-postings/posting-audience.repository";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { defaultModeResolver, resolverOver } from "../payers/payer-tenant-scope.test-support";
 import { CampusDriveRequestsQuerySchema } from "../campus-link/campus-link.contract";
@@ -65,14 +66,24 @@ function body(over: Record<string, unknown> = {}) {
   });
 }
 
+/**
+ * #2768: the suite's other rules are not about the cap, and the list test files five requests for
+ * one company, so a world holds a roomy cap unless it asks for another. The cap's own tests pass
+ * `config: {}`: the real default.
+ */
+const ROOMY_CAP = { CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "100" };
+
 function world(
   options: {
     settings?: Record<string, string>;
     pilot?: string[];
     tenancy?: PayerTenantScopeService;
     activeBranches?: number[];
+    /** Server settings beside the switch (the cap); `{}` is every default. */
+    config?: Record<string, string>;
   } = {},
 ) {
+  const config = loadServerConfig({ NODE_ENV: "test", ...(options.config ?? ROOMY_CAP) });
   const table = new MemoryDriveRequests();
   const verified = {
     verificationStatus: "verified" as const,
@@ -104,6 +115,7 @@ function world(
     idempotency.seam,
     pii,
     events.service as unknown as EventsService,
+    config,
   );
   // Campus's side of the same table: no switch, no tenancy (owner ruling R1).
   const campus = new CampusDriveDecisionsService(
@@ -121,6 +133,7 @@ function world(
       idempotency.seam,
       pii,
       events.service as unknown as EventsService,
+      config,
     );
   return { table, events, service, idempotency, pii, options: options_, campus, withSettings };
 }
@@ -753,6 +766,166 @@ describe("Idempotency-Key", () => {
     release();
     await first;
     expect(table.rows).toHaveLength(1);
+  });
+});
+
+describe("the cap on open requests (#2768, risk R85; owner ruling 15 Nov 2026)", () => {
+  /** Files `n` requests for `payer`, keys `cap-<payer tail>-<i>`, openings 1..n. */
+  async function fill(
+    service: CampusDriveRequestsService,
+    payer: string,
+    n: number,
+  ): Promise<{ id: string }[]> {
+    const made: { id: string }[] = [];
+    for (let i = 1; i <= n; i += 1) {
+      made.push(
+        await service.create(payer, body({ openings: i }), `cap-${payer.slice(-4)}-${i}`, CTX),
+      );
+    }
+    return made;
+  }
+
+  it("the default is 3: a 4th open request is 409 drive_request_limit_reached with limit and open, and writes nothing", async () => {
+    const { service, table, events } = world({ config: {} });
+    await fill(service, COMPANY, 3);
+    const before = table.digest();
+    const emitted = events.emitted.length;
+    const err = await refusal(() =>
+      service.create(COMPANY, body({ openings: 4 }), "cap-key-0004", CTX),
+    );
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(err.getResponse()).toMatchObject({
+      statusCode: 409,
+      error: "Conflict",
+      reason: "drive_request_limit_reached",
+      limit: 3,
+      open: 3,
+    });
+    expect(table.digest()).toBe(before);
+    expect(events.emitted).toHaveLength(emitted);
+  });
+
+  it("a scheduled request holds its place; cancelled, declined and completed ones free it", async () => {
+    const { service, table } = world({ config: {} });
+    const made = await fill(service, COMPANY, 3);
+    Object.assign(table.rows[0]!, { status: "scheduled", scheduledOn: "2026-12-05" });
+    // (A refusal is replayed for its key inside the Redis window, the house rule, so each later
+    // ask below carries a NEW key, as a client minting one per request it means to make does.)
+    expect(
+      (
+        await refusal(() => service.create(COMPANY, body({ openings: 4 }), "cap-key-0003b", CTX))
+      ).getResponse(),
+    ).toMatchObject({ reason: "drive_request_limit_reached", open: 3 });
+
+    // The company cancels one: a place is free.
+    await service.cancel(COMPANY, made[1]!.id, CTX);
+    await expect(
+      service.create(COMPANY, body({ openings: 4 }), "cap-key-0004", CTX),
+    ).resolves.toMatchObject({ status: "requested" });
+
+    // The placement team completes one and declines another: two more places.
+    Object.assign(table.rows[0]!, { status: "completed" });
+    Object.assign(table.rows[2]!, { status: "declined" });
+    await service.create(COMPANY, body({ openings: 5 }), "cap-key-0005", CTX);
+    await service.create(COMPANY, body({ openings: 6 }), "cap-key-0006", CTX);
+    expect(
+      (
+        await refusal(() => service.create(COMPANY, body({ openings: 7 }), "cap-key-0007", CTX))
+      ).getResponse(),
+    ).toMatchObject({ reason: "drive_request_limit_reached", limit: 3, open: 3 });
+    expect(table.rows.filter((r) => r.status === "requested")).toHaveLength(3);
+  });
+
+  it("the count is per company: one company at the cap does not hold back another", async () => {
+    const { service } = world({ config: {} });
+    await fill(service, COMPANY, 3);
+    await expect(fill(service, OTHER_COMPANY, 3)).resolves.toHaveLength(3);
+  });
+
+  it("a repeat of a stored key answers its request at the cap, inside the Redis window and after it", async () => {
+    const { service, table, idempotency } = world({ config: {} });
+    const [first] = await fill(service, COMPANY, 3);
+    const key = `cap-${COMPANY.slice(-4)}-1`;
+    await expect(service.create(COMPANY, body({ openings: 1 }), key, CTX)).resolves.toMatchObject({
+      id: first!.id,
+    });
+    idempotency.forget();
+    await expect(service.create(COMPANY, body({ openings: 1 }), key, CTX)).resolves.toMatchObject({
+      id: first!.id,
+    });
+    expect(table.rows).toHaveLength(3);
+  });
+
+  it("CAMPUS_DRIVE_MAX_OPEN_REQUESTS moves the cap", async () => {
+    const { service } = world({ config: { CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "1" } });
+    await fill(service, COMPANY, 1);
+    expect(
+      (
+        await refusal(() => service.create(COMPANY, body({ openings: 2 }), "cap-key-0002", CTX))
+      ).getResponse(),
+    ).toMatchObject({ reason: "drive_request_limit_reached", limit: 1, open: 1 });
+  });
+
+  it("is checked LAST: at the cap, a body another rule refuses hears that rule first", async () => {
+    const { service } = world({ config: { CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "1" } });
+    await fill(service, COMPANY, 1);
+    const err = await refusal(() =>
+      service.create(COMPANY, body({ roles_note: "Call 98123 45678" }), "cap-key-0002", CTX),
+    );
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(err.getResponse()).toMatchObject({ reason: "roles_note_has_identifier" });
+  });
+
+  it("a new request takes the company's create lock, then counts; a repeat takes neither", async () => {
+    const { service, table } = world({ config: {} });
+    await service.create(COMPANY, body(), "cap-key-0001", CTX);
+    expect(table.createSteps).toEqual([`lock:${COMPANY}`, `count:${COMPANY}`]);
+    await service.create(COMPANY, body(), "cap-key-0001", CTX);
+    expect(table.createSteps).toHaveLength(2);
+  });
+
+  it("a same-key create that finds the key taken on its transaction answers that request, never the cap's 409", async () => {
+    const { service, table, pii } = world({ config: { CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "1" } });
+    const lock = table.lockCreates.bind(table);
+    let winner: { id: string } | undefined;
+    table.lockCreates = async (tx: unknown, tenant: TenantKey) => {
+      await lock(tx, tenant);
+      // While this create waited for the lock, a create under the same key committed the request
+      // (and so filled the company's only place).
+      winner = await table.insert(tx, {
+        payerId: COMPANY as TenantKey,
+        createdBy: COMPANY,
+        jobPostingId: null,
+        branchIds: [1, 3],
+        preferredFrom: "2026-12-01",
+        preferredTo: "2026-12-15",
+        openings: 12,
+        rolesNote: NOTE,
+        contactNameEnc: pii.encrypt(CONTACT_NAME),
+        contactPhoneEnc: pii.encrypt(CONTACT_PHONE),
+        isTest: false,
+        idempotencyKey: "cap-key-0001",
+      });
+    };
+    const answer = await service.create(COMPANY, body(), "cap-key-0001", CTX);
+    expect(winner).toBeDefined();
+    expect(answer.id).toBe(winner!.id);
+    expect(table.rows).toHaveLength(1);
+    // It answered from the key re-read: it never counted.
+    expect(table.createSteps).toEqual([`lock:${COMPANY}`]);
+  });
+
+  it("the refusal logs ids and counts only", async () => {
+    const { service } = world({ config: { CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "1" } });
+    await fill(service, COMPANY, 1);
+    const lines = await logsOf(() =>
+      service.create(COMPANY, body({ openings: 2 }), "cap-key-0002", CTX),
+    );
+    expect(lines).toContain(`campus drive request refused: tenant=${COMPANY} open=1 limit=1`);
+    const all = lines.join("\n");
+    expect(all).not.toContain(CONTACT_NAME);
+    expect(all).not.toContain("5678");
+    expect(all).not.toContain(NOTE);
   });
 });
 

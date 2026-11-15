@@ -346,6 +346,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CONTACT_RULES_ROLLOUT:\s*\$\{\{\s*secrets\.CONTACT_RULES_ROLLOUT\s*\}\}/,
       /envs:[^\n]*\bCONTACT_RULES_ROLLOUT\b/,
     ],
+    // #2768 — open campus-drive requests per company. A tuning number like the one below;
+    // absent, compose holds it at the owner's 3.
+    [
+      "CAMPUS_DRIVE_MAX_OPEN_REQUESTS",
+      /CAMPUS_DRIVE_MAX_OPEN_REQUESTS:\s*\$\{\{\s*secrets\.CAMPUS_DRIVE_MAX_OPEN_REQUESTS\s*\}\}/,
+      /envs:[^\n]*\bCAMPUS_DRIVE_MAX_OPEN_REQUESTS\b/,
+    ],
     // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
     // secret in the confidentiality sense, but bridged through `secrets.*` like the other
     // numbers so a deploy does not depend on the box's shell state; absent, compose holds
@@ -446,6 +453,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     // are honoured whatever the switch says (a switch gates capabilities, never restrictions).
     ["JOB_AUDIENCE_ROLLOUT", "off"],
     ["CAMPUS_DRIVE_REQUESTS_ROLLOUT", "off"],
+    // #2768 — the zod default: 3 open drive requests per company until the secret says otherwise.
+    ["CAMPUS_DRIVE_MAX_OPEN_REQUESTS", "3"],
     // #2509 — the zod default: 20/hour/IP until the secret (or a box export) says otherwise.
     ["PAYER_AUTH_MAX_PER_IP_PER_HOUR", "20"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
