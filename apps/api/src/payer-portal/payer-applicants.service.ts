@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { DEFAULT_APPLICANT_STAGE, type ApplicantStage } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import { ReachService } from "../reach/reach.service";
-import type { ApplicantListResponseDto, ApplicantRowDto } from "../reach/reach.dto";
+import type { ApplicantRowDto } from "../reach/reach.dto";
 import {
   MatchCandidatesService,
   type MatchCandidateListDto,
@@ -11,6 +11,8 @@ import {
 import { JobPostingsService } from "../job-postings/job-postings.service";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { PayerTenantScope } from "../payers/payer-tenant-scope";
+import type { PrePayWire } from "../match/pre-pay-facts";
+import { PrePayFactsService } from "../match/pre-pay-facts.service";
 import { PayerApplicantStagesService, withStages } from "./payer-applicant-stages.service";
 import { APPLICANT_NOT_FOUND } from "./payer-applicant-stage.dto";
 import type { ApplicantFeedStage } from "./payer-applicant-feed-query.dto";
@@ -25,12 +27,15 @@ export type StagedRow<R> = R & { stage: ApplicantStage };
  * With `PAYER_APPLICANT_STAGES_ENABLED` on, every row additionally carries `stage` (owner ruling
  * 2026-10-07) — appended, nothing else in the row changes; with it off the shapes are exactly
  * the base ones.
+ *
+ * #2747: every row also carries `source` (`rvm_student` | `badabhai_worker`), and, while the
+ * `applicant_facts` switch is on for the company, the pre-pay facts (`PrePayFactsService`).
  */
 export type PayerApplicantListDto =
-  | ApplicantListResponseDto
-  | MatchCandidateListDto
-  | { jobId: string; applicants: StagedRow<ApplicantRowDto>[] }
-  | { jobId: string; applicants: StagedRow<MatchCandidateRowDto>[] };
+  | { jobId: string; applicants: PrePayWire<ApplicantRowDto>[] }
+  | { jobId: string; applicants: PrePayWire<MatchCandidateRowDto>[] }
+  | { jobId: string; applicants: PrePayWire<StagedRow<ApplicantRowDto>>[] }
+  | { jobId: string; applicants: PrePayWire<StagedRow<MatchCandidateRowDto>>[] };
 
 /**
  * The ONE message every not-listable id gets — unknown, another tenant's job, another tenant's
@@ -99,6 +104,9 @@ export class PayerApplicantsService {
     private readonly stages: PayerApplicantStagesService,
     // ADR-0053 — the payer tenant resolver (PayersModule).
     private readonly tenancy: PayerTenantScopeService,
+    // #2747 — the source label and the pre-pay facts (the @Global MatchModule). Optional only so
+    // hand-built unit instances keep compiling; Nest always injects it.
+    @Optional() private readonly prePay?: PrePayFactsService,
   ) {}
 
   async listForOwned(
@@ -129,19 +137,35 @@ export class PayerApplicantsService {
     // ONE ownership read decides the source, whatever MATCH_V1_ENABLED says (#1898): an owned
     // `jobs` row lists its appliers; a miss (unknown or another tenant's job) falls through to
     // the posting seam.
-    const jobList = await this.reach.tryApplicantsForOwnedJob(jobId, scope, ctx, visibleToAgency);
+    // #2747 — the agency rows are decorated INSIDE the reach call, before its `feed.shown`.
+    const jobList = await this.reach.tryApplicantsForOwnedJob(
+      jobId,
+      scope,
+      ctx,
+      visibleToAgency,
+      this.prePay ? (rows) => this.decorated(rows, scope) : undefined,
+    );
     if (jobList) {
       return stages
         ? { ...jobList, applicants: withStages(jobList.applicants, stages.agency_job) }
         : jobList;
     }
     const postingList = await this.listForOwnedPosting(jobId, scope);
-    if (!stages) return postingList;
+    if (!stages) {
+      return { ...postingList, applicants: await this.decorated(postingList.applicants, scope) };
+    }
     const annotated = withStages(postingList.applicants, stages.company_posting);
-    return {
-      ...postingList,
-      applicants: onStage === "all" ? annotated : annotated.filter((row) => row.stage === onStage),
-    };
+    const shown = onStage === "all" ? annotated : annotated.filter((row) => row.stage === onStage);
+    // Decorated after the stage filter: only the rows actually returned are read.
+    return { ...postingList, applicants: await this.decorated(shown, scope) };
+  }
+
+  /** #2747 — the label and (switch on) the pre-pay facts; the rows unchanged without the service. */
+  private async decorated<R extends { workerId: string; instituteCode?: string | null }>(
+    rows: R[],
+    scope: PayerTenantScope,
+  ): Promise<PrePayWire<R>[]> {
+    return this.prePay ? this.prePay.decorate(rows, scope.tenantKey) : rows;
   }
 
   private async listForOwnedPosting(

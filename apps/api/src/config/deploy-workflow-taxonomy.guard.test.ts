@@ -334,6 +334,12 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CAMPUS_DRIVE_REQUESTS_ROLLOUT:\s*\$\{\{\s*secrets\.CAMPUS_DRIVE_REQUESTS_ROLLOUT\s*\}\}/,
       /envs:[^\n]*\bCAMPUS_DRIVE_REQUESTS_ROLLOUT\b/,
     ],
+    // #2747 — the pre-pay facts on the company's applicant and search cards.
+    [
+      "APPLICANT_FACTS_ROLLOUT",
+      /APPLICANT_FACTS_ROLLOUT:\s*\$\{\{\s*secrets\.APPLICANT_FACTS_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bAPPLICANT_FACTS_ROLLOUT\b/,
+    ],
     // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
     // secret in the confidentiality sense, but bridged through `secrets.*` like the other
     // numbers so a deploy does not depend on the box's shell state; absent, compose holds

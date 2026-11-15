@@ -666,12 +666,16 @@ export const serverEnvSchema = z.object({
   //   JOB_AUDIENCE_ROLLOUT — who-sees-this-job (BadaBhai workers / RVM students / both),
   //     branch and course targeting, and the placement team's review of RVM jobs.
   //   CAMPUS_DRIVE_REQUESTS_ROLLOUT — a company asks RVM for a campus drive.
+  //   APPLICANT_FACTS_ROLLOUT (#2747) — the facts a company sees before paying: first name, trade
+  //     line, expected salary, machines, area and last-active day on the applicant and search
+  //     cards. Off, those keys are not sent (every row still carries its `source` label).
   // Off, the new payer fields are ignored and the new routes answer 404. Campus's own routes
   // additionally need CAMPUS_LINK_ENABLED. A switch gates CAPABILITIES only: stored state (the
   // worker-path audience filter, the RVM review gate) is honoured whatever it says, so switching
   // back to off can never expose an RVM-only job to BadaBhai workers.
   JOB_AUDIENCE_ROLLOUT: featureRolloutMode,
   CAMPUS_DRIVE_REQUESTS_ROLLOUT: featureRolloutMode,
+  APPLICANT_FACTS_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER

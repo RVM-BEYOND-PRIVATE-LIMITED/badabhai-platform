@@ -17,6 +17,7 @@ import { MatchConfigService } from "../match/match-config.service";
 import type { TradeLevelBadge } from "../match/match-candidates.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import { PrePayFactsService } from "../match/pre-pay-facts.service";
 import { encodeCandidateCursor, searchFingerprint } from "./candidate-search.cursor";
 import {
   CANDIDATE_SEARCH_MAX_ROLES,
@@ -96,6 +97,9 @@ export class CandidateSearchService {
     // #2752 item 10 — the searching company's tenant key, for its named-company search grants.
     // Optional on the narrowing side: absent, no grant is read, so the pool is only ever smaller.
     @Optional() private readonly tenancy?: PayerTenantScopeService,
+    // #2747 — the source label and the pre-pay facts (the @Global MatchModule). Optional so the
+    // pre-#2747 unit constructions keep the base card; Nest always injects it.
+    @Optional() private readonly prePay?: PrePayFactsService,
   ) {}
 
   async search(
@@ -167,7 +171,7 @@ export class CandidateSearchService {
     const corrections = this.effectiveFacts
       ? await this.effectiveFacts.resolveMany(workerIds)
       : new Map();
-    const candidates = page.map((row) => {
+    const baseRows = page.map((row) => {
       const overrides = corrections.get(row.workerId);
       const effectiveCity = overrides
         ? (applyEffectiveFacts({ workersCity: row.currentCity, attributes: {} }, overrides)
@@ -180,6 +184,10 @@ export class CandidateSearchService {
         levelsOf.get(row.workerId) ?? [],
       );
     });
+
+    // #2747 — the label and (switch on) the pre-pay facts, before anything is emitted.
+    const candidates =
+      this.prePay && tenant !== undefined ? await this.prePay.decorate(baseRows, tenant) : baseRows;
 
     const filtered =
       roleFiltered ||
