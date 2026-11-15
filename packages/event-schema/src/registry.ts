@@ -1776,6 +1776,15 @@ export const EVENT_REGISTRY = {
     domain: "display_prefs",
     payload: p.DisplayPrefsChangedPayload,
   },
+  // #2747 item 7 — `payer.applicant_stage_changed` VERSION 2: a move to or from the outcome stages
+  // `selected` / `hired`. A NEW NAME, as `resume.edited_v2` is: the v1 entry keeps its definition,
+  // pinned to the first three stages, and still reports every move between them. Ids + closed
+  // enums only, strict. v2.
+  "payer.applicant_stage_changed_v2": {
+    version: 2,
+    domain: "payer",
+    payload: p.PayerApplicantStageChangedV2Payload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

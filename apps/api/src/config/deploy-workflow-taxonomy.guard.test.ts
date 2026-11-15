@@ -359,6 +359,12 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /THEME_ROLLOUT:\s*\$\{\{\s*secrets\.THEME_ROLLOUT\s*\}\}/,
       /envs:[^\n]*\bTHEME_ROLLOUT\b/,
     ],
+    // #2747 — the outcome stages (`selected` / `hired`) on the applicant board.
+    [
+      "OUTCOME_STAGES_ROLLOUT",
+      /OUTCOME_STAGES_ROLLOUT:\s*\$\{\{\s*secrets\.OUTCOME_STAGES_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bOUTCOME_STAGES_ROLLOUT\b/,
+    ],
     // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
     // secret in the confidentiality sense, but bridged through `secrets.*` like the other
     // numbers so a deploy does not depend on the box's shell state; absent, compose holds

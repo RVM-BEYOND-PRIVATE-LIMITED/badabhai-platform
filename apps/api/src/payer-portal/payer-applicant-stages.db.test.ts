@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { createDbClient, type DbClient } from "@badabhai/db";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
 import type { ApplicantStage } from "@badabhai/types";
@@ -38,7 +38,10 @@ import { defaultModeResolver, ownTenantKey } from "../payers/payer-tenant-scope.
  *    one row, two events whose `previous_stage` chain is exact;
  *  - reads: both per-posting feeds and the inbox carry the stage, the inbox row minus `posting`
  *    is the per-posting row, and `?stage=` with keyset paging walks each stage exactly once;
- *  - erasure: deleting a worker removes his board rows (the FK cascade).
+ *  - erasure: deleting a worker removes his board rows (the FK cascade);
+ *  - #2747 item 7 (needs migration 0166): `selected` then `hired` are stored and read back only
+ *    while the outcome switch is on, each with a v2 event row, and the widened CHECK still refuses
+ *    a value outside the five stages.
  *
  * Fixtures carry no PII: synthetic `enc:`/`hash:` markers, ids fresh per run, all deleted after.
  *
@@ -112,6 +115,8 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
   let perPosting!: PayerApplicantsService;
   let inbox!: PayerApplicantInboxService;
   const correlations: string[] = [];
+  /** #2747 — the `outcome_stages` switch every company reads in this file. */
+  let outcomeOn = false;
 
   beforeAll(async () => {
     client = createDbClient(DATABASE_URL, { max: 4 });
@@ -126,6 +131,7 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
       events,
       on,
       tenancy,
+      { isEnabledFor: async () => outcomeOn } as never,
     );
     const reach = new ReachService(new ReachRepository(client.db), events, {} as never);
     const candidates = new MatchCandidatesService(new MatchFeedRepository(client.db), {
@@ -464,6 +470,79 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
     await client.sql`DELETE FROM worker_profiles WHERE worker_id = ${W.erased!}::uuid`;
     await client.sql`DELETE FROM workers WHERE id = ${W.erased!}::uuid`;
     expect((await rowsFor(POST_A)).map((r) => r.worker_id)).not.toContain(W.erased);
+  });
+
+  it("#2747 (migration 0166): selected then hired — refused while off, stored and read back while on, v2 events", async () => {
+    const worker = W.w4!;
+    const stageOf = async () =>
+      (await rowsFor(JOB_A)).find((r) => r.worker_id === worker)?.stage ?? "new";
+    const before = await stageOf();
+
+    outcomeOn = false;
+    const c0 = ctx();
+    correlations.push(c0.correlationId);
+    const refused = await stages.setStage(PAYER_A, JOB_A, worker, "selected", c0).catch((e) => e);
+    expect(refused).toBeInstanceOf(BadRequestException);
+    expect(await stageOf()).toBe(before);
+    expect(await eventsFor(c0.correlationId)).toEqual([]);
+
+    outcomeOn = true;
+    try {
+      const selected = await move(PAYER_A, JOB_A, worker, "selected");
+      expect(selected.out).toMatchObject({
+        stage: "selected",
+        previousStage: before,
+        changed: true,
+      });
+      expect(await stageOf()).toBe("selected");
+      const [e1] = await eventsFor(selected.c.correlationId);
+      expect(e1).toMatchObject({
+        event_name: "payer.applicant_stage_changed_v2",
+        event_version: 2,
+        actor_type: "payer",
+        actor_id: PAYER_A,
+        subject_type: "worker",
+        subject_id: worker,
+        payload: {
+          posting_kind: "agency_job",
+          posting_id: JOB_A,
+          worker_id: worker,
+          stage: "selected",
+          previous_stage: before,
+        },
+      });
+
+      const hired = await move(PAYER_A, JOB_A, worker, "hired");
+      expect(hired.out).toMatchObject({ stage: "hired", previousStage: "selected" });
+      expect(await stageOf()).toBe("hired");
+      expect((await eventsFor(hired.c.correlationId)).map((e) => e.event_name)).toEqual([
+        "payer.applicant_stage_changed_v2",
+      ]);
+
+      // Read back on both feeds, and the inbox's ?stage=hired walks to him.
+      const c = ctx();
+      correlations.push(c.correlationId);
+      const board = await perPosting.listForOwned(JOB_A, PAYER_A, c, "hired");
+      expect(
+        (board.applicants as unknown as { workerId: string; stage: string }[]).map((a) => [
+          a.workerId,
+          a.stage,
+        ]),
+      ).toEqual([[worker, "hired"]]);
+      expect((await walk(2, "hired")).map(keyOf)).toEqual([`${JOB_A}|${worker}`]);
+    } finally {
+      outcomeOn = false;
+    }
+
+    // After a rollback the stored stage still reads as itself, and the company can move him OUT.
+    const out = await move(PAYER_A, JOB_A, worker, "shortlist");
+    expect(out.out).toMatchObject({ stage: "shortlist", previousStage: "hired", changed: true });
+
+    // The widened CHECK admits the five stages and nothing else.
+    const bad = await client.sql`
+      UPDATE payer_applicant_stages SET stage = 'contacted'
+      WHERE posting_id = ${JOB_A}::uuid AND worker_id = ${worker}::uuid`.catch((e) => e);
+    expect((bad as { code?: string }).code).toBe("23514");
   });
 });
 

@@ -1464,14 +1464,34 @@ export const APPLICANT_POSTING_KINDS = Object.freeze(["company_posting", "agency
 export type ApplicantPostingKind = (typeof APPLICANT_POSTING_KINDS)[number];
 
 /**
- * Where an applicant sits on a posting's New / Shortlist / Passed board in payer-web.
+ * The board's first three stages: New / Shortlist / Passed (owner ruling 2026-10-07, migration
+ * 0134). FROZEN: `payer.applicant_stage_changed` v1 takes its enum from this list, and a shipped
+ * payload never changes. A move between two of these stages is still reported as v1.
+ */
+export const APPLICANT_STAGES_V1 = Object.freeze(["new", "shortlist", "passed"] as const);
+export type ApplicantStageV1 = (typeof APPLICANT_STAGES_V1)[number];
+
+/**
+ * #2747 item 7 (brief 4B.8): the outcome stages. A company marks an applicant selected, then
+ * hired. Accepted on a write only while `OUTCOME_STAGES_ROLLOUT` is on for the company (and
+ * migration 0166 widened the CHECK). A stored one is always read back as itself.
+ */
+export const APPLICANT_OUTCOME_STAGES = Object.freeze(["selected", "hired"] as const);
+export type ApplicantOutcomeStage = (typeof APPLICANT_OUTCOME_STAGES)[number];
+
+/**
+ * Where an applicant sits on a posting's board: {@link APPLICANT_STAGES_V1}, then
+ * {@link APPLICANT_OUTCOME_STAGES}.
  *
  * `new` IS THE DEFAULT: an applicant nobody has moved has no stored row and reads `new`. A row
  * moved back to New stores `new` explicitly (it records who moved it and when), so "no row" and
  * "`new`" mean the same thing to every reader. A stage is the payer's own triage — never a match,
  * rank or visibility input.
  */
-export const APPLICANT_STAGES = Object.freeze(["new", "shortlist", "passed"] as const);
+export const APPLICANT_STAGES = Object.freeze([
+  ...APPLICANT_STAGES_V1,
+  ...APPLICANT_OUTCOME_STAGES,
+] as const);
 export type ApplicantStage = (typeof APPLICANT_STAGES)[number];
 
 /** The stage of an applicant with no stored row. */
@@ -1479,6 +1499,18 @@ export const DEFAULT_APPLICANT_STAGE: ApplicantStage = "new";
 
 export function isApplicantStage(value: unknown): value is ApplicantStage {
   return typeof value === "string" && (APPLICANT_STAGES as readonly string[]).includes(value);
+}
+
+/** One of the board's first three stages, the ones `payer.applicant_stage_changed` v1 carries. */
+export function isApplicantStageV1(value: unknown): value is ApplicantStageV1 {
+  return typeof value === "string" && (APPLICANT_STAGES_V1 as readonly string[]).includes(value);
+}
+
+/** `selected` or `hired`. */
+export function isApplicantOutcomeStage(value: unknown): value is ApplicantOutcomeStage {
+  return (
+    typeof value === "string" && (APPLICANT_OUTCOME_STAGES as readonly string[]).includes(value)
+  );
 }
 
 // ---- Display preferences: the theme (#2819, migration 0165) ----

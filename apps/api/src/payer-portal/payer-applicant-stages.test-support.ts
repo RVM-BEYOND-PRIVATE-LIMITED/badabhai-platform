@@ -41,6 +41,12 @@ export function stagesOff(): PayerApplicantStagesService {
     {} as never,
     { PAYER_APPLICANT_STAGES_ENABLED: false },
     tenancy,
+    // Off answers before any switch is read, so a read here is a defect too.
+    {
+      isEnabledFor: () => {
+        throw new Error("the stages service must not read a rollout switch while its flag is off");
+      },
+    } as never,
   );
 }
 

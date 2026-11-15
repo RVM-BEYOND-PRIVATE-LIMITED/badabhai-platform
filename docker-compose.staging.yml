@@ -672,6 +672,7 @@ services:
       # Bridged from the `production` secret of the same name; `:-3` when unset or empty.
       CAMPUS_DRIVE_MAX_OPEN_REQUESTS: ${CAMPUS_DRIVE_MAX_OPEN_REQUESTS:-3}
       THEME_ROLLOUT: ${THEME_ROLLOUT:-off}
+      OUTCOME_STAGES_ROLLOUT: ${OUTCOME_STAGES_ROLLOUT:-off}
       CAPACITY_ENFORCEMENT_ENABLED: ${CAPACITY_ENFORCEMENT_ENABLED:-false}
       PACE_ENABLED: ${PACE_ENABLED:-false}
       TEST_LOGIN_ENABLED: ${TEST_LOGIN_ENABLED:-false}
