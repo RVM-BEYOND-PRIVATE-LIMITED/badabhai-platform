@@ -1,6 +1,7 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { type Database, payers, type Payer, type PayerRole, type PayerStatus } from "@badabhai/db";
+import { restampCompanyDriveRequests } from "../campus-drives/campus-drive-feed-stamp";
 import { DATABASE } from "../database/database.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { NameTokenService } from "../admin/candidate-index/name-token.service";
@@ -321,14 +322,23 @@ export class PayersRepository {
    *
    * Returns the row ONLY when it actually moved, so the caller emits `payer.activated`
    * exactly once per payer and every subsequent login is a silent no-op.
+   *
+   * #2746 PR 6 — `active` is part of a company's standing on Campus's drive feed (owner ruling
+   * R2), so a moved row re-stamps the drive requests keyed on it, in the same transaction (the
+   * caller's, or one of its own when it passes none).
    */
   async activate(id: string, tx?: Database): Promise<{ id: string } | undefined> {
-    const [row] = await (tx ?? this.db)
-      .update(payers)
-      .set({ status: "active", updatedAt: new Date() })
-      .where(and(eq(payers.id, id), eq(payers.status, "pending")))
-      .returning({ id: payers.id });
-    return row;
+    const run = async (executor: Database): Promise<{ id: string } | undefined> => {
+      const [row] = await executor
+        .update(payers)
+        .set({ status: "active", updatedAt: new Date() })
+        .where(and(eq(payers.id, id), eq(payers.status, "pending")))
+        .returning({ id: payers.id });
+      if (row) await restampCompanyDriveRequests(executor, row.id);
+      return row;
+    };
+    if (tx !== undefined) return run(tx);
+    return this.db.transaction((own) => run(own as unknown as Database));
   }
 
   /**
