@@ -59,7 +59,7 @@ export class FeatureRolloutService {
           // The SQLSTATE tells a missing table (42P01: `pilot` armed before migration 0162) from
           // a dropped connection. Ids and the code only; never the error text.
           this.logger.warn(
-            `feature rollout: pilot list read failed (feature=${feature} tenant=${tenantKey} sqlstate=${sqlStateOf(err) ?? "none"}); treated as off`,
+            `feature rollout: pilot list read failed (feature=${feature} tenant=${tenantKey} sqlstate=${sqlStateOf(err) ?? "none"}); answered unavailable (read as off, except where a caller must refuse)`,
           );
           return "unavailable";
         }

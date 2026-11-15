@@ -2278,12 +2278,20 @@ describe("UnlockService — #2747 contact rules: open for good", () => {
     expect(input.expiresAt.getTime()).toBeLessThan(OPEN_FOR_GOOD_UNTIL.getTime());
   });
 
-  it("a pilot list that cannot be read refuses the unlock: neutral, nothing emitted, nothing charged", async () => {
+  it("a pilot list that cannot be read never re-charges a held contact: neutral, nothing written", async () => {
     const t = setup({ consentVersion: BRIEF, rolloutUnavailable: true, existingUnlock: held() });
     expect(await t.svc.requestUnlock(req, CTX)).toEqual(neutralUnavailable());
-    expect(t.repo.getBalance).not.toHaveBeenCalled();
+    expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
     expect(t.txMethods.appendLedger).not.toHaveBeenCalled();
-    expect(t.events.emit).not.toHaveBeenCalled();
+    expect(t.txMethods.extendOpenUntil).not.toHaveBeenCalled();
+  });
+
+  it("a pilot list that cannot be read does not block a FIRST open (read as off: the 14-day window)", async () => {
+    const t = setup({ consentVersion: BRIEF, rolloutUnavailable: true });
+    const res = (await t.svc.requestUnlock(req, CTX)) as unknown as Record<string, unknown>;
+    expect(res).toMatchObject({ ok: true, status: "granted" });
+    expect(res.open_until).not.toBeNull();
+    expect(t.txMethods.appendLedger).toHaveBeenCalledTimes(1);
   });
 
   it("a re-open is audited as unlock.reopened (ids only), never as a grant", async () => {

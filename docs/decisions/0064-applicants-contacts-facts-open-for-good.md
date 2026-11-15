@@ -168,9 +168,11 @@ Parts C and D each get their own review before merge.
 
 ## 5. Arming and rollback
 
-Every switch defaults to `off`. For BadaBhai workers the switches do nothing until a notice describing the brief ships (§3.8). Arming is `gh secret set <SWITCH> --env production --body pilot` plus `feature_pilot_payers` rows for the pilot companies, then a redeploy — and only after this ADR is signed. Rollback is the same secret set to `off`.
+Every switch defaults to `off`. For BadaBhai workers the switches do nothing until a notice describing the brief ships (§3.8). Arming is `gh secret set <SWITCH> --env production --body pilot` plus `feature_pilot_payers` rows for the pilot companies, then a redeploy — and only after this ADR is signed. Rollback is the same secret set to `off`. In `pilot`, a pilot list that cannot be read answers "unavailable": everything reads as off, except that `POST /payer/unlocks` refuses (neutral, no charge) a re-grant over a contact the company already holds, so a pilot company is never charged twice on a guess.
 
 ## 6. Open questions (for Akshit; built with the default)
+
+- **RVM students and the phone "for good".** RVM's consent line ("Share my profile with companies I apply to", brief 9) says nothing about the phone number or "for good"; the build treats an actively linked student as covered (the issue's defaults for his card). Confirm with RVM, or give students a notice of their own; until then keep `contact_rules` off for companies that hire RVM students.
 
 - Should an RVM student's test score show before paying? Default: no, only after opening.
 - The photo before or after paying? Default: withheld (the brief is silent).

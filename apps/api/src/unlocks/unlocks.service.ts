@@ -265,11 +265,10 @@ export class UnlockService {
     const party = partyOf(scope);
     // #2747 (ADR-0064 §3.4) — read ONCE per request. With it on (and the brief's rules applying to
     // this worker, below), a held contact is re-opened free whatever its date and a new grant is
-    // stored open for good. A pilot list that cannot be read refuses NOW, with the neutral body and
-    // nothing emitted or charged: reading a pilot company as "off" would debit it again for a
-    // contact it already holds.
+    // stored open for good. A pilot list that cannot be read is "unavailable": the request goes on
+    // as if off, EXCEPT that a re-grant over a contact the company already holds is refused (below)
+    // — reading a pilot company as "off" there would debit it again. First opens are unaffected.
     const contactRules = await this.contactRulesState(tenant);
-    if (contactRules === "unavailable") return neutralUnavailable();
 
     // #1903 — normalise the caller's job context ONCE, before anything is written or
     // emitted: every row and event below carries `jobContext`, never the raw input. It is
@@ -378,6 +377,15 @@ export class UnlockService {
             response: this.grantedResponse(existing.id, existing.expiresAt!, openForGood),
             events,
           };
+        }
+        // #2747 — the pilot list could not be read: this company may be a pilot one whose contact is
+        // open for good. Never charge it again on a guess; the neutral body, nothing written.
+        if (
+          contactRules === "unavailable" &&
+          existing &&
+          (existing.status === "granted" || existing.status === "revealed")
+        ) {
+          return { response: neutralUnavailable(), events };
         }
         // else: none, or lapsed with the rule off — fall through to a (paid) grant below.
 

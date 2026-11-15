@@ -201,13 +201,19 @@ describe.skipIf(!RUN)("Contacts open for good (e2e, #2747)", () => {
     },
   );
 
-  it("no company reads a contact it did not open", async () => {
-    const w = await worker(BRIEF_NOTICE ?? OLD_NOTICE);
+  // Meaningful only once the OWNER can read him (a worker on a brief notice): before that every
+  // read is neutral and a stranger's neutral body would prove nothing about tenancy.
+  it.skipIf(BRIEF_NOTICE === undefined)("no company reads a contact it did not open", async () => {
+    const w = await worker(BRIEF_NOTICE!);
     const owner = await pilotCompany();
     const grant = await req("POST", "/payer/unlocks", {
       token: owner.token,
       body: { worker_id: w.workerId },
     });
+    const own = await req("GET", `/payer/unlocks/${grant.json.unlock_id}/contact`, {
+      token: owner.token,
+    });
+    expect(own.json).toMatchObject({ ok: true, phone: w.phone });
     const stranger = await pilotCompany();
     const read = await req("GET", `/payer/unlocks/${grant.json.unlock_id}/contact`, {
       token: stranger.token,
