@@ -44,8 +44,8 @@ export const rolloutCaller = Object.freeze({
     seal({ kind: "worker", workerId: worker.id, [SEALED]: true }),
   /**
    * A company: its resolved tenant key, never a raw payer id. From `PayerTenantScopeService.resolve`
-   * or `@CurrentTenantScope()`; or from `resolveSelfView` where a route must not 403 (a `null`
-   * key there means tenancy refused the login, so do not ask: the theme is closed).
+   * or `@CurrentTenantScope()`, passed straight in. A route that must not 403 asks
+   * `FeatureRolloutService.isThemeOpenForPayer` instead, which resolves only in `pilot` (#2819).
    */
   payer: (scope: Pick<PayerTenantScope, "tenantKey">): RolloutCaller =>
     seal({ kind: "payer", tenantKey: scope.tenantKey, [SEALED]: true }),

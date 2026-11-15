@@ -36,8 +36,9 @@ the same body and the same reply:
 
 - **Pilot lists.** A worker or an admin is listed in `feature_pilot_subjects`; a company in
   `feature_pilot_payers` by its tenant key, so under `PAYER_ORG_TENANCY_MODE=on` a team member
-  inherits the company's pilot place (the row stays the member's own). If tenancy refuses the login,
-  the theme is simply closed for it — never a `403` on these routes.
+  inherits the company's pilot place (the row stays the member's own). The company's tenancy is
+  resolved only while the switch is `pilot`; `off` and `on` read no membership. If tenancy refuses
+  the login, the theme is simply closed for it — never a `403` on these routes.
 - **A stored choice waits.** Closing the switch hides a choice but never deletes it; the person gets
   it back when piloted again.
 - **Before migration 0165** (open switch, table or column missing — 42P01 / 42703): `GET` answers

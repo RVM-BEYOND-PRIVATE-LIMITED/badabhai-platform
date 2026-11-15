@@ -107,7 +107,9 @@ NestJS boot assertion).
   only, bridged from the `production` secret of the same name; **absent = `off`**). Its one
   question is `FeatureRolloutService.isThemeOpenFor(caller)`, where the caller is built from what
   the auth guard attached (the worker, the company's tenant scope, the admin), never from a body or
-  a path; it never throws.
+  a path; it never throws. A company login's display preference (#2819) asks
+  `isThemeOpenForPayer` instead, with the tenancy resolve lazy: `off` and `on` answer without
+  reading memberships, and only `pilot` resolves the tenant key.
   - `off` (the default, and what an empty value reads as): nobody. Every display-preference GET
     (#2819) answers `light` with `theme_open: false` whatever is stored, and every PATCH answers
     404 and writes nothing. A stored choice is kept for when the person is piloted again.

@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import {
@@ -15,7 +15,7 @@ import { sqlStateOf } from "../common/db-error";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
-import { rolloutCaller, type RolloutCaller } from "../feature-rollout/rollout-caller";
+import type { RolloutCaller } from "../feature-rollout/rollout-caller";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { DisplayPrefsRepository } from "./display-prefs.repository";
@@ -57,10 +57,11 @@ const inForce = (stored: string | null): DisplayTheme =>
  *
  * WHO ASKS. A worker's and an admin's {@link RolloutCaller} are built by the controller from the
  * guard's object as it came (`rolloutCaller.worker(worker)` from `@CurrentWorker()`), and the same
- * object names the row. A company login's caller is built here from the tenancy resolver's own
- * return value (`rolloutCaller.payer(scope)`), never copied or spread: a team member inherits the
- * company's pilot place under `PAYER_ORG_TENANCY_MODE=on`, but the ROW stays the login's.
- * `rollout-caller-arguments.static.test.ts` pins both shapes.
+ * object names the row. A company login asks `isThemeOpenForPayer` with a LAZY resolve of the
+ * `@CurrentPayer()` login, so the tenancy resolver runs only while the switch is `pilot` (review
+ * M1): `off` and `on` read no membership. A team member inherits the company's pilot place under
+ * `PAYER_ORG_TENANCY_MODE=on`, but the ROW stays the login's, and a tenancy refusal closes the
+ * theme, never a 403. `rollout-caller-arguments.static.test.ts` pins both shapes.
  */
 @Injectable()
 export class DisplayPrefsService {
@@ -113,9 +114,14 @@ export class DisplayPrefsService {
     );
   }
 
-  /** `GET payer/me/display-prefs`: the login's own row; the company's pilot place opens it. */
+  /**
+   * `GET payer/me/display-prefs`: the login's own row; the company's pilot place opens it. `payer`
+   * is the controller's `@CurrentPayer()` object, and the resolve stays lazy (pilot only).
+   */
   readForPayer(payer: AuthenticatedPayer): Promise<DisplayPrefsResponse> {
-    return this.read({ kind: "payer_user", id: payer.id }, () => this.isOpenForPayer(payer.id));
+    return this.read({ kind: "payer_user", id: payer.id }, () =>
+      this.rollout.isThemeOpenForPayer(() => this.tenancy.resolve(payer.id)),
+    );
   }
 
   /** `PATCH payer/me/display-prefs`. */
@@ -126,7 +132,7 @@ export class DisplayPrefsService {
   ): Promise<DisplayPrefsResponse> {
     return this.write(
       { kind: "payer_user", id: payer.id },
-      () => this.isOpenForPayer(payer.id),
+      () => this.rollout.isThemeOpenForPayer(() => this.tenancy.resolve(payer.id)),
       theme,
       ctx,
     );
@@ -221,25 +227,6 @@ export class DisplayPrefsService {
   private isOpenFor(caller: RolloutCaller, kind: "worker" | "admin"): Promise<boolean> {
     if (caller.kind !== kind) return Promise.resolve(false);
     return this.rollout.isThemeOpenFor(caller);
-  }
-
-  /**
-   * A company login's switch answer, by its TENANT key (the resolver's), so a team member inherits
-   * the company's pilot place. NEVER A 403: tenancy refusing the login (`on`; the resolver logs the
-   * reason and throws its neutral 403) means the theme is closed for it, not that a display
-   * preference is forbidden. `off` and `shadow` never throw.
-   */
-  private async isOpenForPayer(payerId: string): Promise<boolean> {
-    const scope = await this.tenancy.resolve(payerId).catch((err: unknown) => {
-      if (!(err instanceof ForbiddenException)) {
-        this.logger.warn(
-          `display prefs: tenancy resolve failed (payer=${payerId} sqlstate=${sqlStateOf(err) ?? "none"}); theme closed`,
-        );
-      }
-      return null;
-    });
-    if (scope === null) return false;
-    return this.rollout.isThemeOpenFor(rolloutCaller.payer(scope));
   }
 
   /** True (and logged, ids and SQLSTATE only) when `err` is a missing table or column. */

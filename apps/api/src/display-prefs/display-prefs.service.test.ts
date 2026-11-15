@@ -92,17 +92,17 @@ function harness(opts: Options = {}) {
     THEME_ROLLOUT: opts.mode ?? "on",
     PAYER_ORG_TENANCY_MODE: opts.tenancy ?? "off",
   });
+  const payerPilots = { isListed: vi.fn(async (_f: string, tenant: string) => pilots.has(tenant)) };
   const rollout = new FeatureRolloutService(
     config,
-    {
-      isListed: async (_f: string, tenant: string) => pilots.has(tenant),
-    } as unknown as FeaturePilotRepository,
+    payerPilots as unknown as FeaturePilotRepository,
     {
       isListed: async (_f: string, kind: string, id: string) => pilots.has(`${kind}:${id}`),
     } as unknown as FeaturePilotSubjectsRepository,
   );
   const openSpy = vi.spyOn(rollout, "isThemeOpenFor");
   const resolver = opts.resolver ?? resolverOver(config, [{ anchor: ANCHOR, members: [MEMBER] }]);
+  const resolveSpy = vi.spyOn(resolver, "resolve");
   const events = { emit: vi.fn(async () => ({})) };
   const svc = new DisplayPrefsService(
     repo as unknown as DisplayPrefsRepository,
@@ -110,7 +110,7 @@ function harness(opts: Options = {}) {
     resolver,
     events as unknown as EventsService,
   );
-  return { svc, repo, store, events, openSpy, TX };
+  return { svc, repo, store, events, openSpy, resolveSpy, payerPilots, TX };
 }
 
 const worker = (id = WORKER): AuthenticatedWorker => ({ id, sid: "sid-2819" });
@@ -346,8 +346,8 @@ describe("DisplayPrefsService — the company or agency login", () => {
       theme: "dark",
       theme_open: true,
     });
-    const asked = h.openSpy.mock.calls[0]![0];
-    expect(asked).toMatchObject({ kind: "payer", tenantKey: ANCHOR });
+    expect(h.resolveSpy).toHaveBeenCalledWith(MEMBER);
+    expect(h.payerPilots.isListed).toHaveBeenCalledWith("theme", ANCHOR);
     expect(h.store.get(`payer_user:${MEMBER}`)).toBe("dark");
     expect(h.store.has(`payer_user:${ANCHOR}`)).toBe(false);
     // The teammate who never chose is still light: a personal preference, not the company's.
@@ -359,7 +359,29 @@ describe("DisplayPrefsService — the company or agency login", () => {
     expect(await h.svc.readForPayer(payer(MEMBER))).toEqual({ theme: "light", theme_open: false });
   });
 
-  it("a tenancy REFUSAL closes the theme — never a 403 — and adds no log line of ours", async () => {
+  // Review M1 — the resolver runs only while the switch is `pilot`: a closed or fully open switch
+  // costs no membership read, no shadow line, no solo-org heal and no denial log per portal load.
+  it.each(["off", "on"] as const)(
+    "%s: the tenancy resolver is NEVER called, for a GET or a PATCH, employer or agent",
+    async (mode) => {
+      const h = harness({ mode, tenancy: "on", rows: { [`payer_user:${MEMBER}`]: "dark" } });
+      for (const login of [payer(MEMBER), payer(ANCHOR, "agent")]) {
+        await h.svc.readForPayer(login);
+        await h.svc.writeForPayer(login, "system", ctx).catch(() => undefined);
+      }
+      expect(h.resolveSpy).not.toHaveBeenCalled();
+      expect(h.payerPilots.isListed).not.toHaveBeenCalled();
+      expect(h.openSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("pilot: the resolver runs ONCE per request, for the token's login", async () => {
+    const h = harness({ mode: "pilot", pilots: [PAYER] });
+    await h.svc.readForPayer(payer());
+    expect(h.resolveSpy.mock.calls).toEqual([[PAYER]]);
+  });
+
+  it("pilot: a tenancy REFUSAL closes the theme — never a 403 — and adds no log line", async () => {
     const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const refusing = {
       resolve: vi.fn(async () => {
@@ -367,7 +389,8 @@ describe("DisplayPrefsService — the company or agency login", () => {
       }),
     } as unknown as PayerTenantScopeService;
     const h = harness({
-      mode: "on",
+      mode: "pilot",
+      pilots: [PAYER],
       resolver: refusing,
       rows: { [`payer_user:${PAYER}`]: "dark" },
     });
@@ -376,21 +399,21 @@ describe("DisplayPrefsService — the company or agency login", () => {
       NotFoundException,
     );
     expect(h.repo.findTheme).not.toHaveBeenCalled();
-    expect(h.openSpy).not.toHaveBeenCalled();
+    expect(h.payerPilots.isListed).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it("a tenancy read FAILURE closes the theme and logs the payer id and the SQLSTATE only", async () => {
+  it("pilot: a tenancy read FAILURE closes the theme and logs the SQLSTATE only", async () => {
     const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const failing = {
       resolve: vi.fn(async () => {
         throw pgError("08006");
       }),
     } as unknown as PayerTenantScopeService;
-    const h = harness({ mode: "on", resolver: failing });
+    const h = harness({ mode: "pilot", pilots: [PAYER], resolver: failing });
     expect(await h.svc.readForPayer(payer())).toEqual({ theme: "light", theme_open: false });
     expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([
-      `display prefs: tenancy resolve failed (payer=${PAYER} sqlstate=08006); theme closed`,
+      "feature rollout: tenancy resolve failed (feature=theme sqlstate=08006); treated as off",
     ]);
   });
 });

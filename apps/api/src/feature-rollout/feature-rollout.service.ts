@@ -1,8 +1,8 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { ForbiddenException, Inject, Injectable, Logger } from "@nestjs/common";
 import type { FeatureRolloutMode, ServerConfig } from "@badabhai/config";
 import { sqlStateOf } from "../common/db-error";
 import { SERVER_CONFIG } from "../config/config.module";
-import type { TenantKey } from "../payers/payer-tenant-scope";
+import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 import { FeaturePilotSubjectsRepository } from "./feature-pilot-subjects.repository";
 import { FeaturePilotRepository } from "./feature-pilot.repository";
 import { FEATURE_ROLLOUT_CONFIG, type FeatureRolloutKey } from "./feature-rollout.keys";
@@ -64,6 +64,42 @@ export class FeatureRolloutService {
       return false;
     }
     return this.isEnabledForCaller("theme", caller);
+  }
+
+  /**
+   * #2819 (review M1) — {@link isThemeOpenFor} for a COMPANY OR AGENCY LOGIN on a route that must
+   * never 403 (its display preference), with the tenancy resolution LAZY. `off` and `on` answer
+   * WITHOUT calling `resolveScope`, so a closed or fully open switch costs no membership read, no
+   * shadow-evidence line, no solo-org heal and no repeated denial log on every portal load. Only
+   * `pilot` resolves, then probes `feature_pilot_payers` by the tenant key (a team member inherits
+   * the company's place under `PAYER_ORG_TENANCY_MODE=on`). NEVER THROWS: a resolver that throws
+   * (a tenancy refusal is the resolver's neutral 403, already logged there) or answers no scope is
+   * false, and so is a failed list read.
+   *
+   * `resolveScope` is `() => this.<tenancy>.resolve(<the @CurrentPayer() login>.id)` and nothing
+   * else: `rollout-caller-arguments.static.test.ts` pins every call site to that shape.
+   */
+  async isThemeOpenForPayer(
+    resolveScope: () => Promise<Pick<PayerTenantScope, "tenantKey"> | null>,
+  ): Promise<boolean> {
+    const mode = this.mode("theme");
+    if (mode !== "pilot") return mode === "on";
+    let tenantKey: TenantKey;
+    try {
+      const scope = await resolveScope();
+      if (typeof scope?.tenantKey !== "string") return false;
+      tenantKey = scope.tenantKey;
+    } catch (err) {
+      if (!(err instanceof ForbiddenException)) {
+        this.logger.warn(
+          `feature rollout: tenancy resolve failed (feature=theme sqlstate=${sqlStateOf(err) ?? "none"}); treated as off`,
+        );
+      }
+      return false;
+    }
+    return this.decide("theme", `tenant=${tenantKey}`, () =>
+      this.pilots.isListed("theme", tenantKey),
+    );
   }
 
   /**

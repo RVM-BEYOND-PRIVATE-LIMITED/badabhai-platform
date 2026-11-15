@@ -25,9 +25,11 @@
 -- service fails closed: GET answers light / theme_open false, PATCH 404, and the log carries the
 -- ids and the SQLSTATE only. Nothing returns 500. Order:
 --   1. Merge. The deploy is safe on a database without this table.
---   2. LEDGER PRE-CHECK: `npx tsx adopt-migrations.ts` verify-only, no --only. Adopting 0165
---      moves the watermark past every lower unrecorded entry, which `db:migrate` then skips
---      forever; confirm everything up to 0164 is live first (0164 is apply-before-pilot too).
+--   2. LEDGER PRE-CHECK: 0164 must be APPLIED AND ITS LEDGER ROW ADOPTED before this file's row
+--      is. Adopting 0165 moves the watermark past every lower unrecorded entry, which `db:migrate`
+--      then skips forever: adopt 0165 while 0164 is unrecorded and 0164 is never applied. So adopt
+--      IN ORDER: 0161-0163 and then 0164, per 0164's own header, and only then this one. Run
+--      `npx tsx adopt-migrations.ts` verify-only, no --only, and see nothing unrecorded below 0165.
 --   3. Apply this file by hand in one transaction (it takes no lock on a live table: no FK).
 --   4. Adopt the ledger row from main's tree: `npx tsx adopt-migrations.ts --only
 --      0165_display_prefs --apply --expect-host <HOST>`, then `pnpm db:audit:schema-contract`
