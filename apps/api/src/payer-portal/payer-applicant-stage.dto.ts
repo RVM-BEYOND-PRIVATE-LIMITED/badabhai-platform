@@ -1,6 +1,13 @@
+import type { BadRequestException } from "@nestjs/common";
 import { z } from "zod";
 import { uuidSchema } from "@badabhai/validators";
-import { APPLICANT_STAGES, type ApplicantPostingKind, type ApplicantStage } from "@badabhai/types";
+import {
+  APPLICANT_STAGES,
+  APPLICANT_STAGES_V1,
+  type ApplicantPostingKind,
+  type ApplicantStage,
+} from "@badabhai/types";
+import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 
 /**
  * The ONE body every not-settable stage gets — an unknown posting, another payer's posting, and a
@@ -10,7 +17,11 @@ import { APPLICANT_STAGES, type ApplicantPostingKind, type ApplicantStage } from
  */
 export const APPLICANT_NOT_FOUND = "Job not found";
 
-/** A stage on the payer's New / Shortlist / Passed board (`APPLICANT_STAGES`). */
+/**
+ * A stage on the payer's board (`APPLICANT_STAGES`): New / Shortlist / Passed and, from #2747,
+ * the outcome stages Selected / Hired. Whether this company may WRITE an outcome stage is the
+ * service's question (`OUTCOME_STAGES_ROLLOUT`); every read reports a stored one as itself.
+ */
 export const ApplicantStageSchema = z.enum(APPLICANT_STAGES);
 
 /**
@@ -31,6 +42,23 @@ export type ApplicantStageParamsDto = z.infer<typeof ApplicantStageParamsSchema>
  */
 export const SetApplicantStageSchema = z.object({ stage: ApplicantStageSchema }).strict();
 export type SetApplicantStageDto = z.infer<typeof SetApplicantStageSchema>;
+
+/** The body as it was before #2747: the first three stages only. */
+const SetApplicantStageV1Schema = z.object({ stage: z.enum(APPLICANT_STAGES_V1) }).strict();
+
+/**
+ * The 400 an outcome stage gets while `OUTCOME_STAGES_ROLLOUT` is off for the company: EXACTLY the
+ * body the route gave `selected` or `hired` before #2747 (the same pipe over the old body
+ * schema), so a company without the switch sees today's API word for word.
+ */
+export function outcomeStageRefusal(stage: ApplicantStage): BadRequestException {
+  try {
+    new ZodValidationPipe(SetApplicantStageV1Schema).transform({ stage });
+  } catch (err) {
+    return err as BadRequestException;
+  }
+  throw new Error(`outcomeStageRefusal: "${stage}" is one of the first three stages`);
+}
 
 /**
  * The response — the same for a change and for a no-op, so a retry reads exactly like the first

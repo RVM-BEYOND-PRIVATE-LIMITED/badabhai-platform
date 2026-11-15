@@ -12,7 +12,7 @@ import { publishBalance, useLiveBalance } from "../../../../../components/live-b
 import { PageHeader, type PageHeaderProps } from "../../../../../components/page-header";
 import { PortalLink } from "../../../../../components/portal-link";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
-import { hasSavedStages, STAGE_LABEL } from "../../../../../lib/applicant-stages";
+import { boardTabOf, hasSavedStages, STAGE_LABEL } from "../../../../../lib/applicant-stages";
 import { shownTradeLevel } from "../../../../../lib/trade-level";
 import { candidatesErrorMessage } from "../../../../../lib/candidates-messages";
 import {
@@ -359,7 +359,8 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   // The row's stage: this session's move, else (SAVED) the row's own, else "new". On a posting's
   // feed the key IS the worker id, so the LOCAL board reads exactly the map it always read.
   function stageOf(r: FeedRow): RowStage {
-    return stages[r.key] ?? (saved ? r.applicant.stage : undefined) ?? "new";
+    const own = saved && r.applicant.stage !== undefined ? boardTabOf(r.applicant.stage) : undefined;
+    return stages[r.key] ?? own ?? "new";
   }
 
   // Keep / Pass are LOCAL stage transitions — no network, no event, nothing persisted.
@@ -401,7 +402,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     setStageSaving((prev) => withoutKey(prev, key));
     refocusToolbar(toolbar);
     if (res.ok) {
-      const answered = res.stage;
+      const answered = boardTabOf(res.stage);
       setStages((prev) => ({ ...prev, [key]: answered }));
       return;
     }

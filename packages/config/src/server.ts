@@ -669,6 +669,9 @@ export const serverEnvSchema = z.object({
   //   APPLICANT_FACTS_ROLLOUT (#2747) — the facts a company sees before paying: first name, trade
   //     line, expected salary, machines, area and last-active day on the applicant and search
   //     cards. Off, those keys are not sent (every row still carries its `source` label).
+  //   OUTCOME_STAGES_ROLLOUT (#2747) — a company marks an applicant `selected` or `hired` on the
+  //     board. Off, the stage route refuses both with the 400 it has always given an unknown
+  //     stage; a stored one is still read back. Needs migration 0166 applied first.
   // Off, the new payer fields are ignored and the new routes answer 404. Campus's own routes
   // additionally need CAMPUS_LINK_ENABLED. A switch gates CAPABILITIES only: stored state (the
   // worker-path audience filter, the RVM review gate) is honoured whatever it says, so switching
@@ -676,6 +679,7 @@ export const serverEnvSchema = z.object({
   JOB_AUDIENCE_ROLLOUT: featureRolloutMode,
   CAMPUS_DRIVE_REQUESTS_ROLLOUT: featureRolloutMode,
   APPLICANT_FACTS_ROLLOUT: featureRolloutMode,
+  OUTCOME_STAGES_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER

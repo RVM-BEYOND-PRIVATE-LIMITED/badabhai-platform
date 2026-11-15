@@ -494,6 +494,7 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
       { emit: vi.fn() } as never,
       { PAYER_APPLICANT_STAGES_ENABLED: true },
       defaultModeResolver(),
+      { isEnabledFor: async () => false } as never,
     );
     return {
       repo,

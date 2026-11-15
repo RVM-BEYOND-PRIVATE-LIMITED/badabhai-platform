@@ -993,11 +993,20 @@ describe("PayerApplicantInboxService — the saved pipeline board (owner ruling 
     const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const w = world({
       stagesEnabled: true,
-      page: (payerId, q) => pageOf(payerId, q).map((r) => ({ ...r, stage: "hired" })),
+      page: (payerId, q) => pageOf(payerId, q).map((r) => ({ ...r, stage: "contacted" })),
     });
     const out = await w.inbox.list(PAYER_A, query({ limit: 3 }), CTX);
     expect(out.applicants.map((r) => r.stage)).toEqual(["new", "new", "new"]);
     warn.mockRestore();
+  });
+
+  it("#2747: a stored outcome stage reads as itself, whatever the outcome switch says", async () => {
+    const w = world({
+      stagesEnabled: true,
+      page: (payerId, q) => pageOf(payerId, q).map((r) => ({ ...r, stage: "hired" })),
+    });
+    const out = await w.inbox.list(PAYER_A, query({ limit: 3 }), CTX);
+    expect(out.applicants.map((r) => r.stage)).toEqual(["hired", "hired", "hired"]);
   });
 
   it("flag OFF: the page read is NOT asked for the board, and no row carries `stage`", async () => {

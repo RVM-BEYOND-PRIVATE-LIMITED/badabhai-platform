@@ -164,6 +164,13 @@ case "${APPLICANT_FACTS_ROLLOUT-}" in
     exit 1
     ;;
 esac
+case "${OUTCOME_STAGES_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::OUTCOME_STAGES_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set OUTCOME_STAGES_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
 
 # #2542 / TD25: TRUST_PROXY_HOP_COUNT — how many X-Forwarded-For hops the api trusts for `req.ip`.
 # The box has exactly ONE appending nginx in front of the api, so the only correct values are 0

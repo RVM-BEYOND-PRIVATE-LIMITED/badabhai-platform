@@ -1,4 +1,10 @@
-import { APPLICANT_STAGES, isApplicantStage, type ApplicantStage } from "@badabhai/types";
+import {
+  APPLICANT_STAGES,
+  APPLICANT_STAGES_V1,
+  isApplicantStage,
+  type ApplicantStage,
+  type ApplicantStageV1,
+} from "@badabhai/types";
 
 /**
  * SAVED APPLICANT STAGES (owner ruling 2026-10-07, #2139 — the API half is #2137): the New /
@@ -20,12 +26,32 @@ import { APPLICANT_STAGES, isApplicantStage, type ApplicantStage } from "@badabh
 export { APPLICANT_STAGES, isApplicantStage };
 export type { ApplicantStage };
 
+/**
+ * The three tabs this board draws: New / Shortlist / Passed. #2747 adds the outcome stages
+ * `selected` and `hired` to the API's vocabulary (`APPLICANT_STAGES`, what a row may carry);
+ * the board, its stage filter and its buttons stay on these three until the outcome stages get
+ * their own UI.
+ */
+export const BOARD_STAGES = APPLICANT_STAGES_V1;
+export type BoardStage = ApplicantStageV1;
+
 /** The stage's name on a tab, a filter option and a status line (copy rulings: Shortlist, Passed). */
 export const STAGE_LABEL: Record<ApplicantStage, string> = {
   new: "New",
   shortlist: "Shortlist",
   passed: "Passed",
+  selected: "Selected",
+  hired: "Hired",
 };
+
+/**
+ * The tab a row's stage shows under. `selected` and `hired` have no tab of their own yet, so
+ * they show under Shortlist, the stage they follow, rather than vanishing from the board. The API
+ * writes them only for a company with `OUTCOME_STAGES_ROLLOUT` on (#2747).
+ */
+export function boardTabOf(stage: ApplicantStage): BoardStage {
+  return stage === "selected" || stage === "hired" ? "shortlist" : stage;
+}
 
 /**
  * Does this list come from a server that SAVES stages? True only when it has rows and EVERY row

@@ -175,9 +175,9 @@ describe("the route's validation (the pipes the decorators run)", () => {
   const params = new ZodValidationPipe(ApplicantStageParamsSchema);
   const body = new ZodValidationPipe(SetApplicantStageSchema);
 
-  it("accepts the two uuids and each of the three stages", () => {
+  it("accepts the two uuids and each of the five stages (the outcome switch is the service check, #2747)", () => {
     expect(params.transform(PARAMS)).toEqual(PARAMS);
-    for (const stage of ["new", "shortlist", "passed"]) {
+    for (const stage of ["new", "shortlist", "passed", "selected", "hired"]) {
       expect(body.transform({ stage })).toEqual({ stage });
     }
   });

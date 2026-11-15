@@ -3,13 +3,17 @@ import type { Database } from "@badabhai/db";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import {
   DEFAULT_APPLICANT_STAGE,
+  isApplicantOutcomeStage,
   isApplicantStage,
+  isApplicantStageV1,
   type ApplicantPostingKind,
   type ApplicantStage,
 } from "@badabhai/types";
 import { SERVER_CONFIG } from "../config/config.module";
+import { PG_CHECK_VIOLATION, sqlStateOf } from "../common/db-error";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
+import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { applicantStagesEnabled, type ApplicantStagesConfig } from "./payer-applicant-stages.flag";
@@ -19,6 +23,7 @@ import {
 } from "./payer-applicant-stages.repository";
 import {
   APPLICANT_NOT_FOUND,
+  outcomeStageRefusal,
   type SetApplicantStageResponseDto,
 } from "./payer-applicant-stage.dto";
 
@@ -32,9 +37,10 @@ const logger = new Logger("PayerApplicantStages");
 /**
  * A stored value narrowed to the vocabulary this build knows. `payer_applicant_stages_stage_chk`
  * keeps the column inside `APPLICANT_STAGES`, so an unknown value means the database is AHEAD of
- * this build (a stage added by a later migration, then the code rolled back). It reads as the
- * default — the board this build can draw — and is never handed to the event, which would refuse
- * it. `null` (no row) is the default by definition.
+ * this build (a stage added by a later migration, then the code rolled back — e.g. a `hired` row
+ * read by a build from before #2747). It reads as the default — the board this build can draw —
+ * and is never handed to the event, which would refuse it. `null` (no row) is the default by
+ * definition.
  */
 export function readStoredStage(stored: string | null | undefined): ApplicantStage {
   if (stored === null || stored === undefined) return DEFAULT_APPLICANT_STAGE;
@@ -64,6 +70,13 @@ export function readStoredStage(stored: string | null | undefined): ApplicantSta
  * OFF MEANS ABSENT. With `PAYER_APPLICANT_STAGES_ENABLED` off the route is refused by its guard
  * (and again here), {@link stagesForOwnedPosting} answers `null`, and NO query touches migration
  * 0134's table — which is what makes 0134 apply-before-flag-on rather than apply-before-deploy.
+ *
+ * THE OUTCOME STAGES (#2747 item 7, brief 4B.8). `selected` and `hired` are WRITTEN only while
+ * `OUTCOME_STAGES_ROLLOUT` (`outcome_stages`) is on for the company; off, they get the 400 the
+ * route always gave an unknown stage ({@link outcomeStageRefusal}). The switch gates the write,
+ * never the stored state: a stored outcome stage is read back as itself, and moving an applicant
+ * out of one (back to Shortlist, say) is allowed whatever the switch says. Migration 0166 widens
+ * the CHECK; the switch goes on only after it is applied and verified.
  */
 @Injectable()
 export class PayerApplicantStagesService {
@@ -73,11 +86,21 @@ export class PayerApplicantStagesService {
     @Inject(SERVER_CONFIG) private readonly config: ApplicantStagesConfig,
     // ADR-0053 — the payer tenant resolver (PayersModule). `setStage` is a route entry point.
     private readonly tenancy: PayerTenantScopeService,
+    // #2747 — the `outcome_stages` switch (FeatureRolloutModule).
+    private readonly rollout: FeatureRolloutService,
   ) {}
 
   /** `PAYER_APPLICANT_STAGES_ENABLED`, read through the one shared reader. */
   get enabled(): boolean {
     return applicantStagesEnabled(this.config);
+  }
+
+  /**
+   * May this company WRITE `selected` / `hired`? Fails closed: a pilot-list read error answers no
+   * (the rollout service's rule), which here costs nothing but a refused mark.
+   */
+  private outcomeStagesOn(tenantKey: TenantKey): Promise<boolean> {
+    return this.rollout.isEnabledFor("outcome_stages", tenantKey);
   }
 
   /**
@@ -110,11 +133,59 @@ export class PayerApplicantStagesService {
     if (!this.enabled) throw new NotFoundException();
 
     const scope = await this.tenancy.resolve(actorPayerId);
+    // #2747: before the posting is looked up, so the refusal says nothing about any posting.
+    if (isApplicantOutcomeStage(stage) && !(await this.outcomeStagesOn(scope.tenantKey))) {
+      throw outcomeStageRefusal(stage);
+    }
     const postingKind = await this.repo.findOwnedPostingKind(postingId, scope.tenantKey);
     if (postingKind === null) throw new NotFoundException(APPLICANT_NOT_FOUND);
     const key: ApplicantStageKey = { postingKind, postingId, workerId };
 
-    const outcome = await this.repo.withTransaction(async (tx) => {
+    const outcome = await this.writeStage(key, stage, actorPayerId, ctx, now);
+
+    return {
+      postingId,
+      postingKind,
+      workerId,
+      stage,
+      previousStage: outcome.previous,
+      changed: outcome.changed,
+    };
+  }
+
+  /**
+   * The transaction of {@link setStage}. A CHECK violation (23514) on an outcome stage means the
+   * switch was turned on before migration 0166 widened `payer_applicant_stages_stage_chk`: the
+   * transaction rolls back (nothing written, no event), the request fails, and the log says which
+   * migration is missing. Ids and the code only.
+   */
+  private async writeStage(
+    key: ApplicantStageKey,
+    stage: ApplicantStage,
+    actorPayerId: string,
+    ctx: RequestContext,
+    now: Date,
+  ): Promise<{ previous: ApplicantStage; changed: boolean }> {
+    try {
+      return await this.transact(key, stage, actorPayerId, ctx, now);
+    } catch (err) {
+      if (sqlStateOf(err) === PG_CHECK_VIOLATION && isApplicantOutcomeStage(stage)) {
+        logger.error(
+          `payer_applicant_stages refused stage=${stage} (sqlstate 23514): is migration 0166 applied? posting=${key.postingId}`,
+        );
+      }
+      throw err;
+    }
+  }
+
+  private transact(
+    key: ApplicantStageKey,
+    stage: ApplicantStage,
+    actorPayerId: string,
+    ctx: RequestContext,
+    now: Date,
+  ): Promise<{ previous: ApplicantStage; changed: boolean }> {
+    return this.repo.withTransaction(async (tx) => {
       if (!(await this.repo.isFeedApplicant(key, tx))) {
         throw new NotFoundException(APPLICANT_NOT_FOUND);
       }
@@ -140,15 +211,6 @@ export class PayerApplicantStagesService {
       await this.emitChanged(key, stage, previous, actorPayerId, ctx, tx);
       return { previous, changed: true } as const;
     });
-
-    return {
-      postingId,
-      postingKind,
-      workerId,
-      stage,
-      previousStage: outcome.previous,
-      changed: outcome.changed,
-    };
   }
 
   /**
@@ -178,6 +240,11 @@ export class PayerApplicantStagesService {
     return byKind;
   }
 
+  /**
+   * The spine record of one real move. A move between two of the first three stages is
+   * `payer.applicant_stage_changed` v1, byte for byte as before #2747; a move to or from
+   * `selected` / `hired` is `payer.applicant_stage_changed_v2`. So no move is reported twice.
+   */
   private async emitChanged(
     key: ApplicantStageKey,
     stage: ApplicantStage,
@@ -186,26 +253,44 @@ export class PayerApplicantStagesService {
     ctx: RequestContext,
     tx: Database,
   ): Promise<void> {
-    await this.events.emit({
-      event_name: "payer.applicant_stage_changed",
+    const envelope = {
       // The VERIFIED session login who moved the row — never a body value (XB-A), never the
       // tenant (ADR-0053 §7: the person rides the envelope).
       actor: { actor_type: "payer", actor_id: actorPayerId },
       // The applicant is what moved; the posting rides the payload.
       subject: { subject_type: "worker", subject_id: key.workerId },
-      payload: {
-        posting_kind: key.postingKind,
-        posting_id: key.postingId,
-        worker_id: key.workerId,
-        stage,
-        previous_stage: previous,
-      } satisfies PayloadInputOf<"payer.applicant_stage_changed">,
       // NO idempotency key, deliberately (the `resume.skin_changed` reasoning). Exactly-once comes
       // from the transaction and the no-op above; a transition key such as `from:to` would wrongly
       // dedupe a legitimate second New → Shortlist after the applicant was moved back.
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
       tx,
+    } as const;
+    const ids = {
+      posting_kind: key.postingKind,
+      posting_id: key.postingId,
+      worker_id: key.workerId,
+    };
+    if (isApplicantStageV1(stage) && isApplicantStageV1(previous)) {
+      await this.events.emit({
+        ...envelope,
+        event_name: "payer.applicant_stage_changed",
+        payload: {
+          ...ids,
+          stage,
+          previous_stage: previous,
+        } satisfies PayloadInputOf<"payer.applicant_stage_changed">,
+      });
+      return;
+    }
+    await this.events.emit({
+      ...envelope,
+      event_name: "payer.applicant_stage_changed_v2",
+      payload: {
+        ...ids,
+        stage,
+        previous_stage: previous,
+      } satisfies PayloadInputOf<"payer.applicant_stage_changed_v2">,
     });
   }
 }

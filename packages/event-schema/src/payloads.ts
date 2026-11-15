@@ -55,6 +55,8 @@ import {
   FREE_CHAT_LANGUAGE_TRIGGERS,
   APPLICANT_POSTING_KINDS,
   APPLICANT_STAGES,
+  APPLICANT_STAGES_V1,
+  APPLICANT_OUTCOME_STAGES,
   PROFILING_TURN_INTENTS,
   PROFILING_EDIT_OPS,
   PROFILING_EDIT_CANCEL_REASONS,
@@ -6087,9 +6089,36 @@ export type ChatFreeChatNewsServedPayload = z.infer<typeof ChatFreeChatNewsServe
  *
  * IDS AND CLOSED ENUMS ONLY, `.strict()`: the posting kind (which table `posting_id` names) and
  * id, the worker id, two stages. Never a posting title, a note or anything a payer typed. BECAUSE
- * A SHIPPED PAYLOAD IS FROZEN, a new stage or posting kind is a new event version.
+ * A SHIPPED PAYLOAD IS FROZEN, a new stage or posting kind is a new event version: both stages are
+ * pinned to `APPLICANT_STAGES_V1`, and a move to or from `selected` / `hired` (#2747) is
+ * `payer.applicant_stage_changed_v2`.
  */
 export const PayerApplicantStageChangedPayload = z
+  .object({
+    posting_kind: z.enum(APPLICANT_POSTING_KINDS),
+    posting_id: uuidSchema,
+    worker_id: uuidSchema,
+    stage: z.enum(APPLICANT_STAGES_V1),
+    previous_stage: z.enum(APPLICANT_STAGES_V1),
+  })
+  .strict()
+  .refine((v) => v.stage !== v.previous_stage, {
+    message: "a stage change must change the stage (an unchanged stage emits nothing)",
+  });
+export type PayerApplicantStageChangedPayload = z.infer<typeof PayerApplicantStageChangedPayload>;
+
+/**
+ * #2747 item 7 (brief 4B.8) — `payer.applicant_stage_changed` VERSION 2: the same move, on the
+ * board widened with the outcome stages `selected` and `hired`.
+ *
+ * WHICH VERSION A MOVE IS: v2 exactly when either stage is an outcome stage; a move between two
+ * of the first three stages stays v1, byte for byte. So the two never report the same move, and
+ * a reader of every stage change reads both names. Hence the second refine.
+ *
+ * Emitted, like v1, only for a persisted real change, in the same transaction as the write. The
+ * same fields as v1 and the same rules: ids and closed enums only, `.strict()`, never a note.
+ */
+export const PayerApplicantStageChangedV2Payload = z
   .object({
     posting_kind: z.enum(APPLICANT_POSTING_KINDS),
     posting_id: uuidSchema,
@@ -6100,8 +6129,16 @@ export const PayerApplicantStageChangedPayload = z
   .strict()
   .refine((v) => v.stage !== v.previous_stage, {
     message: "a stage change must change the stage (an unchanged stage emits nothing)",
-  });
-export type PayerApplicantStageChangedPayload = z.infer<typeof PayerApplicantStageChangedPayload>;
+  })
+  .refine(
+    (v) =>
+      (APPLICANT_OUTCOME_STAGES as readonly string[]).includes(v.stage) ||
+      (APPLICANT_OUTCOME_STAGES as readonly string[]).includes(v.previous_stage),
+    { message: "a move between the board's first three stages is payer.applicant_stage_changed v1" },
+  );
+export type PayerApplicantStageChangedV2Payload = z.infer<
+  typeof PayerApplicantStageChangedV2Payload
+>;
 
 /**
  * ADR-0051 §11 (#2181, R41) — A WORKER ANSWERED "Kya aage ki saari baat {Language} mein karein?"

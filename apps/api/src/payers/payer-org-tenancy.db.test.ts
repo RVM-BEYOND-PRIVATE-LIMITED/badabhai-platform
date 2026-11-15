@@ -709,6 +709,7 @@ describe.skipIf(!RUN)(
         events,
         stagesFlag,
         tenancy,
+        { isEnabledFor: async () => false } as never,
       );
       const applicants = new PayerApplicantsService(reach, postings, candidates, stages, tenancy);
       const inbox = new PayerApplicantInboxService(
