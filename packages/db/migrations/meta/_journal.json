@@ -1157,6 +1157,13 @@
       "when": 1794726943864,
       "tag": "0164_feature_pilot_subjects",
       "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1794729354323,
+      "tag": "0165_display_prefs",
+      "breakpoints": true
     }
   ]
 }

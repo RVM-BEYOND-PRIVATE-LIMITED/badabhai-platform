@@ -58,6 +58,8 @@ import {
   PROFILING_TURN_INTENTS,
   PROFILING_EDIT_OPS,
   PROFILING_EDIT_CANCEL_REASONS,
+  DISPLAY_THEMES,
+  DISPLAY_PREFS_SUBJECT_KINDS,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -6577,3 +6579,30 @@ export const CampusDriveCancelledPayload = z
   })
   .strict();
 export type CampusDriveCancelledPayload = z.infer<typeof CampusDriveCancelledPayload>;
+
+// ---------------------------------------------------------------------------
+// #2819 — DISPLAY PREFERENCES (`display_prefs`, migration 0165). One login chose a theme through
+// its realm's `PATCH …/me/display-prefs`, while `THEME_ROLLOUT` was open for it. Written in the
+// same transaction as the row.
+//
+// IDS AND ENUMS ONLY. `subject_id` is the login the realm's auth guard attached: `workers.id`,
+// `payers.id` (the person, never the tenant key) or `admin_users.id`, per `subject_kind`.
+// ---------------------------------------------------------------------------
+
+const DisplayThemeEnum = z.enum(DISPLAY_THEMES);
+
+/**
+ * #2819 — a login's theme changed. ONE PER REAL CHANGE: `from` is the theme in force before (a
+ * login with no stored row was on `light`), `to` the one now stored, and they always differ — the
+ * same theme again writes nothing and emits nothing.
+ */
+export const DisplayPrefsChangedPayload = z
+  .object({
+    subject_kind: z.enum(DISPLAY_PREFS_SUBJECT_KINDS),
+    subject_id: uuidSchema,
+    from: DisplayThemeEnum,
+    to: DisplayThemeEnum,
+  })
+  .strict()
+  .refine((v) => v.from !== v.to, { message: "from and to must differ: a repeat emits nothing" });
+export type DisplayPrefsChangedPayload = z.infer<typeof DisplayPrefsChangedPayload>;

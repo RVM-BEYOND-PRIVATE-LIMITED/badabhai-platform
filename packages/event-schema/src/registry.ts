@@ -1769,6 +1769,13 @@ export const EVENT_REGISTRY = {
     domain: "campus_drive",
     payload: p.CampusDriveCancelledPayload,
   },
+  // #2819 — a worker, a company or agency login, or an admin changed their theme. IDS AND ENUMS
+  // ONLY. v1.
+  "display_prefs.changed": {
+    version: 1,
+    domain: "display_prefs",
+    payload: p.DisplayPrefsChangedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

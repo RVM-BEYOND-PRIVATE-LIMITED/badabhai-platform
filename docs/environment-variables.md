@@ -107,7 +107,9 @@ NestJS boot assertion).
   only, bridged from the `production` secret of the same name; **absent = `off`**). Its one
   question is `FeatureRolloutService.isThemeOpenFor(caller)`, where the caller is built from what
   the auth guard attached (the worker, the company's tenant scope, the admin), never from a body or
-  a path; it never throws.
+  a path; it never throws. A company login's display preference (#2819) asks
+  `isThemeOpenForPayer` instead, with the tenancy resolve lazy: `off` and `on` answer without
+  reading memberships, and only `pilot` resolves the tenant key.
   - `off` (the default, and what an empty value reads as): nobody. Every display-preference GET
     (#2819) answers `light` with `theme_open: false` whatever is stored, and every PATCH answers
     404 and writes nothing. A stored choice is kept for when the person is piloted again.
@@ -118,9 +120,13 @@ NestJS boot assertion).
     Everyone else gets `false`. A failed list read, or a database without 0164, answers `false`
     and logs `sqlstate=` and ids only; never a 500.
   - `on`: everyone; no list is read.
+  - Both open states also need migration 0165 (`display_prefs`, #2819), where the choices are
+    stored. Open on a database without it, the login's GET answers `light` / `theme_open: false`
+    and its PATCH 404 (`sqlstate=42P01` and ids in the log); never a 500. The routes are in
+    `docs/api/display-prefs-api-reference.md`.
 
   **Adding a pilot company, worker or admin** is an owner step in the release flow, like a
-  migration apply (`MIGRATIONS.md`): after 0164 is applied, with the ids agreed in the pilot issue
+  migration apply (`MIGRATIONS.md`): after 0164 and 0165 are applied, with the ids agreed in the pilot issue
   (#2818), in one transaction. `added_by` is an id or a fixed token such as `owner_sql`; `reason`
   says why, never who (a worker's row outlives his account: the table has no foreign key).
 

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { loadServerConfig, type ServerConfig } from "@badabhai/config";
-import { Logger } from "@nestjs/common";
+import { ForbiddenException, Logger } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthenticatedAdmin } from "../admin/admin-auth.guard";
@@ -372,6 +372,70 @@ describe("isThemeOpenFor — THEME_ROLLOUT, for every kind of login (#2820)", ()
   );
 });
 
+// #2819 review M1 — a company login's theme on a route that must never 403. The resolver is lazy:
+// `off` and `on` answer without it, so a closed switch reads no membership on every portal load.
+describe("isThemeOpenForPayer — the tenancy resolver runs only in pilot (#2819)", () => {
+  const scopeOf = (tenantKey: TenantKey) => async () => ({ tenantKey });
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([
+    ["off", false],
+    ["on", true],
+  ] as const)(
+    "%s answers %s and NEVER calls the resolver or reads a list",
+    async (mode, expected) => {
+      const { service, pilots } = serviceWith({ THEME_ROLLOUT: mode }, async () => true);
+      const resolve = vi.fn(scopeOf(TENANT));
+      await expect(service.isThemeOpenForPayer(resolve)).resolves.toBe(expected);
+      expect(resolve).not.toHaveBeenCalled();
+      expect(pilots.isListed).not.toHaveBeenCalled();
+    },
+  );
+
+  it("pilot: resolves once, then probes feature_pilot_payers by the TENANT key", async () => {
+    const listed = serviceWith({ THEME_ROLLOUT: "pilot" }, async () => true);
+    const resolve = vi.fn(scopeOf(TENANT));
+    await expect(listed.service.isThemeOpenForPayer(resolve)).resolves.toBe(true);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(listed.pilots.isListed).toHaveBeenCalledWith("theme", TENANT);
+    const unlisted = serviceWith({ THEME_ROLLOUT: "pilot" }, async () => false);
+    await expect(unlisted.service.isThemeOpenForPayer(scopeOf(TENANT))).resolves.toBe(false);
+  });
+
+  it("pilot: a tenancy REFUSAL (the resolver's 403) is closed, never thrown, and logs nothing more", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { service, pilots } = serviceWith({ THEME_ROLLOUT: "pilot" }, async () => true);
+    const refuse = async () => {
+      throw new ForbiddenException("Not permitted for this organization");
+    };
+    await expect(service.isThemeOpenForPayer(refuse)).resolves.toBe(false);
+    expect(pilots.isListed).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("pilot: a resolver FAILURE, no scope, or a failed list read is closed, logging the SQLSTATE only", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const failing = serviceWith({ THEME_ROLLOUT: "pilot" }, async () => true);
+    const broken = async () => {
+      throw Object.assign(new Error("Failed query: … params: …"), { cause: { code: "08006" } });
+    };
+    await expect(failing.service.isThemeOpenForPayer(broken)).resolves.toBe(false);
+    await expect(failing.service.isThemeOpenForPayer(async () => null)).resolves.toBe(false);
+    await expect(failing.service.isThemeOpenForPayer(async () => ({}) as never)).resolves.toBe(
+      false,
+    );
+    const listFails = serviceWith({ THEME_ROLLOUT: "pilot" }, async () => {
+      throw Object.assign(new Error("relation"), { code: "42P01" });
+    });
+    await expect(listFails.service.isThemeOpenForPayer(scopeOf(TENANT))).resolves.toBe(false);
+    expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([
+      "feature rollout: tenancy resolve failed (feature=theme sqlstate=08006); treated as off",
+      // The resolved company goes through `stateFor` (#2747), which logs its own wording.
+      `feature rollout: pilot list read failed (feature=theme tenant=${TENANT} sqlstate=42P01); answered unavailable (read as off, except where a caller must refuse)`,
+    ]);
+  });
+});
+
 describe("a RolloutCaller is built only from what an auth guard attached (#2820)", () => {
   it("each builder copies the guard's id (the company: its resolved tenant key)", async () => {
     expect(rolloutCaller.worker(WORKER)).toMatchObject({ kind: "worker", workerId: WORKER.id });
@@ -508,12 +572,17 @@ describe("the rollout switches and the pilot list have ONE reader each", () => {
     ]);
   });
 
-  it("the theme is asked only through isThemeOpenFor, never as a raw feature key", () => {
+  it("the theme is asked only through isThemeOpenFor / isThemeOpenForPayer, never as a raw feature key", () => {
     // `isEnabledFor("theme", …)` would answer for a company only, and `isLiveForServiceCaller`
-    // for nobody in particular; every app's theme question is the one per-login method.
-    expect(filesMatching(/\.(?:isEnabledFor|isLiveForServiceCaller)\(\s*["'`]theme["'`]/)).toEqual(
-      [],
-    );
+    // for nobody in particular; every app's theme question is a per-login method (#2819 adds the
+    // lazy company-login one; its call sites are pinned in rollout-caller-arguments.static.test.ts).
+    // `stateFor` (#2747) is the same company-only answer. The service itself is the one place that
+    // may name the key: `isThemeOpenForPayer` asks `stateFor` once the company is resolved.
+    expect(
+      filesMatching(
+        /\.(?:isEnabledFor|stateFor|isLiveForServiceCaller)\(\s*["'`]theme["'`]/,
+      ).filter((file) => file !== "feature-rollout/feature-rollout.service.ts"),
+    ).toEqual([]);
   });
 });
 

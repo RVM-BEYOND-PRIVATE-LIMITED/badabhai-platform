@@ -246,6 +246,8 @@ const LOCKED_TABLES = [
   "institute_companies",
   // 0164 (#2820): the pilot list for workers and admins (opaque worker / admin ids, no FK).
   "feature_pilot_subjects",
+  // 0165 (#2819): one login's theme (opaque worker / payer login / admin ids, no FK).
+  "display_prefs",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

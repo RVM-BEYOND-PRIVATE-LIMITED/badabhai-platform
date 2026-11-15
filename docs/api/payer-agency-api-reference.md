@@ -238,6 +238,18 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Events:** `payer.account_updated` (carries `changed_fields` = field **keys** only, never values).
 - **Mobile gotchas:** `email`/`role`/`status` are immutable. Empty patch → `400`. `no-store`.
 
+#### `GET /payer/me/display-prefs` · `PATCH /payer/me/display-prefs` (#2819)
+
+The login's own theme, saved on the server so payer-web and the payer app agree. Full reference (all three realms): [`display-prefs-api-reference.md`](./display-prefs-api-reference.md).
+
+- **Auth:** `PayerAuthGuard` (Bearer) only — `employer` and `agent` alike. Its own path, so it never collides with `GET`/`PATCH /payer/me`.
+- **Whose row:** the token's LOGIN (`payers.id`), a personal preference: two teammates keep two themes. No id is read from a path or the body.
+- **Body (`PATCH`):** `{ theme: 'light'|'dark'|'system' }`, `.strict()` — any other key (a `payer_id`, anything) or an empty body → `400`.
+- **Response (both):** `{ theme: 'light'|'dark'|'system', theme_open: boolean }`. No stored row → `light`. `PATCH` returns the resulting prefs; the same theme again writes nothing.
+- **The switch (`THEME_ROLLOUT`, #2820):** closed for this login (`off`, or `pilot` and the company is not listed by its tenant key) → `GET` answers `{ theme: 'light', theme_open: false }` whatever is stored, and `PATCH` a plain `404` that writes nothing; the stored choice waits for the pilot. A team member inherits the company's pilot place under `PAYER_ORG_TENANCY_MODE=on`; a tenancy refusal closes the theme, never a `403`. Before migration 0165: the same closed answers, never a `500`.
+- **Events:** one `display_prefs.changed` v1 per real change (`subject_kind: 'payer_user'`, the login id, `from`, `to`); none for a `GET` or a repeat.
+- **Mobile gotchas:** **`theme_open: false` → show no theme choice and use light** (also on any non-`200` `GET`). A `404` on `PATCH` means the switch closed: fall back to light. Printed output stays light. `no-store`.
+
 ### 4.2 Job Postings (Company / Employer)
 
 > Payer-owned postings live under `/payer/job-postings`. Ownership is enforced from the session; unknown-or-foreign IDs return a neutral `404`.
