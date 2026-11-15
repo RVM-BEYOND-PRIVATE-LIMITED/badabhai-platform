@@ -5684,6 +5684,22 @@ a.pager__step:hover {
    Blue (--blue-500) — the structure colour, never the yellow action ramp, so a bar
    never reads as a button. Values beside the bars carry the numbers, so the fill is
    decorative (aria-hidden) and colour is never the only channel. */
+/* #2580: the label column of a BAR row takes the row's free width, so every track is the same
+   length and the bars compare. Without it the track was as wide as its step's title, and a
+   100% step drew a shorter bar than a 30% step with a longer name. */
+.funnel__row--bar .funnel__label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* …and beside the bars the figures get ONE column width, so a row with a longer "in progress ·
+   not done" line does not shorten its own track. Under 600px the figures wrap below the bar
+   (the narrow-screen funnel rule), where every track is the full row already. */
+@media (min-width: 601px) {
+  .funnel__row--bar .funnel__nums {
+    flex: 0 0 18rem;
+    justify-content: flex-end;
+  }
+}
 .funnel__bar {
   display: block;
   height: var(--space-2);

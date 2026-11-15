@@ -107,6 +107,13 @@ export interface AdminFunnelStopBucket {
 /** One split cell. Below the k-anon floor the cell reports nothing but its label. */
 export interface AdminFunnelSplitCell {
   value: string;
+  /**
+   * #2580: a human name for `value` where the API has one: the taxonomy role name for a
+   * trade cell (`role_welder` → its role name). Null for every other dimension, for the
+   * `unknown` / `other` buckets, and for a role id the taxonomy does not know. Additive:
+   * `value` is unchanged, so a client that ignores this field reads exactly what it read.
+   */
+  label: string | null;
   total: number;
   suppressed: boolean;
   stopped_at: AdminFunnelStopBucket[];

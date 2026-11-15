@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
-import { getOnboardingFunnel, describeFunnelStop, describeSplitCell } from "../../../lib/funnel";
+import {
+  getOnboardingFunnel,
+  describeFunnelStop,
+  describeSplitCell,
+  funnelStopTitle,
+  splitCellLabel,
+} from "../../../lib/funnel";
 import { PageHeader } from "../../../components/page-header";
 import { Stat } from "../../../components/stat";
 import { SegmentedControl } from "../../../components/segmented-control";
@@ -136,8 +142,15 @@ export default async function FunnelPage({
                 }}
               />
               <Stat
-                label="Held at the top stop"
-                value={topStop ? `${formatCount(topStop.count)} · ${topStop.key}` : "No holds"}
+                label={
+                  topStop && topStop.count > 0
+                    ? `Held at ${funnelStopTitle(topStop.key)}, the biggest stop`
+                    : "Held at the biggest stop"
+                }
+                value={topStop && topStop.count > 0 ? formatCount(topStop.count) : "No holds"}
+                countUp={
+                  topStop && topStop.count > 0 ? { to: topStop.count, kind: "count" } : undefined
+                }
                 tone={topStop && topStop.count > 0 ? "warn" : undefined}
               />
             </div>
@@ -184,7 +197,7 @@ export default async function FunnelPage({
                   {funnel.splits[dim].map((cell) => (
                     <li className="funnel__row" key={cell.value}>
                       <span className="funnel__label">
-                        <strong>{cell.value}</strong>
+                        <strong title={cell.value}>{splitCellLabel(dim, cell)}</strong>
                         <br />
                         <span className="funnel__events">{describeSplitCell(cell)}</span>
                       </span>
