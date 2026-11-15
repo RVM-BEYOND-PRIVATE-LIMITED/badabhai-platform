@@ -85,6 +85,14 @@ jobs:
   # `short-sha` and `image-matrix` steps for why those equalities are the feature.
   changes:
     runs-on: ubuntu-latest
+    # The repository went private on 2026-11-15. On a pull request, `dorny/paths-filter` lists
+    # the changed files through the API (`pulls.listFiles`), and on a private repository that
+    # call needs `pull-requests: read`. The repository default token grants only contents and
+    # packages, so every PR run failed here with "Resource not accessible by integration".
+    # Read-only on both; a push to main diffs git history and never calls the API.
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       # `merge_queue.*` is populated only on a `merge_group` event (see the step below), and
       # forces every path-gated job to run. On a normal PR/push that step is skipped, its
