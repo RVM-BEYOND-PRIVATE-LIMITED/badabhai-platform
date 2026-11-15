@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { getRole } from "@badabhai/taxonomy";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { AdminEventsRepository } from "./admin-events.repository";
@@ -107,6 +108,7 @@ export class AdminFunnelService {
         trade: AdminFunnelService.splitCells(
           statuses,
           (id) => trades.get(id) ?? ADMIN_FUNNEL_UNKNOWN_BUCKET,
+          AdminFunnelService.roleLabel,
         ),
         city: AdminFunnelService.splitCells(statuses, (id) => {
           const city = (byWorker.get(id)?.city ?? "").trim();
@@ -291,6 +293,7 @@ export class AdminFunnelService {
   private static splitCells(
     workers: FunnelWorkerStatuses[],
     valueOf: (workerId: string) => string,
+    labelOf: (value: string) => string | null = () => null,
   ): AdminFunnelSplitCell[] {
     const groups = new Map<string, FunnelWorkerStatuses[]>();
     for (const w of workers) {
@@ -304,25 +307,47 @@ export class AdminFunnelService {
     const entries = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
     const head = entries.slice(0, ADMIN_FUNNEL_SPLIT_VALUE_MAX);
     const tail = entries.slice(ADMIN_FUNNEL_SPLIT_VALUE_MAX);
-    const cells = head.map(([value, list]) => AdminFunnelService.splitCell(value, list));
+    const cells = head.map(([value, list]) =>
+      AdminFunnelService.splitCell(value, list, labelOf(value)),
+    );
     if (tail.length > 0) {
       cells.push(
         AdminFunnelService.splitCell(
           ADMIN_FUNNEL_OTHER_BUCKET,
           tail.flatMap(([, list]) => list),
+          null,
         ),
       );
     }
     return cells;
   }
 
-  private static splitCell(value: string, list: FunnelWorkerStatuses[]): AdminFunnelSplitCell {
+  /**
+   * #2580: a trade cell's human name, the taxonomy role name (the same resolver the candidate
+   * index uses). Null for the `unknown` bucket and for an id the taxonomy does not know: the
+   * portal then shows the id itself, never a guess.
+   */
+  private static roleLabel(this: void, roleId: string): string | null {
+    if (roleId === ADMIN_FUNNEL_UNKNOWN_BUCKET) return null;
+    try {
+      return getRole(roleId)?.name ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private static splitCell(
+    value: string,
+    list: FunnelWorkerStatuses[],
+    label: string | null,
+  ): AdminFunnelSplitCell {
     if (list.length < ADMIN_FUNNEL_K_ANON_FLOOR) {
-      return { value, total: 0, suppressed: true, stopped_at: [] };
+      return { value, label, total: 0, suppressed: true, stopped_at: [] };
     }
     const keys: AdminFunnelStopKey[] = [...ADMIN_FUNNEL_STEP_KEYS, "completed"];
     return {
       value,
+      label,
       total: list.length,
       suppressed: false,
       stopped_at: keys.map((key) => ({
