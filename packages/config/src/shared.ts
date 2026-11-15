@@ -8,7 +8,8 @@ export const booleanFromString = z
 
 /**
  * A feature's rollout switch (#2746 item 1): `off` (nobody), `pilot` (the companies on
- * `feature_pilot_payers` for that feature) or `on` (everyone). Empty or unset means `off`, for
+ * `feature_pilot_payers` for that feature, and from #2820 the workers and admins on
+ * `feature_pilot_subjects`) or `on` (everyone). Empty or unset means `off`, for
  * the `${VAR:-off}` compose idiom and a blank secret alike; any other value fails boot, and the
  * deploy preflight refuses it before a container moves. Read only by `FeatureRolloutService`.
  */

@@ -116,7 +116,7 @@ import { aiCallTraces } from "./ai-trace";
 import { deleteForensics } from "./delete-forensics";
 import { jobPostingInstituteReviews, rvmTargetingOptions } from "./job-audience";
 import { campusDriveRequests } from "./campus-drive";
-import { featurePilotPayers } from "./feature-pilot";
+import { featurePilotPayers, featurePilotSubjects } from "./feature-pilot";
 
 export * from "./worker";
 export * from "./skill";
@@ -463,4 +463,6 @@ export const schema = {
   instituteSearchGrants,
   instituteApplications,
   instituteCompanies,
+  // #2820 - the pilot list for workers and admins behind THEME_ROLLOUT (migration 0164).
+  featurePilotSubjects,
 };

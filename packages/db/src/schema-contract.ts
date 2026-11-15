@@ -1257,6 +1257,20 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. Every PostgREST role could read which workers applied through Campus to which " +
       "posting, and write an application that a company would see",
   },
+  // 0164 (#2820): THE API names `feature_pilot_subjects` only for a worker or an admin while a
+  // rollout switch reads `pilot` (THEME_ROLLOUT first), and a read error there answers "not
+  // listed", so a deploy ahead of the migration breaks no request and the table is NOT a `table`
+  // entry. It is listed for its lock, exactly as 0134's table is. APPLY BEFORE PILOT (header).
+  {
+    id: "0164-feature-pilot-subjects-rls",
+    migration: "0164_feature_pilot_subjects",
+    kind: "rls",
+    table: "feature_pilot_subjects",
+    requiredBy: "no code path - FORCE + four REVOKEs HAND-APPENDED, as the entries above",
+    failureMode:
+      "SILENT. A writable grant lets any PostgREST role put a worker or an admin on a pilot, " +
+      "opening a feature meant for the named pilot logins only",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

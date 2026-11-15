@@ -673,6 +673,10 @@ export const serverEnvSchema = z.object({
   //     14-day lapse, never charged twice), GET /payer/unlocks/:id/contact shows the full name and
   //     phone, and the résumé prints the full name. Off, the route answers 404 and the 14-day
   //     window applies; a contact opened while it was on stays open.
+  //   THEME_ROLLOUT (#2820) — who may use a theme other than the app's default (Light), for
+  //     every kind of login: a company by its tenant key in `feature_pilot_payers`, a worker or
+  //     an admin by id in `feature_pilot_subjects` (migration 0164). Closed, the display
+  //     preference answers `light` and saves nothing; a stored choice is kept, not honoured.
   // Off, the new payer fields are ignored and the new routes answer 404. Campus's own routes
   // additionally need CAMPUS_LINK_ENABLED. A switch gates CAPABILITIES only: stored state (the
   // worker-path audience filter, the RVM review gate) is honoured whatever it says, so switching
@@ -687,6 +691,7 @@ export const serverEnvSchema = z.object({
   // request already covers up to 50 branches, so 3 is three separate asks waiting on the
   // placement team. Empty reads as the default. Counted per tenant (the org under tenancy `on`).
   CAMPUS_DRIVE_MAX_OPEN_REQUESTS: positiveIntFromString(3),
+  THEME_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER
