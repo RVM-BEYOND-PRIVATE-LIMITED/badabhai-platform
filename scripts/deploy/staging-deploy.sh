@@ -171,6 +171,13 @@ case "${CONTACT_RULES_ROLLOUT-}" in
     exit 1
     ;;
 esac
+case "${THEME_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::THEME_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set THEME_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
 case "${OUTCOME_STAGES_ROLLOUT-}" in
   "" | off | pilot | on) ;;
   *)

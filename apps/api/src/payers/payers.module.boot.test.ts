@@ -128,6 +128,9 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
       // a grant is stored under the company's tenant key.
       "CampusPostingsService",
       "CandidateSearchService",
+      // #2819: a company login's theme asks the switch with its tenant key (the row stays the
+      // login's own). DisplayPrefsModule imports PayersModule, which the next case checks.
+      "DisplayPrefsService",
       "InstituteSearchGrantsService",
       "JobPostingChatService",
       "JobPostingsService",

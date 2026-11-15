@@ -51,6 +51,12 @@ export const DRIVE_CANCELLABLE_STATUSES: readonly CampusDriveRequestStatus[] = [
   "scheduled",
 ];
 
+/**
+ * #2768 — the statuses that hold a place under the per-company cap: a request still OPEN, the
+ * same set the company can cancel. Declined, completed and cancelled requests free their place.
+ */
+export const DRIVE_OPEN_STATUSES: readonly CampusDriveRequestStatus[] = DRIVE_CANCELLABLE_STATUSES;
+
 /** The statuses that are a Campus decision (and so are what a replay compares against). */
 const DECISION_STATUSES: readonly CampusDriveRequestStatus[] = [
   "scheduled",

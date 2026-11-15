@@ -1257,6 +1257,34 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. Every PostgREST role could read which workers applied through Campus to which " +
       "posting, and write an application that a company would see",
   },
+  // 0164 (#2820): THE API names `feature_pilot_subjects` only for a worker or an admin while a
+  // rollout switch reads `pilot` (THEME_ROLLOUT first), and a read error there answers "not
+  // listed", so a deploy ahead of the migration breaks no request and the table is NOT a `table`
+  // entry. It is listed for its lock, exactly as 0134's table is. APPLY BEFORE PILOT (header).
+  {
+    id: "0164-feature-pilot-subjects-rls",
+    migration: "0164_feature_pilot_subjects",
+    kind: "rls",
+    table: "feature_pilot_subjects",
+    requiredBy: "no code path - FORCE + four REVOKEs HAND-APPENDED, as the entries above",
+    failureMode:
+      "SILENT. A writable grant lets any PostgREST role put a worker or an admin on a pilot, " +
+      "opening a feature meant for the named pilot logins only",
+  },
+  // 0165 (#2819): THE API names `display_prefs` only for a login the THEME_ROLLOUT switch is open
+  // for, and a missing table there answers light / theme_open false (GET) or a 404 (PATCH), so a
+  // deploy ahead of the migration breaks no request and the table is NOT a `table` entry. No
+  // erasure path names it yet (#2837). Listed for its lock, as 0164's table is. APPLY BEFORE PILOT.
+  {
+    id: "0165-display-prefs-rls",
+    migration: "0165_display_prefs",
+    kind: "rls",
+    table: "display_prefs",
+    requiredBy: "no code path - FORCE + four REVOKEs HAND-APPENDED, as the entries above",
+    failureMode:
+      "SILENT. A readable grant lets any PostgREST role list which worker, company login and " +
+      "admin ids exist; a writable one lets it change anyone's theme",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

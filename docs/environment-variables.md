@@ -101,6 +101,51 @@ NestJS boot assertion).
   `scripts/deploy/staging-deploy.sh` accepts exactly `off`, `pilot`, `on` and empty, and refuses
   anything else before a container moves. Arm: `gh secret set JOB_AUDIENCE_ROLLOUT --env
   production --body pilot`, then redeploy.
+- **Theme switch (#2820)** — `THEME_ROLLOUT` (`off` | `pilot` | `on`): who may use a theme other
+  than the app's default (Light) in every BadaBhai app, for every kind of login. Same grammar,
+  wiring and preflight as the two switches above (`${THEME_ROLLOUT:-off}` on the `api` service
+  only, bridged from the `production` secret of the same name; **absent = `off`**). Its one
+  question is `FeatureRolloutService.isThemeOpenFor(caller)`, where the caller is built from what
+  the auth guard attached (the worker, the company's tenant scope, the admin), never from a body or
+  a path; it never throws. A company login's display preference (#2819) asks
+  `isThemeOpenForPayer` instead, with the tenancy resolve lazy: `off` and `on` answer without
+  reading memberships, and only `pilot` resolves the tenant key.
+  - `off` (the default, and what an empty value reads as): nobody. Every display-preference GET
+    (#2819) answers `light` with `theme_open: false` whatever is stored, and every PATCH answers
+    404 and writes nothing. A stored choice is kept for when the person is piloted again.
+  - `pilot`: a company listed for feature `theme` in `feature_pilot_payers` (by tenant key, as
+    above: with `PAYER_ORG_TENANCY_MODE=on` a team member inherits the company's place; in `off` /
+    `shadow` list each login), and a worker or an admin listed in `feature_pilot_subjects`
+    (migration 0164; `subject_kind` `worker` is a `workers.id`, `admin` an `admin_users.id`).
+    Everyone else gets `false`. A failed list read, or a database without 0164, answers `false`
+    and logs `sqlstate=` and ids only; never a 500.
+  - `on`: everyone; no list is read.
+  - Both open states also need migration 0165 (`display_prefs`, #2819), where the choices are
+    stored. Open on a database without it, the login's GET answers `light` / `theme_open: false`
+    and its PATCH 404 (`sqlstate=42P01` and ids in the log); never a 500. The routes are in
+    `docs/api/display-prefs-api-reference.md`.
+
+  **Adding a pilot company, worker or admin** is an owner step in the release flow, like a
+  migration apply (`MIGRATIONS.md`): after 0164 and 0165 are applied, with the ids agreed in the pilot issue
+  (#2818), in one transaction. `added_by` is an id or a fixed token such as `owner_sql`; `reason`
+  says why, never who (a worker's row outlives his account: the table has no foreign key).
+
+  ```sql
+  BEGIN;
+  INSERT INTO feature_pilot_payers (feature, payer_id, added_by, reason)
+    VALUES ('theme', '<tenant key: the company anchor payers.id>', 'owner_sql', '#2818 theme pilot');
+  INSERT INTO feature_pilot_subjects (feature, subject_kind, subject_id, added_by, reason)
+    VALUES ('theme', 'worker', '<workers.id>', 'owner_sql', '#2818 theme pilot, worker app'),
+           ('theme', 'admin', '<admin_users.id>', 'owner_sql', '#2818 theme pilot, admin-web');
+  COMMIT;
+  ```
+
+  The list is read on every request, so a row added or removed (`DELETE FROM
+  feature_pilot_subjects WHERE feature = 'theme' AND subject_kind = 'worker' AND subject_id =
+  '<id>'`) counts from the next request. Arm: `gh secret set THEME_ROLLOUT --env production
+  --body pilot`, then redeploy. **Rollback** is closing the switch: `gh secret set THEME_ROLLOUT
+  --env production --body off`, then redeploy (no code change, no migration); every GET answers
+  `light` from the first request on the new container, and the pilot rows can stay.
 - **Payer org tenancy** — `PAYER_ORG_TENANCY_MODE` (`off` | `shadow` | `on`; ADR-0053,
   PAY-DB-01). `off` (the default, and what an empty value reads as) keys every payer read to the
   login, the pre-ADR behaviour; `shadow` serves `off` and logs what `on` would decide

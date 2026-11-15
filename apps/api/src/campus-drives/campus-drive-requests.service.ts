@@ -3,13 +3,16 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import type { ServerConfig } from "@badabhai/config";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { Database } from "@badabhai/db";
+import { SERVER_CONFIG } from "../config/config.module";
 import { containsHardIdentifier } from "../common/hard-identifier";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { inFlightConflict } from "../common/idempotency/in-flight-conflict";
@@ -61,6 +64,12 @@ export const DRIVE_REQUEST_REFUSAL_REASONS = {
   keyReused: "idempotency_key_reused",
   /** 409: the request is declined or completed, so there is nothing to cancel. */
   notCancellable: "drive_request_not_cancellable",
+  /**
+   * 409 (#2768): the company already holds `limit` open requests (`requested` or `scheduled`);
+   * the body carries `limit` and `open`. Cancelling one, or the placement team deciding one
+   * (declined, or completed after the drive), frees a place.
+   */
+  limitReached: "drive_request_limit_reached",
 } as const;
 
 /** The `payer_idem` scope of this route: its own, never shared (#2103). */
@@ -158,6 +167,16 @@ function shape(dto: PayerCreateCampusDriveRequestDto): NormalisedRequest {
  * `campus_drive.requested` v1. A refused attempt writes no row, so the key stays free for a
  * corrected body.
  *
+ * THE CAP (#2768, risk R85; owner ruling 15 Nov 2026). A company holds at most
+ * `CAMPUS_DRIVE_MAX_OPEN_REQUESTS` (default 3) OPEN requests, `requested` or `scheduled`; the next
+ * is 409 `drive_request_limit_reached` with `limit` and `open`, checked LAST (after every other
+ * refusal), so a company fixes its body before it is told to wait. The count is per tenant (the
+ * org under tenancy `on`, like every other read here). Creates of one tenant take turns on a
+ * transaction-scoped lock (`lockCreates`), taken first in the insert's transaction, so two
+ * creates at the edge cannot both count "under". A same-key create that waited on that lock
+ * re-reads the key on the transaction and answers the request the first one made, never the
+ * cap's 409. A repeat of a stored key answers before the transaction opens, at the cap or not.
+ *
  * IDEMPOTENCY, TWO LAYERS. `RequestIdempotency` (Redis, the `payer_idem` / `campus_drive_request`
  * scope, keyed by the tenant) turns a duplicate in flight into the house 409 `in_flight` and
  * replays the first answer for its window; the stored outcome is ENCRYPTED (`secret`), because it
@@ -189,6 +208,7 @@ export class CampusDriveRequestsService {
     private readonly idempotency: RequestIdempotency,
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
   /** `POST /payer/campus-drive-requests`. */
@@ -397,6 +417,23 @@ export class CampusDriveRequestsService {
       }
     }
 
+    // LAST (#2768): only a request that would otherwise be accepted is told to wait. The caller
+    // holds `lockCreates`, so no other create of this tenant can commit between this count and
+    // the insert.
+    const limit = this.config.CAMPUS_DRIVE_MAX_OPEN_REQUESTS;
+    const open = await this.repo.countOpen(tx, scope.tenantKey);
+    if (open >= limit) {
+      this.logger.log(
+        `campus drive request refused: tenant=${scope.tenantKey} open=${open} limit=${limit}`,
+      );
+      throw refused(
+        409,
+        DRIVE_REQUEST_REFUSAL_REASONS.limitReached,
+        `This company already has ${open} open drive requests, the most it can hold at once; cancel one, or wait for the placement team to decide one, before asking for another`,
+        { limit, open },
+      );
+    }
+
     return { isTest: facts.isTestAccount };
   }
 
@@ -411,8 +448,9 @@ export class CampusDriveRequestsService {
 
   /**
    * A key this company already used answers with the request it made (or 409 for a different
-   * body), before any check. Otherwise the checks, then the row and its event in one transaction;
-   * a concurrent create under the same key loses the insert and answers the winner's row.
+   * body), before any check. Otherwise, in one transaction: the tenant's create lock (#2768), the
+   * key re-read, the checks (the cap last), then the row and its event. A concurrent create under
+   * the same key waits on the lock, finds the winner's row and answers it.
    */
   private async createOnce(
     scope: PayerTenantScope,
@@ -424,6 +462,16 @@ export class CampusDriveRequestsService {
     if (stored !== undefined) return this.answerRepeat(scope, stored, request);
 
     const created = await this.repo.withTransaction(async (tx) => {
+      // #2768: this tenant's creates take turns from here to the commit, so the cap's count and
+      // the insert below are one step. Taken before any other lock (see `lockCreates`).
+      await this.repo.lockCreates(tx, scope.tenantKey);
+      // A same-key create that committed while this one waited for the lock: answer ITS request
+      // (below, after the transaction), never count it against this one and refuse at the cap.
+      if (
+        (await this.repo.findByIdempotencyKey(scope.tenantKey, idempotencyKey, tx)) !== undefined
+      ) {
+        return undefined;
+      }
       // Every check of a NEW request runs on the insert's transaction (migration re-check F7), so
       // the tenant's standing is read right before the insert, not before the transaction opened.
       // A refusal rolls the transaction back: nothing is written.
@@ -471,7 +519,8 @@ export class CampusDriveRequestsService {
       return this.view(created);
     }
 
-    // A concurrent create under the same key won the insert: answer with its row.
+    // A concurrent create under the same key got there first (it committed while this one waited
+    // on the create lock, or, as a second guard, won the insert's ON CONFLICT): answer its row.
     const existing = await this.repo.findByIdempotencyKey(scope.tenantKey, idempotencyKey);
     // Gone between the conflict and this read (its company was deleted): nothing to answer with.
     if (existing === undefined) throw new ServiceUnavailableException();
