@@ -254,7 +254,7 @@ describe("expectedSalaryOf", () => {
     );
   });
 
-  it("a figure from the extraction container says the container's own period", () => {
+  it("a figure from the extraction container says its own period, unless that is only the monthly default", () => {
     expect(
       expectedSalaryOf(
         row({ salaryContainer: { amount_min: 800, amount_max: null, period: "daily" } }),
@@ -264,7 +264,7 @@ describe("expectedSalaryOf", () => {
       expectedSalaryOf(
         row({ salaryContainer: { amount_min: 20000, period: "monthly" }, salaryPeriod: "day" }),
       ),
-    ).toBe("₹20,000 / month");
+    ).toBe("₹20,000 / day");
   });
 
   it("is not given when nothing was stated", () => {

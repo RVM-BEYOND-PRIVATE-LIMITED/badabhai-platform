@@ -167,11 +167,8 @@ const HONORIFICS = new Set([
   "md",
   "mohd",
   "shri",
-  "sri",
-  "shree",
   "smt",
   "kumari",
-  "km",
   "sh",
   "late",
 ]);
@@ -229,11 +226,13 @@ export function expectedSalaryOf(row: PrePayFactsSourceRow): string | null {
   return band === null ? null : perPeriod(formatSalaryBand(band.low, band.high), period);
 }
 
-/** The extraction container's own unit (`SalaryExpectationSchema.period`), or null. */
+/**
+ * The extraction container's own unit when it is NOT the schema default: `period` defaults to
+ * "monthly" (`SalaryExpectationSchema`), so "monthly" says nothing and the worker's answer decides.
+ */
 function containerPeriod(value: unknown): SalaryPeriod | null {
   if (value === "daily") return "day";
   if (value === "yearly") return "year";
-  if (value === "monthly") return "month";
   return null;
 }
 
