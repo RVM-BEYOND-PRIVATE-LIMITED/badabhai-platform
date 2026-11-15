@@ -340,6 +340,12 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /APPLICANT_FACTS_ROLLOUT:\s*\$\{\{\s*secrets\.APPLICANT_FACTS_ROLLOUT\s*\}\}/,
       /envs:[^\n]*\bAPPLICANT_FACTS_ROLLOUT\b/,
     ],
+    // #2747 — what a credit opens: open for good, the contact read, the full name on the résumé.
+    [
+      "CONTACT_RULES_ROLLOUT",
+      /CONTACT_RULES_ROLLOUT:\s*\$\{\{\s*secrets\.CONTACT_RULES_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bCONTACT_RULES_ROLLOUT\b/,
+    ],
     // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
     // secret in the confidentiality sense, but bridged through `secrets.*` like the other
     // numbers so a deploy does not depend on the box's shell state; absent, compose holds

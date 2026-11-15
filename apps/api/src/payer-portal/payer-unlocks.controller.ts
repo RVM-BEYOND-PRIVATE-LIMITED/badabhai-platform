@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   NotFoundException,
   Param,
@@ -107,6 +108,25 @@ export class PayerUnlocksController {
   ) {
     await this.disclosureRate.assertWithinHourlyCap(payer.id); // XB-G (real identity)
     return this.unlocks.reveal(unlockId, ctx, payer.id);
+  }
+
+  /**
+   * #2747 item 5 (ADR-0064 §3.3) — the full name and phone number of a contact the caller's
+   * company OPENED, on screen. Only while `contact_rules` is on for the company (off: 404).
+   * Ownership, the open rule, the deletion freeze and consent are the chokepoint's
+   * (`UnlockService.readContact`); every refusal is the one neutral body. Each read counts against
+   * the same per-login hourly disclosure cap as an unlock or a reveal (XB-G) and writes
+   * `contact.viewed`. `no-store`: no proxy or client cache keeps the number; the body is never logged.
+   */
+  @Get("unlocks/:unlockId/contact")
+  @Header("Cache-Control", "no-store")
+  async readContact(
+    @Param("unlockId", new ParseUUIDPipe()) unlockId: string,
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Ctx() ctx: RequestContext,
+  ) {
+    await this.disclosureRate.assertWithinHourlyCap(payer.id); // XB-G (real identity)
+    return this.unlocks.readContact(unlockId, payer.id, ctx);
   }
 
   /**

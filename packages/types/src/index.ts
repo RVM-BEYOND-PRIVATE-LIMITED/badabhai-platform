@@ -688,6 +688,21 @@ export const EMPLOYER_CONTACT_PURPOSES = ["employer_sharing", "employer_messagin
  */
 export const EMPLOYER_CONTACT_NOTICE_VERSIONS: readonly string[] = ["2026-11-04"];
 
+/**
+ * #2747 (ADR-0064 §3.8) — the employer-sharing notice versions whose copy DESCRIBES the brief's
+ * rules: his first name and expected salary shown BEFORE a company pays; his full name and phone
+ * number on screen AFTER it opens him; and a contact that stays open for good. The 2026-11-04 notice
+ * says the opposite ("naam, phone number aur photo nahi dikhta"; "14 din tak"; "poora naam … nahi"),
+ * so a BadaBhai worker whose latest consent is on it keeps exactly those rules, whatever a
+ * company's pilot switches say.
+ *
+ * EMPTY until that notice is approved and shipped. Then append its version here AND to
+ * {@link EMPLOYER_CONTACT_NOTICE_VERSIONS} in the same change as the worker app's copy (the rule
+ * above). Never remove one. An actively linked RVM student is decided by the institute rule instead
+ * (#2752: RVM's own consent line, brief 9).
+ */
+export const BRIEF_CONTACT_NOTICE_VERSIONS: readonly string[] = [];
+
 // ---- Chat ----
 /**
  * `active` → running. `ended` → the worker finished the interview. `abandoned` → the interview did

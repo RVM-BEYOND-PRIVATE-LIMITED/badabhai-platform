@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { CampusLinkModule } from "../campus-link/campus-link.module";
+import { FeatureRolloutModule } from "../feature-rollout/feature-rollout.module";
 import { ConsentModule } from "../consent/consent.module";
 import { PayersModule } from "../payers/payers.module";
 import { PricingModule } from "../pricing/pricing.module";
@@ -44,6 +45,8 @@ import { RazorpayWebhookGuard } from "./razorpay-webhook.guard";
     // #2752 — InstituteOpenGate: a linked institute student opens only for a company he applied
     // to. A one-way edge: the Campus link has no dependency on unlocks.
     CampusLinkModule,
+    // #2747 — the `contact_rules` switch (open for good, the contact read). No dependency back.
+    FeatureRolloutModule,
   ],
   // RazorpayWebhookController is the PUBLIC capture surface (ADR-0010 real-payments
   // stream). It lives here, beside the money chokepoint it drives, so the whole payment

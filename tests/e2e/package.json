@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@badabhai/db": "workspace:*",
+    "@badabhai/types": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
