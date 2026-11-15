@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDbClient, events, skills, workerSkills, type DbClient } from "@badabhai/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
 /**
  * ══════════════════════════════════════════════════════════════════════════════════════
@@ -132,9 +133,8 @@ async function call(
   return { status: res.status, body: parsed };
 }
 
-/** A phone inside the reserved synthetic block the test-login seam serves: `+9100000#####`. */
-const syntheticPhone = (): string =>
-  `+9100000${String(Math.floor(Math.random() * 100_000)).padStart(5, "0")}`;
+/** A phone inside the reserved synthetic block the test-login seam serves, this suite's slot. */
+const syntheticPhone = syntheticPhoneMinter(63);
 
 /**
  * Mint a BRAND-NEW worker through the D-3 seam. The mint find-or-creates by phone hash, so a
