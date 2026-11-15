@@ -143,6 +143,8 @@ describe.skipIf(!RUN)("pre-pay facts — against real Postgres", () => {
       salaryExpectedMax: 22000,
       salaryPeriod: "day",
       employerSharing: true,
+      // Consent version "test" is no brief-describing notice (the real list is empty).
+      onBriefNotice: false,
     });
     expect(new Date(rich.lastSeenAt as string | Date).toISOString()).toBe(
       "2026-11-14T10:00:00.000Z",
@@ -166,6 +168,7 @@ describe.skipIf(!RUN)("pre-pay facts — against real Postgres", () => {
       lastSeenAt: null,
       // A newer row without the purpose replaced his consent: the LATEST row decides.
       employerSharing: false,
+      onBriefNotice: false,
     });
     // An id in another case still finds its rows (Postgres prints uuids in lower case).
     expect(rows[1]!.canonicalRoleId).toBe("role_current");
@@ -179,8 +182,14 @@ describe.skipIf(!RUN)("pre-pay facts — against real Postgres", () => {
   });
 
   it("one page, an RVM applicant and a worker applicant: each labelled, every fact key present", async () => {
+    // #2747 §3.8 — no brief-describing notice is approved yet; read RICH's "test" consent as one.
+    const onTestNotice = {
+      listActiveInstituteLinks: (ids: readonly string[]) => repo.listActiveInstituteLinks(ids),
+      listForWorkers: (ids: readonly string[]) =>
+        repo.listForWorkers(ids, { briefNoticeVersions: ["test"] }),
+    } as unknown as PrePayFactsRepository;
     const svc = new PrePayFactsService(
-      repo,
+      onTestNotice,
       { isEnabledFor: async () => true } as unknown as FeatureRolloutService,
       {
         decrypt: (t: string) => (t.endsWith("0003") ? "Sameer Patil" : "Ramesh Kumar"),
@@ -195,6 +204,16 @@ describe.skipIf(!RUN)("pre-pay facts — against real Postgres", () => {
       firstName: "Sameer",
     });
     expect(page[1]).toMatchObject({ area: "Pune", expectedSalary: "₹20,000 – ₹26,000 / day" });
+  });
+
+  it("#2747 §3.8 — the brief-notice column reads the LATEST consent row's version", async () => {
+    const [real] = await repo.listForWorkers([RICH]);
+    expect(real!.onBriefNotice).toBe(false);
+    const [asTest] = await repo.listForWorkers([RICH], { briefNoticeVersions: ["test"] });
+    expect(asTest!.onBriefNotice).toBe(true);
+    // SPARSE's latest row has no employer_sharing: never on the brief notice, whatever the list.
+    const [sparse] = await repo.listForWorkers([SPARSE], { briefNoticeVersions: ["test"] });
+    expect(sparse!.onBriefNotice).toBe(false);
   });
 
   it("reads nothing for an empty page", async () => {

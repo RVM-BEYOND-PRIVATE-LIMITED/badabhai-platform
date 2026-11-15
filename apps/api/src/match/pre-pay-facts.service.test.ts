@@ -34,6 +34,7 @@ function raw(workerId: string, over: Partial<PrePayFactsRawRow> = {}): PrePayFac
     salaryPeriod: null,
     lastSeenAt: null,
     employerSharing: true,
+    onBriefNotice: true,
     ...over,
   };
 }
@@ -162,6 +163,18 @@ describe("PrePayFactsService.decorate", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]![0])).toContain(W1);
     expect(String(warn.mock.calls[0]![0])).not.toMatch(/Sunita|Devi|enc:/);
+  });
+
+  it('#2747 §3.8 — employer_sharing on the 2026-11-04 notice ("naam nahi dikhta"): every fact is not given', async () => {
+    const { svc, pii } = setup({
+      on: true,
+      rows: [
+        raw(W1, { fullNameEnc: "enc:Ramesh Kumar", workersCity: "Pune", onBriefNotice: false }),
+      ],
+    });
+    const [out] = await svc.decorate([{ workerId: W1 }], TENANT, NOW);
+    for (const key of PRE_PAY_FACT_KEYS) expect(out).toHaveProperty(key, null);
+    expect(pii.decrypt).not.toHaveBeenCalled();
   });
 
   it("no live employer_sharing: every fact is not given, and his name is never decrypted", async () => {

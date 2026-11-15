@@ -667,6 +667,10 @@ services:
       JOB_AUDIENCE_ROLLOUT: ${JOB_AUDIENCE_ROLLOUT:-off}
       CAMPUS_DRIVE_REQUESTS_ROLLOUT: ${CAMPUS_DRIVE_REQUESTS_ROLLOUT:-off}
       APPLICANT_FACTS_ROLLOUT: ${APPLICANT_FACTS_ROLLOUT:-off}
+      CONTACT_RULES_ROLLOUT: ${CONTACT_RULES_ROLLOUT:-off}
+      # #2768 — open campus-drive requests one company may hold (owner ruling 15 Nov 2026: 3).
+      # Bridged from the `production` secret of the same name; `:-3` when unset or empty.
+      CAMPUS_DRIVE_MAX_OPEN_REQUESTS: ${CAMPUS_DRIVE_MAX_OPEN_REQUESTS:-3}
       THEME_ROLLOUT: ${THEME_ROLLOUT:-off}
       CAPACITY_ENFORCEMENT_ENABLED: ${CAPACITY_ENFORCEMENT_ENABLED:-false}
       PACE_ENABLED: ${PACE_ENABLED:-false}

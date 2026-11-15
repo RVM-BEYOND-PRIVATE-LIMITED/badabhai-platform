@@ -42,10 +42,37 @@ export class FeatureRolloutService {
   ) {}
 
   /** Is the feature on for this company? `off` no, `on` yes, `pilot` only when listed. */
-  isEnabledFor(feature: FeatureRolloutKey, tenantKey: TenantKey): Promise<boolean> {
-    return this.decide(feature, `tenant=${tenantKey}`, () =>
-      this.pilots.isListed(feature, tenantKey),
-    );
+  async isEnabledFor(feature: FeatureRolloutKey, tenantKey: TenantKey): Promise<boolean> {
+    return (await this.stateFor(feature, tenantKey)) === "on";
+  }
+
+  /**
+   * {@link isEnabledFor} with the read failure kept apart (#2747): `unavailable` when the switch is
+   * `pilot` and the pilot list could not be read. For a caller where "off" is not the safe answer —
+   * the unlock path, where reading a pilot company as off would charge it again for a contact it
+   * already holds — and which must refuse instead. Everyone else uses {@link isEnabledFor}.
+   */
+  async stateFor(
+    feature: FeatureRolloutKey,
+    tenantKey: TenantKey,
+  ): Promise<"on" | "off" | "unavailable"> {
+    switch (this.mode(feature)) {
+      case "on":
+        return "on";
+      case "pilot":
+        try {
+          return (await this.pilots.isListed(feature, tenantKey)) ? "on" : "off";
+        } catch (err) {
+          // The SQLSTATE tells a missing table (42P01: `pilot` armed before migration 0162) from
+          // a dropped connection. Ids and the code only; never the error text.
+          this.logger.warn(
+            `feature rollout: pilot list read failed (feature=${feature} tenant=${tenantKey} sqlstate=${sqlStateOf(err) ?? "none"}); answered unavailable (read as off, except where a caller must refuse)`,
+          );
+          return "unavailable";
+        }
+      default:
+        return "off";
+    }
   }
 
   /**
@@ -97,8 +124,9 @@ export class FeatureRolloutService {
   }
 
   /**
-   * `off` no and `on` yes, without a read; `pilot` asks `listed`. A read that throws is "not
-   * listed", logged with `who` (ids) and the SQLSTATE only.
+   * A worker's or an admin's answer (a company goes through {@link stateFor}): `off` no and `on`
+   * yes, without a read; `pilot` asks `listed`. A read that throws is "not listed", logged with
+   * `who` (ids) and the SQLSTATE only.
    */
   private async decide(
     feature: FeatureRolloutKey,
@@ -112,9 +140,8 @@ export class FeatureRolloutService {
         try {
           return await listed();
         } catch (err) {
-          // The SQLSTATE tells a missing table (42P01: `pilot` armed before migration 0162 for a
-          // company, 0164 for a worker or an admin) from a dropped connection. Ids and the code
-          // only; never the error text.
+          // The SQLSTATE tells a missing table (42P01: `pilot` armed before migration 0164) from a
+          // dropped connection. Ids and the code only; never the error text.
           this.logger.warn(
             `feature rollout: pilot list read failed (feature=${feature} ${who} sqlstate=${sqlStateOf(err) ?? "none"}); treated as off`,
           );

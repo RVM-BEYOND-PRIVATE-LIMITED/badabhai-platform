@@ -1914,6 +1914,34 @@ export const ContactRevealedPayload = z.object({
   reveal_count: z.number().int().nonnegative().default(0),
 });
 
+/**
+ * #2747 item 5 (ADR-0064 §3.3) — a company read the contact a credit opened: the full name and
+ * phone number shown on screen (`GET /payer/unlocks/:unlockId/contact`). A different act from a
+ * relay reveal, so its own event; `contact.revealed` keeps its payload. Ids only — never the name,
+ * the number or anything derived from them. The acting login is on the envelope; `payer_id` is the
+ * tenant that holds the unlock (ADR-0053 §7).
+ */
+export const ContactViewedPayload = z
+  .object({
+    unlock_id: uuidSchema,
+    payer_id: uuidSchema,
+    worker_id: uuidSchema,
+  })
+  .strict();
+
+/**
+ * #2747 item 6 (ADR-0064 §3.4) — a contact the company already held was re-opened while the
+ * brief's rules apply to the worker: its stored dates moved to "for good" and no credit was spent
+ * (so this is NOT a grant, and revenue reads `unlock.granted` only). Ids only.
+ */
+export const UnlockReopenedPayload = z
+  .object({
+    unlock_id: uuidSchema,
+    payer_id: uuidSchema,
+    worker_id: uuidSchema,
+  })
+  .strict();
+
 /** A (mock) credit hold was authorized. `real_call:false` in alpha (mock honesty). */
 export const PaymentAuthorizedPayload = z.object({
   unlock_id: uuidSchema.nullable().default(null),

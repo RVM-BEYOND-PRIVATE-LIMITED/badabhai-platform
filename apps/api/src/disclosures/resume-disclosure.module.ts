@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { CampusLinkModule } from "../campus-link/campus-link.module";
+import { FeatureRolloutModule } from "../feature-rollout/feature-rollout.module";
 import { ConsentModule } from "../consent/consent.module";
 import { PayersModule } from "../payers/payers.module";
 import { StorageModule } from "../storage/storage.module";
@@ -57,7 +58,8 @@ import { GeneralRoadReader } from "../resume/general-road.reader";
  * only to a company he applied to. Imported for the same single-instance reason, and one-way too.
  */
 @Module({
-  imports: [ConsentModule, StorageModule, PayersModule, CampusLinkModule],
+  // #2747 — FeatureRolloutModule for the `contact_rules` switch (full name, open for good).
+  imports: [ConsentModule, StorageModule, PayersModule, CampusLinkModule, FeatureRolloutModule],
   controllers: [ResumeDisclosureController],
   providers: [
     ResumeDisclosureService,
