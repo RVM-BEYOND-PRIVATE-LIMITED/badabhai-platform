@@ -11,6 +11,8 @@ name: Owner DB - adopt ledger rows
 #     (tables, typed columns, indexes, constraints, RLS enabled/forced, every REVOKE held), all or
 #     nothing. It runs NO DDL: an unapplied migration fails verification and nothing is recorded.
 #   * then `db:audit:schema-contract` (read-only), the check MIGRATIONS.md asks for after an adopt.
+#   * `constraints` (optional): print the live text of named constraints (read-only), for a
+#     migration that widens a CHECK, whose name alone proves nothing.
 #
 # It NEVER runs `db:migrate`, a seed, or any SQL of its own (MIGRATIONS.md: never `db:migrate`
 # against production). Applying a migration's DDL stays a reviewed hand step in the SQL editor.
@@ -43,6 +45,10 @@ on:
         description: "apply only: a part of the database host that the verify run printed"
         required: false
         type: string
+      constraints:
+        description: "optional: constraint names, comma-separated, whose live text to print (a widened CHECK)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -63,6 +69,7 @@ jobs:
       TAGS: ${{ inputs.tags }}
       MODE: ${{ inputs.mode }}
       EXPECT_HOST: ${{ inputs.expect_host }}
+      CONSTRAINTS: ${{ inputs.constraints }}
     steps:
       - name: Check the inputs
         run: |
@@ -72,6 +79,10 @@ jobs:
           fi
           if [ "$MODE" = "apply" ] && ! [[ "$EXPECT_HOST" =~ ^[A-Za-z0-9.-]{4,}$ ]]; then
             echo "::error::apply needs expect_host: a part of the database host the verify run printed"
+            exit 1
+          fi
+          if [ -n "$CONSTRAINTS" ] && ! [[ "$CONSTRAINTS" =~ ^[a-z0-9_]{1,63}(,[a-z0-9_]{1,63})*$ ]]; then
+            echo "::error::constraints must be constraint names separated by commas"
             exit 1
           fi
           if [ -z "$DATABASE_URL" ]; then
@@ -94,6 +105,10 @@ jobs:
       - name: Install the db package's dependencies
         run: pnpm install --frozen-lockfile --filter "@badabhai/db..."
 
+      # The audit imports the db package's workspace dependencies through their built dist/.
+      - name: Build the db package's workspace dependencies
+        run: pnpm --filter "@badabhai/db^..." run build
+
       - name: Doctor (read-only)
         working-directory: packages/db
         run: npx tsx adopt-migrations.ts --doctor
@@ -101,6 +116,13 @@ jobs:
       - name: Verify the tags (read-only)
         working-directory: packages/db
         run: npx tsx adopt-migrations.ts --only "$TAGS"
+
+      # A widened CHECK keeps its name whether or not the new text landed, and the adopt checks see
+      # the name only (MIGRATIONS.md). Read the printed text BEFORE an apply that includes it.
+      - name: Constraint text (read-only)
+        if: inputs.constraints != ''
+        working-directory: packages/db
+        run: npx tsx src/print-constraint-defs.ts "$CONSTRAINTS"
 
       - name: Record the verified rows
         if: inputs.mode == 'apply'
