@@ -681,6 +681,12 @@ export const serverEnvSchema = z.object({
   CAMPUS_DRIVE_REQUESTS_ROLLOUT: featureRolloutMode,
   APPLICANT_FACTS_ROLLOUT: featureRolloutMode,
   CONTACT_RULES_ROLLOUT: featureRolloutMode,
+  // #2768 (risk R85) — how many OPEN campus-drive requests (`requested` or `scheduled`) one
+  // company may hold at once. A new request above it is 409 `drive_request_limit_reached`;
+  // cancelled, declined and completed requests do not count. Owner ruling 15 Nov 2026: 3. Each
+  // request already covers up to 50 branches, so 3 is three separate asks waiting on the
+  // placement team. Empty reads as the default. Counted per tenant (the org under tenancy `on`).
+  CAMPUS_DRIVE_MAX_OPEN_REQUESTS: positiveIntFromString(3),
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER
