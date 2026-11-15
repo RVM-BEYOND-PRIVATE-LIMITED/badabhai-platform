@@ -1257,6 +1257,24 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. Every PostgREST role could read which workers applied through Campus to which " +
       "posting, and write an application that a company would see",
   },
+  // 0167 (#2747 item 8): THE API names `outbound_signals` only while OUTBOUND_SIGNALS_ROLLOUT is
+  // on (the stage transaction's queue, the sender's sweep), so a deploy ahead of the migration
+  // breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134 rule).
+  // APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0167-outbound-signals-rls",
+    migration: "0167_outbound_signals",
+    kind: "rls",
+    table: "outbound_signals",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which RVM students each company selected or hired, keyed by " +
+      "worker id; an open grant lets any PostgREST role read those marks, or write a row the " +
+      "sender would post to RVM as a company's selection",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

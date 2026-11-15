@@ -495,6 +495,7 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
       { PAYER_APPLICANT_STAGES_ENABLED: true },
       defaultModeResolver(),
       { isEnabledFor: async () => false } as never,
+      { signalsOnFor: async () => false, recordMark: async () => "not_rvm" } as never,
     );
     return {
       repo,

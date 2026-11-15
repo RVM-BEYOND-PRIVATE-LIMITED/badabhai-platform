@@ -161,6 +161,8 @@ export * from "./campus-drive";
 export * from "./feature-pilot";
 // #2752 — named-company search grants and Campus applications.
 export * from "./institute-campus";
+// #2747 — marks BadaBhai owes another system (the RVM selection signal).
+export * from "./outbound-signal";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.

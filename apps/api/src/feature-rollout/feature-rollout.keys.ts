@@ -11,6 +11,7 @@ export const FEATURE_ROLLOUT_KEYS = [
   "applicant_facts",
   "contact_rules",
   "outcome_stages",
+  "outbound_signals",
 ] as const;
 export type FeatureRolloutKey = (typeof FEATURE_ROLLOUT_KEYS)[number];
 
@@ -24,4 +25,5 @@ export const FEATURE_ROLLOUT_CONFIG = {
   applicant_facts: "APPLICANT_FACTS_ROLLOUT",
   contact_rules: "CONTACT_RULES_ROLLOUT",
   outcome_stages: "OUTCOME_STAGES_ROLLOUT",
+  outbound_signals: "OUTBOUND_SIGNALS_ROLLOUT",
 } as const satisfies Record<FeatureRolloutKey, keyof ServerConfig>;

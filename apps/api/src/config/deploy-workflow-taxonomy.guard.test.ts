@@ -352,6 +352,12 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /OUTCOME_STAGES_ROLLOUT:\s*\$\{\{\s*secrets\.OUTCOME_STAGES_ROLLOUT\s*\}\}/,
       /envs:[^\n]*\bOUTCOME_STAGES_ROLLOUT\b/,
     ],
+    // #2747 — the outbound signal: a selected or hired mark on an RVM student, sent to RVM once.
+    [
+      "OUTBOUND_SIGNALS_ROLLOUT",
+      /OUTBOUND_SIGNALS_ROLLOUT:\s*\$\{\{\s*secrets\.OUTBOUND_SIGNALS_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bOUTBOUND_SIGNALS_ROLLOUT\b/,
+    ],
     // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
     // secret in the confidentiality sense, but bridged through `secrets.*` like the other
     // numbers so a deploy does not depend on the box's shell state; absent, compose holds

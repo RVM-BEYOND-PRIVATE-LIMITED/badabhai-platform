@@ -1157,6 +1157,13 @@
       "when": 1794733840403,
       "tag": "0166_payer_applicant_outcome_stages",
       "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1794735338545,
+      "tag": "0167_outbound_signals",
+      "breakpoints": true
     }
   ]
 }

@@ -27,7 +27,7 @@ What the code did before #2747: cards were faceless (opaque ids, bands and close
 | An unlock lasts 14 days; after that a new grant debits again | Open for good; re-opening costs nothing | B |
 | `UNLOCK_MAX_ATTEMPTS_PER_UNLOCK` (3) refuses a fourth reveal; the per-worker daily cap (5) counts reveals and résumé disclosures together | These limits are kept for FIRST opens only; they never stop a company reading a contact it already opened | B |
 | Three pipeline stages | `selected` and `hired` added | C (built) |
-| Nothing leaves BadaBhai | A selected or hired mark on an RVM student is sent to RVM once | D |
+| Nothing leaves BadaBhai | A selected or hired mark on an RVM student is sent to RVM once | D (built) |
 
 ## 3. Decision
 
@@ -102,13 +102,32 @@ A company may mark an applicant it never opened (a student met at a campus drive
 - Campus's application-status read (#2752, `GET` of a Campus application) already returns the stored stage, `selected` and `hired` included, while `CAMPUS_LINK_ENABLED` is on. A mark, and an undo of it, shows there as soon as it is saved.
 - The proof prompt and the placement team's task come only from part D's signal (§3.6), behind its own switch. The event plays no part in either.
 
-### 3.6 The outbound signal to RVM (part D, planned)
+### 3.6 The outbound signal to RVM (part D, built, `OUTBOUND_SIGNALS_ROLLOUT`)
 
 A table `outbound_signals` (`destination`, `kind`, unique `dedupe_key`, `payload`, `status`, `attempts`, `next_attempt_at`, `delivered_at`), written in the stage transaction, and a BullMQ processor that posts each mark on an RVM student once to RVM's `POST /internal/campus/selection-events` (Scheduler_Backend#162) with a service token, back-off and a dead-letter state. The body is the student ref, company name, job title, `selected` or `hired` and the date — no phone, no student name, no money field. The payload stores ids and the body is built at send time, so the company name (encrypted at rest) is not kept in clear a second time. Dedupe key: posting id + worker id + stage. An undone mark sends nothing (#2771 proposes a withdrawal signal). The token and URL live in the GitHub `production` environment.
 
+As built (migration 0167, `apps/api/src/outbound-signals`):
+
+- **Queued in the stage transaction** (`OutboundSignalsService.recordMark`). Only a real move into `selected` or `hired` queues anything, and only for a worker whose RVM link is `active` at that moment, by a company with `OUTBOUND_SIGNALS_ROLLOUT` (`outbound_signals`) on. A no-op, a move out, a BadaBhai worker and a company without the switch queue nothing. The switch is read before the transaction; the link is read inside it.
+- **The payload** is `{posting_kind, posting_id, worker_id, stage, marked_on}`, where `marked_on` is the IST day.
+- **The sweep** (`OutboundSignalsSender`, a repeatable BullMQ tick every minute) claims up to 25 due rows with `FOR UPDATE SKIP LOCKED` and a five-minute lease, then builds the body at send time:
+  - `event_id` is the row id, which is also the Idempotency-Key;
+  - the student ref comes from the link if it is still active; otherwise the row is `cancelled` and nothing leaves;
+  - the posting title;
+  - the owner company's name, decrypted only here;
+  - the stage and the day.
+- **RVM's answers.**
+  - Any 2xx: `delivered`.
+  - RVM's `404 NOT_AVAILABLE`: `dead` (`not_available`).
+  - 400, 409, 413, 415 or 422: `dead` (`rejected`).
+  - Anything else (a timeout, a dropped connection, 401/403, 429, a 5xx, a bare 404) is retried after 1, 2, 4 … minutes, capped at six hours. The row is `dead` after 14 attempts, about 32 hours.
+- **The kill switch.** The sweep claims nothing while the switch is off everywhere. Queued rows wait for it to come back on.
+- **The dead-letter view** and replay in the admin console are #2770.
+- **Logs** carry the signal id, closed failure codes and an HTTP status only, never the body.
+
 ### 3.7 Switches
 
-One per part, all through `FeatureRolloutService` (off | pilot | on, keyed by the company's tenant key, fail closed): `applicant_facts` (A), `contact_rules` (B), `outcome_stages` (C) and the outbound sender (D). A switch gates what is shown or accepted, never stored state: turning a switch off never re-charges an open contact or deletes a stage already saved.
+One per part, all through `FeatureRolloutService` (off | pilot | on, keyed by the company's tenant key, fail closed): `applicant_facts` (A), `contact_rules` (B), `outcome_stages` (C) and `outbound_signals` (D). A switch gates what is shown or accepted, never stored state: turning a switch off never re-charges an open contact or deletes a stage already saved.
 
 ### 3.8 The worker's own notice decides (per worker, whatever the switch)
 

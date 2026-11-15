@@ -161,6 +161,10 @@ describe("isLiveForServiceCaller is a SERVICE-caller check, used only where it w
     // any read. NOT the company check: the posting owner's pilot place is then read with
     // `isEnabledFor` and the owner's tenant key (`PayerTenantScopeService`).
     "campus-link/campus-posting-review.service.ts",
+    // #2747 item 8 — the outbound-signal sweep acts for no company: `outbound_signals` off
+    // everywhere → it claims nothing. Which marks are QUEUED is decided per company, with
+    // `isEnabledFor` and the tenant key, in OutboundSignalsService.signalsOnFor.
+    "outbound-signals/outbound-signals.sender.ts",
   ];
 
   it("its call sites are exactly the allow-list", () => {

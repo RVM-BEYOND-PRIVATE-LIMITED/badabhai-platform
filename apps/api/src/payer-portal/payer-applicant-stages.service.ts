@@ -14,6 +14,7 @@ import { PG_CHECK_VIOLATION, sqlStateOf } from "../common/db-error";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
+import { OutboundSignalsService } from "../outbound-signals/outbound-signals.service";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { applicantStagesEnabled, type ApplicantStagesConfig } from "./payer-applicant-stages.flag";
@@ -77,6 +78,12 @@ export function readStoredStage(stored: string | null | undefined): ApplicantSta
  * never the stored state: a stored outcome stage is read back as itself, and moving an applicant
  * out of one (back to Shortlist, say) is allowed whatever the switch says. Migration 0166 widens
  * the CHECK; the switch goes on only after it is applied and verified.
+ *
+ * THE SIGNAL TO RVM (#2747 item 8). A real move INTO `selected` or `hired` of an actively linked RVM
+ * student, by a company with `OUTBOUND_SIGNALS_ROLLOUT` on, also queues one `outbound_signals` row
+ * in the SAME transaction ({@link OutboundSignalsService.recordMark}), so the mark and its signal
+ * commit together. A no-op, a move out, or a BadaBhai worker queues nothing; nothing touches
+ * `outbound_signals` (migration 0167) while that switch is off.
  */
 @Injectable()
 export class PayerApplicantStagesService {
@@ -88,6 +95,8 @@ export class PayerApplicantStagesService {
     private readonly tenancy: PayerTenantScopeService,
     // #2747 — the `outcome_stages` switch (FeatureRolloutModule).
     private readonly rollout: FeatureRolloutService,
+    // #2747 item 8 — the RVM selection signal, queued in the stage transaction.
+    private readonly outbound: OutboundSignalsService,
   ) {}
 
   /** `PAYER_APPLICANT_STAGES_ENABLED`, read through the one shared reader. */
@@ -141,7 +150,10 @@ export class PayerApplicantStagesService {
     if (postingKind === null) throw new NotFoundException(APPLICANT_NOT_FOUND);
     const key: ApplicantStageKey = { postingKind, postingId, workerId };
 
-    const outcome = await this.writeStage(key, stage, actorPayerId, ctx, now);
+    // #2747 item 8: read before the transaction (a pilot-list read is its own query).
+    const signal =
+      isApplicantOutcomeStage(stage) && (await this.outbound.signalsOnFor(scope.tenantKey));
+    const outcome = await this.writeStage(key, stage, actorPayerId, ctx, now, signal);
 
     return {
       postingId,
@@ -165,9 +177,10 @@ export class PayerApplicantStagesService {
     actorPayerId: string,
     ctx: RequestContext,
     now: Date,
+    signal: boolean,
   ): Promise<{ previous: ApplicantStage; changed: boolean }> {
     try {
-      return await this.transact(key, stage, actorPayerId, ctx, now);
+      return await this.transact(key, stage, actorPayerId, ctx, now, signal);
     } catch (err) {
       if (sqlStateOf(err) === PG_CHECK_VIOLATION && isApplicantOutcomeStage(stage)) {
         logger.error(
@@ -184,6 +197,7 @@ export class PayerApplicantStagesService {
     actorPayerId: string,
     ctx: RequestContext,
     now: Date,
+    signal: boolean,
   ): Promise<{ previous: ApplicantStage; changed: boolean }> {
     return this.repo.withTransaction(async (tx) => {
       if (!(await this.repo.isFeedApplicant(key, tx))) {
@@ -198,6 +212,7 @@ export class PayerApplicantStagesService {
         }
         if (await this.repo.insertStage(key, stage, actorPayerId, now, tx)) {
           await this.emitChanged(key, stage, DEFAULT_APPLICANT_STAGE, actorPayerId, ctx, tx);
+          if (signal) await this.queueSignal(key, stage, now, tx);
           return { previous: DEFAULT_APPLICANT_STAGE, changed: true } as const;
         }
         // A concurrent FIRST move won the insert (ours waited on it, so it is committed). Lock
@@ -209,8 +224,20 @@ export class PayerApplicantStagesService {
       if (previous === stage) return { previous, changed: false } as const;
       await this.repo.updateStage(key, stage, actorPayerId, now, tx);
       await this.emitChanged(key, stage, previous, actorPayerId, ctx, tx);
+      if (signal) await this.queueSignal(key, stage, now, tx);
       return { previous, changed: true } as const;
     });
+  }
+
+  /** #2747 item 8 — queue the RVM signal for a saved outcome mark (a no-op for anyone else). */
+  private async queueSignal(
+    key: ApplicantStageKey,
+    stage: ApplicantStage,
+    at: Date,
+    tx: Database,
+  ): Promise<void> {
+    if (!isApplicantOutcomeStage(stage)) return;
+    await this.outbound.recordMark({ ...key, stage, at }, tx);
   }
 
   /**

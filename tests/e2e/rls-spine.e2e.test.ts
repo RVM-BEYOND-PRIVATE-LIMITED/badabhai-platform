@@ -244,6 +244,9 @@ const LOCKED_TABLES = [
   "institute_applications",
   // 0163 (#2752): the companies Campus created (opaque payer ids) — the only ones it may post for.
   "institute_companies",
+  // 0167 (#2747 item 8): marks owed to RVM (ids, closed codes and dates; the body is built at send
+  // time). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0167.
+  "outbound_signals",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

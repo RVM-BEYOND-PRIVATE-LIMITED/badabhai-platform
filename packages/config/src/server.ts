@@ -676,6 +676,10 @@ export const serverEnvSchema = z.object({
   //   OUTCOME_STAGES_ROLLOUT (#2747) — a company marks an applicant `selected` or `hired` on the
   //     board. Off, the stage route refuses both with the 400 it has always given an unknown
   //     stage; a stored one is still read back. Needs migration 0166 applied first.
+  //   OUTBOUND_SIGNALS_ROLLOUT (#2747) — a selected or hired mark on an RVM student is sent to
+  //     RVM once (POST /internal/campus/selection-events). Off for the company, the mark is saved
+  //     and nothing is queued; off everywhere, the sender idles and queued rows wait. Needs
+  //     migration 0167 and the RVM_STUDENT_API_* settings.
   // Off, the new payer fields are ignored and the new routes answer 404. Campus's own routes
   // additionally need CAMPUS_LINK_ENABLED. A switch gates CAPABILITIES only: stored state (the
   // worker-path audience filter, the RVM review gate) is honoured whatever it says, so switching
@@ -685,6 +689,7 @@ export const serverEnvSchema = z.object({
   APPLICANT_FACTS_ROLLOUT: featureRolloutMode,
   CONTACT_RULES_ROLLOUT: featureRolloutMode,
   OUTCOME_STAGES_ROLLOUT: featureRolloutMode,
+  OUTBOUND_SIGNALS_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER

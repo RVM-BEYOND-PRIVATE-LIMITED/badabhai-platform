@@ -710,6 +710,7 @@ describe.skipIf(!RUN)(
         stagesFlag,
         tenancy,
         { isEnabledFor: async () => false } as never,
+        { signalsOnFor: async () => false, recordMark: async () => "not_rvm" } as never,
       );
       const applicants = new PayerApplicantsService(reach, postings, candidates, stages, tenancy);
       const inbox = new PayerApplicantInboxService(
