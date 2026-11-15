@@ -42,6 +42,7 @@ import { CampusReviewModule } from "./campus-link/campus-review.module";
 import { AgencyModule } from "./agency/agency.module";
 import { AgencyTwinModule } from "./agency-twin/agency-twin.module";
 import { CampusDrivesModule } from "./campus-drives/campus-drives.module";
+import { DisplayPrefsModule } from "./display-prefs/display-prefs.module";
 import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
 import { AdminModule } from "./admin/admin.module";
 import { AdminPostingsModule } from "./admin-postings/admin-postings.module";
@@ -150,6 +151,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // placement team decides from Campus (/internal/campus/v1/drive-requests, CampusServiceGuard).
     // INERT until CAMPUS_DRIVE_REQUESTS_ROLLOUT is pilot or on: every route is a neutral 404.
     CampusDrivesModule,
+    // #2819 — the theme of a worker, a company or agency login and an admin (`…/me/display-prefs`).
+    // INERT until THEME_ROLLOUT opens for a login: GET answers light / theme_open false, PATCH 404.
+    DisplayPrefsModule,
     ReferralAttributionModule,
     // Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1): the 4th principal
     // (`/admin/*` route group behind AdminAuthGuard). Auth + RBAC + MFA only; the feature

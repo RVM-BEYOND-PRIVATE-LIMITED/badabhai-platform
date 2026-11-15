@@ -117,6 +117,7 @@ import { deleteForensics } from "./delete-forensics";
 import { jobPostingInstituteReviews, rvmTargetingOptions } from "./job-audience";
 import { campusDriveRequests } from "./campus-drive";
 import { featurePilotPayers, featurePilotSubjects } from "./feature-pilot";
+import { displayPrefs } from "./display-prefs";
 
 export * from "./worker";
 export * from "./skill";
@@ -161,6 +162,8 @@ export * from "./campus-drive";
 export * from "./feature-pilot";
 // #2752 — named-company search grants and Campus applications.
 export * from "./institute-campus";
+// #2819 — one login's display preference (the theme).
+export * from "./display-prefs";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -465,4 +468,6 @@ export const schema = {
   instituteCompanies,
   // #2820 - the pilot list for workers and admins behind THEME_ROLLOUT (migration 0164).
   featurePilotSubjects,
+  // #2819 - one login's theme: a worker, a company or agency login, an admin (migration 0165).
+  displayPrefs,
 };

@@ -118,9 +118,13 @@ NestJS boot assertion).
     Everyone else gets `false`. A failed list read, or a database without 0164, answers `false`
     and logs `sqlstate=` and ids only; never a 500.
   - `on`: everyone; no list is read.
+  - Both open states also need migration 0165 (`display_prefs`, #2819), where the choices are
+    stored. Open on a database without it, the login's GET answers `light` / `theme_open: false`
+    and its PATCH 404 (`sqlstate=42P01` and ids in the log); never a 500. The routes are in
+    `docs/api/display-prefs-api-reference.md`.
 
   **Adding a pilot company, worker or admin** is an owner step in the release flow, like a
-  migration apply (`MIGRATIONS.md`): after 0164 is applied, with the ids agreed in the pilot issue
+  migration apply (`MIGRATIONS.md`): after 0164 and 0165 are applied, with the ids agreed in the pilot issue
   (#2818), in one transaction. `added_by` is an id or a fixed token such as `owner_sql`; `reason`
   says why, never who (a worker's row outlives his account: the table has no foreign key).
 

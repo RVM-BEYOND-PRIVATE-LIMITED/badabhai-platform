@@ -97,6 +97,10 @@ import { PayerJobPostingsController } from "../payer-portal/payer-job-postings.c
 import { PayerOrgInvitesController } from "../payer-portal/payer-org-invites.controller";
 import { PayerOrgMembersController } from "../payer-portal/payer-org-members.controller";
 import { PayerAccountController } from "../payers/payer-account.controller";
+// #2819 — the theme: one controller per realm, each behind its own guard only.
+import { WorkerDisplayPrefsController } from "../display-prefs/worker-display-prefs.controller";
+import { PayerDisplayPrefsController } from "../display-prefs/payer-display-prefs.controller";
+import { AdminDisplayPrefsController } from "../display-prefs/admin-display-prefs.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -905,6 +909,25 @@ const CONTRACT: ControllerContract[] = [
     ctor: CampusDriveRequestsController,
     routes: { listDriveRequests: [CS], decideDriveRequest: [CS] },
   },
+  // #2819 — each login's own theme. The worker pair is [W] WITHOUT ConsentGuard, deliberately: the
+  // splash and sign-in screens read the theme before consent. The payer pair serves employer and
+  // agent alike (no PayerRoleGuard, and no PayerOrgRoleGuard: a tenancy refusal closes the theme,
+  // never 403s it). The admin pair is any admin role, like `admin/me` (no AdminRolesGuard).
+  {
+    name: "WorkerDisplayPrefs",
+    ctor: WorkerDisplayPrefsController,
+    routes: { get: [W], update: [W] },
+  },
+  {
+    name: "PayerDisplayPrefs",
+    ctor: PayerDisplayPrefsController,
+    routes: { get: [P], update: [P] },
+  },
+  {
+    name: "AdminDisplayPrefs",
+    ctor: AdminDisplayPrefsController,
+    routes: { get: [A], update: [A] },
+  },
 ];
 
 describe("API authz contract — guards on every controller route", () => {
@@ -954,6 +977,11 @@ describe("API authz contract — guards on every controller route", () => {
       // #2746 PR 5 — a service credential's write surface (review, targeting); a third route
       // must not join this class unpinned.
       CampusReviewController,
+      // #2819 — one realm's guard and nothing else on each; a route must not join unpinned (the
+      // worker class carries no ConsentGuard, so an unpinned route there would be pre-consent).
+      WorkerDisplayPrefsController,
+      PayerDisplayPrefsController,
+      AdminDisplayPrefsController,
     ] as Ctor[]) {
       it(`${ctor.name} lists every route it serves`, () => {
         const proto = ctor.prototype as Record<string, unknown>;
