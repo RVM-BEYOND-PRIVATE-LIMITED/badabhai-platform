@@ -137,6 +137,8 @@ interface SetupOpts {
    * which is the only state the clients ever offered the résumé in.
    */
   liveUnlock?: boolean;
+  /** #2747: the `contact_rules` switch for the company (default: no rollout service = off). */
+  contactRules?: boolean;
   /** #2752: what the institute open gate answers (default: not a linked student). */
   institute?: "not_linked" | "open" | "closed";
 }
@@ -318,6 +320,10 @@ function setup(opts: SetupOpts = {}) {
     // `tierScopes` — absent here; its own suite covers it.
     undefined,
     generalRoads as never,
+    // #2747 — the rollout service only when a test names the switch; absent reads as off.
+    opts.contactRules === undefined
+      ? undefined
+      : ({ isEnabledFor: vi.fn(async () => opts.contactRules) } as never),
   );
 
   return {
@@ -1352,7 +1358,7 @@ describe("2026-11-03 — the payer route discloses only a worker the tenant has 
   it("no live unlock → the neutral body, before any consent read, lock, row, render or event", async () => {
     const { t, res } = await asPayer({ liveUnlock: false });
     expect(res).toEqual(NEUTRAL);
-    expect(t.repo.hasLiveUnlock).toHaveBeenCalledWith(PAYER, WORKER);
+    expect(t.repo.hasLiveUnlock).toHaveBeenCalledWith(PAYER, WORKER, { openForGood: false });
     expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
     expect(t.repo.withTransaction).not.toHaveBeenCalled();
     expect(t.txMethods.insertRow).not.toHaveBeenCalled();
@@ -1395,5 +1401,56 @@ describe("2026-11-03 — the payer route discloses only a worker the tenant has 
     );
     expect(res).toMatchObject({ ok: true, status: "disclosed" });
     expect(t.repo.hasLiveUnlock).not.toHaveBeenCalled();
+  });
+});
+
+
+// #2747 (ADR-0064 §3.3–3.4) — with `contact_rules` on, what a credit opens includes the full name,
+// a contact opened under the old window still gives its résumé, and the per-worker cap (written
+// for first opens) never stops a company re-reading the résumé of a contact it opened.
+describe("#2747 — the payer route with contact_rules on", () => {
+  async function asPayer(opts: SetupOpts) {
+    const t = setup(opts);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+      "payer_owned",
+    );
+    return { t, res };
+  }
+
+  it("prints the FULL name, not the initials", async () => {
+    const { t } = await asPayer({ contactRules: true });
+    expect(t.getRenderInput()?.displayName).toBe(REAL_NAME);
+  });
+
+  it("asks for an OPEN contact whatever its date (the unlock chokepoint's isOpenGrant)", async () => {
+    const { t } = await asPayer({ contactRules: true });
+    expect(t.repo.hasLiveUnlock).toHaveBeenCalledWith(PAYER, WORKER, { openForGood: true });
+  });
+
+  it("a worker at the per-worker daily cap still gives the company its opened contact's résumé", async () => {
+    const { t, res } = await asPayer({ contactRules: true, dailyCount: 5 });
+    expect(res).not.toEqual(NEUTRAL);
+    expect(t.renderer.renderPdf).toHaveBeenCalledOnce();
+  });
+
+  it("still refuses with no open contact, and still honours a withdrawn consent", async () => {
+    expect((await asPayer({ contactRules: true, liveUnlock: false })).res).toEqual(NEUTRAL);
+    expect((await asPayer({ contactRules: true, consentPurposes: null })).res).toEqual(NEUTRAL);
+    expect((await asPayer({ contactRules: true, pendingDeletion: true })).res).toEqual(NEUTRAL);
+  });
+
+  it("rule off: initials, the dated grant and the cap, exactly as before", async () => {
+    const { t } = await asPayer({ contactRules: false });
+    expect(t.getRenderInput()?.displayName).toBe(MASKED);
+    expect(t.repo.hasLiveUnlock).toHaveBeenCalledWith(PAYER, WORKER, { openForGood: false });
+    expect((await asPayer({ contactRules: false, dailyCount: 5 })).res).toEqual(NEUTRAL);
+  });
+
+  it("the ops route never prints the full name, whatever the switch", async () => {
+    const t = setup({ contactRules: true });
+    await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    expect(t.getRenderInput()?.displayName).toBe(MASKED);
   });
 });

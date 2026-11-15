@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { DisclosureDenyReason } from "@badabhai/db";
+import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { InstituteOpenGate } from "../campus-link/institute-open-gate.service";
@@ -129,7 +130,19 @@ export class ResumeDisclosureService {
     // worker's render uses, so the two copies agree about whether the sheet is on the road.
     // Optional on the tier reader's terms: absent is today's disclosure.
     @Optional() private readonly generalRoads?: GeneralRoadReader,
+    // #2747 — the `contact_rules` switch (ADR-0064 §3.3–3.4). Optional so the hand-built unit
+    // instances keep compiling; absent reads as off. Nest always injects it.
+    @Optional() private readonly rollout?: FeatureRolloutService,
   ) {}
+
+  /**
+   * #2747 — is `contact_rules` on for this company? Off when the rollout service is absent; fail
+   * closed through it (a pilot-list read error is off: initials and the old window, never more).
+   */
+  private async contactRulesOn(tenant: TenantKey): Promise<boolean> {
+    if (this.rollout === undefined) return false;
+    return this.rollout.isEnabledFor("contact_rules", tenant);
+  }
 
   async requestDisclosure(
     input: { payerId: string; workerId: string; jobPostingId: string | null },
@@ -172,7 +185,14 @@ export class ResumeDisclosureService {
     // session (every payer-portal caller must pass it — payer-job-ref-policy.static.test.ts).
     // No grant → the ONE neutral body, before any consent read, row or event (no oracle: it is
     // byte-identical to every other deny). The ops route (`"normalise"`) is unchanged.
-    if (jobRefPolicy === "payer_owned" && !(await this.repo.hasLiveUnlock(tenant, workerId))) {
+    // #2747 (ADR-0064 §3.4) — with `contact_rules` on for the company, "live" is the unlock
+    // chokepoint's one definition of OPEN (`isOpenGrant`): granted or revealed, whatever its date,
+    // so a contact opened long ago still gives its résumé. The payer route only.
+    const openForGood = jobRefPolicy === "payer_owned" && (await this.contactRulesOn(tenant));
+    if (
+      jobRefPolicy === "payer_owned" &&
+      !(await this.repo.hasLiveUnlock(tenant, workerId, { openForGood }))
+    ) {
       return neutralUnavailable();
     }
 
@@ -225,7 +245,10 @@ export class ResumeDisclosureService {
         return { kind: "neutral" };
 
       // ---- [2] SHARED worker-protection cap (atomic, under the lock) --------------
-      if (await this.isOverSharedCap(tx, workerId)) {
+      // #2747 — with `contact_rules` on, the company holds an OPEN contact for him (checked above),
+      // and the cap was written for FIRST opens: it never stops a company re-reading the résumé
+      // of a contact it already opened. The grant itself was capped when it was made.
+      if (!openForGood && (await this.isOverSharedCap(tx, workerId))) {
         await this.recordDeny(tx, tenant, workerId, jobPostingId, "capped");
         return { kind: "neutral" };
       }
@@ -284,7 +307,9 @@ export class ResumeDisclosureService {
 
     // plan.kind === "render": [5] CONTROLLED DISCLOSURE — render the MASKED resume.
     // `source` is non-undefined on this path (we returned neutral above when absent).
-    return this.renderAndDisclose(plan.disclosureId, scope, workerId, jobPostingId, source!, ctx);
+    return this.renderAndDisclose(plan.disclosureId, scope, workerId, jobPostingId, source!, ctx, {
+      fullName: openForGood,
+    });
   }
 
   /**
@@ -337,6 +362,10 @@ export class ResumeDisclosureService {
     jobPostingId: string | null,
     source: NonNullable<Awaited<ReturnType<ResumeDisclosureRepository["findResumeSource"]>>>,
     ctx: RequestContext,
+    // #2747 (ADR-0064 §3.3, brief 4B.6) — what a credit opens includes the FULL name: with
+    // `contact_rules` on for the company the copy prints it instead of the initials. Still read
+    // once here, never logged, evented or persisted beyond the rendered file.
+    opts: { readonly fullName: boolean } = { fullName: false },
   ): Promise<DisclosureOutcome> {
     // The real name is read ONCE here to derive the MASK, then discarded. It is NEVER
     // bound into the document, logged, evented, or persisted (F-5 / B-G). Decrypt
@@ -355,7 +384,7 @@ export class ResumeDisclosureService {
     if (worker?.fullName) {
       try {
         const realName = this.pii.decrypt(worker.fullName);
-        maskedName = maskInitials(realName);
+        maskedName = opts.fullName ? realName.trim() || null : maskInitials(realName);
         briefIsUsable = (stored) => ownBriefUsable(stored, realName);
       } catch {
         briefIsUsable = () => false;

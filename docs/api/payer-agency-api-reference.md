@@ -485,12 +485,14 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Status (#2033):** only payer-visible rows are listed — internal attempt/deny rows never are. `expired` is **derived**: a `granted`/`revealed` row whose `expires_at` is at or before the server's now reads `expired`. `revoked` is in the contract but nothing emits it today.
 - **Context (#2033):** `job_id` is an agency `jobs` id; `job_posting_id` (additive, migration 0132) is the owned company posting the unlock was made from. At most one is set; both are `null` for search, the ops route, and rows written before 0132.
 - **Mobile gotchas:** PII-free routing records only — opaque IDs, no names/phones. `worker_id` is `null` after a worker's DSAR deletion.
+- **`open_until` (#2747):** every row carries it. While `CONTACT_RULES_ROLLOUT` is on for your company a `granted`/`revealed` contact never reads `expired` (whatever its stored date — past opens included), its `expires_at` is the far-future `2099-12-31T23:59:59.000Z`, and `open_until` is `null` (no end). Off, `open_until` is the window's end (= `expires_at`).
 
 #### `POST /payer/unlocks`
 
 - **Auth:** `PayerAuthGuard` (Bearer). Per-payer hourly disclosure cap.
 - **Body:** `{ worker_id: UUID, job_id: UUID|null }` — no `payer_id`. `job_id` is optional context and must be `null` or a job / posting the **session payer owns** (#1899): an owned `jobs` id (agency vacancy) is stored; an owned company posting's id is accepted, stored as `job_id: null` (#1903) and kept as `job_posting_id` (#2033, migration 0132; row-only — no event carries it). An unknown or another payer's id gets the neutral `200 { status: 'unavailable' }` body — byte-identical to every other deny — with nothing emitted, debited or written. A malformed id is a `400` (syntax only).
-- **Response:** SUCCESS `{ ok: true, unlock_id, status: 'granted', expires_at }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200` in both cases).
+- **Response:** SUCCESS `{ ok: true, unlock_id, status: 'granted', expires_at, open_until }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200` in both cases). `open_until` (#2747): `null` = open for good; otherwise the window's end. `expires_at` stays a date string.
+- **Open for good (#2747, ADR-0064, behind `CONTACT_RULES_ROLLOUT` — off | pilot | on, default off):** while it is on for your company, a contact you opened never lapses and **re-opening it costs nothing** — a second `POST` for the same worker returns the same `unlock_id` with no debit, even for a contact opened under the old 14-day window. Off, the 14-day window applies (a lapsed grant re-opens with a new debit). A contact opened, re-opened or revealed while the rule was on stays open if it is later turned off. Erasure, a pending deletion, a suspension or a withdrawn consent still close a contact.
 - **Events:** on success `unlock.requested` + `unlock.granted` + `payment.authorized` + `payment.captured`; on deny `unlock.denied` (plus `unlock.cap_exceeded` if a per-worker cap is hit, or `payment.failed` if no credit). The deny **reason is internal-only**, never echoed in the response.
 - **Mobile gotchas:** Spends 1 credit on grant. All denials (no credit / capped / no consent / protected) return the **same** neutral `unavailable` — never infer why. Fail-closed ordering (credit precondition → consent → cap → grant). Branch on the `ok` field, not the HTTP status.
 
@@ -501,6 +503,16 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Response:** SUCCESS `{ relay_handle: string (opaque), channel: 'in_app_relay'|'proxy_number', expires_at }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200`).
 - **Events:** `contact.revealed` (payload carries `channel` **KIND only** — never the handle or phone); `unlock.cap_exceeded` if the per-unlock attempt cap (`UNLOCK_MAX_ATTEMPTS_PER_UNLOCK`, default 3) is hit.
 - **Mobile gotchas:** **Never a raw phone** — `relay_handle` is an opaque routed in-app handle (`relay_<unlockId>_<uuid>`, ADR-0010 Stream A), not derived from the number. Ownership checked server-side; not-owned/expired/capped → neutral `unavailable`. Render the handle in the in-app relay UI; do not log it.
+- **#2747 (`CONTACT_RULES_ROLLOUT` on):** an open contact reveals whatever its date, and the attempt cap limits only the FIRST reveal — once the relay is wired, a repeat reveal returns the same handle.
+
+#### `GET /payer/unlocks/:unlockId/contact` (#2747 — what a credit opens)
+
+- **Only while `CONTACT_RULES_ROLLOUT` is on for your company** (off: `404`, the route is not there). ADR-0064 §3.3.
+- **Auth:** `PayerAuthGuard` (Bearer). Counts against the same per-login hourly disclosure cap as an unlock or a reveal (`PAYER_DISCLOSURE_MAX_PER_HOUR`, default 30; `429` over it).
+- **Response:** SUCCESS `{ ok: true, full_name: string|null, phone: string (E.164), opened_at: string|null }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200`). Sent with `Cache-Control: no-store`.
+- **Neutral when:** the unlock is not your company's (or unknown); the worker was erased; the row never opened; he is pending deletion or suspended; or he no longer consents to employer sharing (for an RVM student: the RVM rule closes him). Open for good never outlives these.
+- **Events:** `contact.viewed` on every read (ids only — never the name or the number), written BEFORE the answer: if it cannot be written the request fails and nothing is shown. `contact.revealed` is unchanged.
+- **Mobile gotchas:** Read it when the contact screen opens; do not cache or log the body. `full_name` is `null` when he never gave one. Not a credit spend — the credit was spent on `POST /payer/unlocks`.
 
 #### `POST /payer/resume-disclosures` (masked résumé — VERIFIED LIVE)
 
@@ -510,6 +522,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Response:** SUCCESS `{ ok: true, disclosure_id: UUID, status: 'disclosed', resume_url: string (short-TTL signed), expires_at }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200`).
 - **Events:** `resume.disclosed` (fact only — payload never includes the PDF bytes, the worker's name, or the signed URL).
 - **Mobile gotchas:** The worker's real name is decrypted server-side at render-time, masked to **initials** in the PDF, then discarded — you only ever get a signed `resume_url` to a masked PDF. **Render the URL short-lived; never log it.** payer-web currently still mocks this; the backend is live (safe to integrate, verify in staging).
+- **#2747 (`CONTACT_RULES_ROLLOUT` on for your company):** the PDF prints his **full name**; "live unlock" means an OPEN contact whatever its date (open for good); and the per-worker daily cap no longer stops you re-reading the résumé of a contact you opened (it was applied when you opened him). Off, all three are as above.
 
 #### `GET /payer/resume-disclosures` (VERIFIED LIVE)
 

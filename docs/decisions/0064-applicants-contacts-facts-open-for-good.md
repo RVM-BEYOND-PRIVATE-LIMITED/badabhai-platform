@@ -64,13 +64,28 @@ Still withheld before paying: the surname, phone number, photo, employer names, 
 
 **RVM student defaults (issue defaults, confirmable):** first name, the course as the trade line and the branch city as the area; the other facts read "not given" unless he filled a BadaBhai profile. His test score and current-or-alumnus status show only after opening.
 
-### 3.3 The contact a credit opens (part B, planned)
+### 3.3 The contact a credit opens (part B, built, `CONTACT_RULES_ROLLOUT`)
 
-`GET /payer/unlocks/:unlockId/contact` returns `full_name`, `phone` and `opened_at` with `Cache-Control: no-store`; the response body is never logged. Each read counts against the per-login hourly limit (`PAYER_DISCLOSURE_MAX_PER_HOUR`) and emits a new event; `contact.revealed` keeps its payload, because showing a number on screen is a different act from a relay reveal. The résumé stays on `POST /payer/resume-disclosures` and prints the full name. One definition of "open" (`isLiveGrant`) serves the reveal, the contact read and the résumé.
+`GET /payer/unlocks/:unlockId/contact` returns `full_name`, `phone` and `opened_at` with `Cache-Control: no-store`; the response body is never logged. Off for the company, the route is a 404. Every refusal is the one neutral body, in this order: not the company's tenant (or unknown); worker erased (`worker_id` null); the row never opened; pending deletion or suspended; consent no longer given (`isOpenableBy`: his own `employer_sharing`, or for an actively linked RVM student the institute rule). Each read counts against the per-login hourly limit (`PAYER_DISCLOSURE_MAX_PER_HOUR`) and writes `contact.viewed` (ids only) BEFORE the answer — if the audit cannot be written, nothing is shown. `contact.revealed` keeps its payload, because showing a number on screen is a different act from a relay reveal.
 
-### 3.4 Open for good (part B, planned)
+The phone and the name are decrypted in one named place, `UnlockService.decryptContact`; the BC-5 static guard (ADR-0010 §6) now pins exactly two decrypt sites on the unlock path — the relay wiring and this one.
 
-An open contact no longer lapses and is never charged twice; past opens are honoured. Shipped apps still receive `expires_at` as a string (a far-future date) and gain `open_until: null`. `GET /payer/unlocks` stops reading `expired` for an open contact. Account deletion (the ADR-0031 freeze, and erasure, which nulls `unlocks.worker_id`) and consent withdrawal close it: "for good" cannot outlive them. The attempt and per-worker caps apply to first opens only.
+The résumé stays on `POST /payer/resume-disclosures` and, while the rule is on, prints the full name instead of the initials (payer route only; the ops route never does). Its salary stays withheld (§3.2).
+
+### 3.4 Open for good (part B, built, `CONTACT_RULES_ROLLOUT`)
+
+One definition of "open", `isOpenGrant` (`apps/api/src/unlocks/open-grant.ts`): `granted` or `revealed`, and — while the rule is on for the company — whatever the stored date; off, unexpired as before. The reveal, the contact read and the résumé's SQL (`hasLiveUnlock`) all use it, so a contact opened under the old window is honoured with no backfill.
+
+Writes keep "for good" after a rollback. A grant made while the rule is on stores `expires_at = 2099-12-31T23:59:59Z` (shipped apps still parse a date) and answers `open_until: null`; a re-open (`POST /payer/unlocks`) or a reveal of a lapsed contact while the rule is on moves its stored dates (grant and relay row) there too, under the worker lock, only ever later (`extendOpenUntil`). Re-opening costs nothing: the held grant is returned with no debit. `GET /payer/unlocks` stops reading `expired` for an open contact.
+
+Erasure (which nulls `unlocks.worker_id`), the ADR-0031 freeze, a suspension and a withdrawn consent close a contact at read time: "for good" cannot outlive them.
+
+Caps limit FIRST opens only: the attempt cap applies until the relay is wired (a repeat reveal returns the same handle), the per-worker daily cap no longer stops a company re-reading the résumé of a contact it opened, and the contact read touches neither.
+
+Residuals, accepted for the pilot:
+
+- **A zero-balance company re-opening by `POST`** still meets the credit precondition (F-1) first and gets the neutral body; its contact read and résumé work without it. Kept so the precondition stays worker-state independent.
+- **The relay of a lapsed past open** resolves on stored dates, so it works again once the company re-opens or reveals it (both free).
 
 ### 3.5 Selected and hired (part C, planned)
 
@@ -92,7 +107,13 @@ One per part, all through `FeatureRolloutService` (off | pilot | on, keyed by th
 - **Free text.** Only closed vocabulary reaches the card, except RVM's course name, which is bounded and comes from RVM's own Student API contract.
 - **Deploy wiring.** A malformed switch value fails the deploy preflight before anything is pulled, so a typo cannot take the API down at boot.
 
-Parts B–D each get their own review before merge (the phone number crossing the API boundary reverses a core rule of ADR-0010 and needs the event and the hourly limit on every read).
+## 4b. Security review (part B)
+
+- **The phone number crosses the API** (ADR-0010 Decision 2 reversed) only to the tenant that holds the open grant, only while the rule is on for it, behind the per-login hourly cap, with an audit row written before every answer and `no-store` on the response.
+- **No new oracle.** Every refusal on the contact read is the one neutral body; the switch-off 404 depends on the caller's own company only.
+- **Fail closed.** A pilot-list read error is off (the old window, initials); a decrypt failure is the neutral body (phone) or "not given" (name), logged by unlock id only.
+
+Parts C and D each get their own review before merge.
 
 ## 5. Arming and rollback
 

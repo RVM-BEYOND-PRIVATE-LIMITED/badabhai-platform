@@ -1,5 +1,6 @@
 import type { UnlockStatus } from "@badabhai/db";
 import type { UnlockProjection } from "./unlocks.repository";
+import { OPEN_FOR_GOOD_UNTIL, openUntilOf } from "./open-grant";
 
 /**
  * #2033 — what a PAYER may see of their own unlocks (GET /payer/unlocks).
@@ -29,6 +30,8 @@ type PayerVisibleStoredStatus = (typeof PAYER_VISIBLE_STORED_STATUSES)[number];
 /** The payer-route projection: the ops projection with the status narrowed to the contract. */
 export interface PayerUnlockProjection extends Omit<UnlockProjection, "status"> {
   status: PayerUnlockStatus;
+  /** #2747 — when the contact stops being open; null = no end (`contact_rules` on). */
+  open_until: string | null;
 }
 
 const isPayerVisible = (status: UnlockStatus): status is PayerVisibleStoredStatus =>
@@ -45,9 +48,12 @@ export function payerUnlockStatus(
   status: UnlockStatus,
   expiresAt: Date | null,
   now: Date,
+  openForGood = false,
 ): PayerUnlockStatus | null {
   if (!isPayerVisible(status)) return null;
   if (status === "expired") return "expired";
+  // #2747 — with `contact_rules` on an open contact never lapses (`isOpenGrant`).
+  if (openForGood) return status;
   if (expiresAt !== null && expiresAt.getTime() <= now.getTime()) return "expired";
   return status;
 }
@@ -56,11 +62,23 @@ export function payerUnlockStatus(
 export function toPayerUnlocks(
   rows: readonly UnlockProjection[],
   now: Date,
+  openForGood = false,
 ): PayerUnlockProjection[] {
   const out: PayerUnlockProjection[] = [];
   for (const row of rows) {
-    const status = payerUnlockStatus(row.status, row.expires_at, now);
-    if (status !== null) out.push({ ...row, status });
+    const status = payerUnlockStatus(row.status, row.expires_at, now, openForGood);
+    if (status === null) continue;
+    // #2747 — an open contact (granted or revealed) reads as open for good while the rule is on:
+    // `expires_at` is the far-future date the shipped apps can parse, `open_until` is null. A row
+    // that never opened (stored `expired`) keeps its own dates.
+    const open = openForGood && (status === "granted" || status === "revealed");
+    const expiresAt = open ? OPEN_FOR_GOOD_UNTIL : row.expires_at;
+    out.push({
+      ...row,
+      status,
+      expires_at: expiresAt,
+      open_until: expiresAt === null ? null : openUntilOf(open, expiresAt),
+    });
   }
   return out;
 }

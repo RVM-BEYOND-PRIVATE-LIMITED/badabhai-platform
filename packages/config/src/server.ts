@@ -669,6 +669,10 @@ export const serverEnvSchema = z.object({
   //   APPLICANT_FACTS_ROLLOUT (#2747) — the facts a company sees before paying: first name, trade
   //     line, expected salary, machines, area and last-active day on the applicant and search
   //     cards. Off, those keys are not sent (every row still carries its `source` label).
+  //   CONTACT_RULES_ROLLOUT (#2747) — what a credit opens: the contact stays open for good (no
+  //     14-day lapse, never charged twice), GET /payer/unlocks/:id/contact shows the full name and
+  //     phone, and the résumé prints the full name. Off, the route answers 404 and the 14-day
+  //     window applies; a contact opened while it was on stays open.
   // Off, the new payer fields are ignored and the new routes answer 404. Campus's own routes
   // additionally need CAMPUS_LINK_ENABLED. A switch gates CAPABILITIES only: stored state (the
   // worker-path audience filter, the RVM review gate) is honoured whatever it says, so switching
@@ -676,6 +680,7 @@ export const serverEnvSchema = z.object({
   JOB_AUDIENCE_ROLLOUT: featureRolloutMode,
   CAMPUS_DRIVE_REQUESTS_ROLLOUT: featureRolloutMode,
   APPLICANT_FACTS_ROLLOUT: featureRolloutMode,
+  CONTACT_RULES_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER

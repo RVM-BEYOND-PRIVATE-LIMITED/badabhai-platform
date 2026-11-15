@@ -7,6 +7,7 @@ import {
   toPayerUnlocks,
 } from "./payer-unlock-view";
 import type { UnlockProjection } from "./unlocks.repository";
+import { OPEN_FOR_GOOD_UNTIL } from "./open-grant";
 
 /**
  * #2033 — the payer view of an unlock. The contract side of this is payer-web's
@@ -74,6 +75,41 @@ describe("toPayerUnlocks", () => {
       [base, { ...base, unlock_id: "u2", status: "denied", expires_at: null }],
       NOW,
     );
-    expect(out).toEqual([{ ...base, status: "expired" }]);
+    // #2747 — plus open_until: the window's end while contact_rules is off.
+    expect(out).toEqual([
+      { ...base, status: "expired", open_until: base.expires_at!.toISOString() },
+    ]);
+  });
+});
+
+describe("#2747 — toPayerUnlocks with contact_rules on", () => {
+  const LAPSED = new Date("2026-01-01T00:00:00.000Z");
+  const row = (status: "granted" | "revealed" | "expired"): UnlockProjection => ({
+    unlock_id: "u1",
+    payer_id: "p1",
+    worker_id: "w1",
+    job_id: null,
+    job_posting_id: null,
+    status,
+    reveal_count: 0,
+    granted_at: LAPSED,
+    expires_at: LAPSED,
+    created_at: LAPSED,
+  });
+
+  it("a lapsed granted or revealed contact reads open for good", () => {
+    for (const status of ["granted", "revealed"] as const) {
+      const [out] = toPayerUnlocks([row(status)], new Date("2026-11-15T00:00:00Z"), true);
+      expect(out).toMatchObject({ status, expires_at: OPEN_FOR_GOOD_UNTIL, open_until: null });
+    }
+  });
+
+  it("a stored expired row keeps its own dates and reads expired", () => {
+    const [out] = toPayerUnlocks([row("expired")], new Date("2026-11-15T00:00:00Z"), true);
+    expect(out).toMatchObject({
+      status: "expired",
+      expires_at: LAPSED,
+      open_until: LAPSED.toISOString(),
+    });
   });
 });
