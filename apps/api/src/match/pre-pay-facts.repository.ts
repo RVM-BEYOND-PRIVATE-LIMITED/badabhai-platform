@@ -31,6 +31,11 @@ export interface PrePayFactsRawRow {
   salaryExpectedMax: number | null;
   salaryPeriod: string | null;
   lastSeenAt: Date | string | null;
+  /**
+   * His LATEST consent row is unrevoked and lists `employer_sharing` — the search pool's rule
+   * (`consentingWorkers`): a tie on `accepted_at` must pass on every tied row. False with no row.
+   */
+  employerSharing: boolean;
 }
 
 /**
@@ -75,8 +80,23 @@ export class PrePayFactsRepository {
     const ids = [...new Set(workerIds)];
     if (ids.length === 0) return [];
     const [workers, profiles, attributes, seen] = await Promise.all([
-      this.db.execute<{ id: string; full_name: string | null; current_city: string | null }>(dsql`
-        SELECT w.id, w.full_name, w.current_city
+      this.db.execute<{
+        id: string;
+        full_name: string | null;
+        current_city: string | null;
+        employer_sharing: boolean | null;
+      }>(dsql`
+        SELECT w.id, w.full_name, w.current_city,
+               (
+                 SELECT bool_and(
+                   c.revoked_at IS NULL AND c.purposes @> '["employer_sharing"]'::jsonb
+                 )
+                 FROM worker_consents c
+                 WHERE c.worker_id = w.id
+                   AND c.accepted_at = (
+                     SELECT max(c2.accepted_at) FROM worker_consents c2 WHERE c2.worker_id = w.id
+                   )
+               ) IS TRUE AS employer_sharing
         FROM workers w
         WHERE w.id = ANY(${dsql.param(ids)}::uuid[])
       `),
@@ -130,6 +150,7 @@ export class PrePayFactsRepository {
         salaryExpectedMax: null,
         salaryPeriod: null,
         lastSeenAt: null,
+        employerSharing: false,
       });
     }
     // Keyed in lower case: Postgres prints a uuid that way, and the ids handed in may not be.
@@ -141,6 +162,7 @@ export class PrePayFactsRepository {
       if (!row) continue;
       row.fullNameEnc = nonBlank(w.full_name);
       row.workersCity = nonBlank(w.current_city);
+      row.employerSharing = w.employer_sharing === true;
     }
     for (const p of profiles as unknown as Array<Record<string, unknown>>) {
       const row = at(p.worker_id);

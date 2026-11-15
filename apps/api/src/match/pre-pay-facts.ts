@@ -1,4 +1,4 @@
-import { getRole, labelForTaxonomyId } from "@badabhai/taxonomy";
+import { getMachine, getRole } from "@badabhai/taxonomy";
 import { canonicalCity } from "@badabhai/profiling-lexicon";
 import { RVM_INSTITUTE_CODE } from "@badabhai/db";
 import { resolveTradeContent } from "../resume/trade-content";
@@ -9,6 +9,7 @@ import {
   type SalaryPeriod,
 } from "../profiles/worker-field-precedence";
 import { formatOpenTopSalary, formatSalaryBand } from "../resume/resume-sheet-rows";
+import { hasForbiddenLabelCharacter } from "../campus-link/campus-characters";
 
 /**
  * Who an applicant or search row is (#2747 item 1, brief 4B.3): an RVM student reached through
@@ -126,7 +127,7 @@ export function toPrePayFacts(row: PrePayFactsSourceRow, now: Date = new Date())
   return {
     firstName: firstNameOf(row.fullName),
     tradeLine:
-      boundedText(rvm?.course ?? null, TRADE_LINE_MAX_CHARS) ??
+      courseLine(rvm?.course ?? null) ??
       tradeLineOf(
         correctedId(row.overrides, "role", row.canonicalRoleId),
         correctedId(row.overrides, "trade", row.canonicalTradeId),
@@ -139,14 +140,47 @@ export function toPrePayFacts(row: PrePayFactsSourceRow, now: Date = new Date())
 }
 
 /**
- * The first word of a full name. A "word" carrying a digit or an `@` is not a name (a phone
- * number or an e-mail typed into the name field) and reads as not given rather than printing it.
+ * The first word of the name he gave, skipping a leading honorific ("Mr", "Md.", "Shri") and bare
+ * initials ("R."), so "R. Ramesh Kumar" reads "Ramesh". A "word" carrying a digit or an `@` is not a
+ * name (a phone number or an e-mail typed into the name field), and a name with a control, bidi or
+ * stray format character is not printed: both read as not given. A surname-first name gives its
+ * first word — the brief's "first name" is the name as written, never a guess at which word it is.
  */
 export function firstNameOf(fullName: string | null | undefined): string | null {
-  if (typeof fullName !== "string") return null;
-  const first = fullName.trim().split(/\s+/u)[0] ?? "";
-  if (first === "" || /[\p{Nd}@]/u.test(first)) return null;
+  if (typeof fullName !== "string" || hasForbiddenLabelCharacter(fullName)) return null;
+  const words = fullName
+    .trim()
+    .split(/\s+/u)
+    .filter((w) => w !== "");
+  const first = words.find((w) => !isHonorificOrInitial(w));
+  if (first === undefined || /[\p{Nd}@]/u.test(first)) return null;
   return [...first].slice(0, FIRST_NAME_MAX_CHARS).join("");
+}
+
+/** Titles written before a name in India, compared without dots and case. */
+const HONORIFICS = new Set([
+  "mr",
+  "mrs",
+  "ms",
+  "miss",
+  "dr",
+  "md",
+  "mohd",
+  "shri",
+  "sri",
+  "shree",
+  "smt",
+  "kumari",
+  "km",
+  "sh",
+  "late",
+]);
+
+function isHonorificOrInitial(word: string): boolean {
+  const bare = word.replace(/\./gu, "").toLowerCase();
+  if (bare === "" || HONORIFICS.has(bare)) return true;
+  // "R." or "R" alone is an initial, not a name.
+  return [...bare].length === 1;
 }
 
 /**
@@ -165,9 +199,11 @@ export function tradeLineOf(roleId: string | null, tradeId: string | null): stri
 
 /**
  * The expected salary on the résumé's own precedence (`resolveSalaryBandWithSource`, the SALARY ×3
- * rule): a live correction, else the extraction container, else the worker's own band. Printed by
- * the résumé's formatters, so the card and the sheet a company later opens never disagree. The
- * form's open top chip prints "₹50,000+", never the chip's stored key (#2400).
+ * rule): a live correction, else the extraction container, else the worker's own band — printed by
+ * the résumé's formatters, as his own résumé prints it. (The EMPLOYER copy of the résumé prints no
+ * salary; ADR-0064 records that the card now shows it before paying.) The form's open top chip
+ * prints "₹50,000+", never the chip's stored key (#2400). The unit is the worker's `salary_period`
+ * answer, except that a figure from the extraction container says its own period.
  */
 export function expectedSalaryOf(row: PrePayFactsSourceRow): string | null {
   const period = resolveSalaryPeriod(row.salaryPeriod);
@@ -182,12 +218,23 @@ export function expectedSalaryOf(row: PrePayFactsSourceRow): string | null {
     expectedMax: finiteNumber(container?.amount_max),
   });
   if (fromContainer !== null) {
-    return perPeriod(formatSalaryBand(fromContainer.low, fromContainer.high), period);
+    return perPeriod(
+      formatSalaryBand(fromContainer.low, fromContainer.high),
+      containerPeriod(container?.period) ?? period,
+    );
   }
   const attributes = { expected: row.salaryExpectedMin, expectedMax: row.salaryExpectedMax };
   if (isOpenTopSalaryChip(attributes)) return perPeriod(formatOpenTopSalary(null), period);
   const band = resolveSalaryBand(attributes);
   return band === null ? null : perPeriod(formatSalaryBand(band.low, band.high), period);
+}
+
+/** The extraction container's own unit (`SalaryExpectationSchema.period`), or null. */
+function containerPeriod(value: unknown): SalaryPeriod | null {
+  if (value === "daily") return "day";
+  if (value === "yearly") return "year";
+  if (value === "monthly") return "month";
+  return null;
 }
 
 /** The formatters print "/ month"; a day or year rate says its own unit instead. */
@@ -196,13 +243,16 @@ function perPeriod(label: string | null, period: SalaryPeriod): string | null {
   return label.replace(/ \/ month$/u, ` / ${period}`);
 }
 
-/** Closed machine ids → labels, deduplicated and capped; blanks drop; none is null. */
+/**
+ * Machine ids the taxonomy KNOWS → their labels, deduplicated and capped; none is null. Anything
+ * else in the column (a phrase the model extracted, an old unscreened row) is dropped, never shown:
+ * `labelForTaxonomyId` passes a non-id string through unchanged, so it is not used here.
+ */
 function machineLabels(machineIds: unknown): string[] | null {
   if (!Array.isArray(machineIds)) return null;
   const labels = machineIds
-    .filter((v): v is string => typeof v === "string" && v.trim() !== "")
-    .map((id) => labelForTaxonomyId(id).trim())
-    .filter((label) => label !== "");
+    .map((id) => (typeof id === "string" ? getMachine(id)?.name.trim() : undefined))
+    .filter((label): label is string => typeof label === "string" && label !== "");
   const deduped = [...new Set(labels)].slice(0, PRE_PAY_MACHINES_MAX);
   return deduped.length > 0 ? deduped : null;
 }
@@ -229,10 +279,14 @@ function cityOf(value: string | null | undefined): string | null {
   return canonicalCity(value)?.value ?? null;
 }
 
-function boundedText(value: string | null, max: number): string | null {
-  if (typeof value !== "string") return null;
+/**
+ * RVM's course name, as a label companies read: one line, bounded, and refused outright (not
+ * shown) when it carries a control, bidi or stray format character (the Campus label rule).
+ */
+function courseLine(value: string | null): string | null {
+  if (typeof value !== "string" || hasForbiddenLabelCharacter(value)) return null;
   const trimmed = value.trim().replace(/\s+/gu, " ");
-  return trimmed === "" ? null : [...trimmed].slice(0, max).join("");
+  return trimmed === "" ? null : [...trimmed].slice(0, TRADE_LINE_MAX_CHARS).join("");
 }
 
 function correctedString(overrides: ReadonlyMap<string, unknown>, key: string): string | null {

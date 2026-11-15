@@ -33,6 +33,7 @@ function raw(workerId: string, over: Partial<PrePayFactsRawRow> = {}): PrePayFac
     salaryExpectedMax: null,
     salaryPeriod: null,
     lastSeenAt: null,
+    employerSharing: true,
     ...over,
   };
 }
@@ -161,6 +162,38 @@ describe("PrePayFactsService.decorate", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]![0])).toContain(W1);
     expect(String(warn.mock.calls[0]![0])).not.toMatch(/Sunita|Devi|enc:/);
+  });
+
+  it("no live employer_sharing: every fact is not given, and his name is never decrypted", async () => {
+    const { svc, pii } = setup({
+      on: true,
+      rows: [
+        raw(W1, {
+          fullNameEnc: "enc:Ramesh Kumar",
+          workersCity: "Pune",
+          salaryExpectedMin: 24000,
+          employerSharing: false,
+        }),
+      ],
+    });
+    const [out] = await svc.decorate([{ workerId: W1 }], TENANT, NOW);
+    for (const key of PRE_PAY_FACT_KEYS) expect(out).toHaveProperty(key, null);
+    expect(out!.source).toBe("badabhai_worker");
+    expect(pii.decrypt).not.toHaveBeenCalled();
+  });
+
+  it("an actively linked RVM student is decided by the institute rule, not his BadaBhai consent", async () => {
+    const { svc } = setup({
+      on: true,
+      links: [{ workerId: W1, instituteCode: "rvm", course: "Diploma in CNC", branch: "Pune" }],
+      rows: [raw(W1, { fullNameEnc: "enc:Sameer Patil", employerSharing: false })],
+    });
+    const [out] = await svc.decorate([{ workerId: W1 }], TENANT, NOW);
+    expect(out).toMatchObject({
+      source: "rvm_student",
+      firstName: "Sameer",
+      tradeLine: "Diploma in CNC",
+    });
   });
 
   it("an empty page reads nothing and asks no switch", async () => {

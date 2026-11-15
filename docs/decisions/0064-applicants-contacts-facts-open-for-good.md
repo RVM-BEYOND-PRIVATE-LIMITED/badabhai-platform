@@ -52,6 +52,12 @@ While the switch is on for a company, each of its applicant and search rows carr
 
 Still withheld before paying: the surname, phone number, photo, employer names, address and anything typed in the worker's own words. The brief's other facts (level, experience, availability) were already on the card (#2736).
 
+**Consent, row by row.** The facts follow the same consent rule as everything else a company can see of a worker: his LATEST consent row must be unrevoked and list `employer_sharing` (the search pool's rule), or, for an actively linked RVM student, the institute rule decides (#2752). Without it — the "stop employer contact" exit, an under-18 declaration — he stays on the list he applied to and every fact reads "not given"; his name is never decrypted.
+
+**Closed values only.** A machine id the taxonomy does not know is dropped (the column can hold model-extracted phrases). A first name or RVM course carrying a control, bidi or stray format character is not shown (the Campus label rule). A leading title or initial is skipped ("Md. Aslam Khan" → "Aslam"); a surname-first name gives its first word.
+
+**Salary before paying, not on the paid sheet.** The employer copy of the résumé still prints no salary (ADR-0047 §4's audience rule). The card now shows it before paying; the two differ on purpose until the owner rules on the résumé.
+
 **Plaintext discipline.** The name is decrypted in `PrePayFactsService`, per page, cut to its first word and dropped with the response. It is never cached, never logged and never put in an event; a decrypt failure is logged with the worker id only. ADR-0047 lets raw personal data into logs and events; this read does not take that allowance, and the RVM student data in it never does.
 
 **Ordering.** The decoration runs before the list's `feed.shown` and before the search's `payer.candidate_search_performed`, so a failed facts read fails the request with nothing emitted.
@@ -81,7 +87,8 @@ One per part, all through `FeatureRolloutService` (off | pilot | on, keyed by th
 ## 4. Security review (part A)
 
 - **Faceless before paying ends** for companies with the switch on. The first name is personal data shown before any payment. It is shown only on rows a company may already see (its own applicants, or its search pool), never logged, cached or emitted.
-- **Harvesting.** A company could page its search to collect first name, city, trade and expected salary across the pool. It is bounded by the search cap (`PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR`, default 120 pages of at most 50 rows) and gated by the pilot list. No phone or surname is in that set.
+- **Harvesting.** A company could page its search to collect first name, city, trade and expected salary across the pool: the search cap (`PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR`, default 120 pages of at most 50 rows) allows about 6,000 named cards an hour **per login**, and a payer account goes live on OTP alone. Under a curated `pilot` list this is bounded. **Before `APPLICANT_FACTS_ROLLOUT` goes to `on`:** a per-company daily cap on distinct workers whose facts are shown, and an alert on search volume (follow-up issue). No phone or surname is in that set.
+- **RVM consent between re-checks.** An RVM student's facts follow his ACTIVE link. A withdrawal at RVM reaches BadaBhai when Campus unlinks him, or when a company next tries to open him (`InstituteOpenGate` re-asks RVM); until then his first name, course and branch city stay on the lists he applied to. The open itself is always re-checked. Accepted for the pilot; gating the card on the link's re-check age would hide every RVM student after five minutes (`RVM_CONSENT_RECHECK_SECONDS`).
 - **Free text.** Only closed vocabulary reaches the card, except RVM's course name, which is bounded and comes from RVM's own Student API contract.
 - **Deploy wiring.** A malformed switch value fails the deploy preflight before anything is pulled, so a typo cannot take the API down at boot.
 

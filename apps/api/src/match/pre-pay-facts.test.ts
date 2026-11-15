@@ -153,6 +153,28 @@ describe("toPrePayFacts", () => {
     expect(toPrePayFacts(row({ machineIds: ["  ", 7] }), NOW).machines).toBeNull();
     expect(toPrePayFacts(row({ machineIds: "not-an-array" }), NOW).machines).toBeNull();
   });
+
+  it("shows only machine ids the taxonomy knows; a free-text phrase in the column never reaches the card", () => {
+    const machine = MACHINES[0]!;
+    const facts = toPrePayFacts(
+      row({ machineIds: [machine.id, "lathe at Sharma Engineering, ask Ramesh 98xxxxxx"] }),
+      NOW,
+    );
+    expect(facts.machines).toEqual([machine.name]);
+  });
+
+  it("does not show an RVM course name carrying a control, bidi or stray format character", () => {
+    for (const course of ["CNC\u202Eevil", "CNC\u0007", "CNC\u200Bhidden"]) {
+      const facts = toPrePayFacts(
+        row({
+          canonicalRoleId: ROLE.id,
+          institute: { instituteCode: "rvm", course, branch: null },
+        }),
+        NOW,
+      );
+      expect(facts.tradeLine).toBe(ROLE.name);
+    }
+  });
 });
 
 describe("firstNameOf", () => {
@@ -172,6 +194,18 @@ describe("firstNameOf", () => {
 
   it("cuts an over-long word", () => {
     expect(firstNameOf("a".repeat(100))).toHaveLength(40);
+  });
+
+  it("skips a leading honorific and bare initials", () => {
+    expect(firstNameOf("Md. Aslam Khan")).toBe("Aslam");
+    expect(firstNameOf("R. Ramesh Kumar")).toBe("Ramesh");
+    expect(firstNameOf("Shri R K Sharma")).toBe("Sharma");
+    expect(firstNameOf("Mr.")).toBeNull();
+  });
+
+  it("does not print a name carrying a control, bidi or stray format character", () => {
+    expect(firstNameOf("Ramesh\u202E Kumar")).toBeNull();
+    expect(firstNameOf("Ram\u0000esh")).toBeNull();
   });
 });
 
@@ -218,6 +252,19 @@ describe("expectedSalaryOf", () => {
     expect(expectedSalaryOf(row({ salaryExpectedMin: 300000, salaryPeriod: "year" }))).toBe(
       "₹3,00,000 / year",
     );
+  });
+
+  it("a figure from the extraction container says the container's own period", () => {
+    expect(
+      expectedSalaryOf(
+        row({ salaryContainer: { amount_min: 800, amount_max: null, period: "daily" } }),
+      ),
+    ).toBe("₹800 / day");
+    expect(
+      expectedSalaryOf(
+        row({ salaryContainer: { amount_min: 20000, period: "monthly" }, salaryPeriod: "day" }),
+      ),
+    ).toBe("₹20,000 / month");
   });
 
   it("is not given when nothing was stated", () => {

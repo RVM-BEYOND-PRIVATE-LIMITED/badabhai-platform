@@ -1,4 +1,5 @@
 import { Injectable, Logger, Optional } from "@nestjs/common";
+import { RVM_INSTITUTE_CODE } from "@badabhai/db";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import { EffectiveFactsService } from "../profiles/effective-facts.service";
@@ -23,9 +24,12 @@ export type WithPrePayFacts<R> = R & { source: ApplicantSource } & Partial<PrePa
  *    that already carries `instituteCode` (the V1 applicant row, read in the list's own statement)
  *    is labelled from it, so the label and the code on one row cannot disagree.
  *  - The pre-pay facts (item 4) are added only while `applicant_facts` is on for the company
- *    (`FeatureRolloutService`, item 9). Off, not one of their keys is sent and none of their reads
- *    runs, so the response is exactly today's plus `source`. The switch gates what is SHOWN; it
- *    never changes who is listed.
+ *    (`FeatureRolloutService`, item 9). Off, not one of their keys is sent and none of the facts
+ *    reads runs (only the active-link read, for the label of a row that has no `instituteCode`),
+ *    so the response is exactly today's plus `source`. The switch gates what is SHOWN; it never
+ *    changes who is listed.
+ *  - CONSENT: a worker without live `employer_sharing` (and without an active RVM link, which the
+ *    institute rule decides) gets every fact as "not given", whatever the switch says.
  *
  * PLAINTEXT DISCIPLINE. The first name is decrypted here, per page, from `workers.full_name`, cut
  * to its first word by the pure mapper, and dropped with the page: never cached, never logged,
@@ -102,6 +106,18 @@ export class PrePayFactsService {
     const out = new Map<string, PrePayFacts>();
     for (const row of raw) {
       const key = row.workerId.toLowerCase();
+      const link = links.get(key);
+      // CONSENT, the same rule as everything else a company can see of him. An actively linked
+      // RVM student is decided by the institute rule (#2752: the tag rule wins while the link is
+      // active; he is on this list because he applied, or because the company holds his search
+      // grant); every other worker by his own LATEST consent row's `employer_sharing`. Without it
+      // — he used the "stop employer contact" exit, or an under-18 declaration withdrew his
+      // consent — the card says "not given" for every fact, and his name is never decrypted.
+      const consented = link?.instituteCode === RVM_INSTITUTE_CODE || row.employerSharing;
+      if (!consented) {
+        out.set(key, EMPTY_PRE_PAY_FACTS);
+        continue;
+      }
       out.set(
         key,
         toPrePayFacts(
@@ -117,7 +133,7 @@ export class PrePayFactsService {
             salaryExpectedMax: row.salaryExpectedMax,
             salaryPeriod: row.salaryPeriod,
             lastSeenAt: row.lastSeenAt,
-            institute: links.get(key) ?? null,
+            institute: link ?? null,
             overrides: overridesFor(overrides, row.workerId),
           },
           now,

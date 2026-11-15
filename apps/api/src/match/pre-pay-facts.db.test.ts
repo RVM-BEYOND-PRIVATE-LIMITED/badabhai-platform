@@ -48,6 +48,14 @@ async function seed(client: DbClient): Promise<void> {
       ON CONFLICT (id) DO NOTHING
     `;
   }
+  // RICH consents to employer sharing on his LATEST row; SPARSE consented once, then a newer row
+  // without the purpose replaced it (the "stop employer contact" exit).
+  await sql`
+    INSERT INTO worker_consents (worker_id, consent_version, purposes, accepted_at)
+    VALUES (${RICH}::uuid, 'test', '["profiling","employer_sharing"]'::jsonb, now() - interval '1 day'),
+           (${SPARSE}::uuid, 'test', '["profiling","employer_sharing"]'::jsonb, now() - interval '2 days'),
+           (${SPARSE}::uuid, 'test', '["profiling"]'::jsonb, now() - interval '1 day')
+  `;
   // The OLDER confirmed profile is current; the NEWER draft must lose (never recency alone).
   await sql`
     INSERT INTO worker_profiles
@@ -94,6 +102,7 @@ async function clean(client: DbClient): Promise<void> {
     await sql`DELETE FROM worker_institute_links WHERE worker_id = ${id}::uuid`;
     await sql`DELETE FROM worker_devices WHERE worker_id = ${id}::uuid`;
     await sql`DELETE FROM worker_attributes WHERE worker_id = ${id}::uuid`;
+    await sql`DELETE FROM worker_consents WHERE worker_id = ${id}::uuid`;
     await sql`DELETE FROM worker_profiles WHERE worker_id = ${id}::uuid`;
     await sql`DELETE FROM workers WHERE id = ${id}::uuid`;
   }
@@ -133,6 +142,7 @@ describe.skipIf(!RUN)("pre-pay facts — against real Postgres", () => {
       salaryExpectedMin: 18000,
       salaryExpectedMax: 22000,
       salaryPeriod: "day",
+      employerSharing: true,
     });
     expect(new Date(rich.lastSeenAt as string | Date).toISOString()).toBe(
       "2026-11-14T10:00:00.000Z",
@@ -154,6 +164,8 @@ describe.skipIf(!RUN)("pre-pay facts — against real Postgres", () => {
       salaryExpectedMax: null,
       salaryPeriod: null,
       lastSeenAt: null,
+      // A newer row without the purpose replaced his consent: the LATEST row decides.
+      employerSharing: false,
     });
     // An id in another case still finds its rows (Postgres prints uuids in lower case).
     expect(rows[1]!.canonicalRoleId).toBe("role_current");
