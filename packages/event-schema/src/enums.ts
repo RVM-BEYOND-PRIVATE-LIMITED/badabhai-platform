@@ -160,6 +160,11 @@ export const EVENT_DOMAINS = [
   // from `payer` and `worker`: one record is moved by the company, the worker and the worker desk
   // alike, and the source rides the payload. IDS AND CLOSED VALUES ONLY.
   "hire",
+  // #2753 item 11 — the pay-on-joining pilot's hire record (`pay_on_joining_hires`), written by
+  // hand by an admin. A DISTINCT domain from `payer` / `admin`: the record is its own row with its
+  // own lifecycle, and nothing on it is automated. IDS, PAISE INTEGERS AND CLOSED VALUES ONLY: the
+  // admin's note never rides the spine, and no name, phone or company name exists to ride it.
+  "pay_on_joining",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;

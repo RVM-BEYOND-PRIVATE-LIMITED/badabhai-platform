@@ -951,6 +951,38 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ HIRE_RECORDS_ENABLED: "yes" })).toThrow();
   });
 
+  it("PAY_ON_JOINING_RECORDS_ENABLED (#2753 item 11) is OFF by default and for the empty string", () => {
+    // Off is today exactly: every pay-on-joining route is a 404 and nothing touches the table.
+    expect(loadServerConfig({}).PAY_ON_JOINING_RECORDS_ENABLED).toBe(false);
+    expect(
+      loadServerConfig({ PAY_ON_JOINING_RECORDS_ENABLED: "" }).PAY_ON_JOINING_RECORDS_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ PAY_ON_JOINING_RECORDS_ENABLED: "0" }).PAY_ON_JOINING_RECORDS_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ PAY_ON_JOINING_RECORDS_ENABLED: "true" }).PAY_ON_JOINING_RECORDS_ENABLED,
+    ).toBe(true);
+    expect(() => loadServerConfig({ PAY_ON_JOINING_RECORDS_ENABLED: "yes" })).toThrow();
+  });
+
+  it("POJ_PARTNER_SHARE_PERCENT (#2753 item 11) defaults to 70, also for the empty string, and takes 0..100 only", () => {
+    expect(loadServerConfig({}).POJ_PARTNER_SHARE_PERCENT).toBe(70);
+    expect(loadServerConfig({ POJ_PARTNER_SHARE_PERCENT: "" }).POJ_PARTNER_SHARE_PERCENT).toBe(70);
+    expect(loadServerConfig({ POJ_PARTNER_SHARE_PERCENT: " " }).POJ_PARTNER_SHARE_PERCENT).toBe(70);
+    // Both ends are real settings: 0 (the partner is owed nothing) and 100 (all of it).
+    expect(loadServerConfig({ POJ_PARTNER_SHARE_PERCENT: "0" }).POJ_PARTNER_SHARE_PERCENT).toBe(0);
+    expect(loadServerConfig({ POJ_PARTNER_SHARE_PERCENT: "100" }).POJ_PARTNER_SHARE_PERCENT).toBe(
+      100,
+    );
+    expect(loadServerConfig({ POJ_PARTNER_SHARE_PERCENT: "65" }).POJ_PARTNER_SHARE_PERCENT).toBe(
+      65,
+    );
+    for (const bad of ["-1", "101", "70.5", "70%", "seventy"]) {
+      expect(() => loadServerConfig({ POJ_PARTNER_SHARE_PERCENT: bad }), bad).toThrow();
+    }
+  });
+
   describe("the Campus link (#2752)", () => {
     const HASH_A = "a".repeat(64);
     const HASH_B = "B".repeat(64);

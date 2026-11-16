@@ -48,6 +48,7 @@ import { ReferralAttributionModule } from "./referrals/referral-attribution.modu
 import { AdminModule } from "./admin/admin.module";
 import { AdminPostingsModule } from "./admin-postings/admin-postings.module";
 import { AdminHiresModule } from "./hires/admin-hires.module";
+import { PayOnJoiningModule } from "./pay-on-joining/pay-on-joining.module";
 import { EmailNotificationModule } from "./notifications/email-notification.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { PdfModule } from "./common/pdf/pdf.module";
@@ -170,6 +171,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // #2753 item 9 — GET /admin/hires. Above AdminModule (its guards) and HiresModule; a 404 while
     // HIRE_RECORDS_ENABLED is off.
     AdminHiresModule,
+    // #2753 item 11 — the pay-on-joining pilot's hire record (/admin/pay-on-joining-hires). A leaf
+    // above AdminModule. INERT until PAY_ON_JOINING_RECORDS_ENABLED is on: every route is a 404.
+    PayOnJoiningModule,
   ],
 })
 export class AppModule implements NestModule {

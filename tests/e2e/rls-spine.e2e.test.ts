@@ -260,6 +260,10 @@ const LOCKED_TABLES = [
   // 0170 (#2753 item 9): one hire record per company, worker and posting (ids, dates and closed
   // codes). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0170.
   "hires",
+  // 0171 (#2753 item 11): the pay-on-joining pilot's hire record (opaque factory / partner / worker
+  // / posting ids, dates, paise and an admin note). Worker FK cascade as the erasure coverage.
+  // RLS+FORCE+REVOKE in 0171.
+  "pay_on_joining_hires",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

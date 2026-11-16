@@ -102,6 +102,8 @@ import { WorkerDisplayPrefsController } from "../display-prefs/worker-display-pr
 import { PayerDisplayPrefsController } from "../display-prefs/payer-display-prefs.controller";
 import { AdminDisplayPrefsController } from "../display-prefs/admin-display-prefs.controller";
 import { SearchExitController } from "../search-exit/search-exit.controller";
+// #2753 item 11 — the pay-on-joining pilot's hire record (admin, behind its own switch guard).
+import { PayOnJoiningHiresController } from "../pay-on-joining/pay-on-joining-hires.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -152,6 +154,7 @@ const TL = "TestLoginGuard";
 const PTL = "PayerTestLoginGuard";
 const PE = "AgencyPayoutsEnabledGuard";
 const ATF = "AdminAiTraceFlagGuard";
+const POJ = "PayOnJoiningFlagGuard";
 /**
  * ⚠ NOT AN AUTH GUARD. `OptionalWorkerAuthGuard` attaches `req.worker` when a valid session
  * token happens to ride along and ALWAYS returns true — its `canActivate` has one return
@@ -938,6 +941,13 @@ const CONTRACT: ControllerContract[] = [
     ctor: SearchExitController,
     routes: { get: [SE, C, W], set: [SE, C, W] },
   },
+  // #2753 item 11 — the pay-on-joining hire record: admin session, then the
+  // PAY_ON_JOINING_RECORDS_ENABLED switch (a neutral 404 for every role), then the capability.
+  {
+    name: "PayOnJoiningHires",
+    ctor: PayOnJoiningHiresController,
+    routes: { listHires: [A, POJ, AR], createHire: [A, POJ, AR], updateHire: [A, POJ, AR] },
+  },
 ];
 
 describe("API authz contract — guards on every controller route", () => {
@@ -994,6 +1004,8 @@ describe("API authz contract — guards on every controller route", () => {
       AdminDisplayPrefsController,
       // #2753 item 6 — the worker's own search visibility; a route must not join unpinned.
       SearchExitController,
+      // #2753 item 11 — a money record's write surface; a route must not join it unpinned.
+      PayOnJoiningHiresController,
     ] as Ctor[]) {
       it(`${ctor.name} lists every route it serves`, () => {
         const proto = ctor.prototype as Record<string, unknown>;

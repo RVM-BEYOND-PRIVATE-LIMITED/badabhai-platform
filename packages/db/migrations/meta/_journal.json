@@ -1199,6 +1199,13 @@
       "when": 1794816246230,
       "tag": "0170_hires",
       "breakpoints": true
+    },
+    {
+      "idx": 171,
+      "version": "7",
+      "when": 1794816818877,
+      "tag": "0171_pay_on_joining_hires",
+      "breakpoints": true
     }
   ]
 }

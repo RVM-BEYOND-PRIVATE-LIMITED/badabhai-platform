@@ -54,6 +54,7 @@ import { outboundSignals } from "./outbound-signal";
 import { workerActivity } from "./worker-activity";
 import { workerSearchExits } from "./worker-search-exit";
 import { hires } from "./hire";
+import { payOnJoiningHires } from "./pay-on-joining";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -176,6 +177,8 @@ export * from "./worker-activity";
 export * from "./worker-search-exit";
 // #2753 item 9 — one hire record per company, worker and posting.
 export * from "./hire";
+// #2753 item 11 — the pay-on-joining pilot's hire record (admin-written, money in paise).
+export * from "./pay-on-joining";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -490,4 +493,6 @@ export const schema = {
   workerSearchExits,
   // #2753 item 9 - one hire record per company, worker and posting (behind HIRE_RECORDS_ENABLED).
   hires,
+  // #2753 item 11 - the pay-on-joining pilot's hire record (migration 0171).
+  payOnJoiningHires,
 };

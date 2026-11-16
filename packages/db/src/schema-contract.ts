@@ -1357,6 +1357,24 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "id; an open grant lets any PostgREST role read those hires, or write a confirmed hire that " +
       "counts toward the target",
   },
+  // 0171 (#2753 item 11): THE API names `pay_on_joining_hires` only while
+  // PAY_ON_JOINING_RECORDS_ENABLED is on (every admin route is a 404 before a query while it is
+  // off), so a deploy ahead of the migration breaks no request and the table is NOT a `table`
+  // entry. Listed for its lock (the 0134 rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0171-pay-on-joining-hires-rls",
+    migration: "0171_pay_on_joining_hires",
+    kind: "rls",
+    table: "pay_on_joining_hires",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which worker each pilot factory hired, the fee in paise and the " +
+      "partner's share, with an admin's free-text note; an open grant lets any PostgREST role " +
+      "read the pilot's commercial terms, or write a hire record ops would act on",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's
