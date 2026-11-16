@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "clip_count": 1600,
+  "clip_count": 1602,
   "producers": {
-    "retry": 133,
-    "clarify": 587,
+    "retry": 134,
+    "clarify": 588,
     "prompt": 426,
     "constant": 97,
     "why": 357
@@ -2823,6 +2823,11 @@
       "id": "58b8cb407f637924",
       "text": "Mixer aur plant ka kaam alag hai.",
       "producer": "why"
+    },
+    {
+      "id": "58c2e1be305ee577",
+      "text": "Helper, operator, skilled, senior, programmer ya supervisor hain?",
+      "producer": "retry"
     },
     {
       "id": "58cf0f897b094703",
@@ -7523,6 +7528,11 @@
       "id": "eef469c30d96616b",
       "text": "Automation me kya kya karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "ef2b380d979711aa",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Helper, operator, skilled, senior, programmer ya supervisor hain?",
+      "producer": "clarify"
     },
     {
       "id": "ef8daaea9ee37bfc",

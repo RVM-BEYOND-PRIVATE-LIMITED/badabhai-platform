@@ -139,6 +139,45 @@ describe("findApplicationsByWorker — the location_label boundary", () => {
   });
 });
 
+/**
+ * #2753 item 8 — `via` is read IN THIS STATEMENT. The service only maps the bit, and every
+ * service test mocks this method, so only a statement-level test sees that it is one EXISTS (no
+ * fourth join that could fan a decision out, no read per row) and that it counts a LIVE Campus
+ * record that OWNS the application only (`via` names who created it). That Postgres agrees is
+ * campus-jobs.db.test.ts.
+ */
+describe("findApplicationsByWorker — `via` from a live Campus record that owns it (#2753)", () => {
+  it("projects one EXISTS over institute_applications, correlated on the application AND the worker", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findApplicationsByWorker(WORKER);
+    const via = col(captured, "viaCampus");
+
+    expect(via).toMatch(/^exists \( select 1 from "institute_applications"/i);
+    expect(via).toContain('"institute_applications"."application_id" = "applications"."id"');
+    // The worker id puts it on `institute_applications_worker_idx` (no index on application_id).
+    expect(via).toContain('"institute_applications"."worker_id" = "applications"."worker_id"');
+    // WHO CREATED it: a Campus record that points at his own app apply does not make it Campus's.
+    expect(via).toMatch(/and "institute_applications"\."owns_application" and/);
+    expect(via).toContain('"institute_applications"."withdrawn_at" is null');
+    // Still three joins: the Campus record is never joined, so it cannot multiply a row.
+    expect(captured.joins).toHaveLength(3);
+    expect(captured.joins.map((j) => render(j.on)).join(" | ")).not.toContain(
+      "institute_applications",
+    );
+  });
+
+  it("projects a bit only — never the Campus ref, the student ref or the Campus record's id", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findApplicationsByWorker(WORKER);
+    const via = col(captured, "viaCampus");
+
+    for (const column of ["external_ref", "student_ref", "campus_applied_at"]) {
+      expect(via).not.toContain(column);
+    }
+    expect(via).toMatch(/select 1 /i);
+  });
+});
+
 describe("findApplicationsByWorker — scope and bound", () => {
   it("scopes to the worker and stays bounded", async () => {
     const { repo, captured } = makeDb();
