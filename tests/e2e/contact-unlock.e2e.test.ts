@@ -12,6 +12,7 @@ import {
 } from "@badabhai/db";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
+import { SEED_PACK } from "./helpers/credit-packs";
 import { mintPayerSession } from "./helpers/payer-session";
 import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
@@ -139,6 +140,19 @@ async function opsPayer(): Promise<string> {
   return (await mintPayerSession()).payerId;
 }
 
+/**
+ * Give an ops payer {@link SEED_PACK}'s credits through the ops route. The purchase MUST succeed:
+ * a seed that silently fails leaves the payer with no credits, and a story that expects a grant
+ * would then fail far from the cause, or a deny-branch story would pass for the wrong reason.
+ */
+async function seedCredits(payer: string): Promise<void> {
+  const buy = await req("POST", `/payers/${payer}/credits`, {
+    ops: true,
+    body: { pack_code: SEED_PACK.code },
+  });
+  expect(buy.status, `seeding ${SEED_PACK.code} must succeed`).toBe(200);
+}
+
 async function consent(token: string, purposes: string[]): Promise<void> {
   // `POST /consent/accept` is WORKER-AUTHED: the subject is the SESSION worker,
   // never a body id. Sending `worker_id` would be silently stripped by the DTO.
@@ -215,7 +229,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
 
   it("F-3: every deny branch + reveal-on-unknown returns the identical neutral body (not a 404)", async () => {
     const payer = await opsPayer();
-    await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
+    await seedCredits(payer);
 
     const noConsentW = await loginWorker(); // no consent at all
     const r1 = await req("POST", "/unlocks", {
@@ -240,9 +254,12 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
     const w = await loginWorker();
     await consent(w.token, ["profiling", "employer_sharing"]);
 
-    const buy = await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
+    const buy = await req("POST", `/payers/${payer}/credits`, {
+      ops: true,
+      body: { pack_code: SEED_PACK.code },
+    });
     expect(buy.status).toBe(200);
-    expect(buy.json.balance).toBe(10);
+    expect(buy.json.balance).toBe(SEED_PACK.credits);
 
     const grant = await req("POST", "/unlocks", { ops: true, body: { payer_id: payer, worker_id: w.workerId } });
     expect(grant.status).toBe(200);
@@ -251,7 +268,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
 
     // Balance debited exactly once.
     const credits = await req("GET", `/payers/${payer}/credits`, { ops: true });
-    expect(credits.json.balance).toBe(9);
+    expect(credits.json.balance).toBe(SEED_PACK.credits - 1);
 
     // Reveal returns an opaque relay handle — NEVER a phone.
     const reveal = await req("POST", `/unlocks/${unlockId}/reveal`, { ops: true });
@@ -290,7 +307,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
     const payer = await opsPayer();
     const w = await loginWorker();
     await consent(w.token, ["employer_sharing"]);
-    await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
+    await seedCredits(payer);
 
     const notAJob = randomUUID();
     const grant = await req("POST", "/unlocks", {
@@ -303,7 +320,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
 
     expect(await storedJobContext(unlockId)).toBeNull();
     const credits = await req("GET", `/payers/${payer}/credits`, { ops: true });
-    expect(credits.json.balance).toBe(9);
+    expect(credits.json.balance).toBe(SEED_PACK.credits - 1);
 
     const granted = await eventByKey(`unlock.granted:${unlockId}`);
     expect((granted.payload as { job_id?: unknown }).job_id).toBeNull();
@@ -334,7 +351,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
     const payer = await opsPayer();
     const w = await loginWorker();
     await consent(w.token, ["employer_sharing"]);
-    await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
+    await seedCredits(payer);
 
     const grant = await req("POST", "/unlocks", {
       ops: true,
@@ -346,7 +363,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
 
     expect(await storedJobContext(unlockId)).toBe(job!.id);
     const credits = await req("GET", `/payers/${payer}/credits`, { ops: true });
-    expect(credits.json.balance).toBe(9);
+    expect(credits.json.balance).toBe(SEED_PACK.credits - 1);
 
     const requested = (await allEvents()).filter(
       (e) => e.actorId === payer && e.eventName === "unlock.requested",
@@ -363,14 +380,14 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
     const payer = await opsPayer();
     const w = await loginWorker();
     await consent(w.token, ["employer_sharing"]);
-    await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
+    await seedCredits(payer);
 
     const g1 = await req("POST", "/unlocks", { ops: true, body: { payer_id: payer, worker_id: w.workerId } });
     const g2 = await req("POST", "/unlocks", { ops: true, body: { payer_id: payer, worker_id: w.workerId } });
     expect(g1.json.unlock_id).toBe(g2.json.unlock_id);
 
     const credits = await req("GET", `/payers/${payer}/credits`, { ops: true });
-    expect(credits.json.balance).toBe(9); // debited ONCE, not twice
+    expect(credits.json.balance).toBe(SEED_PACK.credits - 1); // debited ONCE, not twice
   });
 
   it("F-2: N concurrent unlocks for ONE worker never exceed the daily-reveals cap (and balance never negative)", async () => {
@@ -383,9 +400,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
     await consent(w.token, ["employer_sharing"]);
 
     const payersList = await Promise.all(Array.from({ length: 14 }, () => opsPayer()));
-    await Promise.all(
-      payersList.map((p) => req("POST", `/payers/${p}/credits`, { ops: true, body: { pack_code: "pack_10" } })),
-    );
+    await Promise.all(payersList.map((p) => seedCredits(p)));
 
     const results = await Promise.all(
       payersList.map((p) => req("POST", "/unlocks", { ops: true, body: { payer_id: p, worker_id: w.workerId } })),
@@ -405,7 +420,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
     const payer = await opsPayer();
     const w = await loginWorker();
     await consent(w.token, ["employer_sharing"]);
-    await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
+    await seedCredits(payer);
     const grant = await req("POST", "/unlocks", { ops: true, body: { payer_id: payer, worker_id: w.workerId } });
     await req("POST", `/unlocks/${grant.json.unlock_id}/reveal`, { ops: true });
 
@@ -438,7 +453,7 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
     const payer = await opsPayer();
     const w = await loginWorker();
     await consent(w.token, ["employer_sharing"]);
-    await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
+    await seedCredits(payer);
     await req("POST", "/unlocks", { ops: true, body: { payer_id: payer, worker_id: w.workerId } });
 
     const list = await req("GET", `/unlocks?payer_id=${payer}`, { ops: true });
