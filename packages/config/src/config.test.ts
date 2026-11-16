@@ -856,6 +856,27 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "yes" })).toThrow();
   });
 
+  it("REFERRAL_HELPER_NAME_ENABLED (#2753 item 12) is OFF by default and for the empty string", () => {
+    // Off is a 404 that reads nothing; the owner turns it on.
+    expect(loadServerConfig({}).REFERRAL_HELPER_NAME_ENABLED).toBe(false);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "0" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "false" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "1" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(true);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "true" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(true);
+    expect(() => loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "yes" })).toThrow();
+  });
+
   it("AVAILABILITY_ANSWERS_V2_ENABLED (#2753 item 3) is OFF by default and for the empty string", () => {
     // Off is today's availability options exactly; writes accept both sets either way.
     expect(loadServerConfig({}).AVAILABILITY_ANSWERS_V2_ENABLED).toBe(false);

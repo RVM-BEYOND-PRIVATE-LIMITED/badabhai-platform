@@ -5,6 +5,7 @@ import type { ConsentRepository } from "../consent/consent.repository";
 import type { InviteService } from "../messaging/invite.service";
 import type { AgencyService } from "../agency/agency.service";
 import type { ReferralLinkService } from "./referral-link.service";
+import type { WorkerOriginRepository } from "./worker-origin.repository";
 
 const WORKER = "44444444-4444-4444-8444-444444444444";
 const CODE = "abcdef012345";
@@ -21,13 +22,16 @@ function make() {
   // exactly the LEGACY situation — every invite shared before the resolver existed. The
   // assertions below therefore also pin that B4 did not change legacy attribution.
   const referralLinks = { claimInstall: vi.fn().mockResolvedValue({ claimed: false }) };
+  // #2753 item 12 — the came-from write. Defaults to "wrote the row".
+  const origins = { recordFirst: vi.fn().mockResolvedValue(true) };
   const svc = new ReferralAttributionService(
     consent as unknown as ConsentRepository,
     workerInvites as unknown as InviteService,
     agency as unknown as AgencyService,
     referralLinks as unknown as ReferralLinkService,
+    origins as unknown as WorkerOriginRepository,
   );
-  return { svc, consent, workerInvites, agency, referralLinks };
+  return { svc, consent, workerInvites, agency, referralLinks, origins };
 }
 
 describe("ReferralAttributionService — consent gate (invariant #6, fail-closed)", () => {
@@ -248,4 +252,104 @@ describe("ReferralAttributionService — #1800 résumé-QR codes stop before inv
       expect(h.workerInvites.recordAccept).toHaveBeenCalledOnce();
     },
   );
+});
+
+/**
+ * #2753 item 12 — CAME-FROM. A SUCCESSFUL attribution writes the worker's `worker_origins` row
+ * (`referrer` for a worker's invite, `partner` for an agency's, ref = the code); a refused or
+ * neutral one writes nothing; a failed origin write never changes the outcome. First-origin-wins
+ * is the repository's `ON CONFLICT DO NOTHING`, pinned against Postgres in
+ * `referral-came-from.db.test.ts`.
+ */
+describe("ReferralAttributionService — came-from on a successful attribution (#2753 item 12)", () => {
+  let h: ReturnType<typeof make>;
+  beforeEach(() => {
+    h = make();
+    h.consent.findLatestByWorker.mockResolvedValue(activeConsent);
+  });
+
+  it("a worker's invite attributes → one `referrer` origin with the code, AFTER the seam said yes", async () => {
+    h.workerInvites.recordAccept.mockResolvedValue({ ok: true });
+    const out = await h.svc.attribute(CODE, WORKER);
+    expect(out).toEqual({ attributed: true, kind: "worker", claimed: false });
+    expect(h.origins.recordFirst).toHaveBeenCalledOnce();
+    expect(h.origins.recordFirst).toHaveBeenCalledWith(WORKER, "referrer", CODE);
+    expect(h.workerInvites.recordAccept.mock.invocationCallOrder[0]!).toBeLessThan(
+      h.origins.recordFirst.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("an agency's invite attributes → one `partner` origin with the code", async () => {
+    h.workerInvites.recordAccept.mockResolvedValue({ ok: false, reason: "unknown_code" });
+    h.agency.attributeWorkerToInvite.mockResolvedValue({ ok: true });
+    const out = await h.svc.attribute(CODE, WORKER);
+    expect(out).toEqual({ attributed: true, kind: "agency", claimed: false });
+    expect(h.origins.recordFirst).toHaveBeenCalledOnce();
+    expect(h.origins.recordFirst).toHaveBeenCalledWith(WORKER, "partner", CODE);
+  });
+
+  it.each([
+    ["no consent", () => h.consent.findLatestByWorker.mockResolvedValue(undefined)],
+    ["revoked consent", () => h.consent.findLatestByWorker.mockResolvedValue(revokedConsent)],
+    [
+      "a self invite",
+      () => h.workerInvites.recordAccept.mockResolvedValue({ ok: false, reason: "self_invite" }),
+    ],
+    [
+      "an already-attributed worker invite",
+      () =>
+        h.workerInvites.recordAccept.mockResolvedValue({ ok: false, reason: "already_attributed" }),
+    ],
+    [
+      "an unknown code (both seams)",
+      () => {
+        h.workerInvites.recordAccept.mockResolvedValue({ ok: false, reason: "unknown_code" });
+        h.agency.attributeWorkerToInvite.mockResolvedValue({ ok: false, reason: "unknown_code" });
+      },
+    ],
+    [
+      "an already-attributed agency invite",
+      () => {
+        h.workerInvites.recordAccept.mockResolvedValue({ ok: false, reason: "unknown_code" });
+        h.agency.attributeWorkerToInvite.mockResolvedValue({
+          ok: false,
+          reason: "already_attributed",
+        });
+      },
+    ],
+    ["a seam failure", () => h.workerInvites.recordAccept.mockRejectedValue(new Error("db down"))],
+  ])("%s → no origin is written", async (_name, arrange) => {
+    arrange();
+    const out = await h.svc.attribute(CODE, WORKER);
+    expect(out.attributed).toBe(false);
+    expect(h.origins.recordFirst).not.toHaveBeenCalled();
+  });
+
+  it("a claimed résumé-QR install writes no origin (not a partner or referrer code, #1800)", async () => {
+    h.referralLinks.claimInstall.mockResolvedValue({
+      claimed: true,
+      referralLinkId: "11111111-1111-4111-8111-111111111111",
+      linkKind: "resume_qr",
+    });
+    const out = await h.svc.attribute(CODE, WORKER, "install_referrer");
+    expect(out).toEqual({ attributed: true, kind: "resume_qr", claimed: true });
+    expect(h.origins.recordFirst).not.toHaveBeenCalled();
+  });
+
+  it("an origin he already has (first origin wins) leaves the outcome unchanged", async () => {
+    h.workerInvites.recordAccept.mockResolvedValue({ ok: true });
+    h.origins.recordFirst.mockResolvedValue(false);
+    const out = await h.svc.attribute(CODE, WORKER);
+    expect(out).toEqual({ attributed: true, kind: "worker", claimed: false });
+  });
+
+  it("a FAILED origin write is neutralized: the attribution stays attributed, nothing throws", async () => {
+    h.workerInvites.recordAccept.mockResolvedValue({ ok: false, reason: "unknown_code" });
+    h.agency.attributeWorkerToInvite.mockResolvedValue({ ok: true });
+    const err = new Error('relation "worker_origins" does not exist');
+    err.name = "PostgresError";
+    h.origins.recordFirst.mockRejectedValue(err);
+    const out = await h.svc.attribute(CODE, WORKER);
+    expect(out).toEqual({ attributed: true, kind: "agency", claimed: false });
+  });
 });

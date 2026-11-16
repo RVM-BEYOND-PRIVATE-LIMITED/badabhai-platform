@@ -221,7 +221,8 @@ this register's own preamble names, a route changing without its row changing:
 | POST | /invites, /invites/:code/click | WAG / none (IP-capped) | A | |
 | POST | /messaging/reengage | ISG | C | |
 | GET | /r/:code | none | A | referral link resolver |
-| POST | /referrals/attribute | WAG (IP-capped) | A | fire-and-forget event |
+| POST | /referrals/attribute | WAG (IP-capped) | A | fire-and-forget event; a successful attribution also writes the worker's `worker_origins` row (#2753 item 12) |
+| GET | /referrals/helper?code= | none (IP-capped) | B | #2753 item 12, behind `REFERRAL_HELPER_NAME_ENABLED` (off: 404; owner approval before on). `{ display_name }`: an agency's company name or null. See `docs/api/worker-referrals-api-reference.md` |
 | POST/GET | /referrals/bonus/evaluate, /bonus/summary | ISG | C | manual ops re-run; real trigger is the referral-bonus queue |
 | GET | /interview-kit/:tradeKey/download, /interview-kits(/:tradeKey) | none (IP-capped) | B | deliberately no PII/no event on list/detail |
 | POST/GET | /pace/jobs/:jobId/start, /pace/alerts | ISG | C/B | alerts called by apps/web; was R36 (closed 2026-08-01) |
