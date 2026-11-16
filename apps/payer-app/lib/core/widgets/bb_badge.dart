@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/bb_palette.dart';
 
 /// Semantic tone of a [BbBadge] — the design system's `.bb-badge--*` set.
 ///
@@ -35,41 +35,42 @@ class BbBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final (Color tint, Color fg, Color solidBg) = switch (tone) {
       BbBadgeTone.success => (
-          AppColors.successTint,
-          AppColors.green700,
-          AppColors.success,
+          p.successBg,
+          p.success,
+          p.success,
         ),
       BbBadgeTone.neutral => (
-          AppColors.surfaceSunken,
-          AppColors.textSecondary,
-          AppColors.ink700,
+          p.raised,
+          p.textSecondary,
+          p.iconSecondary,
         ),
       BbBadgeTone.warning => (
-          AppColors.warningTint,
-          AppColors.onHaldi, // deep blue reads on the haldi tint, not dark-yellow
-          AppColors.saffronDeep,
+          p.warningBg,
+          p.isDark ? p.warning : p.onAction,
+          p.actionPressed,
         ),
       BbBadgeTone.danger => (
-          AppColors.dangerTint,
-          AppColors.red700,
-          AppColors.danger,
+          p.dangerBg,
+          p.danger,
+          p.danger,
         ),
       BbBadgeTone.brand => (
-          AppColors.brandTint,
-          AppColors.onHaldi, // deep blue on the haldi tint (JUL31)
-          AppColors.brand,
+          p.selectedCardBg,
+          p.textBrand,
+          p.action,
         ),
       BbBadgeTone.info => (
-          AppColors.infoTint,
-          AppColors.teal700,
-          AppColors.teal500,
+          p.infoBg,
+          p.infoTitle,
+          p.info,
         ),
     };
 
     final Color background = solid ? solidBg : tint;
-    final Color foreground = solid ? AppColors.textOnBrand : fg;
+    final Color foreground = solid ? p.onAction : fg;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s2, vertical: 4),

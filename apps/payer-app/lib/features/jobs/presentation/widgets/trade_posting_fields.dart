@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/data/models.dart';
 import '../../../../core/error/payer_failure.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
 import '../../../../core/widgets/bb_field_error.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// Shown where a company form's trade picker goes while the 16-trade catalogue
 /// (`GET /payer/posting-trades`) loads.
@@ -46,6 +46,7 @@ class PostingTradePickerPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -54,7 +55,7 @@ class PostingTradePickerPlaceholder extends StatelessWidget {
           style: AppTypography.body(
             size: AppTypography.sizeSm,
             weight: FontWeight.w700,
-            color: AppColors.textPrimary,
+            color: p.textPrimary,
           ),
         ),
         const SizedBox(height: AppSpacing.s2),
@@ -63,7 +64,7 @@ class PostingTradePickerPlaceholder extends StatelessWidget {
             kPostingTradesLoadingLabel,
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
+              color: p.textMuted,
             ),
           )
         else
@@ -98,6 +99,7 @@ class PostingTradesUnavailable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -105,7 +107,7 @@ class PostingTradesUnavailable extends StatelessWidget {
           messageFor(failure),
           style: AppTypography.body(
             size: AppTypography.sizeSm,
-            color: AppColors.warning,
+            color: p.warning,
             height: 1.4,
           ),
         ),
@@ -179,6 +181,7 @@ class TradePostingFields extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -195,7 +198,7 @@ class TradePostingFields extends StatelessWidget {
           'change who the posting reaches.',
           style: AppTypography.body(
             size: AppTypography.sizeSm,
-            color: AppColors.textMuted,
+            color: p.textMuted,
             height: 1.4,
           ),
         ),

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_haptics.dart';
 import '../../../../core/theme/app_motion.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -10,6 +9,7 @@ import '../../../../core/widgets/bb_card.dart';
 import '../../../../core/widgets/bb_icon_button.dart';
 import '../../../../core/widgets/bb_pressable.dart';
 import '../../../../core/widgets/bb_toast.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 // ---------------------------------------------------------------------------
 // The My-jobs card actions (#2594), shared by the company and agency cards:
@@ -156,7 +156,8 @@ class _MoreBusy extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox(
+    final BbPalette p = context.bb;
+    return SizedBox(
       width: AppSpacing.tap,
       height: AppSpacing.tap,
       child: Center(
@@ -165,7 +166,7 @@ class _MoreBusy extends StatelessWidget {
           height: 20,
           child: CircularProgressIndicator(
             strokeWidth: 2,
-            color: AppColors.blue,
+            color: p.textBrand,
           ),
         ),
       ),
@@ -190,7 +191,7 @@ Future<JobMenuAction?> showJobActionSheet(
     sheetAnimationStyle: AppMotion.sheetStyle(context),
     useSafeArea: true,
     showDragHandle: true,
-    backgroundColor: AppColors.surfaceCard,
+    backgroundColor: context.bb.card,
     shape: _kSheetShape,
     builder: (BuildContext sheetContext) => Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -231,6 +232,7 @@ class _SheetRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       button: true,
       child: BbPressable(
@@ -245,7 +247,7 @@ class _SheetRow extends StatelessWidget {
             ),
             child: Row(
               children: <Widget>[
-                Icon(action.icon, size: 22, color: AppColors.blue),
+                Icon(action.icon, size: 22, color: p.textBrand),
                 const SizedBox(width: AppSpacing.s3),
                 Expanded(
                   child: Text(
@@ -276,7 +278,7 @@ Future<bool> showCloseJobConfirm(
     isScrollControlled: true,
     useSafeArea: true,
     showDragHandle: true,
-    backgroundColor: AppColors.surfaceCard,
+    backgroundColor: context.bb.card,
     shape: _kSheetShape,
     builder: (BuildContext sheetContext) => SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(
@@ -296,7 +298,7 @@ Future<bool> showCloseJobConfirm(
           const SizedBox(height: AppSpacing.s2),
           Text(
             closeJobMessage(jobTitle),
-            style: AppTypography.body(color: AppColors.textSecondary),
+            style: AppTypography.body(color: context.bb.textSecondary),
           ),
           const SizedBox(height: AppSpacing.s6),
           Row(

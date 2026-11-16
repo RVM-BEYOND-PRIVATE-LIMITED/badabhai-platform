@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
+import '../theme/bb_palette.dart';
 
 /// Visual mode of a [BbAvatar] — `.bb-avatar--*`.
 ///
@@ -30,11 +30,12 @@ class BbAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool masked = mode == BbAvatarMode.masked;
-    final Color background = masked ? AppColors.surfaceSunken : AppColors.brandTint;
+    final Color background = masked ? p.raised : p.selectedCardBg;
     // Text on haldi is ALWAYS deep blue (JUL31), never a dark-yellow on yellow.
-    final Color foreground = masked ? AppColors.textFaint : AppColors.onHaldi;
-    final Color borderColor = masked ? AppColors.borderSubtle : AppColors.brandBorder;
+    final Color foreground = masked ? p.textMuted : p.textBrand;
+    final Color borderColor = masked ? p.borderSubtle : p.action;
 
     return SizedBox(
       width: size,
@@ -66,14 +67,14 @@ class BbAvatar extends StatelessWidget {
               bottom: -2,
               child: Container(
                 padding: const EdgeInsets.all(1.5),
-                decoration: const BoxDecoration(
-                  color: AppColors.surfaceCard,
+                decoration: BoxDecoration(
+                  color: p.card,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.verified_rounded,
                   size: size * 0.30,
-                  color: AppColors.success,
+                  color: p.success,
                 ),
               ),
             ),

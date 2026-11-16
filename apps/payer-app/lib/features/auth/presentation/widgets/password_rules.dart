@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_motion.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import 'auth_form_support.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// #2597 — one line of the set-new-password checklist. The first four mirror
 /// the server's password policy (the server stays the authority); the last two
@@ -86,6 +86,7 @@ class _PasswordRuleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       key: passwordRuleKey(rule),
       container: true,
@@ -105,17 +106,17 @@ class _PasswordRuleRow extends StatelessWidget {
                   switchOutCurve: AppMotion.easeIn.flipped,
                   transitionBuilder: _morph,
                   child: met
-                      ? const Icon(
+                      ? Icon(
                           Icons.check_circle_rounded,
                           key: ValueKey<bool>(true),
                           size: _tickBox,
-                          color: AppColors.blue,
+                          color: p.textBrand,
                         )
-                      : const Icon(
+                      : Icon(
                           Icons.circle_rounded,
                           key: ValueKey<bool>(false),
                           size: _dot,
-                          color: AppColors.textMuted,
+                          color: p.textMuted,
                         ),
                 ),
               ),
@@ -125,7 +126,7 @@ class _PasswordRuleRow extends StatelessWidget {
                   rule.label,
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    color: AppColors.textSecondary,
+                    color: p.textSecondary,
                   ),
                 ),
               ),

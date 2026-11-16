@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_alert_dialog.dart';
+import '../theme/bb_palette.dart';
 
 /// The unlock CTA label on every candidate card — the spend in CREDITS, never a
 /// ₹ price (#2589: no payment information of any kind in the app).
@@ -45,6 +45,7 @@ class _UnlockBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -53,7 +54,7 @@ class _UnlockBody extends StatelessWidget {
           text: TextSpan(
             style: AppTypography.body(
               size: AppTypography.sizeBase,
-              color: AppColors.textSecondary,
+              color: p.textSecondary,
               height: 1.5,
             ),
             children: <InlineSpan>[
@@ -63,7 +64,7 @@ class _UnlockBody extends StatelessWidget {
                 style: AppTypography.body(
                   size: AppTypography.sizeBase,
                   weight: FontWeight.w700,
-                  color: AppColors.textPrimary,
+                  color: p.textPrimary,
                 ),
               ),
               const TextSpan(text: "'s real name and phone number. "),
@@ -72,7 +73,7 @@ class _UnlockBody extends StatelessWidget {
                 style: AppTypography.body(
                   size: AppTypography.sizeBase,
                   weight: FontWeight.w700,
-                  color: AppColors.textPrimary,
+                  color: p.textPrimary,
                 ),
               ),
               const TextSpan(text: ' will be used — '),
@@ -81,7 +82,7 @@ class _UnlockBody extends StatelessWidget {
                 style: AppTypography.body(
                   size: AppTypography.sizeBase,
                   weight: FontWeight.w700,
-                  color: AppColors.textPrimary,
+                  color: p.textPrimary,
                 ),
               ),
               const TextSpan(text: ' after this.'),
@@ -92,13 +93,13 @@ class _UnlockBody extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(AppSpacing.s3),
           decoration: BoxDecoration(
-            color: AppColors.infoTint,
+            color: p.infoBg,
             borderRadius: BorderRadius.circular(AppRadii.sm),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              const Icon(Icons.info_rounded, size: 18, color: AppColors.teal700),
+              Icon(Icons.info_rounded, size: 18, color: p.infoTitle),
               const SizedBox(width: AppSpacing.s2),
               Expanded(
                 child: Text(
@@ -106,7 +107,7 @@ class _UnlockBody extends StatelessWidget {
                   "Unlocking never changes a worker's ranking.",
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    color: AppColors.teal700,
+                    color: p.infoTitle,
                     height: 1.4,
                   ),
                 ),

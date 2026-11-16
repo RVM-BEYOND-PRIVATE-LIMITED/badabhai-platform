@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
+import '../theme/bb_palette.dart';
 
 /// Three dots that pulse in turn — the "a reply is on its way" cue (#2596).
 ///
@@ -13,11 +13,11 @@ import '../theme/app_motion.dart';
 class BbTypingDots extends StatefulWidget {
   const BbTypingDots({
     super.key,
-    this.color = AppColors.brand,
+    this.color,
     this.dotSize = 6,
   });
 
-  final Color color;
+  final Color? color;
   final double dotSize;
 
   @override
@@ -66,6 +66,7 @@ class _BbTypingDotsState extends State<BbTypingDots>
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool still = AppMotion.reduced(context);
     return AnimatedBuilder(
       animation: _controller,
@@ -80,7 +81,7 @@ class _BbTypingDotsState extends State<BbTypingDots>
                 width: widget.dotSize,
                 height: widget.dotSize,
                 decoration: BoxDecoration(
-                  color: widget.color,
+                  color: widget.color ?? p.action,
                   shape: BoxShape.circle,
                 ),
               ),

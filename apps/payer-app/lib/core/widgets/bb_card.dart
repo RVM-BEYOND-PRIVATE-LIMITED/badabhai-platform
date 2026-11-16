@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import 'bb_pressable.dart';
+import '../theme/bb_palette.dart';
 
 /// The BadaBhai card surface — `.bb-card`. JUL31: white on canvas, **no
 /// shadow** — separated by a single 1px hairline, 10px corners. Variants cover
@@ -48,11 +48,12 @@ class BbCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // #2596 — a host may repaint a default card's surface ([BbCardSurfaceTint]);
     // ink and gradient surfaces keep their own, and nothing ON the card changes.
     final BbCardSurfaceTint? tint = BbCardSurfaceTint._maybeOf(context);
     final Color background =
-        ink ? AppColors.surfaceInk : (tint?.color ?? AppColors.surfaceCard);
+        ink ? p.brandSurface : (tint?.color ?? p.card);
     // A card nested on a tinted one stays on its own surface.
     final Widget body =
         tint == null ? child : BbCardSurfaceTint(color: null, child: child);
@@ -61,10 +62,10 @@ class BbCard extends StatelessWidget {
     // 3px double-haldi hero border; ink / gradient surfaces carry their own edge.
     final BoxBorder? effectiveBorder = border ??
         (festive
-            ? Border.all(color: AppColors.brandBorder, width: 3)
+            ? Border.all(color: p.action, width: 3)
             : (ink || gradient != null
                 ? null
-                : Border.all(color: AppColors.border)));
+                : Border.all(color: p.borderDefault)));
 
     final BorderRadius radius = BorderRadius.circular(AppRadii.lg);
 
@@ -105,9 +106,9 @@ class BbCard extends StatelessWidget {
           borderRadius: radius,
           child: Container(
             padding: padding,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               border: Border(
-                left: BorderSide(color: AppColors.haldi, width: AppSpacing.s1),
+                left: BorderSide(color: p.action, width: AppSpacing.s1),
               ),
             ),
             child: body,
@@ -143,8 +144,8 @@ class BbCard extends StatelessWidget {
 /// Repaints the surface of the [BbCard] directly below it — only the surface:
 /// text, icons, buttons, badges and the hairline on the card keep their exact
 /// tokens. The one way a list marks a single row without recolouring what is
-/// on it (#2596: the just-posted job, [AppColors.haldiTint] easing back to
-/// [AppColors.surfaceCard]).
+/// on it (#2596: the just-posted job, the action tint easing back to the
+/// card surface).
 ///
 /// Only a default (white) card reads it; an ink or gradient card keeps its
 /// surface. Keep the scope in the tree for the row's life and pass a null
@@ -156,7 +157,7 @@ class BbCardSurfaceTint extends InheritedWidget {
     required super.child,
   });
 
-  /// The card's surface colour; null leaves it on [AppColors.surfaceCard].
+  /// The card's surface colour; null leaves it on the card surface.
   final Color? color;
 
   static BbCardSurfaceTint? _maybeOf(BuildContext context) =>

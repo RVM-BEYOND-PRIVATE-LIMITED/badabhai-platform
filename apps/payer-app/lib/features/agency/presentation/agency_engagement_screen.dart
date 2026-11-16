@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_avatar.dart';
@@ -14,6 +13,7 @@ import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/agency_engagement_cubit.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Agency engagement — the FACELESS per-worker referral funnel
 /// (`GET /payer/agency/workers`, AGENT-only). Each row is an opaque ref handle
@@ -39,8 +39,9 @@ class _EngagementView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: AppColors.surfacePage,
+      backgroundColor: p.page,
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -118,7 +119,7 @@ class _EngagementView extends StatelessWidget {
       case AgencyEngagementStatus.ready:
         return RefreshIndicator(
           onRefresh: () => context.read<AgencyEngagementCubit>().load(),
-          color: AppColors.blue,
+          color: context.bb.textBrand,
           child: ListView.separated(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.gutter,
@@ -143,6 +144,7 @@ class _Intro extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.s2),
       child: Text(
@@ -150,7 +152,7 @@ class _Intro extends StatelessWidget {
         'or numbers.',
         style: AppTypography.body(
           size: AppTypography.sizeSm,
-          color: AppColors.textSecondary,
+          color: p.textSecondary,
           height: 1.45,
         ),
       ),
@@ -167,6 +169,7 @@ class _WorkerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BbCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -197,15 +200,15 @@ class _WorkerCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: <Widget>[
-                        const Icon(Icons.schedule_rounded,
-                            size: 14, color: AppColors.textFaint),
+                        Icon(Icons.schedule_rounded,
+                            size: 14, color: p.textMuted),
                         const SizedBox(width: 6),
                         Flexible(
                           child: Text(
                             _lastActiveLabel(worker.lastActiveOn),
                             style: AppTypography.body(
                               size: AppTypography.sizeXs,
-                              color: AppColors.textMuted,
+                              color: p.textMuted,
                             ),
                           ),
                         ),
@@ -230,7 +233,7 @@ class _WorkerCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s3),
           // Hairline — the kit's only separator (no shadow, elevation 0).
-          Container(height: 1, color: AppColors.border),
+          Container(height: 1, color: p.borderDefault),
           const SizedBox(height: AppSpacing.s3),
           Row(
             children: <Widget>[
@@ -253,6 +256,7 @@ class _MiniStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -270,7 +274,7 @@ class _MiniStat extends StatelessWidget {
           label,
           style: AppTypography.body(
             size: AppTypography.sizeSm,
-            color: AppColors.textMuted,
+            color: p.textMuted,
           ),
         ),
       ],

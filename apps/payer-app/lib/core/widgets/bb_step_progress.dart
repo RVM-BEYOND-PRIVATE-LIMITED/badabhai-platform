@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/bb_palette.dart';
 
 /// How far through a multi-section form the payer is (#2595, M7) — "2 of 4
 /// sections done" over a slim bar that fills to the new step over
@@ -39,6 +39,7 @@ class BbStepProgress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String caption = '$done of $total $unit done';
     return Semantics(
       label: 'Form progress',
@@ -53,7 +54,7 @@ class BbStepProgress extends StatelessWidget {
               style: AppTypography.body(
                 size: AppTypography.sizeXs,
                 weight: FontWeight.w600,
-                color: AppColors.textSecondary,
+                color: p.textSecondary,
               ),
             ),
             const SizedBox(height: AppSpacing.s1),
@@ -62,7 +63,7 @@ class BbStepProgress extends StatelessWidget {
               child: SizedBox(
                 height: barHeight,
                 child: ColoredBox(
-                  color: AppColors.surfaceInset,
+                  color: p.inset,
                   child: TweenAnimationBuilder<double>(
                     tween: Tween<double>(end: _value),
                     duration: AppMotion.resolve(context, AppMotion.progress),
@@ -74,8 +75,8 @@ class BbStepProgress extends StatelessWidget {
                       alignment: Alignment.centerLeft,
                       child: child,
                     ),
-                    child: const ColoredBox(
-                      color: AppColors.brand,
+                    child: ColoredBox(
+                      color: p.action,
                       child: SizedBox.expand(),
                     ),
                   ),

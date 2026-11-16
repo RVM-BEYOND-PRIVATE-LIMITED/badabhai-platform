@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/bb_palette.dart';
 
 /// Copy on an undelivered payer bubble. States the honest cause and the action
 /// — never a vague "something went wrong".
@@ -37,18 +37,19 @@ class BbChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     const Radius soft = Radius.circular(AppRadii.bubble);
     const Radius tail = Radius.circular(AppRadii.bubbleTail);
 
     final Color background = failed
-        ? AppColors.dangerTint
-        : (fromPayer ? AppColors.blueTintChat : AppColors.surfaceCard);
+        ? p.dangerBg
+        : (fromPayer ? p.raised : p.card);
     // Outgoing sits borderless on the blue tint (JUL31 "mine"); incoming keeps a
     // warm hairline; a failed send flips to the danger edge so it can't read
     // as delivered.
     final Color? borderColor = failed
-        ? AppColors.dangerPress
-        : (fromPayer ? null : AppColors.borderSubtle);
+        ? p.danger
+        : (fromPayer ? null : p.borderSubtle);
 
     final Widget bubble = Container(
       constraints: const BoxConstraints(maxWidth: 300),
@@ -75,7 +76,7 @@ class BbChatBubble extends StatelessWidget {
             text,
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textPrimary,
+              color: p.textPrimary,
             ),
           ),
           if (failed) ...<Widget>[
@@ -83,10 +84,10 @@ class BbChatBubble extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                const Icon(
+                Icon(
                   Icons.error_rounded,
                   size: 16,
-                  color: AppColors.dangerPress,
+                  color: p.danger,
                 ),
                 const SizedBox(width: AppSpacing.s1),
                 Flexible(
@@ -96,7 +97,7 @@ class BbChatBubble extends StatelessWidget {
                     style: AppTypography.body(
                       size: AppTypography.sizeSm,
                       weight: FontWeight.w700,
-                      color: AppColors.dangerPress,
+                      color: p.danger,
                     ),
                   ),
                 ),

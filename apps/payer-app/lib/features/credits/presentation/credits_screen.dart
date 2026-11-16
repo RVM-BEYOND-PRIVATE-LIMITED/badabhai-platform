@@ -5,7 +5,6 @@ import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/payer_failure.dart';
 import '../../../core/session/credits_cubit.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/pay_format.dart';
@@ -17,6 +16,7 @@ import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_tab_scope.dart';
 import 'cubit/credits_screen_cubit.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Credits — the REAL balance (`GET /payer/credits`, ink card) and the REAL
 /// credit ledger (`GET /payer/credits/ledger`), both READ-ONLY.
@@ -69,6 +69,7 @@ class _CreditsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // #2592 — a balance panel over ledger-line skeletons while it loads; the
     // real screen cross-fades in over them.
     return BbLoadingBuilder<CreditsScreenCubit, CreditsScreenState>(
@@ -138,7 +139,7 @@ class _CreditsView extends StatelessWidget {
                     'Current balance',
                     style: AppTypography.body(
                       size: AppTypography.sizeSm,
-                      color: AppColors.ink300,
+                      color: p.onBrandSurfaceMuted,
                     ),
                   ),
                   RichText(
@@ -146,7 +147,7 @@ class _CreditsView extends StatelessWidget {
                       style: AppTypography.mono(
                         size: AppTypography.size2xl,
                         weight: FontWeight.w700,
-                        color: AppColors.paper0,
+                        color: p.onBrandSurface,
                       ),
                       children: <InlineSpan>[
                         TextSpan(
@@ -156,7 +157,7 @@ class _CreditsView extends StatelessWidget {
                           text: 'unlocks',
                           style: AppTypography.body(
                             size: AppTypography.sizeBase,
-                            color: AppColors.ink300,
+                            color: p.onBrandSurfaceMuted,
                           ),
                         ),
                       ],
@@ -241,12 +242,13 @@ class _EmptyLedger extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BbCard(
       child: Text(
         text,
         style: AppTypography.body(
           size: AppTypography.sizeSm,
-          color: AppColors.textMuted,
+          color: p.textMuted,
         ),
       ),
     );
@@ -261,13 +263,14 @@ class _LedgerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final Color amountColor = entry.direction == LedgerDirection.credit
-        ? AppColors.success
-        : AppColors.textMuted;
+        ? p.success
+        : p.textMuted;
     return Container(
       decoration: BoxDecoration(
         border: showBorder
-            ? const Border(bottom: BorderSide(color: AppColors.divider))
+            ? Border(bottom: BorderSide(color: p.borderSubtle))
             : null,
       ),
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
@@ -281,7 +284,7 @@ class _LedgerRow extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
-                color: AppColors.textSecondary,
+                color: p.textSecondary,
               ),
             ),
           ),

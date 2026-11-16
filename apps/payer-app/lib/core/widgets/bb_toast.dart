@@ -2,10 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/bb_palette.dart';
 
 /// The one voice a BadaBhai toast speaks in (#2690). Tone decides its colour
 /// and how long it stays: success / info are quiet, error is tinted (never a
@@ -189,16 +189,17 @@ class _ToastBodyState extends State<_ToastBody> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool error = widget.tone == BbToastTone.error;
     final Color background =
-        error ? AppColors.dangerTint : AppColors.surfaceInk;
-    final Color titleColor = error ? AppColors.danger : AppColors.paper1;
-    final Color messageColor = error ? AppColors.danger : AppColors.ink200;
+        error ? p.dangerBg : p.brandSurface;
+    final Color titleColor = error ? p.danger : p.onBrandSurface;
+    final Color messageColor = error ? p.danger : p.onBrandSurfaceMuted;
     final Color iconColor = switch (widget.tone) {
-      BbToastTone.success => AppColors.green300,
-      BbToastTone.info => AppColors.onBlueMuted,
-      BbToastTone.error => AppColors.danger,
-      BbToastTone.action => AppColors.haldi,
+      BbToastTone.success => p.success,
+      BbToastTone.info => p.onBrandSurfaceMuted,
+      BbToastTone.error => p.danger,
+      BbToastTone.action => p.action,
     };
 
     final Widget card = Container(
@@ -209,7 +210,7 @@ class _ToastBodyState extends State<_ToastBody> {
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(AppRadii.md),
-        border: error ? Border.all(color: AppColors.red100) : null,
+        border: error ? Border.all(color: p.dangerBg) : null,
       ),
       child: Row(
         children: <Widget>[
@@ -242,7 +243,7 @@ class _ToastBodyState extends State<_ToastBody> {
             TextButton(
               onPressed: widget.action!.onPressed,
               style: TextButton.styleFrom(
-                foregroundColor: error ? AppColors.danger : AppColors.haldi,
+                foregroundColor: error ? p.danger : p.action,
                 padding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.s2,
                 ),

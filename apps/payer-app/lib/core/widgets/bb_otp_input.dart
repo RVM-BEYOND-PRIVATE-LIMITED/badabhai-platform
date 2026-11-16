@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_field_error.dart';
+import '../theme/bb_palette.dart';
 
 /// The one-time-code entry (#2595, M7): [length] boxes (six) that read as one
 /// field.
@@ -308,17 +308,19 @@ class _OtpBoxState extends State<_OtpBox> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final BorderSide edge = widget.error
-        ? BorderSide(color: AppColors.danger, width: widget.active ? 2 : 1)
+        ? BorderSide(color: p.danger, width: widget.active ? 2 : 1)
         : widget.active
-            ? const BorderSide(color: AppColors.blue, width: 2)
-            : const BorderSide(color: AppColors.borderStrong);
+            ? BorderSide(
+                color: p.isDark ? p.focusRing : p.textBrand, width: 2)
+            : BorderSide(color: p.borderDefault);
     return ScaleTransition(
       key: BbOtpInput.boxKey(widget.index),
       scale: _scale,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: AppColors.surfaceCard,
+          color: p.card,
           borderRadius: BorderRadius.circular(AppRadii.md),
           border: Border.fromBorderSide(edge),
         ),
@@ -329,8 +331,8 @@ class _OtpBoxState extends State<_OtpBox> with SingleTickerProviderStateMixin {
               size: AppTypography.sizeLg,
               weight: FontWeight.w700,
               color: widget.enabled
-                  ? AppColors.textPrimary
-                  : AppColors.textMuted,
+                  ? p.textPrimary
+                  : p.textMuted,
             ),
           ),
         ),

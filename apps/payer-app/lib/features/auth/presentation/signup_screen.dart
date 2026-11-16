@@ -7,7 +7,6 @@ import '../../../core/auth/payer_token_store.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/session/app_session.dart';
 import '../../../core/session/app_session_cubit.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_system_ui.dart';
 import '../../../core/theme/app_typography.dart';
@@ -16,6 +15,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_otp_input.dart';
 import 'widgets/auth_form_support.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// The sign-up flow: role → company name → email/phone → OTP → password.
 ///
@@ -344,7 +344,7 @@ class _SignupScreenState extends State<SignupScreen> {
           'We sent a 6-digit code to ${_contact.text.trim()}.',
           style: AppTypography.body(
             size: AppTypography.sizeSm,
-            color: AppColors.textSecondary,
+            color: context.bb.textSecondary,
           ),
         ),
         const SizedBox(height: AppSpacing.s4),
@@ -390,7 +390,7 @@ class _SignupScreenState extends State<SignupScreen> {
           'Use at least 8 characters with one letter and one number.',
           style: AppTypography.body(
             size: AppTypography.sizeSm,
-            color: AppColors.textSecondary,
+            color: context.bb.textSecondary,
           ),
         ),
         const SizedBox(height: AppSpacing.s5),
@@ -440,13 +440,14 @@ class _SignupTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // #2590 — the blue bar runs under the status bar: light icons on it (the
     // app-wide fallback would otherwise give it the light canvas's dark icons).
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: AppSystemUi.onDark,
       child: Container(
         width: double.infinity,
-        color: AppColors.blue,
+        color: p.brandSurface,
         child: SafeArea(
           bottom: false,
           child: Padding(
@@ -460,8 +461,8 @@ class _SignupTopBar extends StatelessWidget {
               children: <Widget>[
                 IconButton(
                   onPressed: onBack,
-                  icon: const Icon(Icons.arrow_back_rounded,
-                      color: AppColors.onBlue),
+                  icon: Icon(Icons.arrow_back_rounded,
+                      color: p.onBrandSurface),
                   tooltip: 'Back',
                 ),
                 const SizedBox(width: AppSpacing.s1),
@@ -470,7 +471,7 @@ class _SignupTopBar extends StatelessWidget {
                   style: AppTypography.header(
                     size: AppTypography.sizeLg,
                     weight: FontWeight.w800,
-                    color: AppColors.onBlue,
+                    color: p.onBrandSurface,
                   ),
                 ),
               ],

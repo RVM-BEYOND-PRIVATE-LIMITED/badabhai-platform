@@ -5,7 +5,6 @@ import '../../../core/data/models.dart';
 import '../../../core/data/payer_api_client.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/payer_failure.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/number_input.dart';
@@ -24,6 +23,7 @@ import 'cubit/jobs_cubit.dart';
 import 'widgets/job_content_input.dart';
 import 'widgets/job_form_rules.dart';
 import 'widgets/trade_posting_fields.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Edit an existing COMPANY posting (`PATCH /payer/job-postings/:id`).
 ///
@@ -587,7 +587,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
               style: AppTypography.heading(
                 size: AppTypography.sizeMd,
                 weight: FontWeight.w800,
-                color: AppColors.blue,
+                color: context.bb.textBrand,
               ),
             ),
             const SizedBox(height: AppSpacing.s3),
@@ -715,6 +715,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // #2595 — a pick can fix an error from another control; errors only drop.
     if (!_form.isEmpty) _form.settle(_validate());
     return BbLeaveGuard(
@@ -858,7 +859,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                         'appear here.',
                         style: AppTypography.body(
                           size: AppTypography.sizeSm,
-                          color: AppColors.textMuted,
+                          color: p.textMuted,
                           height: 1.45,
                         ),
                       ),
@@ -1005,7 +1006,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                   'trade requirements stay on the worker’s job detail.',
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    color: AppColors.textMuted,
+                    color: p.textMuted,
                     height: 1.45,
                   ),
                 ),
