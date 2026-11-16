@@ -10,6 +10,7 @@ import {
   type RoutingChannel,
   type PaymentOrder,
   type PaymentOrderStatus,
+  type ExpiredCreditLot,
   type LotAlignment,
   type WalletExpiryResult,
   type WalletGrantResult,
@@ -106,6 +107,23 @@ export interface OpenLotProjection {
   expires_at: string | null;
   pack_code: string | null;
 }
+
+/**
+ * What {@link UnlocksRepository.tryDebit} answers (#2749). `undefined` keeps its pre-#2749 meaning
+ * — no credit to spend, and nothing expired. `ok: false` with `expiredLots` is the same "no
+ * credit" answer when the spend expired due lots first (they commit with the caller's
+ * transaction, so the caller reports them). `ok` is optional on the success branch so callers'
+ * fakes that return `{ balanceAfter, lotId }` keep their meaning.
+ */
+export type TryDebitResult =
+  | {
+      ok?: true;
+      balanceAfter: number;
+      lotId: string;
+      /** The lots this spend expired before it spent (absent = none). */
+      expiredLots?: readonly ExpiredCreditLot[];
+    }
+  | { ok: false; expiredLots: readonly ExpiredCreditLot[] };
 
 /**
  * A wallet key READ FROM `credit_lots` by {@link UnlocksRepository.findWalletsWithDueLots} — the
@@ -629,9 +647,11 @@ export class UnlocksRepository {
   }
 
   /**
-   * Debit ONE credit (F-6) from the soonest-expiring open lot (#2749): returns the new balance and
-   * the lot it came from, or undefined when the wallet holds no credit once due lots are expired.
-   * Tx-scoped; the caller writes the `unlock_debit` ledger line with the returned `lotId`.
+   * Debit ONE credit (F-6) from the soonest-expiring open lot (#2749): returns the new balance, the
+   * lot it came from and any lots it expired first — or, when the wallet holds no credit once due
+   * lots are expired, `undefined` (nothing expired) or `{ ok: false, expiredLots }` (see
+   * {@link TryDebitResult}). Tx-scoped; the caller writes the `unlock_debit` ledger line with the
+   * returned `lotId`, and reports each expired lot after its transaction commits.
    *
    * THE ORG WALLET LOCK (ADR-0053 §6). `spendOneCreditWithinTx` takes the wallet row's lock
    * (`SELECT … FOR UPDATE`), keyed by the tenant, before it reads a lot: in mode `on` two members
@@ -644,16 +664,21 @@ export class UnlocksRepository {
    *
    * `amount` stays in the signature for its callers; a spend is always one credit (one lot).
    */
-  async tryDebit(
-    tx: Tx,
-    tenant: TenantKey,
-    amount: 1,
-  ): Promise<{ balanceAfter: number; lotId: string } | undefined> {
+  async tryDebit(tx: Tx, tenant: TenantKey, amount: 1): Promise<TryDebitResult | undefined> {
     if (amount !== 1) throw new RangeError(`tryDebit spends one credit (asked for ${amount})`);
     const spent = await spendOneCreditWithinTx(tx, tenant);
     this.warnIfRealigned(tenant, spent.alignment);
-    if (!spent.ok) return undefined;
-    return { balanceAfter: spent.balanceAfter, lotId: spent.lotId };
+    if (!spent.ok) {
+      return spent.expiredLots.length === 0
+        ? undefined
+        : { ok: false, expiredLots: spent.expiredLots };
+    }
+    return {
+      ok: true,
+      balanceAfter: spent.balanceAfter,
+      lotId: spent.lotId,
+      expiredLots: spent.expiredLots,
+    };
   }
 
   /**

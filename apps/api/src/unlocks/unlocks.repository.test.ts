@@ -581,29 +581,54 @@ describe("UnlocksRepository.listOpenLots — #2749, the tenant's OPEN lots in sp
 const NO_ALIGNMENT = { action: "none", credits: 0, openBefore: 4, balance: 4 } as const;
 
 describe("UnlocksRepository.tryDebit — one credit from the soonest-expiring lot (#2749)", () => {
+  const EXPIRED_LOT = {
+    lotId: "lot-old",
+    credits: 2,
+    source: "pack",
+    expiresAt: new Date("2026-11-01T00:00:00.000Z"),
+  } as const;
+
   it("delegates to spendOneCreditWithinTx on the CALLER's tx and the tenant key, returning the lot", async () => {
     vi.mocked(spendOneCreditWithinTx).mockResolvedValueOnce({
       ok: true,
       balanceAfter: 3,
       lotId: "lot-1",
-      creditsExpired: 0,
+      creditsExpired: 2,
+      expiredLots: [EXPIRED_LOT],
       alignment: NO_ALIGNMENT,
     });
     const { db, tx } = makeDb();
     const out = await new UnlocksRepository(db).tryDebit(tx, PAYER_ID, 1);
     expect(spendOneCreditWithinTx).toHaveBeenCalledWith(tx, PAYER_ID);
-    expect(out).toEqual({ balanceAfter: 3, lotId: "lot-1" });
+    // The lots it expired first ride along, for the caller to report after its commit.
+    expect(out).toEqual({ ok: true, balanceAfter: 3, lotId: "lot-1", expiredLots: [EXPIRED_LOT] });
   });
 
-  it("returns undefined when the wallet holds no credit (after expiring due lots)", async () => {
+  it("returns undefined when the wallet holds no credit and nothing expired (the pre-#2749 answer)", async () => {
     vi.mocked(spendOneCreditWithinTx).mockResolvedValueOnce({
       ok: false,
       balanceAfter: 0,
-      creditsExpired: 2,
+      creditsExpired: 0,
+      expiredLots: [],
       alignment: NO_ALIGNMENT,
     });
     const { db, tx } = makeDb();
     expect(await new UnlocksRepository(db).tryDebit(tx, PAYER_ID, 1)).toBeUndefined();
+  });
+
+  it("no credit left AFTER expiring due lots: ok:false WITH the expired lots (they commit)", async () => {
+    vi.mocked(spendOneCreditWithinTx).mockResolvedValueOnce({
+      ok: false,
+      balanceAfter: 0,
+      creditsExpired: 2,
+      expiredLots: [EXPIRED_LOT],
+      alignment: NO_ALIGNMENT,
+    });
+    const { db, tx } = makeDb();
+    expect(await new UnlocksRepository(db).tryDebit(tx, PAYER_ID, 1)).toEqual({
+      ok: false,
+      expiredLots: [EXPIRED_LOT],
+    });
   });
 
   it("spends exactly one credit — any other amount is refused before the database", async () => {
@@ -833,6 +858,9 @@ describe("UnlocksRepository — the credit-lot expiry sweep's two calls (#2749 i
       walletFound: true,
       creditsExpired: 4,
       lotsExpired: 1,
+      expiredLots: [
+        { lotId: "lot-1", credits: 4, source: "legacy", expiresAt: new Date() },
+      ] as const,
       balanceAfter: 6,
       alignment: NO_ALIGNMENT,
     };

@@ -1,14 +1,18 @@
+import { randomUUID } from "node:crypto";
 import { InjectQueue, Processor, WorkerHost } from "@nestjs/bullmq";
 import { Inject, Logger, type OnApplicationBootstrap } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
+import type { WalletExpiryResult } from "@badabhai/db";
 import { sqlStateOf } from "../common/db-error";
 import { SERVER_CONFIG } from "../config/config.module";
+import { EventsService } from "../events/events.service";
 import {
   CREDIT_LOT_EXPIRY_QUEUE,
   CREDIT_LOT_EXPIRY_SWEEP_SCHEDULER_ID,
 } from "../queue/queue.constants";
 import { UnlocksRepository } from "./unlocks.repository";
+import { creditsExpiredEvent } from "./credits-expired-event";
 
 /** What one tick did — counts only, no ids (BullMQ job-inspection surface). */
 export interface CreditLotExpirySweepResult {
@@ -20,6 +24,8 @@ export interface CreditLotExpirySweepResult {
   creditsExpired: number;
   /** Wallets whose transaction failed (logged one by one; retried on the next tick). */
   walletsFailed: number;
+  /** `payer.credits_expired` emits that failed after their commit (logged; the expiry stands). */
+  eventsFailed: number;
 }
 
 /**
@@ -44,7 +50,11 @@ export interface CreditLotExpirySweepResult {
  * switch-over), so until the data carries a date every tick finds nothing. The restriction lives
  * in the data, not in a switch someone must remember to flip.
  *
- * EVENTS: none in PR 1 — the `expired` ledger line is the record. Not on `/health`.
+ * EVENTS: one `payer.credits_expired` (trigger `sweep`, actor `system`) per lot, emitted AFTER
+ * that wallet's transaction commits — never inside it, so an event cannot outlive a rolled-back
+ * expiry. An emit failure is logged with ids only and does NOT undo the expiry: the `expired`
+ * ledger line is the record, the event its audit copy (the post-commit trade-off UnlockService
+ * documents). Not on `/health`.
  */
 @Processor(CREDIT_LOT_EXPIRY_QUEUE)
 export class CreditLotExpirySweepProcessor extends WorkerHost implements OnApplicationBootstrap {
@@ -54,6 +64,7 @@ export class CreditLotExpirySweepProcessor extends WorkerHost implements OnAppli
     private readonly repo: UnlocksRepository,
     @InjectQueue(CREDIT_LOT_EXPIRY_QUEUE) private readonly queue: Queue,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    private readonly events: EventsService,
   ) {
     super();
   }
@@ -87,15 +98,12 @@ export class CreditLotExpirySweepProcessor extends WorkerHost implements OnAppli
       lotsExpired: 0,
       creditsExpired: 0,
       walletsFailed: 0,
+      eventsFailed: 0,
     };
     for (const wallet of wallets) {
+      let done: WalletExpiryResult;
       try {
-        const done = await this.repo.expireDueLotsForWallet(wallet);
-        if (done.lotsExpired > 0) {
-          result.walletsExpired += 1;
-          result.lotsExpired += done.lotsExpired;
-          result.creditsExpired += done.creditsExpired;
-        }
+        done = await this.repo.expireDueLotsForWallet(wallet);
       } catch (err) {
         result.walletsFailed += 1;
         // Ids and the SQLSTATE only: a driver message carries the bound parameters.
@@ -103,13 +111,42 @@ export class CreditLotExpirySweepProcessor extends WorkerHost implements OnAppli
           `credit-lot expiry failed for wallet=${wallet} sqlstate=${sqlStateOf(err) ?? "none"} ` +
             `(${err instanceof Error ? err.name : "UnknownError"}); retried on the next tick`,
         );
+        continue;
+      }
+      if (done.lotsExpired > 0) {
+        result.walletsExpired += 1;
+        result.lotsExpired += done.lotsExpired;
+        result.creditsExpired += done.creditsExpired;
+      }
+      // COMMITTED — the wallet's transaction is closed. Now the audit events, one per lot.
+      const correlationId = randomUUID();
+      for (const lot of done.expiredLots ?? []) {
+        try {
+          await this.events.emit(
+            creditsExpiredEvent({
+              walletKey: wallet,
+              lot,
+              trigger: "sweep",
+              actor: { actor_type: "system", actor_id: null },
+              correlationId,
+              requestId: CREDIT_LOT_EXPIRY_SWEEP_SCHEDULER_ID,
+            }),
+          );
+        } catch (err) {
+          result.eventsFailed += 1;
+          this.logger.error(
+            `payer.credits_expired emit failed wallet=${wallet} lot=${lot.lotId} ` +
+              `(${err instanceof Error ? err.name : "UnknownError"}); the expiry stands`,
+          );
+        }
       }
     }
     if (result.walletsDue > 0) {
       this.logger.log(
         `credit-lot expiry sweep: wallets_due=${result.walletsDue} ` +
           `wallets_expired=${result.walletsExpired} lots_expired=${result.lotsExpired} ` +
-          `credits_expired=${result.creditsExpired} wallets_failed=${result.walletsFailed}`,
+          `credits_expired=${result.creditsExpired} wallets_failed=${result.walletsFailed} ` +
+          `events_failed=${result.eventsFailed}`,
       );
     }
     return result;

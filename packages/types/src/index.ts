@@ -1541,6 +1541,14 @@ export function isCreditLotSource(value: unknown): value is CreditLotSource {
 }
 
 /**
+ * What closed an expired lot (`payer.credits_expired.trigger`): `spend` = a contact open found the
+ * lot past its date before it spent, `sweep` = the `credit-lot-expiry` sweep. FROZEN: the event's
+ * v1 enum is taken from this list, and a shipped payload never changes.
+ */
+export const CREDIT_LOT_EXPIRY_TRIGGERS = Object.freeze(["spend", "sweep"] as const);
+export type CreditLotExpiryTrigger = (typeof CREDIT_LOT_EXPIRY_TRIGGERS)[number];
+
+/**
  * One open lot on `GET /payer/credits` (`credits_remaining > 0`), in the order credits are spent:
  * the soonest `expires_at` first, a lot that never expires last. No lot id and no payment
  * reference: what a company can see is how many credits it holds and when they end.

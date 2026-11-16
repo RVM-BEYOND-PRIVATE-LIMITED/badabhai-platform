@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { areRealPaymentsEnabled } from "@badabhai/config";
-import { CREDIT_PACKS, type CreditPack, type PaymentOrder } from "@badabhai/db";
+import {
+  CREDIT_PACKS,
+  type CreditPack,
+  type ExpiredCreditLot,
+  type PaymentOrder,
+} from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PricingService } from "../pricing/pricing.service";
@@ -109,6 +114,10 @@ export class PaymentGateway {
    * credit left once due lots are expired. The caller (chokepoint) appends the ledger row, naming
    * `lotId`, in the SAME tx so balance + lots + ledger never drift.
    *
+   * `expiredLots` (both branches, possibly empty): the lots this spend expired before it spent.
+   * Their `expired` lines are written in the caller's transaction, so the caller reports them
+   * (`payer.credits_expired`) only after that transaction commits.
+   *
    * IDEMPOTENCY (F-6): the chokepoint only calls this on the grant path AFTER it has
    * established there is no pre-existing live grant for (payer, worker) within the same
    * locked transaction — so a retried request converges on the existing grant and never
@@ -117,10 +126,19 @@ export class PaymentGateway {
   async debitOneCreditWithinTx(
     tx: Tx,
     tenant: TenantKey,
-  ): Promise<{ ok: true; balanceAfter: number; lotId: string } | { ok: false }> {
+  ): Promise<
+    | { ok: true; balanceAfter: number; lotId: string; expiredLots: readonly ExpiredCreditLot[] }
+    | { ok: false; expiredLots: readonly ExpiredCreditLot[] }
+  > {
     const debited = await this.repo.tryDebit(tx, tenant, 1);
-    if (debited === undefined) return { ok: false };
-    return { ok: true, balanceAfter: debited.balanceAfter, lotId: debited.lotId };
+    if (debited === undefined) return { ok: false, expiredLots: [] };
+    if (debited.ok === false) return { ok: false, expiredLots: debited.expiredLots };
+    return {
+      ok: true,
+      balanceAfter: debited.balanceAfter,
+      lotId: debited.lotId,
+      expiredLots: debited.expiredLots ?? [],
+    };
   }
 
   /**

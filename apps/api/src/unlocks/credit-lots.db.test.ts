@@ -4,6 +4,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { createDbClient, type DbClient } from "@badabhai/db";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { AdminActionsRepository } from "../admin/admin-actions.repository";
+import { EventsRepository } from "../events/events.repository";
+import { EventsService } from "../events/events.service";
 import { FreeTierService } from "../match/free-tier.service";
 import { CreditLotExpirySweepProcessor } from "./credit-lot-expiry-sweep.processor";
 import { PaymentGateway } from "./payment-gateway";
@@ -22,6 +24,10 @@ import { UnlocksRepository, type StoredWalletKey } from "./unlocks.repository";
  *
  *   payer_credits.balance = Σ open credits_remaining   (always)
  *   payer_credits.balance = Σ credit_ledger.delta      (when no raw SQL moved the balance)
+ *
+ * The sweep's `payer.credits_expired` rows are asserted from the real `events` table (one per lot,
+ * after the commit, never a second); the spend path's emit lives in UnlockService and is unit-tested
+ * there.
  *
  * Nothing in #2749 PR 1 writes an `expires_at`, so the scenarios that need one set it by SQL.
  * Wallet keys are fresh uuids (no `payers` row is needed: the wallet tables carry no FK to it);
@@ -61,6 +67,9 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
     try {
       const { sql } = client;
       // Ledger lines name lots, and lots name orders: delete in that order.
+      await sql`
+        DELETE FROM events WHERE event_name = 'payer.credits_expired'
+          AND payload->>'payer_id' = ANY(${wallets}::text[])`;
       await sql`DELETE FROM credit_ledger WHERE payer_id = ANY(${wallets}::uuid[])`;
       await sql`DELETE FROM credit_lots WHERE payer_id = ANY(${wallets}::uuid[])`;
       await sql`DELETE FROM payment_orders WHERE id = ANY(${orderIds}::uuid[])`;
@@ -98,10 +107,10 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
   }
 
   /** One contact open's money half, exactly as UnlockService runs it: debit, then the line. */
-  async function spend(w: TenantKey): Promise<{ balanceAfter: number; lotId: string } | undefined> {
+  async function spendRaw(w: TenantKey) {
     return repo.withTransaction(async (tx) => {
       const debit = await repo.tryDebit(tx, w, 1);
-      if (debit) {
+      if (debit !== undefined && debit.ok !== false) {
         await repo.appendLedger(tx, {
           payerId: w,
           delta: -1,
@@ -111,6 +120,20 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
       }
       return debit;
     });
+  }
+
+  /** {@link spendRaw}, as "what was spent": the balance and the lot, or undefined for none. */
+  async function spend(w: TenantKey): Promise<{ balanceAfter: number; lotId: string } | undefined> {
+    const debit = await spendRaw(w);
+    return debit !== undefined && debit.ok !== false
+      ? { balanceAfter: debit.balanceAfter, lotId: debit.lotId }
+      : undefined;
+  }
+
+  async function expiredEvents(w: string): Promise<{ payload: Record<string, unknown> }[]> {
+    return client.sql<{ payload: Record<string, unknown> }[]>`
+      SELECT payload FROM events WHERE event_name = 'payer.credits_expired'
+        AND payload->>'payer_id' = ${w} ORDER BY created_at`;
   }
 
   async function remaining(lotId: string): Promise<number> {
@@ -178,8 +201,12 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
     const live = await pack(w, 2);
     await setExpiry(past, "-1 day");
 
-    const first = await spend(w);
-    expect(first).toEqual({ balanceAfter: 1, lotId: live });
+    const first = await spendRaw(w);
+    expect(first).toMatchObject({ ok: true, balanceAfter: 1, lotId: live });
+    // The lot it expired first, for UnlockService to report after the commit.
+    expect(first!.expiredLots).toEqual([
+      { lotId: past, credits: 3, source: "pack", expiresAt: expect.any(Date) },
+    ]);
     expect(await expiredLines(w)).toEqual([{ lot_id: past, delta: -3 }]);
     const [lot] = await client.sql<{ credits_remaining: number; expired_at: Date | null }[]>`
       SELECT credits_remaining, expired_at FROM credit_lots WHERE id = ${past}::uuid`;
@@ -203,7 +230,11 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
     await setExpiry(past, "-2 days");
     expect(await balanceOf(w)).toBe(4);
 
-    expect(await spend(w)).toBeUndefined(); // nothing left to spend once the lot expired
+    // Nothing left to spend once the lot expired — and the expiry is reported with the answer.
+    expect(await spendRaw(w)).toEqual({
+      ok: false,
+      expiredLots: [{ lotId: past, credits: 4, source: "pack", expiresAt: expect.any(Date) }],
+    });
     expect(await balanceOf(w)).toBe(0);
     expect(await expiredLines(w)).toEqual([{ lot_id: past, delta: -4 }]);
     await expectInvariant(w, { ledger: true });
@@ -225,6 +256,7 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
       repo,
       { upsertJobScheduler: vi.fn() } as never,
       { CREDIT_LOT_EXPIRY_SWEEP_INTERVAL_MINUTES: 15, CREDIT_LOT_EXPIRY_BATCH_LIMIT: 500 } as never,
+      new EventsService(new EventsRepository(client.db), { NODE_ENV: "test" } as never),
     );
     expect(await repo.findWalletsWithDueLots(500)).toContain(w);
     const tick = await processor.process();
@@ -236,6 +268,18 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
     expect(await remaining(never)).toBe(1);
     expect(await balanceOf(w)).toBe(3);
     expect(await expiredLines(w)).toEqual([{ lot_id: due, delta: -4 }]);
+    // ONE validated payer.credits_expired on the spine, written after the wallet's commit.
+    const fired = await expiredEvents(w);
+    expect(fired.map((e) => e.payload)).toEqual([
+      {
+        payer_id: w,
+        lot_id: due,
+        credits: 4,
+        source: "pack",
+        expires_at: expect.stringMatching(/Z$/),
+        trigger: "sweep",
+      },
+    ]);
 
     // A second tick: the wallet is no longer due, and nothing more is written.
     expect(await repo.findWalletsWithDueLots(500)).not.toContain(w);
@@ -246,6 +290,7 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
       lotsExpired: 0,
     });
     expect(await expiredLines(w)).toHaveLength(1);
+    expect(await expiredEvents(w)).toHaveLength(1); // a second tick emits nothing
     await expectInvariant(w, { ledger: true });
   });
 
@@ -463,7 +508,7 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
     const lotTwo = await pack(two, 2);
     await setExpiry(lotOne, "-1 day");
 
-    expect(await spend(one)).toBeUndefined(); // its only lot expired
+    expect(await spend(one)).toBeUndefined(); // its only lot expired: nothing spent
     expect(await remaining(lotTwo)).toBe(2);
     expect(await expiredLines(two)).toEqual([]);
     expect((await spend(two))!.lotId).toBe(lotTwo);

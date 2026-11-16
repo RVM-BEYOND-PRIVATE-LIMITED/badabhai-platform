@@ -315,14 +315,33 @@ export async function alignLotsWithBalance(
   return (await alignLoaded(tx, payerId, balance, lots)).alignment;
 }
 
+/**
+ * One lot an expiry closed, as the caller reports it (`payer.credits_expired`, emitted AFTER the
+ * caller's transaction commits). Ids, an integer, a closed source and the lot's date.
+ */
+export interface ExpiredCreditLot {
+  readonly lotId: string;
+  /** The unspent credits that left the wallet (the `expired` line's −delta). */
+  readonly credits: number;
+  readonly source: CreditLotSource;
+  readonly expiresAt: Date;
+}
+
 /** Expire the due lots among `lots`; returns what it removed and the lots still open. */
 async function expireLoaded(
   tx: WalletTx,
   payerId: string,
   lots: readonly OpenCreditLot[],
-): Promise<{ credits: number; lotsExpired: number; openLots: OpenCreditLot[] }> {
+): Promise<{
+  credits: number;
+  lotsExpired: number;
+  expiredLots: ExpiredCreditLot[];
+  openLots: OpenCreditLot[];
+}> {
   const due = lots.filter((l) => l.due && l.creditsRemaining > 0);
-  if (due.length === 0) return { credits: 0, lotsExpired: 0, openLots: [...lots] };
+  if (due.length === 0) {
+    return { credits: 0, lotsExpired: 0, expiredLots: [], openLots: [...lots] };
+  }
 
   const credits = sumOpenCredits(due);
   // ONE line per lot, ever: the key is the lot. A second expiry of the same lot is impossible
@@ -357,6 +376,13 @@ async function expireLoaded(
   return {
     credits,
     lotsExpired: due.length,
+    expiredLots: due.map((l) => ({
+      lotId: l.id,
+      credits: l.creditsRemaining,
+      source: l.source,
+      // `due` is read as `expires_at IS NOT NULL AND expires_at <= now()`, so it is set.
+      expiresAt: l.expiresAt as Date,
+    })),
     openLots: lots.filter((l) => !dueIds.has(l.id)),
   };
 }
@@ -511,6 +537,8 @@ export type WalletSpendResult =
       /** The lot the credit came from — the caller's ledger line names it. */
       readonly lotId: string;
       readonly creditsExpired: number;
+      /** The lots this spend expired first (the caller emits one event per lot after commit). */
+      readonly expiredLots: readonly ExpiredCreditLot[];
       readonly alignment: LotAlignment;
     }
   | {
@@ -518,6 +546,8 @@ export type WalletSpendResult =
       readonly ok: false;
       readonly balanceAfter: number;
       readonly creditsExpired: number;
+      /** The lots this spend expired — written even though nothing was spent. */
+      readonly expiredLots: readonly ExpiredCreditLot[];
       readonly alignment: LotAlignment;
     };
 
@@ -534,7 +564,13 @@ export async function spendOneCreditWithinTx(
 ): Promise<WalletSpendResult> {
   const balance = await lockWallet(tx, payerId);
   if (balance === undefined) {
-    return { ok: false, balanceAfter: 0, creditsExpired: 0, alignment: noAlignment(0) };
+    return {
+      ok: false,
+      balanceAfter: 0,
+      creditsExpired: 0,
+      expiredLots: [],
+      alignment: noAlignment(0),
+    };
   }
   const aligned = await alignLoaded(tx, payerId, balance, await readOpenLots(tx, payerId));
   const expired = await expireLoaded(tx, payerId, aligned.openLots);
@@ -544,6 +580,7 @@ export async function spendOneCreditWithinTx(
       ok: false,
       balanceAfter: available,
       creditsExpired: expired.credits,
+      expiredLots: expired.expiredLots,
       alignment: aligned.alignment,
     };
   }
@@ -569,6 +606,7 @@ export async function spendOneCreditWithinTx(
     balanceAfter: wallet.balance,
     lotId: lot.id,
     creditsExpired: expired.credits,
+    expiredLots: expired.expiredLots,
     alignment: aligned.alignment,
   };
 }
@@ -579,6 +617,8 @@ export interface WalletExpiryResult {
   readonly walletFound: boolean;
   readonly creditsExpired: number;
   readonly lotsExpired: number;
+  /** The lots this pass expired (the sweep emits one event per lot after the commit). */
+  readonly expiredLots: readonly ExpiredCreditLot[];
   readonly balanceAfter: number;
   readonly alignment: LotAlignment;
 }
@@ -597,6 +637,7 @@ export async function expireWalletWithinTx(
       walletFound: false,
       creditsExpired: 0,
       lotsExpired: 0,
+      expiredLots: [],
       balanceAfter: 0,
       alignment: noAlignment(0),
     };
@@ -607,6 +648,7 @@ export async function expireWalletWithinTx(
     walletFound: true,
     creditsExpired: expired.credits,
     lotsExpired: expired.lotsExpired,
+    expiredLots: expired.expiredLots,
     balanceAfter: balance - expired.credits,
     alignment: aligned.alignment,
   };

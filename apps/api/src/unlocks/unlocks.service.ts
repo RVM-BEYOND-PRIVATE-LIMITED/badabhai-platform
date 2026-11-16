@@ -5,6 +5,7 @@ import { getRazorpayCredentials, type ServerConfig } from "@badabhai/config";
 import {
   isSampleWorkerId,
   UNLOCK_WINDOW_DAYS,
+  type ExpiredCreditLot,
   type UnlockDenyReason,
   type UnlockRouting,
   type RoutingChannel,
@@ -45,6 +46,7 @@ import {
   type CreditLedgerItem,
 } from "./unlocks.repository";
 import { PaymentGateway, type RealOrderHandoff, type SettleResult } from "./payment-gateway";
+import { creditsExpiredEvent } from "./credits-expired-event";
 import { verifyCheckoutSignature } from "./razorpay-signature";
 import { assertExpectedPrice } from "../pricing/charge-price";
 import {
@@ -473,9 +475,18 @@ export class UnlockService {
         // The TENANT's wallet row: in `on`, two members spending at once serialize on the org
         // wallet's row lock inside this UPDATE, so the team can never overdraw it.
         const debit = await this.payments.debitOneCreditWithinTx(tx, tenant);
+        // #2749 — one `payer.credits_expired` per lot this spend found past its date and expired
+        // before spending. Deferred like every event here, so it fires only once this transaction
+        // COMMITS: both branches below return normally (the no-credit branch included, so its
+        // expiry commits and is reported); a later throw rolls the expiry back with the grant and
+        // the deferred list is never flushed.
+        for (const lot of debit.expiredLots) {
+          events.push(() => this.emitCreditsExpired(party, lot, ctx));
+        }
         if (!debit.ok) {
-          // Lost a concurrent debit race after the precondition — collapse to neutral
-          // (still no worker-state oracle; consent already passed but the BODY is neutral).
+          // Lost a concurrent debit race after the precondition — or (#2749) the due lots this
+          // spend expired left no credit — collapse to neutral (still no worker-state oracle;
+          // consent already passed but the BODY is neutral).
           events.push(() => this.emitPaymentFailed(null, party, "insufficient_credits", ctx));
           return { response: neutralUnavailable(), events };
         }
@@ -1872,6 +1883,24 @@ export class UnlockService {
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
+  }
+
+  /** #2749 — a lot the spend path expired (post-commit; see {@link creditsExpiredEvent}). */
+  private async emitCreditsExpired(
+    party: EventParty,
+    lot: ExpiredCreditLot,
+    ctx: RequestContext,
+  ): Promise<void> {
+    await this.events.emit(
+      creditsExpiredEvent({
+        walletKey: party.payerId,
+        lot,
+        trigger: "spend",
+        actor: { actor_type: "payer", actor_id: party.actorId },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      }),
+    );
   }
 
   /**

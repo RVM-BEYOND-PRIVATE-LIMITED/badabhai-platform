@@ -1540,6 +1540,116 @@ describe("#2562 - a suspended worker is frozen on every unlock surface", () => {
  * before it — which is why these tests drive it through `tryDebit`'s RETURN value
  * instead of stubbing a balance read.
  */
+/**
+ * #2749 — `payer.credits_expired`: one per lot the spend path expired, emitted only AFTER the
+ * unlock transaction commits (the deferred set). The no-credit branch commits too, so its expiry
+ * is reported; a transaction that throws after the debit rolls the expiry back and reports nothing.
+ */
+describe("UnlockService — #2749 payer.credits_expired from the spend path", () => {
+  const grantFixture = { payerId: PAYER, workerId: WORKER, jobId: null };
+  const lot = (lotId: string, credits: number) => ({
+    lotId,
+    credits,
+    source: "pack" as const,
+    expiresAt: new Date("2026-11-10T00:00:00.000Z"),
+  });
+
+  /** Track the commit: the fake transaction "commits" when its work resolves. */
+  function withCommitTracking(t: ReturnType<typeof setup>) {
+    const state = { committed: false, expiredEmittedBeforeCommit: 0 };
+    t.repo.withTransaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => {
+      const out = await work(t.txMethods);
+      state.committed = true;
+      return out;
+    });
+    t.events.emit.mockImplementation(async (e: Record<string, unknown>) => {
+      if (e.event_name === "payer.credits_expired" && !state.committed) {
+        state.expiredEmittedBeforeCommit += 1;
+      }
+      return e;
+    });
+    return state;
+  }
+
+  type Emitted = { event_name: string; payload: Record<string, unknown> };
+  function expiredEvents(t: ReturnType<typeof setup>) {
+    return t.events.emit.mock.calls
+      .map((c) => c[0] as Emitted)
+      .filter((e) => e.event_name === "payer.credits_expired");
+  }
+
+  it("emits ONE event per expired lot, after the commit, on a grant", async () => {
+    const t = setup({ balance: 5 });
+    const state = withCommitTracking(t);
+    t.txMethods.tryDebit.mockResolvedValueOnce({
+      ok: true,
+      balanceAfter: 4,
+      lotId: "lot-1",
+      expiredLots: [lot("lot-a", 3), lot("lot-b", 1)],
+    } as never);
+
+    const out = await t.svc.requestUnlock(grantFixture, CTX);
+    expect(out).toMatchObject({ ok: true, status: "granted" });
+
+    const fired = expiredEvents(t);
+    expect(fired).toHaveLength(2);
+    expect(state.expiredEmittedBeforeCommit).toBe(0);
+    expect(fired[0]).toMatchObject({
+      actor: { actor_type: "payer", actor_id: PAYER },
+      subject: { subject_type: "payer", subject_id: PAYER },
+      payload: {
+        payer_id: PAYER,
+        lot_id: "lot-a",
+        credits: 3,
+        source: "pack",
+        expires_at: "2026-11-10T00:00:00.000Z",
+        trigger: "spend",
+      },
+      idempotencyKey: "payer.credits_expired:lot-a",
+      correlationId: CTX.correlationId,
+    });
+    expect(fired[1]!.payload).toMatchObject({ lot_id: "lot-b", credits: 1 });
+  });
+
+  it("the no-credit branch COMMITS its expiry, so it is reported (and the body stays neutral)", async () => {
+    const t = setup({ balance: 2 });
+    const state = withCommitTracking(t);
+    t.txMethods.tryDebit.mockResolvedValueOnce({
+      ok: false,
+      expiredLots: [lot("lot-gone", 2)],
+    } as never);
+
+    expect(await t.svc.requestUnlock(grantFixture, CTX)).toEqual({ status: "unavailable" });
+    expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
+    const fired = expiredEvents(t);
+    expect(fired).toHaveLength(1);
+    expect(fired[0]!.payload).toMatchObject({ lot_id: "lot-gone", credits: 2, trigger: "spend" });
+    expect(state.expiredEmittedBeforeCommit).toBe(0);
+    expect(emitted(t.events)).toContain("payment.failed");
+  });
+
+  it("emits NOTHING when nothing expired", async () => {
+    const t = setup({ balance: 5 }); // the default debit expires nothing
+    await t.svc.requestUnlock(grantFixture, CTX);
+    expect(expiredEvents(t)).toHaveLength(0);
+    expect(emitted(t.events)).toContain("unlock.granted");
+  });
+
+  it("a transaction that throws after the debit rolls the expiry back: nothing is reported", async () => {
+    const t = setup({ balance: 5 });
+    t.txMethods.tryDebit.mockResolvedValueOnce({
+      ok: true,
+      balanceAfter: 4,
+      lotId: "lot-1",
+      expiredLots: [lot("lot-a", 3)],
+    } as never);
+    t.txMethods.upsertGrant.mockRejectedValueOnce(new Error("deadlock detected"));
+
+    await expect(t.svc.requestUnlock(grantFixture, CTX)).rejects.toThrow("deadlock detected");
+    expect(expiredEvents(t)).toHaveLength(0);
+  });
+});
+
 describe("UnlockService — ADR-0036 §7 credits_exhausted (the conversion signal)", () => {
   const grantFixture = { payerId: PAYER, workerId: WORKER, jobId: null };
 
