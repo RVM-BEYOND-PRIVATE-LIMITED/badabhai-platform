@@ -691,6 +691,10 @@ const int kTradeFormMaxNoticeDays = 180;
 /// The `availability.status` slug that has a notice period (`availability_status`
 /// in `GET /workers/me/work-preferences/options`). On the trade form's first
 /// pass the notice page follows ONLY this answer (#2642).
+///
+/// #2753 item 3's second answer set (`join_now` | `in_15_days` | `in_30_days` |
+/// `working_open`) has no notice-period answer, so none of those keys opens the
+/// notice page — the server serves one set or the other and both are accepted.
 const String kAvailabilityServingNotice = 'serving_notice';
 
 /// The closed-set preferences a worker sets on a `preferences` marker screen.

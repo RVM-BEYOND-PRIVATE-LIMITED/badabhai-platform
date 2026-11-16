@@ -16,6 +16,7 @@ import { publishBalance, useLiveBalance } from "../../../../../components/live-b
 import { PageHeader, type PageHeaderProps } from "../../../../../components/page-header";
 import { PortalLink } from "../../../../../components/portal-link";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
+import { NOT_RECENTLY_ACTIVE_LABEL } from "../../../../../lib/activity-mark";
 import {
   boardTabOf,
   hasSavedStages,
@@ -808,6 +809,14 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                     {a.levelFit === "not_confirmed" ? (
                       <Badge tone="warning" variant="outline" className="applicant__level">
                         Level not confirmed
+                      </Badge>
+                    ) : null}
+                    {/* #2753 item 7 — a MARK only. The server sends the key while
+                        WORKER_ACTIVITY_ENABLED is on; absent means no mark, and the
+                        row is never hidden or re-sorted because of it. */}
+                    {a.notRecentlyActive === true ? (
+                      <Badge tone="neutral" variant="outline" className="applicant__level">
+                        {NOT_RECENTLY_ACTIVE_LABEL}
                       </Badge>
                     ) : null}
                   </div>

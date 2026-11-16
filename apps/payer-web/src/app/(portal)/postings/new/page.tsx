@@ -6,10 +6,10 @@ import { HIRING_CAPACITY_HREF } from "../../../../lib/billing-routes";
 import { PortalLink } from "../../../../components/portal-link";
 import { getLiveCatalog } from "../../../../lib/live-catalog";
 import { applicantQuotaStep, postingIsFreeThroughLaunch } from "../../../../lib/pricing-config";
-import { getCapacity, listMatchSkills } from "../../../../lib/payer-api";
+import { getAudienceOptions, getCapacity, listMatchSkills } from "../../../../lib/payer-api";
 import { readPostingTrades } from "../../../../lib/posting-trades.server";
 import { CachedPricingNote } from "../../../../components/cached-pricing-note";
-import type { MatchSkillWire } from "../../../../lib/contracts";
+import type { AudienceOptions, MatchSkillWire } from "../../../../lib/contracts";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { PostingForm } from "./posting-form";
 
@@ -62,6 +62,16 @@ export default async function NewPostingPage() {
   // failure is not swallowed into a free role list: the picker names the cause with a Retry and
   // the form refuses to post without a trade.
   const { trades: postingTrades, problem: postingTradesProblem } = await readPostingTrades();
+
+  // #2746 — the audience options. A house 404 (the switch is off for the company) or a 403 hides
+  // every audience control and sends none of the fields; any other failure is swallowed too, so a
+  // feature read never blocks posting (the form simply stays as it was before this feature).
+  let audienceOptions: AudienceOptions | null = null;
+  try {
+    audienceOptions = await getAudienceOptions();
+  } catch {
+    audienceOptions = null;
+  }
 
   // The page head + notices lead the FORM column, so the card-preview rail beside it starts at
   // the top of the page: on a laptop the whole worker card and the publish button are on screen
@@ -122,6 +132,7 @@ export default async function NewPostingPage() {
       matchSkills={matchSkills}
       postingTrades={postingTrades}
       postingTradesProblem={postingTradesProblem}
+      audienceOptions={audienceOptions}
       lead={lead}
       free={free}
     />

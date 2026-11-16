@@ -140,6 +140,32 @@ describe("the review diff", () => {
     expect(formatFactValue("experience", 4)).toBe("4 years");
     expect(formatFactValue("relocation", null)).toBe("—");
   });
+
+  it("#2753 item 3: the availability select offers and labels all eight keys", () => {
+    const field = EDIT_SECTIONS.flatMap((s) => s.fields).find(
+      (f) => f.formKey === "availability_status",
+    );
+    expect(field?.options?.map((o) => o.value)).toEqual([
+      "immediate",
+      "within_week",
+      "within_month",
+      "serving_notice",
+      "join_now",
+      "in_15_days",
+      "in_30_days",
+      "working_open",
+    ]);
+    expect(field?.options?.find((o) => o.value === "in_15_days")?.label).toBe(
+      "Can join in 15 days",
+    );
+    expect(
+      formatFactValue("availability", {
+        status: "working_open",
+        available_from: null,
+        notice_period_days: null,
+      }),
+    ).toBe("Working, open to a better offer");
+  });
 });
 
 describe("input validation", () => {

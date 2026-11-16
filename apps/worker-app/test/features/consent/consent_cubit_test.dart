@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/api/api_client.dart' show kConsentVersion;
+import 'package:badabhai_worker_app/core/api/api_models.dart' show ConsentNoticeDto;
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/consent/domain/consent_repository.dart';
@@ -20,6 +22,34 @@ void main() {
 
   late MockConsentRepository repo;
   setUp(() => repo = MockConsentRepository());
+
+  test('#2753 item 13: the served notice version and link are rendered', () async {
+    when(() => repo.consentNotice()).thenAnswer(
+      (_) async => const ConsentNoticeDto(
+        version: '2026-12-01',
+        noticeUrl: 'https://badabhai.in/privacy',
+      ),
+    );
+    final ConsentCubit cubit = ConsentCubit(repo);
+    addTearDown(cubit.close);
+
+    await Future<void>.delayed(Duration.zero);
+
+    expect(cubit.state.noticeVersion, '2026-12-01');
+    expect(cubit.state.noticeUrl, 'https://badabhai.in/privacy');
+  });
+
+  test('#2753 item 13: a failed notice read keeps the compiled defaults', () async {
+    when(() => repo.consentNotice())
+        .thenThrow(const ServerFailure(404));
+    final ConsentCubit cubit = ConsentCubit(repo);
+    addTearDown(cubit.close);
+
+    await Future<void>.delayed(Duration.zero);
+
+    expect(cubit.state.noticeVersion, kConsentVersion);
+    expect(cubit.state.noticeUrl, isNull);
+  });
 
   blocTest<ConsentCubit, ConsentState>(
     'setAccepted toggles the checkbox state',

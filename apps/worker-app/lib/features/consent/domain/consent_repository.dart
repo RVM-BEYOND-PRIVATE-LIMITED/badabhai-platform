@@ -1,3 +1,4 @@
+import '../../../core/api/api_models.dart' show ConsentNoticeDto;
 import 'employer_contact.dart';
 
 /// DPDP consent boundary. Records the worker's consent for the given purposes.
@@ -30,4 +31,9 @@ abstract interface class ConsentRepository {
   /// current notice version. The server derives the purposes; idempotent.
   /// Throws a [Failure] on error (400 stale version, 404 no live row).
   Future<void> grantEmployerContact();
+
+  /// The notice version and published link (GET /consent/notice, #2753 item
+  /// 13). The app compares its compiled `kConsentVersion` with the served
+  /// version and shows a privacy link only when `notice_url` is non-null.
+  Future<ConsentNoticeDto> consentNotice();
 }

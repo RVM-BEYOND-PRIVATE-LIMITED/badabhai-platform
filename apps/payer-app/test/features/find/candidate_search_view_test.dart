@@ -11,6 +11,7 @@ import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/data/models.dart';
 import 'package:payer_app/core/data/payer_api_client.dart';
 import 'package:payer_app/core/di/locator.dart';
+import 'package:payer_app/core/util/activity_mark.dart';
 import 'package:payer_app/core/widgets/bb_avatar.dart';
 import 'package:payer_app/core/widgets/bb_badge.dart';
 import 'package:payer_app/core/widgets/bb_button.dart';
@@ -281,6 +282,36 @@ void main() {
 
       // Row 2 is tier 2 under a CNC Turner search.
       expect(find.text('Related to CNC Turner'), findsOneWidget);
+    });
+
+    testWidgets('marks a row the server says is not recently active (#2753)',
+        (WidgetTester tester) async {
+      final CandidateSearchRow marked = CandidateSearchRow(
+        workerId: _turner.workerId,
+        matchesFilters: _turner.matchesFilters,
+        matchTier: _turner.matchTier,
+        role: _turner.role,
+        otherRoles: _turner.otherRoles,
+        skillMonths: _turner.skillMonths,
+        industry: _turner.industry,
+        industryMonths: _turner.industryMonths,
+        city: _turner.city,
+        tradeLevels: _turner.tradeLevels,
+        isSample: _turner.isSample,
+        notRecentlyActive: true,
+      );
+      api.onSearch = (CandidateSearchQuery _) async =>
+          _page(<CandidateSearchRow>[marked]);
+
+      await pumpFind(tester);
+
+      expect(find.text(kNotRecentlyActiveLabel), findsOneWidget);
+    });
+
+    testWidgets('an absent activity key draws no mark (#2753 item 7)',
+        (WidgetTester tester) async {
+      await pumpFind(tester);
+      expect(find.text(kNotRecentlyActiveLabel), findsNothing);
     });
   });
 

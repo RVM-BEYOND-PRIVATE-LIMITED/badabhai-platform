@@ -57,4 +57,49 @@ void main() {
       );
     });
   });
+
+  group('ApiClient.lookupReferralHelperName (GET /referrals/helper)', () {
+    test('sends the code as the query and NO bearer; returns the name', () async {
+      late http.Request captured;
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          captured = req;
+          return http.Response(
+            jsonEncode(<String, dynamic>{'display_name': 'Acme Staffing'}),
+            200,
+          );
+        }),
+      );
+
+      final String? name =
+          await api.lookupReferralHelperName(code: 'abcdef012345');
+
+      expect(name, 'Acme Staffing');
+      expect(captured.method, 'GET');
+      expect(captured.url.path, '/referrals/helper');
+      expect(captured.url.queryParameters, <String, String>{
+        'code': 'abcdef012345',
+      });
+      expect(captured.headers.containsKey('authorization'), isFalse,
+          reason: 'the screen comes before sign-in; no token is sent');
+    });
+
+    test('a null name and the switch-off 404 both read as null', () async {
+      final ApiClient nullBody = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+            jsonEncode(<String, dynamic>{'display_name': null}), 200)),
+      );
+      expect(
+          await nullBody.lookupReferralHelperName(code: 'abcdef012345'), isNull);
+
+      final ApiClient off = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+            jsonEncode(<String, dynamic>{'message': 'Not found'}), 404)),
+      );
+      expect(await off.lookupReferralHelperName(code: 'abcdef012345'), isNull);
+    });
+  });
 }

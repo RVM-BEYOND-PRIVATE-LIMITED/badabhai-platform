@@ -88,6 +88,17 @@ const Map<String, String> _kClosedSetLabels = <String, String>{
   'contract': 'Contract',
   'apprentice': 'Apprenticeship',
   'daily_wage': 'Daily wage',
+  // AVAILABILITY_STATUSES_ALL — both answer sets (#2753 item 3). An old
+  // stored answer keeps its own words; the brief's four read as they are
+  // served.
+  'immediate': 'Immediately',
+  'within_week': 'Within a week',
+  'within_month': 'Within a month',
+  'serving_notice': 'Serving notice',
+  'join_now': 'Can join now',
+  'in_15_days': 'Can join in 15 days',
+  'in_30_days': 'Can join in 30 days',
+  'working_open': 'Working, open to a better offer',
 };
 
 /// Whether [value] is UNAMBIGUOUSLY a closed-set token rather than a word the

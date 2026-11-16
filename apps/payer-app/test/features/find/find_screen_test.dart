@@ -7,6 +7,7 @@ import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/data/models.dart';
 import 'package:payer_app/core/data/payer_api_client.dart';
 import 'package:payer_app/core/di/locator.dart';
+import 'package:payer_app/core/util/activity_mark.dart';
 import 'package:payer_app/features/find/presentation/cubit/find_cubit.dart';
 import 'package:payer_app/features/find/presentation/find_screen.dart';
 import 'package:payer_app/features/find/presentation/widgets/find_pinned_list.dart';
@@ -30,10 +31,11 @@ import 'package:payer_app/features/find/presentation/widgets/unlock_button.dart'
 /// scroll/window tests that follow are behaviour guards on the conversion (the
 /// header must stay index 0, the rows must stay addressable and in order).
 class _BigFeedApi extends MockPayerApiClient {
-  _BigFeedApi(this.total, {this.levelFit});
+  _BigFeedApi(this.total, {this.levelFit, this.notRecentlyActive = false});
 
   final int total;
   final String? levelFit;
+  final bool notRecentlyActive;
 
   static const JobPosting _job = JobPosting(
     id: 'job-1',
@@ -76,6 +78,7 @@ class _BigFeedApi extends MockPayerApiClient {
           cityLabel: 'Pune',
           experienceBand: '3–5 yrs',
           levelFit: levelFit,
+          notRecentlyActive: notRecentlyActive,
         ),
       );
 
@@ -202,6 +205,30 @@ void main() {
     ) async {
       await pump(tester);
       expect(find.text('Level not confirmed'), findsNothing);
+    });
+
+    testWidgets('marks a not-recently-active applicant (#2753 item 7)', (
+      WidgetTester tester,
+    ) async {
+      await GetIt.instance.reset();
+      setupLocator(
+        apiClient: _BigFeedApi(1, notRecentlyActive: true),
+        secureStore: InMemoryKeyValueStore(),
+      );
+      locator.unregister<FindCubit>();
+      locator.registerFactory<FindCubit>(
+        () => FindCubit(locator<PayerApiClient>(), useRealFeed: true),
+      );
+
+      await pump(tester);
+      expect(find.text(kNotRecentlyActiveLabel), findsOneWidget);
+    });
+
+    testWidgets('an absent activity key draws no mark (#2753 item 7)', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+      expect(find.text(kNotRecentlyActiveLabel), findsNothing);
     });
 
     testWidgets('scrolling to the end builds the last card', (

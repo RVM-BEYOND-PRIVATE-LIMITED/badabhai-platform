@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import { ACTION_ICON } from "@badabhai/icons";
 import type { FacelessApplicant, UnlockQuotes } from "../../../../../lib/contracts";
+import { NOT_RECENTLY_ACTIVE_LABEL } from "../../../../../lib/activity-mark";
 import { NEUTRAL_UNLOCK_MESSAGE, mapUnlockResult } from "../../../../../lib/unlock-view";
 import type { GrantedUnlock } from "../../../../../lib/unlock-history";
 import { Badge, Button } from "../../../../../components/ds";
@@ -999,6 +1000,35 @@ describe("ApplicantActions — \"Level needed\" fit tag (#2548)", () => {
     expect(levelTags(v1({ levelFit: "below" }))).toHaveLength(0);
     expect(levelTags(v1({ levelFit: null }))).toHaveLength(0);
     expect(levelTags(v1({}))).toHaveLength(0);
+  });
+});
+
+describe("ApplicantActions — the not-recently-active mark (#2753 item 7)", () => {
+  const row = (over: Partial<FacelessApplicant>): FacelessApplicant => ({
+    workerId: WORKER,
+    rank: 1,
+    score: 0,
+    hot: false,
+    signals: [],
+    matchTier: 1,
+    effectiveTier: 1,
+    skillMonths: 48,
+    ...over,
+  });
+  const marks = (a: FacelessApplicant) =>
+    elements(render({ applicants: [a] })).filter(
+      (e) =>
+        hasClass(e, "applicant__level") &&
+        textOf(e.props.children as ReactNode).trim() === NOT_RECENTLY_ACTIVE_LABEL,
+    );
+
+  it("draws the mark when the server says the worker is not recently active", () => {
+    expect(marks(row({ notRecentlyActive: true }))).toHaveLength(1);
+  });
+
+  it("draws nothing when the key is absent (activity switch off)", () => {
+    expect(marks(row({}))).toHaveLength(0);
+    expect(marks(row({ notRecentlyActive: false }))).toHaveLength(0);
   });
 });
 

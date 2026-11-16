@@ -361,6 +361,70 @@ class ApiClient {
     return EmployerContactGrantDto.fromJson(json);
   }
 
+  /// The notice version and published notice link (GET /consent/notice —
+  /// WorkerAuthGuard only, #2753 item 13).
+  ///
+  /// Worker-authed but NOT consent-gated: the consent screen itself reads it
+  /// before the worker has consented. The app compares [kConsentVersion] with
+  /// `version` instead of hard-coding the version it certifies, and renders the
+  /// privacy link only when `notice_url` is non-null. No switch: the server
+  /// answers the same shape either way.
+  Future<ConsentNoticeDto> getConsentNotice({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/consent/notice', authToken: authToken);
+    return ConsentNoticeDto.fromJson(json);
+  }
+
+  /// Whether companies can find the worker in search (GET
+  /// /workers/me/search-visibility — #2753 item 6).
+  ///
+  /// `404` means `SEARCH_EXIT_ENABLED` is off: the control is hidden, never
+  /// rendered as a broken switch. A `503` (the table behind the route is
+  /// missing) is retryable and surfaces as a failure, not as a hidden control.
+  Future<SearchVisibilityDto> getSearchVisibility({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/search-visibility', authToken: authToken);
+    return SearchVisibilityDto.fromJson(json);
+  }
+
+  /// Sets the search-visibility switch (PUT /workers/me/search-visibility).
+  /// [visible] is the RESULTING state, not a toggle, so a repeat is harmless.
+  /// The reply is the same shape as the GET, so no second read is needed.
+  Future<SearchVisibilityDto> setSearchVisibility({
+    required String authToken,
+    required bool visible,
+  }) async {
+    final Map<String, dynamic> json = await _put(
+      '/workers/me/search-visibility',
+      <String, dynamic>{'visible': visible},
+      authToken: authToken,
+    );
+    return SearchVisibilityDto.fromJson(json);
+  }
+
+  /// The helper's display name for the pre-code screen (GET /referrals/helper —
+  /// UNAUTHENTICATED, #2753 item 12). Sends NO token: the screen comes before
+  /// the OTP.
+  ///
+  /// `404` is the switch off (`REFERRAL_HELPER_NAME_ENABLED`) and reads as
+  /// `null`; a `display_name: null` also reads as `null`. Either way the screen
+  /// shows nothing. Never logs the code or the name.
+  Future<String?> lookupReferralHelperName({required String code}) async {
+    try {
+      final Map<String, dynamic> json = await _get(
+        Uri(path: '/referrals/helper', queryParameters: <String, String>{
+          'code': code,
+        }).toString(),
+      );
+      return ReferralHelperDto.fromJson(json).displayName;
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
   /// The worker's match skills and their on/off state (GET
   /// /workers/me/match-skills — WorkerAuthGuard + ConsentGuard, E4 #1828).
   ///

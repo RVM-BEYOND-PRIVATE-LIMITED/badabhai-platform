@@ -53,6 +53,9 @@ class _ScriptedJobsApi extends MockPayerApiClient {
     Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
+    JobAudience? audience,
+    List<int>? rvmBranchIds,
+    List<String>? rvmCourseIds,
     List<JobPostingClearField>? clear,
   }) async {
     updated.add(id);

@@ -1,10 +1,14 @@
 /// Free-text availability parsing for the "Kuch aur — khud likhein" box on
 /// the "Kab se available hain?" page (`trade_form_preferences_page.dart`).
 ///
-/// The closed `availability.status` enum (`immediate` | `within_week` |
-/// `within_month` | `serving_notice`, plus `notice_period_days` 0–180) cannot
-/// grow a new slug without a backend migration, so this box maps Hinglish
-/// durations onto the EXISTING vocabulary instead:
+/// The closed `availability.status` enum this box maps onto is the FIRST answer
+/// set (`immediate` | `within_week` | `within_month` | `serving_notice`, plus
+/// `notice_period_days` 0–180). #2753 item 3 added a second, four-answer set
+/// (`join_now` | `in_15_days` | `in_30_days` | `working_open`), and the server
+/// accepts BOTH sets at any time, so a typed answer storing a first-set key is
+/// valid while either set is served. Keeping the first set here also preserves
+/// the one behaviour the second set has no field for: a notice period uses
+/// `notice_period_days`, which only `serving_notice` carries.
 ///
 ///   1. Hinglish durations — "dedh mahina" (1.5 months → 45 din),
 ///      "sava do mahine" (2.25 → 68), "15 din", "2 hafte".

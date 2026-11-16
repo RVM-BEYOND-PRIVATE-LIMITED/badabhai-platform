@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/theme/bb_palette.dart';
@@ -125,6 +126,10 @@ class _ConsentView extends StatelessWidget {
                         const EmployerSharingNotice(),
                         const SizedBox(height: 12),
                         const _NoticeCard(),
+                        if (state.noticeUrl != null) ...<Widget>[
+                          const SizedBox(height: 8),
+                          _PrivacyNoticeLink(url: state.noticeUrl!),
+                        ],
                         const SizedBox(height: 12),
                         _AgreeRow(
                           accepted: state.accepted,
@@ -435,6 +440,53 @@ class _NoticeCard extends StatelessWidget {
 /// The kit's screen has only a Continue button, but DPDP consent needs a clear
 /// affirmative act, and this tick is it — 'Aage Badhein' stays disabled until
 /// it is ticked.
+/// The published privacy notice, shown only when `GET /consent/notice` returned
+/// a non-null `notice_url` (#2753 item 13). A server with no URL configured
+/// draws no control at all, so today's screen is unchanged in that case.
+class _PrivacyNoticeLink extends StatelessWidget {
+  const _PrivacyNoticeLink({required this.url});
+
+  final String url;
+
+  Future<void> _open(BuildContext context) async {
+    final Uri? uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      // A device with no browser is not a consent blocker — the notices on
+      // this screen are the consent, and the link simply did not open.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton(
+        onPressed: () => _open(context),
+        style: TextButton.styleFrom(
+          foregroundColor: context.bb.textBrand,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          minimumSize: const Size(
+            OnboardingLayout.tapTarget,
+            OnboardingLayout.tapTarget,
+          ),
+          tapTargetSize: MaterialTapTargetSize.padded,
+        ),
+        child: Text(
+          'Privacy notice dekhein',
+          style: OnboardingTypography.inter(
+            size: 13,
+            weight: FontWeight.w600,
+            color: context.bb.textBrand,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _AgreeRow extends StatelessWidget {
   const _AgreeRow({
     required this.accepted,

@@ -8,6 +8,7 @@ import '../../../core/error/payer_failure.dart';
 import '../../../core/session/credits_cubit.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/activity_mark.dart';
 import '../../../core/util/name_mask.dart';
 import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_badge.dart';
@@ -888,6 +889,7 @@ class _ApplicantCard extends StatelessWidget {
         ),
         if (tierBadge != null ||
             applicant.levelFit == 'not_confirmed' ||
+            applicant.notRecentlyActive ||
             signals.isNotEmpty) ...<Widget>[
           const SizedBox(height: AppSpacing.gap6),
           Wrap(
@@ -903,6 +905,14 @@ class _ApplicantCard extends StatelessWidget {
                   'Level not confirmed',
                   tone: BbBadgeTone.warning,
                   icon: Icons.help_rounded,
+                ),
+              // #2753 item 7 — a MARK only; the server sends it while its
+              // activity switch is on. Nothing is hidden or re-sorted.
+              if (applicant.notRecentlyActive)
+                const BbBadge(
+                  kNotRecentlyActiveLabel,
+                  tone: BbBadgeTone.neutral,
+                  icon: Icons.schedule_rounded,
                 ),
               for (final String s in signals)
                 BbBadge(s, tone: BbBadgeTone.neutral),

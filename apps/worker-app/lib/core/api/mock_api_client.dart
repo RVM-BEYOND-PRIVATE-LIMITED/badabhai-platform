@@ -151,6 +151,60 @@ class MockApiClient extends ApiClient {
     );
   }
 
+  /// Canned notice facts (#2753 item 13). The version matches the app's
+  /// compiled one, and `notice_url` is null — the published URL is a deployment
+  /// setting, and the screen must draw no link while it is unset.
+  @override
+  Future<ConsentNoticeDto> getConsentNotice({required String authToken}) async {
+    await _delay();
+    return const ConsentNoticeDto(
+      version: kConsentVersion,
+      employerContactVersions: <String>[kConsentVersion],
+      noticeUrl: null,
+    );
+  }
+
+  /// Canned search-visibility state (#2753 item 6), session-local so the mock
+  /// switch can be walked end to end. `SEARCH_EXIT_ENABLED` is ON in mock mode.
+  bool _mockSearchVisible = true;
+
+  @override
+  Future<SearchVisibilityDto> getSearchVisibility({
+    required String authToken,
+  }) async {
+    await _delay();
+    return SearchVisibilityDto(
+      visible: _mockSearchVisible,
+      hiddenSince: _mockSearchVisible
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
+    );
+  }
+
+  @override
+  Future<SearchVisibilityDto> setSearchVisibility({
+    required String authToken,
+    required bool visible,
+  }) async {
+    await _delay();
+    _mockSearchVisible = visible;
+    return SearchVisibilityDto(
+      visible: _mockSearchVisible,
+      hiddenSince: _mockSearchVisible
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
+    );
+  }
+
+  /// Canned helper name (#2753 item 12). The real route is OFF by default, so
+  /// the mock answers the switch-off case (`null`) — exactly what the screen
+  /// must render, and its copy is not approved yet either.
+  @override
+  Future<String?> lookupReferralHelperName({required String code}) async {
+    await _delay();
+    return null;
+  }
+
   /// No `openingText`, deliberately. Returning one here would be a THIRD copy of
   /// the opener copy (after `question_bank.py` and the client const) with nothing
   /// keeping the three in step. Null makes the bloc render `kChatOpeningText`,
@@ -445,13 +499,15 @@ class MockApiClient extends ApiClient {
         CityOptionDto(value: 'Noida', aliases: <String>[]),
         CityOptionDto(value: 'Pune', aliases: <String>['poona']),
       ],
-      // The server's `AVAILABILITY_STATUSES`, verbatim and in its order, so
-      // the profile-edit chips send only slugs the real PUT accepts (#1541).
+      // The server's `AVAILABILITY_STATUSES_V2` (the #2753 item 3 answers),
+      // verbatim and in its order, so the profile-edit chips send only slugs
+      // the real PUT accepts. A server with the switch OFF serves the first
+      // set; the client renders whatever it is handed either way.
       availabilityStatus: <String, String>{
-        'immediate': 'Immediately',
-        'within_week': 'Within a week',
-        'within_month': 'Within a month',
-        'serving_notice': 'Serving notice',
+        'join_now': 'Can join now',
+        'in_15_days': 'Can join in 15 days',
+        'in_30_days': 'Can join in 30 days',
+        'working_open': 'Working, open to a better offer',
       },
     );
   }
@@ -1098,6 +1154,24 @@ class MockApiClient extends ApiClient {
         rank: 1,
         createdAt: now.subtract(const Duration(minutes: 25)),
         updatedAt: now.subtract(const Duration(minutes: 25)),
+      ),
+      // #2753 item 8 — an application BadaBhai Campus created for an RVM
+      // student. `source_surface` stays `other` and `rank` is null, exactly as
+      // the API's own Campus rows are; the row is information-only when its
+      // job read 404s.
+      AppliedJob(
+        jobId: 'mock-job-0106',
+        tradeKey: 'vmc_operator',
+        title: 'VMC Operator (Campus)',
+        city: 'Pune',
+        area: null,
+        action: 'applied',
+        reason: null,
+        sourceSurface: 'other',
+        rank: null,
+        createdAt: now.subtract(const Duration(days: 1)),
+        updatedAt: now.subtract(const Duration(days: 1)),
+        via: 'campus',
       ),
     ];
   }
