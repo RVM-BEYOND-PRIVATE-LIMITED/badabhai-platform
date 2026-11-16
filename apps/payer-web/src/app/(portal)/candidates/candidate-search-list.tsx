@@ -5,6 +5,7 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { CandidateSearchRow } from "../../../lib/contracts";
 import type { GrantedUnlock } from "../../../lib/unlock-history";
 import { bandLabel, monthsLabel, workerHandle } from "../../../lib/masking";
+import { NOT_RECENTLY_ACTIVE_LABEL } from "../../../lib/activity-mark";
 import { candidatesErrorMessage } from "../../../lib/candidates-messages";
 import { shownTradeLevel } from "../../../lib/trade-level";
 // The count copy's own dependency-free module — the search's URL reads (zod) stay off the client.
@@ -297,6 +298,13 @@ export function CandidateSearchList({
                   {level ? (
                     <Badge tone="neutral" variant="outline" className="applicant__level">
                       {level.tradeLevelLabel}
+                    </Badge>
+                  ) : null}
+                  {/* #2753 item 7 — the server's mark, when the activity switch is
+                      on. A label only: no worker is hidden or re-sorted. */}
+                  {c.notRecentlyActive === true ? (
+                    <Badge tone="neutral" variant="outline" className="applicant__level">
+                      {NOT_RECENTLY_ACTIVE_LABEL}
                     </Badge>
                   ) : null}
                 </div>

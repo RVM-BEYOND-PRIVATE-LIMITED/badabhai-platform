@@ -181,6 +181,7 @@ describe("nav model — Posting naming, and an agency posts AGENCY jobs only (20
       "Dashboard",
       "Postings",
       "Candidates",
+      "Campus drives",
       "Plans & capacity",
       "Credits",
       "Team",
@@ -233,6 +234,7 @@ describe("nav model — Posting naming, and an agency posts AGENCY jobs only (20
       "Dashboard",
       "Postings",
       "Candidates",
+      "Campus drives",
       "Plans & capacity",
       "Credits",
     ]);

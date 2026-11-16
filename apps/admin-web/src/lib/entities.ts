@@ -215,6 +215,21 @@ export const jobPostingListItemSchema = z.object({
   published_at: z.string().nullable(),
   closed_at: z.string().nullable(),
   created_at: z.string(),
+  /**
+   * #2746 — READ-ONLY audience, RVM targeting and review state. Optional so an older server or a
+   * fixture without the block still parses; absent means the API omitted it.
+   */
+  audience: z.enum(["badabhai_workers", "rvm_students", "both"]).optional(),
+  rvm_branch_ids: z.array(z.number()).optional(),
+  rvm_course_ids: z.array(z.string()).optional(),
+  rvm_review: z
+    .object({
+      state: z.enum(["pending", "approved", "rejected"]),
+      reviewed_at: z.string().optional(),
+      reason: z.string().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 export type JobPostingListItem = z.infer<typeof jobPostingListItemSchema>;
 

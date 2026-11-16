@@ -165,6 +165,9 @@ class _SpyApi extends MockPayerApiClient {
     Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
+    JobAudience? audience,
+    List<int>? rvmBranchIds,
+    List<String>? rvmCourseIds,
   }) {
     created.add((
       org: orgLabel,
@@ -291,6 +294,9 @@ class _SpyApi extends MockPayerApiClient {
     Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
+    JobAudience? audience,
+    List<int>? rvmBranchIds,
+    List<String>? rvmCourseIds,
     List<JobPostingClearField>? clear,
   }) {
     patched.add((
@@ -354,6 +360,7 @@ class _V1SpyApi extends _SpyApi {
     required List<String> matchSkillIds,
     List<String> untickedRelatedIds = const <String>[],
     String? roleKind,
+    JobAudience? audience,
   }) async {
     reachRoleKinds.add(roleKind);
     return const ReachPreview(
@@ -395,6 +402,9 @@ class _OldRouteSpyApi extends _V1SpyApi {
     Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
+    JobAudience? audience,
+    List<int>? rvmBranchIds,
+    List<String>? rvmCourseIds,
   }) async {
     // Record the attempt exactly as the fixed spy does, then answer with a
     // draft that carries NONE of the stripped fields.

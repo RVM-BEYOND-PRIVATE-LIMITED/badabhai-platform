@@ -93,6 +93,121 @@ extension JobStatusX on JobStatus {
       };
 }
 
+/// #2746 — who sees a company posting. The wire tokens are closed.
+enum JobAudience {
+  badabhaiWorkers('badabhai_workers'),
+  rvmStudents('rvm_students'),
+  both('both');
+
+  const JobAudience(this.wire);
+
+  final String wire;
+
+  /// The RVM part — targeting and a review apply only to these.
+  bool get hasRvm => this != JobAudience.badabhaiWorkers;
+
+  static JobAudience? fromWire(String? wire) {
+    for (final JobAudience audience in JobAudience.values) {
+      if (audience.wire == wire) return audience;
+    }
+    return null;
+  }
+
+  /// The label the company reads.
+  String get label => switch (this) {
+        JobAudience.badabhaiWorkers => 'BadaBhai workers',
+        JobAudience.rvmStudents => 'RVM students',
+        JobAudience.both => 'Both',
+      };
+}
+
+/// #2746 — the placement team's decision on the RVM part of a posting.
+class RvmReview extends Equatable {
+  const RvmReview({required this.state, this.reason, this.reviewedAt});
+
+  factory RvmReview.fromJson(Map<String, dynamic> row) => RvmReview(
+        state: row['state'] as String? ?? 'pending',
+        reason: row['reason'] as String?,
+        reviewedAt: row['reviewed_at'] as String?,
+      );
+
+  final String state;
+  final String? reason;
+  final String? reviewedAt;
+
+  String get label => switch (state) {
+        'approved' => 'Approved',
+        'rejected' => 'Rejected',
+        _ => 'Pending review',
+      };
+
+  @override
+  List<Object?> get props => <Object?>[state, reason, reviewedAt];
+}
+
+/// `GET /payer/job-postings/audience-options`.
+class AudienceBranchOption extends Equatable {
+  const AudienceBranchOption({required this.id, required this.label});
+
+  factory AudienceBranchOption.fromJson(Map<String, dynamic> row) =>
+      AudienceBranchOption(
+        id: (row['id'] as num?)?.toInt() ?? 0,
+        label: row['label'] as String? ?? '',
+      );
+
+  final int id;
+  final String label;
+
+  @override
+  List<Object?> get props => <Object?>[id, label];
+}
+
+class AudienceCourseOption extends Equatable {
+  const AudienceCourseOption({required this.id, required this.label});
+
+  factory AudienceCourseOption.fromJson(Map<String, dynamic> row) =>
+      AudienceCourseOption(
+        id: row['id'] as String? ?? '',
+        label: row['label'] as String? ?? '',
+      );
+
+  final String id;
+  final String label;
+
+  @override
+  List<Object?> get props => <Object?>[id, label];
+}
+
+class AudienceOptions extends Equatable {
+  const AudienceOptions({
+    required this.audiences,
+    required this.branches,
+    required this.courses,
+  });
+
+  factory AudienceOptions.fromJson(Map<String, dynamic> row) => AudienceOptions(
+        audiences: (row['audiences'] as List<dynamic>? ?? const <dynamic>[])
+            .map((dynamic value) => JobAudience.fromWire(value as String?))
+            .whereType<JobAudience>()
+            .toList(growable: false),
+        branches: (row['branches'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(AudienceBranchOption.fromJson)
+            .toList(growable: false),
+        courses: (row['courses'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(AudienceCourseOption.fromJson)
+            .toList(growable: false),
+      );
+
+  final List<JobAudience> audiences;
+  final List<AudienceBranchOption> branches;
+  final List<AudienceCourseOption> courses;
+
+  @override
+  List<Object?> get props => <Object?>[audiences, branches, courses];
+}
+
 class JobPosting extends Equatable {
   const JobPosting({
     required this.title,
@@ -125,6 +240,10 @@ class JobPosting extends Equatable {
     this.matchSkillIds = const <String>[],
     this.tradeLevel,
     this.tradeAnswers,
+    this.audience,
+    this.rvmBranchIds = const <int>[],
+    this.rvmCourseIds = const <String>[],
+    this.rvmReview,
   });
 
   final String title;
@@ -227,6 +346,14 @@ class JobPosting extends Equatable {
   /// role pack's closed slugs; the API validates them before storing.
   final Map<String, List<String>>? tradeAnswers;
 
+  // --- #2746 — audience, RVM targeting and review ---------------------------
+  // Present only while the `job_audience` switch is on for the company, or when
+  // the stored audience is not the default. `null` means "BadaBhai workers".
+  final JobAudience? audience;
+  final List<int> rvmBranchIds;
+  final List<String> rvmCourseIds;
+  final RvmReview? rvmReview;
+
   double get progress => quota == 0 ? 0 : filled / quota;
   int get pct => (progress * 100).round();
 
@@ -262,6 +389,10 @@ class JobPosting extends Equatable {
         matchSkillIds,
         tradeLevel,
         tradeAnswers,
+        audience,
+        rvmBranchIds.join(','),
+        rvmCourseIds.join(','),
+        rvmReview,
       ];
 }
 
@@ -389,6 +520,7 @@ class Applicant extends Equatable {
     this.matchedSkillLabel,
     this.lastWorkedAt,
     this.levelFit,
+    this.notRecentlyActive = false,
     this.unlocked = false,
     this.unlockId,
   });
@@ -434,6 +566,11 @@ class Applicant extends Equatable {
   /// outside the 4). Display only — the server's order is authoritative.
   final String? levelFit;
 
+  /// #2753 item 7 — the server's "not recently active" mark. Present only
+  /// while `WORKER_ACTIVITY_ENABLED` is on; absent reads as false. A MARK,
+  /// never a filter: the feed's order and membership are the server's.
+  final bool notRecentlyActive;
+
   final bool unlocked;
 
   /// The granted unlock id (set once a paid unlock succeeds) — carried so the
@@ -474,6 +611,7 @@ class Applicant extends Equatable {
         matchedSkillLabel: matchedSkillLabel,
         lastWorkedAt: lastWorkedAt,
         levelFit: levelFit,
+        notRecentlyActive: notRecentlyActive,
         unlocked: unlocked ?? this.unlocked,
         unlockId: unlockId ?? this.unlockId,
       );
@@ -496,6 +634,7 @@ class Applicant extends Equatable {
         matchedSkillLabel,
         lastWorkedAt,
         levelFit,
+        notRecentlyActive,
         unlocked,
         unlockId,
       ];
@@ -733,6 +872,14 @@ class PayerApiException implements Exception {
   /// without one of the 16 trades (see [kPostingTradeRequiredCode]).
   bool get isPostingTradeRequired => code == kPostingTradeRequiredCode;
 
+  /// #2746 — targeting sent with an audience that has no RVM part.
+  bool get isTargetingNeedsRvmAudience =>
+      code == kTargetingNeedsRvmAudienceCode;
+
+  /// #2746 — a branch/course id is not an active option.
+  bool get isTargetingOptionNotOffered =>
+      code == kTargetingOptionNotOfferedCode;
+
   @override
   String toString() =>
       'PayerApiException($statusCode${code == null ? '' : ', $code'})';
@@ -797,6 +944,22 @@ const String kPostingTradeRequiredCode = 'posting_trade_required';
 /// forms' own refusal when a company job has no trade picked yet, so one rule
 /// reads one way wherever it is met.
 const String kPostingTradeRequiredMessage = 'Pick one of the 16 trades';
+
+/// #2746 — the server's `error.reason` when targeting is sent with an audience
+/// that has no RVM part.
+const String kTargetingNeedsRvmAudienceCode = 'targeting_needs_rvm_audience';
+
+/// What the payer is told on [kTargetingNeedsRvmAudienceCode].
+const String kTargetingNeedsRvmAudienceMessage =
+    'Choose RVM students (or both) before picking branches or courses.';
+
+/// #2746 — the server's `error.reason` when a branch/course id is not an active
+/// option of its kind.
+const String kTargetingOptionNotOfferedCode = 'targeting_option_not_offered';
+
+/// What the payer is told on [kTargetingOptionNotOfferedCode].
+const String kTargetingOptionNotOfferedMessage =
+    'One of the selected branches or courses is no longer offered. Remove it and save again.';
 
 // --- Agency demand (ADR-0022) — jobs + referral funnel --------------------
 // The agency (role='agent') owns its OWN faceless `jobs` rows: a coarse

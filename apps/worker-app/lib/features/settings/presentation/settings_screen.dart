@@ -9,6 +9,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/config/build_info.dart';
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
@@ -31,6 +32,7 @@ import '../../../core/widgets/feedback_fab.dart';
 import '../domain/display_prefs.dart';
 import '../domain/notification_prefs_repository.dart';
 import 'cubit/account_delete_cubit.dart';
+import 'cubit/search_visibility_cubit.dart';
 import 'widgets/debug_dark_toggle.dart';
 
 /// Minimum clearance under the last row. The REAL clearance now comes from
@@ -69,6 +71,11 @@ class SettingsScreen extends StatelessWidget {
         // E0 C-2 (#1630) — loads server truth for the switch on mount.
         BlocProvider<EmployerContactCubit>(
           create: (_) => locator<EmployerContactCubit>()..load(),
+        ),
+        // #2753 item 6 — the lighter "leave company search" switch. Its own
+        // `404` (switch off) hides the row; the API 503 stays retryable.
+        BlocProvider<SearchVisibilityCubit>(
+          create: (_) => locator<SearchVisibilityCubit>()..load(),
         ),
       ],
       child: const _SettingsView(),
@@ -240,6 +247,8 @@ class _SettingsView extends StatelessWidget {
                   const _WithdrawConsentRow(),
                   // Shown 2026-11-04: the employer notice promises this exit.
                   const _EmployerContactRow(),
+                  // #2753 item 6 — a LIGHTER exit: out of company search only.
+                  const _SearchVisibilityRow(),
                 ]),
                 // Account delete hidden for now; will return after the flow is
                 // redesigned.
@@ -887,6 +896,62 @@ class _EmployerContactRow extends StatelessWidget {
           onChanged: (bool on) => on
               ? _showNoticeAndGrant(context)
               : _confirmAndWithdraw(context),
+        );
+      },
+    );
+  }
+}
+
+/// Settings → "Companies can find me in search" (#2753 item 6).
+///
+/// The LIGHTER exit than [_EmployerContactRow]: OFF hides the worker from
+/// company SEARCH only. Applying still works, and a company he applied to can
+/// still open his contact. The server owns the state; a `404` means
+/// `SEARCH_EXIT_ENABLED` is off and the row is not drawn at all, while a `503`
+/// keeps it visible as a retry — never a silently broken switch.
+class _SearchVisibilityRow extends StatelessWidget {
+  const _SearchVisibilityRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocConsumer<SearchVisibilityCubit, SearchVisibilityState>(
+      listenWhen: (SearchVisibilityState prev, SearchVisibilityState curr) =>
+          prev.status == SearchVisibilityStatus.ready &&
+          curr.status == SearchVisibilityStatus.failed,
+      listener: (BuildContext context, SearchVisibilityState state) {
+        final Failure? failure = state.failure;
+        if (failure == null) return;
+        showBbAlert(
+          context,
+          title: 'Search setting save nahi hui',
+          message: failureReason(failure).reason,
+        );
+      },
+      builder: (BuildContext context, SearchVisibilityState state) {
+        // A `404` is the switch off: no control, exactly today's screen.
+        if (state.status == SearchVisibilityStatus.loading ||
+            state.status == SearchVisibilityStatus.unavailable) {
+          return const SizedBox.shrink();
+        }
+        final SearchVisibilityCubit cubit =
+            context.read<SearchVisibilityCubit>();
+        if (state.status == SearchVisibilityStatus.failed) {
+          return BbListRow.setting(
+            icon: Icons.manage_search_rounded,
+            title: 'Companies can find me in search',
+            subtitle: 'Status pata nahi chala — dobara try karein',
+            onTap: cubit.load,
+          );
+        }
+        return BbListRow.toggle(
+          icon: Icons.manage_search_rounded,
+          title: 'Companies can find me in search',
+          subtitle: state.visible
+              ? 'On — companies search mein aapko dekh sakti hain'
+              : 'Off — sirf search se hidden; apply karna band nahi',
+          value: state.visible,
+          enabled: state.isReady,
+          onChanged: (bool on) => cubit.setVisible(on),
         );
       },
     );

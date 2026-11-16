@@ -199,6 +199,10 @@ class JobsCubit extends Cubit<JobsState> {
     /// rung/answers and derives `match_skill_ids` from the chips.
     String? tradeLevel,
     Map<String, List<String>>? tradeAnswers,
+    // #2746 — sent only when the audience picker was shown.
+    JobAudience? audience,
+    List<int>? rvmBranchIds,
+    List<String>? rvmCourseIds,
     List<JobPostingClearField>? clear,
   }) =>
       _lifecycle(
@@ -222,6 +226,9 @@ class JobsCubit extends Cubit<JobsState> {
           requirements: requirements,
           tradeLevel: tradeLevel,
           tradeAnswers: tradeAnswers,
+          audience: audience,
+          rvmBranchIds: rvmBranchIds,
+          rvmCourseIds: rvmCourseIds,
           clear: clear,
         ),
         okMessage: 'Job updated.',

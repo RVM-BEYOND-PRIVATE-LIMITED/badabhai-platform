@@ -32,6 +32,7 @@ import '../../../core/widgets/bb_toast.dart';
 import 'widgets/job_content_input.dart';
 import 'widgets/job_form_rules.dart';
 import 'widgets/match_skill_picker.dart';
+import 'widgets/posting_audience_fields.dart';
 import 'widgets/trade_posting_fields.dart';
 import 'widgets/voice_description_control.dart';
 import '../../../core/theme/bb_palette.dart';
@@ -240,6 +241,18 @@ class _PostJobScreenState extends State<PostJobScreen> {
   String _tradeLevel = '';
   Map<String, List<String>> _tradeAnswers = const <String, List<String>>{};
 
+  // --- #2746 — audience and RVM targeting (company postings only) ------------
+  // `_audienceOptions` is null until `GET audience-options` answers 200; a 404
+  // (the switch is off) leaves it null and hides every audience control, so the
+  // form stays exactly what it was and sends none of the fields.
+  AudienceOptions? _audienceOptions;
+  JobAudience _audience = JobAudience.badabhaiWorkers;
+  final Set<int> _rvmBranchIds = <int>{};
+  final Set<String> _rvmCourseIds = <String>{};
+  // Set only by a payer tap, never by the options read: the snapshot is captured
+  // before that async read and must not become "dirty" when it lands.
+  bool _audienceTouched = false;
+
   /// Coarse structured demand attributes. Null = "not set", so we never
   /// fabricate a shift/timing the payer did not choose (#357).
   String? _shift;
@@ -303,6 +316,32 @@ class _PostJobScreenState extends State<PostJobScreen> {
     // ignore: discarded_futures — the 16-trade form catalogue. The company
     // form cannot post without it (#2635), so its failure is said, not hidden.
     _loadPostingTrades();
+    // ignore: discarded_futures — #2746 audience options. A neutral 404 (switch
+    // off) hides the controls; any other failure also leaves them hidden so a
+    // feature read never blocks posting.
+    _loadAudienceOptions();
+  }
+
+  /// Load the audience options. Only a 200 shows the controls; a 404 (the
+  /// `job_audience` switch is off for this company) or any other failure leaves
+  /// them hidden and sends none of the fields.
+  Future<void> _loadAudienceOptions() async {
+    try {
+      final AudienceOptions? options =
+          await locator<PayerApiClient>().fetchAudienceOptions();
+      if (!mounted) return;
+      setState(() {
+        _audienceOptions = options;
+        if (options != null &&
+            !options.audiences.contains(_audience) &&
+            options.audiences.isNotEmpty) {
+          _audience = options.audiences.first;
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _audienceOptions = null);
+    }
   }
 
   @override
@@ -477,7 +516,11 @@ class _PostJobScreenState extends State<PostJobScreen> {
           },
         ),
         BbFieldError(text: _skillCapError),
-        if (_reach != null) ...<Widget>[
+        // #2746 — an RVM-only job reaches no BadaBhai worker by design, so do
+        // not print a BadaBhai "reaches N" line it never had.
+        if (_reach != null &&
+            !(_audienceOptions != null &&
+                _audience == JobAudience.rvmStudents)) ...<Widget>[
           const SizedBox(height: AppSpacing.s3),
           Text(
             _reach!.zeroReach
@@ -559,6 +602,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
         // posted skills exactly as its publish will. Agency jobs are not
         // scoped by trade, so their preview stays as it was.
         roleKind: _isAgency ? null : _roleKind,
+        // #2746 — an RVM-only audience reaches no BadaBhai worker by design;
+        // sent only when the picker was shown.
+        audience: _isAgency || _audienceOptions == null ? null : _audience,
       );
       if (!mounted || seq != _reachSeq) return;
       setState(() {
@@ -745,7 +791,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// True when leaving would throw input away: anything entered since the form
   /// opened, until the post goes through.
   bool get _hasUnsavedChanges =>
-      !_posted && !listEquals(_snapshot(), _pristine);
+      !_posted && (!listEquals(_snapshot(), _pristine) || _audienceTouched);
 
   /// What [field] holds now. A server refusal is pinned to it
   /// ([BbFormErrors.refuse]) and stands until it changes.
@@ -888,6 +934,13 @@ class _PostJobScreenState extends State<PostJobScreen> {
         // rung is display-only and omitted until picked.
         tradeLevel: _tradeLevel.isEmpty ? null : _tradeLevel,
         tradeAnswers: _tradeAnswers,
+        // #2746 — only when the audience options answered 200 (switch on). An
+        // empty targeting set means every branch / every course.
+        audience: _audienceOptions == null ? null : _audience,
+        rvmBranchIds:
+            _audienceOptions == null ? null : _rvmBranchIds.toList(growable: false),
+        rvmCourseIds:
+            _audienceOptions == null ? null : _rvmCourseIds.toList(growable: false),
       );
 
       // …and land whatever the create route dropped (see [_landDisplayFields]).
@@ -1641,6 +1694,34 @@ class _PostJobScreenState extends State<PostJobScreen> {
             labelOf: (String b) => b,
             onSelected: (String v) => setState(() => _band = v),
           ),
+          if (_audienceOptions != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.s4),
+            PostingAudienceFields(
+              options: _audienceOptions!,
+              audience: _audience,
+              branchIds: _rvmBranchIds,
+              courseIds: _rvmCourseIds,
+              onChanged: (
+                JobAudience audience,
+                Set<int> branchIds,
+                Set<String> courseIds,
+              ) {
+                setState(() {
+                  _audience = audience;
+                  _rvmBranchIds
+                    ..clear()
+                    ..addAll(branchIds);
+                  _rvmCourseIds
+                    ..clear()
+                    ..addAll(courseIds);
+                  _audienceTouched = true;
+                });
+                _reachDebounce?.cancel();
+                setState(() => _reach = null);
+                _scheduleReach();
+              },
+            ),
+          ],
         ]),
         const SizedBox(height: AppSpacing.s4),
         // Whole rupees, not free text — and sent as the posting's own pay

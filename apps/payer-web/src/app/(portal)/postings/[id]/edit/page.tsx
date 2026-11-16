@@ -1,8 +1,12 @@
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
-import { getPostingDetail, listMatchSkills } from "../../../../../lib/payer-api";
+import {
+  getAudienceOptions,
+  getPostingDetail,
+  listMatchSkills,
+} from "../../../../../lib/payer-api";
 import { requirePayer } from "../../../../../lib/auth";
-import type { MatchSkillWire } from "../../../../../lib/contracts";
+import type { AudienceOptions, MatchSkillWire } from "../../../../../lib/contracts";
 import { TRADE_REQUIRED_PARAM, isTradeRequiredParam } from "../../../../../lib/posting-trades";
 import { readPostingTrades } from "../../../../../lib/posting-trades.server";
 import { Badge } from "../../../../../components/ds";
@@ -61,6 +65,16 @@ export default async function EditPostingPage({
   // picker names the cause with a Retry, and a publish waits for the trades.
   const { trades: postingTrades, problem: postingTradesProblem } = await readPostingTrades();
 
+  // #2746 — the audience options. A neutral 404/403 hides every audience control (the switch is
+  // off) and the form sends none of the fields; a real failure is swallowed too, never blocking an
+  // edit of the rest of the posting.
+  let audienceOptions: AudienceOptions | null = null;
+  try {
+    audienceOptions = await getAudienceOptions();
+  } catch {
+    audienceOptions = null;
+  }
+
   const { summary, card, description } = detail;
 
   // The page head leads the FORM column, so the card-preview rail starts beside it at the top.
@@ -95,6 +109,7 @@ export default async function EditPostingPage({
       matchSkills={matchSkills}
       postingTrades={postingTrades}
       postingTradesProblem={postingTradesProblem}
+      audienceOptions={audienceOptions}
       tradeRequired={isTradeRequiredParam(query[TRADE_REQUIRED_PARAM])}
       matchSelection={{
         matchSkillIds: detail.matchSkillIds,
@@ -119,6 +134,10 @@ export default async function EditPostingPage({
         benefits: card.benefits,
         tradeLevel: detail.tradeLevel,
         tradeAnswers: detail.tradeAnswers,
+        audience: detail.audience,
+        rvmBranchIds: detail.rvmBranchIds,
+        rvmCourseIds: detail.rvmCourseIds,
+        rvmReview: detail.rvmReview,
       }}
       lead={lead}
     />

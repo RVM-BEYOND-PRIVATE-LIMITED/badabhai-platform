@@ -5,6 +5,7 @@ import { IconButtonBase } from "@badabhai/icons/button";
 import { Badge, Button, Card } from "../../../components/ds";
 import type { CandidateSearchRow } from "../../../lib/contracts";
 import { workerHandle } from "../../../lib/masking";
+import { NOT_RECENTLY_ACTIVE_LABEL } from "../../../lib/activity-mark";
 
 /**
  * ALL CANDIDATES — the card list's spend → reveal flow, DRIVEN (the applicant feed's harness:
@@ -367,8 +368,28 @@ describe("the reveal and the masked résumé — no posting context", () => {
   });
 });
 
-describe("a SAMPLE row (R74) — badged, never offered an unlock", () => {
+describe("#2753 item 7 — the not-recently-active mark", () => {
   const badges = (scope: ReactNode) =>
+    elements(scope)
+      .filter((el) => el.type === Badge)
+      .map((el) => textOf(el.props.children as ReactNode).trim());
+
+  it("draws the server's mark on exactly the rows it marks", () => {
+    mount([row(W1), row(W2, { notRecentlyActive: true })]);
+    const [quiet, marked] = cards();
+    expect(badges(quiet!)).not.toContain(NOT_RECENTLY_ACTIVE_LABEL);
+    expect(badges(marked!)).toContain(NOT_RECENTLY_ACTIVE_LABEL);
+  });
+
+  it("draws nothing when the key is absent (activity switch off)", () => {
+    mount([row(W1), row(W2)]);
+    for (const card of cards()) {
+      expect(badges(card)).not.toContain(NOT_RECENTLY_ACTIVE_LABEL);
+    }
+  });
+});
+
+describe("a SAMPLE row (R74) — badged, never offered an unlock", () => {  const badges = (scope: ReactNode) =>
     elements(scope)
       .filter((el) => el.type === Badge)
       .map((el) => textOf(el.props.children as ReactNode).trim());

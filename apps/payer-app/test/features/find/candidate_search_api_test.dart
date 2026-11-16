@@ -162,6 +162,25 @@ void main() {
       }
     });
 
+    test('#2753 item 7: notRecentlyActive reads only a literal true', () async {
+      final Map<String, dynamic> response =
+          Map<String, dynamic>.of(_fixture['response'] as Map<String, dynamic>);
+      final List<dynamic> rows =
+          List<dynamic>.of(response['candidates'] as List<dynamic>);
+      final Map<String, dynamic> first =
+          Map<String, dynamic>.of(rows.first as Map<String, dynamic>);
+      rows[0] = <String, dynamic>{...first, 'notRecentlyActive': true};
+      response['candidates'] = rows;
+
+      final h = _harness(<String, http.Response>{_search: _json(response)});
+      final CandidateSearchPage page =
+          await h.api.searchCandidates(const CandidateSearchQuery());
+
+      expect(page.candidates.first.notRecentlyActive, isTrue);
+      expect(page.candidates.last.notRecentlyActive, isFalse,
+          reason: 'an absent key reads as no mark, exactly today’s card');
+    });
+
     test('a broken row is dropped; the rest of the page survives', () async {
       final Map<String, dynamic> body = Map<String, dynamic>.of(
           _fixture['response'] as Map<String, dynamic>);

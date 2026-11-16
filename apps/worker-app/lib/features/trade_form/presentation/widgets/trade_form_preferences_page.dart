@@ -694,11 +694,14 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// "Kab se available hain?" — the stored `availability.status`, one card
   /// per SERVED option (`availability_status`, the dictionary the PUT's strict
   /// enum validates, so a card can never 400; the static copy only covers a
-  /// server that predates the key). Re-tapping the picked card clears it,
-  /// like every single-select here. The trailing "Kuch aur" card opens a
-  /// free-text box whose Hinglish duration is parsed into the same closed
-  /// status + notice days ([parseAvailabilityFreeText]); rubbish parses to
-  /// null and keeps availability empty.
+  /// server that predates the key). The server serves EITHER answer set
+  /// (#2753 item 3: the first four, or `join_now` / `in_15_days` /
+  /// `in_30_days` / `working_open`) and this page renders exactly what it is
+  /// handed. Re-tapping the picked card clears it, like every single-select
+  /// here. The trailing "Kuch aur" card opens a free-text box whose Hinglish
+  /// duration is parsed into a closed status + notice days
+  /// ([parseAvailabilityFreeText]); rubbish parses to null and keeps
+  /// availability empty.
   Widget _availabilityStatusPage(WorkPrefOptionsDto options) {
     final Map<String, String> labels = options.availabilityStatus.isEmpty
         ? kAvailabilityStatusLabels

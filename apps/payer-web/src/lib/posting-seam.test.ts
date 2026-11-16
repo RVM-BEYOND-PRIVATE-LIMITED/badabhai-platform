@@ -42,6 +42,10 @@ const ALLOWED_KEYS = new Set([
   "role_kind",
   "match_skill_ids",
   "unticked_related_ids",
+  // #2746 — audience + RVM targeting.
+  "audience",
+  "rvm_branch_ids",
+  "rvm_course_ids",
 ]);
 
 const ORG = "Acme Manufacturing";
@@ -85,6 +89,29 @@ describe("toPayerJobPostingBody — carries every card key + role_kind (PR-B lin
     expect(body.needed_by).toBe("immediate");
     expect(body.requirements).toEqual(["Fanuc control"]);
     expect(body.benefits).toEqual(["PF + ESI"]);
+  });
+
+  it("#2746 carries audience + RVM targeting only when the form set them (empty = all)", () => {
+    const withAudience = toPayerJobPostingBody(
+      { ...MINIMAL_INPUT, audience: "both", rvmBranchIds: [1, 2], rvmCourseIds: ["cnc"] },
+      ORG,
+    );
+    expect(withAudience.audience).toBe("both");
+    expect(withAudience.rvm_branch_ids).toEqual([1, 2]);
+    expect(withAudience.rvm_course_ids).toEqual(["cnc"]);
+
+    const all = toPayerJobPostingBody(
+      { ...MINIMAL_INPUT, audience: "rvm_students", rvmBranchIds: [], rvmCourseIds: [] },
+      ORG,
+    );
+    expect(all.audience).toBe("rvm_students");
+    expect(all.rvm_branch_ids).toEqual([]);
+    expect(all.rvm_course_ids).toEqual([]);
+
+    const off = toPayerJobPostingBody(MINIMAL_INPUT, ORG);
+    expect(off).not.toHaveProperty("audience");
+    expect(off).not.toHaveProperty("rvm_branch_ids");
+    expect(off).not.toHaveProperty("rvm_course_ids");
   });
 
   it("emits EXACTLY ONE of vacancy_band|vacancies (the RAW count, never a band)", () => {
@@ -185,6 +212,19 @@ describe("toPayerJobPostingPatchBody — card keys + clear diff + publish (PR-B)
   it("NEVER carries trade_key / payer_id / created_by", () => {
     const body = toPayerJobPostingPatchBody(FULL_UPDATE_INPUT);
     for (const k of ["trade_key", "payer_id", "created_by"]) expect(body).not.toHaveProperty(k);
+  });
+
+  it("#2746 carries audience + targeting on PATCH, never through `clear`", () => {
+    const body = toPayerJobPostingPatchBody(
+      { roleTitle: "CNC Machinist", audience: "both", rvmBranchIds: [2], rvmCourseIds: ["vmc"] },
+      INITIAL_FULL,
+    );
+    expect(body.audience).toBe("both");
+    expect(body.rvm_branch_ids).toEqual([2]);
+    expect(body.rvm_course_ids).toEqual(["vmc"]);
+    expect(body.clear as string[]).not.toContain("audience");
+    expect(body.clear as string[]).not.toContain("rvm_branch_ids");
+    expect(body.clear as string[]).not.toContain("rvm_course_ids");
   });
 
   it("computes `clear` from the diff — a field present in initial but blank now is unset", () => {

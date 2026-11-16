@@ -317,6 +317,7 @@ class AppliedJob extends Equatable {
     required this.createdAt,
     required this.updatedAt,
     this.matchedSkillLabel,
+    this.via = 'app',
   });
 
   final String jobId;
@@ -351,6 +352,14 @@ class AppliedJob extends Equatable {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  /// Who created the application (#2753 item 8, additive, never null):
+  /// `'app'` for an application the worker made in the app, `'campus'` for one
+  /// BadaBhai Campus created for an RVM student. A Campus row with no readable
+  /// job is information only — the screen must not open the job page for it.
+  final String via;
+
+  bool get appliedViaCampus => via == 'campus';
+
   static DateTime _date(Object? v) =>
       DateTime.tryParse(v as String? ?? '') ??
       DateTime.fromMillisecondsSinceEpoch(0);
@@ -368,6 +377,7 @@ class AppliedJob extends Equatable {
         createdAt: _date(json['created_at']),
         updatedAt: _date(json['updated_at']),
         matchedSkillLabel: json['matched_skill_label'] as String?,
+        via: json['via'] as String? ?? 'app',
       );
 
   @override
@@ -384,6 +394,7 @@ class AppliedJob extends Equatable {
         createdAt,
         updatedAt,
         matchedSkillLabel,
+        via,
       ];
 }
 
@@ -3329,10 +3340,16 @@ const Map<String, String> kSalaryPeriodLabels = <String, String>{
 };
 
 const Map<String, String> kAvailabilityStatusLabels = <String, String>{
+  // Layer A (c) — the first answer set, still read for an old stored answer.
   'immediate': 'Turant uplabdh',
   'within_week': 'Ek hafte mein',
   'within_month': 'Ek mahine mein',
   'serving_notice': 'Notice period mein',
+  // #2753 item 3 — the brief's four answers (AVAILABILITY_ANSWERS_V2_ENABLED).
+  'join_now': 'Abhi join kar sakte hain',
+  'in_15_days': '15 din mein',
+  'in_30_days': '30 din mein',
+  'working_open': 'Kaam kar rahe hain, behtar offer ke liye taiyaar',
 };
 
 class WorkPrefOptionsDto extends Equatable {
@@ -5252,6 +5269,81 @@ class ConsentStateDto extends Equatable {
   @override
   List<Object?> get props =>
       <Object?>[consentId, consentVersion, acceptedAt, revokedAt, purposes];
+}
+
+/// `GET /consent/notice` (#2753 item 13) — the notice facts from the server, so
+/// the app stops hard-coding the version (`kConsentVersion`).
+///
+/// The SERVER decides which version and whether a published notice link exists:
+/// [noticeUrl] is null while none is configured, and the screen must then show
+/// no link. [employerContactVersions] are the versions whose screen showed the
+/// employer-sharing copy (a grant at any other version is a 400).
+class ConsentNoticeDto extends Equatable {
+  const ConsentNoticeDto({
+    required this.version,
+    this.employerContactVersions = const <String>[],
+    this.noticeUrl,
+  });
+
+  final String version;
+  final List<String> employerContactVersions;
+  final String? noticeUrl;
+
+  factory ConsentNoticeDto.fromJson(Map<String, dynamic> json) {
+    final String? rawUrl = json['notice_url'] as String?;
+    return ConsentNoticeDto(
+      version: json['version'] as String? ?? '',
+      employerContactVersions:
+          (json['employer_contact_versions'] as List<dynamic>?)
+                  ?.whereType<String>()
+                  .toList() ??
+              const <String>[],
+      noticeUrl: rawUrl == null || rawUrl.isEmpty ? null : rawUrl,
+    );
+  }
+
+  @override
+  List<Object?> get props =>
+      <Object?>[version, employerContactVersions, noticeUrl];
+}
+
+/// `GET|PUT /workers/me/search-visibility` (#2753 item 6) — whether companies
+/// can find the worker in search, and since when he has been hidden.
+///
+/// The server decides both: the client never derives the flag from anything
+/// local, and `hidden_since` (an ISO instant) is printed only when present.
+class SearchVisibilityDto extends Equatable {
+  const SearchVisibilityDto({required this.visible, this.hiddenSince});
+
+  final bool visible;
+  final String? hiddenSince;
+
+  factory SearchVisibilityDto.fromJson(Map<String, dynamic> json) =>
+      SearchVisibilityDto(
+        visible: json['visible'] == true,
+        hiddenSince: json['hidden_since'] as String?,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[visible, hiddenSince];
+}
+
+/// `GET /referrals/helper?code=` (unauthenticated, #2753 item 12) — the
+/// helper's display name for the pre-code screen.
+///
+/// The body is the same for a name and for every null; the switch is off with a
+/// 404. The screen shows its confirmation line only for a non-empty name, and
+/// only once the approved copy lands (it has not: see worker-referrals docs).
+class ReferralHelperDto extends Equatable {
+  const ReferralHelperDto({this.displayName});
+
+  final String? displayName;
+
+  factory ReferralHelperDto.fromJson(Map<String, dynamic> json) =>
+      ReferralHelperDto(displayName: json['display_name'] as String?);
+
+  @override
+  List<Object?> get props => <Object?>[displayName];
 }
 
 /// The outcome of POST /consent/employer-contact/withdraw (E0 C-2).
