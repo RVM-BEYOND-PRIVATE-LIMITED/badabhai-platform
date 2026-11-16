@@ -403,6 +403,46 @@ describe("POST /payer/credits/order — the charged amount is the CATALOG price"
     expect(d.repo.createPaymentOrder).not.toHaveBeenCalled();
   });
 
+  it("#2749: a constant-only code (pack_10, pack_25) is not orderable — no provider order, no row", async () => {
+    expect(await d.svc.createCreditOrder(PAYER, "pack_10", CTX)).toBeNull();
+    expect(await d.svc.createCreditOrder(PAYER, "pack_25", CTX)).toBeNull();
+    expect(d.razorpay.createOrder).not.toHaveBeenCalled();
+    expect(d.repo.createPaymentOrder).not.toHaveBeenCalled();
+    expect(emitted(d.events)).toEqual([]);
+  });
+
+  it("#2749: a hidden catalogue pack (future onSaleFrom, offered:false) is not orderable", async () => {
+    d.pricing.getActiveCatalog.mockResolvedValue({
+      catalog: {
+        ...DEFAULT_CATALOG,
+        products: DEFAULT_CATALOG.products.map((p) =>
+          p.kind === "credit_pack" && p.code === "contact_unlock"
+            ? {
+                ...p,
+                tiers: [
+                  { code: "pack_50", priceInr: 2000, credits: 50, windowDays: 14, offered: false },
+                  {
+                    code: "pack_annual",
+                    priceInr: 9999,
+                    credits: 360,
+                    windowDays: 14,
+                    onSaleFrom: "2999-01-01",
+                  },
+                ],
+              }
+            : p,
+        ),
+      } as typeof DEFAULT_CATALOG,
+      revision: 3,
+      source: "db" as const,
+    });
+    expect(await d.svc.createCreditOrder(PAYER, "pack_50", CTX)).toBeNull();
+    expect(await d.svc.createCreditOrder(PAYER, "pack_annual", CTX)).toBeNull();
+    expect(d.razorpay.createOrder).not.toHaveBeenCalled();
+    expect(d.repo.createPaymentOrder).not.toHaveBeenCalled();
+    expect(emitted(d.events)).toEqual([]);
+  });
+
   it("emits exactly ONE payment.authorized, with real_call TRUE and no PII", async () => {
     await d.svc.createCreditOrder(PAYER, "pack_50", CTX);
     expect(emitted(d.events)).toEqual(["payment.authorized"]);
@@ -842,6 +882,14 @@ describe("PAYMENTS_ENABLE_REAL=false — the mock path is unchanged and remains 
     // No provider was contacted and no order row exists.
     expect(d.razorpay.createOrder).not.toHaveBeenCalled();
     expect(d.repo.createPaymentOrder).not.toHaveBeenCalled();
+  });
+
+  it("#2749: the mock route refuses a constant-only code — no credits, no ledger row, no event", async () => {
+    const d = makeMockService();
+    await expect(d.svc.purchaseCredits(PAYER, "pack_10", CTX)).resolves.toBeNull();
+    await expect(d.svc.purchaseCredits(PAYER, "pack_25", CTX)).resolves.toBeNull();
+    expect(d.repo.creditPack).not.toHaveBeenCalled();
+    expect(emitted(d.events)).toEqual([]);
   });
 
   it("#2085: a matching expected_price_inr buys the pack; a mismatch leaves the ledger untouched", async () => {

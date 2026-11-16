@@ -1,10 +1,47 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { DEFAULT_CATALOG, parseCatalog, type Catalog } from "@badabhai/pricing";
-import { PayerPricingController } from "./payer-pricing.controller";
+import {
+  DEFAULT_CATALOG,
+  formatPackPriceLine,
+  gstPriceLine,
+  parseCatalog,
+  type Catalog,
+  type CreditPackTier,
+} from "@badabhai/pricing";
+import {
+  PayerPricingController,
+  type PayerCreditPackProduct,
+  type PayerProduct,
+} from "./payer-pricing.controller";
 import { PayerAuthGuard } from "../payers/payer-auth.guard";
 import { PricingService } from "../pricing/pricing.service";
 import { PaymentGateway } from "../unlocks/payment-gateway";
+
+/** The credit-pack product of a payer catalogue view, if it has one. */
+const creditPackOf = (products: readonly PayerProduct[]): PayerCreditPackProduct | undefined =>
+  products.find((p): p is PayerCreditPackProduct => p.kind === "credit_pack");
+
+/** DEFAULT_CATALOG with its `contact_unlock` tiers replaced (parsed, like a stored row). */
+const withPackTiers = (tiers: CreditPackTier[]): Catalog =>
+  parseCatalog({
+    ...DEFAULT_CATALOG,
+    products: DEFAULT_CATALOG.products.map((p) => (p.kind === "credit_pack" ? { ...p, tiers } : p)),
+  });
+
+/** The brief's packs (#2749) as a stored row would carry them, Annual held until 1 Apr 2027. */
+const BRIEF_TIERS: CreditPackTier[] = [
+  { code: "pack_starter", priceInr: 999, credits: 20, windowDays: 14, validityDays: 30 },
+  { code: "pack_standard", priceInr: 1599, credits: 40, windowDays: 14, validityDays: 60 },
+  { code: "pack_big", priceInr: 2999, credits: 100, windowDays: 14, validityDays: 90 },
+  {
+    code: "pack_annual",
+    priceInr: 9999,
+    credits: 360,
+    windowDays: 14,
+    validityDays: 365,
+    onSaleFrom: "2027-04-01",
+  },
+];
 
 /**
  * Payer-facing catalog read (context-drift D-6, extended by #2085) — the projection contract.
@@ -41,7 +78,22 @@ describe("PayerPricingController — GET /payer/pricing/catalog (D-6 + #2085)", 
     expect(getActive).toHaveBeenCalledTimes(1);
     expect(res.revision).toBe(3);
     expect(res.source).toBe("db");
-    expect(res.products).toEqual(DEFAULT_CATALOG.products);
+    // Every non-credit-pack product ships exactly as the catalog holds it (#2749 item 11 is later).
+    expect(res.products.filter((p) => p.kind !== "credit_pack")).toEqual(
+      DEFAULT_CATALOG.products.filter((p) => p.kind !== "credit_pack"),
+    );
+    // Credit packs are projected (#2749): same codes, prices, credits and window, in order.
+    const packs = creditPackOf(res.products)!;
+    const source = DEFAULT_CATALOG.products.find((p) => p.kind === "credit_pack")!;
+    expect(packs.code).toBe(source.code);
+    expect(
+      packs.tiers.map(({ code, priceInr, credits, windowDays }) => ({
+        code,
+        priceInr,
+        credits,
+        windowDays,
+      })),
+    ).toEqual(source.tiers);
   });
 
   it("the top-level keys are the D-6 ones plus the additive #2085 `prices` + `priced_at`", async () => {
@@ -193,7 +245,25 @@ describe("PayerPricingController — GET /payer/pricing/catalog (D-6 + #2085)", 
       "validityDays",
     ]);
     expect(keysFor("boost")).toEqual(["boostDays", "code", "priceInr"]);
-    expect(keysFor("credit_pack")).toEqual(["code", "credits", "priceInr", "windowDays"]);
+    // #2749: the credit-pack tier is a WHITELIST — `price` and `validityDays` are deliberate;
+    // `onSaleFrom` / `offered` are never on it.
+    expect(keysFor("credit_pack")).toEqual([
+      "code",
+      "credits",
+      "price",
+      "priceInr",
+      "validityDays",
+      "windowDays",
+    ]);
+    const pack = creditPackOf(products)!.tiers[0]!;
+    expect(Object.keys(pack.price).sort()).toEqual([
+      "display",
+      "gstPaise",
+      "gstRateBps",
+      "roundOffPaise",
+      "taxablePaise",
+      "totalPaise",
+    ]);
     expect(keysFor("capacity")).toEqual([
       "code",
       "maxActiveVacancies",
@@ -228,5 +298,151 @@ describe("PayerPricingController — GET /payer/pricing/catalog (D-6 + #2085)", 
     const guards =
       (Reflect.getMetadata("__guards__", PayerPricingController) as unknown[] | undefined) ?? [];
     expect(guards).toContain(PayerAuthGuard);
+  });
+});
+
+describe("GET /payer/pricing/catalog — credit packs on sale only, with GST (#2749)", () => {
+  /** A controller over a stored row holding `tiers` as its packs. */
+  function makeCtrl(tiers: CreditPackTier[]) {
+    const getActive = vi.fn().mockResolvedValue({ catalog: withPackTiers(tiers), revision: 9 });
+    const pricing = new PricingService({ getActive } as never, { emit: vi.fn() } as never);
+    return { ctrl: new PayerPricingController(pricing), pricing };
+  }
+  const BEFORE_ANNUAL = new Date("2027-03-31T18:29:59Z");
+  const ANNUAL_ON_SALE = new Date("2027-03-31T18:30:00Z");
+
+  it("a pack with a FUTURE onSaleFrom is absent — from products, prices and the whole body", async () => {
+    const { pricing } = makeCtrl(BRIEF_TIERS);
+    const view = await pricing.getPayerCatalog(BEFORE_ANNUAL);
+    expect(creditPackOf(view.products)!.tiers.map((t) => t.code)).toEqual([
+      "pack_starter",
+      "pack_standard",
+      "pack_big",
+    ]);
+    expect(view.prices.map((p) => p.tier_code)).not.toContain("pack_annual");
+    // Nothing about the hidden pack ships: not its code, price, credits or date.
+    expect(JSON.stringify(view)).not.toMatch(/pack_annual|9999|2027-04-01|onSaleFrom|offered/);
+  });
+
+  it("the same pack is listed from 00:00 IST on its date (the IST boundary)", async () => {
+    const { pricing } = makeCtrl(BRIEF_TIERS);
+    const view = await pricing.getPayerCatalog(ANNUAL_ON_SALE);
+    const annual = creditPackOf(view.products)!.tiers.find((t) => t.code === "pack_annual");
+    expect(annual).toMatchObject({ priceInr: 9999, credits: 360, validityDays: 365 });
+    expect(annual!.price.display).toBe("₹9,999 plus GST (₹11,799)");
+    expect(view.prices.find((p) => p.tier_code === "pack_annual")).toMatchObject({
+      price_inr: 9999,
+    });
+    // Its date still never ships, now that it is on sale.
+    expect(JSON.stringify(view)).not.toMatch(/onSaleFrom|offered|2027-04-01/);
+  });
+
+  it("an offered:false pack is absent, whatever the date", async () => {
+    const { ctrl } = makeCtrl([
+      { code: "pack_50", priceInr: 2000, credits: 50, windowDays: 14 },
+      { code: "pack_retired", priceInr: 1234, credits: 12, windowDays: 14, offered: false },
+    ]);
+    const res = await ctrl.getCatalog();
+    expect(creditPackOf(res.products)!.tiers.map((t) => t.code)).toEqual(["pack_50"]);
+    expect(JSON.stringify(res)).not.toMatch(/pack_retired|1234|offered/);
+  });
+
+  it("a credit-pack product with NOTHING on sale is left out (an empty tier list fails productSchema)", async () => {
+    const { ctrl } = makeCtrl([
+      { code: "pack_retired", priceInr: 1234, credits: 12, windowDays: 14, offered: false },
+    ]);
+    const res = await ctrl.getCatalog();
+    expect(creditPackOf(res.products)).toBeUndefined();
+    expect(res.products.length).toBe(DEFAULT_CATALOG.products.length - 1);
+    expect(res.prices.some((p) => p.product_code === "contact_unlock")).toBe(false);
+  });
+
+  it("an UNKNOWN or future tier field never leaks (the tier is a whitelist, not the stored object)", async () => {
+    const { ctrl, pricing } = makeCtrl(BRIEF_TIERS);
+    // Bypass the schema's own key-stripping: a field the catalogue schema may carry tomorrow
+    // must still not ship unless the projection names it.
+    const catalog = withPackTiers(BRIEF_TIERS);
+    const packs = catalog.products.find((p) => p.kind === "credit_pack")!;
+    (packs.tiers[0] as Record<string, unknown>).internalCostInr = 123;
+    (packs.tiers[0] as Record<string, unknown>).supplierRef = "acct_secret";
+    vi.spyOn(pricing, "getActiveCatalog").mockResolvedValue({ catalog, revision: 9, source: "db" });
+    const body = JSON.stringify(await ctrl.getCatalog());
+    expect(body).not.toMatch(/internalCostInr|supplierRef|acct_secret/);
+  });
+
+  it("each price line is the GST function's output for the charged price", async () => {
+    const { ctrl } = makeCtrl(BRIEF_TIERS);
+    const { products, prices } = await ctrl.getCatalog();
+    const tiers = creditPackOf(products)!.tiers;
+    expect(tiers.length).toBeGreaterThan(0);
+    for (const tier of tiers) {
+      const charged = prices.find((p) => p.tier_code === tier.code)!.price_inr;
+      expect(charged).toBe(tier.priceInr); // credit packs: list price, no offer
+      expect(tier.price).toEqual({
+        ...gstPriceLine(charged),
+        display: formatPackPriceLine(charged),
+      });
+    }
+    // The brief's lines (B4C-06) and totals (the issue's table), in paise.
+    const byCode = new Map(tiers.map((t) => [t.code, t]));
+    expect(byCode.get("pack_starter")!.price).toEqual({
+      taxablePaise: 99_900,
+      gstPaise: 17_982,
+      roundOffPaise: 18,
+      totalPaise: 117_900,
+      gstRateBps: 1800,
+      display: "₹999 plus GST (₹1,179)",
+    });
+    expect(byCode.get("pack_standard")!.price.display).toBe("₹1,599 plus GST (₹1,887)");
+    expect(byCode.get("pack_big")!.price.display).toBe("₹2,999 plus GST (₹3,539)");
+    expect(byCode.get("pack_starter")!.validityDays).toBe(30);
+    expect(byCode.get("pack_standard")!.validityDays).toBe(60);
+    expect(byCode.get("pack_big")!.validityDays).toBe(90);
+  });
+
+  it("validityDays is null for a pack that sets none (every DEFAULT_CATALOG pack today)", async () => {
+    const defaultPacks = DEFAULT_CATALOG.products.find((p) => p.kind === "credit_pack")!;
+    const res = await makeCtrl(defaultPacks.tiers).ctrl.getCatalog();
+    for (const tier of creditPackOf(res.products)!.tiers) {
+      expect(tier.validityDays).toBeNull();
+      expect(tier.windowDays).toBe(14); // the old access window, kept for older readers
+    }
+  });
+
+  it("the response still parses with the shared productSchema payer-web reads it with", async () => {
+    const { productSchema } = await import("@badabhai/pricing");
+    const { products } = await makeCtrl(BRIEF_TIERS).ctrl.getCatalog();
+    for (const product of products) expect(productSchema.safeParse(product).success).toBe(true);
+  });
+
+  it("the catalogue and the purchase path agree on what is on sale (shown == orderable)", async () => {
+    const { pricing } = makeCtrl(BRIEF_TIERS);
+    const gw = new PaymentGateway(
+      { creditPack: vi.fn() } as never,
+      { PAYMENTS_ENABLE_REAL: false } as never,
+      pricing,
+      { isLive: false, keyId: null } as never,
+    );
+    for (const now of [BEFORE_ANNUAL, ANNUAL_ON_SALE]) {
+      const shown = creditPackOf((await pricing.getPayerCatalog(now)).products)!.tiers;
+      for (const tier of BRIEF_TIERS) {
+        const listed = shown.find((t) => t.code === tier.code);
+        const orderable = await gw.resolvePack(tier.code, now);
+        expect(orderable === null).toBe(listed === undefined);
+        if (listed) {
+          expect(orderable).toMatchObject({ priceInr: listed.priceInr, credits: listed.credits });
+        }
+      }
+    }
+  });
+
+  it("B2-48: an agency and an employer read the same packs at the same prices (no payer input)", () => {
+    // The handler takes no argument — not the payer, not their role — and the route carries no
+    // role guard, so every authenticated payer (employer or agent) gets the identical body.
+    expect(PayerPricingController.prototype.getCatalog.length).toBe(0);
+    expect(Reflect.getMetadata("__guards__", PayerPricingController)).toEqual([PayerAuthGuard]);
+    expect(
+      Reflect.getMetadata("__guards__", PayerPricingController.prototype.getCatalog),
+    ).toBeUndefined();
   });
 });

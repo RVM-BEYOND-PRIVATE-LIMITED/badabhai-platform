@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { areRealPaymentsEnabled } from "@badabhai/config";
-import { CREDIT_PACKS, type CreditPack, type PaymentOrder } from "@badabhai/db";
+import type { CreditPack, PaymentOrder } from "@badabhai/db";
+import { isCreditPackOnSale, type Catalog, type CreditPackTier } from "@badabhai/pricing";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PricingService } from "../pricing/pricing.service";
@@ -12,6 +13,24 @@ import { RazorpayClient } from "./razorpay.client";
 
 /** The credit-pack product code in the pricing catalog (D-6). */
 const CREDIT_PACK_PRODUCT = "contact_unlock";
+
+/** The `contact_unlock` tier for `packCode` in `catalog`, or undefined. */
+function findCreditPackTier(catalog: Catalog, packCode: string): CreditPackTier | undefined {
+  const product = catalog.products.find(
+    (p) => p.kind === "credit_pack" && p.code === CREDIT_PACK_PRODUCT,
+  );
+  if (!product || product.kind !== "credit_pack") return undefined;
+  return product.tiers.find((t) => t.code === packCode);
+}
+
+/**
+ * A credit pack a purchase may charge for (#2749): a tier the ACTIVE catalogue lists and has on
+ * sale, priced through `chargeQuote`.
+ */
+export interface ResolvedPack extends CreditPack {
+  /** How long the pack's credits last, in days, or null when the catalogue sets none. */
+  readonly validityDays: number | null;
+}
 
 /**
  * The PaymentGateway / CreditService seam (ADR-0010 §D5 / Phase-0 F-6) — the single
@@ -123,44 +142,46 @@ export class PaymentGateway {
   }
 
   /**
-   * Resolve a credit pack by code from the LIVE catalog, falling back to the legacy
-   * compile-time constants. ASYNC since D-6.
+   * Resolve a credit pack a purchase may charge for: a `contact_unlock` tier the ACTIVE
+   * catalogue lists AND has on sale at `now`, else null (→ the caller's 404). ASYNC since D-6.
    *
-   * WHY (D-6 MEDIUM-1): the portal RENDERS the live `contact_unlock` tiers, so the CHARGE
-   * must read the SAME source or an ops price edit makes advertised ≠ charged (and, worse,
-   * advertised-credits ≠ granted-credits). Both sides were compile-time before D-6 and the
-   * values happened to match; that coupling is now explicit rather than coincidental. This
-   * mirrors what PostingPlansService already does for plan/boost/capacity/topup — one engine,
-   * one price. `getActiveCatalog` is itself fail-closed (an invalid stored row serves the
-   * typed default), so this can never resolve an unvalidated/negative price.
+   * WHY ONE SOURCE (D-6 MEDIUM-1): the portal RENDERS the live `contact_unlock` tiers, so the
+   * CHARGE must read the SAME source or an ops price edit makes advertised ≠ charged (and, worse,
+   * advertised-credits ≠ granted-credits). `getActiveCatalog` is itself fail-closed (an invalid
+   * stored row serves the typed default), so this can never resolve an unvalidated price.
    *
-   * LEGACY FALLBACK (invariant #8): `pack_10`/`pack_25` are RETAINED-but-not-OFFERED — they
-   * are absent from the catalog yet must still resolve for historical `credit_ledger.pack_code`
-   * references. A code the live catalog does not carry falls through to {@link CREDIT_PACKS};
-   * only a code in NEITHER is unknown (→ the caller's 404). The live catalog WINS on conflict
-   * (it is the ops-editable source of truth); the constant is a floor, never an override.
+   * ON SALE ONLY (#2749): the on-sale test is {@link isCreditPackOnSale}, the same one the payer
+   * catalogue read filters with, so a pack a payer cannot see cannot be ordered — `offered:false`
+   * and a future `onSaleFrom` resolve to null. There is NO constant fallback any more: a code the
+   * catalogue does not list (`pack_10`, `pack_25`, or any old code a published catalogue drops) is
+   * null too. Old codes stay READABLE where they are history (`credit_ledger.pack_code`,
+   * `payment_orders.pack_code`, the admin views), none of which call this.
+   *
+   * A catalog read failure propagates deliberately: unlike the DISPLAY seam (payer-web fails OPEN
+   * to cached prices), the CHARGE path must never invent a price — the caller surfaces the error
+   * and no money moves.
    */
-  async resolvePack(packCode: string): Promise<CreditPack | undefined> {
-    const live = await this.resolveLivePack(packCode);
-    return live ?? CREDIT_PACKS[packCode];
-  }
-
-  /**
-   * The `contact_unlock` tier for `packCode` from the ACTIVE catalog, or undefined when the
-   * catalog has no such tier (→ the legacy-constant fallback above). A catalog read failure
-   * propagates deliberately: unlike the DISPLAY seam (payer-web fails OPEN to cached prices),
-   * the CHARGE path must never invent a price — the caller surfaces the error and no money moves.
-   */
-  private async resolveLivePack(packCode: string): Promise<CreditPack | undefined> {
+  async resolvePack(packCode: string, now: Date = new Date()): Promise<ResolvedPack | null> {
     const { catalog } = await this.pricing.getActiveCatalog();
+    const tier = findCreditPackTier(catalog, packCode);
+    if (!tier || !isCreditPackOnSale(tier, now)) return null;
     // #2085: priced through `chargeQuote`, the ONE charge function the payer catalog also
     // displays through, so the ₹ shown for a pack is the ₹ this charges (list price — see
     // `chargeQuote` on why credit packs take no offer).
-    const result = chargeQuote(catalog, { productCode: CREDIT_PACK_PRODUCT, tierCode: packCode });
-    if (!result.ok || result.quote.grants.kind !== "credit_pack") return undefined;
-    // Map the quote onto the CreditPack shape the purchase path consumes. `credits` comes
-    // from the LIVE tier too — the grant, not just the price, follows the catalog.
-    return { code: packCode, priceInr: result.quote.finalInr, credits: result.quote.grants.credits };
+    const result = chargeQuote(catalog, {
+      productCode: CREDIT_PACK_PRODUCT,
+      tierCode: packCode,
+      now,
+    });
+    if (!result.ok || result.quote.grants.kind !== "credit_pack") return null;
+    return {
+      code: packCode,
+      priceInr: result.quote.finalInr,
+      // The grant, not just the price, follows the live tier.
+      credits: result.quote.grants.credits,
+      // Unused for now: PR 3 of #2749 stamps it on the order and the lot.
+      validityDays: tier.validityDays ?? null,
+    };
   }
 
   /**
@@ -169,9 +190,9 @@ export class PaymentGateway {
    * (authorize→capture against an order) is a LATER human-gated stream; the seam (this
    * method + the events) is what it slots into.
    *
-   * The `pack` is whatever {@link resolvePack} returned (live catalog, else the legacy
-   * constant), so credits GRANTED and ₹ STAMPED are both that one resolved tier — never a
-   * second, possibly-drifted lookup.
+   * The `pack` is whatever {@link resolvePack} returned (an on-sale live catalog tier), so
+   * credits GRANTED and ₹ STAMPED are both that one resolved tier — never a second,
+   * possibly-drifted lookup.
    */
   async purchasePackMock(
     tenant: TenantKey,
@@ -334,8 +355,9 @@ export class PaymentGateway {
    * the settle decision is already determined and BEFORE the transaction, so a catalog read
    * failure can neither block a grant nor hold a row lock.
    *
-   * A pack that no longer resolves at all is logged too — under the old design that was a
-   * stranded payment, and it is now merely informational, which is the point.
+   * A pack that no longer resolves at all (gone from the catalogue, or off sale since #2749) is
+   * logged too — under the old design that was a stranded payment, and it is now merely
+   * informational, which is the point.
    *
    * PII-free: opaque row id, catalog code, integer ₹/counts.
    */
