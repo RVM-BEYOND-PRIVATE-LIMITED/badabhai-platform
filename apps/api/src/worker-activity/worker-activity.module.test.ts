@@ -5,6 +5,7 @@ import { AgencyModule } from "../agency/agency.module";
 import { CampusJobsModule } from "../campus-link/campus-jobs.module";
 import { MatchModule } from "../match/match.module";
 import { ReferralAttributionModule } from "../referrals/referral-attribution.module";
+import { StillLookingModule } from "../still-looking/still-looking.module";
 import { WorkerActivityModule } from "./worker-activity.module";
 import { WorkerActivityRepository } from "./worker-activity.repository";
 import { WorkerActivityService } from "./worker-activity.service";
@@ -36,6 +37,10 @@ describe("WorkerActivityModule wiring", () => {
     ["MatchModule (the applicant, inbox and search rows)", MatchModule],
     ["AgencyModule (the referred-workers list)", AgencyModule],
     ["CampusJobsModule (a Campus application)", CampusJobsModule],
+    [
+      "StillLookingModule (the monthly check: the card's day and mark, the touch)",
+      StillLookingModule,
+    ],
   ])("%s imports it", (_name, mod) => {
     expect(meta(MODULE_METADATA.IMPORTS, mod)).toContain(WorkerActivityModule);
   });

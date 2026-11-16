@@ -378,6 +378,26 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /UNLOCK_FOLLOWUP_AFTER_DAYS:\s*\$\{\{\s*secrets\.UNLOCK_FOLLOWUP_AFTER_DAYS\s*\}\}/,
       /envs:[^\n]*\bUNLOCK_FOLLOWUP_AFTER_DAYS\b/,
     ],
+    // #2753 item 5 — the monthly "still looking?" check and its push. Plain booleans on the api
+    // only, each turned on in production ONLY by its environment secret: the check after the
+    // `still_looking_checks` migration is applied, the push after the owner widens ADR-0034.
+    [
+      "STILL_LOOKING_CHECK_ENABLED",
+      /STILL_LOOKING_CHECK_ENABLED:\s*\$\{\{\s*secrets\.STILL_LOOKING_CHECK_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bSTILL_LOOKING_CHECK_ENABLED\b/,
+    ],
+    [
+      "STILL_LOOKING_PUSH_ENABLED",
+      /STILL_LOOKING_PUSH_ENABLED:\s*\$\{\{\s*secrets\.STILL_LOOKING_PUSH_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bSTILL_LOOKING_PUSH_ENABLED\b/,
+    ],
+    // #2753 item 5 — how often the check asks, a tuning number like the follow-up wait above;
+    // absent, compose holds it at the owner's 30.
+    [
+      "STILL_LOOKING_EVERY_DAYS",
+      /STILL_LOOKING_EVERY_DAYS:\s*\$\{\{\s*secrets\.STILL_LOOKING_EVERY_DAYS\s*\}\}/,
+      /envs:[^\n]*\bSTILL_LOOKING_EVERY_DAYS\b/,
+    ],
     // ADR-0053 (PAY-DB-01) — payer org tenancy (off | shadow | on), api only. The environment
     // secret is its one arming path (owner decision O-8); absent, the bridge holds it off.
     [
@@ -544,6 +564,11 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["UNLOCK_FOLLOWUP_ENABLED", "false"],
     // #2753 item 10 — the zod default: the follow-up is due 7 days after the grant.
     ["UNLOCK_FOLLOWUP_AFTER_DAYS", "7"],
+    // #2753 item 5 — off is today's API: both still-looking routes 404, the sweep reads nothing,
+    // and the prompt never pushes; 30 is "check every 30 days".
+    ["STILL_LOOKING_CHECK_ENABLED", "false"],
+    ["STILL_LOOKING_PUSH_ENABLED", "false"],
+    ["STILL_LOOKING_EVERY_DAYS", "30"],
     // #2752 — off is no Campus route at all: a neutral 404 before any token, address or audit.
     ["CAMPUS_LINK_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.

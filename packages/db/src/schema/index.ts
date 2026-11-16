@@ -56,6 +56,7 @@ import { workerSearchExits } from "./worker-search-exit";
 import { hires } from "./hire";
 import { payOnJoiningHires } from "./pay-on-joining";
 import { unlockOutcomes } from "./unlock-outcome";
+import { stillLookingChecks } from "./still-looking";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -182,6 +183,8 @@ export * from "./hire";
 export * from "./pay-on-joining";
 // #2753 item 10 — what became of one opened contact (the company follow-up).
 export * from "./unlock-outcome";
+// #2753 item 5 — the monthly "still looking?" check (one row per prompt).
+export * from "./still-looking";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -500,4 +503,6 @@ export const schema = {
   payOnJoiningHires,
   // #2753 item 10 - one follow-up answer per opened contact (behind UNLOCK_FOLLOWUP_ENABLED).
   unlockOutcomes,
+  // #2753 item 5 - the monthly "still looking?" check (behind STILL_LOOKING_CHECK_ENABLED).
+  stillLookingChecks,
 };

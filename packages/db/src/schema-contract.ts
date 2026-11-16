@@ -1393,6 +1393,24 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "keyed by unlock, worker and company id; an open grant lets any PostgREST role read those " +
       "answers, or write a `hired` that the launch test counts",
   },
+  // 0173 (#2753 item 5): THE API names `still_looking_checks` only while
+  // STILL_LOOKING_CHECK_ENABLED is on (both worker routes are a 404 and the sweep reads nothing
+  // while it is off), so a deploy ahead of the migration breaks no request and the table is NOT a
+  // `table` entry. Listed for its lock (the 0134 rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0173-still-looking-checks-rls",
+    migration: "0173_still_looking_checks",
+    kind: "rls",
+    table: "still_looking_checks",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records, per worker id, when he was asked whether he is still looking " +
+      "and what he answered (yes, not now, hired); an open grant lets any PostgREST role read who " +
+      "is job hunting, or write an answer that takes a worker out of company search",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

@@ -50,8 +50,9 @@ const replyFor = (exit: StoredSearchExit | null): SearchVisibilityResponse =>
  * The READERS fail open instead (search and unlock: nobody can be hidden without the table). The
  * log line carries the worker id and the SQLSTATE only; any other error propagates.
  *
- * REUSABLE. {@link setVisibility} takes the `via`, so the later monthly check ("not now") calls it
- * with `monthly_check` and inherits the same no-op and event rules.
+ * REUSABLE. {@link setVisibility} takes the `via`, and {@link setVisibilityInTransaction} is the
+ * same change on a caller's transaction: the monthly check (#2753 item 5) calls it with
+ * `monthly_check` ("not now" out, "yes" back) and inherits the same no-op and event rules.
  */
 @Injectable()
 export class SearchExitService {
@@ -92,27 +93,59 @@ export class SearchExitService {
     ctx: RequestContext,
   ): Promise<SearchVisibilityResponse> {
     this.assertOn();
-    const { reply, changed } = await this.write(workerId, async (tx) => {
-      if (visible) {
-        const removed = await this.repo.remove(workerId, tx);
-        if (removed) await this.emitChanged(workerId, true, via, ctx, tx);
-        return { reply: replyFor(null), changed: removed };
-      }
-      const inserted = await this.repo.insert(workerId, via, tx);
-      if (inserted === null) {
-        // Already out: the first exit stands. Read on the same transaction (the row is committed or
-        // ours to wait on), never the global pool.
-        return { reply: replyFor(await this.repo.find(workerId, tx)), changed: false };
-      }
-      await this.emitChanged(workerId, false, via, ctx, tx);
-      return { reply: replyFor(inserted), changed: true };
-    });
+    const { reply, changed } = await this.write(workerId, (tx) =>
+      this.change(workerId, visible, via, ctx, tx),
+    );
     if (changed) {
       this.logger.log(
         `search visibility changed (worker=${workerId} visible=${visible} via=${via})`,
       );
     }
     return reply;
+  }
+
+  /**
+   * {@link setVisibility}'s change on the CALLER's transaction (#2753 item 5, the monthly check:
+   * "not now" takes him out with `monthly_check`, "yes" brings him back from either via), so the
+   * exit and the caller's own row and event commit together or not at all. The same no-op and
+   * event rules; `changed` says whether a row moved (and an event was emitted on `tx`).
+   *
+   * THE SWITCH STILL DECIDES: with `SEARCH_EXIT_ENABLED` off this answers null WITHOUT A READ, so a
+   * caller skips the effect rather than failing. A missing table (42P01) is the caller's to map:
+   * it has aborted the caller's transaction.
+   */
+  async setVisibilityInTransaction(
+    workerId: string,
+    visible: boolean,
+    via: WorkerSearchExitVia,
+    ctx: RequestContext,
+    tx: Database,
+  ): Promise<{ reply: SearchVisibilityResponse; changed: boolean } | null> {
+    if (!searchExitEnabled(this.config)) return null;
+    return this.change(workerId, visible, via, ctx, tx);
+  }
+
+  /** The change itself, on `tx`: a row moves (and its event is emitted) only on a real change. */
+  private async change(
+    workerId: string,
+    visible: boolean,
+    via: WorkerSearchExitVia,
+    ctx: RequestContext,
+    tx: Database,
+  ): Promise<{ reply: SearchVisibilityResponse; changed: boolean }> {
+    if (visible) {
+      const removed = await this.repo.remove(workerId, tx);
+      if (removed) await this.emitChanged(workerId, true, via, ctx, tx);
+      return { reply: replyFor(null), changed: removed };
+    }
+    const inserted = await this.repo.insert(workerId, via, tx);
+    if (inserted === null) {
+      // Already out: the first exit stands. Read on the same transaction (the row is committed or
+      // ours to wait on), never the global pool.
+      return { reply: replyFor(await this.repo.find(workerId, tx)), changed: false };
+    }
+    await this.emitChanged(workerId, false, via, ctx, tx);
+    return { reply: replyFor(inserted), changed: true };
   }
 
   private assertOn(): void {

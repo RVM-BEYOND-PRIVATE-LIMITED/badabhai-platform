@@ -1010,6 +1010,38 @@ describe("loadServerConfig", () => {
     });
   });
 
+  describe('the monthly "still looking?" check (#2753 item 5)', () => {
+    it.each(["STILL_LOOKING_CHECK_ENABLED", "STILL_LOOKING_PUSH_ENABLED"] as const)(
+      "%s is OFF by default and for the empty string",
+      (key) => {
+        // Off: the check's routes are a 404 / the prompt never pushes.
+        expect(loadServerConfig({})[key]).toBe(false);
+        expect(loadServerConfig({ [key]: "" })[key]).toBe(false);
+        expect(loadServerConfig({ [key]: "0" })[key]).toBe(false);
+        expect(loadServerConfig({ [key]: "true" })[key]).toBe(true);
+        expect(() => loadServerConfig({ [key]: "yes" })).toThrow();
+      },
+    );
+
+    it("the two switches are independent: the push switch alone turns nothing else on", () => {
+      const pushOnly = loadServerConfig({ STILL_LOOKING_PUSH_ENABLED: "true" });
+      expect(pushOnly.STILL_LOOKING_PUSH_ENABLED).toBe(true);
+      expect(pushOnly.STILL_LOOKING_CHECK_ENABLED).toBe(false);
+    });
+
+    it("STILL_LOOKING_EVERY_DAYS defaults to 30 (also when empty) and is at least 7", () => {
+      expect(loadServerConfig({}).STILL_LOOKING_EVERY_DAYS).toBe(30);
+      expect(loadServerConfig({ STILL_LOOKING_EVERY_DAYS: "" }).STILL_LOOKING_EVERY_DAYS).toBe(30);
+      expect(loadServerConfig({ STILL_LOOKING_EVERY_DAYS: "7" }).STILL_LOOKING_EVERY_DAYS).toBe(7);
+      expect(loadServerConfig({ STILL_LOOKING_EVERY_DAYS: "45" }).STILL_LOOKING_EVERY_DAYS).toBe(
+        45,
+      );
+      for (const bad of ["6", "0", "-30", "30.5", "thirty", "30d"]) {
+        expect(() => loadServerConfig({ STILL_LOOKING_EVERY_DAYS: bad }), bad).toThrow();
+      }
+    });
+  });
+
   describe("the Campus link (#2752)", () => {
     const HASH_A = "a".repeat(64);
     const HASH_B = "B".repeat(64);
