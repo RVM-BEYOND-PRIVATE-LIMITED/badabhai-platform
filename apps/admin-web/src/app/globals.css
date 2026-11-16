@@ -6251,3 +6251,120 @@ button.pager__step:hover {
 .menu__item--danger {
   color: var(--danger-text, var(--text-heading));
 }
+
+/* ------------------------------------------------------------------
+ * THEME TOGGLE (#2821) — the shared Light⇄Dark (paper/ink) control in the topbar.
+ * Shown only when `/admin/me/display-prefs` says `theme_open`; every value resolves from
+ * tokens, so the control flips under [data-theme="ink"] too. All motion collapses under
+ * prefers-reduced-motion.
+ * ------------------------------------------------------------------ */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.theme-toggle__switch {
+  position: relative; /* anchors the shared tooltip (.bb-icon-tip) */
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+.theme-toggle__switch:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: var(--ring-focus);
+}
+.theme-toggle__track {
+  display: inline-flex;
+  align-items: center;
+  width: var(--space-9);
+  height: var(--space-6);
+  padding: var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  border: var(--border-hairline) solid var(--border-control);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+.theme-toggle__switch[aria-checked="true"] .theme-toggle__track {
+  background: var(--brand-tint);
+  border-color: var(--brand);
+}
+.theme-toggle__thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-5);
+  height: var(--space-5);
+  border-radius: var(--radius-round);
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-xs);
+  transition:
+    transform var(--duration-base) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+.theme-toggle__switch[aria-checked="true"] .theme-toggle__thumb {
+  transform: translateX(var(--space-4));
+  color: var(--brand);
+}
+.theme-toggle__system {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  border: var(--border-hairline) solid var(--border-default);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+.theme-toggle__system:hover {
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+.theme-toggle__system:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: var(--ring-focus);
+}
+.theme-toggle__system[aria-pressed="true"] {
+  background: var(--brand-tint);
+  border-color: var(--brand-border);
+  color: var(--text-accent);
+}
+.theme-toggle__system-label {
+  line-height: 1;
+}
+/* A 44px touch strip behind the small controls without changing their drawn size. */
+@media (max-width: 600px), (pointer: coarse) {
+  .theme-toggle__switch,
+  .theme-toggle__system {
+    position: relative;
+    isolation: isolate;
+  }
+  .theme-toggle__switch::before,
+  .theme-toggle__system::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0px, calc((100% - var(--control-md)) / 2));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle__thumb,
+  .theme-toggle__track {
+    transition: none;
+  }
+}
