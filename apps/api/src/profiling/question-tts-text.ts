@@ -749,6 +749,10 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
     "नेस्टिंग / प्रेस-ब्रेक प्रोग्राम खुद बनाते हो?",
   "Kaunsa product banate ho?": "कौनसा प्रोडक्ट बनाते हो?",
   "Cutting-bending ke alawa kaunsa kaam karte ho?": "कटिंग-बेंडिंग के अलावा कौनसा काम करते हो?",
+  // --- qp_sheet_metal_fab@3 (#2753 item 1) — the level retry names the split rung. The prompt
+  // and why stay @2's verbatim and reuse their twins.
+  "Helper, operator, skilled, senior, programmer ya supervisor hain?":
+    "हेल्पर, ऑपरेटर, स्किल्ड, सीनियर, प्रोग्रामर या सुपरवाइज़र हैं?",
   // qp_industrial_electrician@1 — Batch 2 part two. Four prompts reuse shipped twins and are not
   // repeated here: the work-type, voltage and licence asks are qp_electrical's own wording, and
   // the drawing ask is the welder's; the three fresher prompts are the welder's verbatim.

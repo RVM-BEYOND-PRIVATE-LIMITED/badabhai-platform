@@ -140,6 +140,7 @@ describe("the shipped corpus, as the trade form serves it", () => {
       "qp_fitting:fitting_type",
       "qp_machining:machine_type",
       "qp_sheet_metal_fab@2:sheet_metal_product",
+      "qp_sheet_metal_fab@3:sheet_metal_product",
       "qp_toolmaking:tool_type",
       "qp_vmc_milling:milling_machine",
       "qp_vmc_milling@2:milling_machine",
