@@ -769,3 +769,94 @@ describe("#2747 item 8 — the RVM selection signal is queued IN the stage trans
     ).rejects.toThrow("relation does not exist");
   });
 });
+
+describe("#2747 / #2852 — stageOptions: what this company's board may do now", () => {
+  const V1 = ["new", "shortlist", "passed"];
+  const ALL = ["new", "shortlist", "passed", "selected", "hired"];
+
+  it("both switches off: the first three stages, no outcome stages, no signal", async () => {
+    const d = make();
+    await expect(d.svc.stageOptions(PAYER_A)).resolves.toEqual({
+      stages: V1,
+      outcomeStages: false,
+      rvmSignal: false,
+    });
+    expect(d.rollout.isEnabledFor).toHaveBeenCalledWith("outcome_stages", KEY_A);
+    // No mark without the outcome stages, so the signal switch is not read.
+    expect(d.outbound.signalsStateFor).not.toHaveBeenCalled();
+  });
+
+  it("outcome stages on, signal off: all five stages, no signal", async () => {
+    const d = make({ outcomeStages: true, signals: false });
+    await expect(d.svc.stageOptions(PAYER_A)).resolves.toEqual({
+      stages: ALL,
+      outcomeStages: true,
+      rvmSignal: false,
+    });
+    expect(d.outbound.signalsStateFor).toHaveBeenCalledWith(KEY_A);
+  });
+
+  it("both on: all five stages and the signal", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await expect(d.svc.stageOptions(PAYER_A)).resolves.toEqual({
+      stages: ALL,
+      outcomeStages: true,
+      rvmSignal: true,
+    });
+  });
+
+  it("the signal switch on while the outcome stages are off: no signal (nothing could be marked)", async () => {
+    const d = make({ outcomeStages: false, signals: true });
+    await expect(d.svc.stageOptions(PAYER_A)).resolves.toMatchObject({
+      outcomeStages: false,
+      rvmSignal: false,
+    });
+  });
+
+  it("a pilot list that cannot be read for the signal fails closed (false), never a 5xx", async () => {
+    const d = make({ outcomeStages: true, signals: "unavailable" });
+    await expect(d.svc.stageOptions(PAYER_A)).resolves.toMatchObject({ rvmSignal: false });
+  });
+
+  it("reads no posting, no stage row and no transaction", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.stageOptions(PAYER_A);
+    for (const spy of Object.values(d.spied)) expect(spy).not.toHaveBeenCalled();
+    expect(d.emit).not.toHaveBeenCalled();
+    expect(d.outbound.recordMark).not.toHaveBeenCalled();
+  });
+
+  it("each answer is a fresh array (a caller cannot change the shared stage list)", async () => {
+    const d = make();
+    const a = await d.svc.stageOptions(PAYER_A);
+    a.stages.push("hired");
+    await expect(d.svc.stageOptions(PAYER_A)).resolves.toMatchObject({ stages: V1 });
+  });
+
+  it("the board flag off: the same neutral 404 as setStage, and nothing is read", async () => {
+    const d = make({ enabled: false });
+    const err = await rejection(d.svc.stageOptions(PAYER_A));
+    expect(err).toBeInstanceOf(NotFoundException);
+    expect(d.rollout.isEnabledFor).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { outcomeStages: false, signals: false },
+    { outcomeStages: true, signals: false },
+    { outcomeStages: true, signals: true },
+    { outcomeStages: false, signals: true },
+  ] as const)(
+    "the forecast agrees with a real move (outcome=$outcomeStages, signal=$signals)",
+    async (sw) => {
+      const d = make(sw);
+      const options = await d.svc.stageOptions(PAYER_A);
+      const move = d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+      if (options.outcomeStages) {
+        await expect(move).resolves.toMatchObject({ stage: "selected", changed: true });
+      } else {
+        expect(httpOutcome(await rejection(move)).status).toBe(400);
+      }
+      expect(d.outbound.recordMark.mock.calls.length > 0).toBe(options.rvmSignal);
+    },
+  );
+});

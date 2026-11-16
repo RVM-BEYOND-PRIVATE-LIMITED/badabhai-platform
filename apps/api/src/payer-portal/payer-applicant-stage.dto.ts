@@ -75,3 +75,25 @@ export interface SetApplicantStageResponseDto {
   /** `false` when the applicant already held `stage`: nothing was written and no event emitted. */
   changed: boolean;
 }
+
+/**
+ * `GET /payer/reach/applicant-stages` (#2747, #2852) — what THIS company's board may do right now,
+ * so a screen can draw the Selected / Hired controls only when a move would be accepted, instead
+ * of learning it from a 400.
+ *
+ *  - `stages`: the stages a move may target — {@link APPLICANT_STAGES_V1}, plus `selected` and
+ *    `hired` while `OUTCOME_STAGES_ROLLOUT` is on for the company. Board order.
+ *  - `outcomeStages`: `true` exactly when `stages` includes `selected` and `hired`.
+ *  - `rvmSignal`: `true` when a move into `selected` or `hired` of an actively linked RVM student
+ *    (a feed row with `source: 'rvm_student'`) is also sent to RVM — `OUTBOUND_SIGNALS_ROLLOUT` on
+ *    for the company, and `outcomeStages` too (there is no mark to send without it). A BadaBhai
+ *    worker's mark is never sent, whatever this says.
+ *
+ * Company-level only, and only a forecast: the switches are read at each request, so a move can
+ * still be refused (400) or answer 503 if a switch changes or the pilot list cannot be read.
+ */
+export interface ApplicantStageOptionsDto {
+  stages: ApplicantStage[];
+  outcomeStages: boolean;
+  rvmSignal: boolean;
+}
