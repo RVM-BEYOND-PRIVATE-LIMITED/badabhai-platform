@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_spacing.dart';
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 
 /// Inline "Verified" pill — a green check on the success tint.
@@ -22,29 +23,26 @@ class BbVerifiedBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: const BoxDecoration(
-          color: OnboardingColors.successBg,
-          borderRadius: BorderRadius.all(Radius.circular(AppRadii.pill)),
+        decoration: BoxDecoration(
+          color: p.successBg,
+          borderRadius: const BorderRadius.all(Radius.circular(AppRadii.pill)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(
-              Icons.verified,
-              size: 14,
-              color: OnboardingColors.successGreen,
-            ),
+            Icon(Icons.verified, size: 14, color: p.success),
             const SizedBox(width: 5),
             Text(
               label,
               style: OnboardingTypography.inter(
                 size: 12,
                 weight: FontWeight.w700,
-                color: OnboardingColors.successGreen,
+                color: p.success,
               ),
             ),
           ],
@@ -64,17 +62,14 @@ class BbSeal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.all(2),
-      decoration: const BoxDecoration(
-        color: OnboardingColors.paperWhite,
+      decoration: BoxDecoration(
+        color: p.card,
         shape: BoxShape.circle,
       ),
-      child: Icon(
-        Icons.verified,
-        size: size,
-        color: OnboardingColors.successGreen,
-      ),
+      child: Icon(Icons.verified, size: size, color: p.success),
     );
   }
 }

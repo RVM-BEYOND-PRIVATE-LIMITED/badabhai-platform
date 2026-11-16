@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_spacing.dart';
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 
 /// Hinglish copy on an undelivered worker bubble (#343). States the honest
@@ -9,7 +10,7 @@ const String kChatSendFailedLabel = 'Nahi bheja gaya — dobara bhejein';
 
 /// A single chat message bubble for the "bada bhai" profiling chat.
 ///
-/// Worker messages sit right on a filled [OnboardingColors.shiftBlue] with
+/// Worker messages sit right on a filled brand surface with
 /// white text (the worker's own voice); bada bhai sits left on white behind a
 /// hairline. One corner is squared toward the speaker so the thread reads
 /// naturally. Green stays reserved for money/success, so it is off the bubbles.
@@ -39,6 +40,7 @@ class BbChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // Bubble radius 12 with ONE flattened 3px "tail" corner toward the speaker:
     // bottom-right tail on the worker's own messages, bottom-left on bada
     // bhai's.
@@ -47,23 +49,17 @@ class BbChatBubble extends StatelessWidget {
 
     final bool workerFilled = fromWorker && !failed;
     final Color background = failed
-        ? OnboardingColors.errorBg
-        : (fromWorker
-              ? OnboardingColors.shiftBlue
-              : OnboardingColors.paperWhite);
+        ? p.dangerBg
+        : (fromWorker ? p.brandSurface : p.card);
     // The outgoing bubble is borderless (its border matches the fill); incoming
     // keeps the hairline; a failed send stays error-outlined.
     final Color borderColor = failed
-        ? OnboardingColors.errorRed
-        : (fromWorker
-              ? OnboardingColors.shiftBlue
-              : OnboardingColors.borderDefault);
-    // White on the filled navy bubble; dark ink everywhere else (incoming, and
-    // a failed worker bubble sits on the light error tint so it keeps dark
-    // text).
-    final Color textColor = workerFilled
-        ? OnboardingColors.textOnBlue
-        : OnboardingColors.ink900;
+        ? p.danger
+        : (fromWorker ? p.brandSurface : p.borderDefault);
+    // On-brand ink on the filled navy bubble; dark ink everywhere else
+    // (incoming, and a failed worker bubble sits on the light error tint so it
+    // keeps dark text).
+    final Color textColor = workerFilled ? p.onBrandSurface : p.textPrimary;
 
     final Widget bubble = Container(
       // Bubbles never span the full column — cap at ~78% so the speaker side is
@@ -104,11 +100,7 @@ class BbChatBubble extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                const Icon(
-                  Icons.error_outline,
-                  size: 16,
-                  color: OnboardingColors.errorRed,
-                ),
+                Icon(Icons.error_outline, size: 16, color: p.danger),
                 const SizedBox(width: AppSpacing.s1),
                 Flexible(
                   child: Text(
@@ -117,7 +109,7 @@ class BbChatBubble extends StatelessWidget {
                     style: OnboardingTypography.inter(
                       size: 13,
                       weight: FontWeight.w700,
-                      color: OnboardingColors.errorRed,
+                      color: p.danger,
                     ),
                   ),
                 ),

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// Builds the caret for the cell being typed into, given the height it may
@@ -178,13 +179,14 @@ class _OtpCells extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: <Widget>[for (int i = 0; i < length; i++) _cell(i)],
+      children: <Widget>[for (int i = 0; i < length; i++) _cell(i, p)],
     );
   }
 
-  Widget _cell(int index) {
+  Widget _cell(int index, BbPalette p) {
     final bool filled = index < code.length;
     // The next empty box is the one being typed into; once the code is full the
     // ring stays on the last box rather than vanishing off the end.
@@ -209,14 +211,12 @@ class _OtpCells extends StatelessWidget {
       height: boxHeight,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(OnboardingRadii.otpBox),
         border: Border.all(
-          // Spec §3.3: the focused cell rings NAVY at 1.8. Yellow is reserved
-          // for a selected card or chip.
-          color: active
-              ? OnboardingColors.shiftBlue
-              : OnboardingColors.borderDefault,
+          // Spec §3.3: the focused cell rings in the focus colour at 1.8.
+          // Yellow is reserved for a selected card or chip.
+          color: active ? p.focusRing : p.borderDefault,
           width: active ? 1.8 : 1.2,
         ),
       ),

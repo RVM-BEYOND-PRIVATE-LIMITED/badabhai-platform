@@ -23,8 +23,10 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   const String baselinePath =
       'test/core/theme/hard_coded_color_baseline.json';
+  // Material `Colors.*` only: the lookbehind keeps a token class such as
+  // `FormFlowColors` (or any other `…Colors`) from being mistaken for it.
   final RegExp pattern = RegExp(
-    r'Color\(0x|Colors\.(?!transparent)|OnboardingColors\.|AppColors\.',
+    r'Color\(0x|(?<![A-Za-z])Colors\.(?!transparent)|OnboardingColors\.|AppColors\.',
   );
 
   final List<Directory> roots = <Directory>[

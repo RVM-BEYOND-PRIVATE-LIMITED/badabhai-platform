@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../theme/app_theme.dart';
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// The kit's primary yellow CTA (§1.3 `PrimaryActionButton`): full width, 52px,
@@ -53,7 +54,8 @@ class PrimaryActionButton extends StatelessWidget {
   /// The shared yellow CTA paint, re-cornered to this button's own 14 radius
   /// (the docked bar's is 12). One source for the fill, the pressed shade and
   /// the disabled shade means the hero CTA cannot drift between screens.
-  static ButtonStyle get _style => KitButtonStyles.primary.copyWith(
+  static ButtonStyle _styleFor(BbPalette p) =>
+      KitButtonStyles.primaryFor(p).copyWith(
     shape: const WidgetStatePropertyAll<OutlinedBorder>(
       RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(OnboardingRadii.button)),
@@ -63,10 +65,9 @@ class PrimaryActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool enabled = onPressed != null && !isLoading;
-    final Color ink = enabled
-        ? OnboardingColors.shiftBlue
-        : OnboardingColors.disabledText;
+    final Color ink = enabled ? p.onAction : p.disabledText;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: SizedBox(
@@ -74,7 +75,7 @@ class PrimaryActionButton extends StatelessWidget {
         height: OnboardingLayout.buttonHeight,
         child: ElevatedButton(
           key: buttonKey,
-          style: _style,
+          style: _styleFor(p),
           onPressed: enabled
               ? () {
                   HapticFeedback.lightImpact();
@@ -84,12 +85,12 @@ class PrimaryActionButton extends StatelessWidget {
           child: isLoading
               ? Semantics(
                   label: label,
-                  child: const SizedBox(
+                  child: SizedBox(
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.5,
-                      color: OnboardingColors.shiftBlue,
+                      color: p.onAction,
                     ),
                   ),
                 )

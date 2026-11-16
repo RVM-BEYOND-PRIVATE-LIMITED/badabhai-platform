@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 import '../bottom_bar_inset.dart';
 import 'kit_content_column.dart';
@@ -69,6 +70,7 @@ class _KitDockedBarState extends State<KitDockedBar> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: Container(
@@ -79,11 +81,9 @@ class _KitDockedBarState extends State<KitDockedBar> {
           top: 10,
           bottom: MediaQuery.paddingOf(context).bottom + 10,
         ),
-        decoration: const BoxDecoration(
-          color: OnboardingColors.paperWhite,
-          border: Border(
-            top: BorderSide(color: OnboardingColors.borderDefault),
-          ),
+        decoration: BoxDecoration(
+          color: p.card,
+          border: Border(top: BorderSide(color: p.borderDefault)),
         ),
         child: KitContentColumn(maxWidth: widget.maxWidth, child: widget.child),
       ),
