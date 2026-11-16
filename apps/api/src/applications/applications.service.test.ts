@@ -805,6 +805,7 @@ describe("applicationsForWorker — matched_skill_label (#1051)", () => {
     createdAt: new Date("2026-06-01T00:00:00Z"),
     updatedAt: new Date("2026-06-01T00:00:00Z"),
     matchedSkillId: null as string | null,
+    viaCampus: false,
   };
 
   function serviceReturning(rows: Array<typeof ROW>) {
@@ -863,5 +864,24 @@ describe("applicationsForWorker — matched_skill_label (#1051)", () => {
     const out = await svc.applicationsForWorker(WORKER_ID);
 
     expect(Object.keys(out.applications[0]!)).toContain("matched_skill_label");
+  });
+
+  /**
+   * #2753 item 8 — `via`, one additive key on every row: `campus` while a live Campus record
+   * points at the application, `app` otherwise. Never absent and never null, so a client can
+   * branch on it without a third case; nothing else in the row changes with it.
+   */
+  it("says `via: campus` for a Campus application and `via: app` for every other row", async () => {
+    const svc = serviceReturning([
+      { ...ROW, viaCampus: true },
+      { ...ROW, viaCampus: false },
+    ]);
+    const out = await svc.applicationsForWorker(WORKER_ID);
+
+    expect(out.applications.map((a) => a.via)).toEqual(["campus", "app"]);
+    const [campus, own] = out.applications;
+    expect(Object.keys(campus!)).toEqual(Object.keys(own!));
+    // The bit is mapped, never passed through under its repository name.
+    expect(campus).not.toHaveProperty("viaCampus");
   });
 });
