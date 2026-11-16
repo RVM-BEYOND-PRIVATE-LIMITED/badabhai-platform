@@ -456,12 +456,26 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 
 #### `GET /payer/pricing/catalog`
 
-- **Auth:** `PayerAuthGuard` (Bearer).
-- **Response:** `{ revision: int, source: 'db'|'default', products: Product[], prices: PayerTierPrice[], priced_at: ISO8601 }`. `products` is unchanged since D-6. `prices` + `priced_at` are additive (#2085):
+- **Auth:** `PayerAuthGuard` (Bearer). No role guard and no payer input: an agency account and an employer get the same body, so the same packs at the same prices (B2-48).
+- **Response:** `{ revision: int, source: 'db'|'default', products: Product[], prices: PayerTierPrice[], priced_at: ISO8601 }`. `prices` + `priced_at` are additive (#2085):
   `PayerTierPrice = { product_code, tier_code, base_price_inr: int, price_inr: int, discount_inr: int, offer: { code: string, ends_at: ISO8601 } | null }`.
 - `price_inr` is what a purchase of that tier is charged at `priced_at` without a coupon. It is computed by the same function the purchase routes charge through, so shown == charged. `offer` is the automatic ops offer applied, or `null`. Coupons and `floorPriceInr` never ship.
 - Credit packs (`contact_unlock`) are charged at list price and take no offer, so their `offer` is always `null`.
 - An offer can expire after `priced_at`; `expected_price_inr` catches that.
+- **Credit packs (#2749): only packs on sale, each with its GST price.** The `credit_pack` product lists only the tiers on sale at `priced_at`, and `prices` has rows only for those. A tier is off sale when the catalogue marks it `offered: false`, or before 00:00 IST on its `onSaleFrom` date. A hidden pack sends nothing: no tier, no price row, and its code, price and date are absent. If no pack is on sale, the `credit_pack` product is left out of `products`. `POST /payer/credits` and `POST /payer/credits/order` accept exactly the packs listed here (any other code → `404`).
+  Each credit-pack tier is built from a fixed list of keys. Other or future catalogue fields never ship, and `onSaleFrom` / `offered` are never sent:
+  ```
+  { code, priceInr: int,          // whole rupees, before GST (the catalogue contract)
+    credits: int,
+    windowDays: int,              // the OLD 14-day contact-access window; kept for older readers
+    validityDays: int | null,     // how long the credits last, in days; null = the catalogue sets none
+    price: { taxablePaise: int, gstPaise: int, roundOffPaise: int, totalPaise: int,
+             gstRateBps: int,     // 1800 = 18%
+             display: string } }  // e.g. "₹999 plus GST (₹1,179)"
+  ```
+  `price` is the charged price taxed, all in integer **paise**: taxable = price × 100; GST = 18% of it, rounded half-up to the paisa; total = taxable + GST rounded half-up to the whole rupee; `roundOffPaise` = total − taxable − GST (from −49 to +50; negative when the rupee rounds down). Example, ₹999: `99900 / 17982 / 18 / 117900`. `display` is the brief's line, with en-IN grouping (`₹1,599 plus GST (₹1,887)`).
+- Other products (posting plans, boosts, hiring capacity, quota top-ups) are unchanged: their tiers ship as the catalogue holds them.
+- **Mobile gotchas:** show `price.display` (or build from `price.totalPaise`), never compute GST on the client. Do not read `windowDays` as credit validity. Production serves the default catalogue today, whose packs set no `validityDays` (`null`).
 - **Events:** none (read-only).
 
 #### Pricing (read-only, ops-intent, unauthenticated)
@@ -487,7 +501,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Body:** `{ pack_code: string, expected_price_inr?: int }` — code only; price/credits resolved server-side. `expected_price_inr` (#2085): mismatch → `409 price_mismatch`, no ledger row, no credits (see [Price confirmation](#price-confirmation-expected_price_inr)). `POST /payer/credits/order` accepts the same optional field; a mismatch creates no provider order and no `payment_orders` row.
 - **Response:** `{ payer_id, balance, credits, pack_code }`.
 - **Events:** `payment.authorized`, `payment.captured`.
-- **Mobile gotchas:** **MOCK money** (`real_call:false`). Unknown pack → `404`. `201`.
+- **Mobile gotchas:** **MOCK money** (`real_call:false`). Unknown pack → `404`; since #2749 so is any code `GET /payer/pricing/catalog` does not list right now (an off-sale pack, or an old code such as `pack_10` / `pack_25`). `201`.
 
 #### `GET /payer/unlocks`
 
