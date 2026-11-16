@@ -107,10 +107,14 @@ void main() {
     await pump(tester);
     await tapButton(tester, 'Haan, dikhayein');
 
-    expect(requests, hasLength(1));
-    expect(requests.single.method, 'POST');
-    expect(requests.single.url.path, '/consent/employer-contact/grant');
-    expect(jsonDecode(requests.single.body),
+    // The prompt now also reads the served notice version (#2862 item 4), so
+    // assert against the GRANT POST, not the total request count.
+    final List<http.Request> grants = requests
+        .where((http.Request r) => r.method == 'POST')
+        .toList(growable: false);
+    expect(grants, hasLength(1));
+    expect(grants.single.url.path, '/consent/employer-contact/grant');
+    expect(jsonDecode(grants.single.body),
         <String, dynamic>{'consent_version': kConsentVersion});
     expect(find.byType(EmployerSharingNotice), findsNothing);
     expect(find.text('RESULT true'), findsOneWidget);
@@ -135,7 +139,10 @@ void main() {
     // Buttons stay usable: a retry that succeeds closes it.
     respond = granted;
     await tapButton(tester, 'Haan, dikhayein');
-    expect(requests, hasLength(2));
+    expect(
+      requests.where((http.Request r) => r.method == 'POST'),
+      hasLength(2),
+    );
     expect(find.text('RESULT true'), findsOneWidget);
   });
 
