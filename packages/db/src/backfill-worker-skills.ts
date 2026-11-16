@@ -25,6 +25,12 @@
  *             — the SAME coarse number on every derived skill, because coarse history
  *               cannot attribute time to one skill over another. Claiming otherwise
  *               would be fabricating experience.
+ *             #2753 item 2, ONLY with FORM_TENURE_MONTHS_ENABLED=true in THIS process's
+ *             environment: where that number is 0, a skill a trade form derived takes that form's
+ *             experience band (and, with FORM_TYPED_TENURE_DERIVE_ENABLED=true too, a typed
+ *             tenure) through the same bucketing — `loadFormTenureFills`, the read the live rebuild
+ *             runs, one query per batch. Run it with the values production runs with, or this
+ *             repair and the live path write different months. Both are printed before any write.
  *   wants   = true          (opt-out is a worker action, not a backfill guess)
  *   started_at / ended_at = NULL   (no stints at launch)
  *   source  = 'derived_coarse'
@@ -48,8 +54,10 @@
  * PRIVACY: reads ONLY faceless signal columns (worker id, canonical_role_id, skills jsonb,
  * experience jsonb, the closed `worker_occupation` role ids, `worker_attributes` pack id /
  * key / text values, and the profile's source session's pack id / answer map / provenance stamps;
- * answer values are matched only against closed option keys). It never reads
- * phone/name and never logs anything but ids + counts.
+ * answer values are matched only against closed option keys; with FORM_TENURE_MONTHS_ENABLED on,
+ * also each trade form's tenure answer in `worker_pack_answer` — a status and a number, and the
+ * typed words only with FORM_TYPED_TENURE_DERIVE_ENABLED on, parsed for one figure and never
+ * printed). It never reads phone/name and never logs anything but ids + counts.
  *
  *   pnpm db:backfill:worker-skills                      # dry run
  *   pnpm db:backfill:worker-skills --apply              # write
@@ -73,6 +81,7 @@ import {
 
 import { createDbClient, type Database } from "./client";
 import { CURRENT_PROFILE_ORDER, PROFILE_SOURCE_SESSION_ANSWERS } from "./current-profile";
+import { formTenureSwitchesFromEnv, loadFormTenureFills } from "./form-tenure";
 import {
   matchConfig,
   workerAttributes,
@@ -159,6 +168,14 @@ async function loadPackAnswers(
 async function main(): Promise<void> {
   const opts = parseCommonCli(NAME);
   printHeader(NAME, opts);
+  // #2753 item 2 — read BEFORE any database work, so a malformed value refuses the run outright, and
+  // printed so the log says which months this run wrote. Names only, never another env value.
+  const formTenure = formTenureSwitchesFromEnv(process.env);
+  console.log(
+    `[${NAME}] form tenure fill: FORM_TENURE_MONTHS_ENABLED=${formTenure.months} ` +
+      `FORM_TYPED_TENURE_DERIVE_ENABLED=${formTenure.typed}` +
+      (formTenure.months ? "" : " (off: months come from the profile alone, as before #2753)"),
+  );
 
   const taxonomy = loadMatchTaxonomy(NAME);
   const problems = validateMatchTaxonomy(taxonomy);
@@ -186,6 +203,7 @@ async function main(): Promise<void> {
     let skillsDeleted = 0;
     let skillsSkippedHumanAuthored = 0;
     let tenureRowsWritten = 0;
+    let workersWithFormTenure = 0;
 
     for (;;) {
       const batch: { id: string }[] = await db
@@ -198,6 +216,12 @@ async function main(): Promise<void> {
       const packAnswersByWorker = await loadPackAnswers(
         db,
         batch.map((w) => w.id),
+      );
+      // #2753 item 2 — ONE query for the whole batch, and none at all while the switch is off.
+      const formTenureByWorker = await loadFormTenureFills(
+        db,
+        batch.map((w) => w.id),
+        formTenure,
       );
 
       for (const w of batch) {
@@ -252,11 +276,14 @@ async function main(): Promise<void> {
             : null,
           secondaryRoleIds,
           packAnswers: packAnswersByWorker.get(w.id) ?? [],
+          // Absent while the switch is off, exactly as the live rebuild omits it.
+          ...(formTenure.months ? { formTenure: formTenureByWorker.get(w.id) ?? [] } : {}),
         });
         // No profile, no pack evidence, no declared occupation → leave his rows exactly as they are.
         if (input === null) continue;
         if (profile) workersWithProfile += 1;
         else workersDerivedFromPackOnly += 1;
+        if (input.formTenureYears !== undefined) workersWithFormTenure += 1;
 
         // TD120 (paid 2026-08-01): the coarse rule lives in `@badabhai/match-engine` and
         // NOWHERE ELSE. This block used to be a hand-rolled second implementation that
@@ -420,6 +447,7 @@ async function main(): Promise<void> {
       "workers with a profile": workersWithProfile,
       "workers derived from pack answers only": workersDerivedFromPackOnly,
       "workers deriving 0 skills": workersWithNoDerivedSkills,
+      "workers with a form tenure fill": formTenure.months ? workersWithFormTenure : "(switch off)",
       "worker_skill upserted": skillsUpserted,
       "worker_skill deleted (stale)": skillsDeleted,
       "worker_skill left alone (human)": skillsSkippedHumanAuthored,

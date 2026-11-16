@@ -315,6 +315,14 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /LEVEL_NEEDED_SORT_ENABLED:\s*\$\{\{\s*secrets\.LEVEL_NEEDED_SORT_ENABLED\s*\}\}/,
       /envs:[^\n]*\bLEVEL_NEEDED_SORT_ENABLED\b/,
     ],
+    // #2753 item 2 — a trade form's experience band fills `worker_skill.months_bucketed`. A plain
+    // boolean on the api only (the backfill reads the same name from its operator's shell), turned
+    // on in production ONLY by the environment secret, after the `engine_version` ruling.
+    [
+      "FORM_TENURE_MONTHS_ENABLED",
+      /FORM_TENURE_MONTHS_ENABLED:\s*\$\{\{\s*secrets\.FORM_TENURE_MONTHS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bFORM_TENURE_MONTHS_ENABLED\b/,
+    ],
     // ADR-0053 (PAY-DB-01) — payer org tenancy (off | shadow | on), api only. The environment
     // secret is its one arming path (owner decision O-8); absent, the bridge holds it off.
     [
@@ -463,6 +471,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["PAYER_APPLICANT_STAGES_ENABLED", "true"],
     // ADR-0061 — off is today's applicant list: the v1.0 ORDER BY, no level read, levelFit null.
     ["LEVEL_NEEDED_SORT_ENABLED", "false"],
+    // #2753 item 2 — off is today's derivation: a form worker's skills read 0 months, no extra read.
+    ["FORM_TENURE_MONTHS_ENABLED", "false"],
     // #2752 — off is no Campus route at all: a neutral 404 before any token, address or audit.
     ["CAMPUS_LINK_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.

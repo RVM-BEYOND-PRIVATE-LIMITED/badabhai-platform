@@ -95,6 +95,16 @@ reads the output of D2/D3/D4; D6 is independent and can run any time after the m
 class of script has previously gone green while writing nothing (the pack-seed steps in `ci.yml`
 hit exactly this bug once — see `docs/github-actions.md`).
 
+**D2 and a trade form's experience band (#2753 item 2).** With `FORM_TENURE_MONTHS_ENABLED=true`
+in the shell that runs it, D2 gives each skill a trade form derived that form's band years as
+`months_bucketed` (3–5 years → 48 months), wherever the profile's own `total_years` buckets to 0;
+a typed tenure counts only with `FORM_TYPED_TENURE_DERIVE_ENABLED=true` as well. The api reads the
+same two names from the `production` environment, so once the switch is on there, EVERY D2 run must
+export production's values: a D2 run without them writes the pre-#2753 months (0 for a form worker)
+over what the live rebuild wrote. The runner prints both values before it writes. Switching it on is
+itself a rank change for every form worker — owner's `engine_version` ruling (ADR-0036) first, then
+the secret plus a redeploy, then D2 and D5, from a tree equal to origin/main.
+
 ## Verify (go/no-go, read-only)
 
 `pnpm --filter @badabhai/db db:verify:match-v1` — **strictly read-only** (`SELECT`s + `EXPLAIN`s,
