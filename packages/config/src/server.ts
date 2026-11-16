@@ -1370,6 +1370,16 @@ export const serverEnvSchema = z.object({
   // APPLY-BEFORE-DEPLOY regardless (the apply snapshot writes its columns with the flag off too:
   // history not captured is gone), so the flag gates the SORT only, never the capture.
   LEVEL_NEEDED_SORT_ENABLED: booleanFromString,
+  // LEAVE COMPANY SEARCH (#2753 item 6). With it on, a worker can turn "companies can find me" off
+  // (`PUT /workers/me/search-visibility`): one `worker_search_exits` row takes him out of every
+  // company's candidate search, and only a company he applied to (or one already holding an open
+  // contact) can still open him. His consent is untouched.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the two worker routes are a plain 404, the search
+  // statement is byte-identical, the unlock path reads nothing, and NOTHING reads or writes
+  // `worker_search_exits`. Migration 0168 is APPLY-BEFORE-THE-SWITCH: on before it, every company
+  // search and every unlock that reaches the refusals 500s (42P01).
+  SEARCH_EXIT_ENABLED: booleanFromString,
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable

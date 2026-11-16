@@ -394,6 +394,17 @@ NestJS boot assertion).
   `scripts/deploy/staging-deploy.sh`; the bridge shipped in #2613, after #2552). Arming is the
   secret set to `true` plus a redeploy, on the CEO's go-ahead; values lowercase
   `true`/`false`/`1`/`0`/empty only.
+- **Leave company search (#2753 item 6)** — `SEARCH_EXIT_ENABLED`, api only (`booleanFromString`,
+  default off). Off is today exactly: `GET`/`PUT /workers/me/search-visibility` are the plain 404
+  of an unmounted route, the candidate search statement is byte-identical, the unlock path reads
+  nothing, and nothing names `worker_search_exits`. On, a worker can leave company search while
+  keeping his consent: he is absent from every company's search (its city facet and the admin card
+  read too), and only a company he applied to, or one already holding an open contact, can open
+  him. Migration 0168 is APPLY-BEFORE-THE-SWITCH: on without it, search, unlocks and the two routes
+  answer 500 (42P01). Bridged through the GitHub `production` environment secret of the same name
+  (compose `${SEARCH_EXIT_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is 0168 applied, then the secret set to `true` plus
+  a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only.
 - **The Campus link (#2752)** — api only, four variables, all read by `CampusServiceGuard` on
   `/internal/campus/v1` (contract: `docs/api/campus-link-v1-api-reference.md`).
   - `CAMPUS_LINK_ENABLED` (`booleanFromString`, default off): off, every Campus route is a neutral

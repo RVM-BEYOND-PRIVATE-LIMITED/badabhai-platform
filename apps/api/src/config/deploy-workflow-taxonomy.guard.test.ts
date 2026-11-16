@@ -315,6 +315,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /LEVEL_NEEDED_SORT_ENABLED:\s*\$\{\{\s*secrets\.LEVEL_NEEDED_SORT_ENABLED\s*\}\}/,
       /envs:[^\n]*\bLEVEL_NEEDED_SORT_ENABLED\b/,
     ],
+    // #2753 item 6 — leave company search. A plain boolean on the api only, turned on in
+    // production ONLY by the environment secret, after migration 0168.
+    [
+      "SEARCH_EXIT_ENABLED",
+      /SEARCH_EXIT_ENABLED:\s*\$\{\{\s*secrets\.SEARCH_EXIT_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bSEARCH_EXIT_ENABLED\b/,
+    ],
     // ADR-0053 (PAY-DB-01) — payer org tenancy (off | shadow | on), api only. The environment
     // secret is its one arming path (owner decision O-8); absent, the bridge holds it off.
     [
@@ -463,6 +470,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["PAYER_APPLICANT_STAGES_ENABLED", "true"],
     // ADR-0061 — off is today's applicant list: the v1.0 ORDER BY, no level read, levelFit null.
     ["LEVEL_NEEDED_SORT_ENABLED", "false"],
+    // #2753 item 6 — off is today: the worker routes 404 and nothing reads worker_search_exits.
+    ["SEARCH_EXIT_ENABLED", "false"],
     // #2752 — off is no Campus route at all: a neutral 404 before any token, address or audit.
     ["CAMPUS_LINK_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.

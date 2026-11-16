@@ -1,8 +1,10 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { sql as dsql, type SQL } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
+import { SERVER_CONFIG } from "../config/config.module";
 import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
+import { searchExitEnabled, type SearchExitConfig } from "../search-exit/search-exit.flag";
 
 /**
  * DB access for the payer's ALL-CANDIDATES search (`POST /payer/candidates/search`, ADR-0040,
@@ -33,6 +35,12 @@ import type { TenantKey } from "../payers/payer-tenant-scope";
  * named-company search grant for is in THAT company's pool only, on the grant's skill (months
  * unrecorded), with no BadaBhai consent row needed: his own yes for that company was read from the
  * institute. No other company's search ever sees the grant.
+ * ONE WAY OUT THAT KEEPS CONSENT (#2753 item 6, only while SEARCH_EXIT_ENABLED is on): a worker
+ * with a `worker_search_exits` row left company search, and is out of the WHOLE pool, the grant
+ * branch included (a student who left search left it for named-company search too). It feeds the
+ * city facet and the admin card read (`onlyWorkerId`) as well, which then says "not in the pool".
+ * With the switch off the statement is byte-identical to the one before #2753 and the table is
+ * never named (`candidate-search.search-exit.test.ts`).
  * NEVER WIDEN THIS TO MAKE ROWS APPEAR (E2_BUILD "THE EMPTY-RESULT TRAP"): a search that returns
  * a worker who never consented has already disclosed him.
  *
@@ -113,6 +121,12 @@ export interface CandidatePoolQuery {
    * skill his course maps to. Absent = no grant is read at all (the admin card read passes none).
    */
   tenant?: TenantKey;
+  /**
+   * #2753 item 6 — leave out every worker who left company search (`worker_search_exits`). Set by
+   * {@link CandidateSearchRepository} from SEARCH_EXIT_ENABLED, never by a service: absent or false,
+   * the statement is byte-identical to the one before #2753 and the table is never named.
+   */
+  excludeSearchExits?: boolean;
 }
 
 /** One candidate in the pool, before labelling. */
@@ -151,7 +165,17 @@ export interface CandidateRoleRow {
  * worker row's `updated_at`. Shared by the search and the city facet so the two can never
  * disagree about who is in the population.
  */
-function consentingWorkers(onlyWorkerId: string | null = null, tenant?: TenantKey): SQL {
+function consentingWorkers(
+  onlyWorkerId: string | null = null,
+  tenant?: TenantKey,
+  excludeSearchExits = false,
+): SQL {
+  // #2753 item 6 — over the WHOLE pool (after the grant branch's OR), so a granted student who
+  // left search is out of that company's pool too. Off: the empty fragment, so the text is unchanged.
+  const exits = excludeSearchExits
+    ? dsql`
+      AND NOT EXISTS (SELECT 1 FROM worker_search_exits x WHERE x.worker_id = w.id)`
+    : dsql``;
   const only =
     onlyWorkerId === null
       ? dsql``
@@ -195,7 +219,7 @@ function consentingWorkers(onlyWorkerId: string | null = null, tenant?: TenantKe
             WHERE il.worker_id = w.id AND il.status = 'active'
           )
         )${granted}
-      )${only}`;
+      )${exits}${only}`;
 }
 
 /**
@@ -294,8 +318,10 @@ export function candidateSearchStatement(q: CandidatePoolQuery): SQL {
       FROM (${liveGrantRows(q.tenant)}) ws
       JOIN consenting cw ON cw.worker_id = ws.worker_id`;
 
+  const pool = consentingWorkers(q.onlyWorkerId ?? null, q.tenant, q.excludeSearchExits === true);
+
   return dsql`
-    WITH consenting AS (${consentingWorkers(q.onlyWorkerId ?? null, q.tenant)}),
+    WITH consenting AS (${pool}),
     wanted AS (
       SELECT ws.worker_id, ws.skill_id, ws.industry_id AS ws_industry_id, ws.months_bucketed,
              ${matchClass} AS match_class
@@ -398,14 +424,29 @@ type SearchSqlRow = {
 
 @Injectable()
 export class CandidateSearchRepository {
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  /** #2753 item 6 — SEARCH_EXIT_ENABLED, read once. Off (or no config at all) is today. */
+  private readonly excludeSearchExits: boolean;
+
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    // Optional only so the hand-built instances (unit and DB suites) keep compiling; absent reads as
+    // off. Nest always injects it (AppConfigModule is @Global).
+    @Optional() @Inject(SERVER_CONFIG) config?: SearchExitConfig,
+  ) {
+    this.excludeSearchExits = searchExitEnabled(config);
+  }
+
+  /** The query the statement is built from: the predicate is the SWITCH's, never the caller's. */
+  private withSearchExits(q: CandidatePoolQuery): CandidatePoolQuery {
+    return { ...q, excludeSearchExits: this.excludeSearchExits };
+  }
 
   /** The counts and one page of the pool, in the search order. */
   async searchPool(
     q: CandidatePoolQuery,
   ): Promise<{ counts: CandidatePoolCounts; rows: CandidatePoolRow[] }> {
     const raw = (await this.db.execute<SearchSqlRow>(
-      candidateSearchStatement(q),
+      candidateSearchStatement(this.withSearchExits(q)),
     )) as unknown as SearchSqlRow[];
     const head = raw[0];
     // The counts CTE always yields exactly one row; none at all is a defect, never data.
@@ -449,7 +490,7 @@ export class CandidateSearchRepository {
   /** Every trimmed raw city the eligible pool records — the city facet's source. */
   async listPoolCities(): Promise<string[]> {
     const rows = (await this.db.execute<{ city: string }>(dsql`
-      WITH consenting AS (${consentingWorkers()})
+      WITH consenting AS (${consentingWorkers(null, undefined, this.excludeSearchExits)})
       SELECT DISTINCT current_city AS city FROM consenting WHERE current_city IS NOT NULL
     `)) as unknown as { city: string }[];
     return rows.map((r) => r.city);

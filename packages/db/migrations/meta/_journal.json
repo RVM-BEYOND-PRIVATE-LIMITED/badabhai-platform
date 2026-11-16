@@ -1178,6 +1178,13 @@
       "when": 1794739258923,
       "tag": "0167_outbound_signals",
       "breakpoints": true
+    },
+    {
+      "idx": 168,
+      "version": "7",
+      "when": 1794807566665,
+      "tag": "0168_worker_search_exits",
+      "breakpoints": true
     }
   ]
 }

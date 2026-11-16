@@ -101,6 +101,7 @@ import { PayerAccountController } from "../payers/payer-account.controller";
 import { WorkerDisplayPrefsController } from "../display-prefs/worker-display-prefs.controller";
 import { PayerDisplayPrefsController } from "../display-prefs/payer-display-prefs.controller";
 import { AdminDisplayPrefsController } from "../display-prefs/admin-display-prefs.controller";
+import { SearchExitController } from "../search-exit/search-exit.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -164,6 +165,8 @@ const ATF = "AdminAiTraceFlagGuard";
 const OW = "OptionalWorkerAuthGuard";
 const RZ = "RazorpayWebhookGuard";
 const POR = "PayerOrgRoleGuard";
+/** #2753 item 6 — NOT AN AUTH GUARD: the SEARCH_EXIT_ENABLED switch's neutral 404, run first. */
+const SE = "SearchExitEnabledGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [I], recordBatch: [I] } },
@@ -928,6 +931,13 @@ const CONTRACT: ControllerContract[] = [
     ctor: AdminDisplayPrefsController,
     routes: { get: [A], update: [A] },
   },
+  // #2753 item 6 — "companies can find me": the posture of every other `/workers/me/*` write
+  // ([C, W]) behind the switch's 404 (SE, first in order; pinned below).
+  {
+    name: "SearchExit",
+    ctor: SearchExitController,
+    routes: { get: [SE, C, W], set: [SE, C, W] },
+  },
 ];
 
 describe("API authz contract — guards on every controller route", () => {
@@ -982,6 +992,8 @@ describe("API authz contract — guards on every controller route", () => {
       WorkerDisplayPrefsController,
       PayerDisplayPrefsController,
       AdminDisplayPrefsController,
+      // #2753 item 6 — the worker's own search visibility; a route must not join unpinned.
+      SearchExitController,
     ] as Ctor[]) {
       it(`${ctor.name} lists every route it serves`, () => {
         const proto = ctor.prototype as Record<string, unknown>;
@@ -1032,6 +1044,16 @@ describe("API authz contract — guards on every controller route", () => {
         expect(guardNames(ctor)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
       });
     }
+
+    // #2753 item 6 — the same pair, behind the switch's 404 that runs FIRST, so with the switch
+    // off nothing at all runs (no token check, no consent read), as for an unmounted route.
+    it("SearchExitController runs [SearchExitEnabledGuard, WorkerAuthGuard, ConsentGuard] in order", () => {
+      expect(guardNames(SearchExitController)).toEqual([
+        "SearchExitEnabledGuard",
+        "WorkerAuthGuard",
+        "ConsentGuard",
+      ]);
+    });
 
     // WorkersController.setMyName applies the guards at the METHOD level (the
     // controller also has open ops routes), so assert the order on the handler.
