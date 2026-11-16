@@ -197,6 +197,14 @@
   - The trade: while the events table cannot be written, erasures wait for it instead of completing unrecorded.
   - It is box-side only, like the tombstone knob above: set it in the project `.env` and recreate the api.
   - Default `false` is today's order.
+  - **One event per worker on either setting (#2753 item 13).** Both paths write it under the key
+    `worker.account_deleted:<workerId>`, so two runs on one worker (two sweep ticks, or the sweep beside
+    the QA seam) leave one row, not two. The one other path that deletes a workers row, Campus's unlink of
+    a link-created worker who never used the app (`InstituteLinkService.unlinkStudent`, `campus_request`),
+    writes the same event under the same key on its own transaction, beside
+    `worker.institute_unlinked { worker_deleted: true }`. No
+    admin action erases a worker; `apps/api/src/workers/worker-exit-paths.static.test.ts` fails if one is
+    added without its event.
 - **`revokeAll` fails open (risks-register R69, pre-existing).** If Redis errors while sessions are being revoked,
   `revokeAll` logs `logout-all Redis error` and returns 0. The erasure then continues and records
   `sessions_revoked: 0`. Any `refresh:<hash>` record it failed to delete survives for up to `AUTH_REFRESH_TTL_DAYS`

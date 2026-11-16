@@ -1,9 +1,17 @@
 import { Injectable } from "@nestjs/common";
+import { ConsentRepository } from "../consent/consent.repository";
+import { modelTrainingAllowed } from "../consent/model-training-gate";
 import {
   LearnLabelsRepository,
   type LearnEventRow,
   type LearnIngestSummary,
 } from "./learn-labels.repository";
+
+/** The worker an event is about: every LEARN event carries `payload.worker_id`. */
+function workerIdOf(ev: LearnEventRow): string | undefined {
+  const id = ev.payload.worker_id;
+  return typeof id === "string" ? id : undefined;
+}
 
 /**
  * LEARN label producer (migration 0091) — turns already-emitted spine events into the
@@ -28,10 +36,21 @@ import {
  * PRIVACY: every field handled here is a registry-validated id/integer/boolean. No free
  * text exists on any of these payloads (the registry's `.strict()` schemas enforce it),
  * so no PII can enter this table even by accident.
+ *
+ * CONSENT (#2753 item 13, ADR-0018 D1). These labels exist to train reach-learn's calibrator, so
+ * a worker's behaviour becomes a label only when `modelTrainingAllowed` says yes for him: his
+ * latest consent row is live and names `model_training`. One read per batch; anyone else's events
+ * write nothing and are counted `withheldNoConsent`. FAIL CLOSED: a failed consent read withholds
+ * the whole batch. No worker has that consent yet, so an armed sweep writes no label today
+ * (`LEARN_LABELS_ENABLED` cannot reach the production container anyway: compose does not
+ * declare it).
  */
 @Injectable()
 export class LearnLabelsService {
-  constructor(private readonly repo: LearnLabelsRepository) {}
+  constructor(
+    private readonly repo: LearnLabelsRepository,
+    private readonly consents: ConsentRepository,
+  ) {}
 
   /**
    * One producer tick: ingest + resolve one bounded batch after the cursor watermark,
@@ -43,14 +62,27 @@ export class LearnLabelsService {
       submittedResolved: 0,
       skippedResolved: 0,
       skippedEvents: 0,
+      withheldNoConsent: 0,
     };
 
     const fromMs = await this.repo.getWatermark();
     const batch = await this.repo.readEventBatch(fromMs, batchLimit);
     if (batch.length === 0) return summary;
 
+    // ONE consent read for the batch's workers, before any write.
+    const ids = batch.map(workerIdOf).filter((id): id is string => id !== undefined);
+    const mayTrain = await modelTrainingAllowed(this.consents, ids);
+
     let highWaterMs = fromMs;
     for (const ev of batch) {
+      highWaterMs = Math.max(highWaterMs, ev.createdAt.getTime());
+      const workerId = workerIdOf(ev);
+      if (workerId === undefined || !mayTrain.has(workerId)) {
+        // Not his yes to give a label: nothing written. The cursor still moves past it, so a
+        // consent given later is never applied to behaviour from before it.
+        summary.withheldNoConsent += 1;
+        continue;
+      }
       let handled = true;
       switch (ev.eventName) {
         case "feed.shown_v2":
@@ -72,7 +104,6 @@ export class LearnLabelsService {
         // would never have emitted. Counted, never written.
         summary.skippedEvents += 1;
       }
-      highWaterMs = Math.max(highWaterMs, ev.createdAt.getTime());
     }
 
     await this.repo.setWatermark(highWaterMs);

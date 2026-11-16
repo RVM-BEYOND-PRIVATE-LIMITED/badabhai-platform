@@ -43,6 +43,11 @@ export interface LearnIngestSummary {
   skippedResolved: number;
   /** Events seen but not applicable (legacy subject shapes, missing subjects). */
   skippedEvents: number;
+  /**
+   * #2753 item 13 — events whose worker has not given `model_training` consent (or whose
+   * consent could not be read): nothing written. See `modelTrainingAllowed`.
+   */
+  withheldNoConsent: number;
 }
 
 /**

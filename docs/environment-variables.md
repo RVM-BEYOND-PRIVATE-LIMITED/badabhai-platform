@@ -382,6 +382,14 @@ NestJS boot assertion).
   (compose `${SIGNUP_AGE_GATE_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
   `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; off again
   is `false` plus a redeploy. Values lowercase `true`/`false`/`1`/`0`/empty only.
+- **Privacy notice link (#2753 item 13)** — `CONSENT_NOTICE_URL`, api only (`optionalSecret`, an
+  https URL). `GET /consent/notice` (worker-authed, `no-store`) serves
+  `{ version, employer_contact_versions, notice_url }`: `CURRENT_CONSENT_VERSION`,
+  `EMPLOYER_CONTACT_NOTICE_VERSIONS` and this value, or `notice_url: null` while it is unset (the
+  default; no link is invented). Not a switch. A plain-http or malformed value refuses boot.
+  Bridged through the GitHub `production` environment secret of the same name (compose
+  `${CONSENT_NOTICE_URL:-}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Setting it is the secret plus a redeploy.
 - **"Level needed" applicant sort (engine v1.1, CEO ruling 30 Oct 2026, ADR-0061)** —
   `LEVEL_NEEDED_SORT_ENABLED`, api only (`booleanFromString`, default off). Off is today's
   applicant list exactly: no extra query, the v1.0 ORDER BY, `levelFit: null` on every row. On, a

@@ -33,3 +33,18 @@ describe("AcceptConsentSchema — age_18_plus (#2541)", () => {
     expect(res.success && "worker_id" in res.data).toBe(false);
   });
 });
+
+/**
+ * #2753 item 13 — the backend side of the model-training ask (the screen is #2748): the existing
+ * write route already records `model_training` as a purpose, the one `modelTrainingAllowed` reads.
+ */
+describe("AcceptConsentSchema — model_training", () => {
+  it("accepts model_training beside the other purposes, as its own entry", () => {
+    const res = AcceptConsentSchema.safeParse({
+      ...BASE,
+      purposes: [...BASE.purposes, "model_training"],
+    });
+    expect(res.success).toBe(true);
+    expect(res.success && res.data.purposes).toContain("model_training");
+  });
+});

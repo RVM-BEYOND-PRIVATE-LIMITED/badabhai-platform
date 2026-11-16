@@ -864,6 +864,18 @@ export const serverEnvSchema = z.object({
   // under-18 answer is refused WHATEVER this says — the flag only decides whether a missing
   // answer still passes. Arm only once the worker-app release that sends the answer is live.
   SIGNUP_AGE_GATE_ENABLED: booleanFromString,
+  // #2753 item 13 — where the full worker privacy notice is published. `GET /consent/notice`
+  // serves it beside the notice version, so the worker app (#2748) links to it instead of
+  // hard-coding it. Unset/empty (the default) serves `notice_url: null`: there is no published
+  // link yet, and none is invented here. `optionalSecret`, because compose passes an unset
+  // variable as "". https only: it opens in the worker's browser. A malformed value refuses boot
+  // (the deploy preflight refuses it first).
+  CONSENT_NOTICE_URL: optionalSecret(
+    z
+      .string()
+      .url()
+      .refine((raw) => new URL(raw).protocol === "https:", "must be an https URL"),
+  ),
   // Cadence (hours) of the deletion sweep that erases overdue rows. The DB marker is
   // authoritative — a missed run only delays erasure until the next sweep. Fractional
   // hours allowed for tests/staging (cadence precedent: PACE_WAVE_INTERVAL_HOURS).
