@@ -44,6 +44,7 @@ import { AgencyTwinModule } from "./agency-twin/agency-twin.module";
 import { CampusDrivesModule } from "./campus-drives/campus-drives.module";
 import { DisplayPrefsModule } from "./display-prefs/display-prefs.module";
 import { SearchExitModule } from "./search-exit/search-exit.module";
+import { StillLookingModule } from "./still-looking/still-looking.module";
 import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
 import { AdminModule } from "./admin/admin.module";
 import { AdminPostingsModule } from "./admin-postings/admin-postings.module";
@@ -161,6 +162,10 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // #2753 item 6 — leave company search (`workers/me/search-visibility`). INERT until
     // SEARCH_EXIT_ENABLED is on: both routes are a plain 404 and nothing reads worker_search_exits.
     SearchExitModule,
+    // #2753 item 5 — the monthly "still looking?" check (`workers/me/still-looking`) and its daily
+    // sweep. INERT until STILL_LOOKING_CHECK_ENABLED is on: both routes are a plain 404 and the sweep
+    // reads nothing. Its push also needs STILL_LOOKING_PUSH_ENABLED (default off).
+    StillLookingModule,
     ReferralAttributionModule,
     // Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1): the 4th principal
     // (`/admin/*` route group behind AdminAuthGuard). Auth + RBAC + MFA only; the feature

@@ -1493,6 +1493,31 @@ export const serverEnvSchema = z.object({
   // disclosure budget, so answering a long due list cannot lock a company out of opening contacts.
   // Fail-closed (Redis down rejects).
   PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR: z.coerce.number().int().positive().default(600),
+  // THE MONTHLY "STILL LOOKING?" CHECK (#2753 item 5) — `still_looking_checks`. With it on, a
+  // daily sweep opens one check for each active, consented worker whose last check is more than
+  // STILL_LOOKING_EVERY_DAYS old (or who has none) and emits `worker.still_looking_prompted` (the
+  // in-app card and the Alerts entry); `GET /workers/me/still-looking` says whether one is due and
+  // `POST` stores yes / not_now / hired in one transaction. "not now" takes him out of company
+  // search and "yes" brings him back, when SEARCH_EXIT_ENABLED is on.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: both routes are a 404, the sweep reads nothing, and
+  // nothing reads or writes `still_looking_checks`. Migration `still_looking_checks` is
+  // APPLY-BEFORE-THE-SWITCH: on without it, both routes answer 503 and the sweep opens nothing.
+  STILL_LOOKING_CHECK_ENABLED: booleanFromString,
+  // The monthly prompt's PUSH (#2753 item 5). Pushes only while STILL_LOOKING_CHECK_ENABLED is on
+  // as well; with this off the check still opens and the card and the Alerts entry still show,
+  // but nothing buzzes a phone. DEFAULT OFF, and it must stay off until the owner widens the
+  // ADR-0034 push ruling: it is a non-security push (it falls under PUSH_GLOBAL_MAX_SENDS_PER_DAY
+  // and the worker's own notifications toggle; security pushes stay exempt from both).
+  STILL_LOOKING_PUSH_ENABLED: booleanFromString,
+  // How often a worker is asked, in whole days of 24 hours, counted from his last check (the later
+  // of when it was opened and when he answered it). Default 30 ("check every 30 days"); at least 7,
+  // so a typo cannot turn the monthly prompt into a daily one. Empty reads as the default.
+  STILL_LOOKING_EVERY_DAYS: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    // `.default()` on the INNER schema, for the reason written out on `positiveIntFromString`.
+    z.coerce.number().int().min(7).default(30),
+  ),
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable

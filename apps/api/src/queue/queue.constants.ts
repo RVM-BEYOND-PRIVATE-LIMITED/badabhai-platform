@@ -328,3 +328,13 @@ export const CANDIDATE_INDEX_OVERLAP_MS = 5 * 60_000;
  */
 export const OUTBOUND_SIGNALS_QUEUE = "outbound-signals";
 export const OUTBOUND_SIGNALS_SWEEP_SCHEDULER_ID = "outbound-signals-sweep";
+
+/**
+ * #2753 item 5 — the monthly "still looking?" sweep (`still_looking_checks`, migration 0173). One
+ * repeatable DAILY tick with NO payload: the predicate over `workers` and `still_looking_checks` (an
+ * active, consented worker with no open check and none inside STILL_LOOKING_EVERY_DAYS) is the work
+ * list, and the open-check unique index guards the insert, so a lost or duplicated Redis job is
+ * harmless: the next tick re-evaluates it, and two ticks racing open one check per worker.
+ */
+export const STILL_LOOKING_SWEEP_QUEUE = "still-looking-sweep";
+export const STILL_LOOKING_SWEEP_SCHEDULER_ID = "still-looking-sweep";

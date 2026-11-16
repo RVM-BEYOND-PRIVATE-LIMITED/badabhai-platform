@@ -476,6 +476,15 @@ services:
       # owner's default), bridged from the `production` secret of the same name.
       UNLOCK_FOLLOWUP_ENABLED: ${UNLOCK_FOLLOWUP_ENABLED:-false}
       UNLOCK_FOLLOWUP_AFTER_DAYS: ${UNLOCK_FOLLOWUP_AFTER_DAYS:-7}
+      # THE MONTHLY "STILL LOOKING?" CHECK (#2753 item 5). Off is today's API exactly: both routes
+      # are a 404, the sweep reads nothing and nothing touches `still_looking_checks`. On, a daily
+      # sweep opens one check per due worker and he answers yes / not_now / hired. Apply the
+      # `still_looking_checks` migration first. The push needs STILL_LOOKING_PUSH_ENABLED as well,
+      # off until the owner widens the ADR-0034 ruling (a non-security push). `:-false` because
+      # these bools reject "". STILL_LOOKING_EVERY_DAYS is `:-30` ("check every 30 days").
+      STILL_LOOKING_CHECK_ENABLED: ${STILL_LOOKING_CHECK_ENABLED:-false}
+      STILL_LOOKING_PUSH_ENABLED: ${STILL_LOOKING_PUSH_ENABLED:-false}
+      STILL_LOOKING_EVERY_DAYS: ${STILL_LOOKING_EVERY_DAYS:-30}
       # THE CAMPUS LINK (#2752). Off: every /internal/campus/v1 route is a neutral 404 and nothing
       # else runs. `:-false` because this bool rejects "". The two lists are empty when unset, and
       # empty refuses every caller (fail closed): token HASHES (sha256 hex, two during a rotation)

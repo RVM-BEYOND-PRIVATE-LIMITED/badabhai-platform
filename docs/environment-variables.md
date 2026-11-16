@@ -525,6 +525,35 @@ NestJS boot assertion).
   - `PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR` (default 600 per company login per UTC hour, its own Redis
     bucket `payer_unlock_outcome`, fail-closed): the answer route's write cap. Runs on its default;
     neither compose file forwards it.
+- **The monthly "still looking?" check (#2753 item 5)** — api only, three variables.
+  - `STILL_LOOKING_CHECK_ENABLED` (`booleanFromString`, default off). Off is today's API exactly:
+    `GET`/`POST /workers/me/still-looking` are the plain 404 of an unmounted route, the daily
+    `still-looking-sweep` tick returns at once, and nothing reads or writes `still_looking_checks`.
+    On, the sweep opens one check per active, consented worker with no open check and none opened or
+    answered in the last `STILL_LOOKING_EVERY_DAYS`, and emits `worker.still_looking_prompted` (the
+    in-app card and an Alerts entry); the worker answers `yes` / `not_now` / `hired`. With
+    `SEARCH_EXIT_ENABLED` on as well, `not_now` takes him out of company search (via
+    `monthly_check`) and `yes` brings him back; `hired` is stored only (no hire record: the answer
+    names no company or posting). The migration `still_looking_checks` is APPLY-BEFORE-THE-SWITCH:
+    on without it, both routes answer 503 and the sweep logs one warning per process and opens
+    nothing. Bridged through the GitHub `production` environment secret of the same name (compose
+    `${STILL_LOOKING_CHECK_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+    `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+  - `STILL_LOOKING_PUSH_ENABLED` (`booleanFromString`, default off): the prompt also goes out as a
+    push, ONLY while `STILL_LOOKING_CHECK_ENABLED` is on too (the template's `pushRequires`, read by
+    `PushService` at delivery, and the sweep enqueues nothing while it is off). **An owner call
+    first:** under the ADR-0034 ruling every push is a security alert (ADR-0062 added the
+    correction notices); this is a new, NON-security push, so the ruling must be widened before the
+    secret is set. As a non-security push it counts against `PUSH_GLOBAL_MAX_SENDS_PER_DAY` and
+    respects the worker's own notifications toggle; security pushes stay exempt from both. With it
+    off the check still opens and the card and the Alerts entry still show. Bridged like the check
+    (compose `${STILL_LOOKING_PUSH_ENABLED:-false}`, `ci.yml` `env:` + `envs:`, preflighted).
+  - `STILL_LOOKING_EVERY_DAYS` (integer, default 30, at least 7; empty reads as 30): how often a
+    worker is asked, in whole days of 24 hours from his last check (the later of when it opened and
+    when he answered it). Bridged like `UNLOCK_FOLLOWUP_AFTER_DAYS` (compose
+    `${STILL_LOOKING_EVERY_DAYS:-30}`, `ci.yml` `env:` + `envs:`); the deploy preflight refuses
+    anything but empty or a whole number 7..999 before a container moves, because a bad value would
+    stop the api booting.
 - **The Campus link (#2752)** — api only, four variables, all read by `CampusServiceGuard` on
   `/internal/campus/v1` (contract: `docs/api/campus-link-v1-api-reference.md`).
   - `CAMPUS_LINK_ENABLED` (`booleanFromString`, default off): off, every Campus route is a neutral

@@ -241,6 +241,18 @@ case "${UNLOCK_FOLLOWUP_AFTER_DAYS-}" in
     ;;
 esac
 
+# #2753 item 5: STILL_LOOKING_EVERY_DAYS — how often the monthly check asks, whole days. The api
+# parses it as an integer of at least 7 at boot, so "5", "30d" or "thirty" would crash-loop it
+# with no automatic rollback. Only empty or 7..999 pass, checked here before any prune, pull or
+# recreate. Empty means 30 through compose's `${STILL_LOOKING_EVERY_DAYS:-30}`.
+case "${STILL_LOOKING_EVERY_DAYS-}" in
+  "" | [7-9] | [1-9][0-9] | [1-9][0-9][0-9]) ;;
+  *)
+    echo "::error::STILL_LOOKING_EVERY_DAYS must be a whole number from 7 to 999, or empty (empty means 30). Fix the production secret (gh secret set STILL_LOOKING_EVERY_DAYS --env production --body 30) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
 # EVERY OTHER BRIDGED BOOLEAN — the same boot-time grammar, the same reason. Each name below is
 # in the deploy job's `envs:` list in ci.yml AND parsed by the api's `booleanFromString`
 # (packages/config/src/server.ts), which throws at boot on anything but true/false/1/0/empty.
@@ -285,6 +297,8 @@ BRIDGED_BOOLEAN_FLAGS=(
   RESUME_SKINS_ENABLED
   SEARCH_EXIT_ENABLED
   SIGNUP_AGE_GATE_ENABLED
+  STILL_LOOKING_CHECK_ENABLED
+  STILL_LOOKING_PUSH_ENABLED
   TEST_IMMEDIATE_DELETE_ENABLED
   UNLOCK_FOLLOWUP_ENABLED
   WORK_HISTORY_POLISH_ENABLED

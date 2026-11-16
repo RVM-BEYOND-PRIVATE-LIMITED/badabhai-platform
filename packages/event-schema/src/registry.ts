@@ -1800,6 +1800,19 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerSearchVisibilityChangedPayload,
   },
+  // #2753 item 5 — the monthly "still looking?" check (`still_looking_checks`, migration 0173):
+  // the sweep opened one for a worker, and he answered it (yes / not_now / hired). One per row
+  // written, in the row's transaction. IDS AND CLOSED VALUES ONLY, strict. v1.
+  "worker.still_looking_prompted": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerStillLookingPromptedPayload,
+  },
+  "worker.still_looking_answered": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerStillLookingAnsweredPayload,
+  },
   // #2753 item 9 — a hire record (one company, worker and posting) changed: created, a status
   // move, or a source saying "hired" for the first time. Ids + closed values only, strict. v1.
   "hire.recorded": {

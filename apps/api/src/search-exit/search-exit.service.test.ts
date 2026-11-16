@@ -244,6 +244,57 @@ describe("SearchExitService — PUT: one event per REAL change, in the row's tra
   });
 });
 
+describe("SearchExitService — on the CALLER's transaction (#2753 item 5, the monthly check)", () => {
+  it.each([
+    [false, "false"],
+    [null, "absent"],
+  ])(
+    "SEARCH_EXIT_ENABLED %s (%s): null, and NOTHING read or written (the caller skips the effect)",
+    async (on, _label) => {
+      const h = harness({ on });
+      const out = await h.repo.withTransaction((tx) =>
+        h.svc.setVisibilityInTransaction(WORKER, false, "monthly_check", CTX, tx as never),
+      );
+      expect(out).toBeNull();
+      expect(h.log).toEqual(["commit"]);
+      expect(h.events.emit).not.toHaveBeenCalled();
+    },
+  );
+
+  it("not now: out with via monthly_check, on the caller's tx; no transaction of its own", async () => {
+    const h = harness();
+    const out = await h.repo.withTransaction((tx) =>
+      h.svc.setVisibilityInTransaction(WORKER, false, "monthly_check", CTX, tx as never),
+    );
+    expect(out).toEqual({
+      reply: { visible: false, hidden_since: FIRST.toISOString() },
+      changed: true,
+    });
+    expect(h.log).toEqual(["insert", "emit:worker.search_visibility_changed", "commit"]);
+    expect(h.repo.withTransaction).toHaveBeenCalledTimes(1);
+    expect(emittedPayloads(h)).toEqual([
+      { worker_id: WORKER, visible: false, via: "monthly_check" },
+    ]);
+  });
+
+  it("yes: removes an exit whatever its via (his own switch too), one event; a repeat is a no-op", async () => {
+    const h = harness();
+    h.rows.set(WORKER, { hiddenAt: FIRST, via: "worker" });
+    const back = await h.repo.withTransaction((tx) =>
+      h.svc.setVisibilityInTransaction(WORKER, true, "monthly_check", CTX, tx as never),
+    );
+    expect(back).toEqual({ reply: { visible: true, hidden_since: null }, changed: true });
+    expect(h.rows.has(WORKER)).toBe(false);
+    const again = await h.repo.withTransaction((tx) =>
+      h.svc.setVisibilityInTransaction(WORKER, true, "monthly_check", CTX, tx as never),
+    );
+    expect(again).toEqual({ reply: { visible: true, hidden_since: null }, changed: false });
+    expect(emittedPayloads(h)).toEqual([
+      { worker_id: WORKER, visible: true, via: "monthly_check" },
+    ]);
+  });
+});
+
 describe("SearchExitService — switched on before migration 0169: 503, never 500", () => {
   /** drizzle's wrapper with the driver's SQLSTATE on `cause`. */
   const driverError = (code: string) =>

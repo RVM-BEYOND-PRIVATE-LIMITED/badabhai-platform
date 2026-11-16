@@ -6698,6 +6698,52 @@ export type WorkerSearchVisibilityChangedPayload = z.infer<
   typeof WorkerSearchVisibilityChangedPayload
 >;
 
+// ---------------------------------------------------------------------------
+// #2753 item 5 — THE MONTHLY "STILL LOOKING?" CHECK (`still_looking_checks`, migration 0173),
+// while `STILL_LOOKING_CHECK_ENABLED` is on. The sweep opens a check (`prompted`) and the worker
+// answers it with one tap (`answered`). Each event is written in the same transaction as its row.
+//
+// IDS AND CLOSED VALUES ONLY: the worker, the check and (answered) the closed answer. No name,
+// phone, device, availability or company ever rides along.
+// ---------------------------------------------------------------------------
+
+/**
+ * The worker's three answers: `yes` (still looking), `not_now` (not looking now) and `hired` (he
+ * found work). The same values as the `still_looking_checks_answer_chk` CHECK. A new value is a
+ * new event version.
+ */
+export const STILL_LOOKING_CHECK_ANSWERS = ["yes", "not_now", "hired"] as const;
+export type StillLookingCheckAnswer = (typeof STILL_LOOKING_CHECK_ANSWERS)[number];
+
+/**
+ * #2753 item 5 — the sweep asked a worker "still looking?": one open check per worker, at most once
+ * every STILL_LOOKING_EVERY_DAYS. ONE PER CHECK OPENED (the open-check unique index is the
+ * guard, so two sweeps racing emit one). The actor is the system; the subject is the worker. Its
+ * Alerts entry and (with STILL_LOOKING_PUSH_ENABLED) its push copy are the static template.
+ */
+export const WorkerStillLookingPromptedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    check_id: uuidSchema,
+  })
+  .strict();
+export type WorkerStillLookingPromptedPayload = z.infer<typeof WorkerStillLookingPromptedPayload>;
+
+/**
+ * #2753 item 5 — the worker answered the check (an open one, or one opened by his answer from
+ * Settings). ONE PER ANSWER STORED: repeating the answer he already gave writes nothing and emits
+ * nothing. A `hired` is his own report (owner question 2 default); no hire record is confirmed by
+ * it. The actor and the subject are the worker himself.
+ */
+export const WorkerStillLookingAnsweredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    check_id: uuidSchema,
+    answer: z.enum(STILL_LOOKING_CHECK_ANSWERS),
+  })
+  .strict();
+export type WorkerStillLookingAnsweredPayload = z.infer<typeof WorkerStillLookingAnsweredPayload>;
+
 // #2753 item 9 — HIRE RECORDS (`hires`). One record per company, worker and posting, moved by the
 // company's board (a move into or out of `hired`), the company's follow-up answer, the worker's own
 // answer and the worker desk. Written in the same transaction as the row, while

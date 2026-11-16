@@ -102,6 +102,7 @@ import { WorkerDisplayPrefsController } from "../display-prefs/worker-display-pr
 import { PayerDisplayPrefsController } from "../display-prefs/payer-display-prefs.controller";
 import { AdminDisplayPrefsController } from "../display-prefs/admin-display-prefs.controller";
 import { SearchExitController } from "../search-exit/search-exit.controller";
+import { StillLookingController } from "../still-looking/still-looking.controller";
 // #2753 item 11 — the pay-on-joining pilot's hire record (admin, behind its own switch guard).
 import { PayOnJoiningHiresController } from "../pay-on-joining/pay-on-joining-hires.controller";
 // #2753 item 10 — the company follow-up: the payer realm's guard, then its own switch.
@@ -172,6 +173,8 @@ const RZ = "RazorpayWebhookGuard";
 const POR = "PayerOrgRoleGuard";
 /** #2753 item 6 — NOT AN AUTH GUARD: the SEARCH_EXIT_ENABLED switch's neutral 404, run first. */
 const SE = "SearchExitEnabledGuard";
+/** #2753 item 5 — NOT AN AUTH GUARD: the STILL_LOOKING_CHECK_ENABLED switch's neutral 404, first. */
+const SL = "StillLookingEnabledGuard";
 /** #2753 item 10 — NOT an auth guard: the follow-up switch, a neutral 404 while it is off. */
 const UFE = "UnlockFollowupEnabledGuard";
 
@@ -945,6 +948,13 @@ const CONTRACT: ControllerContract[] = [
     ctor: SearchExitController,
     routes: { get: [SE, C, W], set: [SE, C, W] },
   },
+  // #2753 item 5 — the monthly "still looking?" check: the posture of every other
+  // `/workers/me/*` write ([C, W]) behind the switch's 404 (SL, first in order; pinned below).
+  {
+    name: "StillLooking",
+    ctor: StillLookingController,
+    routes: { get: [SL, C, W], answer: [SL, C, W] },
+  },
   // #2753 item 11 — the pay-on-joining hire record: admin session, then the
   // PAY_ON_JOINING_RECORDS_ENABLED switch (a neutral 404 for every role), then the capability.
   {
@@ -1015,6 +1025,8 @@ describe("API authz contract — guards on every controller route", () => {
       AdminDisplayPrefsController,
       // #2753 item 6 — the worker's own search visibility; a route must not join unpinned.
       SearchExitController,
+      // #2753 item 5 — the worker's own monthly answer; a route must not join unpinned.
+      StillLookingController,
       // #2753 item 11 — a money record's write surface; a route must not join it unpinned.
       PayOnJoiningHiresController,
       // #2753 item 10 — a company's answers about the contacts it opened; a route must not join
@@ -1076,6 +1088,15 @@ describe("API authz contract — guards on every controller route", () => {
     it("SearchExitController runs [SearchExitEnabledGuard, WorkerAuthGuard, ConsentGuard] in order", () => {
       expect(guardNames(SearchExitController)).toEqual([
         "SearchExitEnabledGuard",
+        "WorkerAuthGuard",
+        "ConsentGuard",
+      ]);
+    });
+
+    // #2753 item 5 — the same pair behind the check's 404, which runs FIRST.
+    it("StillLookingController runs [StillLookingEnabledGuard, WorkerAuthGuard, ConsentGuard] in order", () => {
+      expect(guardNames(StillLookingController)).toEqual([
+        "StillLookingEnabledGuard",
         "WorkerAuthGuard",
         "ConsentGuard",
       ]);
