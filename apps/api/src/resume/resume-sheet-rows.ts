@@ -250,7 +250,7 @@ function printedTools(tools: readonly string[]): string[] {
 
 /**
  * The Verdict Line's availability segment: "available immediately", "available in 15 days",
- * "available from 12 Nov 2026", "on notice period".
+ * "available from 12 Nov 2026", "on notice period", "working, open to a better offer".
  *
  * IN DAYS (owner ruling 2026-11-04): an employer scanning the header compares starts, and a day
  * count compares at a glance where "1 month" and "within a week" do not. The count comes from the
@@ -268,6 +268,9 @@ function availabilityPhrase(availability: SheetAvailability | null): string | nu
       return `available from ${start.date}`;
     case "on_notice":
       return "on notice period";
+    case "open_to_offer":
+      // The brief's own words (#2753 item 3), and no day count: the worker named none.
+      return "working, open to a better offer";
     case "worded":
       return `available in ${availability.label}`;
   }
@@ -294,6 +297,11 @@ export type AvailabilityStart =
   | { readonly kind: "from_date"; readonly date: string }
   /** Serving notice, length not stated. */
   | { readonly kind: "on_notice" }
+  /**
+   * Working now and open to a better offer (#2753 item 3, `working_open`): no start and no day
+   * count. NOT `on_notice`, which would tell an employer he has already resigned.
+   */
+  | { readonly kind: "open_to_offer" }
   /** A word no vocabulary turns into days (an out-of-vocabulary container token): print the label. */
   | { readonly kind: "worded" };
 

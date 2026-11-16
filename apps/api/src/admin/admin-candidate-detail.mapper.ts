@@ -15,7 +15,7 @@ import {
   type FieldSource,
 } from "../profiles/worker-field-precedence";
 import {
-  AVAILABILITY_STATUSES,
+  AVAILABILITY_STATUSES_ALL,
   JOB_TYPES,
   WORK_TYPES,
   labelFor,
@@ -488,7 +488,9 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
       availability: {
         value: {
           status: availability.value.status,
-          status_label: labelFor(AVAILABILITY_STATUSES, availability.value.status ?? ""),
+          // Either set (#2753 item 3), each key in its own words; an unknown or empty status is
+          // null (not given), never a raw slug.
+          status_label: labelFor(AVAILABILITY_STATUSES_ALL, availability.value.status ?? ""),
           available_from: availability.value.availableFrom,
           notice_period_days: availability.value.noticePeriodDays,
         },
