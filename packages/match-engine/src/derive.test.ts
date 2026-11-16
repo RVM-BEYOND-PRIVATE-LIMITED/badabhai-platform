@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_MATCH_CONFIG, parseMatchConfig } from "./config";
 import { deriveWorkerSkills, workerSkillDeriveInput } from "./derive";
+import { bucketMonths } from "./months";
 
 const cfg = DEFAULT_MATCH_CONFIG;
 
@@ -353,5 +354,210 @@ describe("deriveWorkerSkills — pack-only match skills (#2022)", () => {
     });
     expect(rows.map((r) => r.skillId)).toEqual(["mskill_press_operator"]);
     expect(rows[0]!.industryId).toBe("ind_industrial_manufacturing");
+  });
+});
+
+describe("the form-tenure fill (#2753 item 2, FORM_TENURE_MONTHS_ENABLED)", () => {
+  // A form worker as the form leaves him: no profile row, his chips under the form's pack.
+  const sheetMetalForm = [
+    {
+      packId: "qp_sheet_metal_fab",
+      attributeKey: "sheet_metal_machine",
+      optionKeys: ["cnc_press_brake"],
+    },
+  ];
+  const welderForm = [
+    { packId: "qp_welding_trade", attributeKey: "welding_process", optionKeys: ["mig_mag"] },
+  ];
+  const turnerForm = [
+    { packId: "qp_cnc_turning", attributeKey: "turning_machine", optionKeys: ["cnc_lathe"] },
+  ];
+  const machinistForm = [
+    {
+      packId: "qp_conventional_machining",
+      attributeKey: "machining_machine",
+      optionKeys: ["centre_lathe"],
+    },
+  ];
+  const months = (
+    evidence: Parameters<typeof workerSkillDeriveInput>[0],
+    config = cfg,
+  ): Record<string, number> =>
+    Object.fromEntries(
+      deriveWorkerSkills(workerSkillDeriveInput(evidence)!, config).map((r) => [
+        r.skillId,
+        r.monthsBucketed,
+      ]),
+    );
+
+  it("OFF (no formTenure, or an empty one) is today's input and today's rows, byte for byte", () => {
+    const evidence = { profile: null, secondaryRoleIds: [], packAnswers: sheetMetalForm };
+    const off = workerSkillDeriveInput(evidence);
+    expect(off).not.toHaveProperty("formTenureYears");
+    expect(workerSkillDeriveInput({ ...evidence, formTenure: [] })).toStrictEqual(off);
+    expect(deriveWorkerSkills(off!, cfg)).toStrictEqual([
+      {
+        skillId: "mskill_sheet_metal_worker",
+        industryId: "ind_industrial_manufacturing",
+        monthsBucketed: 0,
+        wants: true,
+        startedAt: null,
+        endedAt: null,
+      },
+    ]);
+  });
+
+  it("a 3–5 years band (4) gives that form's skill what the real bucketing gives 4 years: 48", () => {
+    const got = months({
+      profile: null,
+      secondaryRoleIds: [],
+      packAnswers: sheetMetalForm,
+      formTenure: [{ packId: "qp_sheet_metal_fab", years: 4 }],
+    });
+    expect(got).toEqual({ mskill_sheet_metal_worker: bucketMonths(4, cfg.monthBucket) });
+    expect(got.mskill_sheet_metal_worker).toBe(48);
+    // The 36-month line of #2750 falls between bands: 1–3 years (2) is 24, under it.
+    expect(
+      months({
+        profile: null,
+        secondaryRoleIds: [],
+        packAnswers: sheetMetalForm,
+        formTenure: [{ packId: "qp_sheet_metal_fab", years: 2 }],
+      }).mskill_sheet_metal_worker,
+    ).toBe(24);
+  });
+
+  it("goes through the CONFIGURED bucket, not a second bucketing", () => {
+    const evidence = {
+      profile: null,
+      secondaryRoleIds: [],
+      packAnswers: sheetMetalForm,
+      formTenure: [{ packId: "qp_sheet_metal_fab", years: 7 }],
+    };
+    const yearly = parseMatchConfig({ ...cfg, monthBucket: 12 });
+    expect(months(evidence, yearly).mskill_sheet_metal_worker).toBe(bucketMonths(7, 12));
+    expect(months(evidence, yearly).mskill_sheet_metal_worker).toBe(84);
+  });
+
+  it("a fresher or under-one-year band (0) stays 0 — 'not recorded', as today", () => {
+    expect(
+      months({
+        profile: null,
+        secondaryRoleIds: [],
+        packAnswers: sheetMetalForm,
+        formTenure: [{ packId: "qp_sheet_metal_fab", years: 0 }],
+      }),
+    ).toEqual({ mskill_sheet_metal_worker: 0 });
+  });
+
+  it("no band for the form gives nothing — a band under ANOTHER pack fills nothing here", () => {
+    expect(
+      months({
+        profile: null,
+        secondaryRoleIds: [],
+        packAnswers: sheetMetalForm,
+        formTenure: [{ packId: "qp_welding_trade", years: 12 }],
+      }),
+    ).toEqual({ mskill_sheet_metal_worker: 0 });
+  });
+
+  it("FILL, NEVER OVERRIDE: a profile's own total_years keeps exactly today's months", () => {
+    const profile = {
+      canonicalRoleId: null,
+      profileSkills: [],
+      totalYears: 8,
+      sourceSession: null,
+    };
+    const today = months({ profile, secondaryRoleIds: [], packAnswers: sheetMetalForm });
+    expect(today).toEqual({ mskill_sheet_metal_worker: 96 });
+    expect(
+      months({
+        profile,
+        secondaryRoleIds: [],
+        packAnswers: sheetMetalForm,
+        formTenure: [{ packId: "qp_sheet_metal_fab", years: 12 }],
+      }),
+    ).toEqual(today);
+  });
+
+  it("fills only where the profile's tenure buckets to 0 — the 0 that means 'not recorded'", () => {
+    // A profile under half a year buckets to 0 months, which search reads as not recorded; the
+    // band is the only figure that says otherwise, so it fills.
+    const got = months({
+      profile: { canonicalRoleId: null, profileSkills: [], totalYears: 0.3, sourceSession: null },
+      secondaryRoleIds: [],
+      packAnswers: sheetMetalForm,
+      formTenure: [{ packId: "qp_sheet_metal_fab", years: 4 }],
+    });
+    expect(got).toEqual({ mskill_sheet_metal_worker: 48 });
+  });
+
+  it("two forms give two skills, each with its OWN band", () => {
+    expect(
+      months({
+        profile: null,
+        secondaryRoleIds: [],
+        packAnswers: [...sheetMetalForm, ...welderForm],
+        formTenure: [
+          { packId: "qp_welding_trade", years: 12 },
+          { packId: "qp_sheet_metal_fab", years: 2 },
+        ],
+      }),
+    ).toEqual({ mskill_mig_welder: 144, mskill_sheet_metal_worker: 24 });
+  });
+
+  it("a skill no form derived is never filled (a declared occupation keeps 0)", () => {
+    expect(
+      months({
+        profile: null,
+        secondaryRoleIds: ["role_vmc_operator"],
+        packAnswers: sheetMetalForm,
+        formTenure: [{ packId: "qp_sheet_metal_fab", years: 4 }],
+      }),
+    ).toEqual({ mskill_sheet_metal_worker: 48, mskill_vmc_operator: 0 });
+  });
+
+  it("two forms naming ONE skill keep the longer band; the input is order-independent", () => {
+    // `centre_lathe` (conventional machining) and `cnc_lathe` (CNC turning) both reach CNC Turner.
+    const base = {
+      profile: null,
+      secondaryRoleIds: [],
+      packAnswers: [...turnerForm, ...machinistForm],
+    };
+    const fills = [
+      { packId: "qp_cnc_turning", years: 2 },
+      { packId: "qp_conventional_machining", years: 7 },
+    ];
+    expect(months({ ...base, formTenure: fills })).toEqual({
+      mskill_cnc_turner: 84,
+      mskill_conventional_machinist: 84,
+    });
+    expect(workerSkillDeriveInput({ ...base, formTenure: [...fills].reverse() })).toStrictEqual(
+      workerSkillDeriveInput({ ...base, formTenure: fills }),
+    );
+  });
+
+  it("is not evidence on its own: no pack answers + a band is still 'nothing to derive from'", () => {
+    expect(
+      workerSkillDeriveInput({
+        profile: null,
+        secondaryRoleIds: [],
+        packAnswers: [],
+        formTenure: [{ packId: "qp_sheet_metal_fab", years: 4 }],
+      }),
+    ).toBeNull();
+  });
+
+  it("ignores a non-finite or negative figure rather than ranking on it", () => {
+    for (const years of [Number.NaN, Number.POSITIVE_INFINITY, -2]) {
+      expect(
+        workerSkillDeriveInput({
+          profile: null,
+          secondaryRoleIds: [],
+          packAnswers: sheetMetalForm,
+          formTenure: [{ packId: "qp_sheet_metal_fab", years }],
+        }),
+      ).not.toHaveProperty("formTenureYears");
+    }
   });
 });

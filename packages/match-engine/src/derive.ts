@@ -21,6 +21,7 @@ import {
   matchSkillForRole,
   matchSkillIndustry,
   matchSkillsForAttribute,
+  matchSkillsForPackAnswerId,
   packAnswerEvidence,
   type MatchSkillId,
   type PackAnswer,
@@ -50,6 +51,27 @@ export interface DeriveWorkerSkillsInput {
   matchSkillIds?: readonly string[];
   /** The worker's estimated TOTAL experience, in years. `null` when unknown. */
   totalYears?: number | null;
+  /**
+   * #2753 item 2 (`FORM_TENURE_MONTHS_ENABLED`) — YEARS per match skill, stated by the experience
+   * band of the trade form whose answers derived that skill. Built by `workerSkillDeriveInput` from
+   * {@link WorkerSkillEvidence.formTenure}; see {@link deriveWorkerSkills} for the fill rule.
+   *
+   * ABSENT IS TODAY. The key is only ever present while the switch is on, so an off derivation is
+   * byte-identical — same rows, same months, same input object.
+   */
+  formTenureYears?: Readonly<Record<string, number>>;
+}
+
+/**
+ * The years ONE trade form's tenure answer states, keyed by the pack the form was answered under.
+ *
+ * RESOLVED BY THE CALLER, never here: this package reads no answer. `@badabhai/db`
+ * (`loadFormTenureFills`) turns a stored band into its `value_number`, and a typed answer into
+ * `typedTenureYears`, for both writers of `worker_skill`.
+ */
+export interface FormTenureFill {
+  readonly packId: string;
+  readonly years: number;
 }
 
 /**
@@ -61,8 +83,17 @@ export interface DeriveWorkerSkillsInput {
  *       ∪ every pack-only `mskill_*` his pack answers name (#2022) or his worker-only
  *         generic-pack chat claims (#2075), closed-set checked
  * MONTHS= `bucketMonths(totalYears)` — identically on every row (the coarse rule)
+ *         …and, ONLY where that is 0, `bucketMonths(formTenureYears[skill])` (#2753 item 2)
  * WANTS = `true` — the launch default; a worker who says otherwise flips the row
  * DATES = `null` — we do not know the stints yet, so we do not claim them
+ *
+ * THE FORM-TENURE FILL (#2753 item 2, `FORM_TENURE_MONTHS_ENABLED`). A form worker has no profile,
+ * so `totalYears` is null and every row reads 0 months — "not recorded" to search — although the
+ * form asked him an experience band. With the switch on, a skill his form derived takes that
+ * form's years through the SAME `bucketMonths`, so a 3–5 years band (4) reads 48 months and a
+ * 1–3 years band (2) reads 24. FILL, NEVER OVERRIDE: a row whose `totalYears` already buckets above
+ * 0 keeps exactly today's months, and a fresher or under-one-year band (0) stays 0, "not recorded"
+ * as today. A skill no form derived is never filled.
  *
  * Deterministic: output is sorted by `skillId`, so the same input always produces the
  * same array, byte for byte.
@@ -92,6 +123,7 @@ export function deriveWorkerSkills(
   if (skillIds.size === 0) return [];
 
   const monthsBucketed = bucketMonths(input.totalYears, cfg.monthBucket);
+  const formTenure = input.formTenureYears;
 
   return [...skillIds]
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
@@ -103,7 +135,11 @@ export function deriveWorkerSkills(
       return {
         skillId,
         industryId,
-        monthsBucketed,
+        // The fill only ever replaces a 0, and an absent entry buckets to 0 again: no guess.
+        monthsBucketed:
+          monthsBucketed > 0 || formTenure === undefined
+            ? monthsBucketed
+            : bucketMonths(formTenure[skillId], cfg.monthBucket),
         wants: true,
         startedAt: null,
         endedAt: null,
@@ -133,6 +169,12 @@ export interface WorkerSkillEvidence {
   secondaryRoleIds: readonly string[];
   /** His stored pack answers (`worker_attributes`), each carrying its own row's `pack_id`. */
   packAnswers: readonly PackAnswer[];
+  /**
+   * #2753 item 2 — the years each trade form's experience band states, by pack. OPTIONAL, and
+   * absent or empty is today: both writers pass it only while `FORM_TENURE_MONTHS_ENABLED` is on.
+   * Not evidence on its own — it fills months for skills the pack answers derive, never adds one.
+   */
+  formTenure?: readonly FormTenureFill[];
 }
 
 /**
@@ -182,5 +224,44 @@ export function workerSkillDeriveInput(
     // generic-pack chat (#2075). Neither has a bridge, so these are their only sources. UNION.
     matchSkillIds: [...new Set([...pack.matchSkillIds, ...genericChat])].sort(),
     totalYears: evidence.profile?.totalYears ?? null,
+    // Only present when a form stated years for a skill it derives — so off, the input is today's.
+    ...formTenureInput(evidence.packAnswers, evidence.formTenure ?? []),
   };
+}
+
+/**
+ * #2753 item 2 — which skills each trade form's band speaks for, and for how many years.
+ *
+ * PER FORM, NOT PER WORKER. A form's band is his tenure in THAT trade, so it is given only to the
+ * skills that form's own answers derive: the pack answers carrying the band's `pack_id`, routed
+ * through the same three bridges `deriveWorkerSkills` uses (`matchSkillsForPackAnswerId`). A welder
+ * who also filled the turning form gets the welding band on his welding skills and the turning band
+ * on his turning skill — two skills, two bands, never one figure smeared across both.
+ *
+ * TWO FORMS NAMING ONE SKILL keep the LONGER band: each is a figure he stated for work that implies
+ * the skill, so the longer one is still his own claim, and taking the shorter would discard it.
+ *
+ * Returns `{}` (no key at all) when nothing is filled, so an off or empty input changes nothing.
+ * Deterministic: the record is built in sorted skill order whatever order the fills arrive in.
+ */
+function formTenureInput(
+  packAnswers: readonly PackAnswer[],
+  fills: readonly FormTenureFill[],
+): Pick<DeriveWorkerSkillsInput, "formTenureYears"> {
+  const bySkill = new Map<MatchSkillId, number>();
+  for (const { packId, years } of fills) {
+    if (typeof years !== "number" || !Number.isFinite(years) || years < 0) continue;
+    const own = packAnswerEvidence(packAnswers.filter((answer) => answer.packId === packId));
+    for (const id of [...own.corpusSkillIds, ...own.roleIds, ...own.matchSkillIds]) {
+      for (const skillId of matchSkillsForPackAnswerId(id)) {
+        const held = bySkill.get(skillId);
+        if (held === undefined || years > held) bySkill.set(skillId, years);
+      }
+    }
+  }
+  if (bySkill.size === 0) return {};
+  const formTenureYears: Record<string, number> = {};
+  const sorted = [...bySkill.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  for (const [skillId, years] of sorted) formTenureYears[skillId] = years;
+  return { formTenureYears };
 }

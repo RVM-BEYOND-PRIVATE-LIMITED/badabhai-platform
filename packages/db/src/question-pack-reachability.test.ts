@@ -2183,7 +2183,7 @@ describe("Phase 2 #10 — production supervisor, a new family on the cross-trade
     }
     expect(familyFor("Assembly Line Supervisor")).toBe("fam_production_supervisor");
     expect(familyFor("Planning Supervisor")).toBe("fam_production_supervisor");
-  });
+  }, 30_000); // 16 phrases, each scanned against the whole live corpus — CI runs every file at once.
 
   it("routes bare 'supervisor' nowhere, and leaves the trade supervisors where they were", () => {
     // A3: bare supervisor is every trade's top rung; the interview asks the department first.
