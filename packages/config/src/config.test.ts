@@ -799,6 +799,19 @@ describe("loadServerConfig", () => {
         .FORM_TYPED_TENURE_DERIVE_ENABLED,
     ).toBe(true);
   });
+  it("FORM_TENURE_MONTHS_ENABLED (#2753 item 2) is OFF by default and for the empty string", () => {
+    // Off must be today's derivation exactly: a form worker's skills read 0 months.
+    const read = (value?: string): boolean =>
+      loadServerConfig(value === undefined ? {} : { FORM_TENURE_MONTHS_ENABLED: value })
+        .FORM_TENURE_MONTHS_ENABLED;
+    expect(read()).toBe(false);
+    expect(read("")).toBe(false);
+    expect(read("false")).toBe(false);
+    expect(read("0")).toBe(false);
+    expect(read("true")).toBe(true);
+    expect(read("1")).toBe(true);
+    expect(() => read("yes")).toThrow();
+  });
   it.each(["RESUME_OPTION_MAP_REQUIRES_AUTOFILL"] as const)(
     "%s (audit fix F4) is OFF by default and for the empty string — today's behaviour",
     (name) => {

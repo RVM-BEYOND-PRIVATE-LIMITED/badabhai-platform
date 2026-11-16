@@ -1,9 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, eq, inArray, isNull, notInArray, sql as dsql } from "drizzle-orm";
+import type { FormTenureFill } from "@badabhai/match-engine";
 import {
   CURRENT_PROFILE_ORDER,
   type Database,
+  type FormTenureSwitches,
   jobPostings,
+  loadFormTenureFills,
   materializeJobReachWithin,
   PROFILE_SOURCE_SESSION_ANSWERS,
   reachesBadaBhaiWorkers,
@@ -170,6 +173,23 @@ export class WorkerSkillsRepository {
       const answer = packAnswerFromStoredRow(row);
       return answer === null ? [] : [answer];
     });
+  }
+
+  /**
+   * #2753 item 2 — the years each trade form's experience band states, for a batch of workers.
+   *
+   * THE SHARED READ, NOT A SECOND ONE. `loadFormTenureFills` (@badabhai/db) is the statement and the
+   * band/typed rule `db:backfill:worker-skills` runs too: ONE query for all `workerIds`, against
+   * `worker_pack_answer` (the record of what he answered), and a typed answer only with
+   * `switches.typed` on. With `switches.months` off it issues no query and returns an empty map.
+   *
+   * PRIVACY: ids, a status and a number leave this method — never the typed words it may parse.
+   */
+  async findFormTenureFills(
+    workerIds: readonly string[],
+    switches: FormTenureSwitches,
+  ): Promise<Map<string, FormTenureFill[]>> {
+    return loadFormTenureFills(this.db, workerIds, switches);
   }
 
   /**
