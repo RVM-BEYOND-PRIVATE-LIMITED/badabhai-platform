@@ -51,6 +51,7 @@ import { workerProfilingTiers } from "./worker-profiling-tier";
 import { workerResumeSkins } from "./worker-resume-skin";
 import { payerApplicantStages } from "./payer-applicant-stage";
 import { outboundSignals } from "./outbound-signal";
+import { hires } from "./hire";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -167,6 +168,8 @@ export * from "./institute-campus";
 export * from "./display-prefs";
 // #2747 — marks BadaBhai owes another system (the RVM selection signal).
 export * from "./outbound-signal";
+// #2753 item 9 — one hire record per company, worker and posting.
+export * from "./hire";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -475,4 +478,6 @@ export const schema = {
   displayPrefs,
   // #2747 - marks owed to RVM, sent once (migration 0167).
   outboundSignals,
+  // #2753 item 9 - one hire record per company, worker and posting (behind HIRE_RECORDS_ENABLED).
+  hires,
 };

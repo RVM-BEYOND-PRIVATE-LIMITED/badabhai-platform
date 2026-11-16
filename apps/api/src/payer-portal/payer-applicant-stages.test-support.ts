@@ -55,6 +55,12 @@ export function stagesOff(): PayerApplicantStagesService {
         throw new Error("the stages service must not queue a signal while its flag is off");
       },
     } as never,
+    // #2753 item 9 — off answers before any move, so asking about hire records is a defect too.
+    {
+      get enabled(): boolean {
+        throw new Error("the stages service must not read the hire switch while its flag is off");
+      },
+    } as never,
   );
 }
 
