@@ -1303,14 +1303,50 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "worker id; an open grant lets any PostgREST role read those marks, or write a row the " +
       "sender would post to RVM as a company's selection",
   },
-  // 0168 (#2749 items 2-4): expiring credit lots. Unconditional - no flag - because every wallet
+  // 0168 (#2753 items 4 and 7): THE API names `worker_activity` only while WORKER_ACTIVITY_ENABLED
+  // is on (the interceptor's and Campus's writes, the last-active read), so a deploy ahead of the
+  // migration breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134
+  // rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0168-worker-activity-rls",
+    migration: "0168_worker_activity",
+    kind: "rls",
+    table: "worker_activity",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records every day each worker used the app, keyed by worker id; an " +
+      "open grant lets any PostgREST role read that daily pattern, or write a day that clears " +
+      "a worker's not-recently-active mark",
+  },
+  // 0169 (#2753 item 6): THE API names `worker_search_exits` only while SEARCH_EXIT_ENABLED is on
+  // (the worker routes, the search pool's predicate, the unlock refusal), so a deploy ahead of the
+  // migration breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134
+  // rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0169-worker-search-exits-rls",
+    migration: "0169_worker_search_exits",
+    kind: "rls",
+    table: "worker_search_exits",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. A readable grant lets any PostgREST role list which workers left company search; " +
+      "a writable one lets it take any worker out of every company's search, or put one back " +
+      "who asked to leave",
+  },
+  // 0170 (#2749 items 2-4): expiring credit lots. Unconditional - no flag - because every wallet
   // writer goes through packages/db/src/credit-wallet.ts, which names `credit_lots` on every
   // grant, spend and expiry, and Drizzle 0.45 names every model column (so `credit_ledger.lot_id`)
   // in each ledger insert. APPLY BEFORE DEPLOY, from the PR branch before the merge (header).
   // (`credit_lots_payment_order_uq` is not an `index` entry: that probe checks 0078's shape.)
   {
-    id: "0168-credit-lots-table",
-    migration: "0168_credit_lots",
+    id: "0170-credit-lots-table",
+    migration: "0170_credit_lots",
     kind: "table",
     table: "credit_lots",
     requiredBy:
@@ -1326,8 +1362,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
   },
   {
-    id: "0168-credit-ledger-lot-id",
-    migration: "0168_credit_lots",
+    id: "0170-credit-ledger-lot-id",
+    migration: "0170_credit_lots",
     kind: "column",
     table: "credit_ledger",
     object: "lot_id",
@@ -1340,8 +1376,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "and grant rolls back. APPLY-BEFORE-DEPLOY, same reason as the table entry above",
   },
   {
-    id: "0168-credit-ledger-lot-fk",
-    migration: "0168_credit_lots",
+    id: "0170-credit-ledger-lot-fk",
+    migration: "0170_credit_lots",
     kind: "constraint",
     table: "credit_ledger",
     object: "credit_ledger_lot_id_credit_lots_id_fk",
@@ -1353,8 +1389,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "(which lot a credit came from, which lot expired) would stop being checkable",
   },
   {
-    id: "0168-credit-lots-rls",
-    migration: "0168_credit_lots",
+    id: "0170-credit-lots-rls",
+    migration: "0170_credit_lots",
     kind: "rls",
     table: "credit_lots",
     requiredBy:

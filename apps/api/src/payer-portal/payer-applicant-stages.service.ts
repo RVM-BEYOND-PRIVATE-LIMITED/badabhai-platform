@@ -8,6 +8,8 @@ import {
 import type { Database } from "@badabhai/db";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import {
+  APPLICANT_STAGES,
+  APPLICANT_STAGES_V1,
   DEFAULT_APPLICANT_STAGE,
   isApplicantOutcomeStage,
   isApplicantStage,
@@ -31,6 +33,7 @@ import {
 import {
   APPLICANT_NOT_FOUND,
   outcomeStageRefusal,
+  type ApplicantStageOptionsDto,
   type SetApplicantStageResponseDto,
 } from "./payer-applicant-stage.dto";
 
@@ -117,6 +120,33 @@ export class PayerApplicantStagesService {
    */
   private outcomeStagesOn(tenantKey: TenantKey): Promise<boolean> {
     return this.rollout.isEnabledFor("outcome_stages", tenantKey);
+  }
+
+  /**
+   * `GET /payer/reach/applicant-stages` (#2747, #2852) — the stages this company's board may move
+   * an applicant into, and whether an outcome mark on an RVM student is sent to RVM. The SAME two
+   * reads {@link setStage} makes, keyed by the same tenant key, so the answer is what a move made
+   * now would meet. Reads no posting, no stage row and no `outbound_signals` row: it touches only
+   * the pilot list (and nothing at all while both switches are `off`).
+   *
+   * FAILS CLOSED, NEVER 5xx: a pilot list that cannot be read answers "not open" (`isEnabledFor`
+   * for the outcome stages; `unavailable` → `false` for the signal). A move made then is refused
+   * by `setStage` itself (400, or 503 for the signal), so the screen simply re-reads.
+   */
+  async stageOptions(actorPayerId: string): Promise<ApplicantStageOptionsDto> {
+    // Defence in depth, as in setStage: the route's guard already refused while the board is off.
+    if (!this.enabled) throw new NotFoundException();
+
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const outcomeStages = await this.outcomeStagesOn(scope.tenantKey);
+    // No mark without the outcome stages, so the signal switch is not even read while they are off.
+    const rvmSignal =
+      outcomeStages && (await this.outbound.signalsStateFor(scope.tenantKey)) === "on";
+    return {
+      stages: [...(outcomeStages ? APPLICANT_STAGES : APPLICANT_STAGES_V1)],
+      outcomeStages,
+      rvmSignal,
+    };
   }
 
   /**

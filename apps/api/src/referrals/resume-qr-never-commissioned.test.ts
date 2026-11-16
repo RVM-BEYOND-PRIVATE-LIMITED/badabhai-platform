@@ -15,6 +15,7 @@ import { ReferralAttributionService } from "./referral-attribution.service";
 import type { ReferralBonusRepository } from "./referral-bonus.repository";
 import { ReferralBonusService } from "./referral-bonus.service";
 import type { ReferralLinkService } from "./referral-link.service";
+import type { WorkerOriginRepository } from "./worker-origin.repository";
 
 /**
  * #1800 — A RÉSUMÉ-QR SIGNUP NEVER PAYS ANYONE (owner ruling 2026-09-28: "no referral bonus, ever").
@@ -64,6 +65,7 @@ describe("a claimed résumé-QR install → ReferralBonusService.evaluate answer
           linkKind: "resume_qr",
         }),
       } as unknown as ReferralLinkService,
+      { recordFirst: vi.fn().mockResolvedValue(true) } as unknown as WorkerOriginRepository,
     );
 
     const attributed = await attribution.attribute(CODE, SCANNER, "install_referrer");

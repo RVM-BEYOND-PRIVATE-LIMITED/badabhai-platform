@@ -856,6 +856,79 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "yes" })).toThrow();
   });
 
+  it("REFERRAL_HELPER_NAME_ENABLED (#2753 item 12) is OFF by default and for the empty string", () => {
+    // Off is a 404 that reads nothing; the owner turns it on.
+    expect(loadServerConfig({}).REFERRAL_HELPER_NAME_ENABLED).toBe(false);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "0" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "false" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "1" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(true);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "true" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(true);
+    expect(() => loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "yes" })).toThrow();
+  });
+
+  it("AVAILABILITY_ANSWERS_V2_ENABLED (#2753 item 3) is OFF by default and for the empty string", () => {
+    // Off is today's availability options exactly; writes accept both sets either way.
+    expect(loadServerConfig({}).AVAILABILITY_ANSWERS_V2_ENABLED).toBe(false);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "" }).AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "0" }).AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "false" })
+        .AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "1" }).AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(true);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "true" }).AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(true);
+    expect(() => loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "yes" })).toThrow();
+  });
+
+  it("WORKER_ACTIVITY_ENABLED (#2753) is OFF by default and for the empty string", () => {
+    // Off is today exactly: nothing reads or writes worker_activity (migration 0168).
+    expect(loadServerConfig({}).WORKER_ACTIVITY_ENABLED).toBe(false);
+    expect(loadServerConfig({ WORKER_ACTIVITY_ENABLED: "" }).WORKER_ACTIVITY_ENABLED).toBe(false);
+    expect(loadServerConfig({ WORKER_ACTIVITY_ENABLED: "0" }).WORKER_ACTIVITY_ENABLED).toBe(false);
+    expect(loadServerConfig({ WORKER_ACTIVITY_ENABLED: "true" }).WORKER_ACTIVITY_ENABLED).toBe(
+      true,
+    );
+    expect(() => loadServerConfig({ WORKER_ACTIVITY_ENABLED: "yes" })).toThrow();
+  });
+
+  it("NOT_RECENTLY_ACTIVE_DAYS (#2753) defaults to 90 and refuses anything under 1", () => {
+    expect(loadServerConfig({}).NOT_RECENTLY_ACTIVE_DAYS).toBe(90);
+    expect(loadServerConfig({ NOT_RECENTLY_ACTIVE_DAYS: "30" }).NOT_RECENTLY_ACTIVE_DAYS).toBe(30);
+    // 0 would mark everyone not active today; a typo must fail the boot, not mark a whole list.
+    expect(() => loadServerConfig({ NOT_RECENTLY_ACTIVE_DAYS: "0" })).toThrow();
+    expect(() => loadServerConfig({ NOT_RECENTLY_ACTIVE_DAYS: "1.5" })).toThrow();
+  });
+
+  it("SEARCH_EXIT_ENABLED (#2753 item 6, leave company search) is OFF by default and for the empty string", () => {
+    // Off is today exactly: the worker routes 404 and nothing reads `worker_search_exits`.
+    expect(loadServerConfig({}).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "" }).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "0" }).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "false" }).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "1" }).SEARCH_EXIT_ENABLED).toBe(true);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "true" }).SEARCH_EXIT_ENABLED).toBe(true);
+    expect(() => loadServerConfig({ SEARCH_EXIT_ENABLED: "yes" })).toThrow();
+  });
+
   describe("the Campus link (#2752)", () => {
     const HASH_A = "a".repeat(64);
     const HASH_B = "B".repeat(64);

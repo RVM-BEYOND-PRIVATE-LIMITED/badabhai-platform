@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { Database, InstituteApplicationRow, InstituteCode } from "@badabhai/db";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
@@ -11,6 +11,7 @@ import {
 } from "./campus-applications.repository";
 import { decodeFeedCursor, encodeFeedCursor, feedChangedSince } from "./campus-postings.service";
 import { InstituteLinkService } from "./institute-link.service";
+import { WorkerActivityService } from "../worker-activity/worker-activity.service";
 
 const RVM: InstituteCode = "rvm";
 
@@ -50,6 +51,9 @@ export class CampusApplicationsService {
     private readonly repo: CampusApplicationsRepository,
     private readonly links: InstituteLinkService,
     private readonly events: EventsService,
+    // #2753 — a Campus application is activity. Optional so a hand-built unit instance compiles;
+    // CampusJobsModule imports WorkerActivityModule, so Nest always injects it.
+    @Optional() private readonly activity?: WorkerActivityService,
   ) {}
 
   async apply(
@@ -102,6 +106,12 @@ export class CampusApplicationsService {
       await this.emit(tx, "worker.institute_applied", row, applicationId, ctx);
       return { created: true, view: { ...row, studentRef, stage: null, changedAt: row.updatedAt } };
     });
+    // #2753 item 4 — the student was active today. Only for an application this call made, and
+    // only once its transaction has COMMITTED (a refusal or a rollback is not activity, and a
+    // replayed ref is the same application again). Fire-and-forget and switch-gated: it never
+    // delays or fails Campus's answer, and with WORKER_ACTIVITY_ENABLED off it does nothing. This
+    // is the one producer without a worker session, so the request interceptor never sees it.
+    if (outcome.created) this.activity?.recordNow(linked.workerId);
     return { created: outcome.created, application: answer(outcome.view) };
   }
 

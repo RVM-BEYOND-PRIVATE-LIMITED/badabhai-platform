@@ -295,7 +295,7 @@ export type UnlockDenyReason = "no_consent" | "capped" | "payment_required" | "u
  * a payer bought a credit pack (mock in alpha, see credit-packs.ts); `unlock_debit`
  * = one credit spent to grant an unlock; `refund` = a credit returned; `grant` =
  * an ops/internal top-up (no real money); `expired` = a lot's unspent credits removed when its
- * `expires_at` passed (#2749, migration 0168: one line per lot, ever, keyed
+ * `expires_at` passed (#2749, migration 0170: one line per lot, ever, keyed
  * `credit_lot_expired:<lot id>`). No currency/PAN/UPI is ever stored — `payment_ref` is an
  * OPAQUE external order id only, never card/PII data.
  *
@@ -391,11 +391,11 @@ export const payerCredits = pgTable(
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ===========================================================================
-// credit_lots — a wallet's balance, as lots that may expire (#2749, migration 0168)
+// credit_lots — a wallet's balance, as lots that may expire (#2749, migration 0170)
 // ===========================================================================
 //
 // ONE ROW PER GRANT INTO A WALLET: a pack bought, an ops grant, the free-tier grant, and (from the
-// 0168 backfill) one `legacy` lot per balance that existed before lots did. `payer_id` is the
+// 0170 backfill) one `legacy` lot per balance that existed before lots did. `payer_id` is the
 // WALLET key — the same key as `payer_credits.payer_id` (the tenant key, ADR-0053), so a team
 // spends one set of lots. No FK, like `payer_credits`: faceless rails.
 //
@@ -449,7 +449,7 @@ export const creditLots = pgTable(
     uniqueIndex("credit_lots_payment_order_uq")
       .on(t.paymentOrderId)
       .where(sql`${t.paymentOrderId} IS NOT NULL`),
-    // `CREDIT_LOT_SOURCES`, spelled out because a CHECK is static SQL (0168's test pins the copy).
+    // `CREDIT_LOT_SOURCES`, spelled out because a CHECK is static SQL (0170's test pins the copy).
     check(
       "credit_lots_source_chk",
       sql`${t.source} IN ('pack', 'welcome', 'goodwill', 'returned', 'migrated', 'legacy')`,
@@ -465,7 +465,7 @@ export const creditLots = pgTable(
       sql`${t.expiredAt} IS NULL OR ${t.creditsRemaining} = 0`,
     ),
   ],
-).enableRLS(); // RLS tracked in the model; FORCE + four REVOKEs carried by migration 0168
+).enableRLS(); // RLS tracked in the model; FORCE + four REVOKEs carried by migration 0170
 
 // credit_ledger — APPEND-ONLY credit movements (the source of truth; balance is a
 // materialization of it). Amounts + ids ONLY. NO currency/PAN/UPI — `payment_ref`
@@ -509,8 +509,8 @@ export const creditLedger = pgTable(
     // only; the admin.action_performed event is keyed on the SAME value so ledger + spine agree
     // (no double-spend / no money-vs-spine divergence).
     idempotencyKey: text("idempotency_key"),
-    // #2749 (migration 0168) — the lot this movement added to, spent from or expired. Null for
-    // every line written before 0168 (the backfill writes no ledger line; the `legacy` lots it
+    // #2749 (migration 0170) — the lot this movement added to, spent from or expired. Null for
+    // every line written before 0170 (the backfill writes no ledger line; the `legacy` lots it
     // creates stand for what those lines already granted). No cascade: lots are never deleted.
     //
     // ⚠️ APPLY BEFORE DEPLOY: Drizzle names every model column in each insert, so every ledger

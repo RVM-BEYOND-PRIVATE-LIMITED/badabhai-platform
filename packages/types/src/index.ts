@@ -1513,7 +1513,7 @@ export function isApplicantOutcomeStage(value: unknown): value is ApplicantOutco
   );
 }
 
-// ---- Credit lots: a company's balance, as expiring lots (#2749, migration 0168) ----
+// ---- Credit lots: a company's balance, as expiring lots (#2749, migration 0170) ----
 //
 // HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells the sources into
 // `credit_lots_source_chk` and writes them from its wallet helpers, and the api returns them on
@@ -1523,7 +1523,7 @@ export function isApplicantOutcomeStage(value: unknown): value is ApplicantOutco
  * Where a lot's credits came from (brief 4C.1). `pack` = a pack bought (mock or Razorpay);
  * `welcome` = the one-time welcome credits; `goodwill` = an ops grant; `returned` = credits given
  * back after a refund; `migrated` = moved from another wallet; `legacy` = what a wallet held before
- * lots existed (migration 0168's backfill), and the free-tier signup grant. A new value is a
+ * lots existed (migration 0170's backfill), and the free-tier signup grant. A new value is a
  * migration widening `credit_lots_source_chk`.
  */
 export const CREDIT_LOT_SOURCES = Object.freeze([

@@ -1,5 +1,5 @@
 -- ==============================================================================
--- 0168 - credit_lots + credit_ledger.lot_id: a company's balance, as expiring lots
+-- 0170 - credit_lots + credit_ledger.lot_id: a company's balance, as expiring lots
 -- ==============================================================================
 --
 -- #2749 items 2-4 (brief 4C.1, section 7). A wallet's balance becomes a set of lots: one per
@@ -30,7 +30,7 @@
 --
 -- ADOPTION ORDER - DO NOT LIFT THE WATERMARK OVER A PENDING LOWER MIGRATION. drizzle's migrator
 -- replays only files whose journal `when` is above the newest recorded row. If any LOWER
--- migration is still unapplied (0164-0167, or whatever sits below this slot on main when it
+-- migration is still unapplied (0164-0169, or whatever sits below this slot on main when it
 -- merges), recording this one first lifts the watermark above it and `db:migrate` then skips it
 -- SILENTLY, for good. Preferred: apply the pending lower migrations first, in journal order, and
 -- record them, then this one. Otherwise: adopt ONLY this migration, pinned
@@ -70,7 +70,7 @@
 -- and retry on 55P03 (lock_timeout) - the 0129 / 0130 / 0166 / 0167 precedent.
 --
 -- RLS: ENABLE is generated; FORCE and the four REVOKEs are HAND-WRITTEN (the 0117 / 0156 / 0160
--- / 0161 / 0167 pattern) - a regenerate drops them silently. Registered as `0168-credit-lots-rls`
+-- / 0161 / 0167 pattern) - a regenerate drops them silently. Registered as `0170-credit-lots-rls`
 -- in `schema-contract.ts`; listed in LOCKED_TABLES in the e2e RLS spine.
 --
 -- ROLLBACK (revert the app FIRST: the new build cannot write a ledger line without `lot_id`).
@@ -79,7 +79,7 @@
 --   DROP INDEX "credit_ledger_lot_id_idx";
 --   ALTER TABLE "credit_ledger" DROP COLUMN "lot_id";
 --   DROP TABLE "credit_lots";
---   DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1794807507414;
+--   DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1794814985084;
 -- (the row whose created_at is this entry's journal `when`).
 --
 -- SAFE TO RE-RUN: no (plain CREATE TABLE / ADD COLUMN). Apply once. The backfill INSERT alone is.

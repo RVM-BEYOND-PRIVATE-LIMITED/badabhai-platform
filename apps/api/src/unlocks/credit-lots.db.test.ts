@@ -27,7 +27,7 @@ import { UnlockService } from "./unlocks.service";
 import { UnlocksRepository, type StoredWalletKey } from "./unlocks.repository";
 
 /**
- * #2749 items 2-4 — EXPIRING CREDIT LOTS against real Postgres (migration 0168).
+ * #2749 items 2-4 — EXPIRING CREDIT LOTS against real Postgres (migration 0170).
  *
  *   RUN_DB_TESTS=1 pnpm --filter @badabhai/api test credit-lots.db
  *
@@ -694,9 +694,9 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
     await expectInvariant(w, { ledger: true });
   });
 
-  it("the 0168 backfill statement: one legacy lot per positive balance, and a second run adds nothing", async () => {
+  it("the 0170 backfill statement: one legacy lot per positive balance, and a second run adds nothing", async () => {
     const raw = readFileSync(
-      join(__dirname, "../../../../packages/db/migrations/0168_credit_lots.sql"),
+      join(__dirname, "../../../../packages/db/migrations/0170_credit_lots.sql"),
       "utf8",
     );
     const backfill = raw

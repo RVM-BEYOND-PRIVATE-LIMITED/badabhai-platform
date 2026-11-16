@@ -36,7 +36,7 @@ import { labelForTaxonomyId, ROLES } from "@badabhai/taxonomy";
 import { looksLikePii } from "@badabhai/validators";
 import type { CompanionV2EditOp, CompanionV2EditSection } from "@badabhai/types";
 import {
-  AVAILABILITY_STATUSES,
+  AVAILABILITY_STATUSES_ALL,
   DOCUMENTS_READY,
   EDUCATION_COUNCILS,
   EDUCATION_QUALIFICATIONS,
@@ -196,6 +196,11 @@ const ROLE_IDS = new Set<string>(ROLES.map((role) => role.id));
  * the form's chip labels, and the résumé prints. ONE TABLE, TWO READERS: `normaliseValue` accepts
  * only a slug the dictionary holds, and `displayValue` labels it with that dictionary's own words,
  * so a value a card can carry always has its label.
+ *
+ * AVAILABILITY IS BOTH SETS (#2753 item 3), whatever `AVAILABILITY_ANSWERS_V2_ENABLED` says: the
+ * writer's DTO accepts either set, so a status the model proposes in either is a legal edit, and a
+ * stored one in either is labelled in its own words. No value list reaches the model at all (the
+ * catalogue it receives is section, field and ops), so there is no offered set to narrow here.
  */
 const TOKEN_VOCABULARIES: ReadonlyMap<string, PreferenceVocabulary> = new Map([
   ["languages:language", LANGUAGES],
@@ -203,7 +208,7 @@ const TOKEN_VOCABULARIES: ReadonlyMap<string, PreferenceVocabulary> = new Map([
   ["qualifications:education_council", EDUCATION_COUNCILS],
   ["preferences:shift", SHIFTS],
   ["preferences:job_type", JOB_TYPES],
-  ["preferences:availability_status", AVAILABILITY_STATUSES],
+  ["preferences:availability_status", AVAILABILITY_STATUSES_ALL],
   ["preferences:work_types", WORK_TYPES],
   ["preferences:documents_ready", DOCUMENTS_READY],
 ]);

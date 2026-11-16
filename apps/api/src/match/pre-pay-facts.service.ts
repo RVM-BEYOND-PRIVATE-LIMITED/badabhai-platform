@@ -13,9 +13,12 @@ import {
   type PrePayInstituteLink,
 } from "./pre-pay-facts";
 import { PrePayFactsRepository } from "./pre-pay-facts.repository";
+import { WorkerActivityService } from "../worker-activity/worker-activity.service";
 
 /** What every labelled row gains: always the source; the facts only while the switch is on. */
-export type WithPrePayFacts<R> = R & { source: ApplicantSource } & Partial<PrePayFacts>;
+export type WithPrePayFacts<R> = R & { source: ApplicantSource } & Partial<PrePayFacts> & {
+    notRecentlyActive?: boolean;
+  };
 
 /**
  * The company-facing card's #2747 additions, for the applicant lists and the search card.
@@ -35,6 +38,17 @@ export type WithPrePayFacts<R> = R & { source: ApplicantSource } & Partial<PrePa
  * to its first word by the pure mapper, and dropped with the page: never cached, never logged,
  * never put in an event. A name that fails to decrypt is "not given", and the log line carries
  * the worker id only.
+ *
+ * #2753 — LAST ACTIVE, ONE DEFINITION. While `WORKER_ACTIVITY_ENABLED` is on, the page's last-active
+ * days are read ONCE (`WorkerActivityService.lastActiveDays`, one statement) and give two things:
+ *  - `notRecentlyActive` on EVERY row (item 7): more than `NOT_RECENTLY_ACTIVE_DAYS` since his last
+ *    active day. Like `source` it is an activity mark, not a profile fact, so neither the
+ *    `applicant_facts` switch nor his consent gates it. A mark only: nobody is hidden or re-sorted
+ *    (owner question 3), so this still decorates and never filters.
+ *  - the pre-pay fact `lastActiveOn` (item 4), from the same day, for the workers the facts are
+ *    shown for at all.
+ * Off, no row carries `notRecentlyActive`, `lastActiveOn` is his newest device sighting as before,
+ * and `worker_activity` is never read.
  */
 @Injectable()
 export class PrePayFactsService {
@@ -47,6 +61,9 @@ export class PrePayFactsService {
     // ADR-0062 §3.2 — the live admin corrections (city, trade, role, salary). Optional so a
     // hand-built unit instance compiles; Nest injects it (WorkersModule is @Global).
     @Optional() private readonly corrections?: EffectiveFactsService,
+    // #2753 — the one last-active read. Optional so a hand-built unit instance compiles; MatchModule
+    // imports WorkerActivityModule, so Nest always injects it (worker-activity.module.test.ts).
+    @Optional() private readonly activity?: WorkerActivityService,
   ) {}
 
   /** Is `applicant_facts` on for this company? Fails closed (the rollout service's rule). */
@@ -67,20 +84,31 @@ export class PrePayFactsService {
     const on = await this.factsEnabledFor(tenantKey);
     const ids = [...new Set(rows.map((r) => r.workerId))];
     const needLinks = on || rows.some((r) => !("instituteCode" in r));
-    const links = needLinks ? await this.activeLinks(ids) : new Map<string, PrePayInstituteLink>();
+    const [links, days] = await Promise.all([
+      needLinks ? this.activeLinks(ids) : Promise.resolve(new Map<string, PrePayInstituteLink>()),
+      // #2753 — null, and no query, while WORKER_ACTIVITY_ENABLED is off.
+      this.activity ? this.activity.lastActiveDays(ids, now) : Promise.resolve(null),
+    ]);
     const sourceOf = (row: R): ApplicantSource =>
       applicantSourceOf(
         "instituteCode" in row
           ? row.instituteCode
           : (links.get(row.workerId.toLowerCase())?.instituteCode ?? null),
       );
-    if (!on) return rows.map((row) => ({ ...row, source: sourceOf(row) }));
+    // #2753 item 7 — the mark rides with `source`: on every row while the switch is on, and the key
+    // is absent (today's shape) while it is off.
+    const markOf = (row: R): { notRecentlyActive?: boolean } =>
+      days === null || !this.activity
+        ? {}
+        : { notRecentlyActive: this.activity.notRecentlyActive(days, row.workerId, now) };
+    if (!on) return rows.map((row) => ({ ...row, source: sourceOf(row), ...markOf(row) }));
 
-    const facts = await this.factsFor(ids, links, now);
+    const facts = await this.factsFor(ids, links, now, days);
     return rows.map((row) => ({
       ...row,
       source: sourceOf(row),
       ...(facts.get(row.workerId.toLowerCase()) ?? EMPTY_PRE_PAY_FACTS),
+      ...markOf(row),
     }));
   }
 
@@ -94,10 +122,15 @@ export class PrePayFactsService {
     );
   }
 
+  /**
+   * `days` is the page's #2753 last-active map while WORKER_ACTIVITY_ENABLED is on (then it is the
+   * `lastActiveOn` fact), or null while it is off (then the fact is the device sighting, as before).
+   */
   private async factsFor(
     ids: readonly string[],
     links: ReadonlyMap<string, PrePayInstituteLink>,
     now: Date,
+    days: ReadonlyMap<string, string> | null,
   ): Promise<Map<string, PrePayFacts>> {
     const [raw, overrides] = await Promise.all([
       this.repo.listForWorkers(ids),
@@ -121,27 +154,26 @@ export class PrePayFactsService {
         out.set(key, EMPTY_PRE_PAY_FACTS);
         continue;
       }
-      out.set(
-        key,
-        toPrePayFacts(
-          {
-            workerId: row.workerId,
-            fullName: this.decryptName(row.workerId, row.fullNameEnc),
-            workersCity: row.workersCity,
-            canonicalTradeId: row.canonicalTradeId,
-            canonicalRoleId: row.canonicalRoleId,
-            machineIds: row.machineIds,
-            salaryContainer: row.salaryContainer,
-            salaryExpectedMin: row.salaryExpectedMin,
-            salaryExpectedMax: row.salaryExpectedMax,
-            salaryPeriod: row.salaryPeriod,
-            lastSeenAt: row.lastSeenAt,
-            institute: link ?? null,
-            overrides: overridesFor(overrides, row.workerId),
-          },
-          now,
-        ),
+      const facts = toPrePayFacts(
+        {
+          workerId: row.workerId,
+          fullName: this.decryptName(row.workerId, row.fullNameEnc),
+          workersCity: row.workersCity,
+          canonicalTradeId: row.canonicalTradeId,
+          canonicalRoleId: row.canonicalRoleId,
+          machineIds: row.machineIds,
+          salaryContainer: row.salaryContainer,
+          salaryExpectedMin: row.salaryExpectedMin,
+          salaryExpectedMax: row.salaryExpectedMax,
+          salaryPeriod: row.salaryPeriod,
+          lastSeenAt: row.lastSeenAt,
+          institute: link ?? null,
+          overrides: overridesFor(overrides, row.workerId),
+        },
+        now,
       );
+      // #2753 — one definition of last active: the unified day replaces the device-only one.
+      out.set(key, days === null ? facts : { ...facts, lastActiveOn: days.get(key) ?? null });
     }
     return out;
   }
