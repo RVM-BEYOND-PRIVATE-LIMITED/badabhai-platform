@@ -1,6 +1,10 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
-import { EMPLOYER_CONTACT_NOTICE_VERSIONS, EMPLOYER_CONTACT_PURPOSES } from "@badabhai/types";
+import {
+  CURRENT_CONSENT_VERSION,
+  EMPLOYER_CONTACT_NOTICE_VERSIONS,
+  EMPLOYER_CONTACT_PURPOSES,
+} from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -8,7 +12,7 @@ import { EventsService } from "../events/events.service";
 import { SessionService } from "../auth/session.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ConsentRepository } from "./consent.repository";
-import type { AcceptConsentDto, MyConsentState } from "./consent.dto";
+import type { AcceptConsentDto, ConsentNoticeResponse, MyConsentState } from "./consent.dto";
 import { AgeBelowMinimumException, AgeConfirmationRequiredException } from "./age-gate";
 
 /**
@@ -209,6 +213,21 @@ export class ConsentService {
       accepted_at: latest.acceptedAt.toISOString(),
       revoked_at: latest.revokedAt ? latest.revokedAt.toISOString() : null,
       purposes: [...(latest.purposes ?? [])],
+    };
+  }
+
+  /**
+   * #2753 item 13 — the notice facts for `GET /consent/notice`: the version the consent screen
+   * records today, the versions that showed the employer-sharing copy, and the published notice
+   * link (`CONSENT_NOTICE_URL`, `null` while unset). Reads no worker and nothing stored, so the
+   * app can ask before the worker has any consent row. Copies, so no caller can mutate the
+   * shared constant.
+   */
+  notice(): ConsentNoticeResponse {
+    return {
+      version: CURRENT_CONSENT_VERSION,
+      employer_contact_versions: [...EMPLOYER_CONTACT_NOTICE_VERSIONS],
+      notice_url: this.config.CONSENT_NOTICE_URL ?? null,
     };
   }
 

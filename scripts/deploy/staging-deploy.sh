@@ -81,6 +81,15 @@ if [ -n "${ADMIN_ENGINE_VIEW_ALLOW_PHONES-}" ] &&
   exit 1
 fi
 
+# #2753 item 13: CONSENT_NOTICE_URL — the privacy notice link GET /consent/notice serves. The
+# api's config throws at boot on anything but empty or an https URL, and a crash-looping api has
+# no automatic rollback — so the shape is checked here, before any prune, pull or recreate.
+if [ -n "${CONSENT_NOTICE_URL-}" ] &&
+  ! printf '%s' "${CONSENT_NOTICE_URL}" | grep -Eq '^https://[^[:space:]]+$'; then
+  echo "::error::CONSENT_NOTICE_URL must be empty or one https:// URL with no spaces. Fix the production secret and re-run. Nothing was deployed."
+  exit 1
+fi
+
 # #1904 / ADR-0036 §8: MATCH_V1_ENABLED — the same boot-time grammar, the same reason.
 # The api's `booleanFromString` throws at boot on anything but true/false/1/0/empty, the api `up`
 # has no automatic rollback, and the secret cannot be read back — so a typo would take the api
