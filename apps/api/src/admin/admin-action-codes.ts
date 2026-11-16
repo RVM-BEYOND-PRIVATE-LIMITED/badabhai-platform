@@ -98,6 +98,11 @@ export const ADMIN_ACTION_CODES = {
   // the encrypted override row / `audit_logs`, never on the spine.
   candidate_field_corrected: "candidate_field_corrected",
   candidate_field_reverted: "candidate_field_reverted",
+  // ── #2753 item 11 — the pay-on-joining pilot's hire record ─────────────────────────────
+  // Target = the hire record (`target_type: "pay_on_joining_hire"`). The fee, the share and the
+  // state ride `pay_on_joining.recorded`; the note lives on the row alone.
+  pay_on_joining_hire_created: "pay_on_joining_hire_created",
+  pay_on_joining_hire_updated: "pay_on_joining_hire_updated",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];

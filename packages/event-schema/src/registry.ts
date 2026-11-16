@@ -1785,6 +1785,13 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerApplicantStageChangedV2Payload,
   },
+  // #2753 item 11 — an admin created or edited a pay-on-joining hire record (the pilot). IDS, PAISE
+  // INTEGERS AND CLOSED VALUES ONLY; the admin note never rides along. v1.
+  "pay_on_joining.recorded": {
+    version: 1,
+    domain: "pay_on_joining",
+    payload: p.PayOnJoiningRecordedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

@@ -1381,6 +1381,24 @@ export const serverEnvSchema = z.object({
   // words. No migration: the answer lives in the `availability` json attribute. Turn on with the
   // app release that renders the served chips.
   AVAILABILITY_ANSWERS_V2_ENABLED: booleanFromString,
+  // THE PAY-ON-JOINING PILOT'S RECORD (#2753 item 11): an admin records each hire of the pilot
+  // (factory, job, worker, partner, joining date, 30-day check, fee, invoice and payment dates)
+  // through `GET` / `POST /admin/pay-on-joining-hires` and `PATCH …/:id`. A RECORD ONLY: nothing
+  // invoices, pays or picks a factory.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: every route is a neutral 404 before any query, and
+  // nothing reads or writes `pay_on_joining_hires`. Needs migration 0168 applied first.
+  PAY_ON_JOINING_RECORDS_ENABLED: booleanFromString,
+  // The partner's share of a pay-on-joining fee, in whole percent (0..100; BadaBhai keeps the
+  // rest). Default 70 (the pilot's terms). COPIED onto each hire when it is created, so changing
+  // it never rewrites a recorded hire; the share in paise is floor(fee * percent / 100). Empty
+  // reads as the default, for the `${VAR:-70}` compose idiom; anything else outside 0..100 (or
+  // not a whole number) fails boot, and the deploy preflight refuses it first.
+  POJ_PARTNER_SHARE_PERCENT: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    // `.default()` on the INNER schema, for the reason written out on `positiveIntFromString`.
+    z.coerce.number().int().min(0).max(100).default(70),
+  ),
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable

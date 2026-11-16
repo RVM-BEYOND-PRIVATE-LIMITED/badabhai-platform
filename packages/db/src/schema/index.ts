@@ -51,6 +51,7 @@ import { workerProfilingTiers } from "./worker-profiling-tier";
 import { workerResumeSkins } from "./worker-resume-skin";
 import { payerApplicantStages } from "./payer-applicant-stage";
 import { outboundSignals } from "./outbound-signal";
+import { payOnJoiningHires } from "./pay-on-joining";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -167,6 +168,8 @@ export * from "./institute-campus";
 export * from "./display-prefs";
 // #2747 — marks BadaBhai owes another system (the RVM selection signal).
 export * from "./outbound-signal";
+// #2753 item 11 — the pay-on-joining pilot's hire record (admin-written, money in paise).
+export * from "./pay-on-joining";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -475,4 +478,6 @@ export const schema = {
   displayPrefs,
   // #2747 - marks owed to RVM, sent once (migration 0167).
   outboundSignals,
+  // #2753 item 11 - the pay-on-joining pilot's hire record (migration 0168).
+  payOnJoiningHires,
 };

@@ -434,6 +434,12 @@ services:
       # working_open as `availability_status`. Writes accept both sets either way, and every reader
       # labels both. No migration. `:-false` because this bool rejects "".
       AVAILABILITY_ANSWERS_V2_ENABLED: ${AVAILABILITY_ANSWERS_V2_ENABLED:-false}
+      # THE PAY-ON-JOINING PILOT'S HIRE RECORD (#2753 item 11). Off: every /admin/pay-on-joining-hires
+      # route is a neutral 404 and nothing touches the table. A record only: no invoice, no payout.
+      # Needs migration 0168. `:-false` because this bool rejects "". The partner's share is a whole
+      # percent (0..100), copied onto each hire when it is recorded; `:-70` is the pilot's terms.
+      PAY_ON_JOINING_RECORDS_ENABLED: ${PAY_ON_JOINING_RECORDS_ENABLED:-false}
+      POJ_PARTNER_SHARE_PERCENT: ${POJ_PARTNER_SHARE_PERCENT:-70}
       # THE CAMPUS LINK (#2752). Off: every /internal/campus/v1 route is a neutral 404 and nothing
       # else runs. `:-false` because this bool rejects "". The two lists are empty when unset, and
       # empty refuses every caller (fail closed): token HASHES (sha256 hex, two during a rotation)

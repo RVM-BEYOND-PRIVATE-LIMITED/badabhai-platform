@@ -408,6 +408,23 @@ NestJS boot assertion).
   `${AVAILABILITY_ANSWERS_V2_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
   `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; values
   lowercase `true`/`false`/`1`/`0`/empty only.
+- **The pay-on-joining pilot's hire record (#2753 item 11)** — api only, two variables
+  (contract: `docs/api/admin-pay-on-joining-api-reference.md`; runbook:
+  `docs/ops/pay-on-joining-pilot-runbook.md`).
+  - `PAY_ON_JOINING_RECORDS_ENABLED` (`booleanFromString`, default off): off, every
+    `/admin/pay-on-joining-hires` route is a neutral 404 for every admin role before any query,
+    and nothing reads or writes `pay_on_joining_hires`. **Needs migration 0168 applied first**
+    (APPLY BEFORE THE SWITCH, not before the deploy). A record only: no invoice, no payout, no
+    eligibility rule. Bridged through the GitHub `production` environment secret of the same name
+    (compose `${PAY_ON_JOINING_RECORDS_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`,
+    preflighted in `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty.
+  - `POJ_PARTNER_SHARE_PERCENT` (integer 0..100, default **70**, empty reads as the default): the
+    partner's share of a hire's fee in whole percent; BadaBhai keeps the rest. COPIED onto each hire
+    when it is recorded, so changing it never rewrites a recorded hire; the share in paise is
+    `floor(fee * percent / 100)`. Bridged like `CAMPUS_DRIVE_MAX_OPEN_REQUESTS` (compose
+    `${POJ_PARTNER_SHARE_PERCENT:-70}`, `ci.yml` `env:` + `envs:`); the deploy preflight refuses
+    anything but empty or a whole number 0..100 before a container moves, because a bad value would
+    stop the api booting.
 - **The Campus link (#2752)** — api only, four variables, all read by `CampusServiceGuard` on
   `/internal/campus/v1` (contract: `docs/api/campus-link-v1-api-reference.md`).
   - `CAMPUS_LINK_ENABLED` (`booleanFromString`, default off): off, every Campus route is a neutral
