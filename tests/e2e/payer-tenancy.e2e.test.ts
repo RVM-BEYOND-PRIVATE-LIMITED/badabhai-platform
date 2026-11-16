@@ -730,12 +730,16 @@ describe.skipIf(!RUN)("Payer ORG tenancy P2b — one org wallet over HTTP (e2e, 
   it("B reads the ORG wallet (A's balance), never B's personal pack; `payer_id` echoes B", async () => {
     const credits = await req("GET", "/payer/credits", { token: B.token });
     expect(credits.status).toBe(200);
-    expect(credits.json).toEqual({ payer_id: B.payerId, balance: await walletRow(A.payerId) });
+    expect(credits.json).toMatchObject({ payer_id: B.payerId, balance: await walletRow(A.payerId) });
+    // #2749: the reply also lists the ORG wallet's open lots, which carry no ids at all.
+    expect(Array.isArray(credits.json.lots)).toBe(true);
+    for (const lot of credits.json.lots) expect(lot).not.toHaveProperty("id");
     expect(await walletRow(B.payerId)).toBe(10); // still there, still B's (O-2)
-    // The outsider reads only their own (empty) wallet.
+    // The outsider reads only their own (empty) wallet: no balance and no lots.
     expect((await req("GET", "/payer/credits", { token: C.token })).json).toEqual({
       payer_id: C.payerId,
       balance: 0,
+      lots: [],
     });
   });
 
