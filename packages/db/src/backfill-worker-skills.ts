@@ -30,7 +30,10 @@
  *             experience band (and, with FORM_TYPED_TENURE_DERIVE_ENABLED=true too, a typed
  *             tenure) through the same bucketing — `loadFormTenureFills`, the read the live rebuild
  *             runs, one query per batch. Run it with the values production runs with, or this
- *             repair and the live path write different months. Both are printed before any write.
+ *             repair and the live path write different months. `--apply` REFUSES to start unless
+ *             FORM_TENURE_MONTHS_ENABLED is set explicitly (and FORM_TYPED_TENURE_DERIVE_ENABLED
+ *             too when the first is true): an unset shell must not quietly write 0 months over
+ *             every form worker. A dry run assumes false for an unset one and says so.
  *   wants   = true          (opt-out is a worker action, not a backfill guess)
  *   started_at / ended_at = NULL   (no stints at launch)
  *   source  = 'derived_coarse'
@@ -60,8 +63,10 @@
  * printed). It never reads phone/name and never logs anything but ids + counts.
  *
  *   pnpm db:backfill:worker-skills                      # dry run
- *   pnpm db:backfill:worker-skills --apply              # write
- *   pnpm db:backfill:worker-skills --apply --batch-size=1000 --start-after=<uuid>
+ *   FORM_TENURE_MONTHS_ENABLED=false pnpm db:backfill:worker-skills --apply      # write
+ *   FORM_TENURE_MONTHS_ENABLED=true FORM_TYPED_TENURE_DERIVE_ENABLED=false \
+ *     pnpm db:backfill:worker-skills --apply --batch-size=1000 --start-after=<uuid>
+ *   (the switch values are production's; --apply refuses while either one it needs is unset)
  */
 import { and, asc, eq, gt, inArray, isNotNull, notInArray } from "drizzle-orm";
 
@@ -81,7 +86,7 @@ import {
 
 import { createDbClient, type Database } from "./client";
 import { CURRENT_PROFILE_ORDER, PROFILE_SOURCE_SESSION_ANSWERS } from "./current-profile";
-import { formTenureSwitchesFromEnv, loadFormTenureFills } from "./form-tenure";
+import { formTenureSwitchesForRun, loadFormTenureFills } from "./form-tenure";
 import {
   matchConfig,
   workerAttributes,
@@ -168,12 +173,19 @@ async function loadPackAnswers(
 async function main(): Promise<void> {
   const opts = parseCommonCli(NAME);
   printHeader(NAME, opts);
-  // #2753 item 2 — read BEFORE any database work, so a malformed value refuses the run outright, and
-  // printed so the log says which months this run wrote. Names only, never another env value.
-  const formTenure = formTenureSwitchesFromEnv(process.env);
+  // #2753 item 2 — read BEFORE any database work. `--apply` with FORM_TENURE_MONTHS_ENABLED unset
+  // (or, when it is true, FORM_TYPED_TENURE_DERIVE_ENABLED unset) throws here, so `main().catch`
+  // exits 1 with one line naming the variable and nothing has been written. A dry run proceeds and
+  // prints what it assumed. Names and booleans only, never another env value.
+  const run = formTenureSwitchesForRun(process.env, { apply: opts.apply });
+  const formTenure = run.switches;
+  const assumedNote = (name: string): string =>
+    run.assumed.includes(name) ? " (assumed: unset)" : "";
   console.log(
-    `[${NAME}] form tenure fill: FORM_TENURE_MONTHS_ENABLED=${formTenure.months} ` +
-      `FORM_TYPED_TENURE_DERIVE_ENABLED=${formTenure.typed}` +
+    `[${NAME}] form tenure fill: FORM_TENURE_MONTHS_ENABLED=${formTenure.months}` +
+      assumedNote("FORM_TENURE_MONTHS_ENABLED") +
+      ` FORM_TYPED_TENURE_DERIVE_ENABLED=${formTenure.typed}` +
+      assumedNote("FORM_TYPED_TENURE_DERIVE_ENABLED") +
       (formTenure.months ? "" : " (off: months come from the profile alone, as before #2753)"),
   );
 

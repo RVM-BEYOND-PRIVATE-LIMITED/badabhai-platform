@@ -190,25 +190,63 @@ export async function loadFormTenureFills(
   return byWorker;
 }
 
-/**
- * The switches as `db:backfill:worker-skills` reads them: the SAME variable names the api reads,
- * in the same `booleanFromString` grammar (`true` / `false` / `1` / `0` / empty; anything else
- * throws rather than guessing). The batch runs from an operator's shell, not from the api's
- * container, so it cannot see the production environment secret — the operator must export the
- * values production runs with, and the runner prints them before it writes anything.
- */
-export function formTenureSwitchesFromEnv(
-  env: Readonly<Record<string, string | undefined>>,
-): FormTenureSwitches {
-  return {
-    months: strictBoolean(env, "FORM_TENURE_MONTHS_ENABLED"),
-    typed: strictBoolean(env, "FORM_TYPED_TENURE_DERIVE_ENABLED"),
-  };
+export const FORM_TENURE_MONTHS_ENV = "FORM_TENURE_MONTHS_ENABLED";
+export const FORM_TYPED_TENURE_ENV = "FORM_TYPED_TENURE_DERIVE_ENABLED";
+
+/** The switches one backfill run uses, and which of them a DRY RUN assumed because they were unset. */
+export interface FormTenureRunSwitches {
+  readonly switches: FormTenureSwitches;
+  /** Variable names read as `false` only because they were unset or empty. Always empty on --apply. */
+  readonly assumed: readonly string[];
 }
 
-function strictBoolean(env: Readonly<Record<string, string | undefined>>, name: string): boolean {
+/**
+ * The switches as `db:backfill:worker-skills` reads them: the SAME variable names the api reads.
+ *
+ * THE BATCH CANNOT SEE PRODUCTION'S VALUE. It runs from an operator's shell, not from the api's
+ * container. Once production has `FORM_TENURE_MONTHS_ENABLED=true`, a run whose shell simply lacks
+ * the variable would read it as off and write 0 months back over every form worker — silently, with
+ * a green exit. So unset is not a value here:
+ *   - `--apply` REFUSES unless `FORM_TENURE_MONTHS_ENABLED` is set explicitly (`true`/`false`, or
+ *     `1`/`0`), and, when that is on, `FORM_TYPED_TENURE_DERIVE_ENABLED` too. Unset or empty throws
+ *     one line naming the variable; nothing has been read or written yet.
+ *   - A DRY RUN writes nothing, so it may proceed: an unset switch reads as `false` and is listed in
+ *     `assumed`, which the runner prints.
+ * A value outside `true`/`false`/`1`/`0` throws in either mode rather than guessing. The typed
+ * switch is only demanded when the fill runs: with the months switch off it changes nothing.
+ */
+export function formTenureSwitchesForRun(
+  env: Readonly<Record<string, string | undefined>>,
+  mode: { readonly apply: boolean },
+): FormTenureRunSwitches {
+  const assumed: string[] = [];
+  const read = (name: string): boolean => {
+    const value = explicitBoolean(env, name);
+    if (value !== undefined) return value;
+    if (mode.apply) {
+      throw new Error(
+        `${name} is unset or empty: --apply needs it set to true or false, matching production ` +
+          `(an unset run would write 0 months over every form worker once production has it on).`,
+      );
+    }
+    assumed.push(name);
+    return false;
+  };
+  const months = read(FORM_TENURE_MONTHS_ENV);
+  const typed = months
+    ? read(FORM_TYPED_TENURE_ENV)
+    : (explicitBoolean(env, FORM_TYPED_TENURE_ENV) ?? false);
+  return { switches: { months, typed }, assumed };
+}
+
+/** `true`/`1` → true, `false`/`0` → false, unset or empty → undefined; anything else throws. */
+function explicitBoolean(
+  env: Readonly<Record<string, string | undefined>>,
+  name: string,
+): boolean | undefined {
   const raw = env[name];
-  if (raw === undefined || raw === "" || raw === "false" || raw === "0") return false;
+  if (raw === undefined || raw === "") return undefined;
   if (raw === "true" || raw === "1") return true;
-  throw new Error(`${name} must be exactly true, false, 1, 0 or empty (lowercase).`);
+  if (raw === "false" || raw === "0") return false;
+  throw new Error(`${name} must be exactly true, false, 1 or 0 (lowercase).`);
 }

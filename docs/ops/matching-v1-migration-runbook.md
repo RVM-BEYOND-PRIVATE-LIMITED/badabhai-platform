@@ -84,7 +84,7 @@ reads the output of D2/D3/D4; D6 is independent and can run any time after the m
 | Step | Script (`pnpm --filter @badabhai/db <cmd>`) | Migration | What it does |
 |---|---|---|---|
 | D1 | `db:seed:match:vocabulary --apply` | 0052 + 0057 | Seeds the closed match-skill vocabulary + `skill_related` pairs (reference data, deterministic, checked-in — invariant #4) and writes **the single active `match_config` row** — the only writer of that table anywhere in the migration/seed chain. |
-| D2 | `db:backfill:worker-skills --apply` | 0053 | Derives every worker's matchable skill inventory from their latest `worker_profiles` row (coarse launch rule, owner-ruled 2026-07-30: role bridge ∪ attribute bridge; tenure months bucketed and clamped to the worker's stated industry experience — the "E8 clamp"). |
+| D2 | `FORM_TENURE_MONTHS_ENABLED=<production's value> db:backfill:worker-skills --apply` (`--apply` refuses while it is unset; see the D2 note below) | 0053 | Derives every worker's matchable skill inventory from their latest `worker_profiles` row (coarse launch rule, owner-ruled 2026-07-30: role bridge ∪ attribute bridge; tenure months bucketed and clamped to the worker's stated industry experience — the "E8 clamp"). |
 | D3 | `db:backfill:job-postings --apply` | 0054 | Two idempotent jobs: backfills `published_at = created_at` for non-draft postings missing it, and **proposes** (never guesses) `match_skill_ids` for open postings with none, via normalized keyword match of `role_title` against the vocabulary. |
 | Sync | `db:sync:agency-twins --match-v1=on --agency-twin-sync=on --apply` (root script → the api's `dist/agency-twin/sync-agency-twins.cli.js`; build the api first, or run it in the api container) | the ADR-0050 §4.1 migration | **ADR-0050 (agency inventory).** Converges one system-owned `job_postings` TWIN per agency `jobs` row: in the flip window the twins move from `draft` to their mirrored status. The same code the api's sync queue runs (`AGENCY_TWIN_SYNC_ENABLED`). Pre-flip check: every open agency job has a non-empty `jobs.match_skill_ids` — otherwise its twin is `paused` (`refused: no_match_skills`) and the vacancy leaves the deck at the flip. Dry run first. |
 | D4 | `db:convert:seed-jobs --apply` | — (cutover continuity, not tied to one migration) | Converts legacy `jobs` rows into `job_postings` (copies open rows across, closes the originals) so the pre-V1 worker feed does not go empty at cutover. Own comment: **"WITHOUT THIS THE WORKER FEED IS EMPTY AT FLAG FLIP."** **SEED/OPS ROWS ONLY (ADR-0050 §6.2):** an open payer-owned (agency) row is reported and never converted, and `--apply` is refused while any of them has no twin — run the Sync row first. |
@@ -99,11 +99,15 @@ hit exactly this bug once — see `docs/github-actions.md`).
 in the shell that runs it, D2 gives each skill a trade form derived that form's band years as
 `months_bucketed` (3–5 years → 48 months), wherever the profile's own `total_years` buckets to 0;
 a typed tenure counts only with `FORM_TYPED_TENURE_DERIVE_ENABLED=true` as well. The api reads the
-same two names from the `production` environment, so once the switch is on there, EVERY D2 run must
-export production's values: a D2 run without them writes the pre-#2753 months (0 for a form worker)
-over what the live rebuild wrote. The runner prints both values before it writes. Switching it on is
-itself a rank change for every form worker — owner's `engine_version` ruling (ADR-0036) first, then
-the secret plus a redeploy, then D2 and D5, from a tree equal to origin/main.
+same two names from the `production` environment, and D2 cannot see them, so EVERY D2 `--apply`
+must export production's values — `FORM_TENURE_MONTHS_ENABLED=true|false`, plus
+`FORM_TYPED_TENURE_DERIVE_ENABLED=true|false` when the first is true. With either one it needs unset
+or empty, `--apply` REFUSES before touching the database (exit 1, one line naming the variable):
+an unset shell would otherwise write the pre-#2753 months (0 for a form worker) over what the live
+rebuild wrote. A dry run proceeds, reads an unset switch as false and prints `(assumed: unset)`
+beside it. Switching it on is itself a rank change for every form worker — owner's `engine_version`
+ruling (ADR-0036) first, then the secret plus a redeploy, then D2 and D5, from a tree equal to
+origin/main.
 
 ## Verify (go/no-go, read-only)
 

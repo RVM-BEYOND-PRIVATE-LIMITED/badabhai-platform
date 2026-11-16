@@ -196,7 +196,10 @@ NestJS boot assertion).
   sheet. Bridged like its neighbours (compose `${FORM_TENURE_MONTHS_ENABLED:-false}` on `api`,
   `ci.yml` `env:` + `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`).
   `db:backfill:worker-skills` reads the SAME two names from the operator's own environment and
-  prints them; run it with production's values or it writes different months from the live path.
+  prints them; its `--apply` refuses (exit 1, one line naming the variable) unless
+  `FORM_TENURE_MONTHS_ENABLED` is set explicitly, and `FORM_TYPED_TENURE_DERIVE_ENABLED` too when the
+  first is true, so an operator's shell cannot silently write different months from the live path.
+  A dry run assumes false for an unset switch and prints `(assumed: unset)`.
   Arming changes rank inputs for every form worker, so it waits for the owner's `engine_version`
   ruling (ADR-0036), then: the secret `true` plus a redeploy, then from a tree equal to origin/main
   `pnpm --filter @badabhai/db db:backfill:worker-skills --apply` (both switches exported) and

@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Database } from "./client";
 import {
   FORM_TENURE_QUESTION_KEYS,
-  formTenureSwitchesFromEnv,
+  formTenureSwitchesForRun,
   formTenureYearsOf,
   loadFormTenureAnswers,
   loadFormTenureFills,
@@ -125,37 +125,77 @@ describe("loadFormTenureAnswers / loadFormTenureFills — the batched read", () 
   });
 });
 
-describe("formTenureSwitchesFromEnv — the backfill reads the api's names, in the api's grammar", () => {
-  it("is off when unset, empty, false or 0", () => {
-    expect(formTenureSwitchesFromEnv({})).toEqual({ months: false, typed: false });
-    for (const off of ["", "false", "0"]) {
-      expect(
-        formTenureSwitchesFromEnv({
-          FORM_TENURE_MONTHS_ENABLED: off,
-          FORM_TYPED_TENURE_DERIVE_ENABLED: off,
-        }),
-      ).toEqual({ months: false, typed: false });
+describe("formTenureSwitchesForRun — the backfill reads the api's names, and never guesses on --apply", () => {
+  const APPLY = { apply: true } as const;
+  const DRY = { apply: false } as const;
+  const MONTHS = "FORM_TENURE_MONTHS_ENABLED";
+  const TYPED = "FORM_TYPED_TENURE_DERIVE_ENABLED";
+
+  it("--apply REFUSES while FORM_TENURE_MONTHS_ENABLED is unset or empty, in one line naming it", () => {
+    for (const env of [{}, { [MONTHS]: "" }, { [TYPED]: "true" }]) {
+      let message = "";
+      try {
+        formTenureSwitchesForRun(env, APPLY);
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toMatch(/^FORM_TENURE_MONTHS_ENABLED is unset or empty: --apply needs it/);
+      expect(message).not.toContain("\n");
     }
   });
 
-  it("is on for true or 1, each switch on its own", () => {
-    expect(formTenureSwitchesFromEnv({ FORM_TENURE_MONTHS_ENABLED: "true" })).toEqual({
-      months: true,
-      typed: false,
-    });
-    expect(
-      formTenureSwitchesFromEnv({
-        FORM_TENURE_MONTHS_ENABLED: "1",
-        FORM_TYPED_TENURE_DERIVE_ENABLED: "true",
-      }),
-    ).toEqual({ months: true, typed: true });
+  it("--apply with the months switch ON also refuses an unset or empty typed switch", () => {
+    for (const env of [{ [MONTHS]: "true" }, { [MONTHS]: "1", [TYPED]: "" }]) {
+      expect(() => formTenureSwitchesForRun(env, APPLY)).toThrow(
+        /^FORM_TYPED_TENURE_DERIVE_ENABLED is unset or empty: --apply needs it/,
+      );
+    }
   });
 
-  it("refuses anything else rather than guessing (TRUE, yes, on)", () => {
+  it("--apply proceeds on explicit values, and does not demand the typed switch when months is off", () => {
+    expect(formTenureSwitchesForRun({ [MONTHS]: "false" }, APPLY)).toEqual({
+      switches: { months: false, typed: false },
+      assumed: [],
+    });
+    expect(formTenureSwitchesForRun({ [MONTHS]: "0", [TYPED]: "" }, APPLY)).toEqual({
+      switches: { months: false, typed: false },
+      assumed: [],
+    });
+    expect(formTenureSwitchesForRun({ [MONTHS]: "true", [TYPED]: "false" }, APPLY)).toEqual({
+      switches: { months: true, typed: false },
+      assumed: [],
+    });
+    expect(formTenureSwitchesForRun({ [MONTHS]: "1", [TYPED]: "1" }, APPLY)).toEqual({
+      switches: { months: true, typed: true },
+      assumed: [],
+    });
+  });
+
+  it("a DRY RUN proceeds on unset switches, reads them as false and lists what it assumed", () => {
+    expect(formTenureSwitchesForRun({}, DRY)).toEqual({
+      switches: { months: false, typed: false },
+      assumed: [MONTHS],
+    });
+    expect(formTenureSwitchesForRun({ [MONTHS]: "true" }, DRY)).toEqual({
+      switches: { months: true, typed: false },
+      assumed: [TYPED],
+    });
+    expect(formTenureSwitchesForRun({ [MONTHS]: "true", [TYPED]: "true" }, DRY)).toEqual({
+      switches: { months: true, typed: true },
+      assumed: [],
+    });
+  });
+
+  it("refuses a malformed value in either mode rather than guessing (TRUE, yes, on)", () => {
     for (const bad of ["TRUE", "yes", "on", " true"]) {
-      expect(() => formTenureSwitchesFromEnv({ FORM_TENURE_MONTHS_ENABLED: bad })).toThrow(
-        /FORM_TENURE_MONTHS_ENABLED/,
-      );
+      for (const mode of [APPLY, DRY]) {
+        expect(() => formTenureSwitchesForRun({ [MONTHS]: bad }, mode)).toThrow(
+          /FORM_TENURE_MONTHS_ENABLED must be exactly/,
+        );
+        expect(() => formTenureSwitchesForRun({ [MONTHS]: "true", [TYPED]: bad }, mode)).toThrow(
+          /FORM_TYPED_TENURE_DERIVE_ENABLED must be exactly/,
+        );
+      }
     }
   });
 });
