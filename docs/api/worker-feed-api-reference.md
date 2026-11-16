@@ -1,12 +1,13 @@
 # Worker Feed API — Card Reference
 
 > Scope: the worker job **card** wire shape — `GET /feed` and the job detail a card opens,
-> `GET /jobs/:jobId`. Source of truth is the code: `apps/api/src/applications/applications.service.ts`
-> (`FeedItem`), `apps/api/src/match/match-feed.service.ts` (`MatchFeedItem`) and
+> `GET /jobs/:jobId` — and the worker's own applications, `GET /workers/me/applications`.
+> Source of truth is the code: `apps/api/src/applications/applications.service.ts`
+> (`FeedItem`, `applicationsForWorker`), `apps/api/src/match/match-feed.service.ts` (`MatchFeedItem`) and
 > `apps/api/src/jobs/jobs.service.ts` (`WorkerVisibleJob`). Field rulings: [ADR-0024](../decisions/0024-worker-visible-job-fields-pii.md).
 > Consumer: the worker app (`apps/worker-app`). Owner: Backend Platform.
 
-Both routes are worker-authed: `Authorization: Bearer <worker token>`, guard chain
+Every route here is worker-authed: `Authorization: Bearer <worker token>`, guard chain
 `WorkerAuthGuard` → `ConsentGuard`. The worker id always comes from the token.
 
 ## `GET /feed`
@@ -76,6 +77,38 @@ row). Neutral 404 for unknown and closed ids alike. No event. Keys: `job_id`, `t
 (null for a posting), `title`, `city` (null when unknown), `area`, `pay_min`, `pay_max`,
 `pay_type`, `min_experience_years`, `max_experience_years`, `needed_by`, `shift`,
 `description`, `benefits`, `requirements`, `role_kind`.
+
+## `GET /workers/me/applications`
+
+The worker's own decisions, the app's "Applied jobs" screen. The worker id comes from the token. No
+event. Response: `{ "worker_id": uuid, "applications": [Row, …] }`, oldest first, at most 500 rows.
+Rows mix `applied` and `skipped`; the app shows `applied`. The ops read
+`GET /workers/:workerId/applications` (internal service guard) returns the same rows.
+
+| Key                         | Type                                     | Notes                                              |
+| --------------------------- | ---------------------------------------- | -------------------------------------------------- |
+| `job_id`                    | uuid                                     | `jobs.id` or `job_postings.id`.                    |
+| `trade_key`                 | string \| null                           | Legacy jobs only. An internal key: never print it. |
+| `title` / `city` / `area`   | string / string \| null / string \| null | Coarse. Never the employer, never pay.             |
+| `action`                    | `applied`\|`skipped`                     |                                                    |
+| `reason`                    | string \| null                           | Skip reason; null for an apply.                    |
+| `source_surface`            | `feed`\|`search`\|`share`\|`other`       | A Campus application records `other`.              |
+| `rank`                      | int \| null                              | Null for a Campus application.                     |
+| `created_at` / `updated_at` | ISO-8601                                 |                                                    |
+| `matched_skill_label`       | string \| null                           | The V1 subtitle (#1051).                           |
+| `via`                       | `app`\|`campus`                          | **Added 2026-11-16 (#2753 item 8).** See below.    |
+
+### `via` — where the application came from
+
+- **`campus`** while a live BadaBhai Campus record points at the application: an RVM student applied
+  through Campus (#2752 item 8), or Campus recorded an apply he had already made in the app.
+  **`app`** for every other row.
+- A Campus application is an ordinary row: listed whatever the posting's audience (an RVM-only posting
+  included), with no field of its own besides `via`.
+- A Campus withdrawal deletes an application Campus made, so it leaves this list like any application
+  that is gone. An application he made in the app himself stays, and reads `app` again.
+- **Additive, no switch.** On every row, never null. The shipped app reads named keys only
+  (`AppliedJob.fromJson`), so it ignores `via`.
 
 ## `role_kind` — the card's role illustration
 
