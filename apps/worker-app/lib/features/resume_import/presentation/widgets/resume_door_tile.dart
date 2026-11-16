@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 import 'package:flutter/services.dart';
 
 import '../../../../core/theme/onboarding_theme.dart';
@@ -45,21 +46,21 @@ class ResumeDoorTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool enabled = onTap != null && !loading;
     final Color fill =
-        emphasis ? OnboardingColors.safetyYellow : OnboardingColors.paperWhite;
+        emphasis ? p.action : p.card;
     // The yellow card's hairline matches its own fill: a grey rule around the
     // hero surface would read as a second, competing edge.
     final Color border = emphasis
-        ? OnboardingColors.safetyYellow
-        : OnboardingColors.borderDefault;
-    final Color titleColor =
-        emphasis ? OnboardingColors.shiftBlue : OnboardingColors.ink900;
-    final Color subtitleColor =
-        emphasis ? OnboardingColors.shiftBlue : OnboardingColors.ink600;
+        ? p.action
+        : p.borderDefault;
+    final Color titleColor = emphasis ? p.onAction : p.textPrimary;
+    final Color subtitleColor = emphasis ? p.onAction : p.textSecondary;
     final Color iconTileFill = emphasis
-        ? OnboardingColors.shiftBlue.withValues(alpha: 0.10)
-        : OnboardingColors.cardIconBg;
+        ? p.brandSurface.withValues(alpha: 0.10)
+        : p.cardIconBg;
+    final Color iconColor = emphasis ? p.onAction : p.textBrand;
 
     return Opacity(
       // Dimmed rather than hidden: the doors he did not take must stay legible
@@ -99,19 +100,15 @@ class ResumeDoorTile extends StatelessWidget {
                   ),
                   alignment: Alignment.center,
                   child: loading
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 20,
                           height: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
-                            color: OnboardingColors.shiftBlue,
+                            color: iconColor,
                           ),
                         )
-                      : Icon(
-                          icon,
-                          size: 20,
-                          color: OnboardingColors.shiftBlue,
-                        ),
+                      : Icon(icon, size: 20, color: iconColor),
                 ),
                 const SizedBox(width: 14),
                 Expanded(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/devanagari_guard.dart';
 import 'trade_form_kit.dart';
@@ -87,6 +88,7 @@ class _TradeFormTextFieldState extends State<TradeFormTextField> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String? effectiveErrorText =
         widget.errorText ?? (_devanagariBlocked ? kDevanagariBlockedHint : null);
     final bool numeric = widget.keyboardType == TextInputType.number;
@@ -108,15 +110,16 @@ class _TradeFormTextFieldState extends State<TradeFormTextField> {
           ),
           ...?widget.inputFormatters,
         ],
-        cursorColor: OnboardingColors.shiftBlue,
+        cursorColor: p.focusRing,
         style: numeric
             ? OnboardingTypography.mono(
                 size: 15,
                 weight: FontWeight.w600,
-                color: OnboardingColors.ink900,
+                color: p.textPrimary,
               )
             : OnboardingTypography.inter(size: 14, weight: FontWeight.w500),
         decoration: tradeFormInputDecoration(
+          p: p,
           hint: widget.hint,
           errorText: effectiveErrorText,
           counterText: widget.maxLength == null ? null : '',

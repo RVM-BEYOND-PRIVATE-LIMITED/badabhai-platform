@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/api/api_client.dart' show QualificationOptionsDto;
 import '../../../../core/util/tap_guard.dart';
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/title_case.dart';
 import '../../../../core/widgets/onboarding/selection_cards.dart';
@@ -872,7 +873,7 @@ class _EntryHeader extends StatelessWidget {
       style: OnboardingTypography.inter(
         size: 13,
         weight: FontWeight.w700,
-        color: OnboardingColors.shiftBlue,
+        color: context.bb.textBrand,
       ),
     );
   }

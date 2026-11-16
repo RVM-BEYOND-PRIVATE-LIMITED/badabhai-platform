@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 
 /// #2224 — the label under the last message of a FINISHED profiling chat.
@@ -21,7 +22,7 @@ const String kChatEndOfConversationLabel = 'End of conversation';
 ///   ∿∿∿∿∿∿∿∿  End of conversation  ∿∿∿∿∿∿∿∿
 ///
 /// NOT AN ACTION, so it is grey and never yellow: nothing here is tappable and
-/// there is no speaker button. The line is [OnboardingColors.ink500] at 40%
+/// there is no speaker button. The line is the muted text ink at 40%
 /// alpha and the label the same ink at 80% — the step-down opacity rule.
 ///
 /// LAYOUT SAFETY: the label takes its intrinsic width on one line and the two
@@ -42,9 +43,10 @@ class ChatEndDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final TextStyle labelStyle = OnboardingTypography.inter(
       size: 12,
-      color: OnboardingColors.ink500.withValues(alpha: _labelAlpha),
+      color: p.textMuted.withValues(alpha: _labelAlpha),
     );
     return RepaintBoundary(
       // ONE semantics node, and it is the LABEL's own. An outer
@@ -138,23 +140,25 @@ class _WavyRule extends StatelessWidget {
         // Tall enough for the stroke plus both peaks, and no taller: the row's
         // height must come from the LABEL, which is what grows with text scale.
         size: const Size.fromHeight(_amplitude * 2 + 2),
-        painter: _WavyRulePainter(fadeTowards: fadeTowards),
+        painter: _WavyRulePainter(
+          fadeTowards: fadeTowards,
+          ink: context.bb.textMuted,
+        ),
       ),
     );
   }
 }
 
 class _WavyRulePainter extends CustomPainter {
-  const _WavyRulePainter({required this.fadeTowards});
+  const _WavyRulePainter({required this.fadeTowards, required this.ink});
 
   final _FadeEnd fadeTowards;
+  final Color ink;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
-    final Color ink = OnboardingColors.ink500.withValues(
-      alpha: ChatEndDivider._lineAlpha,
-    );
+    final Color line = ink.withValues(alpha: ChatEndDivider._lineAlpha);
     // The squiggle DISSOLVES at its outer end instead of stopping dead. A
     // gradient shader on the paint, never a BackdropFilter: this sits inside a
     // scrolling list, where a backdrop blur is far too expensive.
@@ -168,8 +172,8 @@ class _WavyRulePainter extends CustomPainter {
         Offset(0, size.height / 2),
         Offset(size.width, size.height / 2),
         <Color>[
-          fadeLeft ? ink.withValues(alpha: 0) : ink,
-          fadeLeft ? ink : ink.withValues(alpha: 0),
+          fadeLeft ? line.withValues(alpha: 0) : line,
+          fadeLeft ? line : line.withValues(alpha: 0),
         ],
       )
       // A hair of blur so the line reads as soft rather than drawn. Cheap: one
@@ -191,5 +195,5 @@ class _WavyRulePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_WavyRulePainter oldDelegate) =>
-      oldDelegate.fadeTowards != fadeTowards;
+      oldDelegate.fadeTowards != fadeTowards || oldDelegate.ink != ink;
 }

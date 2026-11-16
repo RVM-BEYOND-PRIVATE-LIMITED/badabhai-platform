@@ -8,6 +8,7 @@ import '../../../../core/api/api_client.dart'
         WorkPrefOptionsDto,
         kAvailabilityStatusLabels;
 import '../../../../core/session/known_worker_facts_store.dart' show WorkerFact;
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/onboarding/form_flow_parts.dart';
 import '../../../../core/widgets/onboarding/option_icons.dart';
@@ -456,7 +457,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// The language cap's honest banner, naming the limit — see [_showBanner]
   /// for why it is a top [MaterialBanner] and not a SnackBar.
   void _showCapBanner() =>
-      _showBanner(_kLangSubtitle, OnboardingColors.shiftBlue);
+      _showBanner(_kLangSubtitle, context.bb.brandSurface);
 
   @override
   Widget build(BuildContext context) {
@@ -740,7 +741,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
               style: OnboardingTypography.inter(
                 size: 13,
                 weight: FontWeight.w500,
-                color: OnboardingColors.ink500,
+                color: context.bb.textMuted,
               ),
             ),
           ],
@@ -986,7 +987,9 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   void _showLimitDialog() {
     showDialog<void>(
       context: context,
-      builder: (BuildContext context) => AlertDialog(
+      builder: (BuildContext context) {
+        final BbPalette p = context.bb;
+        return AlertDialog(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(OnboardingRadii.card),
         ),
@@ -998,14 +1001,14 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
             Container(
               width: 52,
               height: 52,
-              decoration: const BoxDecoration(
-                color: OnboardingColors.safetyYellow,
+              decoration: BoxDecoration(
+                color: p.action,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.place_rounded,
                 size: 28,
-                color: OnboardingColors.shiftBlue,
+                color: p.onAction,
               ),
             ),
             const SizedBox(height: 12),
@@ -1016,7 +1019,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
                 size: 14,
                 weight: FontWeight.w600,
                 height: 1.4,
-                color: OnboardingColors.ink900,
+                color: p.textPrimary,
               ),
             ),
           ],
@@ -1025,7 +1028,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
           SizedBox(
             width: double.infinity,
             child: Material(
-              color: OnboardingColors.safetyYellow,
+              color: p.action,
               borderRadius: BorderRadius.circular(OnboardingRadii.row),
               child: InkWell(
                 onTap: () => Navigator.of(context).pop(),
@@ -1040,7 +1043,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
                       style: OnboardingTypography.anek(
                         size: 16,
                         weight: FontWeight.w800,
-                        color: OnboardingColors.textOnYellow,
+                        color: p.onAction,
                       ),
                     ),
                   ),
@@ -1049,7 +1052,8 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
             ),
           ),
         ],
-      ),
+      );
+      },
     ).ignore();
   }
 
@@ -1058,6 +1062,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// doc: a SnackBar here would animate up from the bottom and cover "Aage
   /// badhein").
   void _showBanner(String text, Color color) {
+    final BbPalette p = context.bb;
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     messenger.clearMaterialBanners();
     messenger.showMaterialBanner(
@@ -1068,7 +1073,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
           style: OnboardingTypography.inter(
             size: 13,
             weight: FontWeight.w500,
-            color: OnboardingColors.textOnBlue,
+            color: p.onBrandSurface,
           ),
         ),
         actions: <Widget>[
@@ -1079,7 +1084,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
               style: OnboardingTypography.inter(
                 size: 14,
                 weight: FontWeight.w700,
-                color: OnboardingColors.textOnBlue,
+                color: p.onBrandSurface,
               ),
             ),
           ),

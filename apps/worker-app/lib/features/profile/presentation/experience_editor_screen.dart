@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/bb_palette.dart';
 
 import '../../../core/api/api_client.dart' show WorkPrefOptionsDto;
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
-import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
@@ -128,8 +128,9 @@ class _ExperienceEditorScreenState extends State<ExperienceEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: Column(
         children: <Widget>[
           ShiftBlueHeader(

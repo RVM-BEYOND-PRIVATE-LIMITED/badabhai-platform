@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_scroll_safe_body.dart';
@@ -36,8 +37,9 @@ class _InviteView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: Column(
         children: <Widget>[
           // Kit chrome (spec §2.1): a full-bleed navy band with the back arrow
@@ -75,6 +77,7 @@ class _InviteView extends StatelessWidget {
   }
 
   Widget _ready(BuildContext context, InviteLink link) {
+    final BbPalette p = context.bb;
     // Scroll-safe: the Spacer keeps the share CTAs pinned to the bottom on a tall
     // screen, and the body scrolls (never a RenderFlex overflow) on a short
     // handset or at a large accessibility text scale. HORIZONTAL padding rides
@@ -103,14 +106,14 @@ class _InviteView extends StatelessWidget {
                 width: _kHeroDisc,
                 height: _kHeroDisc,
                 alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  color: OnboardingColors.selectedCardBg,
+                decoration: BoxDecoration(
+                  color: p.selectedCardBg,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.group_add_rounded,
                   size: 48,
-                  color: OnboardingColors.safetyYellowDark,
+                  color: p.actionPressed,
                 ),
               ),
             ),
@@ -160,19 +163,20 @@ class _InviteView extends StatelessWidget {
   }
 
   Widget _linkChip(BuildContext context, InviteLink link) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.only(left: 14, right: 4, top: 4, bottom: 4),
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(OnboardingRadii.note),
-        border: Border.all(color: OnboardingColors.borderDefault, width: 1.2),
+        border: Border.all(color: p.borderDefault, width: 1.2),
       ),
       child: Row(
         children: <Widget>[
-          const Icon(
+          Icon(
             Icons.link_rounded,
             size: 20,
-            color: OnboardingColors.ink500,
+            color: p.textMuted,
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -185,7 +189,7 @@ class _InviteView extends StatelessWidget {
               style: OnboardingTypography.mono(
                 size: 13,
                 weight: FontWeight.w500,
-                color: OnboardingColors.ink900,
+                color: p.textPrimary,
               ),
             ),
           ),
@@ -194,7 +198,7 @@ class _InviteView extends StatelessWidget {
           // get it. Ellipsised text cannot be selected out either.
           IconButton(
             icon: const Icon(Icons.copy_rounded, size: 20),
-            color: OnboardingColors.ink600,
+            color: p.textSecondary,
             tooltip: 'Link copy karein',
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(

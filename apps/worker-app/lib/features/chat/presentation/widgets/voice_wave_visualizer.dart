@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
-import '../../../../core/theme/onboarding_theme.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// A full-width, Gemini-desktop-style voice waveform.
 ///
@@ -32,10 +32,8 @@ class VoiceWaveVisualizer extends StatefulWidget {
   /// Normalized live mic amplitude, 0 (silence) .. 1 (loud).
   final ValueListenable<double> level;
 
-  /// Bar colour; defaults to the v3 secondary ink ([OnboardingColors.ink600]),
-  /// which reads on the light input pill. Same hex as the legacy
-  /// `AppColors.textSecondary` this used to name — the token moved, the paint
-  /// did not.
+  /// Bar colour; defaults to the theme's secondary text, which reads on the
+  /// input pill.
   final Color? color;
 
   @override
@@ -168,7 +166,7 @@ class _VoiceWaveVisualizerState extends State<VoiceWaveVisualizer> {
               barsOf: () => _bars,
               barW: _barW,
               gap: _gap,
-              color: widget.color ?? OnboardingColors.ink600,
+              color: widget.color ?? context.bb.textSecondary,
               repaint: _rev,
             ),
           ),

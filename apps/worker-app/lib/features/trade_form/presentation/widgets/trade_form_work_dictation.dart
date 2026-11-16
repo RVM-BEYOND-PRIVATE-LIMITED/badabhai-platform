@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/consent/voice_consent.dart';
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/devanagari_guard.dart';
 import '../../../chat/presentation/widgets/voice_wave_visualizer.dart';
@@ -210,16 +211,17 @@ class _TradeFormWorkDictationState extends State<TradeFormWorkDictation> {
   }
 
   Widget _idleButton() {
+    final BbPalette p = context.bb;
     return TextButton.icon(
       key: kWorkDictationButtonKey,
       onPressed: widget.enabled ? _start : null,
-      icon: const Icon(Icons.mic_rounded, color: OnboardingColors.shiftBlue),
+      icon: Icon(Icons.mic_rounded, color: p.textBrand),
       label: Text(
         kWorkDictationIdleLabel,
         style: OnboardingTypography.inter(
           size: 13,
           weight: FontWeight.w600,
-          color: OnboardingColors.shiftBlue,
+          color: p.textBrand,
         ),
       ),
       style: TextButton.styleFrom(
@@ -234,22 +236,20 @@ class _TradeFormWorkDictationState extends State<TradeFormWorkDictation> {
   /// 640dp-tall phone, which is why it is a strip rather than the chat
   /// composer's full-width bar.
   Widget _listeningRow() {
+    final BbPalette p = context.bb;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         TextButton.icon(
           key: kWorkDictationButtonKey,
           onPressed: _stop,
-          icon: const Icon(
-            Icons.stop_circle_rounded,
-            color: OnboardingColors.errorRed,
-          ),
+          icon: Icon(Icons.stop_circle_rounded, color: p.danger),
           label: Text(
             kWorkDictationStopLabel,
             style: OnboardingTypography.inter(
               size: 13,
               weight: FontWeight.w600,
-              color: OnboardingColors.errorRed,
+              color: p.danger,
             ),
           ),
           style: TextButton.styleFrom(

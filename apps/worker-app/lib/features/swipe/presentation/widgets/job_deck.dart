@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_motion.dart';
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_job_card.dart';
@@ -545,6 +546,7 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   /// dragging left (skip) — i.e. the tint sits on the side OPPOSITE the drag.
   /// Absent when centred.
   Widget _sideBand(Offset drag, double progress) {
+    final BbPalette p = context.bb;
     final double dx = drag.dx;
     // Centred: no tint at all.
     if (dx == 0) return const IgnorePointer(child: SizedBox.shrink());
@@ -552,8 +554,8 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
     final bool toApply = dx > 0;
     final double alpha = _bandMaxAlpha * progress;
     final Color edge = toApply
-        ? OnboardingColors.successGreen
-        : OnboardingColors.errorRed;
+        ? p.success
+        : p.danger;
     final LinearGradient gradient = LinearGradient(
       begin: toApply ? Alignment.centerLeft : Alignment.centerRight,
       end: Alignment.center,
@@ -602,6 +604,7 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   /// beside the full-width primary button. The deck already carries the side
   /// gutter, so this row adds none.
   Widget _ctaRow(double width) {
+    final BbPalette p = context.bb;
     return Row(
       children: <Widget>[
         // #375 — an icon-only control announces nothing to TalkBack: a worker
@@ -611,7 +614,7 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
           key: const Key('swipeSkipButton'),
           icon: Icons.close_rounded,
           semanticLabel: kSkipSemanticLabel,
-          iconColor: OnboardingColors.ink600,
+          iconColor: p.textSecondary,
           onTap: _locked ? null : () => _flyOff(-1, width),
         ),
         const SizedBox(width: 10),

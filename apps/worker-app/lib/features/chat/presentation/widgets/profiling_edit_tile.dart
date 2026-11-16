@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/api/api_models.dart' show ProfilingEditProposal, ProfilingEditRow;
-import '../../../../core/theme/onboarding_theme.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// Stable finders for tests.
 const Key kProfilingEditTileKey = Key('profiling_edit_tile');
@@ -38,14 +38,15 @@ class ProfilingEditTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       key: kProfilingEditTileKey,
       margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: OnboardingColors.canvasIvory,
+        color: p.ivory,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: OnboardingColors.borderDefault),
+        border: Border.all(color: p.borderDefault),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -63,11 +64,8 @@ class ProfilingEditTile extends StatelessWidget {
                   key: kProfilingEditNoKey,
                   onPressed: enabled ? onNo : null,
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: OnboardingColors.shiftBlue,
-                    side: const BorderSide(
-                      color: OnboardingColors.shiftBlue,
-                      width: 1.5,
-                    ),
+                    foregroundColor: p.textBrand,
+                    side: BorderSide(color: p.textBrand, width: 1.5),
                     minimumSize: const Size.fromHeight(48),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -85,9 +83,9 @@ class ProfilingEditTile extends StatelessWidget {
                   key: kProfilingEditYesKey,
                   onPressed: enabled ? onYes : null,
                   style: FilledButton.styleFrom(
-                    backgroundColor: OnboardingColors.safetyYellow,
-                    foregroundColor: OnboardingColors.shiftBlue,
-                    disabledBackgroundColor: OnboardingColors.disabledBg,
+                    backgroundColor: p.action,
+                    foregroundColor: p.onAction,
+                    disabledBackgroundColor: p.disabledBg,
                     minimumSize: const Size.fromHeight(48),
                     elevation: 0,
                     shape: RoundedRectangleBorder(
@@ -115,19 +113,20 @@ class _EditRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const TextStyle label = TextStyle(
-      color: OnboardingColors.shiftBlue,
+    final BbPalette p = context.bb;
+    final TextStyle label = TextStyle(
+      color: p.textBrand,
       fontSize: 13,
       fontWeight: FontWeight.w700,
     );
     final TextStyle struck = TextStyle(
-      color: OnboardingColors.shiftBlue.withValues(alpha: 0.6),
+      color: p.textBrand.withValues(alpha: 0.6),
       fontSize: 15,
       decoration: TextDecoration.lineThrough,
-      decorationColor: OnboardingColors.shiftBlue.withValues(alpha: 0.6),
+      decorationColor: p.textBrand.withValues(alpha: 0.6),
     );
-    const TextStyle fresh = TextStyle(
-      color: OnboardingColors.shiftBlue,
+    final TextStyle fresh = TextStyle(
+      color: p.textBrand,
       fontSize: 15,
       fontWeight: FontWeight.w800,
     );
@@ -149,7 +148,7 @@ class _EditRow extends StatelessWidget {
               Icon(
                 Icons.arrow_forward_rounded,
                 size: 18,
-                color: OnboardingColors.shiftBlue,
+                color: p.textBrand,
                 semanticLabel: 'se',
               ),
               Text(row.after!, style: fresh),
@@ -161,22 +160,18 @@ class _EditRow extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              color: OnboardingColors.errorBg,
+              color: p.dangerBg,
               borderRadius: BorderRadius.circular(10),
             ),
             child: Row(
               children: <Widget>[
-                const Icon(
-                  Icons.warning_rounded,
-                  size: 18,
-                  color: OnboardingColors.errorRed,
-                ),
+                Icon(Icons.warning_rounded, size: 18, color: p.danger),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     warning,
-                    style: const TextStyle(
-                      color: OnboardingColors.errorRed,
+                    style: TextStyle(
+                      color: p.danger,
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                     ),

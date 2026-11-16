@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 import '../../../../core/api/api_models.dart' show ResumeHistoryItem;
 import '../../../../core/theme/onboarding_theme.dart';
@@ -108,6 +109,7 @@ class ResumeFileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final List<String> facts = _facts;
     final DateTime? made = item.generatedAt;
     final ProfileSummary? s = summary;
@@ -116,7 +118,7 @@ class ResumeFileCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(OnboardingRadii.card),
         border: Border.all(
           color: item.isCurrent
-              ? OnboardingColors.borderActive
+              ? p.borderActive
               : Colors.transparent,
           width: 2,
         ),
@@ -124,9 +126,9 @@ class ResumeFileCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: OnboardingColors.paperWhite,
+          color: p.card,
           borderRadius: BorderRadius.circular(OnboardingRadii.card),
-          border: Border.all(color: OnboardingColors.borderDefault),
+          border: Border.all(color: p.borderDefault),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -193,7 +195,7 @@ class ResumeFileCard extends StatelessWidget {
                         style: OnboardingTypography.anek(
                           size: 16,
                           weight: FontWeight.w800,
-                          color: OnboardingColors.ink900,
+                          color: p.textPrimary,
                         ),
                       ),
                     ],
@@ -203,7 +205,7 @@ class ResumeFileCard extends StatelessWidget {
             ),
             if (facts.isNotEmpty) ...<Widget>[
               const SizedBox(height: 10),
-              const Divider(height: 1, color: OnboardingColors.borderSubtle),
+               Divider(height: 1, color: p.borderSubtle),
               const SizedBox(height: 10),
               _FactLine(facts: facts),
             ],
@@ -225,7 +227,7 @@ class ResumeFileCard extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 12),
-            const Divider(height: 1, color: OnboardingColors.borderSubtle),
+             Divider(height: 1, color: p.borderSubtle),
             const SizedBox(height: 12),
             actions,
           ],
@@ -240,18 +242,19 @@ class _DocTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       width: 44,
       height: 44,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: OnboardingColors.shieldCircle,
+        color: p.shieldCircle,
         borderRadius: BorderRadius.circular(10),
       ),
-      child: const Icon(
+      child: Icon(
         Icons.description_outlined,
         size: 22,
-        color: OnboardingColors.shiftBlue,
+        color: p.textBrand,
       ),
     );
   }
@@ -264,13 +267,14 @@ class _DateStamp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        const Icon(
+         Icon(
           Icons.calendar_today_outlined,
           size: 12,
-          color: OnboardingColors.ink500,
+          color: p.textMuted,
         ),
         const SizedBox(width: 5),
         Text(
@@ -278,7 +282,7 @@ class _DateStamp extends StatelessWidget {
           style: OnboardingTypography.mono(
             size: 11,
             weight: FontWeight.w600,
-            color: OnboardingColors.ink600,
+            color: p.textSecondary,
           ),
         ),
       ],
@@ -294,6 +298,7 @@ class _FactLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -302,7 +307,7 @@ class _FactLine extends StatelessWidget {
           style: OnboardingTypography.inter(
             size: 12,
             weight: FontWeight.w700,
-            color: OnboardingColors.ink500,
+            color: p.textMuted,
           ),
         ),
         const SizedBox(width: 8),
@@ -313,7 +318,7 @@ class _FactLine extends StatelessWidget {
               size: 12,
               weight: FontWeight.w600,
               height: 1.4,
-              color: OnboardingColors.ink900,
+              color: p.textPrimary,
             ),
           ),
         ),
@@ -344,6 +349,7 @@ class _SpecRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Wrap(
       spacing: 8,
       runSpacing: 6,
@@ -352,7 +358,7 @@ class _SpecRow extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
-            color: OnboardingColors.pillMutedBg,
+            color: p.inset,
             borderRadius: BorderRadius.circular(OnboardingRadii.pillSm),
           ),
           child: Text(
@@ -360,7 +366,7 @@ class _SpecRow extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 11,
               weight: FontWeight.w600,
-              color: OnboardingColors.ink600,
+              color: p.textSecondary,
             ),
           ),
         ),
@@ -370,7 +376,7 @@ class _SpecRow extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 11,
               weight: FontWeight.w500,
-              color: OnboardingColors.ink500,
+              color: p.textMuted,
             ),
           ),
         if (attested)
@@ -379,7 +385,7 @@ class _SpecRow extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 11,
               weight: FontWeight.w500,
-              color: OnboardingColors.ink500,
+              color: p.textMuted,
             ),
           ),
       ],

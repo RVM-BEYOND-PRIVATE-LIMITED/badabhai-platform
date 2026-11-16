@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/biometric_service.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/kit/secure_note.dart';
@@ -191,9 +192,10 @@ class _SetPinViewState extends State<_SetPinView> {
         }
       },
       builder: (BuildContext context, SetPinState state) {
+        final BbPalette p = context.bb;
         final bool canPop = Navigator.of(context).canPop();
         return Scaffold(
-          backgroundColor: OnboardingColors.canvasBg,
+          backgroundColor: p.page,
           body: Column(
             children: <Widget>[
               ShiftBlueHeader(

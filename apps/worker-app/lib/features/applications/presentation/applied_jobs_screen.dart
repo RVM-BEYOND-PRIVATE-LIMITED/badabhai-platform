@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/api/api_models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/trade_key_label.dart';
 import '../../../core/widgets/bb_job_card.dart';
@@ -48,8 +49,9 @@ class _AppliedJobsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -115,7 +117,7 @@ class _AppliedJobsView extends StatelessWidget {
         if (index == 1) {
           return Padding(
             padding: side.copyWith(top: 14, bottom: 4),
-            child: _whatNextCard(),
+            child: _whatNextCard(context),
           );
         }
         return Padding(
@@ -140,7 +142,8 @@ class _AppliedJobsView extends StatelessWidget {
 
   /// "AB KYA HOGA" — the what-happens-next list, on one shared card above the
   /// applications rather than a per-row repeat.
-  Widget _whatNextCard() {
+  Widget _whatNextCard(BuildContext context) {
+    final BbPalette p = context.bb;
     return KitCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -154,7 +157,7 @@ class _AppliedJobsView extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 14,
               height: 1.6,
-              color: OnboardingColors.ink600,
+              color: p.textSecondary,
             ),
           ),
         ],

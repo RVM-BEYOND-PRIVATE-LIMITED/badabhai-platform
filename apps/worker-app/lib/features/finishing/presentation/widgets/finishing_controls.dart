@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/onboarding/selection_cards.dart';
 
 /// Small master-kit controls shared by the finishing form's pages and its
 /// employer card. The shared kit (`core/widgets/onboarding/`) has no chip and no
-/// switch, so they are composed here from [OnboardingColors] rather than pulled
+/// switch, so they are composed here from the theme roles rather than pulled
 /// from the JUL31 `BbChip` / `BbToggle`, whose haldi / green palette is not the
 /// kit's.
 
@@ -38,19 +39,16 @@ class FinishingChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       button: true,
       selected: selected,
       child: Material(
-        color: selected
-            ? OnboardingColors.selectedCardBg
-            : OnboardingColors.chipBg,
+        color: selected ? p.selectedCardBg : p.raised,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_radius),
           side: BorderSide(
-            color: selected
-                ? OnboardingColors.safetyYellow
-                : OnboardingColors.borderDefault,
+            color: selected ? p.action : p.borderDefault,
             width: selected ? 1.8 : 1.2,
           ),
         ),
@@ -78,8 +76,7 @@ class FinishingChip extends StatelessWidget {
                   ),
                   if (trailingIcon != null) ...<Widget>[
                     const SizedBox(width: 6),
-                    Icon(trailingIcon,
-                        size: 18, color: OnboardingColors.ink600),
+                    Icon(trailingIcon, size: 18, color: p.textSecondary),
                   ],
                 ],
               ),
@@ -121,6 +118,7 @@ class FinishingGridOptionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final BorderRadius radius =
         BorderRadius.circular(FormFlowLayout.cardRadius);
     return Padding(
@@ -130,17 +128,13 @@ class FinishingGridOptionCard extends StatelessWidget {
         checked: isSelected,
         inMutuallyExclusiveGroup: true,
         child: Material(
-          color: isSelected
-              ? OnboardingColors.selectedCardBg
-              : OnboardingColors.paperWhite,
+          color: isSelected ? p.selectedCardBg : p.card,
           // The hairline is painted on the shape (no layout space), as on the
           // form-flow kit card — so selecting never shifts the content.
           shape: RoundedRectangleBorder(
             borderRadius: radius,
             side: BorderSide(
-              color: isSelected
-                  ? OnboardingColors.safetyYellow
-                  : FormFlowColors.cardBorder,
+              color: isSelected ? p.action : FormFlowColors.cardBorder,
               width: isSelected ? 1.8 : 1.2,
             ),
           ),
@@ -194,18 +188,20 @@ class FinishingToggleRow extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onChanged,
-    this.color = OnboardingColors.paperWhite,
+    this.color,
   });
 
   final String label;
   final bool value;
   final ValueChanged<bool> onChanged;
 
-  /// Card fill — white on the canvas; `chipBg` when nested inside a white card.
-  final Color color;
+  /// Card fill — the card surface on the canvas; `raised` when nested inside a
+  /// card. Null resolves to the card surface.
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     void flip() => onChanged(!value);
     // Drawn as a form-flow option card — its hairline, radius and title — so
     // it reads as the same component as the option cards on the form pages.
@@ -219,7 +215,7 @@ class FinishingToggleRow extends StatelessWidget {
       onTap: flip,
       excludeSemantics: true,
       child: Material(
-        color: color,
+        color: color ?? p.card,
         shape: RoundedRectangleBorder(
           borderRadius: radius,
           side: const BorderSide(
@@ -269,6 +265,7 @@ class _KitSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return AnimatedContainer(
       duration: _duration,
       curve: Curves.easeOut,
@@ -276,10 +273,10 @@ class _KitSwitch extends StatelessWidget {
       height: _height,
       padding: const EdgeInsets.symmetric(horizontal: 3),
       decoration: BoxDecoration(
-        color: value ? OnboardingColors.shiftBlue : OnboardingColors.disabledBg,
+        color: value ? p.brandSurface : p.disabledBg,
         borderRadius: BorderRadius.circular(_height / 2),
         border: Border.all(
-          color: value ? OnboardingColors.safetyYellow : Colors.transparent,
+          color: value ? p.action : Colors.transparent,
           width: 1.8,
         ),
       ),
@@ -292,9 +289,7 @@ class _KitSwitch extends StatelessWidget {
           height: _knob,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: value
-                ? OnboardingColors.safetyYellow
-                : OnboardingColors.paperWhite,
+            color: value ? p.action : p.onBrandSurface,
           ),
         ),
       ),

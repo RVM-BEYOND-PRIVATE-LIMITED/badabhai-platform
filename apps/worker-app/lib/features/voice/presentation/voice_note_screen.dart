@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/devanagari_guard.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
@@ -160,6 +161,7 @@ class _VoiceNoteView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BlocConsumer<VoiceNoteCubit, VoiceNoteState>(
       listenWhen: (VoiceNoteState prev, VoiceNoteState curr) =>
           curr is VoiceNoteSuccess,
@@ -222,7 +224,7 @@ class _VoiceNoteView extends StatelessWidget {
               );
           },
           child: Scaffold(
-            backgroundColor: OnboardingColors.canvasBg,
+            backgroundColor: p.page,
             body: Column(
               children: <Widget>[
                 // Kit chrome for a pushed route. The back arrow goes through
@@ -352,6 +354,7 @@ class _IdleView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // Scroll-safe: the mic hero + copy centre on a tall screen and scroll
     // (never a RenderFlex overflow) on a short handset or at a large text
     // scale, and the column stops at 440 on a tablet.
@@ -372,19 +375,19 @@ class _IdleView extends StatelessWidget {
                 // The mic is the ONE safety-yellow hero on this screen — a
                 // solid yellow circle with a shift-blue glyph (on-yellow is
                 // always navy, spec §1.1 `textOnYellow`).
-                color: OnboardingColors.safetyYellow,
+                color: p.action,
                 shape: const CircleBorder(),
                 child: InkWell(
                   customBorder: const CircleBorder(),
                   onTap: onStart,
-                  child: const SizedBox(
+                  child: SizedBox(
                     // A mitten-friendly hero target, twice the 48dp floor.
                     width: 96,
                     height: 96,
                     child: Icon(
                       Icons.mic_rounded,
                       size: 40,
-                      color: OnboardingColors.textOnYellow,
+                      color: p.onAction,
                     ),
                   ),
                 ),
@@ -401,15 +404,13 @@ class _IdleView extends StatelessWidget {
           Text(
             _kIdleBody,
             textAlign: TextAlign.center,
-            style: OnboardingTypography.body(color: OnboardingColors.ink600),
+            style: OnboardingTypography.body(color: p.textSecondary),
           ),
           const SizedBox(height: 8),
           Text(
             _kIdleHint,
             textAlign: TextAlign.center,
-            style: OnboardingTypography.bodyMuted(
-              color: OnboardingColors.ink500,
-            ),
+            style: OnboardingTypography.bodyMuted(color: p.textMuted),
           ),
         ],
       ),
@@ -440,6 +441,7 @@ class _RecordingView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // Scroll-safe: the record ring + counter + send/cancel CTAs centre on a tall
     // screen and scroll (never a RenderFlex overflow) on a short handset or at a
     // large accessibility text scale.
@@ -478,9 +480,9 @@ class _RecordingView extends StatelessWidget {
                               CircularProgressIndicator(
                                 value: value,
                                 strokeWidth: 4,
-                                backgroundColor: OnboardingColors.errorBg,
-                                valueColor: const AlwaysStoppedAnimation<Color>(
-                                  OnboardingColors.errorRed,
+                                backgroundColor: p.dangerBg,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  p.danger,
                                 ),
                               ),
                     ),
@@ -489,14 +491,14 @@ class _RecordingView extends StatelessWidget {
                     width: 80,
                     height: 80,
                     alignment: Alignment.center,
-                    decoration: const BoxDecoration(
-                      color: OnboardingColors.errorBg,
+                    decoration: BoxDecoration(
+                      color: p.dangerBg,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.mic_rounded,
                       size: 40,
-                      color: OnboardingColors.errorRed,
+                      color: p.danger,
                     ),
                   ),
                 ],
@@ -508,10 +510,10 @@ class _RecordingView extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              const Icon(
+              Icon(
                 Icons.fiber_manual_record_rounded,
                 size: 14,
-                color: OnboardingColors.errorRed,
+                color: p.danger,
               ),
               const SizedBox(width: 8),
               Flexible(
@@ -520,7 +522,7 @@ class _RecordingView extends StatelessWidget {
                   style: OnboardingTypography.inter(
                     size: 14,
                     weight: FontWeight.w700,
-                    color: OnboardingColors.ink600,
+                    color: p.textSecondary,
                   ),
                 ),
               ),
@@ -535,7 +537,7 @@ class _RecordingView extends StatelessWidget {
             style: OnboardingTypography.mono(
               size: 24,
               weight: FontWeight.w700,
-              color: OnboardingColors.shiftBlue,
+              color: p.textBrand,
             ),
           ),
           const SizedBox(height: 32),
@@ -709,6 +711,7 @@ class _ConfirmViewState extends State<_ConfirmView> {
   }
 
   Widget _correctionPanel() {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -733,18 +736,12 @@ class _ConfirmViewState extends State<_ConfirmView> {
           const SizedBox(height: 8),
           Row(
             children: <Widget>[
-              const Icon(
-                Icons.error_outline,
-                size: 16,
-                color: OnboardingColors.errorRed,
-              ),
+              Icon(Icons.error_outline, size: 16, color: p.danger),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   kDevanagariBlockedHint,
-                  style: OnboardingTypography.bodyMuted(
-                    color: OnboardingColors.errorRed,
-                  ),
+                  style: OnboardingTypography.bodyMuted(color: p.danger),
                 ),
               ),
             ],
@@ -790,7 +787,7 @@ class _ErrorView extends StatelessWidget {
       icon: why.icon,
       // The glyph is the error tone, so the disc behind it takes the error
       // tint instead of the informational blue.
-      iconColor: OnboardingColors.errorRed,
+      iconColor: context.bb.danger,
       title: _kErrorTitle,
       subtitle: why.reason,
       action: Column(

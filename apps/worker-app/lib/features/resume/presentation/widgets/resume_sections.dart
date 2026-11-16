@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/education_label.dart';
@@ -272,6 +273,7 @@ class _ResumeSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // OWNER ASK (2026-10-21) — the card reads as a layout, not a paragraph:
     // a job is a block, a list label owns a chip grid, a single fact is a
     // label-over-value tile. Thin dividers separate the pieces.
@@ -286,12 +288,12 @@ class _ResumeSection extends StatelessWidget {
           const SizedBox(height: 14),
           for (int i = 0; i < pieces.length; i++) ...<Widget>[
             if (i > 0)
-              const Padding(
+               Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
                 child: Divider(
                   height: 1,
                   thickness: 1,
-                  color: OnboardingColors.borderDefault,
+                  color: p.borderDefault,
                 ),
               ),
             pieces[i],
@@ -412,6 +414,7 @@ class _JobBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final List<String> parts = line.split(' — ');
     final String role = parts.first.trim();
     String? duration;
@@ -436,7 +439,7 @@ class _JobBlock extends StatelessWidget {
               style: OnboardingTypography.inter(
                 size: 16,
                 weight: FontWeight.w700,
-                color: OnboardingColors.shiftBlue,
+                color: p.textBrand,
               ),
             ),
             if (duration != null) ResumeWhenPill(text: duration),
@@ -449,7 +452,7 @@ class _JobBlock extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 14,
               height: 1.5,
-              color: OnboardingColors.ink600,
+              color: p.textSecondary,
             ),
           ),
         ],

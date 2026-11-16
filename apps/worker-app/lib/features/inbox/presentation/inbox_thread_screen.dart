@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
@@ -69,9 +70,10 @@ class _ThreadViewState extends State<_ThreadView> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool canPop = Navigator.of(context).canPop();
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: Column(
         children: <Widget>[
           ShiftBlueHeader(
@@ -119,6 +121,7 @@ class _ThreadViewState extends State<_ThreadView> {
   }
 
   Widget _thread(BuildContext context, InboxThreadState state) {
+    final BbPalette p = context.bb;
     return Column(
       children: <Widget>[
         Expanded(
@@ -144,7 +147,7 @@ class _ThreadViewState extends State<_ThreadView> {
               failureReason(state.sendError).reason,
               style: OnboardingTypography.inter(
                 size: 12,
-                color: OnboardingColors.errorRed,
+                color: p.danger,
               ),
             ),
           ),
@@ -154,6 +157,7 @@ class _ThreadViewState extends State<_ThreadView> {
   }
 
   Widget _bubble(BuildContext context, InboxMessage message) {
+    final BbPalette p = context.bb;
     final bool mine = message.fromWorker;
     final BorderRadius radius = BorderRadius.only(
       topLeft: const Radius.circular(14),
@@ -171,12 +175,12 @@ class _ThreadViewState extends State<_ThreadView> {
             constraints: BoxConstraints(maxWidth: constraints.maxWidth * 0.82),
             decoration: BoxDecoration(
               color: mine
-                  ? OnboardingColors.shiftBlue
-                  : OnboardingColors.paperWhite,
+                  ? p.brandSurface
+                  : p.card,
               borderRadius: radius,
               border: mine
                   ? null
-                  : Border.all(color: OnboardingColors.borderDefault),
+                  : Border.all(color: p.borderDefault),
             ),
             child: Text(
               message.text,
@@ -185,8 +189,8 @@ class _ThreadViewState extends State<_ThreadView> {
                 weight: FontWeight.w500,
                 height: 1.35,
                 color: mine
-                    ? OnboardingColors.textOnBlue
-                    : OnboardingColors.ink900,
+                    ? p.onBrandSurface
+                    : p.textPrimary,
               ),
             ),
           );
@@ -198,14 +202,15 @@ class _ThreadViewState extends State<_ThreadView> {
   /// Free-text composer (§B — the worker's reply is the affirmative act that
   /// opens the thread to free text both ways).
   Widget _composer(BuildContext context, InboxThreadState state) {
+    final BbPalette p = context.bb;
     return SafeArea(
       top: false,
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-        decoration: const BoxDecoration(
-          color: OnboardingColors.paperWhite,
+        decoration: BoxDecoration(
+          color: p.card,
           border: Border(
-            top: BorderSide(color: OnboardingColors.borderDefault),
+            top: BorderSide(color: p.borderDefault),
           ),
         ),
         child: Row(
@@ -217,13 +222,13 @@ class _ThreadViewState extends State<_ThreadView> {
                 minLines: 1,
                 maxLines: 4,
                 textInputAction: TextInputAction.newline,
-                cursorColor: OnboardingColors.shiftBlue,
+                cursorColor: p.focusRing,
                 style: OnboardingTypography.inter(size: 14),
                 decoration: InputDecoration(
                   hintText: 'Apna jawab likhein',
                   hintStyle: OnboardingTypography.inter(
                     size: 14,
-                    color: OnboardingColors.ink500,
+                    color: p.textMuted,
                   ),
                   border: InputBorder.none,
                 ),
@@ -236,8 +241,8 @@ class _ThreadViewState extends State<_ThreadView> {
               child: IconButton(
                 onPressed: state.sending ? null : _send,
                 icon: const Icon(Icons.send_rounded),
-                color: OnboardingColors.shiftBlue,
-                disabledColor: OnboardingColors.disabledText,
+                color: p.textBrand,
+                disabledColor: p.disabledText,
                 tooltip: 'Bhejein',
               ),
             ),

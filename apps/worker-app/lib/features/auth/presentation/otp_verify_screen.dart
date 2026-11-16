@@ -12,7 +12,7 @@ import '../../../core/error/failure_mapper.dart';
 import '../../../core/error/failure_reason.dart';
 import '../../../core/otp/sms_otp_autofill.dart';
 import '../../../core/session/session_repository.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/date_label.dart';
 import '../../../core/widgets/kit/otp_code_field.dart';
@@ -218,6 +218,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
     BuildContext context,
     DateTime scheduledFor,
   ) async {
+    final BbPalette p = context.bb;
     final bool cancelRequested =
         await showDialog<bool>(
           context: context,
@@ -231,7 +232,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
             actions: <Widget>[
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(false),
-                style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+                style: TextButton.styleFrom(foregroundColor: p.danger),
                 child: const Text('Nahin, delete hone dein'),
               ),
               TextButton(
@@ -253,6 +254,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
   Future<void> _cancelPendingDeletion(BuildContext context) async {
     // Capture the messenger before the async gap (use_build_context_synchronously).
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    final BbPalette p = context.bb;
     final SessionRepository session = locator<SessionRepository>();
     try {
       final String? token = session.sessionToken;
@@ -271,7 +273,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
         ..clearSnackBars()
         ..showSnackBar(
           SnackBar(
-            backgroundColor: AppColors.danger,
+            backgroundColor: p.danger,
             content: Text(failureReason(mapError(error)).reason),
           ),
         );
@@ -283,6 +285,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
   /// fires on any `status` change, so it would restart the countdown every time
   /// a verify failed — handing the worker a fresh 30s wait for a typo.
   void _onResendChanged(BuildContext context, OtpVerifyState state) {
+    final BbPalette p = context.bb;
     switch (state.resendStatus) {
       case OtpResendStatus.sent:
         // Restart from the FRESH server cooldown, so the control re-arms only
@@ -297,7 +300,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
           ..clearSnackBars()
           ..showSnackBar(
             SnackBar(
-              backgroundColor: AppColors.danger,
+              backgroundColor: p.danger,
               // The honest reason (rate-limited vs offline) — the worker can only
               // act on it if we say which one it was.
               content: Text(state.resendMessage ?? 'Code bhej nahi paaye.'),
@@ -334,7 +337,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
             ..clearSnackBars()
             ..showSnackBar(
               SnackBar(
-                backgroundColor: AppColors.danger,
+                backgroundColor: context.bb.danger,
                 content: Text(
                   state.message ??
                       'Could not verify the code. Please try again.',
@@ -344,11 +347,12 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
         }
       },
       builder: (BuildContext context, OtpVerifyState state) {
+        final BbPalette p = context.bb;
         // Onboarding kit Screen 3: Shift Blue header, `ENTER OTP CODE`, six
         // rounded boxes, the resend timer, "Verify Code", and the
         // "Wrong number?" link back to login.
         return Scaffold(
-          backgroundColor: OnboardingColors.canvasBg,
+          backgroundColor: p.page,
           body: Column(
             children: <Widget>[
               ShiftBlueHeader(
@@ -394,7 +398,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
                               style: OnboardingTypography.inter(
                                 size: 13,
                                 weight: FontWeight.w600,
-                                color: OnboardingColors.shiftBlue,
+                                color: p.link,
                                 decoration: TextDecoration.underline,
                               ),
                             ),
@@ -437,6 +441,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
   /// the worker who cannot read the screen to work out what they mean. The kit
   /// widget owns that shape; this screen only supplies the caret it blinks.
   Widget _buildCodeField() {
+    final BbPalette p = context.bb;
     return OtpCodeField(
       controller: _controller,
       focusNode: _focusNode,
@@ -448,7 +453,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
       // boxes one screen later behave identically — including the frozen-caret
       // test seam, which is why it is injected rather than imported there.
       caretBuilder: (double height) => BbPinCaret(
-        color: OnboardingColors.shiftBlue,
+        color: p.textBrand,
         height: height,
         caretKey: kOtpCaretKey,
       ),
@@ -463,6 +468,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
     OtpVerifyState state,
     String phone,
   ) {
+    final BbPalette p = context.bb;
     final bool canResend = _cooldown == 0 && !state.isResending;
     final Widget label;
     if (_cooldown > 0) {
@@ -475,7 +481,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
               text: 'Resend code in ',
               style: OnboardingTypography.inter(
                 size: 13,
-                color: OnboardingColors.ink600,
+                color: p.textSecondary,
               ),
             ),
             TextSpan(
@@ -483,7 +489,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
               style: OnboardingTypography.mono(
                 size: 13,
                 weight: FontWeight.w700,
-                color: OnboardingColors.shiftBlue,
+                color: p.textBrand,
               ),
             ),
           ],
@@ -495,7 +501,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
         style: OnboardingTypography.inter(
           size: 13,
           weight: FontWeight.w600,
-          color: OnboardingColors.ink600,
+          color: p.textSecondary,
         ),
       );
     } else {
@@ -504,7 +510,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
         style: OnboardingTypography.inter(
           size: 13,
           weight: FontWeight.w700,
-          color: OnboardingColors.shiftBlue,
+          color: p.link,
         ),
       );
     }
@@ -535,9 +541,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
               Icon(
                 Icons.refresh_rounded,
                 size: 16,
-                color: canResend
-                    ? OnboardingColors.shiftBlue
-                    : OnboardingColors.ink600,
+                color: canResend ? p.link : p.textSecondary,
               ),
               const SizedBox(width: 6),
               Flexible(child: label),
