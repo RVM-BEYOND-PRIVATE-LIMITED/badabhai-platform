@@ -11,7 +11,10 @@ import '../session/app_session_cubit.dart';
 import '../session/credits_cubit.dart';
 import '../session/network_status.dart';
 
+import '../../features/account/data/display_prefs_repository_impl.dart';
+import '../../features/account/domain/display_prefs_repository.dart';
 import '../../features/account/presentation/cubit/account_cubit.dart';
+import '../theme/theme_cubit.dart';
 
 import '../../features/find/presentation/cubit/candidate_search_cubit.dart';
 import '../../features/find/presentation/cubit/find_cubit.dart';
@@ -109,6 +112,18 @@ void setupLocator({
       refreshToken: () => locator<PayerAuthApi>().refresh(),
     ),
   );
+  // #2830 — the display (theme) preference: server row + device cache. The
+  // controller is a lazy singleton so the same instance drives MaterialApp and
+  // the Account row. Both sit after PayerHttp (they read the bearer through it).
+  locator.registerLazySingleton<DisplayPrefsRepository>(
+    () => DisplayPrefsRepositoryImpl(
+      locator<PayerHttp>(),
+      locator<PayerTokenStore>(),
+    ),
+  );
+  locator.registerLazySingleton<ThemeCubit>(
+    () => ThemeCubit(locator<DisplayPrefsRepository>()),
+  );
   locator.registerLazySingleton<PayerAuthApi>(
     () =>
         authApi ??
@@ -148,7 +163,15 @@ void setupLocator({
       // #369 — CreditsCubit is the ONLY app-wide singleton cubit, so it is the
       // only state that survives sign-out. Reset it here or the next payer to
       // sign in on this device sees the previous payer's balance.
-      onSessionCleared: () => locator<CreditsCubit>().reset(),
+      onSessionCleared: () {
+        locator<CreditsCubit>().reset();
+        // #2830 — the theme belongs to the token's login: signing out returns
+        // the app to Light and drops the device cache. Guarded so a test graph
+        // that never registers it is unaffected.
+        if (locator.isRegistered<ThemeCubit>()) {
+          locator<ThemeCubit>().onLogout();
+        }
+      },
     ),
   );
   locator.registerLazySingleton<CreditsCubit>(

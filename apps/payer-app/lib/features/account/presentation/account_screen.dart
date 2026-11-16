@@ -12,6 +12,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/bb_palette.dart';
+import '../../../core/theme/theme_cubit.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -177,6 +179,7 @@ class _AccountView extends StatelessWidget {
                     label: 'Privacy & DPDP consent',
                     showChevron: false,
                   ),
+                  const _DebugInkPreviewRow(),
                   _SettingsRow(
                     icon: Icons.logout_rounded,
                     label: 'Sign out',
@@ -651,6 +654,65 @@ class _ErrorCard extends StatelessWidget {
           ],
         ),
       );
+}
+
+/// Debug-only preview of the ink theme (#2830 item 6).
+///
+/// Compiled in only as a guard: a release build renders nothing and
+/// [ThemeCubit.debugSetDark] refuses to change state, so no payer ever sees it.
+class _DebugInkPreviewRow extends StatelessWidget {
+  const _DebugInkPreviewRow();
+
+  @override
+  Widget build(BuildContext context) {
+    if (kReleaseMode) return const SizedBox.shrink();
+    if (!locator.isRegistered<ThemeCubit>()) return const SizedBox.shrink();
+    final ThemeCubit cubit = locator<ThemeCubit>();
+    return BlocBuilder<ThemeCubit, ThemeState>(
+      bloc: cubit,
+      builder: (BuildContext context, ThemeState state) {
+        final BbPalette bb = context.bb;
+        return Container(
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: bb.borderSubtle)),
+          ),
+          constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
+          child: Row(
+            children: <Widget>[
+              Icon(Icons.brightness_6_rounded, size: 22, color: bb.textMuted),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'DEVELOPER · ink preview',
+                      style: AppTypography.body(
+                        size: AppTypography.sizeBase,
+                        color: bb.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      'Debug builds only',
+                      style: AppTypography.body(
+                        size: AppTypography.sizeSm,
+                        color: bb.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Switch.adaptive(
+                value: state.debugDark,
+                onChanged: cubit.debugSetDark,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _SettingsRow extends StatelessWidget {
