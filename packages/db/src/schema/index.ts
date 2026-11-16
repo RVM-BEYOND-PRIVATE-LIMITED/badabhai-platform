@@ -55,6 +55,7 @@ import { workerActivity } from "./worker-activity";
 import { workerSearchExits } from "./worker-search-exit";
 import { hires } from "./hire";
 import { payOnJoiningHires } from "./pay-on-joining";
+import { unlockOutcomes } from "./unlock-outcome";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -179,6 +180,8 @@ export * from "./worker-search-exit";
 export * from "./hire";
 // #2753 item 11 — the pay-on-joining pilot's hire record (admin-written, money in paise).
 export * from "./pay-on-joining";
+// #2753 item 10 — what became of one opened contact (the company follow-up).
+export * from "./unlock-outcome";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -495,4 +498,6 @@ export const schema = {
   hires,
   // #2753 item 11 - the pay-on-joining pilot's hire record (migration 0171).
   payOnJoiningHires,
+  // #2753 item 10 - one follow-up answer per opened contact (behind UNLOCK_FOLLOWUP_ENABLED).
+  unlockOutcomes,
 };

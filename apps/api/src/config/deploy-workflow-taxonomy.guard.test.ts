@@ -372,6 +372,20 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /POJ_PARTNER_SHARE_PERCENT:\s*\$\{\{\s*secrets\.POJ_PARTNER_SHARE_PERCENT\s*\}\}/,
       /envs:[^\n]*\bPOJ_PARTNER_SHARE_PERCENT\b/,
     ],
+    // #2753 item 10 — the company follow-up. A plain boolean on the api only, turned on in production
+    // ONLY by the environment secret, after the `unlock_outcomes` migration is applied.
+    [
+      "UNLOCK_FOLLOWUP_ENABLED",
+      /UNLOCK_FOLLOWUP_ENABLED:\s*\$\{\{\s*secrets\.UNLOCK_FOLLOWUP_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bUNLOCK_FOLLOWUP_ENABLED\b/,
+    ],
+    // #2753 item 10 — the follow-up wait in days, a tuning number like the drive-request cap below;
+    // absent, compose holds it at the owner's 7.
+    [
+      "UNLOCK_FOLLOWUP_AFTER_DAYS",
+      /UNLOCK_FOLLOWUP_AFTER_DAYS:\s*\$\{\{\s*secrets\.UNLOCK_FOLLOWUP_AFTER_DAYS\s*\}\}/,
+      /envs:[^\n]*\bUNLOCK_FOLLOWUP_AFTER_DAYS\b/,
+    ],
     // ADR-0053 (PAY-DB-01) — payer org tenancy (off | shadow | on), api only. The environment
     // secret is its one arming path (owner decision O-8); absent, the bridge holds it off.
     [
@@ -536,6 +550,10 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     // pilot's partner share, copied onto each hire when it is recorded.
     ["PAY_ON_JOINING_RECORDS_ENABLED", "false"],
     ["POJ_PARTNER_SHARE_PERCENT", "70"],
+    // #2753 item 10 — off is today's API: both follow-up routes 404; nothing names unlock_outcomes.
+    ["UNLOCK_FOLLOWUP_ENABLED", "false"],
+    // #2753 item 10 — the zod default: the follow-up is due 7 days after the grant.
+    ["UNLOCK_FOLLOWUP_AFTER_DAYS", "7"],
     // #2752 — off is no Campus route at all: a neutral 404 before any token, address or audit.
     ["CAMPUS_LINK_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.

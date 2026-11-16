@@ -264,6 +264,9 @@ const LOCKED_TABLES = [
   // / posting ids, dates, paise and an admin note). Worker FK cascade as the erasure coverage.
   // RLS+FORCE+REVOKE in 0171.
   "pay_on_joining_hires",
+  // 0172 (#2753 item 10): one follow-up answer per opened contact (ids, closed codes and dates).
+  // Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0172.
+  "unlock_outcomes",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

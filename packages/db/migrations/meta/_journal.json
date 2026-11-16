@@ -1206,6 +1206,13 @@
       "when": 1794816818877,
       "tag": "0171_pay_on_joining_hires",
       "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "7",
+      "when": 1794817356838,
+      "tag": "0172_unlock_outcomes",
+      "breakpoints": true
     }
   ]
 }

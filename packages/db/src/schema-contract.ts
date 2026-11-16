@@ -1375,6 +1375,24 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "partner's share, with an admin's free-text note; an open grant lets any PostgREST role " +
       "read the pilot's commercial terms, or write a hire record ops would act on",
   },
+  // 0172 (#2753 item 10): THE API names `unlock_outcomes` only while UNLOCK_FOLLOWUP_ENABLED is on
+  // (the due list, the company's answer, the desk's not_reached), so a deploy ahead of the
+  // migration breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134
+  // rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0172-unlock-outcomes-rls",
+    migration: "0172_unlock_outcomes",
+    kind: "rls",
+    table: "unlock_outcomes",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records what each company said became of every contact it opened, " +
+      "keyed by unlock, worker and company id; an open grant lets any PostgREST role read those " +
+      "answers, or write a `hired` that the launch test counts",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

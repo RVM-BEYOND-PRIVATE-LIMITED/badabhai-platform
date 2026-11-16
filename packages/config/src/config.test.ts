@@ -983,6 +983,46 @@ describe("loadServerConfig", () => {
     }
   });
 
+  describe("the company follow-up (#2753 item 10)", () => {
+    it("UNLOCK_FOLLOWUP_ENABLED is OFF by default and for the empty string", () => {
+      // Off: both routes are a 404 and nothing reads or writes `unlock_outcomes`.
+      expect(loadServerConfig({}).UNLOCK_FOLLOWUP_ENABLED).toBe(false);
+      expect(loadServerConfig({ UNLOCK_FOLLOWUP_ENABLED: "" }).UNLOCK_FOLLOWUP_ENABLED).toBe(false);
+      expect(loadServerConfig({ UNLOCK_FOLLOWUP_ENABLED: "0" }).UNLOCK_FOLLOWUP_ENABLED).toBe(
+        false,
+      );
+      expect(loadServerConfig({ UNLOCK_FOLLOWUP_ENABLED: "true" }).UNLOCK_FOLLOWUP_ENABLED).toBe(
+        true,
+      );
+      expect(() => loadServerConfig({ UNLOCK_FOLLOWUP_ENABLED: "yes" })).toThrow();
+    });
+
+    it("UNLOCK_FOLLOWUP_AFTER_DAYS defaults to 7 (also when empty) and is at least 1", () => {
+      expect(loadServerConfig({}).UNLOCK_FOLLOWUP_AFTER_DAYS).toBe(7);
+      expect(loadServerConfig({ UNLOCK_FOLLOWUP_AFTER_DAYS: "" }).UNLOCK_FOLLOWUP_AFTER_DAYS).toBe(
+        7,
+      );
+      expect(
+        loadServerConfig({ UNLOCK_FOLLOWUP_AFTER_DAYS: "14" }).UNLOCK_FOLLOWUP_AFTER_DAYS,
+      ).toBe(14);
+      expect(loadServerConfig({ UNLOCK_FOLLOWUP_AFTER_DAYS: "1" }).UNLOCK_FOLLOWUP_AFTER_DAYS).toBe(
+        1,
+      );
+      for (const bad of ["0", "-3", "2.5", "seven"]) {
+        expect(() => loadServerConfig({ UNLOCK_FOLLOWUP_AFTER_DAYS: bad })).toThrow();
+      }
+    });
+
+    it("PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR defaults to 600 and must be positive", () => {
+      expect(loadServerConfig({}).PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR).toBe(600);
+      expect(
+        loadServerConfig({ PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR: "50" })
+          .PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR,
+      ).toBe(50);
+      expect(() => loadServerConfig({ PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR: "0" })).toThrow();
+    });
+  });
+
   describe("the Campus link (#2752)", () => {
     const HASH_A = "a".repeat(64);
     const HASH_B = "B".repeat(64);

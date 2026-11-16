@@ -505,6 +505,26 @@ NestJS boot assertion).
     `${POJ_PARTNER_SHARE_PERCENT:-70}`, `ci.yml` `env:` + `envs:`); the deploy preflight refuses
     anything but empty or a whole number 0..100 before a container moves, because a bad value would
     stop the api booting.
+- **The company follow-up (#2753 item 10)** — api only, three variables.
+  - `UNLOCK_FOLLOWUP_ENABLED` (`booleanFromString`, default off). Off is today's API exactly:
+    `GET /payer/unlock-outcomes/due` and `POST /payer/unlocks/:unlockId/outcome` are a neutral 404
+    and nothing reads or writes `unlock_outcomes`. On, a company lists its opened contacts due for
+    an answer and answers `hired` / `not_hired` / `still_talking` (one row per unlock; a later
+    answer replaces the earlier one); a `hired` answer also confirms the hire record when
+    `HIRE_RECORDS_ENABLED` is on and the unlock names a posting. The migration `unlock_outcomes` is
+    APPLY-BEFORE-THE-SWITCH: on without it, the due list and every answer fail (42P01) and nothing
+    is written. Bridged through the GitHub `production` environment secret of the same name
+    (compose `${UNLOCK_FOLLOWUP_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+    `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+  - `UNLOCK_FOLLOWUP_AFTER_DAYS` (`positiveIntFromString`, default 7, at least 1; empty reads as
+    7): how many whole days of 24 hours after the grant a contact is due, and how long a
+    `still_talking` answer waits before it is due again. Bridged like
+    `CAMPUS_DRIVE_MAX_OPEN_REQUESTS` (compose `${UNLOCK_FOLLOWUP_AFTER_DAYS:-7}`, `ci.yml` `env:` +
+    `envs:`); the deploy preflight refuses anything but empty or a whole number 1..999 before a
+    container moves, because a bad value would stop the api booting.
+  - `PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR` (default 600 per company login per UTC hour, its own Redis
+    bucket `payer_unlock_outcome`, fail-closed): the answer route's write cap. Runs on its default;
+    neither compose file forwards it.
 - **The Campus link (#2752)** — api only, four variables, all read by `CampusServiceGuard` on
   `/internal/campus/v1` (contract: `docs/api/campus-link-v1-api-reference.md`).
   - `CAMPUS_LINK_ENABLED` (`booleanFromString`, default off): off, every Campus route is a neutral

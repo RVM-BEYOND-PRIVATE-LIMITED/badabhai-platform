@@ -229,6 +229,18 @@ case "${POJ_PARTNER_SHARE_PERCENT-}" in
     ;;
 esac
 
+# #2753 item 10: UNLOCK_FOLLOWUP_AFTER_DAYS — the company follow-up's wait, whole days. The api parses
+# it as a positive integer at boot (positiveIntFromString), so "0", "7d" or "seven" would crash-loop
+# it with no automatic rollback. Only empty or 1..999 pass, checked here before any prune, pull or
+# recreate. Empty means 7 through compose's `${UNLOCK_FOLLOWUP_AFTER_DAYS:-7}`.
+case "${UNLOCK_FOLLOWUP_AFTER_DAYS-}" in
+  "" | [1-9] | [1-9][0-9] | [1-9][0-9][0-9]) ;;
+  *)
+    echo "::error::UNLOCK_FOLLOWUP_AFTER_DAYS must be a whole number from 1 to 999, or empty (empty means 7). Fix the production secret (gh secret set UNLOCK_FOLLOWUP_AFTER_DAYS --env production --body 7) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
 # EVERY OTHER BRIDGED BOOLEAN — the same boot-time grammar, the same reason. Each name below is
 # in the deploy job's `envs:` list in ci.yml AND parsed by the api's `booleanFromString`
 # (packages/config/src/server.ts), which throws at boot on anything but true/false/1/0/empty.
@@ -274,6 +286,7 @@ BRIDGED_BOOLEAN_FLAGS=(
   SEARCH_EXIT_ENABLED
   SIGNUP_AGE_GATE_ENABLED
   TEST_IMMEDIATE_DELETE_ENABLED
+  UNLOCK_FOLLOWUP_ENABLED
   WORK_HISTORY_POLISH_ENABLED
   WORKER_ACTIVITY_ENABLED
 )

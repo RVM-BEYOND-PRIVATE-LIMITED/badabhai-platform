@@ -104,6 +104,8 @@ import { AdminDisplayPrefsController } from "../display-prefs/admin-display-pref
 import { SearchExitController } from "../search-exit/search-exit.controller";
 // #2753 item 11 — the pay-on-joining pilot's hire record (admin, behind its own switch guard).
 import { PayOnJoiningHiresController } from "../pay-on-joining/pay-on-joining-hires.controller";
+// #2753 item 10 — the company follow-up: the payer realm's guard, then its own switch.
+import { PayerUnlockOutcomesController } from "../unlock-outcomes/payer-unlock-outcomes.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -170,6 +172,8 @@ const RZ = "RazorpayWebhookGuard";
 const POR = "PayerOrgRoleGuard";
 /** #2753 item 6 — NOT AN AUTH GUARD: the SEARCH_EXIT_ENABLED switch's neutral 404, run first. */
 const SE = "SearchExitEnabledGuard";
+/** #2753 item 10 — NOT an auth guard: the follow-up switch, a neutral 404 while it is off. */
+const UFE = "UnlockFollowupEnabledGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [I], recordBatch: [I] } },
@@ -948,6 +952,13 @@ const CONTRACT: ControllerContract[] = [
     ctor: PayOnJoiningHiresController,
     routes: { listHires: [A, POJ, AR], createHire: [A, POJ, AR], updateHire: [A, POJ, AR] },
   },
+  // #2753 item 10 — the company follow-up: PayerAuthGuard (the session payer, either role, like the
+  // unlock routes it follows up) plus the switch. Ownership is the service's tenant chokepoint.
+  {
+    name: "PayerUnlockOutcomes",
+    ctor: PayerUnlockOutcomesController,
+    routes: { listDue: [P, UFE], recordOutcome: [P, UFE] },
+  },
 ];
 
 describe("API authz contract — guards on every controller route", () => {
@@ -1006,6 +1017,9 @@ describe("API authz contract — guards on every controller route", () => {
       SearchExitController,
       // #2753 item 11 — a money record's write surface; a route must not join it unpinned.
       PayOnJoiningHiresController,
+      // #2753 item 10 — a company's answers about the contacts it opened; a route must not join
+      // unpinned.
+      PayerUnlockOutcomesController,
     ] as Ctor[]) {
       it(`${ctor.name} lists every route it serves`, () => {
         const proto = ctor.prototype as Record<string, unknown>;
