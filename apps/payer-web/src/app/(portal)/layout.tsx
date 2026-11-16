@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
+import { displayThemeToPreference } from "@badabhai/theme-web";
 import { requirePayer } from "../../lib/auth";
 import { getOrgRole } from "../../lib/auth/org-roles";
 import { agencyFlags } from "../../lib/config";
 import { getCredits } from "../../lib/payer-api";
+import { getDisplayPrefsCached } from "../../lib/display-prefs";
+import { savePayerTheme } from "./display-prefs-actions";
 import { BadaBhaiLogo, Badge, ThemeToggle } from "../../components/ds";
 import { PortalLink } from "../../components/portal-link";
 import { AccountMenu } from "./account-menu";
@@ -49,6 +52,13 @@ const HOME = "/dashboard";
  */
 export default async function PortalLayout({ children }: { children: ReactNode }) {
   const session = await requirePayer();
+  // #2822: the server-saved choice, read after sign-in. When it is open the server value wins
+  // over the cookie and the toggle PATCHes; when it is closed the toggle is unchanged THEME-1.
+  const displayPrefs = await getDisplayPrefsCached();
+  const themeOpen = displayPrefs?.theme_open === true;
+  const themePreference = themeOpen
+    ? displayThemeToPreference(displayPrefs.theme)
+    : undefined;
   const isAgency = session.role === "agent";
   // Org-role is for AFFORDANCES only (the Team link). The gate is the decision (requireOwner).
   const isOwner = getOrgRole(session) === "owner";
@@ -106,7 +116,10 @@ export default async function PortalLayout({ children }: { children: ReactNode }
               <BalanceChip balance={balance} balanceAsOf={balanceAsOf} linkToCredits />
             ) : null}
             {/* Light/dark theme — a per-user display preference, role-agnostic. */}
-            <ThemeToggle />
+            <ThemeToggle
+              initialPreference={themePreference}
+              onPersist={themeOpen ? savePayerTheme : undefined}
+            />
             {/* Sign-out lives INSIDE this menu. The shell used to carry a second,
                 standalone sign-out icon beside it; two controls for one destructive action
                 is a duplicate affordance, and the menu is where a user looks for it. */}
