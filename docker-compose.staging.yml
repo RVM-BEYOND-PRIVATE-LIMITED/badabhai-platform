@@ -429,6 +429,11 @@ services:
       # posting that names a rung sorts its applicants meets → not confirmed → below inside each
       # trade group. Nobody is hidden. `:-false` because this bool rejects "".
       LEVEL_NEEDED_SORT_ENABLED: ${LEVEL_NEEDED_SORT_ENABLED:-false}
+      # THE BRIEF'S FOUR AVAILABILITY ANSWERS (#2753 item 3). Off is today's options exactly. On,
+      # GET /workers/me/work-preferences/options serves join_now / in_15_days / in_30_days /
+      # working_open as `availability_status`. Writes accept both sets either way, and every reader
+      # labels both. No migration. `:-false` because this bool rejects "".
+      AVAILABILITY_ANSWERS_V2_ENABLED: ${AVAILABILITY_ANSWERS_V2_ENABLED:-false}
       # LAST ACTIVE, ONE DEFINITION (#2753). Off is today exactly: nothing reads or writes
       # worker_activity, no row carries `notRecentlyActive`, `lastActiveOn` is the device sighting.
       # On needs migration 0168 applied first. `:-false` because this bool rejects "".

@@ -15,7 +15,7 @@ import {
 } from "../../profiles/worker-qualifications.dto";
 import { SetMyLanguagesSchema } from "../../profiles/worker-languages.dto";
 import {
-  AVAILABILITY_STATUSES,
+  AVAILABILITY_STATUSES_ALL,
   DOCUMENTS_READY,
   JOB_TYPES,
   SALARY_PERIODS,
@@ -102,9 +102,14 @@ function dedupe<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
 }
 
+/**
+ * The worker's own availability shape. `status` takes either set of keys (#2753 item 3), exactly
+ * as `PUT /workers/me/work-preferences` does, so an admin can record the answer in whichever set
+ * the worker gave it. `AVAILABILITY_ANSWERS_V2_ENABLED` never narrows a write.
+ */
 const availabilityValueSchema = z
   .object({
-    status: z.enum(optionsOf(AVAILABILITY_STATUSES)).nullable().optional(),
+    status: z.enum(optionsOf(AVAILABILITY_STATUSES_ALL)).nullable().optional(),
     available_from: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, "available_from must be YYYY-MM-DD")

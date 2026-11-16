@@ -6,7 +6,7 @@ import { primeSheetQr, SHEET_SHAPES, withSheetQr } from "./__fixtures__/sheet-sh
 // text, so it changes nothing this gate reads — which is itself worth having asserted.
 beforeAll(primeSheetQr);
 import {
-  AVAILABILITY_STATUSES,
+  AVAILABILITY_STATUSES_V1,
   SHIFTS,
   WORK_TYPES,
 } from "../profiles/worker-preferences.vocabulary";
@@ -129,7 +129,9 @@ const SHEET_LABELS: readonly string[] = [
 const FORM_VOCABULARY: readonly string[] = [
   ...Object.values(SHIFTS),
   ...Object.values(WORK_TYPES),
-  ...Object.values(AVAILABILITY_STATUSES),
+  // The FIRST set only: no fixture here answers with the brief's four (#2753 item 3), so licensing
+  // their labels would admit words this gate never sees printed.
+  ...Object.values(AVAILABILITY_STATUSES_V1),
 ];
 
 const CLOSED_VOCABULARY: ReadonlySet<string> = new Set([

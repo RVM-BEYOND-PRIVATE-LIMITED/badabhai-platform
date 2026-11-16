@@ -394,6 +394,20 @@ NestJS boot assertion).
   `scripts/deploy/staging-deploy.sh`; the bridge shipped in #2613, after #2552). Arming is the
   secret set to `true` plus a redeploy, on the CEO's go-ahead; values lowercase
   `true`/`false`/`1`/`0`/empty only.
+- **The brief's four availability answers (#2753 item 3)** —
+  `AVAILABILITY_ANSWERS_V2_ENABLED`, api only (`booleanFromString`, default off). Off is today's
+  `GET /workers/me/work-preferences/options` exactly. On, its `availability_status` serves `join_now` / `in_15_days` / `in_30_days` /
+  `working_open` ("Can join now", "Can join in 15 days", "Can join in 30 days", "Working, open to a
+  better offer") in place of the first four, and clients render what they are served. **The flag
+  never narrows a write:** the worker PUT, admin corrections and the chat edit layer accept both
+  sets either way, because installed builds keep sending the old keys. Every reader (résumé, admin
+  candidate detail, applicant card) labels a stored key of either set in its own words; an old
+  answer is never shown in the new words. **No migration** (the answer lives in the `availability`
+  json attribute). Turn it on with the app release that renders the served chips. Bridged through
+  the GitHub `production` environment secret of the same name (compose
+  `${AVAILABILITY_ANSWERS_V2_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; values
+  lowercase `true`/`false`/`1`/`0`/empty only.
 - **Last active, one definition (#2753 items 4 and 7)** — `WORKER_ACTIVITY_ENABLED`, api only
   (`booleanFromString`, default off). On, every signed-in worker request and every Campus
   application records the worker's IST day in `worker_activity` (migration 0168; fire-and-forget,

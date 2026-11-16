@@ -664,7 +664,24 @@ Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved ser
 - **Events:** one event per **real** change, in the same transaction as the write — actor `payer` (the session payer), subject `worker`, payload `{ posting_kind, posting_id, worker_id, stage, previous_stage }` (ids + closed enums only). A move between `new`, `shortlist` and `passed` is `payer.applicant_stage_changed` v1, exactly as before; a move to or from `selected` / `hired` is `payer.applicant_stage_changed_v2` (#2747). No move is reported under both names. A no-op emits nothing.
 - **The signal to RVM (#2747 part D):** a real move into `selected` or `hired` of a worker who is an actively linked RVM student also queues one signal to RVM in the same transaction, while `OUTBOUND_SIGNALS_ROLLOUT` is on for your company. It is sent ten minutes later, and only if the mark still stands then. RVM then asks the student for proof and opens a verification task; your mark alone never releases any reward. The response does not change. If the pilot list cannot be read, the move answers `503` and nothing is saved; retry it. The same mark is signalled once, ever: moving him back and marking him again sends nothing new, and an undo sends nothing.
 - **Errors:** `400` bad ids / body, or an outcome stage while `OUTCOME_STAGES_ROLLOUT` is off for your company; `401` no session; `404` flag off, or not settable (above); `429` cap or Redis down; a DB failure is a `5xx`, never folded into the `404`.
-- **Web gotchas:** read `stage` from the feed rows (absent ⇒ the flag is off ⇒ keep the local board and do not call this route). Update the row optimistically, then reconcile with the response's `stage`; on `404` re-fetch the feed (the applicant left it). Stages are per posting: the same worker on two postings has two independent stages. payer-web's board still draws three tabs: until the outcome stages get their own, a `selected` or `hired` row shows under Shortlist (`boardTabOf`) with its own badge and no move buttons. The inbox's `?stage=shortlist` filter matches the stored stage exactly, so it does not include them; `?stage=selected` / `?stage=hired` do.
+- **Web gotchas:** read `stage` from the feed rows (absent ⇒ the flag is off ⇒ keep the local board and do not call this route). Update the row optimistically, then reconcile with the response's `stage`; on `404` re-fetch the feed (the applicant left it). Stages are per posting: the same worker on two postings has two independent stages. payer-web's board still draws three tabs: until the outcome stages get their own, a `selected` or `hired` row shows under Shortlist (`boardTabOf`) with its own badge and no move buttons. The inbox's `?stage=shortlist` filter matches the stored stage exactly, so it does not include them; `?stage=selected` / `?stage=hired` do. **Draw Selected / Hired only when `GET /payer/reach/applicant-stages` says `outcomeStages: true`** (below), not by trying a move.
+
+#### `GET /payer/reach/applicant-stages` — what this company's board may do now (#2747, #2852)
+
+So a screen can draw the Selected and Hired controls only when a move would be accepted, and say that RVM is told only when it is.
+
+- **Auth:** `PayerAuthGuard` (Bearer), either role, then the board flag: **`404` while `PAYER_APPLICANT_STAGES_ENABLED` is off**, exactly like the stage route. No write cap and no event. Sent with `Cache-Control: no-store`.
+- **Request:** no params, no query, no body. The company is the session payer's (its tenant key, the same key the stage route uses).
+- **Response `200`:**
+  ```
+  { stages: ('new'|'shortlist'|'passed'|'selected'|'hired')[], outcomeStages: boolean, rvmSignal: boolean }
+  ```
+
+  - `stages` — the stages a move may target now, in board order: `['new','shortlist','passed']`, plus `'selected','hired'` while `OUTCOME_STAGES_ROLLOUT` is on for your company.
+  - `outcomeStages` — `true` exactly when `stages` includes `selected` and `hired`.
+  - `rvmSignal` — `true` when a move into `selected` or `hired` of an **RVM student** (a feed row with `source: 'rvm_student'`) is also sent to RVM: `OUTBOUND_SIGNALS_ROLLOUT` on for your company, and `outcomeStages` too. A BadaBhai worker's mark is never sent, whatever this says.
+- **Fails closed, never `5xx` for a switch:** a pilot list that cannot be read answers `false`. Both switches are read at each request, so the answer is a forecast: a move can still be refused (`400`) or answer `503` if a switch changes in between. Re-read on either.
+- **Web gotchas:** read it once per board load (and again after a `400` on an outcome move). While `outcomeStages` is `false`, keep today's board: a stored `selected` / `hired` row shows under Shortlist with its badge and no move buttons, and moving it back out still works. Show "RVM is told" only on an `rvm_student` row when `rvmSignal` is `true`; never mention a reward.
 
 ### 4.6 Agency (role `agent` only)
 

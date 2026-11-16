@@ -315,6 +315,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /LEVEL_NEEDED_SORT_ENABLED:\s*\$\{\{\s*secrets\.LEVEL_NEEDED_SORT_ENABLED\s*\}\}/,
       /envs:[^\n]*\bLEVEL_NEEDED_SORT_ENABLED\b/,
     ],
+    // #2753 item 3 — the brief's four availability answers on the options route. A plain boolean
+    // on the api only, turned on in production ONLY by the environment secret.
+    [
+      "AVAILABILITY_ANSWERS_V2_ENABLED",
+      /AVAILABILITY_ANSWERS_V2_ENABLED:\s*\$\{\{\s*secrets\.AVAILABILITY_ANSWERS_V2_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bAVAILABILITY_ANSWERS_V2_ENABLED\b/,
+    ],
     // #2753 — last active, one definition (worker_activity, migration 0168). A plain boolean on
     // the api only, turned on in production ONLY by the environment secret, after 0168.
     [
@@ -470,6 +477,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["PAYER_APPLICANT_STAGES_ENABLED", "true"],
     // ADR-0061 — off is today's applicant list: the v1.0 ORDER BY, no level read, levelFit null.
     ["LEVEL_NEEDED_SORT_ENABLED", "false"],
+    // #2753 item 3 — off is today's availability options; writes accept both sets either way.
+    ["AVAILABILITY_ANSWERS_V2_ENABLED", "false"],
     // #2753 — off is today: nothing reads or writes worker_activity, no `notRecentlyActive`.
     ["WORKER_ACTIVITY_ENABLED", "false"],
     // #2752 — off is no Campus route at all: a neutral 404 before any token, address or audit.

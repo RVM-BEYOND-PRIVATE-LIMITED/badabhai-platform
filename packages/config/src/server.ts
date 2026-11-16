@@ -1370,6 +1370,17 @@ export const serverEnvSchema = z.object({
   // APPLY-BEFORE-DEPLOY regardless (the apply snapshot writes its columns with the flag off too:
   // history not captured is gone), so the flag gates the SORT only, never the capture.
   LEVEL_NEEDED_SORT_ENABLED: booleanFromString,
+  // THE FOUR AVAILABILITY ANSWERS OF THE BRIEF (#2753 item 3): "can join now", "15 days",
+  // "30 days", "working, open to a better offer". On, `GET /workers/me/work-preferences/options`
+  // serves them as `availability_status` (keys join_now / in_15_days / in_30_days / working_open)
+  // in place of today's four, and every client renders what it is served.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S OPTIONS EXACTLY. The flag never narrows a write: the worker
+  // PUT, admin corrections and the chat edit layer accept BOTH sets either way (installed builds
+  // keep sending the old keys), and every reader labels a stored key of either set in its own
+  // words. No migration: the answer lives in the `availability` json attribute. Turn on with the
+  // app release that renders the served chips.
+  AVAILABILITY_ANSWERS_V2_ENABLED: booleanFromString,
   // LAST ACTIVE, ONE DEFINITION (#2753 items 4 and 7). With it on, every signed-in worker request
   // and every Campus application records the worker's IST day in `worker_activity` (migration
   // 0168), and the API's one last-active read is the later of that table's newest day and his

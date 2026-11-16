@@ -856,6 +856,28 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "yes" })).toThrow();
   });
 
+  it("AVAILABILITY_ANSWERS_V2_ENABLED (#2753 item 3) is OFF by default and for the empty string", () => {
+    // Off is today's availability options exactly; writes accept both sets either way.
+    expect(loadServerConfig({}).AVAILABILITY_ANSWERS_V2_ENABLED).toBe(false);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "" }).AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "0" }).AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "false" })
+        .AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "1" }).AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(true);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "true" }).AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(true);
+    expect(() => loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "yes" })).toThrow();
+  });
+
   it("WORKER_ACTIVITY_ENABLED (#2753) is OFF by default and for the empty string", () => {
     // Off is today exactly: nothing reads or writes worker_activity (migration 0168).
     expect(loadServerConfig({}).WORKER_ACTIVITY_ENABLED).toBe(false);
