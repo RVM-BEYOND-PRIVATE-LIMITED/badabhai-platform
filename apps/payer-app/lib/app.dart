@@ -13,6 +13,7 @@ import 'core/session/app_session_cubit.dart';
 import 'core/theme/app_page_transitions.dart';
 import 'core/theme/app_system_ui.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/theme_cubit.dart';
 import 'core/widgets/bb_alert_dialog.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/shell/presentation/app_shell.dart';
@@ -21,50 +22,102 @@ import 'features/shell/presentation/app_shell.dart';
 /// top-level switch: `null` session → Login; a signed-in session → the
 /// role-aware [AppShell]. The role is fixed for the session — there is no
 /// in-app switch, so re-mounting the shell on sign-in carries the locked role.
-class PayerApp extends StatelessWidget {
+class PayerApp extends StatefulWidget {
   const PayerApp({super.key});
 
   @override
+  State<PayerApp> createState() => _PayerAppState();
+}
+
+class _PayerAppState extends State<PayerApp> with WidgetsBindingObserver {
+  /// Drives `MaterialApp.themeMode`. Null in the legacy widget-test graph that
+  /// never wires DI, so those tests keep the light theme exactly.
+  ThemeCubit? _themeCubit;
+
+  @override
+  void initState() {
+    super.initState();
+    // #2830 — read the server theme preference on start and flush an offline
+    // choice on resume. Guarded for the DI-free legacy tests.
+    if (locator.isRegistered<ThemeCubit>()) {
+      _themeCubit = locator<ThemeCubit>();
+      WidgetsBinding.instance.addObserver(this);
+      unawaited(_themeCubit!.load());
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final ThemeCubit? theme = _themeCubit;
+      if (theme != null) unawaited(theme.flushPending());
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_themeCubit != null) WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final ThemeCubit? theme = _themeCubit;
+    final Widget app;
+    if (theme == null) {
+      app = _buildApp(ThemeState.closed);
+    } else {
+      app = BlocBuilder<ThemeCubit, ThemeState>(
+        bloc: theme,
+        builder: (BuildContext context, ThemeState state) => _buildApp(state),
+      );
+    }
     return BlocProvider<AppSessionCubit>.value(
       value: locator<AppSessionCubit>(),
-      child: MaterialApp(
-        title: 'BadaBhai · Payer',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.light(),
-        // Tag every crash report with the pushed route name. No-op when
-        // Crashlytics isn't ready (tests / non-GMS devices).
-        navigatorObservers: <NavigatorObserver>[CrashNavigatorObserver()],
-        home: const _Root(),
-        builder: (BuildContext context, Widget? child) {
-          Widget content = child ?? const SizedBox.shrink();
-          if (kUseMocks) {
-            content = Banner(
-              message: 'MOCK',
-              location: BannerLocation.topEnd,
-              color: Colors.deepOrange,
-              child: content,
-            );
-          }
-          // #2590 — app-wide status-bar fallback: a route with no region of its
-          // own (every pushed page sits on the light canvas) gets dark icons
-          // instead of keeping the previous surface's style. The inner header
-          // regions (Home, Login, Sign-up) still win.
-          return AnnotatedRegion<SystemUiOverlayStyle>(
-            value: AppSystemUi.onLight,
-            // Hard-lock text scale to 1.0x, ignoring the OS accessibility
-            // font-size setting entirely — every size on screen is controlled
-            // only from code (explicit product decision, superseding the earlier
-            // 1.3x clamp that mirrored the worker app, #1072/#1088).
-            child: MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.noScaling),
-              // Zero-duration routes when the OS disables animations (#2591).
-              child: BbRouteMotionScope(child: content),
-            ),
+      child: app,
+    );
+  }
+
+  Widget _buildApp(ThemeState themeState) {
+    return MaterialApp(
+      title: 'BadaBhai · Payer',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: themeState.themeMode,
+      // Tag every crash report with the pushed route name. No-op when
+      // Crashlytics isn't ready (tests / non-GMS devices).
+      navigatorObservers: <NavigatorObserver>[CrashNavigatorObserver()],
+      home: const _Root(),
+      builder: (BuildContext context, Widget? child) {
+        Widget content = child ?? const SizedBox.shrink();
+        if (kUseMocks) {
+          content = Banner(
+            message: 'MOCK',
+            location: BannerLocation.topEnd,
+            color: Colors.deepOrange,
+            child: content,
           );
-        },
-      ),
+        }
+        // #2590 — app-wide status-bar fallback: a route with no region of its
+        // own (every pushed page sits on the page canvas) gets the matching
+        // icon brightness instead of keeping the previous surface's style. The
+        // inner header regions (Home, Login, Sign-up) still win.
+        final bool dark = Theme.of(context).brightness == Brightness.dark;
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: dark ? AppSystemUi.onDark : AppSystemUi.onLight,
+          // Hard-lock text scale to 1.0x, ignoring the OS accessibility
+          // font-size setting entirely — every size on screen is controlled
+          // only from code (explicit product decision, superseding the earlier
+          // 1.3x clamp that mirrored the worker app, #1072/#1088).
+          child: MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.noScaling),
+            // Zero-duration routes when the OS disables animations (#2591).
+            child: BbRouteMotionScope(child: content),
+          ),
+        );
+      },
     );
   }
 }
