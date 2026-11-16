@@ -1339,14 +1339,86 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "a writable one lets it take any worker out of every company's search, or put one back " +
       "who asked to leave",
   },
-  // 0170 (#2749 items 2-4): expiring credit lots. Unconditional - no flag - because every wallet
+  // 0170 (#2753 item 9): THE API names `hires` only while HIRE_RECORDS_ENABLED is on (the stage
+  // transaction's hire source, GET /admin/hires), so a deploy ahead of the migration breaks no
+  // request and the table is NOT a `table` entry. Listed for its lock (the 0134 rule). APPLY
+  // BEFORE THE SWITCH (migration header).
+  {
+    id: "0170-hires-rls",
+    migration: "0170_hires",
+    kind: "rls",
+    table: "hires",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which workers each company hired, keyed by worker and company " +
+      "id; an open grant lets any PostgREST role read those hires, or write a confirmed hire that " +
+      "counts toward the target",
+  },
+  // 0171 (#2753 item 11): THE API names `pay_on_joining_hires` only while
+  // PAY_ON_JOINING_RECORDS_ENABLED is on (every admin route is a 404 before a query while it is
+  // off), so a deploy ahead of the migration breaks no request and the table is NOT a `table`
+  // entry. Listed for its lock (the 0134 rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0171-pay-on-joining-hires-rls",
+    migration: "0171_pay_on_joining_hires",
+    kind: "rls",
+    table: "pay_on_joining_hires",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which worker each pilot factory hired, the fee in paise and the " +
+      "partner's share, with an admin's free-text note; an open grant lets any PostgREST role " +
+      "read the pilot's commercial terms, or write a hire record ops would act on",
+  },
+  // 0172 (#2753 item 10): THE API names `unlock_outcomes` only while UNLOCK_FOLLOWUP_ENABLED is on
+  // (the due list, the company's answer, the desk's not_reached), so a deploy ahead of the
+  // migration breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134
+  // rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0172-unlock-outcomes-rls",
+    migration: "0172_unlock_outcomes",
+    kind: "rls",
+    table: "unlock_outcomes",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records what each company said became of every contact it opened, " +
+      "keyed by unlock, worker and company id; an open grant lets any PostgREST role read those " +
+      "answers, or write a `hired` that the launch test counts",
+  },
+  // 0173 (#2753 item 5): THE API names `still_looking_checks` only while
+  // STILL_LOOKING_CHECK_ENABLED is on (both worker routes are a 404 and the sweep reads nothing
+  // while it is off), so a deploy ahead of the migration breaks no request and the table is NOT a
+  // `table` entry. Listed for its lock (the 0134 rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0173-still-looking-checks-rls",
+    migration: "0173_still_looking_checks",
+    kind: "rls",
+    table: "still_looking_checks",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records, per worker id, when he was asked whether he is still looking " +
+      "and what he answered (yes, not now, hired); an open grant lets any PostgREST role read who " +
+      "is job hunting, or write an answer that takes a worker out of company search",
+  },
+  // 0174 (#2749 items 2-4): expiring credit lots. Unconditional - no flag - because every wallet
   // writer goes through packages/db/src/credit-wallet.ts, which names `credit_lots` on every
   // grant, spend and expiry, and Drizzle 0.45 names every model column (so `credit_ledger.lot_id`)
   // in each ledger insert. APPLY BEFORE DEPLOY, from the PR branch before the merge (header).
   // (`credit_lots_payment_order_uq` is not an `index` entry: that probe checks 0078's shape.)
   {
-    id: "0170-credit-lots-table",
-    migration: "0170_credit_lots",
+    id: "0174-credit-lots-table",
+    migration: "0174_credit_lots",
     kind: "table",
     table: "credit_lots",
     requiredBy:
@@ -1362,8 +1434,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
   },
   {
-    id: "0170-credit-ledger-lot-id",
-    migration: "0170_credit_lots",
+    id: "0174-credit-ledger-lot-id",
+    migration: "0174_credit_lots",
     kind: "column",
     table: "credit_ledger",
     object: "lot_id",
@@ -1376,8 +1448,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "and grant rolls back. APPLY-BEFORE-DEPLOY, same reason as the table entry above",
   },
   {
-    id: "0170-credit-ledger-lot-fk",
-    migration: "0170_credit_lots",
+    id: "0174-credit-ledger-lot-fk",
+    migration: "0174_credit_lots",
     kind: "constraint",
     table: "credit_ledger",
     object: "credit_ledger_lot_id_credit_lots_id_fk",
@@ -1389,8 +1461,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "(which lot a credit came from, which lot expired) would stop being checkable",
   },
   {
-    id: "0170-credit-lots-rls",
-    migration: "0170_credit_lots",
+    id: "0174-credit-lots-rls",
+    migration: "0174_credit_lots",
     kind: "rls",
     table: "credit_lots",
     requiredBy:

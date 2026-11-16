@@ -52,7 +52,7 @@ export class FreeTierService {
         ledger: { reason: "grant", idempotencyKey: freeTierIdempotencyKey(payerId) },
       }),
     );
-    // ERROR, not warn: after the 0170 apply-to-deploy window a realignment means some writer
+    // ERROR, not warn: after the 0174 apply-to-deploy window a realignment means some writer
     // moved a balance without the wallet helpers (the self-heal stays; see credit-wallet.ts).
     const realigned = lotAlignmentWarning(payerId, grant.alignment);
     if (realigned !== null) this.logger.error(realigned);

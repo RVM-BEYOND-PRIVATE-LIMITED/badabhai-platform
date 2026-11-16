@@ -1,15 +1,25 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from "@nestjs/common";
 import {
   computeIndustryTenure,
   deriveWorkerSkills,
   wantedSkillIds,
   workerSkillDeriveInput,
+  type FormTenureFill,
   type WorkerSkillRow,
 } from "@badabhai/match-engine";
 import { isMatchSkillId, matchSkillLabel, type MatchSkillId } from "@badabhai/taxonomy";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
+import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
+import { formTenureSwitches, type FormTenureMonthsConfig } from "./form-tenure-months.flag";
 import { MatchConfigService } from "./match-config.service";
 import { WorkerSkillsRepository } from "./worker-skills.repository";
 
@@ -74,6 +84,12 @@ export class WorkerSkillsService {
     private readonly repo: WorkerSkillsRepository,
     private readonly config: MatchConfigService,
     private readonly events: EventsService,
+    // #2753 item 2 — `FORM_TENURE_MONTHS_ENABLED` (+ `FORM_TYPED_TENURE_DERIVE_ENABLED`). Optional
+    // only so the many hand-built instances (unit and DB tests) keep compiling and derive today's
+    // months; Nest always injects the @Global config.
+    @Optional()
+    @Inject(SERVER_CONFIG)
+    private readonly serverConfig?: FormTenureMonthsConfig,
   ) {}
 
   /**
@@ -96,12 +112,16 @@ export class WorkerSkillsService {
     // untouched and the engine below is still the only thing deciding reach. Most chips imply a
     // corpus `skill_*` id (attribute bridge); a chip naming an occupation with no corpus id
     // (`hmc`) implies a `role_*` id and rides the role bridge like a declared occupation does.
-    const [packAnswers, secondaryRoleIds] = await Promise.all([
+    const switches = formTenureSwitches(this.serverConfig);
+    const [packAnswers, secondaryRoleIds, formTenure] = await Promise.all([
       this.repo.findPackAttributeOptions(workerId),
       // Layer A (f) — the worker's DECLARED extra occupations (migration 0114). Read here, on
       // every rebuild, so the live path and the batch path see the same rows; each id rides the
       // existing role bridge in `deriveWorkerSkills` below. Closed ids only, no free text.
       this.repo.findSecondaryRoleIds(workerId),
+      // #2753 item 2 — each trade form's experience band, as years. NOT READ AT ALL while
+      // `FORM_TENURE_MONTHS_ENABLED` is off: no query, no key on the input, today's months.
+      switches.months ? this.readFormTenure(workerId, switches) : undefined,
     ]);
 
     // ONE ASSEMBLY, SHARED WITH `db:backfill:worker-skills` — see `workerSkillDeriveInput`. It
@@ -116,6 +136,7 @@ export class WorkerSkillsService {
       profile: signals ?? null,
       secondaryRoleIds,
       packAnswers,
+      ...(formTenure === undefined ? {} : { formTenure }),
     });
     if (input === null) return null;
 
@@ -161,6 +182,27 @@ export class WorkerSkillsService {
 
     await this.emitRebuilt(result, ctx);
     return result;
+  }
+
+  /**
+   * #2753 item 2 — this worker's trade-form tenure fills, through the batched shared read
+   * (`WorkerSkillsRepository.findFormTenureFills` → `loadFormTenureFills`, @badabhai/db). One
+   * worker here; the backfill hands the same read a whole batch.
+   *
+   * SWITCHING IT ON IS AN OWNER STEP, NOT A DEPLOY. It changes RANK INPUTS for every existing form
+   * worker — months feed the search order, the snapshot frozen into each NEW application, and the
+   * tier promotion at `tier_floor_months` (old snapshots stay frozen, ADR-0036). So it waits for the
+   * owner's ruling on whether `engine_version` moves (ADR-0036; this change does not bump it), and
+   * is followed by a rebuild from a tree equal to origin/main: `pnpm --filter @badabhai/db
+   * db:backfill:worker-skills --apply` with the same two switches exported, then
+   * `pnpm --filter @badabhai/db db:materialize:reach --apply`.
+   */
+  private async readFormTenure(
+    workerId: string,
+    switches: ReturnType<typeof formTenureSwitches>,
+  ): Promise<FormTenureFill[]> {
+    const byWorker = await this.repo.findFormTenureFills([workerId], switches);
+    return byWorker.get(workerId) ?? [];
   }
 
   /**

@@ -134,6 +134,8 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
       { isEnabledFor: async () => outcomeOn } as never,
       // The RVM signal has its own Postgres suite (outbound-signals.db.test.ts).
       { signalsStateFor: async () => "off", recordMark: async () => "not_rvm" } as never,
+      // #2753 item 9 — hire records have their own Postgres suite (hires.db.test.ts).
+      { enabled: false } as never,
     );
     const reach = new ReachService(new ReachRepository(client.db), events, {} as never);
     const candidates = new MatchCandidatesService(new MatchFeedRepository(client.db), {

@@ -81,6 +81,8 @@ function make(
     outcomeStages?: boolean;
     /** #2747 item 8 — the `outbound_signals` switch for every company (default off). */
     signals?: boolean | "unavailable";
+    /** #2753 item 9 — `HIRE_RECORDS_ENABLED` (default off). */
+    hires?: boolean;
   } = {},
 ) {
   const repo = memoryStagesRepo({
@@ -105,6 +107,14 @@ function make(
     ),
     recordMark: vi.fn(async (_mark: Record<string, unknown>, _tx: unknown) => "queued" as const),
   };
+  const hireWrite = { changed: true, hire: null };
+  const hires = {
+    enabled: over.hires ?? false,
+    recordCompanyMark: vi.fn(
+      async (_k: unknown, _at: Date, _tx: unknown, _by: unknown) => hireWrite,
+    ),
+    undoCompanyMark: vi.fn(async (_k: unknown, _at: Date, _tx: unknown, _by: unknown) => hireWrite),
+  };
   const emitted: Record<string, unknown>[] = [];
   const emit = vi.fn(async (params: Record<string, unknown>) => {
     const { correlationId, requestId: _r, tx: _tx, ...rest } = params;
@@ -128,8 +138,9 @@ function make(
     over.tenancy ?? defaultModeResolver(),
     rollout as never,
     outbound as never,
+    hires as never,
   );
-  return { svc, repo, spied, emit, emitted, rollout, outbound };
+  return { svc, repo, spied, emit, emitted, rollout, outbound, hires };
 }
 
 /** What the client receives for a rejection: the real global filter's status + error object. */
@@ -767,6 +778,86 @@ describe("#2747 item 8 — the RVM selection signal is queued IN the stage trans
     await expect(
       d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW),
     ).rejects.toThrow("relation does not exist");
+  });
+});
+
+describe("#2753 item 9 — the hire record is written IN the stage transaction", () => {
+  it("switch on: a real move INTO hired confirms the record (company mark), keyed by the tenant", async () => {
+    const d = make({ outcomeStages: true, hires: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    expect(d.hires.recordCompanyMark).toHaveBeenCalledOnce();
+    expect(d.hires.undoCompanyMark).not.toHaveBeenCalled();
+    const [key, at, tx, by] = d.hires.recordCompanyMark.mock.calls[0]!;
+    expect(key).toEqual({
+      tenantPayerId: KEY_A,
+      postingKind: "company_posting",
+      postingId: POSTING_A,
+      workerId: APPLICANT,
+    });
+    expect(at).toBe(NOW);
+    // The same transaction the stage row and its event are written in.
+    expect(tx).toBe(d.emitted[0]!.tx);
+    expect(by).toEqual({
+      actor: { actor_type: "payer", actor_id: PAYER_A },
+      correlationId: CTX.correlationId,
+      requestId: CTX.requestId,
+    });
+  });
+
+  it("selected → hired on an agency job: the mark is recorded once, for the agency job", async () => {
+    const d = make({ outcomeStages: true, hires: true });
+    await d.svc.setStage(PAYER_A, JOB_A, APPLICANT, "selected", CTX, NOW);
+    expect(d.hires.recordCompanyMark).not.toHaveBeenCalled();
+    await d.svc.setStage(PAYER_A, JOB_A, APPLICANT, "hired", CTX, NOW);
+    expect(d.hires.recordCompanyMark).toHaveBeenCalledOnce();
+    expect(d.hires.recordCompanyMark.mock.calls[0]![0]).toMatchObject({
+      postingKind: "agency_job",
+    });
+  });
+
+  it("a real move OUT of hired runs the undo rule, on the same transaction", async () => {
+    const d = make({ outcomeStages: true, hires: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW);
+    expect(d.hires.undoCompanyMark).toHaveBeenCalledOnce();
+    const [key, , tx] = d.hires.undoCompanyMark.mock.calls[0]!;
+    expect(key).toMatchObject({ tenantPayerId: KEY_A, postingId: POSTING_A, workerId: APPLICANT });
+    expect(tx).toBe(d.emitted[1]!.tx);
+    // Moving back in is a re-mark.
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    expect(d.hires.recordCompanyMark).toHaveBeenCalledTimes(2);
+  });
+
+  it("a no-op (hired again) and moves that never touch hired call nothing", async () => {
+    const d = make({ outcomeStages: true, hires: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "passed", CTX, NOW);
+    expect(d.hires.recordCompanyMark).not.toHaveBeenCalled();
+    expect(d.hires.undoCompanyMark).not.toHaveBeenCalled();
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    d.hires.recordCompanyMark.mockClear();
+    const again = await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    expect(again).toMatchObject({ changed: false });
+    expect(d.hires.recordCompanyMark).not.toHaveBeenCalled();
+    expect(d.hires.undoCompanyMark).not.toHaveBeenCalled();
+  });
+
+  it("switch off: into and out of hired call nothing", async () => {
+    const d = make({ outcomeStages: true, hires: false });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW);
+    expect(d.repo.rows.size).toBe(1);
+    expect(d.hires.recordCompanyMark).not.toHaveBeenCalled();
+    expect(d.hires.undoCompanyMark).not.toHaveBeenCalled();
+  });
+
+  it("a failure to record the hire fails the whole move (the transaction rolls back with it)", async () => {
+    const d = make({ outcomeStages: true, hires: true });
+    d.hires.recordCompanyMark.mockRejectedValueOnce(new Error('relation "hires" does not exist'));
+    await expect(d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW)).rejects.toThrow(
+      'relation "hires" does not exist',
+    );
   });
 });
 

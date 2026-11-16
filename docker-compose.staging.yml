@@ -400,6 +400,12 @@ services:
       # gates (read-time only, never stored). FALSE (the default) is today's form, in which a
       # typed tenure resolves nothing and a 10-year worker can be shown fresher questions.
       FORM_TYPED_TENURE_DERIVE_ENABLED: ${FORM_TYPED_TENURE_DERIVE_ENABLED:-false}
+      # #2753 item 2: a trade form's experience band fills worker_skill.months_bucketed where the
+      # profile states no tenure (3–5 years → 48 months; a typed tenure only with the flag above on
+      # too). FALSE (the default) is today's derivation: a form worker's skills read 0 months, "not
+      # recorded". It changes rank inputs: set it only after the engine_version ruling (ADR-0036),
+      # then rebuild (db:backfill:worker-skills, db:materialize:reach). `:-false`: this bool rejects "".
+      FORM_TENURE_MONTHS_ENABLED: ${FORM_TENURE_MONTHS_ENABLED:-false}
 
       # RÉSUMÉ SKINS (#1801). Off is every sheet in its template's own colours, and nothing reads
       # migration 0128's table. Turn on only after 0128 is applied. `:-false` because this bool
@@ -424,6 +430,10 @@ services:
       # a missing answer is a 400. Turn on only once the worker-app release that sends
       # `age_18_plus` is live. No migration. `:-false` because this bool rejects "".
       SIGNUP_AGE_GATE_ENABLED: ${SIGNUP_AGE_GATE_ENABLED:-false}
+      # THE PRIVACY NOTICE LINK (#2753 item 13). GET /consent/notice serves it beside the notice
+      # version. Unset/empty serves `notice_url: null` (no link published yet). https only; the
+      # deploy preflight refuses anything else before a container moves.
+      CONSENT_NOTICE_URL: ${CONSENT_NOTICE_URL:-}
       # "LEVEL NEEDED" APPLICANT SORT (engine v1.1, CEO ruling 30 Oct 2026, ADR-0061). Off is
       # today's list exactly: no extra query, the v1.0 ORDER BY, `levelFit` null. On, a 4-CNC-trade
       # posting that names a rung sorts its applicants meets → not confirmed → below inside each
@@ -448,6 +458,33 @@ services:
       # and nothing reads `worker_search_exits`. Apply migration 0169 before turning it on.
       # `:-false` because this bool rejects "".
       SEARCH_EXIT_ENABLED: ${SEARCH_EXIT_ENABLED:-false}
+      # HIRE RECORDS (#2753 item 9). Off is today's API exactly: nothing reads or writes `hires`
+      # and GET /admin/hires is a 404. On, a company's move into or out of `hired` writes the
+      # record in the stage transaction. Apply the `hires` migration first. `:-false` because this
+      # bool rejects "".
+      HIRE_RECORDS_ENABLED: ${HIRE_RECORDS_ENABLED:-false}
+      # THE PAY-ON-JOINING PILOT'S HIRE RECORD (#2753 item 11). Off: every /admin/pay-on-joining-hires
+      # route is a neutral 404 and nothing touches the table. A record only: no invoice, no payout.
+      # Needs migration 0171. `:-false` because this bool rejects "". The partner's share is a whole
+      # percent (0..100), copied onto each hire when it is recorded; `:-70` is the pilot's terms.
+      PAY_ON_JOINING_RECORDS_ENABLED: ${PAY_ON_JOINING_RECORDS_ENABLED:-false}
+      POJ_PARTNER_SHARE_PERCENT: ${POJ_PARTNER_SHARE_PERCENT:-70}
+      # THE COMPANY FOLLOW-UP (#2753 item 10). Off is today's API exactly: both routes are a 404 and
+      # nothing reads or writes `unlock_outcomes`. On, a company lists its contacts due for an answer
+      # and answers hired / not_hired / still_talking. Apply the `unlock_outcomes` migration first.
+      # `:-false` because this bool rejects "". The wait is UNLOCK_FOLLOWUP_AFTER_DAYS (`:-7`, the
+      # owner's default), bridged from the `production` secret of the same name.
+      UNLOCK_FOLLOWUP_ENABLED: ${UNLOCK_FOLLOWUP_ENABLED:-false}
+      UNLOCK_FOLLOWUP_AFTER_DAYS: ${UNLOCK_FOLLOWUP_AFTER_DAYS:-7}
+      # THE MONTHLY "STILL LOOKING?" CHECK (#2753 item 5). Off is today's API exactly: both routes
+      # are a 404, the sweep reads nothing and nothing touches `still_looking_checks`. On, a daily
+      # sweep opens one check per due worker and he answers yes / not_now / hired. Apply the
+      # `still_looking_checks` migration first. The push needs STILL_LOOKING_PUSH_ENABLED as well,
+      # off until the owner widens the ADR-0034 ruling (a non-security push). `:-false` because
+      # these bools reject "". STILL_LOOKING_EVERY_DAYS is `:-30` ("check every 30 days").
+      STILL_LOOKING_CHECK_ENABLED: ${STILL_LOOKING_CHECK_ENABLED:-false}
+      STILL_LOOKING_PUSH_ENABLED: ${STILL_LOOKING_PUSH_ENABLED:-false}
+      STILL_LOOKING_EVERY_DAYS: ${STILL_LOOKING_EVERY_DAYS:-30}
       # THE CAMPUS LINK (#2752). Off: every /internal/campus/v1 route is a neutral 404 and nothing
       # else runs. `:-false` because this bool rejects "". The two lists are empty when unset, and
       # empty refuses every caller (fail closed): token HASHES (sha256 hex, two during a rotation)

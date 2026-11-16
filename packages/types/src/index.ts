@@ -1513,7 +1513,79 @@ export function isApplicantOutcomeStage(value: unknown): value is ApplicantOutco
   );
 }
 
-// ---- Credit lots: a company's balance, as expiring lots (#2749, migration 0170) ----
+// ---- Hire records (#2753 item 9, migration `hires`) ----
+//
+// HERE FOR THE SAME REASON AS THE STAGES ABOVE: `packages/db` spells the statuses into a CHECK on
+// `hires`, `packages/event-schema` puts both sets on the spine (`hire.recorded`), and `apps/api`
+// writes and lists them. Declared once so the three cannot drift.
+
+/**
+ * Where one hire record (one company, worker and posting) stands.
+ *  - `reported`: one side said so and nobody who can confirm it has agreed (today: the worker's
+ *    own "hired" answer, owner question 2 default).
+ *  - `confirmed`: the company marked or answered "hired", or the worker desk confirmed it. Only a
+ *    confirmed hire counts toward the target.
+ *  - `rejected`: the desk rejected it, or the company took back its only confirming mark.
+ */
+export const HIRE_STATUSES = Object.freeze(["reported", "confirmed", "rejected"] as const);
+export type HireStatus = (typeof HIRE_STATUSES)[number];
+
+/**
+ * What moved a hire record: the `source` of `hire.recorded`. Four sources say "hired" and each
+ * stamps its own column on the row (so "how it was confirmed" is readable); two take it back.
+ *  - `company_mark`: the company moved the applicant INTO `hired` on its board;
+ *  - `company_unmark`: the company moved him OUT of `hired` again (the undo rule);
+ *  - `company_answer`: the company's follow-up answer was "hired";
+ *  - `worker_answer`: the worker's own monthly-check answer was "hired";
+ *  - `desk_confirm` / `desk_reject`: the worker desk confirmed or rejected it.
+ */
+export const HIRE_RECORD_SOURCES = Object.freeze([
+  "company_mark",
+  "company_unmark",
+  "company_answer",
+  "worker_answer",
+  "desk_confirm",
+  "desk_reject",
+] as const);
+export type HireRecordSource = (typeof HIRE_RECORD_SOURCES)[number];
+
+// ---- Unlock outcomes: the company follow-up (#2753 item 10, migration `unlock_outcomes`) ----
+//
+// HERE FOR THE SAME REASON AS THE HIRE STATUSES ABOVE: `packages/db` spells both sets into CHECKs
+// on `unlock_outcomes`, `packages/event-schema` puts them on the spine (`unlock.outcome_recorded`),
+// and `apps/api` writes and lists them. Declared once so the three cannot drift.
+
+/**
+ * What became of one opened contact (one unlock). One answer per unlock; a later answer replaces
+ * the earlier one (`still_talking` → `hired`), and the history is on the spine.
+ *  - `hired`: the company hired him (it also confirms the hire record when the unlock names a
+ *    posting and `HIRE_RECORDS_ENABLED` is on);
+ *  - `not_hired`: they spoke and did not hire him;
+ *  - `still_talking`: no decision yet; the contact is asked about again after the follow-up wait;
+ *  - `not_reached`: the company could not reach him. Written by the desk (#2750), never by the
+ *    company's own answer.
+ */
+export const UNLOCK_OUTCOMES = Object.freeze([
+  "hired",
+  "not_hired",
+  "still_talking",
+  "not_reached",
+] as const);
+export type UnlockOutcome = (typeof UNLOCK_OUTCOMES)[number];
+
+/** The outcomes a company may give itself (`POST /payer/unlocks/:unlockId/outcome`). */
+export const UNLOCK_COMPANY_OUTCOMES = Object.freeze([
+  "hired",
+  "not_hired",
+  "still_talking",
+] as const satisfies readonly UnlockOutcome[]);
+export type UnlockCompanyOutcome = (typeof UNLOCK_COMPANY_OUTCOMES)[number];
+
+/** Who gave the stored answer: the company itself, or the desk on its behalf (#2750). */
+export const UNLOCK_OUTCOME_ANSWERERS = Object.freeze(["company", "desk"] as const);
+export type UnlockOutcomeAnswerer = (typeof UNLOCK_OUTCOME_ANSWERERS)[number];
+
+// ---- Credit lots: a company's balance, as expiring lots (#2749, migration 0174) ----
 //
 // HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells the sources into
 // `credit_lots_source_chk` and writes them from its wallet helpers, and the api returns them on
@@ -1523,7 +1595,7 @@ export function isApplicantOutcomeStage(value: unknown): value is ApplicantOutco
  * Where a lot's credits came from (brief 4C.1). `pack` = a pack bought (mock or Razorpay);
  * `welcome` = the one-time welcome credits; `goodwill` = an ops grant; `returned` = credits given
  * back after a refund; `migrated` = moved from another wallet; `legacy` = what a wallet held before
- * lots existed (migration 0170's backfill), and the free-tier signup grant. A new value is a
+ * lots existed (migration 0174's backfill), and the free-tier signup grant. A new value is a
  * migration widening `credit_lots_source_chk`.
  */
 export const CREDIT_LOT_SOURCES = Object.freeze([

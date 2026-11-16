@@ -102,6 +102,11 @@ import { WorkerDisplayPrefsController } from "../display-prefs/worker-display-pr
 import { PayerDisplayPrefsController } from "../display-prefs/payer-display-prefs.controller";
 import { AdminDisplayPrefsController } from "../display-prefs/admin-display-prefs.controller";
 import { SearchExitController } from "../search-exit/search-exit.controller";
+import { StillLookingController } from "../still-looking/still-looking.controller";
+// #2753 item 11 — the pay-on-joining pilot's hire record (admin, behind its own switch guard).
+import { PayOnJoiningHiresController } from "../pay-on-joining/pay-on-joining-hires.controller";
+// #2753 item 10 — the company follow-up: the payer realm's guard, then its own switch.
+import { PayerUnlockOutcomesController } from "../unlock-outcomes/payer-unlock-outcomes.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -152,6 +157,7 @@ const TL = "TestLoginGuard";
 const PTL = "PayerTestLoginGuard";
 const PE = "AgencyPayoutsEnabledGuard";
 const ATF = "AdminAiTraceFlagGuard";
+const POJ = "PayOnJoiningFlagGuard";
 /**
  * ⚠ NOT AN AUTH GUARD. `OptionalWorkerAuthGuard` attaches `req.worker` when a valid session
  * token happens to ride along and ALWAYS returns true — its `canActivate` has one return
@@ -167,6 +173,10 @@ const RZ = "RazorpayWebhookGuard";
 const POR = "PayerOrgRoleGuard";
 /** #2753 item 6 — NOT AN AUTH GUARD: the SEARCH_EXIT_ENABLED switch's neutral 404, run first. */
 const SE = "SearchExitEnabledGuard";
+/** #2753 item 5 — NOT AN AUTH GUARD: the STILL_LOOKING_CHECK_ENABLED switch's neutral 404, first. */
+const SL = "StillLookingEnabledGuard";
+/** #2753 item 10 — NOT an auth guard: the follow-up switch, a neutral 404 while it is off. */
+const UFE = "UnlockFollowupEnabledGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [I], recordBatch: [I] } },
@@ -226,7 +236,7 @@ const CONTRACT: ControllerContract[] = [
   { name: "Chat", ctor: ChatController, routes: { startSession: [C, W], postMessage: [C, W] } },
   // ADR-0044 — the post-completion companion: the same worker-self, consent-gated pair as chat.
   { name: "ChatCompanion", ctor: ChatCompanionController, routes: { open: [C, W], message: [C, W] } },
-  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W], withdrawEmployerContact: [W], grantEmployerContact: [W], mine: [W] } },
+  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W], withdrawEmployerContact: [W], grantEmployerContact: [W], mine: [W], notice: [W] } },
   // E0 — the relay: the payer sends against the handle they hold (payer-self), and the
   // worker reads/replies/reads-marks their own threads (worker-self + consent).
   { name: "PayerRelay", ctor: PayerRelayController, routes: { templates: [P], send: [P], read: [P] } },
@@ -938,6 +948,27 @@ const CONTRACT: ControllerContract[] = [
     ctor: SearchExitController,
     routes: { get: [SE, C, W], set: [SE, C, W] },
   },
+  // #2753 item 5 — the monthly "still looking?" check: the posture of every other
+  // `/workers/me/*` write ([C, W]) behind the switch's 404 (SL, first in order; pinned below).
+  {
+    name: "StillLooking",
+    ctor: StillLookingController,
+    routes: { get: [SL, C, W], answer: [SL, C, W] },
+  },
+  // #2753 item 11 — the pay-on-joining hire record: admin session, then the
+  // PAY_ON_JOINING_RECORDS_ENABLED switch (a neutral 404 for every role), then the capability.
+  {
+    name: "PayOnJoiningHires",
+    ctor: PayOnJoiningHiresController,
+    routes: { listHires: [A, POJ, AR], createHire: [A, POJ, AR], updateHire: [A, POJ, AR] },
+  },
+  // #2753 item 10 — the company follow-up: PayerAuthGuard (the session payer, either role, like the
+  // unlock routes it follows up) plus the switch. Ownership is the service's tenant chokepoint.
+  {
+    name: "PayerUnlockOutcomes",
+    ctor: PayerUnlockOutcomesController,
+    routes: { listDue: [P, UFE], recordOutcome: [P, UFE] },
+  },
 ];
 
 describe("API authz contract — guards on every controller route", () => {
@@ -994,6 +1025,13 @@ describe("API authz contract — guards on every controller route", () => {
       AdminDisplayPrefsController,
       // #2753 item 6 — the worker's own search visibility; a route must not join unpinned.
       SearchExitController,
+      // #2753 item 5 — the worker's own monthly answer; a route must not join unpinned.
+      StillLookingController,
+      // #2753 item 11 — a money record's write surface; a route must not join it unpinned.
+      PayOnJoiningHiresController,
+      // #2753 item 10 — a company's answers about the contacts it opened; a route must not join
+      // unpinned.
+      PayerUnlockOutcomesController,
     ] as Ctor[]) {
       it(`${ctor.name} lists every route it serves`, () => {
         const proto = ctor.prototype as Record<string, unknown>;
@@ -1050,6 +1088,15 @@ describe("API authz contract — guards on every controller route", () => {
     it("SearchExitController runs [SearchExitEnabledGuard, WorkerAuthGuard, ConsentGuard] in order", () => {
       expect(guardNames(SearchExitController)).toEqual([
         "SearchExitEnabledGuard",
+        "WorkerAuthGuard",
+        "ConsentGuard",
+      ]);
+    });
+
+    // #2753 item 5 — the same pair behind the check's 404, which runs FIRST.
+    it("StillLookingController runs [StillLookingEnabledGuard, WorkerAuthGuard, ConsentGuard] in order", () => {
+      expect(guardNames(StillLookingController)).toEqual([
+        "StillLookingEnabledGuard",
         "WorkerAuthGuard",
         "ConsentGuard",
       ]);

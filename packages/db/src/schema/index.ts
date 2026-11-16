@@ -53,6 +53,10 @@ import { payerApplicantStages } from "./payer-applicant-stage";
 import { outboundSignals } from "./outbound-signal";
 import { workerActivity } from "./worker-activity";
 import { workerSearchExits } from "./worker-search-exit";
+import { hires } from "./hire";
+import { payOnJoiningHires } from "./pay-on-joining";
+import { unlockOutcomes } from "./unlock-outcome";
+import { stillLookingChecks } from "./still-looking";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -174,6 +178,14 @@ export * from "./outbound-signal";
 export * from "./worker-activity";
 // #2753 item 6 — a worker who left company search.
 export * from "./worker-search-exit";
+// #2753 item 9 — one hire record per company, worker and posting.
+export * from "./hire";
+// #2753 item 11 — the pay-on-joining pilot's hire record (admin-written, money in paise).
+export * from "./pay-on-joining";
+// #2753 item 10 — what became of one opened contact (the company follow-up).
+export * from "./unlock-outcome";
+// #2753 item 5 — the monthly "still looking?" check (one row per prompt).
+export * from "./still-looking";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -236,7 +248,7 @@ export type PayerCredit = typeof payerCredits.$inferSelect;
 export type NewPayerCredit = typeof payerCredits.$inferInsert;
 export type CreditLedger = typeof creditLedger.$inferSelect;
 export type NewCreditLedger = typeof creditLedger.$inferInsert;
-// #2749 — a wallet's balance as expiring lots (migration 0170).
+// #2749 — a wallet's balance as expiring lots (migration 0174).
 export type CreditLot = typeof creditLots.$inferSelect;
 export type NewCreditLot = typeof creditLots.$inferInsert;
 export type UnlockRouting = typeof unlockRouting.$inferSelect;
@@ -370,7 +382,7 @@ export const schema = {
   applications,
   unlocks,
   payerCredits,
-  // #2749 — the lots a balance is made of (migration 0170).
+  // #2749 — the lots a balance is made of (migration 0174).
   creditLots,
   creditLedger,
   unlockRouting,
@@ -491,4 +503,12 @@ export const schema = {
   workerActivity,
   // #2753 item 6 - a worker who left company search (migration 0169).
   workerSearchExits,
+  // #2753 item 9 - one hire record per company, worker and posting (behind HIRE_RECORDS_ENABLED).
+  hires,
+  // #2753 item 11 - the pay-on-joining pilot's hire record (migration 0171).
+  payOnJoiningHires,
+  // #2753 item 10 - one follow-up answer per opened contact (behind UNLOCK_FOLLOWUP_ENABLED).
+  unlockOutcomes,
+  // #2753 item 5 - the monthly "still looking?" check (behind STILL_LOOKING_CHECK_ENABLED).
+  stillLookingChecks,
 };

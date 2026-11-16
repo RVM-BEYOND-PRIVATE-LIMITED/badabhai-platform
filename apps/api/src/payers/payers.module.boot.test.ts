@@ -147,6 +147,9 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
       // P2b (ORG_TENANCY_PLAN §3.2): the money + disclosure + relay services resolve the tenant.
       "RelayService",
       "ResumeDisclosureService",
+      // #2753 item 10: the company follow-up resolves the tenant whose unlocks it lists and answers.
+      // UnlockOutcomesModule imports PayersModule, which the next case checks.
+      "UnlockOutcomesService",
       "UnlockService",
     ]);
   });

@@ -62,6 +62,10 @@ import {
   PROFILING_EDIT_CANCEL_REASONS,
   DISPLAY_THEMES,
   DISPLAY_PREFS_SUBJECT_KINDS,
+  HIRE_STATUSES,
+  HIRE_RECORD_SOURCES,
+  UNLOCK_OUTCOMES,
+  UNLOCK_OUTCOME_ANSWERERS,
   CREDIT_LOT_SOURCES,
   CREDIT_LOT_EXPIRY_TRIGGERS,
 } from "@badabhai/types";
@@ -1945,6 +1949,23 @@ export const UnlockReopenedPayload = z
     unlock_id: uuidSchema,
     payer_id: uuidSchema,
     worker_id: uuidSchema,
+  })
+  .strict();
+
+/**
+ * #2753 item 10 — what became of an opened contact: the company's follow-up answer (`hired`,
+ * `not_hired`, `still_talking`) or the desk's `not_reached` (#2750), stored on
+ * `unlock_outcomes` (one row per unlock; a later answer replaces it). ONE PER REAL CHANGE, in the
+ * same transaction as the row: the first answer, or a different outcome or answerer. A repeat
+ * writes no event, so the sequence of these events IS the answer history the row does not keep.
+ * IDS AND CLOSED VALUES ONLY; whoever answered rides the envelope (a payer login or an admin).
+ */
+export const UnlockOutcomeRecordedPayload = z
+  .object({
+    unlock_id: uuidSchema,
+    worker_id: uuidSchema,
+    outcome: z.enum(UNLOCK_OUTCOMES),
+    answered_by: z.enum(UNLOCK_OUTCOME_ANSWERERS),
   })
   .strict();
 
@@ -6709,3 +6730,184 @@ export const WorkerSearchVisibilityChangedPayload = z
 export type WorkerSearchVisibilityChangedPayload = z.infer<
   typeof WorkerSearchVisibilityChangedPayload
 >;
+
+// ---------------------------------------------------------------------------
+// #2753 item 5 — THE MONTHLY "STILL LOOKING?" CHECK (`still_looking_checks`, migration 0173),
+// while `STILL_LOOKING_CHECK_ENABLED` is on. The sweep opens a check (`prompted`) and the worker
+// answers it with one tap (`answered`). Each event is written in the same transaction as its row.
+//
+// IDS AND CLOSED VALUES ONLY: the worker, the check and (answered) the closed answer. No name,
+// phone, device, availability or company ever rides along.
+// ---------------------------------------------------------------------------
+
+/**
+ * The worker's three answers: `yes` (still looking), `not_now` (not looking now) and `hired` (he
+ * found work). The same values as the `still_looking_checks_answer_chk` CHECK. A new value is a
+ * new event version.
+ */
+export const STILL_LOOKING_CHECK_ANSWERS = ["yes", "not_now", "hired"] as const;
+export type StillLookingCheckAnswer = (typeof STILL_LOOKING_CHECK_ANSWERS)[number];
+
+/**
+ * #2753 item 5 — the sweep asked a worker "still looking?": one open check per worker, at most once
+ * every STILL_LOOKING_EVERY_DAYS. ONE PER CHECK OPENED (the open-check unique index is the
+ * guard, so two sweeps racing emit one). The actor is the system; the subject is the worker. Its
+ * Alerts entry and (with STILL_LOOKING_PUSH_ENABLED) its push copy are the static template.
+ */
+export const WorkerStillLookingPromptedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    check_id: uuidSchema,
+  })
+  .strict();
+export type WorkerStillLookingPromptedPayload = z.infer<typeof WorkerStillLookingPromptedPayload>;
+
+/**
+ * #2753 item 5 — the worker answered the check (an open one, or one opened by his answer from
+ * Settings). ONE PER ANSWER STORED: repeating the answer he already gave writes nothing and emits
+ * nothing. A `hired` is his own report (owner question 2 default); no hire record is confirmed by
+ * it. The actor and the subject are the worker himself.
+ */
+export const WorkerStillLookingAnsweredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    check_id: uuidSchema,
+    answer: z.enum(STILL_LOOKING_CHECK_ANSWERS),
+  })
+  .strict();
+export type WorkerStillLookingAnsweredPayload = z.infer<typeof WorkerStillLookingAnsweredPayload>;
+
+// #2753 item 9 — HIRE RECORDS (`hires`). One record per company, worker and posting, moved by the
+// company's board (a move into or out of `hired`), the company's follow-up answer, the worker's own
+// answer and the worker desk. Written in the same transaction as the row, while
+// `HIRE_RECORDS_ENABLED` is on.
+//
+// IDS AND CLOSED VALUES ONLY: the record, the worker, the posting, the status it now holds and the
+// source that moved it. Never a name, a phone, a title or a note, and never the company's tenant
+// key (whoever acted rides the envelope).
+// ---------------------------------------------------------------------------
+
+/** The sources that confirm a hire: each one leaves the record `confirmed`. */
+const HIRE_CONFIRMING_SOURCES: readonly string[] = [
+  "company_mark",
+  "company_answer",
+  "desk_confirm",
+];
+/** The sources that take a hire back: each one leaves the record `rejected`. */
+const HIRE_TAKE_BACK_SOURCES: readonly string[] = ["company_unmark", "desk_reject"];
+
+/**
+ * #2753 item 9 — a hire record changed. ONE PER REAL CHANGE: the record was created, its status
+ * moved, or a source said "hired" for the first time. A repeat of a source already recorded writes
+ * nothing and emits nothing.
+ *
+ * THE STATUS FOLLOWS THE SOURCE: a company mark, a company answer or a desk confirmation leaves it
+ * `confirmed`; an undone mark or a desk rejection leaves it `rejected`; the worker's own answer
+ * leaves it `reported`, or `confirmed` when it already was (owner question 2 default).
+ */
+export const HireRecordedPayload = z
+  .object({
+    hire_id: uuidSchema,
+    worker_id: uuidSchema,
+    posting_kind: z.enum(APPLICANT_POSTING_KINDS),
+    posting_id: uuidSchema,
+    status: z.enum(HIRE_STATUSES),
+    source: z.enum(HIRE_RECORD_SOURCES),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      HIRE_CONFIRMING_SOURCES.includes(v.source)
+        ? v.status === "confirmed"
+        : HIRE_TAKE_BACK_SOURCES.includes(v.source)
+          ? v.status === "rejected"
+          : v.status !== "rejected",
+    { message: "the status must be the one its source leaves the record in" },
+  );
+export type HireRecordedPayload = z.infer<typeof HireRecordedPayload>;
+
+// ---------------------------------------------------------------------------
+// #2753 item 11 — THE PAY-ON-JOINING PILOT'S HIRE RECORD (`pay_on_joining_hires`, migration 0171).
+// An admin records each hire of the pilot by hand: the factory, the job, the worker, the partner,
+// the joining date, the 30-day check, the fee and the invoice and payment dates. Nothing on it is
+// automated: no invoice is raised, no money moves, no factory is chosen by code.
+//
+// IDS, PAISE INTEGERS AND CLOSED VALUES ONLY. The admin's `note` never rides the spine (only its
+// KEY in `changed_fields`), and the record holds no name, phone or company name to leak. Dates stay
+// on the row: the spine carries where the money STANDS (`payment_state`), not when.
+// ---------------------------------------------------------------------------
+
+/**
+ * The fields an admin writes on a hire record, by KEY. `partner_share_percent` and
+ * `partner_share_paise` are not among them: the server copies the one from the setting and
+ * computes the other, so no client ever sends either.
+ */
+export const POJ_HIRE_FIELDS = [
+  "factory_payer_id",
+  "job_posting_id",
+  "worker_id",
+  "partner_payer_id",
+  "joined_on",
+  "stay_checked_on",
+  "stayed_30_days",
+  "fee_paise",
+  "invoiced_on",
+  "factory_paid_on",
+  "partner_paid_on",
+  "note",
+] as const;
+export type PojHireField = (typeof POJ_HIRE_FIELDS)[number];
+
+/**
+ * Where a hire's money stands, DERIVED from the recorded dates (never set directly):
+ *   - `awaiting_factory` — the factory has not paid (`factory_paid_on` is empty);
+ *   - `partner_due`      — the factory paid, a partner is owed a share above zero, and has not
+ *                          been paid (the partner is paid when the factory pays);
+ *   - `settled`          — the factory paid and no partner is owed anything more.
+ */
+export const POJ_PAYMENT_STATES = ["awaiting_factory", "partner_due", "settled"] as const;
+export type PojPaymentState = (typeof POJ_PAYMENT_STATES)[number];
+
+/** Which write recorded the hire: the first (`created`) or a later edit (`updated`). */
+export const POJ_RECORD_CHANGES = ["created", "updated"] as const;
+export type PojRecordChange = (typeof POJ_RECORD_CHANGES)[number];
+
+/** An amount in integer paise: whole, never negative, never past a safe JavaScript integer. */
+const PaiseSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+
+/**
+ * #2753 item 11 — an admin created or edited a pay-on-joining hire record. Emitted in the SAME
+ * transaction as the row and its `audit_logs` row, once per real change (an edit that changes
+ * nothing writes and emits nothing).
+ *
+ * `changed_fields` names the KEYS the write set (every key the admin supplied on `created`, the
+ * keys whose value moved on `updated`), never a value. The record's ids, money and state ride
+ * along as they stand AFTER the write, so a reader of the spine can total the pilot without the
+ * table. The share is pinned to the server's arithmetic: floor(fee * percent / 100), in integers.
+ */
+export const PayOnJoiningRecordedPayload = z
+  .object({
+    hire_id: uuidSchema,
+    change: z.enum(POJ_RECORD_CHANGES),
+    changed_fields: z.array(z.enum(POJ_HIRE_FIELDS)).min(1).max(POJ_HIRE_FIELDS.length),
+    factory_payer_id: uuidSchema,
+    partner_payer_id: uuidSchema.nullable(),
+    job_posting_id: uuidSchema.nullable(),
+    worker_id: uuidSchema,
+    fee_paise: PaiseSchema,
+    partner_share_percent: z.number().int().min(0).max(100),
+    partner_share_paise: PaiseSchema,
+    stayed_30_days: z.boolean().nullable(),
+    payment_state: z.enum(POJ_PAYMENT_STATES),
+  })
+  .strict()
+  .refine((v) => new Set(v.changed_fields).size === v.changed_fields.length, {
+    message: "changed_fields must not repeat a key",
+  })
+  .refine(
+    (v) =>
+      BigInt(v.partner_share_paise) ===
+      (BigInt(v.fee_paise) * BigInt(v.partner_share_percent)) / 100n,
+    { message: "partner_share_paise must be floor(fee_paise * partner_share_percent / 100)" },
+  );
+export type PayOnJoiningRecordedPayload = z.infer<typeof PayOnJoiningRecordedPayload>;

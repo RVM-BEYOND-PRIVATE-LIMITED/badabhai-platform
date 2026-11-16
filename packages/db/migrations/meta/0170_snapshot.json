@@ -1,5 +1,5 @@
 {
-  "id": "f039b237-20ba-4409-9bec-291352309d5d",
+  "id": "ce42aeb6-456c-42f0-bf2b-4489d559cd46",
   "prevId": "4f91cf87-97f0-4231-984c-d72d80719f73",
   "version": "7",
   "dialect": "postgresql",
@@ -9380,12 +9380,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "lot_id": {
-          "name": "lot_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -9421,21 +9415,6 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "credit_ledger_lot_id_idx": {
-          "name": "credit_ledger_lot_id_idx",
-          "columns": [
-            {
-              "expression": "lot_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -9502,212 +9481,12 @@
           ],
           "onDelete": "set null",
           "onUpdate": "no action"
-        },
-        "credit_ledger_lot_id_credit_lots_id_fk": {
-          "name": "credit_ledger_lot_id_credit_lots_id_fk",
-          "tableFrom": "credit_ledger",
-          "tableTo": "credit_lots",
-          "columnsFrom": [
-            "lot_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": true
-    },
-    "public.credit_lots": {
-      "name": "credit_lots",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "payer_id": {
-          "name": "payer_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "pack_code": {
-          "name": "pack_code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "payment_order_id": {
-          "name": "payment_order_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "credits_granted": {
-          "name": "credits_granted",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "credits_remaining": {
-          "name": "credits_remaining",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "expired_at": {
-          "name": "expired_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "is_test": {
-          "name": "is_test",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "credit_lots_open_spend_idx": {
-          "name": "credit_lots_open_spend_idx",
-          "columns": [
-            {
-              "expression": "payer_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"credit_lots\".\"credits_remaining\" > 0",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "credit_lots_due_idx": {
-          "name": "credit_lots_due_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"credit_lots\".\"credits_remaining\" > 0 AND \"credit_lots\".\"expires_at\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "credit_lots_payment_order_uq": {
-          "name": "credit_lots_payment_order_uq",
-          "columns": [
-            {
-              "expression": "payment_order_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"credit_lots\".\"payment_order_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "credit_lots_payment_order_id_payment_orders_id_fk": {
-          "name": "credit_lots_payment_order_id_payment_orders_id_fk",
-          "tableFrom": "credit_lots",
-          "tableTo": "payment_orders",
-          "columnsFrom": [
-            "payment_order_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "credit_lots_source_chk": {
-          "name": "credit_lots_source_chk",
-          "value": "\"credit_lots\".\"source\" IN ('pack', 'welcome', 'goodwill', 'returned', 'migrated', 'legacy')"
-        },
-        "credit_lots_granted_pos_chk": {
-          "name": "credit_lots_granted_pos_chk",
-          "value": "\"credit_lots\".\"credits_granted\" > 0"
-        },
-        "credit_lots_remaining_range_chk": {
-          "name": "credit_lots_remaining_range_chk",
-          "value": "\"credit_lots\".\"credits_remaining\" >= 0 AND \"credit_lots\".\"credits_remaining\" <= \"credit_lots\".\"credits_granted\""
-        },
-        "credit_lots_expired_empty_chk": {
-          "name": "credit_lots_expired_empty_chk",
-          "value": "\"credit_lots\".\"expired_at\" IS NULL OR \"credit_lots\".\"credits_remaining\" = 0"
-        }
-      },
       "isRLSEnabled": true
     },
     "public.payer_capacity": {
@@ -18860,6 +18639,163 @@
         "worker_search_exits_via_chk": {
           "name": "worker_search_exits_via_chk",
           "value": "\"worker_search_exits\".\"via\" IN ('worker', 'monthly_check')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.hires": {
+      "name": "hires",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_payer_id": {
+          "name": "tenant_payer_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "worker_id": {
+          "name": "worker_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "posting_kind": {
+          "name": "posting_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "posting_id": {
+          "name": "posting_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "company_marked_at": {
+          "name": "company_marked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "company_answered_at": {
+          "name": "company_answered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "worker_answered_at": {
+          "name": "worker_answered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "desk_confirmed_at": {
+          "name": "desk_confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hired_on": {
+          "name": "hired_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "hires_worker_id_idx": {
+          "name": "hires_worker_id_idx",
+          "columns": [
+            {
+              "expression": "worker_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "hires_tenant_payer_id_payers_id_fk": {
+          "name": "hires_tenant_payer_id_payers_id_fk",
+          "tableFrom": "hires",
+          "tableTo": "payers",
+          "columnsFrom": [
+            "tenant_payer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "hires_worker_id_workers_id_fk": {
+          "name": "hires_worker_id_workers_id_fk",
+          "tableFrom": "hires",
+          "tableTo": "workers",
+          "columnsFrom": [
+            "worker_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "hires_tenant_worker_posting_uq": {
+          "name": "hires_tenant_worker_posting_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_payer_id",
+            "worker_id",
+            "posting_kind",
+            "posting_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "hires_posting_kind_chk": {
+          "name": "hires_posting_kind_chk",
+          "value": "\"hires\".\"posting_kind\" IN ('company_posting', 'agency_job')"
+        },
+        "hires_status_chk": {
+          "name": "hires_status_chk",
+          "value": "\"hires\".\"status\" IN ('reported', 'confirmed', 'rejected')"
         }
       },
       "isRLSEnabled": true

@@ -343,6 +343,69 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /SEARCH_EXIT_ENABLED:\s*\$\{\{\s*secrets\.SEARCH_EXIT_ENABLED\s*\}\}/,
       /envs:[^\n]*\bSEARCH_EXIT_ENABLED\b/,
     ],
+    // #2753 item 2 — a trade form's experience band fills `worker_skill.months_bucketed`. A plain
+    // boolean on the api only (the backfill reads the same name from its operator's shell), turned
+    // on in production ONLY by the environment secret, after the `engine_version` ruling.
+    [
+      "FORM_TENURE_MONTHS_ENABLED",
+      /FORM_TENURE_MONTHS_ENABLED:\s*\$\{\{\s*secrets\.FORM_TENURE_MONTHS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bFORM_TENURE_MONTHS_ENABLED\b/,
+    ],
+    // #2753 item 9 — hire records. A plain boolean on the api only, turned on in production ONLY
+    // by the environment secret, after the `hires` migration is applied.
+    [
+      "HIRE_RECORDS_ENABLED",
+      /HIRE_RECORDS_ENABLED:\s*\$\{\{\s*secrets\.HIRE_RECORDS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bHIRE_RECORDS_ENABLED\b/,
+    ],
+    // #2753 item 11 — the pay-on-joining pilot's hire record. A plain boolean on the api only,
+    // turned on in production ONLY by the environment secret, after migration 0171.
+    [
+      "PAY_ON_JOINING_RECORDS_ENABLED",
+      /PAY_ON_JOINING_RECORDS_ENABLED:\s*\$\{\{\s*secrets\.PAY_ON_JOINING_RECORDS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bPAY_ON_JOINING_RECORDS_ENABLED\b/,
+    ],
+    // #2753 item 11 — the partner's share (whole percent). A plain tuning number, bridged like
+    // CAMPUS_DRIVE_MAX_OPEN_REQUESTS: absent, compose's `:-70` holds it at the pilot's terms.
+    [
+      "POJ_PARTNER_SHARE_PERCENT",
+      /POJ_PARTNER_SHARE_PERCENT:\s*\$\{\{\s*secrets\.POJ_PARTNER_SHARE_PERCENT\s*\}\}/,
+      /envs:[^\n]*\bPOJ_PARTNER_SHARE_PERCENT\b/,
+    ],
+    // #2753 item 10 — the company follow-up. A plain boolean on the api only, turned on in production
+    // ONLY by the environment secret, after the `unlock_outcomes` migration is applied.
+    [
+      "UNLOCK_FOLLOWUP_ENABLED",
+      /UNLOCK_FOLLOWUP_ENABLED:\s*\$\{\{\s*secrets\.UNLOCK_FOLLOWUP_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bUNLOCK_FOLLOWUP_ENABLED\b/,
+    ],
+    // #2753 item 10 — the follow-up wait in days, a tuning number like the drive-request cap below;
+    // absent, compose holds it at the owner's 7.
+    [
+      "UNLOCK_FOLLOWUP_AFTER_DAYS",
+      /UNLOCK_FOLLOWUP_AFTER_DAYS:\s*\$\{\{\s*secrets\.UNLOCK_FOLLOWUP_AFTER_DAYS\s*\}\}/,
+      /envs:[^\n]*\bUNLOCK_FOLLOWUP_AFTER_DAYS\b/,
+    ],
+    // #2753 item 5 — the monthly "still looking?" check and its push. Plain booleans on the api
+    // only, each turned on in production ONLY by its environment secret: the check after the
+    // `still_looking_checks` migration is applied, the push after the owner widens ADR-0034.
+    [
+      "STILL_LOOKING_CHECK_ENABLED",
+      /STILL_LOOKING_CHECK_ENABLED:\s*\$\{\{\s*secrets\.STILL_LOOKING_CHECK_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bSTILL_LOOKING_CHECK_ENABLED\b/,
+    ],
+    [
+      "STILL_LOOKING_PUSH_ENABLED",
+      /STILL_LOOKING_PUSH_ENABLED:\s*\$\{\{\s*secrets\.STILL_LOOKING_PUSH_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bSTILL_LOOKING_PUSH_ENABLED\b/,
+    ],
+    // #2753 item 5 — how often the check asks, a tuning number like the follow-up wait above;
+    // absent, compose holds it at the owner's 30.
+    [
+      "STILL_LOOKING_EVERY_DAYS",
+      /STILL_LOOKING_EVERY_DAYS:\s*\$\{\{\s*secrets\.STILL_LOOKING_EVERY_DAYS\s*\}\}/,
+      /envs:[^\n]*\bSTILL_LOOKING_EVERY_DAYS\b/,
+    ],
     // ADR-0053 (PAY-DB-01) — payer org tenancy (off | shadow | on), api only. The environment
     // secret is its one arming path (owner decision O-8); absent, the bridge holds it off.
     [
@@ -499,6 +562,23 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["WORKER_ACTIVITY_ENABLED", "false"],
     // #2753 item 6 — off is today: the worker routes 404 and nothing reads worker_search_exits.
     ["SEARCH_EXIT_ENABLED", "false"],
+    // #2753 item 2 — off is today's derivation: a form worker's skills read 0 months, no extra read.
+    ["FORM_TENURE_MONTHS_ENABLED", "false"],
+    // #2753 item 9 — off is today's API: nothing reads or writes `hires`; GET /admin/hires 404s.
+    ["HIRE_RECORDS_ENABLED", "false"],
+    // #2753 item 11 — off is no pay-on-joining route at all (a 404 before any query); 70 is the
+    // pilot's partner share, copied onto each hire when it is recorded.
+    ["PAY_ON_JOINING_RECORDS_ENABLED", "false"],
+    ["POJ_PARTNER_SHARE_PERCENT", "70"],
+    // #2753 item 10 — off is today's API: both follow-up routes 404; nothing names unlock_outcomes.
+    ["UNLOCK_FOLLOWUP_ENABLED", "false"],
+    // #2753 item 10 — the zod default: the follow-up is due 7 days after the grant.
+    ["UNLOCK_FOLLOWUP_AFTER_DAYS", "7"],
+    // #2753 item 5 — off is today's API: both still-looking routes 404, the sweep reads nothing,
+    // and the prompt never pushes; 30 is "check every 30 days".
+    ["STILL_LOOKING_CHECK_ENABLED", "false"],
+    ["STILL_LOOKING_PUSH_ENABLED", "false"],
+    ["STILL_LOOKING_EVERY_DAYS", "30"],
     // #2752 — off is no Campus route at all: a neutral 404 before any token, address or audit.
     ["CAMPUS_LINK_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.

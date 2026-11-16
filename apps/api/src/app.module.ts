@@ -44,9 +44,13 @@ import { AgencyTwinModule } from "./agency-twin/agency-twin.module";
 import { CampusDrivesModule } from "./campus-drives/campus-drives.module";
 import { DisplayPrefsModule } from "./display-prefs/display-prefs.module";
 import { SearchExitModule } from "./search-exit/search-exit.module";
+import { StillLookingModule } from "./still-looking/still-looking.module";
 import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
 import { AdminModule } from "./admin/admin.module";
 import { AdminPostingsModule } from "./admin-postings/admin-postings.module";
+import { AdminHiresModule } from "./hires/admin-hires.module";
+import { PayOnJoiningModule } from "./pay-on-joining/pay-on-joining.module";
+import { UnlockOutcomesModule } from "./unlock-outcomes/unlock-outcomes.module";
 import { EmailNotificationModule } from "./notifications/email-notification.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { PdfModule } from "./common/pdf/pdf.module";
@@ -158,6 +162,10 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // #2753 item 6 — leave company search (`workers/me/search-visibility`). INERT until
     // SEARCH_EXIT_ENABLED is on: both routes are a plain 404 and nothing reads worker_search_exits.
     SearchExitModule,
+    // #2753 item 5 — the monthly "still looking?" check (`workers/me/still-looking`) and its daily
+    // sweep. INERT until STILL_LOOKING_CHECK_ENABLED is on: both routes are a plain 404 and the sweep
+    // reads nothing. Its push also needs STILL_LOOKING_PUSH_ENABLED (default off).
+    StillLookingModule,
     ReferralAttributionModule,
     // Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1): the 4th principal
     // (`/admin/*` route group behind AdminAuthGuard). Auth + RBAC + MFA only; the feature
@@ -166,6 +174,16 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // #2566 — the admin posting-control WRITE surface. Above JobPostingsModule/AgencyModule
     // (both import AdminModule for its guards), so the dependency is one-directional.
     AdminPostingsModule,
+    // #2753 item 9 — GET /admin/hires. Above AdminModule (its guards) and HiresModule; a 404 while
+    // HIRE_RECORDS_ENABLED is off.
+    AdminHiresModule,
+    // #2753 item 11 — the pay-on-joining pilot's hire record (/admin/pay-on-joining-hires). A leaf
+    // above AdminModule. INERT until PAY_ON_JOINING_RECORDS_ENABLED is on: every route is a 404.
+    PayOnJoiningModule,
+    // #2753 item 10 — the company follow-up: GET /payer/unlock-outcomes/due and
+    // POST /payer/unlocks/:unlockId/outcome. A leaf onto PayersModule and HiresModule; a 404 while
+    // UNLOCK_FOLLOWUP_ENABLED is off.
+    UnlockOutcomesModule,
   ],
 })
 export class AppModule implements NestModule {

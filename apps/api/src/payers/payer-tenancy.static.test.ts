@@ -73,7 +73,7 @@ const TENANT_TABLES: Record<string, string> = {
   unlocks: "unlocks",
   resumeDisclosures: "resume_disclosures",
   payerCredits: "payer_credits",
-  // #2749 (migration 0170) — a wallet's lots, keyed by the same tenant key as its balance.
+  // #2749 (migration 0174) — a wallet's lots, keyed by the same tenant key as its balance.
   creditLots: "credit_lots",
   creditLedger: "credit_ledger",
   paymentOrders: "payment_orders",

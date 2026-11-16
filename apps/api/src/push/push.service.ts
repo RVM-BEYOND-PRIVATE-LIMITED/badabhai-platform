@@ -5,7 +5,11 @@ import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { DevicesRepository } from "../auth/devices.repository";
-import { NOTIFICATION_TEMPLATES, templateCopy } from "../notifications/notifications.dto";
+import {
+  NOTIFICATION_TEMPLATES,
+  templateCopy,
+  templatePushes,
+} from "../notifications/notifications.dto";
 import { PUSH_QUEUE, type PushJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PushRepository } from "./push.repository";
@@ -60,7 +64,13 @@ export class PushService {
     // Not allowlisted, or allowlisted but not flagged for push → refuse. This is the
     // safety boundary, and it is what stops a push-emitted event from ever being
     // pushable (which would loop: push -> emit -> push).
-    if (!template?.push) {
+    //
+    // #2753 item 5 — a template may ALSO name config switches its push needs
+    // (`pushRequires`): the monthly "still looking?" prompt pushes only while
+    // STILL_LOOKING_CHECK_ENABLED and STILL_LOOKING_PUSH_ENABLED are both on. Read HERE, at
+    // delivery, so a job queued before a switch went off is refused too. A switch can only
+    // narrow the allowlist, never widen it.
+    if (!template || !templatePushes(template, this.config)) {
       this.logger.warn(`refusing push for non-push event ${job.eventName}`);
       return { sent: 0 };
     }

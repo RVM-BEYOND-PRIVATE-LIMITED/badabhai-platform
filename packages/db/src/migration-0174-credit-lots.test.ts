@@ -1,5 +1,5 @@
 /**
- * Migration 0170 — `credit_lots` and `credit_ledger.lot_id` (#2749 items 2-4): a company's
+ * Migration 0174 — `credit_lots` and `credit_ledger.lot_id` (#2749 items 2-4): a company's
  * balance as lots that may expire, spent soonest-expiring first.
  *
  * The drizzle model and CI's drift check cover the table-vs-model half. What this file pins is
@@ -27,7 +27,7 @@ import { CREDIT_LOT_SOURCES } from "@badabhai/types";
 import { SCHEMA_REQUIREMENTS } from "./schema-contract";
 import { creditLedger, creditLots, schema } from "./schema";
 
-const TAG = "0170_credit_lots";
+const TAG = "0174_credit_lots";
 const TABLE = "credit_lots";
 const RAW = readFileSync(join(__dirname, "..", "migrations", `${TAG}.sql`), "utf8");
 /** Statements with comments stripped, so the header's prose cannot satisfy a DDL assertion. */
@@ -59,7 +59,7 @@ describe("the fixture is real (no assertion below is vacuous)", () => {
   });
 });
 
-describe("0170 is additive only", () => {
+describe("0174 is additive only", () => {
   it("creates exactly one table, and it is the new one", () => {
     expect([...FLAT.matchAll(/CREATE TABLE "([a-z_]+)"/g)].map((m) => m[1])).toEqual([TABLE]);
   });
@@ -78,7 +78,7 @@ describe("0170 is additive only", () => {
       ].sort(),
     );
     expect(FLAT).toContain(`ALTER TABLE "credit_ledger" ADD COLUMN "lot_id" uuid`);
-    // Nullable, no default: catalog-only, and every pre-0170 line reads null.
+    // Nullable, no default: catalog-only, and every pre-0174 line reads null.
     expect(FLAT).not.toMatch(/"lot_id" uuid (NOT NULL|DEFAULT)/);
   });
 
@@ -273,7 +273,7 @@ describe("the LIVE model carries the same objects", () => {
     const lotId = config.columns.find((c) => c.name === "lot_id");
     expect(lotId?.notNull).toBe(false);
     expect(config.indexes.map((i) => i.config.name)).toContain("credit_ledger_lot_id_idx");
-    expect(config.foreignKeys).toHaveLength(2); // unlock_id (0010) and lot_id (0170)
+    expect(config.foreignKeys).toHaveLength(2); // unlock_id (0010) and lot_id (0174)
   });
 });
 
@@ -318,18 +318,18 @@ describe("the operator instructions, the manifest and the slot", () => {
   });
 
   // Located by TAG, not `.at(-1)`, so a later migration cannot fail this file (the 0126 lesson).
-  it("holds the only 0170 slot, after 0169, with a later `when`", () => {
-    expect(entry?.idx).toBe(170);
-    expect(JOURNAL.entries.filter((e) => e.idx === 170)).toHaveLength(1);
+  it("holds the only 0174 slot, after 0173, with a later `when`", () => {
+    expect(entry?.idx).toBe(174);
+    expect(JOURNAL.entries.filter((e) => e.idx === 174)).toHaveLength(1);
     const at = JOURNAL.entries.findIndex((e) => e.tag === TAG);
     const previous = JOURNAL.entries[at - 1]!;
-    expect(previous.tag).toBe("0169_worker_search_exits");
+    expect(previous.tag).toBe("0173_still_looking_checks");
     expect(entry!.when).toBeGreaterThan(previous.when);
   });
 
-  it("0170's snapshot builds on 0169's and records the table", () => {
-    const next = snapshot("0170");
-    expect(next.prevId).toBe(snapshot("0169").id);
+  it("0174's snapshot builds on 0173's and records the table", () => {
+    const next = snapshot("0174");
+    expect(next.prevId).toBe(snapshot("0173").id);
     expect(next.tables).toHaveProperty(`public.${TABLE}`);
   });
 });

@@ -25,6 +25,12 @@ export * from "./job-visibility";
 // #2746 — the one content hash and the one "approved for RVM students" predicate. The payer and
 // admin reads use them now; the Campus approval and the student-facing read will, so one copy.
 export * from "./job-review";
+// #2753 item 2 — a trade form's experience band as a `worker_skill` input, and the typed-tenure
+// reader it shares with the form's own gates. Exported because the live rebuild (apps/api) and
+// `db:backfill:worker-skills` (here) must read the same answer with the same SQL and the same rule.
+export * from "./form-tenure";
+export * from "./stated-tenure";
+export * from "./typed-tenure";
 // The family fallback chain. Its own header says it exists so "Phase 7's production
 // QuestionPackService" can make this decision without a database — which requires that the
 // service can actually IMPORT it. Unexported, the guarantee it offers (one decision, SQL-parity

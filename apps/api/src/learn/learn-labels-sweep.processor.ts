@@ -14,6 +14,8 @@ export interface LearnLabelsSweepResult {
   submittedResolved: number;
   skippedResolved: number;
   skippedEvents: number;
+  /** #2753 item 13 — events whose worker has not given `model_training` consent. */
+  withheldNoConsent: number;
 }
 
 /**
@@ -73,6 +75,7 @@ export class LearnLabelsSweepProcessor extends WorkerHost implements OnApplicati
         submittedResolved: 0,
         skippedResolved: 0,
         skippedEvents: 0,
+        withheldNoConsent: 0,
       };
     }
 
@@ -80,7 +83,7 @@ export class LearnLabelsSweepProcessor extends WorkerHost implements OnApplicati
     this.logger.log(
       `learn-labels sweep ARMED: ingested=${summary.impressionsIngested} ` +
         `applied=${summary.submittedResolved} skipped=${summary.skippedResolved} ` +
-        `not_applicable=${summary.skippedEvents}`,
+        `not_applicable=${summary.skippedEvents} withheld_no_consent=${summary.withheldNoConsent}`,
     );
     return { dryRun: false, pendingEvents: -1, ...summary };
   }

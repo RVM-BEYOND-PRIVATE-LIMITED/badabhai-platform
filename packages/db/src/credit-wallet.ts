@@ -1,5 +1,5 @@
 /**
- * #2749 — THE WALLET, as expiring lots (migration 0170). The one place a balance, its lots and its
+ * #2749 — THE WALLET, as expiring lots (migration 0174). The one place a balance, its lots and its
  * ledger move together.
  *
  * THE INVARIANT, per wallet key (`payer_id`: the tenant key the api resolves, ADR-0053):
@@ -19,7 +19,7 @@
  * connection taken inside it is the pool-vs-lock deadlock `UnlockService` documents. The
  * helpers do not open, commit or roll back anything.
  *
- * BALANCE IS THE SOURCE OF TRUTH FOR WHAT A COMPANY CAN SPEND. Code that predates 0170 (the old
+ * BALANCE IS THE SOURCE OF TRUTH FOR WHAT A COMPANY CAN SPEND. Code that predates 0174 (the old
  * build in the window between applying the migration and deploying this code) and the seeds
  * move balances without lots. {@link alignLotsWithBalance} heals that at the next touch, under the
  * wallet lock, without a ledger line and without changing what the company can spend: it tops up

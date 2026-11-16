@@ -27,7 +27,7 @@ const TABLES = {
   unlocks,
   payer_credits: payerCredits,
   credit_ledger: creditLedger,
-  // #2749 (migration 0170) — the lots a balance is made of.
+  // #2749 (migration 0174) — the lots a balance is made of.
   credit_lots: creditLots,
   unlock_routing: unlockRouting,
 };

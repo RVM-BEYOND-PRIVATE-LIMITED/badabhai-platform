@@ -176,7 +176,7 @@ export class UnlocksRepository {
   /**
    * #2749 — the one log line this repository writes, at ERROR: a wallet whose lots the
    * credit-wallet helper just re-aligned with its balance (ids and numbers only). It reports the
-   * state of the write it made, so it lives beside the write; after the 0170 apply-to-deploy
+   * state of the write it made, so it lives beside the write; after the 0174 apply-to-deploy
    * window it should never fire, and any occurrence means a writer bypassed the helpers.
    */
   private readonly walletLog = new Logger("CreditWallet");
@@ -721,7 +721,7 @@ export class UnlocksRepository {
    * endpoint): one `pack` lot (no expiry in #2749 PR 1), one ledger line naming it and the
    * balance, in ONE transaction. Returns the new balance.
    *
-   * ⚠️ Inserts `price_inr` (D-6, migration 0043) and `lot_id` (#2749, migration 0170)
+   * ⚠️ Inserts `price_inr` (D-6, migration 0043) and `lot_id` (#2749, migration 0174)
    * EXPLICITLY ⇒ APPLY BEFORE DEPLOY: against an unmigrated DB EVERY pack purchase fails.
    */
   async creditPack(
@@ -780,7 +780,7 @@ export class UnlocksRepository {
   /**
    * Log, at ERROR, that the wallet helper re-aligned a wallet's lots with its balance (ids and
    * numbers, the stable `credit-wallet: lots out of step with balance` prefix). The self-heal
-   * stays; after the 0170 apply-to-deploy window this should never fire, and any occurrence
+   * stays; after the 0174 apply-to-deploy window this should never fire, and any occurrence
    * means some writer moved a balance without going through the wallet helpers.
    */
   private reportRealigned(walletKey: string, alignment: LotAlignment): void {

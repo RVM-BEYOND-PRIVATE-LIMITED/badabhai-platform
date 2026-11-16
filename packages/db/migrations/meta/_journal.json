@@ -1196,8 +1196,36 @@
     {
       "idx": 170,
       "version": "7",
-      "when": 1794814985084,
-      "tag": "0170_credit_lots",
+      "when": 1794816246230,
+      "tag": "0170_hires",
+      "breakpoints": true
+    },
+    {
+      "idx": 171,
+      "version": "7",
+      "when": 1794816818877,
+      "tag": "0171_pay_on_joining_hires",
+      "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "7",
+      "when": 1794817356838,
+      "tag": "0172_unlock_outcomes",
+      "breakpoints": true
+    },
+    {
+      "idx": 173,
+      "version": "7",
+      "when": 1794818158596,
+      "tag": "0173_still_looking_checks",
+      "breakpoints": true
+    },
+    {
+      "idx": 174,
+      "version": "7",
+      "when": 1794829712236,
+      "tag": "0174_credit_lots",
       "breakpoints": true
     }
   ]

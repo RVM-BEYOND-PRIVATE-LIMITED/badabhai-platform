@@ -1076,10 +1076,10 @@ export class UnlockService {
     // ADR-0053 — any member's purchase credits the ORG wallet in mode `on` (O-1; owner ruling
     // 2026-10-07, any authenticated payer may buy). Resolved once, before the catalog read.
     const scope = await this.tenancy.resolve(payerId);
-    // D-6: resolved from the LIVE catalog (legacy constants as the fallback) so the price +
-    // credits CHARGED are the same ones the portal DISPLAYED. Async since D-6.
+    // D-6: resolved from the LIVE catalog so the price + credits CHARGED are the same ones the
+    // portal DISPLAYED. #2749: only a pack the catalogue lists AND has on sale resolves.
     const pack = await this.payments.resolvePack(packCode);
-    if (!pack) return null; // unknown pack → 404 (this is NOT the unlock no-oracle path)
+    if (!pack) return null; // unknown or off-sale pack → 404 (NOT the unlock no-oracle path)
     // #2085: the ₹ the payer confirmed must be the ₹ charged — refused (409) BEFORE the
     // ledger write, so a mismatch grants and records nothing.
     assertExpectedPrice(expectedPriceInr, pack.priceInr);
@@ -1114,8 +1114,8 @@ export class UnlockService {
   /**
    * Create a REAL provider order for a credit pack (`POST /payer/credits/order`).
    *
-   * Returns null for an unknown pack (→ the caller's 404 — a pack code is a public catalog
-   * item, not a per-tenant resource, so a 404 leaks nothing).
+   * Returns null for an unknown or off-sale pack (#2749) (→ the caller's 404 — a pack code is
+   * a public catalog item, not a per-tenant resource, so a 404 leaks nothing).
    *
    * PRICE AUTHORITY: {@link PaymentGateway.resolvePack} — the same live-catalog path the
    * portal renders from (D-6). The advertised price and the charged price are the same

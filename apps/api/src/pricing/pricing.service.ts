@@ -2,9 +2,12 @@ import { Injectable, Logger } from "@nestjs/common";
 import {
   safeParseCatalog,
   resolvePrice,
+  formatGstPriceLine,
   DEFAULT_CATALOG,
   type Catalog,
+  type GstPriceLine,
   type Product,
+  type Quote,
   type ResolveResult,
 } from "@badabhai/pricing";
 import type { PayloadInputOf } from "@badabhai/event-schema";
@@ -13,6 +16,7 @@ import { EventsService } from "../events/events.service";
 import { PricingRepository } from "./pricing.repository";
 import type { UpdateCatalogDto, QuoteQueryDto } from "./pricing.dto";
 import { chargeQuote } from "./charge-price";
+import { CREDIT_PACK_PRODUCT, creditPackSale, type SellablePack } from "./credit-pack-sale";
 
 /** The active catalog + provenance (fail-closed: falls back to the typed default). */
 export interface ActiveCatalog {
@@ -41,17 +45,90 @@ export interface PayerTierPrice {
 }
 
 /**
- * The payer-facing catalog projection (D-6 + #2085). `products` is unchanged (the catalog's
- * priced products). `prices` + `priced_at` are ADDITIVE: the effective per-tier charge price
- * and the active offer behind it. Coupons, coupon caps and `floorPriceInr` never ship.
+ * A credit pack's price with GST (#2749): integer paise, plus the brief's display line.
+ *
+ * ⚠️ INFORMATIONAL UNTIL PART 3 OF #2749 — DO NOT SHOW IT TO COMPANIES YET. Orders still charge
+ * the tier's `priceInr` BEFORE GST: `createRealOrder`, the mock ledger price and the
+ * `expected_price_inr` check all use `priceInr`. So `totalPaise` and `display` ("₹999 plus GST
+ * (₹1,179)") are NOT what a purchase takes today. Part 3 makes the order total equal
+ * `totalPaise`; only then may a screen show this line.
+ */
+export interface PayerPackPrice extends GstPriceLine {
+  /** e.g. `₹999 plus GST (₹1,179)` (B4C-06). */
+  readonly display: string;
+}
+
+/**
+ * One credit-pack tier as a payer sees it (#2749) — built from a WHITELIST, never the stored tier
+ * object, so a tier field added to the catalogue schema (or a hidden pack's `onSaleFrom` /
+ * `offered`) never ships by default.
+ */
+export interface PayerCreditPackTier {
+  readonly code: string;
+  /** The list price before GST, whole rupees (the catalogue contract, ADR-0013). */
+  readonly priceInr: number;
+  readonly credits: number;
+  /** The OLD 14-day contact-access window, kept for older readers. Not how long credits last. */
+  readonly windowDays: number;
+  /** How long the credits from this pack last, in days, or null when the catalogue sets none. */
+  readonly validityDays: number | null;
+  /** The charge price taxed: base, GST, round-off and total in paise, and the display line. */
+  readonly price: PayerPackPrice;
+}
+
+/** The credit-pack product as a payer sees it: only `contact_unlock`, only its tiers on sale (#2749). */
+export interface PayerCreditPackProduct {
+  readonly kind: "credit_pack";
+  readonly code: string;
+  readonly tiers: readonly PayerCreditPackTier[];
+}
+
+/**
+ * A product in the payer catalogue. Credit packs are projected ({@link PayerCreditPackProduct});
+ * every other kind still ships as the catalogue holds it (item 11 of #2749 retires them).
+ */
+export type PayerProduct = Exclude<Product, { kind: "credit_pack" }> | PayerCreditPackProduct;
+
+/**
+ * The payer-facing catalog projection (D-6 + #2085 + #2749). `prices` + `priced_at` are
+ * ADDITIVE (#2085): the effective per-tier charge price and the active offer behind it.
+ * Credit packs (#2749): only `contact_unlock` (the one product the purchase path sells), and only
+ * its tiers that can be sold now, appear, in `products` AND in `prices`, each built from a
+ * whitelist with its GST price line; with nothing sellable the product is left out. Other
+ * products are unchanged. Coupons, coupon caps and `floorPriceInr` never ship.
  */
 export interface PayerCatalogView {
   readonly revision: number;
   readonly source: "db" | "default";
-  readonly products: readonly Product[];
+  readonly products: readonly PayerProduct[];
   readonly prices: readonly PayerTierPrice[];
   /** The instant `prices` were resolved at (ISO-8601). An offer window can close after it. */
   readonly priced_at: string;
+}
+
+/**
+ * The payer's view of one sellable credit-pack tier (#2749 whitelist). The GST line was computed
+ * once, by `creditPackSale`, and both the paise fields and `display` come from it.
+ *
+ * ⚠️ `price` is INFORMATIONAL until part 3 of #2749 — see {@link PayerPackPrice}: the order still
+ * charges `priceInr` before GST, so `price.totalPaise` / `price.display` must not be shown.
+ */
+function toPayerCreditPackTier({ tier, priceLine }: SellablePack): PayerCreditPackTier {
+  return {
+    code: tier.code,
+    priceInr: tier.priceInr,
+    credits: tier.credits,
+    windowDays: tier.windowDays,
+    validityDays: tier.validityDays ?? null,
+    price: {
+      taxablePaise: priceLine.taxablePaise,
+      gstPaise: priceLine.gstPaise,
+      roundOffPaise: priceLine.roundOffPaise,
+      totalPaise: priceLine.totalPaise,
+      gstRateBps: priceLine.gstRateBps,
+      display: formatGstPriceLine(priceLine),
+    },
+  };
 }
 
 /**
@@ -92,30 +169,76 @@ export class PricingService {
    * The payer catalog read (`GET /payer/pricing/catalog`): the active catalog's products plus
    * each tier's effective charge price at `now` (#2085). Every tier is priced through
    * {@link chargeQuote}, the charge paths' own function — so shown == charged by construction.
+   *
+   * CREDIT PACKS (#2749): only `contact_unlock`, the one product `PaymentGateway.resolvePack`
+   * sells, and only its tiers {@link creditPackSale} calls sellable now — the SAME answer the
+   * purchase path acts on. Anything else (another credit-pack product, an off-sale tier, every
+   * tier of a stored row that failed validation, a tier whose GST line cannot be computed) is
+   * absent from BOTH `products` and `prices`, so nothing about it reaches a payer. A sellable
+   * tier is rebuilt from a whitelist with its GST price line. Every payer (employer or agency)
+   * reads this same method with no payer input, so all see the same packs at the same prices
+   * (B2-48).
+   *
+   * ⚠️ The GST `price` on each pack is INFORMATIONAL until part 3 of #2749: an order still
+   * charges `priceInr` before GST (see {@link PayerPackPrice}). Do not show it to companies yet.
+   *
    * Read-only, emits no event.
    */
   async getPayerCatalog(now: Date = new Date()): Promise<PayerCatalogView> {
-    const { catalog, revision, source } = await this.getActiveCatalog();
+    const active = await this.getActiveCatalog();
+    const { catalog, revision, source } = active;
+    const products: PayerProduct[] = [];
     const prices: PayerTierPrice[] = [];
+    const priceRow = (productCode: string, tierCode: string, quote: Quote): PayerTierPrice => {
+      const offer = quote.offerApplied
+        ? catalog.offers.find((o) => o.code === quote.offerApplied)
+        : undefined;
+      return {
+        product_code: productCode,
+        tier_code: tierCode,
+        base_price_inr: quote.basePriceInr,
+        price_inr: quote.finalInr,
+        discount_inr: quote.discountInr,
+        offer: offer ? { code: offer.code, ends_at: new Date(offer.until).toISOString() } : null,
+      };
+    };
+    const charge = (productCode: string, tierCode: string): Quote | null => {
+      const result = chargeQuote(catalog, { productCode, tierCode, now });
+      // `!ok` is unreachable for a catalog tier; never invent a price.
+      return result.ok ? result.quote : null;
+    };
+
     for (const product of catalog.products) {
+      if (product.kind === "credit_pack") {
+        // Shown only if sold: resolvePack sells `contact_unlock` alone.
+        if (product.code !== CREDIT_PACK_PRODUCT) continue;
+        const tiers: PayerCreditPackTier[] = [];
+        for (const tier of product.tiers) {
+          const sale = creditPackSale(active, tier, now);
+          if (!sale.sellable) {
+            // One bad tier must not take the catalogue down for every payer: skip it, loudly.
+            if (sale.reason === "gst_error") {
+              this.logger.warn(
+                `credit pack skipped: GST line failed pack=${tier.code} error=${sale.errorClass}`,
+              );
+            }
+            continue; // hidden: no tier, no price row
+          }
+          tiers.push(toPayerCreditPackTier(sale.pack));
+          prices.push(priceRow(product.code, tier.code, sale.pack.quote));
+        }
+        // Nothing sellable → the product is left out: an empty tier list would fail the shared
+        // `productSchema` (tiers.min(1)) that payer-web parses this response with.
+        if (tiers.length > 0) products.push({ kind: "credit_pack", code: product.code, tiers });
+        continue;
+      }
+      products.push(product); // unchanged (#2749 item 11 retires these kinds)
       for (const tier of product.tiers) {
-        const result = chargeQuote(catalog, { productCode: product.code, tierCode: tier.code, now });
-        if (!result.ok) continue; // unreachable for a catalog tier; never invent a price
-        const { quote } = result;
-        const offer = quote.offerApplied
-          ? catalog.offers.find((o) => o.code === quote.offerApplied)
-          : undefined;
-        prices.push({
-          product_code: product.code,
-          tier_code: tier.code,
-          base_price_inr: quote.basePriceInr,
-          price_inr: quote.finalInr,
-          discount_inr: quote.discountInr,
-          offer: offer ? { code: offer.code, ends_at: new Date(offer.until).toISOString() } : null,
-        });
+        const quote = charge(product.code, tier.code);
+        if (quote) prices.push(priceRow(product.code, tier.code, quote));
       }
     }
-    return { revision, source, products: catalog.products, prices, priced_at: now.toISOString() };
+    return { revision, source, products, prices, priced_at: now.toISOString() };
   }
 
   /**

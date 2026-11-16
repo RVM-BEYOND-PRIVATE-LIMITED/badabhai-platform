@@ -80,7 +80,7 @@ describe("db:audit:org-tenancy — read-only by construction", () => {
       "payer_capacity",
       "payment_orders",
       "credit_ledger",
-      // #2749 (migration 0170) — a member's own wallet's lots stay theirs, like its balance.
+      // #2749 (migration 0174) — a member's own wallet's lots stay theirs, like its balance.
       "credit_lots",
       "payer_credits",
       "agency_invites",
