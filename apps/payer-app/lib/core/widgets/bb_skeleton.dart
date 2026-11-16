@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
 import 'bb_card.dart';
+import '../theme/bb_palette.dart';
 
 /// #2592 (M4) — skeleton loading.
 ///
@@ -13,8 +13,8 @@ import 'bb_card.dart';
 /// centred spinner, so the page keeps its structure and the real rows
 /// cross-fade in over it ([BbLoadSwitcher]).
 ///
-/// Existing colour tokens only: the blocks are [AppColors.border] on paper
-/// cards, and the shimmer sweeps an [AppColors.borderLight] band across them
+/// Existing colour roles only: the blocks are the hairline colour on paper
+/// cards, and the shimmer sweeps an inset band across them
 /// once every [AppMotion.shimmer]. The shimmer is a progress indicator — the
 /// one loop the motion rules allow — and it stops (static blocks) when the OS
 /// asks for animations to be removed.
@@ -97,6 +97,7 @@ class BbSkeletonMask extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final Animation<double>? sweep = _ShimmerScope.of(context);
     if (sweep == null) return child;
     return AnimatedBuilder(
@@ -105,10 +106,10 @@ class BbSkeletonMask extends StatelessWidget {
       builder: (BuildContext context, Widget? blocks) => ShaderMask(
         blendMode: BlendMode.srcATop,
         shaderCallback: (Rect bounds) => LinearGradient(
-          colors: const <Color>[
-            AppColors.border,
-            AppColors.borderLight,
-            AppColors.border,
+          colors: <Color>[
+            p.borderDefault,
+            p.borderSubtle,
+            p.borderDefault,
           ],
           stops: const <double>[0.35, 0.5, 0.65],
           transform: _SweepTransform(sweep.value),
@@ -156,11 +157,12 @@ class BbSkeletonBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final Widget block = Container(
       width: width,
       height: height,
       decoration: BoxDecoration(
-        color: AppColors.border,
+        color: p.borderDefault,
         borderRadius: BorderRadius.circular(radius),
       ),
     );
@@ -289,10 +291,11 @@ class BbSkeletonLedgerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       decoration: BoxDecoration(
         border: showBorder
-            ? const Border(bottom: BorderSide(color: AppColors.divider))
+            ? Border(bottom: BorderSide(color: p.borderSubtle))
             : null,
       ),
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),

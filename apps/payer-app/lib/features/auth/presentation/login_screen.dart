@@ -7,7 +7,6 @@ import '../../../core/auth/payer_token_store.dart';
 import '../../../core/data/models.dart' show PayerApiException;
 import '../../../core/di/locator.dart';
 import '../../../core/session/app_session_cubit.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_system_ui.dart';
 import '../../../core/theme/app_typography.dart';
@@ -19,6 +18,7 @@ import '../../../core/widgets/bb_otp_input.dart';
 import 'signup_screen.dart';
 import 'widgets/auth_form_support.dart';
 import 'widgets/set_new_password_step.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Password sign-in + OTP fallback. The brand hero sits on top; below the form
 /// the payer can open the full sign-up flow.
@@ -427,7 +427,7 @@ class _LoginScreenState extends State<LoginScreen> {
           'Sign in with your password.',
           style: AppTypography.body(
             size: AppTypography.sizeSm,
-            color: AppColors.textSecondary,
+            color: context.bb.textSecondary,
           ),
         ),
         const SizedBox(height: AppSpacing.s5),
@@ -495,7 +495,7 @@ class _LoginScreenState extends State<LoginScreen> {
           'We will send a one-time code to your email or phone.',
           style: AppTypography.body(
             size: AppTypography.sizeSm,
-            color: AppColors.textSecondary,
+            color: context.bb.textSecondary,
           ),
         ),
         const SizedBox(height: AppSpacing.s5),
@@ -539,7 +539,7 @@ class _LoginScreenState extends State<LoginScreen> {
           'We sent a 6-digit code to ${_otpContact.text.trim()}.',
           style: AppTypography.body(
             size: AppTypography.sizeSm,
-            color: AppColors.textSecondary,
+            color: context.bb.textSecondary,
           ),
         ),
         const SizedBox(height: AppSpacing.s4),
@@ -579,12 +579,13 @@ class _BrandHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // #2590 — the blue band runs under the status bar: light icons on it.
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: AppSystemUi.onDark,
       child: Container(
         width: double.infinity,
-        color: AppColors.blue,
+        color: p.brandSurface,
         child: SafeArea(
           bottom: false,
           child: Padding(
@@ -606,7 +607,7 @@ class _BrandHeader extends StatelessWidget {
                     style: AppTypography.header(
                       size: AppTypography.sizeXl,
                       weight: FontWeight.w800,
-                      color: AppColors.onBlue,
+                      color: p.onBrandSurface,
                     ),
                   ),
                 ),

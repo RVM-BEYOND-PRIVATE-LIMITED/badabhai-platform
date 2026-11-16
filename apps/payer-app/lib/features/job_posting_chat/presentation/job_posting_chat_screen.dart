@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/data/models.dart' show kPostingTradeRequiredMessage;
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -18,6 +17,7 @@ import '../../../core/widgets/bb_typing_dots.dart';
 import '../domain/chat_message.dart';
 import 'bloc/job_posting_chat_bloc.dart';
 import 'widgets/draft_preview.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Banner copy when the chat session could not be opened. Honest about the
 /// cause: the connection was not established, and sending retries it.
@@ -496,7 +496,7 @@ class _ChatViewState extends State<_ChatView> {
               if (state.lastReplyBlocked)
                 _notice(
                   icon: Icons.error_rounded,
-                  color: AppColors.dangerPress,
+                  color: context.bb.danger,
                   text: kJobChatBlockedNotice,
                 ),
               // #2595 — the app's bottom nav no longer sits under the chat (a
@@ -567,7 +567,7 @@ class _ChatViewState extends State<_ChatView> {
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
                 weight: FontWeight.w700,
-                color: AppColors.textBrand,
+                color: context.bb.textBrand,
               ),
             ),
           ),
@@ -579,21 +579,21 @@ class _ChatViewState extends State<_ChatView> {
   Widget _sessionBanner() {
     return Container(
       width: double.infinity,
-      color: AppColors.dangerTint,
+      color: context.bb.dangerBg,
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.s4,
         vertical: AppSpacing.s3,
       ),
       child: Row(
         children: <Widget>[
-          const Icon(Icons.cloud_off_rounded, size: 18, color: AppColors.dangerPress),
+          Icon(Icons.cloud_off_rounded, size: 18, color: context.bb.danger),
           const SizedBox(width: AppSpacing.s2),
           Flexible(
             child: Text(
               kJobChatSessionFailedLabel,
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
-                color: AppColors.dangerPress,
+                color: context.bb.danger,
               ),
             ),
           ),
@@ -652,7 +652,7 @@ class _ChatViewState extends State<_ChatView> {
               overflow: TextOverflow.ellipsis,
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
-                color: AppColors.textMuted,
+                color: context.bb.textMuted,
               ),
             ),
           ),
@@ -712,17 +712,17 @@ class _ChatViewState extends State<_ChatView> {
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(AppRadii.chip),
                   borderSide:
-                      const BorderSide(color: AppColors.borderStrong, width: 1),
+                      BorderSide(color: context.bb.borderDefault, width: 1),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(AppRadii.chip),
                   borderSide:
-                      const BorderSide(color: AppColors.borderStrong, width: 1),
+                      BorderSide(color: context.bb.borderDefault, width: 1),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(AppRadii.chip),
                   borderSide:
-                      const BorderSide(color: AppColors.brand, width: 1.5),
+                      BorderSide(color: context.bb.action, width: 1.5),
                 ),
               ),
             ),
@@ -742,7 +742,7 @@ class _ChatViewState extends State<_ChatView> {
                 label: 'Send',
                 child: Material(
                   key: kJobChatSendKey,
-                  color: canSend ? AppColors.blue : AppColors.disabled,
+                  color: canSend ? context.bb.textBrand : context.bb.disabledBg,
                   shape: const CircleBorder(),
                   child: InkWell(
                     customBorder: const CircleBorder(),
@@ -753,8 +753,8 @@ class _ChatViewState extends State<_ChatView> {
                       child: Icon(
                         Icons.send_rounded,
                         color: canSend
-                            ? AppColors.onBlue
-                            : AppColors.textSecondary,
+                            ? context.bb.onBrandSurface
+                            : context.bb.textSecondary,
                         size: 22,
                       ),
                     ),

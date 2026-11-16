@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/audio/speech_dictation.dart';
 import '../../../../core/data/models.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_button.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// The mic toggle beside the job Description field (#2720).
 ///
@@ -187,6 +187,7 @@ class _VoiceDescriptionControlState extends State<VoiceDescriptionControl> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -211,7 +212,7 @@ class _VoiceDescriptionControlState extends State<VoiceDescriptionControl> {
           key: const Key('voice_description_hint'),
           style: AppTypography.body(
             size: AppTypography.sizeXs,
-            color: AppColors.textMuted,
+            color: p.textMuted,
             height: 1.35,
           ),
         ),

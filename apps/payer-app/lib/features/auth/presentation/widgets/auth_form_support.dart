@@ -3,10 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../../core/auth/payer_auth_api.dart'
     show PayerPasswordChangeRequiredException;
 import '../../../../core/data/models.dart' show PayerApiException;
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/util/phone_format.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// Shared pieces of the payer auth forms (login + sign-up): contact parsing,
 /// the password policy mirror, one honest error mapper, and the small widgets
@@ -121,6 +121,7 @@ class AuthRolePick extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       selected: selected,
       button: true,
@@ -131,17 +132,17 @@ class AuthRolePick extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(AppSpacing.s3),
           decoration: BoxDecoration(
-            color: selected ? AppColors.haldiTint : AppColors.canvas,
+            color: selected ? p.actionTint : p.page,
             borderRadius: BorderRadius.circular(AppRadii.md),
             border: Border.all(
-              color: selected ? AppColors.haldi : AppColors.borderDefault,
+              color: selected ? p.action : p.borderDefault,
               width: selected ? 2 : 1,
             ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Icon(icon, size: 22, color: AppColors.textBrand),
+              Icon(icon, size: 22, color: p.textBrand),
               const SizedBox(height: AppSpacing.s2),
               Text(
                 title,
@@ -155,7 +156,7 @@ class AuthRolePick extends StatelessWidget {
                 subtitle,
                 style: AppTypography.body(
                   size: AppTypography.sizeXs,
-                  color: AppColors.textMuted,
+                  color: p.textMuted,
                 ),
               ),
             ],
@@ -175,12 +176,13 @@ class AuthEyeToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return IconButton(
       onPressed: onPressed,
       icon: Icon(
         obscured ? Icons.visibility_rounded : Icons.visibility_off_rounded,
         size: 20,
-        color: AppColors.textMuted,
+        color: p.textMuted,
       ),
       tooltip: obscured ? 'Show password' : 'Hide password',
     );
@@ -193,9 +195,10 @@ class AuthTrustLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       children: <Widget>[
-        const Icon(Icons.verified_user_rounded, size: 16, color: AppColors.success),
+        Icon(Icons.verified_user_rounded, size: 16, color: p.success),
         const SizedBox(width: AppSpacing.s2),
         Expanded(
           child: Text(
@@ -203,7 +206,7 @@ class AuthTrustLine extends StatelessWidget {
             'By continuing you agree to our terms.',
             style: AppTypography.body(
               size: AppTypography.sizeXs,
-              color: AppColors.textMuted,
+              color: p.textMuted,
             ),
           ),
         ),
@@ -220,6 +223,7 @@ class AuthErrorLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(
@@ -227,21 +231,21 @@ class AuthErrorLine extends StatelessWidget {
         vertical: AppSpacing.s3,
       ),
       decoration: BoxDecoration(
-        color: AppColors.dangerTint,
+        color: p.dangerBg,
         borderRadius: BorderRadius.circular(AppRadii.md),
-        border: Border.all(color: AppColors.red100),
+        border: Border.all(color: p.dangerBg),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Icon(Icons.error_rounded, size: 16, color: AppColors.danger),
+          Icon(Icons.error_rounded, size: 16, color: p.danger),
           const SizedBox(width: AppSpacing.s2),
           Expanded(
             child: Text(
               message,
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
-                color: AppColors.danger,
+                color: p.danger,
               ),
             ),
           ),

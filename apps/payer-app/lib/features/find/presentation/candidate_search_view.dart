@@ -6,7 +6,6 @@ import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/payer_failure.dart';
 import '../../../core/session/credits_cubit.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_badge.dart';
@@ -22,6 +21,7 @@ import 'widgets/candidate_card.dart';
 import 'widgets/candidate_filter_sheet.dart';
 import 'widgets/find_pinned_list.dart';
 import 'widgets/unlock_button.dart';
+import '../../../core/theme/bb_palette.dart';
 
 // The copy below matches payer-web's Candidates tab word for word where the two
 // surfaces say the same thing — one brand on the web and the phone.
@@ -357,6 +357,7 @@ class _FilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final CandidateSearchQuery q = state.query;
     final int n = q.filterCount;
     final String summary = _summary(q, state.filters);
@@ -399,7 +400,7 @@ class _FilterBar extends StatelessWidget {
             summary,
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
+              color: p.textMuted,
             ),
           ),
         ],
@@ -436,14 +437,15 @@ class CandidateCountBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final TextStyle base = AppTypography.body(
       size: AppTypography.sizeSm,
-      color: AppColors.textMuted,
+      color: p.textMuted,
     );
     final TextStyle strong = AppTypography.body(
       size: AppTypography.sizeSm,
       weight: FontWeight.w700,
-      color: AppColors.textPrimary,
+      color: p.textPrimary,
     );
     final List<InlineSpan> spans = state.filtered
         ? <InlineSpan>[
@@ -476,7 +478,7 @@ class CandidateCountBadge extends StatelessWidget {
             caption,
             style: AppTypography.body(
               size: AppTypography.sizeXs,
-              color: AppColors.textMuted,
+              color: p.textMuted,
             ),
           ),
       ],
@@ -490,6 +492,7 @@ class _OtherCandidatesLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Padding(
       key: const Key('other_candidates_line'),
       padding: const EdgeInsets.only(top: AppSpacing.s2, bottom: AppSpacing.s4),
@@ -505,11 +508,11 @@ class _OtherCandidatesLine extends StatelessWidget {
                   style: AppTypography.heading(
                     size: AppTypography.sizeBase,
                     weight: FontWeight.w700,
-                    color: AppColors.textSecondary,
+                    color: p.textSecondary,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.s3),
-                const Expanded(child: Divider(color: AppColors.border)),
+                Expanded(child: Divider(color: p.borderDefault)),
               ],
             ),
             const SizedBox(height: AppSpacing.gap2),
@@ -517,7 +520,7 @@ class _OtherCandidatesLine extends StatelessWidget {
               "They don't match every filter you picked.",
               style: AppTypography.body(
                 size: AppTypography.sizeXs,
-                color: AppColors.textMuted,
+                color: p.textMuted,
               ),
             ),
           ],
@@ -534,6 +537,7 @@ class _Footer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final CandidateSearchCubit cubit = context.read<CandidateSearchCubit>();
     // While the rows are being replaced, the cursor and the end of the list
     // belong to the old page — say nothing about either.
@@ -570,7 +574,7 @@ class _Footer extends StatelessWidget {
               textAlign: TextAlign.center,
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
-                color: AppColors.textSecondary,
+                color: p.textSecondary,
               ),
             ),
             const SizedBox(height: AppSpacing.s2),
@@ -607,7 +611,7 @@ class _Footer extends StatelessWidget {
         textAlign: TextAlign.center,
         style: AppTypography.body(
           size: AppTypography.sizeSm,
-          color: AppColors.textMuted,
+          color: p.textMuted,
         ),
       ),
     );
@@ -726,23 +730,24 @@ class _Notice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.s3),
       decoration: BoxDecoration(
-        color: AppColors.infoTint,
+        color: p.infoBg,
         borderRadius: BorderRadius.circular(AppRadii.sm),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Icon(Icons.info_rounded, size: 18, color: AppColors.teal700),
+          Icon(Icons.info_rounded, size: 18, color: p.infoTitle),
           const SizedBox(width: AppSpacing.s2),
           Expanded(
             child: Text(
               text,
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
-                color: AppColors.teal700,
+                color: p.infoTitle,
                 height: 1.4,
               ),
             ),

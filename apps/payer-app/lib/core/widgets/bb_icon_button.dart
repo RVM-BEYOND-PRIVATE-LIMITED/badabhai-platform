@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_haptics.dart';
 import '../theme/app_spacing.dart';
 import 'bb_pressable.dart';
+import '../theme/bb_palette.dart';
 
 /// A square, outlined icon button — `.bb-iconbtn--outline`. The back-arrow and
 /// bell affordances in screen headers. Always a 48px tap target.
@@ -25,13 +25,13 @@ class BbIconButton extends StatelessWidget {
     return BbPressable.passive(
       enabled: onPressed != null,
       borderRadius: BorderRadius.circular(AppRadii.md),
-      child: _button(),
+      child: _button(context),
     );
   }
 
-  Widget _button() {
+  Widget _button(BuildContext context) {
     return Material(
-      color: AppColors.surfaceCard,
+      color: context.bb.card,
       borderRadius: BorderRadius.circular(AppRadii.md),
       child: InkWell(
         onTap: onPressed == null
@@ -47,12 +47,12 @@ class BbIconButton extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadii.md),
-            border: Border.all(color: AppColors.borderStrong, width: 1.5),
+            border: Border.all(color: context.bb.borderDefault, width: 1.5),
           ),
           child: Icon(
             icon,
             size: 22,
-            color: AppColors.textSecondary,
+            color: context.bb.textSecondary,
             semanticLabel: semanticLabel,
           ),
         ),

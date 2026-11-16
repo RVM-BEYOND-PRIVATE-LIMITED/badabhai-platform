@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_haptics.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_typography.dart';
 import 'bb_pressable.dart';
+import '../theme/bb_palette.dart';
 
 /// Visual style of a [BbButton]. Mirrors the JUL31 kit's `BBButtonKind`
 /// (primary · navy · success · outline) plus the payer-app's own quiet
@@ -86,6 +86,7 @@ class BbButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // Kit rule: a light haptic on every press. Suppressed while loading or when
     // there is no handler.
     final VoidCallback? effectiveOnPressed = (loading || onPressed == null)
@@ -98,11 +99,12 @@ class BbButton extends StatelessWidget {
     // The spinner must sit on each variant's own foreground — a white spinner
     // is invisible on the haldi primary/brand/tonal faces.
     final Color spinnerColor = switch (variant) {
-      BbButtonVariant.primary || BbButtonVariant.brand => AppColors.onHaldi,
-      BbButtonVariant.navy || BbButtonVariant.success => AppColors.textInverse,
-      BbButtonVariant.tonal => AppColors.brandPress,
-      BbButtonVariant.secondary || BbButtonVariant.ghost => AppColors.textPrimary,
-      BbButtonVariant.danger => AppColors.textInverse,
+      BbButtonVariant.primary || BbButtonVariant.brand => p.onAction,
+      BbButtonVariant.navy => p.onBrandSurface,
+      BbButtonVariant.success => p.isDark ? p.card : p.onBrandSurface,
+      BbButtonVariant.tonal => p.isDark ? p.action : p.actionPressed,
+      BbButtonVariant.secondary || BbButtonVariant.ghost => p.textPrimary,
+      BbButtonVariant.danger => p.isDark ? p.card : p.onBrandSurface,
     };
 
     final Widget child = _Content(
@@ -141,7 +143,7 @@ class BbButton extends StatelessWidget {
           autofocus: autofocus,
           onPressed: effectiveOnPressed,
           style: TextButton.styleFrom(
-            foregroundColor: AppColors.textPrimary,
+            foregroundColor: p.textPrimary,
             minimumSize: minSize,
             textStyle: labelStyle,
           ),
@@ -152,8 +154,8 @@ class BbButton extends StatelessWidget {
           autofocus: autofocus,
           onPressed: effectiveOnPressed,
           style: FilledButton.styleFrom(
-            backgroundColor: AppColors.brandTint2,
-            foregroundColor: AppColors.brandPress,
+            backgroundColor: p.actionTint,
+            foregroundColor: p.isDark ? p.action : p.actionPressed,
             minimumSize: minSize,
             textStyle: labelStyle,
             elevation: 0,
@@ -166,10 +168,10 @@ class BbButton extends StatelessWidget {
           autofocus: autofocus,
           onPressed: effectiveOnPressed,
           style: FilledButton.styleFrom(
-            backgroundColor: AppColors.blue,
-            foregroundColor: AppColors.onBlue,
-            disabledBackgroundColor: AppColors.disabled,
-            disabledForegroundColor: AppColors.textSecondary,
+            backgroundColor: p.brandSurface,
+            foregroundColor: p.onBrandSurface,
+            disabledBackgroundColor: p.disabledBg,
+            disabledForegroundColor: p.disabledText,
             minimumSize: minSize,
             textStyle: labelStyle,
             elevation: 0,
@@ -183,10 +185,10 @@ class BbButton extends StatelessWidget {
           autofocus: autofocus,
           onPressed: effectiveOnPressed,
           style: FilledButton.styleFrom(
-            backgroundColor: AppColors.success,
-            foregroundColor: AppColors.textInverse,
-            disabledBackgroundColor: AppColors.disabled,
-            disabledForegroundColor: AppColors.textSecondary,
+            backgroundColor: p.success,
+            foregroundColor: p.isDark ? p.card : p.onBrandSurface,
+            disabledBackgroundColor: p.disabledBg,
+            disabledForegroundColor: p.disabledText,
             minimumSize: minSize,
             textStyle: labelStyle,
             elevation: 0,
@@ -209,6 +211,10 @@ class BbButton extends StatelessWidget {
           autofocus: autofocus,
           onPressed: effectiveOnPressed,
           style: AppButtonStyles.danger.copyWith(
+            backgroundColor: WidgetStatePropertyAll<Color>(p.danger),
+            foregroundColor: WidgetStatePropertyAll<Color>(
+              p.isDark ? p.card : p.onBrandSurface,
+            ),
             minimumSize: WidgetStatePropertyAll<Size>(minSize),
             textStyle: WidgetStatePropertyAll<TextStyle>(labelStyle),
           ),

@@ -5,7 +5,6 @@ import '../../../core/data/agency_trade_map.dart';
 import '../../../core/data/models.dart';
 import '../../../core/data/payer_api_client.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_haptics.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -27,6 +26,7 @@ import 'widgets/job_content_input.dart';
 import 'widgets/job_form_rules.dart';
 import 'widgets/match_skill_picker.dart';
 import 'widgets/trade_posting_fields.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Edit an existing AGENCY posting (`PATCH /payer/agency/jobs/:id`). The
 /// [AgencyJobView] carries every field the route accepts, so the WHOLE form is
@@ -576,7 +576,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
               style: AppTypography.heading(
                 size: AppTypography.sizeMd,
                 weight: FontWeight.w800,
-                color: AppColors.blue,
+                color: context.bb.textBrand,
               ),
             ),
             const SizedBox(height: AppSpacing.s3),
@@ -616,6 +616,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // #2595 — a pick can fix an error from another control; errors only drop.
     if (!_form.isEmpty) _form.settle(_validate());
     return BbLeaveGuard(
@@ -827,7 +828,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
                     'company names, phone numbers and links.',
                     style: AppTypography.body(
                       size: AppTypography.sizeSm,
-                      color: AppColors.textMuted,
+                      color: p.textMuted,
                       height: 1.45,
                     ),
                   ),
@@ -929,7 +930,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
                         'appear here.',
                         style: AppTypography.body(
                           size: AppTypography.sizeSm,
-                          color: AppColors.textMuted,
+                          color: p.textMuted,
                           height: 1.45,
                         ),
                       ),

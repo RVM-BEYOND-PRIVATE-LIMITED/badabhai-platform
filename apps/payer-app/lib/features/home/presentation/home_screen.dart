@@ -5,7 +5,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/session/app_session.dart';
 import '../../../core/session/credits_cubit.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_system_ui.dart';
 import '../../../core/theme/app_typography.dart';
@@ -17,6 +16,7 @@ import '../../../core/widgets/bb_count_up.dart';
 import '../../../core/widgets/bb_pressable.dart';
 import '../../../core/widgets/bb_refresh.dart';
 import '../../../core/widgets/payer_role_badge.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Home — the identity header, the REAL credit balance, and the two real
 /// actions (Post a job · Browse candidates).
@@ -126,7 +126,7 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) =>
-      Text(text, style: AppTypography.eyebrow(color: AppColors.textMuted));
+      Text(text, style: AppTypography.eyebrow(color: context.bb.textMuted));
 }
 
 /// The deep-blue identity band — org name + plan over the account avatar. Blue
@@ -139,6 +139,7 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // #2590 — the band is drawn BEHIND the status bar (the shell gives Home no
     // top inset), so it pads itself by that inset and asks for light icons.
     final double topInset = MediaQuery.paddingOf(context).top;
@@ -146,7 +147,7 @@ class _Header extends StatelessWidget {
       value: AppSystemUi.onDark,
       child: Container(
         width: double.infinity,
-        color: AppColors.blue,
+        color: p.brandSurface,
         padding: EdgeInsets.fromLTRB(
           AppSpacing.gutter,
           AppSpacing.s5 + topInset,
@@ -168,14 +169,14 @@ class _Header extends StatelessWidget {
                     style: AppTypography.header(
                       size: AppTypography.sizeMd,
                       weight: FontWeight.w700,
-                      color: AppColors.onBlue,
+                      color: p.onBrandSurface,
                     ),
                   ),
                   Text(
                     acct.plan,
                     style: AppTypography.body(
                       size: AppTypography.sizeXs,
-                      color: AppColors.onBlueMuted,
+                      color: p.onBrandSurfaceMuted,
                     ),
                   ),
                 ],
@@ -202,11 +203,12 @@ class _AgencyHubCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BbCard(
       onTap: onTap,
       child: Row(
         children: <Widget>[
-          const Icon(Icons.campaign_rounded, size: 24, color: AppColors.blue),
+          Icon(Icons.campaign_rounded, size: 24, color: p.textBrand),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
             child: Column(
@@ -224,7 +226,7 @@ class _AgencyHubCard extends StatelessWidget {
                   'Your invite link, referral funnel and referred workers.',
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    color: AppColors.textMuted,
+                    color: p.textMuted,
                     height: 1.4,
                   ),
                 ),
@@ -232,8 +234,8 @@ class _AgencyHubCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.s2),
-          const Icon(Icons.chevron_right_rounded,
-              size: 20, color: AppColors.textFaint),
+          Icon(Icons.chevron_right_rounded,
+              size: 20, color: p.textMuted),
         ],
       ),
     );
@@ -257,6 +259,7 @@ class _CreditBalanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BlocBuilder<CreditsCubit, CreditsState>(
       bloc: locator<CreditsCubit>(),
       builder: (BuildContext context, CreditsState credits) {
@@ -266,7 +269,7 @@ class _CreditBalanceCard extends StatelessWidget {
         final TextStyle figure = AppTypography.mono(
           size: AppTypography.size2xl,
           weight: FontWeight.w700,
-          color: AppColors.paper0,
+          color: p.onBrandSurface,
         );
         return BbCard(
           ink: true,
@@ -280,14 +283,14 @@ class _CreditBalanceCard extends StatelessWidget {
                       'Credit balance',
                       style: AppTypography.body(
                         size: AppTypography.sizeSm,
-                        color: AppColors.ink300,
+                        color: p.onBrandSurfaceMuted,
                       ),
                     ),
                   ),
-                  const Icon(
+                  Icon(
                     Icons.lock_open_rounded,
                     size: 18,
-                    color: AppColors.ink300,
+                    color: p.onBrandSurfaceMuted,
                   ),
                 ],
               ),
@@ -311,7 +314,7 @@ class _CreditBalanceCard extends StatelessWidget {
                     'unlocks',
                     style: AppTypography.body(
                       size: AppTypography.sizeBase,
-                      color: AppColors.ink300,
+                      color: p.onBrandSurfaceMuted,
                     ),
                   ),
                 ],
@@ -348,6 +351,7 @@ class _HeroLink extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BbPressable(
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadii.xs),
@@ -361,11 +365,11 @@ class _HeroLink extends StatelessWidget {
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
                 weight: FontWeight.w700,
-                color: AppColors.onBlue,
+                color: p.onBrandSurface,
               ),
             ),
             const SizedBox(width: AppSpacing.s1),
-            Icon(icon, size: 18, color: AppColors.onBlue),
+            Icon(icon, size: 18, color: p.onBrandSurface),
           ],
         ),
       ),

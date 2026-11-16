@@ -5,7 +5,6 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -17,6 +16,7 @@ import '../../../core/widgets/bb_toast.dart';
 import 'cubit/batch_invite_cubit.dart';
 import '../util/invite_url.dart';
 import '../util/whatsapp_share.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Batch invites — mint a run of agency invite codes
 /// (`POST /payer/agency/invites/batch`, AGENT-only), then print/share them. Each
@@ -77,8 +77,9 @@ class _BatchInviteViewState extends State<_BatchInviteView> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: AppColors.surfacePage,
+      backgroundColor: p.page,
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -102,7 +103,7 @@ class _BatchInviteViewState extends State<_BatchInviteView> {
                         'one is a QR a worker can scan to join under you.',
                         style: AppTypography.body(
                           size: AppTypography.sizeSm,
-                          color: AppColors.textSecondary,
+                          color: p.textSecondary,
                           height: 1.45,
                         ),
                       ),
@@ -166,6 +167,7 @@ class _Form extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BbCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -193,7 +195,7 @@ class _Form extends StatelessWidget {
                   style: AppTypography.body(
                     size: AppTypography.sizeXs,
                     color:
-                        showError ? AppColors.danger : AppColors.textMuted,
+                        showError ? p.danger : p.textMuted,
                   ),
                 ),
               );
@@ -210,7 +212,7 @@ class _Form extends StatelessWidget {
             'A short label to group this batch. No worker details here.',
             style: AppTypography.body(
               size: AppTypography.sizeXs,
-              color: AppColors.textMuted,
+              color: p.textMuted,
             ),
           ),
           const SizedBox(height: AppSpacing.s4),
@@ -250,12 +252,13 @@ class _StatusBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     switch (state.status) {
       case BatchInviteStatus.rateLimited:
         return _Banner(
           icon: Icons.hourglass_empty_rounded,
-          tint: AppColors.infoTint,
-          iconColor: AppColors.info,
+          tint: p.infoBg,
+          iconColor: p.info,
           title: 'Just a moment',
           message:
               'You have minted a lot of invites quickly. Wait a bit, then try '
@@ -264,10 +267,10 @@ class _StatusBanner extends StatelessWidget {
           onAction: () => context.read<BatchInviteCubit>().retry(),
         );
       case BatchInviteStatus.forbidden:
-        return const _Banner(
+        return _Banner(
           icon: Icons.lock_rounded,
-          tint: AppColors.surfaceSunken,
-          iconColor: AppColors.textMuted,
+          tint: p.raised,
+          iconColor: p.textMuted,
           title: 'Agency accounts only',
           message: 'Minting invites is only available on agency (recruiter) '
               'accounts.',
@@ -275,8 +278,8 @@ class _StatusBanner extends StatelessWidget {
       case BatchInviteStatus.error:
         return _Banner(
           icon: Icons.wifi_off_rounded,
-          tint: AppColors.dangerTint,
-          iconColor: AppColors.danger,
+          tint: p.dangerBg,
+          iconColor: p.danger,
           title: 'Could not create invites',
           message: 'Please check your connection and try again.',
           actionLabel: 'Retry',
@@ -311,6 +314,7 @@ class _Banner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.s4),
       decoration: BoxDecoration(
@@ -341,7 +345,7 @@ class _Banner extends StatelessWidget {
                       message,
                       style: AppTypography.body(
                         size: AppTypography.sizeSm,
-                        color: AppColors.textSecondary,
+                        color: p.textSecondary,
                         height: 1.45,
                       ),
                     ),
@@ -441,6 +445,7 @@ class _InviteCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String url = absoluteInviteUrl(invite.link);
     return BbCard(
       child: Column(
@@ -448,9 +453,10 @@ class _InviteCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(AppSpacing.s3),
             decoration: BoxDecoration(
-              color: AppColors.surfaceCard,
+              // The QR is printed and forwarded: it keeps the light design.
+              color: BbPalette.light.card,
               borderRadius: BorderRadius.circular(AppRadii.md),
-              border: Border.all(color: AppColors.borderSubtle),
+              border: Border.all(color: BbPalette.light.borderSubtle),
             ),
             // #608 — GENERATION ONLY. The platform never SCANS a QR: an
             // agent-scans-worker loop is ruled out by ADR-0022 (faceless
@@ -460,7 +466,7 @@ class _InviteCard extends StatelessWidget {
             child: QrImageView(
               data: url.isNotEmpty ? url : invite.code,
               size: 148,
-              backgroundColor: AppColors.surfaceCard,
+              backgroundColor: BbPalette.light.card,
               semanticsLabel: 'Invite QR for ${invite.code}',
             ),
           ),
@@ -480,7 +486,7 @@ class _InviteCard extends StatelessWidget {
               textAlign: TextAlign.center,
               style: AppTypography.body(
                 size: AppTypography.sizeXs,
-                color: AppColors.textMuted,
+                color: p.textMuted,
               ),
             ),
           ],

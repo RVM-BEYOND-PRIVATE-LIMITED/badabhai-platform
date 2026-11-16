@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_haptics.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_button.dart';
+import '../theme/bb_palette.dart';
 
 /// Shows the BadaBhai terminal alert — a message the payer cannot miss. It
 /// takes the focus over the deep-blue scrim and closes ONLY on an explicit OK
@@ -30,7 +30,7 @@ Future<void> showBbAlert(
       message,
       style: AppTypography.body(
         size: AppTypography.sizeMd,
-        color: AppColors.textSecondary,
+        color: context.bb.textSecondary,
       ),
     ),
     confirmLabel: okLabel,
@@ -67,7 +67,7 @@ Future<bool> showBbConfirm(
           message,
           style: AppTypography.body(
             size: AppTypography.sizeMd,
-            color: AppColors.textSecondary,
+            color: context.bb.textSecondary,
           ),
         ),
     confirmLabel: confirmLabel,
@@ -106,16 +106,16 @@ Future<bool?> _showBbMessage(
     return showDialog<bool>(
       context: context,
       barrierDismissible: barrierDismissible,
-      barrierColor: AppColors.scrim,
+      barrierColor: context.bb.scrim,
       builder: (BuildContext dialogContext) => Dialog(
-        backgroundColor: AppColors.surfaceCard,
+        backgroundColor: context.bb.card,
         surfaceTintColor: Colors.transparent,
         // Design law §4: separation is the scrim + fill, never a shadow.
         elevation: 0,
         insetPadding: const EdgeInsets.all(AppSpacing.s6),
-        shape: const RoundedRectangleBorder(
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(AppRadii.xl)),
-          side: BorderSide(color: AppColors.border),
+          side: BorderSide(color: context.bb.borderDefault),
         ),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
@@ -135,8 +135,8 @@ Future<bool?> _showBbMessage(
     showDragHandle: barrierDismissible,
     isDismissible: barrierDismissible,
     enableDrag: barrierDismissible,
-    backgroundColor: AppColors.surfaceCard,
-    barrierColor: AppColors.scrim,
+    backgroundColor: context.bb.card,
+    barrierColor: context.bb.scrim,
     sheetAnimationStyle: AppMotion.sheetStyle(context),
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.xxl)),

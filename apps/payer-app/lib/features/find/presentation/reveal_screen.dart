@@ -4,7 +4,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_haptics.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -21,6 +20,7 @@ import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/reveal_cubit.dart';
 import 'reveal_args.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Hands a signed, expiring URL to the OS. Returns false when nothing on the
 /// device could open it.
@@ -229,9 +229,9 @@ class _RealReveal extends StatelessWidget {
                 AppSpacing.s6,
               ),
               children: <Widget>[
-                _header(),
+                _header(context),
                 const SizedBox(height: AppSpacing.s4),
-                _identityCard(),
+                _identityCard(context),
                 const SizedBox(height: AppSpacing.s4),
                 _relayCard(context, state),
                 const SizedBox(height: AppSpacing.s4),
@@ -260,7 +260,7 @@ class _RealReveal extends StatelessWidget {
     );
   }
 
-  Widget _header() {
+  Widget _header(BuildContext context) {
     return Row(
       children: <Widget>[
         BbIconButton(
@@ -284,7 +284,7 @@ class _RealReveal extends StatelessWidget {
 
   /// The masked identity block. Both real feeds fill it through [RevealArgs]:
   /// a masked handle + coarse facets, never a name or phone.
-  Widget _identityCard() {
+  Widget _identityCard(BuildContext context) {
     final List<String> facets = args.facets;
     return BbCard(
       festive: true,
@@ -314,7 +314,7 @@ class _RealReveal extends StatelessWidget {
               style: AppTypography.body(
                 size: AppTypography.sizeBase,
                 weight: FontWeight.w600,
-                color: AppColors.textSecondary,
+                color: context.bb.textSecondary,
               ),
             ),
           ],
@@ -325,7 +325,7 @@ class _RealReveal extends StatelessWidget {
             textAlign: TextAlign.center,
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
+              color: context.bb.textMuted,
             ),
           ),
         ],
@@ -353,14 +353,14 @@ class _RealReveal extends StatelessWidget {
       card = BbCard(
         child: Row(
           children: <Widget>[
-            const Icon(Icons.info_rounded, color: AppColors.textMuted),
+            Icon(Icons.info_rounded, color: context.bb.textMuted),
             const SizedBox(width: AppSpacing.s3),
             Expanded(
               child: Text(
                 kRelayUnavailableMessage,
                 style: AppTypography.body(
                   size: AppTypography.sizeSm,
-                  color: AppColors.textSecondary,
+                  color: context.bb.textSecondary,
                 ),
               ),
             ),
@@ -374,7 +374,7 @@ class _RealReveal extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            _sectionLabel('Contact relay'),
+            _sectionLabel(context, 'Contact relay'),
             const SizedBox(height: AppSpacing.s2),
             Row(
               children: <Widget>[
@@ -387,7 +387,7 @@ class _RealReveal extends StatelessWidget {
                       vertical: AppSpacing.s2,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.surfaceSunken,
+                      color: context.bb.raised,
                       borderRadius: BorderRadius.circular(AppRadii.pill),
                     ),
                     child: Text(
@@ -437,11 +437,11 @@ class _RealReveal extends StatelessWidget {
             height: 46,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: AppColors.brandTint,
+              color: context.bb.selectedCardBg,
               borderRadius: BorderRadius.circular(AppRadii.md),
             ),
-            child: const Icon(Icons.description_rounded,
-                size: 24, color: AppColors.brandPress),
+            child: Icon(Icons.description_rounded,
+                size: 24, color: context.bb.actionPressed),
           ),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
@@ -468,28 +468,28 @@ class _RealReveal extends StatelessWidget {
                   },
                   style: AppTypography.body(
                     size: AppTypography.sizeXs,
-                    color: AppColors.textMuted,
+                    color: context.bb.textMuted,
                   ),
                 ),
               ],
             ),
           ),
           if (loading)
-            const SizedBox(
+            SizedBox(
               width: 22,
               height: 22,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           else
-            const Icon(Icons.download_rounded, size: 22, color: AppColors.textMuted),
+            Icon(Icons.download_rounded, size: 22, color: context.bb.textMuted),
         ],
       ),
     );
   }
 
-  Widget _sectionLabel(String text) => Text(
+  Widget _sectionLabel(BuildContext context, String text) => Text(
         text.toUpperCase(),
-        style: AppTypography.eyebrow(color: AppColors.textBrand),
+        style: AppTypography.eyebrow(color: context.bb.textBrand),
       );
 }
 
@@ -513,7 +513,7 @@ class _MockReveal extends StatelessWidget {
     // The same one-shot stamp as the real reveal, on the same terms (#2596).
     return Stack(
       children: <Widget>[
-        _list(),
+        _list(context),
         if (justUnlocked)
           const Positioned.fill(
             child: BbStampCelebration(
@@ -526,7 +526,7 @@ class _MockReveal extends StatelessWidget {
     );
   }
 
-  Widget _list() {
+  Widget _list(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.gutter,
@@ -583,7 +583,7 @@ class _MockReveal extends StatelessWidget {
                 style: AppTypography.body(
                   size: AppTypography.sizeBase,
                   weight: FontWeight.w600,
-                  color: AppColors.textSecondary,
+                  color: context.bb.textSecondary,
                 ),
               ),
               const SizedBox(height: AppSpacing.s3),
@@ -593,13 +593,13 @@ class _MockReveal extends StatelessWidget {
                   vertical: AppSpacing.s2,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.surfaceSunken,
+                  color: context.bb.raised,
                   borderRadius: BorderRadius.circular(AppRadii.pill),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    const Icon(Icons.phone_rounded, size: 16, color: AppColors.success),
+                    Icon(Icons.phone_rounded, size: 16, color: context.bb.success),
                     const SizedBox(width: 6),
                     Text(
                       candidate.phone,
@@ -619,7 +619,7 @@ class _MockReveal extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              _sectionLabel('Skills'),
+              _sectionLabel(context, 'Skills'),
               const SizedBox(height: AppSpacing.s2),
               Wrap(
                 spacing: 7,
@@ -631,13 +631,13 @@ class _MockReveal extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: AppSpacing.s4),
-              _sectionLabel('Location & availability'),
+              _sectionLabel(context, 'Location & availability'),
               const SizedBox(height: AppSpacing.s2),
               RichText(
                 text: TextSpan(
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    color: AppColors.textSecondary,
+                    color: context.bb.textSecondary,
                   ),
                   children: <InlineSpan>[
                     TextSpan(text: '${candidate.loc} · '),
@@ -646,7 +646,7 @@ class _MockReveal extends StatelessWidget {
                       style: AppTypography.body(
                         size: AppTypography.sizeSm,
                         weight: FontWeight.w600,
-                        color: AppColors.success,
+                        color: context.bb.success,
                       ),
                     ),
                   ],
@@ -665,11 +665,11 @@ class _MockReveal extends StatelessWidget {
                 height: 46,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: AppColors.brandTint,
+                  color: context.bb.selectedCardBg,
                   borderRadius: BorderRadius.circular(AppRadii.md),
                 ),
-                child: const Icon(Icons.description_rounded,
-                    size: 24, color: AppColors.brandPress),
+                child: Icon(Icons.description_rounded,
+                    size: 24, color: context.bb.actionPressed),
               ),
               const SizedBox(width: AppSpacing.s3),
               Expanded(
@@ -687,13 +687,13 @@ class _MockReveal extends StatelessWidget {
                       'Generated by BadaBhai · PDF',
                       style: AppTypography.body(
                         size: AppTypography.sizeXs,
-                        color: AppColors.textMuted,
+                        color: context.bb.textMuted,
                       ),
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.download_rounded, size: 22, color: AppColors.textMuted),
+              Icon(Icons.download_rounded, size: 22, color: context.bb.textMuted),
             ],
           ),
         ),
@@ -708,10 +708,10 @@ class _MockReveal extends StatelessWidget {
     );
   }
 
-  Widget _sectionLabel(String text) {
+  Widget _sectionLabel(BuildContext context, String text) {
     return Text(
       text.toUpperCase(),
-      style: AppTypography.eyebrow(color: AppColors.textBrand),
+      style: AppTypography.eyebrow(color: context.bb.textBrand),
     );
   }
 }
