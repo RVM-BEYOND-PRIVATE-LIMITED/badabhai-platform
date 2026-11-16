@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/session/resume_redo_store.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/onboarding/form_flow_parts.dart';
@@ -302,7 +303,7 @@ class _ErrorBody extends StatelessWidget {
     // gaya" over the top of it — and the retry stays the kit's hero CTA.
     return BbStatusView(
       icon: Icons.cloud_off_rounded,
-      iconColor: OnboardingColors.errorRed,
+      iconColor: context.bb.danger,
       title: message,
       action: PrimaryActionButton(
         label: _kRetry,
@@ -463,17 +464,18 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
   /// banner where the worker's eyes already are, right under the header,
   /// not somewhere they have to look down for.
   void _showBlockedBanner(String message) {
+    final BbPalette p = context.bb;
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     messenger.clearMaterialBanners();
     messenger.showMaterialBanner(
       MaterialBanner(
-        backgroundColor: OnboardingColors.errorRed,
+        backgroundColor: p.danger,
         content: Text(
           message,
           style: OnboardingTypography.inter(
             size: 13,
             weight: FontWeight.w500,
-            color: OnboardingColors.textOnBlue,
+            color: p.onBrandSurface,
           ),
         ),
         actions: <Widget>[
@@ -484,7 +486,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
               style: OnboardingTypography.inter(
                 size: 14,
                 weight: FontWeight.w700,
-                color: OnboardingColors.textOnBlue,
+                color: p.onBrandSurface,
               ),
             ),
           ),
@@ -523,6 +525,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final TradeFormCubit cubit = context.read<TradeFormCubit>();
     final TradeFormState state = widget.state;
     final TradeFormStep? step = state.currentStep;
@@ -571,7 +574,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
             collapsed: foldsUnderKeyboard && keyboardOpen,
             child: ShiftBlueHeader(
               title: state.currentSectionTitle ?? '',
-              titleColor: OnboardingColors.safetyYellow,
+              titleColor: p.action,
               // The form-flow drawing is the one the user approved, so it is
               // what ships — EXCEPT while the keyboard crowds a short screen,
               // where it does not fit at all (see [_keyboardCrowdsChrome]).
@@ -617,10 +620,10 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
-                          const Icon(
+                          Icon(
                             Icons.error_outline_rounded,
                             size: 18,
-                            color: OnboardingColors.errorRed,
+                            color: p.danger,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -628,7 +631,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                               state.submitError!,
                               style: OnboardingTypography.inter(
                                 size: 13,
-                                color: OnboardingColors.errorRed,
+                                color: p.danger,
                               ),
                             ),
                           ),

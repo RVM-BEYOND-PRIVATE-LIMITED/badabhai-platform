@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
@@ -144,6 +145,7 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
   }
 
   Widget _avatar(BuildContext context) {
+    final BbPalette p = context.bb;
     final String? url = _url;
     // Decode the photo to the on-screen pixel size, not its full source
     // resolution — a 2MB upload rendered into a 56px circle would otherwise
@@ -155,9 +157,9 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
       height: _kAvatarSize,
       // The v3 selected-card wash (#FFFBEB) — a warm disc behind the glyph,
       // flat, no gradient.
-      decoration: const BoxDecoration(
+      decoration:  BoxDecoration(
         shape: BoxShape.circle,
-        color: OnboardingColors.selectedCardBg,
+        color: p.selectedCardBg,
       ),
       alignment: Alignment.center,
       clipBehavior: Clip.antiAlias,
@@ -180,13 +182,10 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
   /// Initials when a name exists; else a neutral person icon — the exact
   /// placeholder the tab showed before the photo existed.
   Widget _placeholder() {
+    final BbPalette p = context.bb;
     final String? initials = widget.initials;
     return initials == null
-        ? const Icon(
-            Icons.person_rounded,
-            size: 32,
-            color: OnboardingColors.safetyYellow,
-          )
+        ? Icon(Icons.person_rounded, size: 32, color: p.action)
         // The disc is a FIXED 56dp, so the initials on it cannot grow: at a
         // 2.0 system font they rendered at 40pt and spilled out from under
         // both badges. scaleDown, NOT a text-scale clamp — `withClampedTextScaling`
@@ -200,13 +199,14 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
               style: OnboardingTypography.anek(
                 size: 20,
                 weight: FontWeight.w800,
-                color: OnboardingColors.shiftBlue,
+                color: p.textBrand,
               ),
             ),
           );
   }
 
   Widget _editBadge() {
+    final BbPalette p = context.bb;
     return Semantics(
       button: true,
       label: _url == null ? 'Photo lagayein' : 'Photo badlein',
@@ -232,24 +232,24 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
               child: Container(
                 width: 26,
                 height: 26,
-                decoration: const BoxDecoration(
+                decoration:  BoxDecoration(
                   shape: BoxShape.circle,
-                  color: OnboardingColors.safetyYellow,
+                  color: p.action,
                 ),
                 alignment: Alignment.center,
                 child: _busy
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 12,
                         height: 12,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: OnboardingColors.shiftBlue,
+                          color: p.textBrand,
                         ),
                       )
-                    : const Icon(
+                    : Icon(
                         Icons.camera_alt_rounded,
                         size: 14,
-                        color: OnboardingColors.shiftBlue,
+                        color: p.textBrand,
                       ),
               ),
             ),

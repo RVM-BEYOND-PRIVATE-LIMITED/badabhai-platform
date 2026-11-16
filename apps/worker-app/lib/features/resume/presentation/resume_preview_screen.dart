@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import '../../../core/theme/bb_palette.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -57,7 +58,8 @@ class _ResumeTabHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const KitTabHeader(
+    final BbPalette p = context.bb;
+    return KitTabHeader(
       // KEEP THIS LITERAL: it is the shell landmark the routing and journey
       // tests wait on to know the worker reached the Resume tab.
       title: 'Your resume',
@@ -65,7 +67,7 @@ class _ResumeTabHeader extends StatelessWidget {
         // The relocated Alerts entry point (notifications lost their bottom-nav
         // tab in the kit's 4-tab set), white on the navy band. It carries the
         // reactive unread badge.
-        BbAlertsAction(color: OnboardingColors.textOnBlue),
+        BbAlertsAction(color: p.onBrandSurface),
         KitFeedbackAction(),
       ],
     );
@@ -186,6 +188,7 @@ class _ResumeViewState extends State<_ResumeView> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // The IndexedStack keeps this branch mounted, so create: runs only on the
     // first visit — refetch when the tab comes back into view (T4).
     //
@@ -202,7 +205,7 @@ class _ResumeViewState extends State<_ResumeView> {
           final bool showBanner =
               state.status == ResumeStatus.ready && !state.awaitingDocument;
           return Scaffold(
-            backgroundColor: OnboardingColors.canvasBg,
+            backgroundColor: p.page,
             body: Column(
               children: <Widget>[
                 const _ResumeTabHeader(),
@@ -420,6 +423,7 @@ class _ResumeViewState extends State<_ResumeView> {
   /// The template path shows the same fact inside the Location section; here it
   /// carries on its own so the worker's answer is NEVER dropped from the tab.
   Widget _nightShiftRow(bool ready) {
+    final BbPalette p = context.bb;
     return Text.rich(
       TextSpan(
         children: <InlineSpan>[
@@ -428,7 +432,7 @@ class _ResumeViewState extends State<_ResumeView> {
             style: OnboardingTypography.inter(
               size: 13,
               height: 1.45,
-              color: OnboardingColors.ink600,
+              color: p.textSecondary,
             ),
           ),
           TextSpan(
@@ -508,15 +512,16 @@ class _ReviewExtractedButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return OutlinedButton.icon(
       style: OutlinedButton.styleFrom(
         minimumSize: const Size(double.infinity, OnboardingLayout.tapTarget),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(OnboardingRadii.docked),
         ),
-        side: const BorderSide(color: OnboardingColors.borderDefault),
-        backgroundColor: OnboardingColors.paperWhite,
-        foregroundColor: OnboardingColors.ink600,
+        side:  BorderSide(color: p.borderDefault),
+        backgroundColor: p.card,
+        foregroundColor: p.textSecondary,
         textStyle: OnboardingTypography.inter(
           size: 13,
           weight: FontWeight.w600,

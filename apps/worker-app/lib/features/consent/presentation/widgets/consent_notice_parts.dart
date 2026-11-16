@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 
 /// One run of approved notice copy: its text, and whether the approved doc
@@ -19,13 +20,14 @@ class ConsentNoticeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(OnboardingRadii.card),
-        border: Border.all(color: OnboardingColors.borderSubtle),
+        border: Border.all(color: p.borderSubtle),
       ),
       child: child,
     );
@@ -43,6 +45,7 @@ class ConsentBullet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Row(
@@ -52,8 +55,8 @@ class ConsentBullet extends StatelessWidget {
             margin: const EdgeInsets.only(top: 6, right: 10),
             width: 7,
             height: 7,
-            decoration: const BoxDecoration(
-              color: OnboardingColors.shiftBlue,
+            decoration: BoxDecoration(
+              color: p.textBrand,
               shape: BoxShape.circle,
             ),
           ),
@@ -81,27 +84,28 @@ class ConsentNoteBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: OnboardingColors.noteBg,
+        color: p.noteBg,
         borderRadius: BorderRadius.circular(OnboardingRadii.note),
-        border: Border.all(color: OnboardingColors.borderDefault),
+        border: Border.all(color: p.borderDefault),
       ),
       child: Text.rich(
         TextSpan(
           style: OnboardingTypography.inter(
             size: 12,
             height: 1.4,
-            color: OnboardingColors.ink600,
+            color: p.textSecondary,
           ),
           children: <InlineSpan>[
             TextSpan(
               text: lead,
-              style: const TextStyle(
+              style: TextStyle(
                 fontWeight: FontWeight.w700,
-                color: OnboardingColors.ink900,
+                color: p.textPrimary,
               ),
             ),
             ...noticeSpans(parts),
@@ -121,22 +125,16 @@ class ConsentErrorLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const Icon(
-          Icons.error_outline_rounded,
-          size: 18,
-          color: OnboardingColors.errorRed,
-        ),
+        Icon(Icons.error_outline_rounded, size: 18, color: p.danger),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             message,
-            style: OnboardingTypography.inter(
-              size: 13,
-              color: OnboardingColors.errorRed,
-            ),
+            style: OnboardingTypography.inter(size: 13, color: p.danger),
           ),
         ),
       ],

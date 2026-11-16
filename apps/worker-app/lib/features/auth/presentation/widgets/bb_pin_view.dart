@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 
 /// Stable finder for the caret — there is at most ONE on screen, since only
@@ -52,23 +52,25 @@ class BbPinSlotStyle {
   final BbPinFilledGlyph filledGlyph;
   final double caretHeight;
 
-  static const BbPinSlotStyle josh = BbPinSlotStyle(
+  static BbPinSlotStyle joshFor(BbPalette p) => BbPinSlotStyle(
     // Wider than the 4px grid's 48 so the star glyph has breathing room, short
     // of 64 to leave four boxes comfortable margin on a 360dp screen.
     boxWidth: 56,
     boxHeight: AppSpacing.s10,
     radius: AppRadii.md,
     gap: AppSpacing.s2,
-    fill: AppColors.surfaceCard,
-    borderIdle: AppColors.borderStrong,
-    borderFilled: AppColors.blue,
-    borderActive: AppColors.blue,
-    errorColor: AppColors.danger,
+    fill: p.card,
+    borderIdle: p.borderDefault,
+    borderFilled: p.textBrand,
+    borderActive: p.textBrand,
+    errorColor: p.danger,
     borderWidth: 2,
     activeBorderWidth: 2.5,
     filledGlyph: BbPinFilledGlyph.star,
     caretHeight: AppSpacing.s7,
   );
+
+  static final BbPinSlotStyle josh = joshFor(BbPalette.light);
 
   /// The kit's `_buildPinRow`: 58×60 boxes, 6px margin each side, 14 radius,
   /// white fill, a 1.2px `borderDefault` hairline and a navy `•` per digit.
@@ -78,21 +80,23 @@ class BbPinSlotStyle {
   /// It used to be `borderActive`, i.e. safety yellow; in v3 yellow means
   /// SELECTED (a card, a chip, a checkbox border) and a PIN box being typed
   /// into is focused, never selected.
-  static const BbPinSlotStyle shiftBlue = BbPinSlotStyle(
+  static BbPinSlotStyle shiftBlueFor(BbPalette p) => BbPinSlotStyle(
     boxWidth: 58,
     boxHeight: 60,
     radius: OnboardingRadii.pinBox,
     gap: 6,
-    fill: OnboardingColors.paperWhite,
-    borderIdle: OnboardingColors.borderDefault,
-    borderFilled: OnboardingColors.borderDefault,
-    borderActive: OnboardingColors.shiftBlue,
-    errorColor: OnboardingColors.errorRed,
+    fill: p.card,
+    borderIdle: p.borderDefault,
+    borderFilled: p.borderDefault,
+    borderActive: p.focusRing,
+    errorColor: p.danger,
     borderWidth: 1.2,
     activeBorderWidth: 1.8,
     filledGlyph: BbPinFilledGlyph.dot,
     caretHeight: 28,
   );
+
+  static final BbPinSlotStyle shiftBlue = shiftBlueFor(BbPalette.light);
 }
 
 /// The masked PIN indicator: a row of rounded-box slots.
@@ -117,7 +121,7 @@ class BbPinView extends StatelessWidget {
     required this.filled,
     this.error = false,
     this.focused = false,
-    this.style = BbPinSlotStyle.josh,
+    this.style,
   });
 
   /// Total PIN length (number of boxes).
@@ -135,7 +139,8 @@ class BbPinView extends StatelessWidget {
   final bool focused;
 
   /// Which design the row wears. Behaviour is identical across styles.
-  final BbPinSlotStyle style;
+  /// Null uses the default [BbPinSlotStyle.josh] resolved against the theme.
+  final BbPinSlotStyle? style;
 
   /// Test seam, mirroring `EditableText.debugDeterministicCursor` — and there
   /// for exactly the same reason. A caret that blinks forever keeps a frame
@@ -165,9 +170,22 @@ class BbPinView extends StatelessWidget {
     return filled >= length ? length - 1 : filled;
   }
 
+  /// Resolve the preset styles against the active theme, so the light values
+  /// stay byte-identical while the ink theme gets its own ring and surface.
+  BbPinSlotStyle _resolveStyle(BbPalette p) {
+    final BbPinSlotStyle? s = style;
+    if (s == null || identical(s, BbPinSlotStyle.josh)) {
+      return BbPinSlotStyle.joshFor(p);
+    }
+    if (identical(s, BbPinSlotStyle.shiftBlue)) {
+      return BbPinSlotStyle.shiftBlueFor(p);
+    }
+    return s;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final BbPinSlotStyle s = style;
+    final BbPinSlotStyle s = _resolveStyle(context.bb);
     final Color live = error ? s.errorColor : s.borderActive;
     final Color filledBorder = error ? s.errorColor : s.borderFilled;
     final int active = _activeIndex;
@@ -206,8 +224,12 @@ class BbPinView extends StatelessWidget {
                           i == active ? s.activeBorderWidth : s.borderWidth,
                     ),
                   ),
-                  child:
-                      _slotChild(index: i, active: i == active, tint: live),
+                  child: _slotChild(
+                    style: s,
+                    index: i,
+                    active: i == active,
+                    tint: live,
+                  ),
                 ),
               ),
             ),
@@ -220,11 +242,12 @@ class BbPinView extends StatelessWidget {
   /// also carries the caret: alone while empty, beside the glyph once the row
   /// is full (the glyph is never dropped, or the row would under-report).
   Widget? _slotChild({
+    required BbPinSlotStyle style,
     required int index,
     required bool active,
     required Color tint,
   }) {
-    final Widget? glyph = index < filled ? _glyph(tint) : null;
+    final Widget? glyph = index < filled ? _glyph(style, tint) : null;
     if (!active) return glyph;
     final Widget caret = BbPinCaret(color: tint, height: style.caretHeight);
     if (glyph == null) return caret;
@@ -235,7 +258,7 @@ class BbPinView extends StatelessWidget {
     );
   }
 
-  Widget _glyph(Color tint) {
+  Widget _glyph(BbPinSlotStyle style, Color tint) {
     switch (style.filledGlyph) {
       case BbPinFilledGlyph.star:
         return Icon(Icons.star_rounded, color: tint, size: AppSpacing.s5);

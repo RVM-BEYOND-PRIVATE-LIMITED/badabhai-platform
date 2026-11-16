@@ -1,5 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../../../core/theme/bb_palette.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -48,6 +49,7 @@ class _ProfileEditView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BlocConsumer<ProfileEditCubit, ProfileEditState>(
       listenWhen: (ProfileEditState p, ProfileEditState c) =>
           (c.error != null && c.error != p.error) ||
@@ -62,7 +64,7 @@ class _ProfileEditView extends StatelessWidget {
       },
       builder: (BuildContext context, ProfileEditState state) {
         return Scaffold(
-          backgroundColor: OnboardingColors.canvasBg,
+          backgroundColor: p.page,
           body: Column(
             children: <Widget>[
               ShiftBlueHeader(
@@ -215,6 +217,7 @@ class _Field extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -231,16 +234,16 @@ class _Field extends StatelessWidget {
             counterText: '',
             isDense: true,
             filled: true,
-            fillColor: OnboardingColors.rowBg,
+            fillColor: p.raised,
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(OnboardingRadii.row),
-              borderSide: const BorderSide(color: OnboardingColors.borderSubtle),
+              borderSide:  BorderSide(color: p.borderSubtle),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(OnboardingRadii.row),
-              borderSide: const BorderSide(color: OnboardingColors.borderSubtle),
+              borderSide:  BorderSide(color: p.borderSubtle),
             ),
           ),
         ),
@@ -483,6 +486,7 @@ class _AbilityChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return FilterChip(
       label: Text(label),
       selected: selected,
@@ -494,11 +498,11 @@ class _AbilityChip extends StatelessWidget {
         size: 12,
         weight: FontWeight.w700,
         color: selected
-            ? OnboardingColors.textOnBlue
-            : OnboardingColors.ink900,
+            ? p.onBrandSurface
+            : p.textPrimary,
       ),
-      selectedColor: OnboardingColors.shiftBlue,
-      checkmarkColor: OnboardingColors.safetyYellow,
+      selectedColor: p.brandSurface,
+      checkmarkColor: p.action,
     );
   }
 }
@@ -899,12 +903,13 @@ class _CertificateEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: OnboardingColors.rowBg,
+        color: p.raised,
         borderRadius: BorderRadius.circular(OnboardingRadii.row),
-        border: Border.all(color: OnboardingColors.borderSubtle),
+        border: Border.all(color: p.borderSubtle),
       ),
       child: Column(
         children: <Widget>[
@@ -1009,12 +1014,13 @@ class _TrainingEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: OnboardingColors.rowBg,
+        color: p.raised,
         borderRadius: BorderRadius.circular(OnboardingRadii.row),
-        border: Border.all(color: OnboardingColors.borderSubtle),
+        border: Border.all(color: p.borderSubtle),
       ),
       child: Column(
         children: <Widget>[
@@ -1365,14 +1371,15 @@ class _PendingUploadRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool failed =
         pending.status == PendingPortfolioUploadStatus.failed;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: OnboardingColors.rowBg,
+        color: p.raised,
         borderRadius: BorderRadius.circular(OnboardingRadii.row),
-        border: Border.all(color: OnboardingColors.borderSubtle),
+        border: Border.all(color: p.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1380,10 +1387,10 @@ class _PendingUploadRow extends StatelessWidget {
           Row(
             children: <Widget>[
               if (failed)
-                const Icon(
+                 Icon(
                   Icons.error_outline_rounded,
                   size: 18,
-                  color: OnboardingColors.errorRed,
+                  color: p.danger,
                 )
               else
                 const SizedBox(
@@ -1442,6 +1449,7 @@ class _PortfolioRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String label = item.kind == 'link'
         ? (item.url ?? '')
         : item.kind == 'video'
@@ -1450,16 +1458,16 @@ class _PortfolioRow extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: OnboardingColors.rowBg,
+        color: p.raised,
         borderRadius: BorderRadius.circular(OnboardingRadii.row),
-        border: Border.all(color: OnboardingColors.borderSubtle),
+        border: Border.all(color: p.borderSubtle),
       ),
       child: Row(
         children: <Widget>[
           Icon(
             item.kind == 'link' ? Icons.link : Icons.image_outlined,
             size: 18,
-            color: OnboardingColors.ink500,
+            color: p.textMuted,
           ),
           const SizedBox(width: 8),
           Expanded(

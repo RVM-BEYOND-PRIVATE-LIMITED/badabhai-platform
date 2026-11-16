@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 import '../../../../core/api/api_models.dart';
 import '../../../../core/theme/onboarding_theme.dart';
@@ -36,6 +37,7 @@ class ResumeGeneralSheetView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final GeneralSheetSections sections = mapGeneralSheet(document);
     final bool hasWork =
         document.employments.isNotEmpty || document.experiences.isNotEmpty;
@@ -86,7 +88,7 @@ class ResumeGeneralSheetView extends StatelessWidget {
                   style: OnboardingTypography.inter(
                     size: 12,
                     height: 1.4,
-                    color: OnboardingColors.ink500,
+                    color: p.textMuted,
                   ),
                 ),
             ],
@@ -105,7 +107,7 @@ class ResumeGeneralSheetView extends StatelessWidget {
                     size: 13,
                     weight: FontWeight.w700,
                     height: 1.4,
-                    color: OnboardingColors.ink900,
+                    color: p.textPrimary,
                   ),
                 ),
             ],
@@ -147,6 +149,7 @@ class _GeneralSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -156,13 +159,13 @@ class _GeneralSection extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 10),
           // The sheet's bar is #e5e5e5; `borderCard` is the v3 token at that
           // value, so the bar is a token, never a new grey.
-          color: OnboardingColors.borderCard,
+          color: p.borderCard,
           child: Text(
             title,
             style: OnboardingTypography.inter(
               size: 13,
               weight: FontWeight.w700,
-              color: OnboardingColors.ink900,
+              color: p.textPrimary,
             ),
           ),
         ),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/api/api_client.dart'
     show CityOptionDto, WorkPrefOptionsDto;
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/tap_guard.dart';
 import '../../../../core/widgets/onboarding/onboarding_select_field.dart';
@@ -707,6 +708,7 @@ class _EmploymentSuggestionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String? role = suggestion.roleLabel;
     final String? employer = suggestion.employerName;
     final String? headline = role ?? employer;
@@ -716,10 +718,10 @@ class _EmploymentSuggestionCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 4, 4, 16),
       decoration: BoxDecoration(
-        color: OnboardingColors.infoBg,
+        color: p.infoBg,
         borderRadius: BorderRadius.circular(OnboardingRadii.card),
         border: Border.all(
-          color: OnboardingColors.shiftBlueLight.withValues(alpha: 0.35),
+          color: p.brandSurfaceLight.withValues(alpha: 0.35),
           width: 1.2,
         ),
       ),
@@ -733,7 +735,7 @@ class _EmploymentSuggestionCard extends StatelessWidget {
                     ? Icons.description_outlined
                     : Icons.chat_bubble_outline,
                 size: 14,
-                color: OnboardingColors.shiftBlue,
+                color: p.textBrand,
               ),
               const SizedBox(width: 4),
               Expanded(
@@ -743,18 +745,14 @@ class _EmploymentSuggestionCard extends StatelessWidget {
                     size: 11,
                     weight: FontWeight.w700,
                     letterSpacing: 0.3,
-                    color: OnboardingColors.shiftBlue,
+                    color: p.textBrand,
                   ),
                 ),
               ),
               IconButton(
                 onPressed: onDismiss,
                 tooltip: _kSuggestionDismiss,
-                icon: const Icon(
-                  Icons.close,
-                  size: 20,
-                  color: OnboardingColors.ink500,
-                ),
+                icon: Icon(Icons.close, size: 20, color: p.textMuted),
               ),
             ],
           ),
@@ -1255,6 +1253,7 @@ class _LocationLink extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Align(
       alignment: Alignment.centerLeft,
       child: TextButton(
@@ -1262,14 +1261,14 @@ class _LocationLink extends StatelessWidget {
         style: TextButton.styleFrom(
           minimumSize: const Size(0, OnboardingLayout.tapTarget),
           padding: const EdgeInsets.symmetric(horizontal: 4),
-          foregroundColor: OnboardingColors.shiftBlue,
+          foregroundColor: p.link,
         ),
         child: Text(
           label,
           style: OnboardingTypography.inter(
             size: 14,
             weight: FontWeight.w600,
-            color: OnboardingColors.shiftBlue,
+            color: p.link,
             decoration: TextDecoration.underline,
           ),
         ),
@@ -1314,11 +1313,12 @@ class _YearMonthField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool set = value != null || year != null;
     final BorderRadius radius =
         BorderRadius.circular(OnboardingRadii.nameField);
     return Material(
-      color: OnboardingColors.paperWhite,
+      color: p.card,
       borderRadius: radius,
       child: InkWell(
         onTap: () => _open(context),
@@ -1331,17 +1331,14 @@ class _YearMonthField extends StatelessWidget {
           padding: EdgeInsets.only(left: 14, right: set ? 0 : 14),
           decoration: BoxDecoration(
             borderRadius: radius,
-            border: Border.all(
-              color: OnboardingColors.borderDefault,
-              width: 1.2,
-            ),
+            border: Border.all(color: p.borderDefault, width: 1.2),
           ),
           child: Row(
             children: <Widget>[
-              const Icon(
+              Icon(
                 Icons.event_outlined,
                 size: 20,
-                color: OnboardingColors.ink600,
+                color: p.textSecondary,
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -1354,17 +1351,17 @@ class _YearMonthField extends StatelessWidget {
                         )
                       : OnboardingTypography.inter(
                           size: 14,
-                          color: OnboardingColors.ink500,
+                          color: p.textMuted,
                         ),
                 ),
               ),
               if (set)
                 IconButton(
                   onPressed: () => onPicked(null),
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.close,
                     size: 18,
-                    color: OnboardingColors.ink500,
+                    color: p.textMuted,
                   ),
                 ),
             ],
@@ -1377,7 +1374,7 @@ class _YearMonthField extends StatelessWidget {
   Future<void> _open(BuildContext context) async {
     final String? picked = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: OnboardingColors.paperWhite,
+      backgroundColor: context.bb.card,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
@@ -1419,6 +1416,7 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final DateTime now = DateTime.now();
     // Newest first, and never a future one: the top chip is the CURRENT year
     // and the floor is [_kEarliestWorkYear], so "1900" and next year cannot be
@@ -1448,7 +1446,7 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
                       style: OnboardingTypography.inter(
                         size: 13,
                         weight: FontWeight.w600,
-                        color: OnboardingColors.shiftBlue,
+                        color: p.link,
                         decoration: TextDecoration.underline,
                       ),
                     ),
@@ -1474,7 +1472,7 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
                               labelStyle: OnboardingTypography.mono(
                                 size: 14,
                                 weight: FontWeight.w600,
-                                color: OnboardingColors.ink900,
+                                color: p.textPrimary,
                               ),
                               onTap: () => setState(() => _year = y),
                             ),

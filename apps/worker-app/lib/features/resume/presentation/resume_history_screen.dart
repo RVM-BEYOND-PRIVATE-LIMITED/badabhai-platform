@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/bb_palette.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -177,6 +178,7 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // The profile branch stays mounted under pushed root routes (the trade
     // form, the tier chooser, building), so `create:`/`initState` run only on
     // the first visit — refetch when the branch comes back into view. Without
@@ -188,7 +190,7 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
       index: TabIndex.profile,
       onFocused: _refetch,
       child: Scaffold(
-        backgroundColor: OnboardingColors.canvasBg,
+        backgroundColor: p.page,
         body: BlocBuilder<ResumeCubit, ResumeState>(
           buildWhen: (ResumeState a, ResumeState b) => a.history != b.history,
           builder: (BuildContext context, ResumeState state) {
@@ -315,10 +317,11 @@ class _CountPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
-        color: OnboardingColors.safetyYellow,
+        color: p.action,
         borderRadius: BorderRadius.circular(OnboardingRadii.badge),
       ),
       child: Text(
@@ -326,7 +329,7 @@ class _CountPill extends StatelessWidget {
         style: OnboardingTypography.inter(
           size: 12,
           weight: FontWeight.w800,
-          color: OnboardingColors.textOnYellow,
+          color: p.onAction,
         ),
       ),
     );
@@ -339,6 +342,7 @@ class _ListHeading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       children: <Widget>[
         Expanded(
@@ -352,7 +356,7 @@ class _ListHeading extends StatelessWidget {
           style: OnboardingTypography.inter(
             size: 11,
             weight: FontWeight.w600,
-            color: OnboardingColors.ink500,
+            color: p.textMuted,
           ),
         ),
       ],
@@ -372,22 +376,23 @@ class _QuickActionBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: OnboardingColors.shiftBlue,
+        color: p.brandSurface,
         borderRadius: BorderRadius.circular(OnboardingRadii.card),
-        border: Border.all(color: OnboardingColors.shiftBlueLight),
+        border: Border.all(color: p.brandSurfaceLight),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
             children: <Widget>[
-              const Icon(
+               Icon(
                 Icons.add_circle,
                 size: 14,
-                color: OnboardingColors.safetyYellow,
+                color: p.action,
               ),
               const SizedBox(width: 6),
               Text(
@@ -396,7 +401,7 @@ class _QuickActionBanner extends StatelessWidget {
                   size: 10,
                   weight: FontWeight.w800,
                   letterSpacing: 1,
-                  color: OnboardingColors.safetyYellow,
+                  color: p.action,
                 ),
               ),
             ],
@@ -407,7 +412,7 @@ class _QuickActionBanner extends StatelessWidget {
             style: OnboardingTypography.anek(
               size: 18,
               weight: FontWeight.w800,
-              color: OnboardingColors.textOnBlue,
+              color: p.onBrandSurface,
             ),
           ),
           const SizedBox(height: 6),
@@ -416,7 +421,7 @@ class _QuickActionBanner extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 12,
               height: 1.45,
-              color: OnboardingColors.textOnBlueMuted,
+              color: p.onBrandSurfaceMuted,
             ),
           ),
           const SizedBox(height: 14),
@@ -441,8 +446,8 @@ class _QuickActionBanner extends StatelessWidget {
             // on focus.
             onPressed: () => context.go(Routes.badaBhai),
             style: ElevatedButton.styleFrom(
-              backgroundColor: OnboardingColors.safetyYellow,
-              foregroundColor: OnboardingColors.textOnYellow,
+              backgroundColor: p.action,
+              foregroundColor: p.onAction,
               elevation: 0,
               minimumSize: const Size(
                 double.infinity,
@@ -455,7 +460,7 @@ class _QuickActionBanner extends StatelessWidget {
             child: Text(
               kResumeQuickActionCta,
               style: OnboardingTypography.buttonLabel(
-                color: OnboardingColors.textOnYellow,
+                color: p.onAction,
               ),
             ),
           ),
@@ -472,8 +477,9 @@ class _HelpCallout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Material(
-      color: OnboardingColors.infoBg,
+      color: p.infoBg,
       borderRadius: BorderRadius.circular(OnboardingRadii.note),
       child: InkWell(
         borderRadius: BorderRadius.circular(OnboardingRadii.note),
@@ -488,7 +494,7 @@ class _HelpCallout extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(OnboardingRadii.note),
-            border: Border.all(color: OnboardingColors.infoBorder),
+            border: Border.all(color: p.infoBorder),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -497,14 +503,14 @@ class _HelpCallout extends StatelessWidget {
                 width: 28,
                 height: 28,
                 alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  color: OnboardingColors.shiftBlue,
+                decoration: BoxDecoration(
+                  color: p.brandSurface,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.info_outline_rounded,
                   size: 16,
-                  color: OnboardingColors.paperWhite,
+                  color: p.onBrandSurface,
                 ),
               ),
               const SizedBox(width: 12),
@@ -517,7 +523,7 @@ class _HelpCallout extends StatelessWidget {
                       style: OnboardingTypography.inter(
                         size: 13,
                         weight: FontWeight.w700,
-                        color: OnboardingColors.infoTitle,
+                        color: p.infoTitle,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -526,7 +532,7 @@ class _HelpCallout extends StatelessWidget {
                       style: OnboardingTypography.inter(
                         size: 12,
                         height: 1.4,
-                        color: OnboardingColors.infoText,
+                        color: p.infoText,
                       ),
                     ),
                   ],

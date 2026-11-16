@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/bb_palette.dart';
 import '../../../voice/domain/voice_models.dart';
 
 /// Maps a mic amplitude [dbfs] (negative; 0 = full-scale) to a 0..1 meter
@@ -44,6 +44,7 @@ class VoiceLevelMeter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return StreamBuilder<MicLevel>(
       stream: levels,
       builder: (BuildContext context, AsyncSnapshot<MicLevel> snap) {
@@ -56,7 +57,7 @@ class VoiceLevelMeter extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              for (int i = 0; i < bars; i++) _bar(i, level),
+              for (int i = 0; i < bars; i++) _bar(i, p, level),
             ],
           ),
         );
@@ -64,7 +65,7 @@ class VoiceLevelMeter extends StatelessWidget {
     );
   }
 
-  Widget _bar(int i, double level) {
+  Widget _bar(int i, BbPalette p, double level) {
     // Bars near the centre react more, so the meter reads like a level, not a
     // uniform block: bar i lights when the level clears its own threshold.
     final double threshold = (i + 1) / bars;
@@ -78,8 +79,8 @@ class VoiceLevelMeter extends StatelessWidget {
         height: h,
         decoration: BoxDecoration(
           color: !active
-              ? AppColors.ink200
-              : (lit ? AppColors.blue : AppColors.ink200),
+              ? p.borderDefault
+              : (lit ? p.textBrand : p.borderDefault),
           borderRadius: BorderRadius.circular(2),
         ),
       ),

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_alert_dialog.dart';
 import '../../../../core/widgets/bb_spinner.dart';
@@ -55,7 +55,7 @@ class BbSetPinForm extends StatefulWidget {
     required this.onConfirmed,
     this.busy = false,
     this.busyCaption = 'PIN set kar rahe hain…',
-    this.pinStyle = BbPinSlotStyle.josh,
+    this.pinStyle,
     this.labelStyle,
     this.rowGap = AppSpacing.s7,
     this.submitOnComplete = true,
@@ -80,8 +80,8 @@ class BbSetPinForm extends StatefulWidget {
 
   final String busyCaption;
 
-  /// Which design the two rows wear. Defaults to the app-wide look.
-  final BbPinSlotStyle pinStyle;
+  /// Which design the two rows wear. Null defaults to the app-wide look.
+  final BbPinSlotStyle? pinStyle;
 
   /// Style for the two row labels. Null keeps the app-wide eyebrow.
   final TextStyle? labelStyle;
@@ -314,7 +314,7 @@ class BbSetPinFormState extends State<BbSetPinForm> {
           child: Text(
             label,
             style: widget.labelStyle ??
-                AppTypography.eyebrow(color: AppColors.textMuted),
+                AppTypography.eyebrow(color: context.bb.textMuted),
           ),
         ),
         const SizedBox(height: AppSpacing.s3),

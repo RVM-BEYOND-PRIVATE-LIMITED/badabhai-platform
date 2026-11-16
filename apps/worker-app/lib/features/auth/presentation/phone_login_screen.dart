@@ -6,7 +6,7 @@ import '../../../core/auth/auth_error_messages.dart';
 import '../../../core/auth/auth_failure.dart';
 import '../../../core/auth/phone_format.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/push_once.dart';
 import '../../../core/widgets/kit/phone_number_field.dart';
@@ -109,6 +109,7 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
     return BlocConsumer<PhoneLoginCubit, PhoneLoginState>(
       listenWhen: (prev, curr) => prev.status != curr.status,
       listener: (BuildContext context, PhoneLoginState state) {
+        final BbPalette p = context.bb;
         if (state.status == PhoneLoginStatus.success) {
           // go_router push (ADR-0023). The submitted phone rides as typed
           // `extra`. #336 — the server's resend cooldown travels with it, so
@@ -124,7 +125,7 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
             ..clearSnackBars()
             ..showSnackBar(
               SnackBar(
-                backgroundColor: AppColors.danger,
+                backgroundColor: p.danger,
                 content: Text(
                   state.message ?? 'Could not send OTP. Please try again.',
                 ),
@@ -133,8 +134,9 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
         }
       },
       builder: (BuildContext context, PhoneLoginState state) {
+        final BbPalette p = context.bb;
         return Scaffold(
-          backgroundColor: OnboardingColors.canvasBg,
+          backgroundColor: p.page,
           body: Column(
             children: <Widget>[
               ShiftBlueHeader(
@@ -163,10 +165,10 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: <Widget>[
-                            const Icon(
+                            Icon(
                               Icons.verified_user_outlined,
                               size: 16,
-                              color: OnboardingColors.successGreen,
+                              color: p.success,
                             ),
                             const SizedBox(width: 6),
                             Flexible(
@@ -175,7 +177,7 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
                                 style: OnboardingTypography.inter(
                                   size: 12,
                                   weight: FontWeight.w500,
-                                  color: OnboardingColors.ink600,
+                                  color: p.textSecondary,
                                 ),
                               ),
                             ),

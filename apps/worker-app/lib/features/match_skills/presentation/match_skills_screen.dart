@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -155,6 +156,7 @@ class _SkillList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final MatchSkillsCubit cubit = context.read<MatchSkillsCubit>();
     return ListView(
       padding: KitInsets.list(
@@ -173,7 +175,7 @@ class _SkillList extends StatelessWidget {
           style: OnboardingTypography.inter(
             size: 14,
             height: 1.45,
-            color: OnboardingColors.ink600,
+            color: p.textSecondary,
           ),
         ),
         const SizedBox(height: 16),
