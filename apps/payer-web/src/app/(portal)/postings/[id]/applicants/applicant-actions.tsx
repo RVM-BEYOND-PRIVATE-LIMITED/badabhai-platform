@@ -3,26 +3,28 @@
 import { useState } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type {
+  ApplicantStageOptions,
   FacelessApplicant,
   TradeLevelBadgeWire,
   UnlockQuotes,
 } from "../../../../../lib/contracts";
 import type { ApplicantPosting } from "../../../../../lib/candidate-inbox";
-import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
+import type {
+  ContactLookupView,
+  ContactView,
+  RevealView,
+  UnlockView,
+} from "../../../../../lib/unlock-view";
 import type { GrantedUnlock } from "../../../../../lib/unlock-history";
-import { Avatar, Badge, Button, Card, Tabs, Toast } from "../../../../../components/ds";
+import { Avatar, Badge, Button, Card, Dialog, Tabs, Toast } from "../../../../../components/ds";
 import { useToast } from "../../../../../components/ds/toast-provider";
 import { publishBalance, useLiveBalance } from "../../../../../components/live-balance";
 import { PageHeader, type PageHeaderProps } from "../../../../../components/page-header";
 import { PortalLink } from "../../../../../components/portal-link";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
 import { NOT_RECENTLY_ACTIVE_LABEL } from "../../../../../lib/activity-mark";
-import {
-  boardTabOf,
-  hasSavedStages,
-  outcomeStageOf,
-  STAGE_LABEL,
-} from "../../../../../lib/applicant-stages";
+import { boardTabOf, hasSavedStages, STAGE_LABEL } from "../../../../../lib/applicant-stages";
+import { prePayFactLines, SOURCE_LABEL } from "../../../../../lib/prepay-facts";
 import { shownTradeLevel } from "../../../../../lib/trade-level";
 import { candidatesErrorMessage } from "../../../../../lib/candidates-messages";
 import {
@@ -35,7 +37,9 @@ import {
 import { useUnlockQuotes } from "../../../../../components/unlock/use-unlock-quotes";
 import { quotedCredits, quotedWaived } from "../../../../../lib/unlock-quotes";
 import {
+  applicantStageOptionsAction,
   maskedResumeAction,
+  readUnlockContactAction,
   revealContactAction,
   setApplicantStageAction,
   unlockAction,
@@ -134,8 +138,11 @@ import {
  * per-worker rule it always was.
  */
 
-type Stage = "new" | "shortlist";
-type RowStage = Stage | "passed";
+/** The five stages a SAVED board may hold (#2747 adds selected/hired). */
+type RowStage = "new" | "shortlist" | "passed" | "selected" | "hired";
+
+/** Which stages the board draws: the outcome pair only while the server's read says so. */
+const V1_TABS: readonly RowStage[] = ["new", "shortlist", "passed"];
 
 /**
  * The ONE toast a failed saved move raises (SAVED stages only): why, in plain words, and where the
@@ -263,6 +270,8 @@ interface RowState {
   contacted: boolean;
   /** Granted this session, its reveal not yet played (contact-band.tsx). */
   fresh: boolean;
+  /** #2747 — the contact read for this row (read on the page, or after a grant). */
+  contactLookup: ContactLookupView | null;
 }
 
 const EMPTY: RowState = {
@@ -277,6 +286,7 @@ const EMPTY: RowState = {
   resumeError: null,
   contacted: false,
   fresh: false,
+  contactLookup: null,
 };
 
 export type ApplicantActionsProps = FeedProps & {
@@ -296,10 +306,20 @@ export type ApplicantActionsProps = FeedProps & {
   unlocked?: Record<string, GrantedUnlock>;
   /** #2750 — pre-read quotes (tests / an SSR seed); the hook refreshes them after mount. */
   unlockQuotes?: UnlockQuotes | null;
+  /**
+   * #2747 — `GET /payer/reach/applicant-stages`, read once per board load. Absent/null keeps
+   * today's three-tab board; `outcomeStages: true` draws Selected and Hired after Shortlist.
+   */
+  stageOptions?: ApplicantStageOptions | null;
+  /**
+   * #2747 — the contact read for each granted unlock, keyed by `unlockId`, read by the page when
+   * the screen opens (never cached or stored). Absent = today's opened screen.
+   */
+  contacts?: Record<string, ContactLookupView | null>;
 };
 
 export function ApplicantActions(props: ApplicantActionsProps) {
-  const { header, balance, balanceAsOf, unlocked = {}, unlockQuotes = null } = props;
+  const { header, balance, balanceAsOf, unlocked = {}, unlockQuotes = null, contacts = {} } = props;
   const feed = feedRows(props);
   // ONE posting's feed carries the New / Shortlist board; the inbox does not (see the top).
   const board = props.postingId !== undefined;
@@ -344,6 +364,18 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   // press handled before the re-render, or a `gone` answer deciding which moves are still
   // pending, must see the present. Appended LAST, after `stageNotice`.
   const [inFlight] = useState<Set<string>>(() => new Set());
+  // #2747 — the board's stage flags, read once by the page and re-read after a 400 on an outcome
+  // move. `outcomeStages` decides whether Selected and Hired are drawn at all; `rvmSignal` lets an
+  // RVM student's row say RVM is told, and nothing more.
+  const [stageFlags, setStageFlags] = useState<ApplicantStageOptions | null>(
+    props.stageOptions ?? null,
+  );
+  // The outcome move awaiting confirmation (null = none). Every move into or out of Selected or
+  // Hired asks first; the board this has always been is not prompted again.
+  const [confirmStage, setConfirmStage] = useState<{
+    row: FeedRow;
+    to: RowStage;
+  } | null>(null);
   // The newest balance the server read (#2585): this page's, or an unlock's read-back since — the
   // figure every zero-balance check below reads.
   const liveBalance = useLiveBalance(balance, balanceAsOf);
@@ -378,8 +410,13 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   // The row's stage: this session's move, else (SAVED) the row's own, else "new". On a posting's
   // feed the key IS the worker id, so the LOCAL board reads exactly the map it always read.
   function stageOf(r: FeedRow): RowStage {
-    const own = saved && r.applicant.stage !== undefined ? boardTabOf(r.applicant.stage) : undefined;
+    const own = saved && r.applicant.stage !== undefined ? r.applicant.stage : undefined;
     return stages[r.key] ?? own ?? "new";
+  }
+
+  /** The tab a stage shows under: outcome rows sit under Shortlist while that board is off. */
+  function tabOf(stage: RowStage): RowStage {
+    return outcomeStages ? stage : boardTabOf(stage);
   }
 
   // Keep / Pass are LOCAL stage transitions — no network, no event, nothing persisted.
@@ -421,7 +458,9 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     setStageSaving((prev) => withoutKey(prev, key));
     refocusToolbar(toolbar);
     if (res.ok) {
-      const answered = boardTabOf(res.stage);
+      // Use the stage the RESPONSE names. A stored outcome stage shows under its own tab while
+      // the board draws them, and under Shortlist while it does not (exactly as before #2747).
+      const answered = outcomeStages ? res.stage : boardTabOf(res.stage);
       setStages((prev) => ({ ...prev, [key]: answered }));
       return;
     }
@@ -435,7 +474,27 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     } else {
       setStages((prev) => (prior === undefined ? withoutKey(prev, key) : { ...prev, [key]: prior }));
     }
+    if (res.reason === "stage-not-open") {
+      // A 400 on an outcome move: the switch is not open. Re-read the board's flags, so the
+      // Selected / Hired controls follow reality at once.
+      void applicantStageOptionsAction().then((flags) => setStageFlags(flags));
+    }
     setStageNotice({ reason: res.reason, id: opaqueId(r.applicant.workerId), stage: from });
+  }
+
+  /** Confirm every move into or out of Selected / Hired; the other moves stay one tap. */
+  function onStageMove(r: FeedRow, to: RowStage, toolbar: Element | null = null) {
+    const from = stageOf(r);
+    const outcomeMove =
+      to === "selected" ||
+      to === "hired" ||
+      from === "selected" ||
+      from === "hired";
+    if (!saved || !outcomeMove) {
+      void moveStage(r, to, toolbar);
+      return;
+    }
+    setConfirmStage({ row: r, to });
   }
 
   // Mark-as-contacted: a LOCAL visual transition (the sibling of Keep→Shortlist). It is reachable
@@ -454,6 +513,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     const res = await unlockAction({ postingId, workerId });
     if (res.ok) {
       patch(workerId, { busy: false, unlock: res.view, fresh: res.view.kind === "granted" });
+      if (res.view.kind === "granted") void readContactFor(workerId, res.view.unlockId);
       // The server's balance after the grant, or the refusal's own figure (null: unread).
       if (res.readBack) {
         publishBalance(res.readBack);
@@ -514,6 +574,17 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     void runUnlock(workerId, context);
   }
 
+  /** #2747 — read what the credit opened. Each call re-reads; nothing is cached, stored or logged. */
+  async function readContactFor(workerId: string, unlockId: string) {
+    try {
+      const res = await readUnlockContactAction({ unlockId });
+      if (res.ok) patch(workerId, { contactLookup: res.view });
+      else if (res.error === "limited") patch(workerId, { contactLookup: { kind: "limited" } });
+    } catch {
+      // An outage keeps today's opened screen (the relay handle and the résumé).
+    }
+  }
+
   async function onRevealContact(unlockId: string, workerId: string) {
     patch(workerId, { contactBusy: true, contactError: null });
     const res = await revealContactAction({ unlockId });
@@ -531,16 +602,22 @@ export function ApplicantActions(props: ApplicantActionsProps) {
 
   // The tab on show. Passed is a SAVED board's tab only: should the rows stop carrying a stage
   // while it is open (the server stopped saving them), the LOCAL board opens on New.
-  const tab: RowStage = !saved && activeStage === "passed" ? "new" : activeStage;
+  const outcomeStages = stageFlags?.outcomeStages === true;
+  const tabsShown: readonly RowStage[] = outcomeStages
+    ? ["new", "shortlist", "selected", "hired", "passed"]
+    : V1_TABS;
+  // A tab that disappears when the flags change (an outcome tab, or Passed on a LOCAL board) falls
+  // back to New rather than showing an empty board for a stage no tab offers.
+  const tab: RowStage = tabsShown.includes(activeStage) ? activeStage : "new";
   // Filter the ALREADY best-first feed by the active stage (order preserved; never re-sorted).
   // The inbox has no board: every row it was given is shown, in the server's order.
-  const visible = board ? feed.filter((r) => stageOf(r) === tab) : feed;
+  const visible = board ? feed.filter((r) => tabOf(stageOf(r)) === tab) : feed;
   const counts = feed.reduce(
     (acc, r) => {
-      acc[stageOf(r)] += 1;
+      acc[tabOf(stageOf(r))] += 1;
       return acc;
     },
-    { new: 0, shortlist: 0, passed: 0 } as Record<RowStage, number>,
+    { new: 0, shortlist: 0, passed: 0, selected: 0, hired: 0 } as Record<RowStage, number>,
   );
 
   // Pipeline tabs. LOCAL: two (Keep moves New→Shortlist; Pass dismisses, counted beside them).
@@ -549,7 +626,15 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   // toolbar row is the caller's own (the posting filter).
   const pipeline = board ? (
     // `--saved` lets the three counted segments fit a phone's track (globals.css "APPLICANT FEED").
-    <div className={saved ? "applicants-pipeline applicants-pipeline--saved" : "applicants-pipeline"}>
+    <div
+      className={
+        saved
+          ? outcomeStages
+            ? "applicants-pipeline applicants-pipeline--saved applicants-pipeline--outcomes"
+            : "applicants-pipeline applicants-pipeline--saved"
+          : "applicants-pipeline"
+      }
+    >
       <Tabs
         variant="segmented"
         aria-label="Applicant pipeline"
@@ -558,6 +643,12 @@ export function ApplicantActions(props: ApplicantActionsProps) {
         tabs={[
           { id: "new", label: `New (${counts.new})` },
           { id: "shortlist", label: `Shortlist (${counts.shortlist})` },
+          ...(outcomeStages
+            ? [
+                { id: "selected", label: `Selected (${counts.selected})` },
+                { id: "hired", label: `Hired (${counts.hired})` },
+              ]
+            : []),
           ...(saved ? [{ id: "passed", label: `Passed (${counts.passed})` }] : []),
         ]}
       />
@@ -573,12 +664,47 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   // On the board the tab already says which stage a row is in, so a New row wears no badge there.
   // A `viewOnly` inbox posting offers no move (as it offers no unlock) — its stage still shows.
   function savedStageControls(r: FeedRow, stage: RowStage) {
-    // #2747: a selected / hired mark has no tab or move of its own here yet. It shows by its own
-    // name, with no move button, so nobody undoes it without seeing it.
-    const outcome = stages[r.key] === undefined ? outcomeStageOf(r.applicant.stage) : null;
-    if (outcome !== null) return <Badge tone="success">{STAGE_LABEL[outcome]}</Badge>;
     const saving = stageSaving[r.key] === true;
     const canMove = !r.posting?.viewOnly;
+    const ownStage = stages[r.key] ?? (saved ? r.applicant.stage : undefined);
+    const outcome = ownStage === "selected" || ownStage === "hired" ? ownStage : null;
+    // A stored outcome mark is a fact, not a deny: it shows by its own name. While the board draws
+    // outcome tabs it is a tab of its own; while it does not, it sits under Shortlist wearing the
+    // badge (today's board) — and the way back out always works.
+    if (outcome !== null) {
+      return (
+        <>
+          <Badge tone="success">{STAGE_LABEL[outcome]}</Badge>
+          {canMove && outcomeStages ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              iconLeft="tray"
+              disabled={saving}
+              aria-busy={saving}
+              onClick={(e) => onStageMove(r, "shortlist", toolbarOf(e))}
+            >
+              Move to Shortlist
+            </Button>
+          ) : null}
+          {canMove && board && outcome === "selected" && outcomeStages ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              iconLeft="check-circle"
+              disabled={saving}
+              aria-busy={saving}
+              onClick={(e) => onStageMove(r, "hired", toolbarOf(e))}
+            >
+              Mark hired
+            </Button>
+          ) : null}
+        </>
+      );
+    }
+    // The Selected / Hired controls belong to the posting's BOARD; an inbox card keeps the
+    // stage read-out and its v1 moves only (the issue's scope).
+    const canOutcome = board && canMove && outcomeStages && saved;
     return (
       <>
         {stage === "shortlist" ? (
@@ -595,7 +721,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
             iconLeft="bookmark-simple"
             disabled={saving}
             aria-busy={saving}
-            onClick={(e) => void moveStage(r, "shortlist", toolbarOf(e))}
+            onClick={(e) => moveStage(r, "shortlist", toolbarOf(e))}
           >
             Keep
           </Button>
@@ -607,7 +733,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
             iconLeft={ACTION_ICON.reject}
             disabled={saving}
             aria-busy={saving}
-            onClick={(e) => void moveStage(r, "passed", toolbarOf(e))}
+            onClick={(e) => moveStage(r, "passed", toolbarOf(e))}
           >
             Pass
           </Button>
@@ -619,10 +745,34 @@ export function ApplicantActions(props: ApplicantActionsProps) {
             iconLeft="tray"
             disabled={saving}
             aria-busy={saving}
-            onClick={(e) => void moveStage(r, "new", toolbarOf(e))}
+            onClick={(e) => moveStage(r, "new", toolbarOf(e))}
           >
             Move to New
           </Button>
+        ) : null}
+        {canOutcome && (stage === "new" || stage === "shortlist") ? (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconLeft="check-circle"
+              disabled={saving}
+              aria-busy={saving}
+              onClick={(e) => onStageMove(r, "selected", toolbarOf(e))}
+            >
+              Mark selected
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconLeft="check-circle"
+              disabled={saving}
+              aria-busy={saving}
+              onClick={(e) => onStageMove(r, "hired", toolbarOf(e))}
+            >
+              Mark hired
+            </Button>
+          </>
         ) : null}
       </>
     );
@@ -743,10 +893,16 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                   <Avatar masked size={44} aria-hidden="true" />
                   <div className="applicant__id">
                     <span className="bb-mono applicant__id-code">{opaqueId(a.workerId)}</span>
-                    {a.tradeLabel ? (
+                    {/* #2747 — the source is ALWAYS on: a label, never a filter or an order. */}
+                    {a.source ? (
+                      <Badge tone="neutral" variant="outline" className="applicant__source">
+                        {SOURCE_LABEL[a.source]}
+                      </Badge>
+                    ) : null}
+                    {!a.factsOn && a.tradeLabel ? (
                       <span className="applicant__trade">{a.tradeLabel}</span>
                     ) : null}
-                    {a.experienceBand || a.cityLabel ? (
+                    {!a.factsOn && (a.experienceBand || a.cityLabel) ? (
                       <span className="applicant__bands">
                         {bandLabel([a.experienceBand, a.cityLabel])}
                       </span>
@@ -822,6 +978,21 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                   </div>
                 </div>
 
+                {/* #2747 — FACTS BEFORE PAYING. Drawn only when the server sent the six keys;
+                    every missing value says "not given" (never a blank), and the salary is
+                    printed exactly as sent. No surname, phone, photo, employer or address is on
+                    the wire, so nothing else can appear. */}
+                {a.factsOn ? (
+                  <dl className="applicant__facts">
+                    {prePayFactLines(a).map((fact) => (
+                      <div className="applicant__fact" key={fact.key}>
+                        <dt className="applicant__fact-label">{fact.label}</dt>
+                        <dd className="applicant__fact-value">{fact.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+
                 {/* INBOX ONLY — the posting this applicant applied to, and his rank on IT (the
                     inbox itself is newest first, so a rank badge up top would read as a place in
                     this list). The payer's own title; linked to its details when this session has
@@ -851,7 +1022,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                     keeps them visibly distinct from the soft rank badge). They were disabled
                     toggle Chips, which a screen reader announced as "toggle button, not
                     pressed, dimmed". Same text; the list is named for what it holds. */}
-                {tags.length > 0 ? (
+                {!a.factsOn && tags.length > 0 ? (
                   <ul
                     className="applicant__signals"
                     aria-label={a.skills && a.skills.length > 0 ? "Skills" : "Relevance signals"}
@@ -939,6 +1110,10 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                   onRevealContact: (unlockId) => onRevealContact(unlockId, a.workerId),
                   onMaskedResume: (unlockId) => onMaskedResume(unlockId, a.workerId, r.context),
                   onRevealed: () => patch(a.workerId, { fresh: false }),
+                  contactLookup:
+                    row.unlock?.kind === "granted"
+                      ? (row.contactLookup ?? contacts[row.unlock.unlockId] ?? null)
+                      : null,
                 })}
               </Card>
             );
@@ -955,6 +1130,38 @@ export function ApplicantActions(props: ApplicantActionsProps) {
         onConfirm={onConfirmUnlock}
         credits={quotedCredits(quotes, confirmWorker ?? "") ?? 1}
       />
+
+      {/* #2747 — every move into or out of Selected / Hired asks first. The copy never promises
+          a reward; an RVM student's row says RVM is told only when the server's read says so. */}
+      <Dialog
+        open={confirmStage !== null}
+        onClose={() => setConfirmStage(null)}
+        title={confirmStage?.to === "hired" ? "Mark as hired?" : confirmStage?.to === "selected" ? "Mark as selected?" : "Move to Shortlist?"}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmStage(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                const pending = confirmStage;
+                setConfirmStage(null);
+                if (pending) void moveStage(pending.row, pending.to);
+              }}
+            >
+              Confirm
+            </Button>
+          </>
+        }
+      >
+        {confirmStage?.row.applicant.source === "rvm_student" &&
+        stageFlags?.rvmSignal === true ? (
+          <p>RVM is told about this mark.</p>
+        ) : (
+          <p>This changes the applicant&rsquo;s stage for this posting.</p>
+        )}
+      </Dialog>
 
       {/* Transient unlock-RESULT toast — granted vs. the ONE neutral no-cause failure (XB-C).
           Dismissible; faceless; never logged. Lives in a fixed bottom-right region. With SAVED
@@ -992,6 +1199,20 @@ function StageNoticeToast({ notice, onClose }: { notice: StageNotice; onClose: (
     return (
       <Toast tone="danger" title="Couldn’t save that move" onClose={onClose}>
         This list changed since it loaded, so it has been refreshed.
+      </Toast>
+    );
+  }
+  if (notice.reason === "stage-not-open") {
+    return (
+      <Toast tone="danger" title="That stage isn’t open" onClose={onClose}>
+        {where} Nothing was saved.
+      </Toast>
+    );
+  }
+  if (notice.reason === "unavailable") {
+    return (
+      <Toast tone="danger" title="Couldn’t save that move" onClose={onClose}>
+        {where} Nothing was saved — please try again.
       </Toast>
     );
   }

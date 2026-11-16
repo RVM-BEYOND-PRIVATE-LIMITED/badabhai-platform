@@ -1,4 +1,9 @@
-import type { MaskedResumeResult, RevealResult, UnlockResult } from "./contracts";
+import type {
+  MaskedResumeResult,
+  RevealResult,
+  UnlockContactWire,
+  UnlockResult,
+} from "./contracts";
 import { insufficientCreditsMessage } from "./unlock-quotes";
 
 /**
@@ -50,7 +55,14 @@ export function mapContactResult(result: RevealResult): ContactView {
 }
 
 export type UnlockView =
-  | { kind: "granted"; unlockId: string; expiresAt: string; creditsCharged?: number }
+  | {
+      kind: "granted";
+      unlockId: string;
+      expiresAt: string;
+      /** #2747 — null = open for good (no "until" date); absent = an older server. */
+      openUntil?: string | null;
+      creditsCharged?: number;
+    }
   | {
       kind: "insufficient";
       creditsNeeded: number;
@@ -60,6 +72,21 @@ export type UnlockView =
   | { kind: "week_limit"; message: string }
   | { kind: "daily_limit"; dailyLimit: number; message: string }
   | { kind: "unavailable"; message: string };
+
+/** #2747 — what the contact read says. It carries the name and number for display only. */
+export type ContactLookupView =
+  | {
+      kind: "contact";
+      fullName: string | null;
+      phone: string;
+      openedAt: string | null;
+    }
+  /** The one neutral deny (HTTP 200) — show nothing new, give no reason. */
+  | { kind: "unavailable" }
+  /** The route is not there for this company (404): keep today's opened screen. */
+  | { kind: "off" }
+  /** The hourly disclosure cap (429) — polite, no cause. */
+  | { kind: "limited" };
 
 export type RevealView =
   | {
@@ -84,6 +111,7 @@ export function mapUnlockResult(result: UnlockResult): UnlockView {
       kind: "granted",
       unlockId: result.unlockId,
       expiresAt: result.expiresAt,
+      openUntil: result.openUntil,
       ...(result.creditsCharged === undefined
         ? {}
         : { creditsCharged: result.creditsCharged }),
@@ -111,6 +139,20 @@ export function mapUnlockResult(result: UnlockResult): UnlockView {
     };
   }
   return { kind: "unavailable", message: NEUTRAL_UNLOCK_MESSAGE };
+}
+
+/** A contact read → its view. `404` is `off` (today's screen); the neutral body is `unavailable`. */
+export function mapContactLookup(result: UnlockContactWire | { off: true }): ContactLookupView {
+  if ("off" in result) return { kind: "off" };
+  if ("ok" in result && result.ok === true) {
+    return {
+      kind: "contact",
+      fullName: result.full_name,
+      phone: result.phone,
+      openedAt: result.opened_at,
+    };
+  }
+  return { kind: "unavailable" };
 }
 
 /** Disclosed → masked view (initials + masked PDF link, NO phone); else neutral. */

@@ -5,6 +5,7 @@ import {
   NEUTRAL_CONTACT_MESSAGE,
   NEUTRAL_REVEAL_MESSAGE,
   NEUTRAL_UNLOCK_MESSAGE,
+  mapContactLookup,
   mapContactResult,
   mapRevealResult,
   mapUnlockResult,
@@ -60,6 +61,32 @@ describe("unlock-view (no-oracle, XB-C)", () => {
   it("maps the neutral reveal body to the single unavailable view", () => {
     const v = mapRevealResult({ status: "unavailable" });
     expect(v).toEqual({ kind: "unavailable", message: NEUTRAL_REVEAL_MESSAGE });
+  });
+});
+
+describe("#2747 — what a credit opens: mapContactLookup", () => {
+  it("a 404 is `off` — today's opened screen (relay + résumé) stays", () => {
+    expect(mapContactLookup({ off: true })).toEqual({ kind: "off" });
+  });
+
+  it("the neutral 200 body is `unavailable` — nothing new, no reason", () => {
+    expect(mapContactLookup({ status: "unavailable" })).toEqual({ kind: "unavailable" });
+  });
+
+  it("success carries the name (null when not given) and number for display", () => {
+    expect(
+      mapContactLookup({
+        ok: true,
+        full_name: null,
+        phone: "+919876543210",
+        opened_at: "2026-11-16T10:00:00.000Z",
+      }),
+    ).toEqual({
+      kind: "contact",
+      fullName: null,
+      phone: "+919876543210",
+      openedAt: "2026-11-16T10:00:00.000Z",
+    });
   });
 });
 

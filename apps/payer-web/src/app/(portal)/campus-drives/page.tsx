@@ -51,7 +51,7 @@ export default async function CampusDrivesPage({
     <div className="page">
       <PageHeader
         title="Campus drives"
-        description="Ask RVM's placement team for a campus drive. The team schedules it in BadaBhai Campus and the date appears here."
+        description="Ask RVM's placement team for a campus drive."
         primaryAction={newRequest}
       />
 

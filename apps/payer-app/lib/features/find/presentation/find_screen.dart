@@ -10,6 +10,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/activity_mark.dart';
 import '../../../core/util/name_mask.dart';
+import '../../../core/util/prepay_facts.dart';
 import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -400,6 +401,7 @@ class _FindViewState extends State<_FindView> {
       unlockId: result.unlockId!,
       jobId: jobId,
       justUnlocked: true,
+      openUntil: result.openUntil,
     ));
     return UnlockOutcome.granted;
   }
@@ -874,8 +876,28 @@ class _ApplicantCard extends StatelessWidget {
                 solid: true,
               ),
             ],
+            if (applicantSourceLabel(applicant.source) != null) ...<Widget>[
+              const SizedBox(width: AppSpacing.gap6),
+              BbBadge(
+                applicantSourceLabel(applicant.source)!,
+                tone: BbBadgeTone.neutral,
+                icon: Icons.workspace_premium_rounded,
+              ),
+            ],
           ],
         ),
+        if (applicant.hasFacts) ...<Widget>[
+          const SizedBox(height: AppSpacing.gap6),
+          for (final (String label, String value) in prePayFactLines(
+            firstName: applicant.firstName,
+            tradeLine: applicant.tradeLine,
+            expectedSalary: applicant.expectedSalary,
+            machines: applicant.machines,
+            area: applicant.area,
+            lastActiveOn: applicant.lastActiveOn,
+          ))
+            _ApplicantFact(label: label, value: value),
+        ] else ...<Widget>[
         const SizedBox(height: AppSpacing.gap3),
         Text(
           _facets(applicant),
@@ -887,10 +909,11 @@ class _ApplicantCard extends StatelessWidget {
             color: context.bb.textSecondary,
           ),
         ),
-        if (tierBadge != null ||
-            applicant.levelFit == 'not_confirmed' ||
-            applicant.notRecentlyActive ||
-            signals.isNotEmpty) ...<Widget>[
+        if (!applicant.hasFacts &&
+            (tierBadge != null ||
+                applicant.levelFit == 'not_confirmed' ||
+                applicant.notRecentlyActive ||
+                signals.isNotEmpty)) ...<Widget>[
           const SizedBox(height: AppSpacing.gap6),
           Wrap(
             spacing: AppSpacing.gap6,
@@ -918,6 +941,7 @@ class _ApplicantCard extends StatelessWidget {
                 BbBadge(s, tone: BbBadgeTone.neutral),
             ],
           ),
+        ],
         ],
       ],
     );
@@ -956,6 +980,42 @@ class _ApplicantCard extends StatelessWidget {
       if ((a.experienceBand ?? '').isNotEmpty) a.experienceBand!,
     ];
     return parts.isEmpty ? 'Profile matched' : parts.join(' · ');
+  }
+}
+
+/// #2747 — one label/value fact on the card. A null fact already reads "not given".
+class _ApplicantFact extends StatelessWidget {
+  const _ApplicantFact({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.gap2),
+      child: Text.rich(
+        TextSpan(
+          children: <InlineSpan>[
+            TextSpan(
+              text: '$label: ',
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                weight: FontWeight.w700,
+                color: context.bb.textSecondary,
+              ),
+            ),
+            TextSpan(
+              text: value,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: context.bb.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

@@ -903,6 +903,9 @@ class HttpPayerApiClient implements PayerApiClient {
       expiresAt: res.body['expires_at'] as String?,
       creditsCharged:
           charged is num && charged.isFinite && charged >= 0 ? charged.toInt() : null,
+      openUntil: res.body.containsKey('open_until')
+          ? (res.body['open_until'] is String ? res.body['open_until'] as String : null)
+          : (res.body['expires_at'] as String?),
     );
   }
 
@@ -943,6 +946,28 @@ class HttpPayerApiClient implements PayerApiClient {
       relayHandle: handle,
       channel: res.body['channel'] as String? ?? 'in_app_relay',
       expiresAt: res.body['expires_at'] as String?,
+    );
+  }
+
+  @override
+  Future<ContactReadResult> readContact(String unlockId) async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.get,
+      '/payer/unlocks/$unlockId/contact',
+    );
+    // #2747 — a 404 is the rule being OFF for this company (not an outage): today's opened
+    // screen (relay handle + masked résumé) stays. A 429 is the hourly disclosure cap and must
+    // be said politely, so it throws like any other non-2xx.
+    if (res.statusCode == 404) return const ContactReadResult.off();
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    if (res.body['ok'] != true) return const ContactReadResult.unavailable();
+    final String? phone = res.body['phone'] as String?;
+    if (phone == null || phone.isEmpty) return const ContactReadResult.unavailable();
+    // Never cached, stored or logged: the result lives on state only while this screen shows it.
+    return ContactReadResult.contact(
+      fullName: res.body['full_name'] as String?,
+      phone: phone,
+      openedAt: res.body['opened_at'] as String?,
     );
   }
 
@@ -1528,6 +1553,25 @@ class HttpPayerApiClient implements PayerApiClient {
         // #2753 item 7 — the server's activity mark; absent when its switch is
         // off, read as false so the card draws nothing.
         notRecentlyActive: row['notRecentlyActive'] == true,
+        source: row['source'] as String?,
+        firstName: row['firstName'] as String?,
+        tradeLine: row['tradeLine'] as String?,
+        expectedSalary: row['expectedSalary'] as String?,
+        machines: row['machines'] is List<dynamic>
+            ? (row['machines'] as List<dynamic>)
+                .whereType<String>()
+                .toList(growable: false)
+            : null,
+        area: row['area'] as String?,
+        lastActiveOn: row['lastActiveOn'] as String?,
+        hasFacts: const <String>[
+          'firstName',
+          'tradeLine',
+          'expectedSalary',
+          'machines',
+          'area',
+          'lastActiveOn',
+        ].any(row.containsKey),
       );
     }
     final List<dynamic> components =
@@ -1557,6 +1601,26 @@ class HttpPayerApiClient implements PayerApiClient {
       // #2753 item 7 — the server's activity mark; absent when its switch is
       // off, read as false so the card draws nothing.
       notRecentlyActive: row['notRecentlyActive'] == true,
+      source: row['source'] as String?,
+      firstName: row['firstName'] as String?,
+      tradeLine: row['tradeLine'] as String?,
+      expectedSalary: row['expectedSalary'] as String?,
+      machines: row['machines'] is List<dynamic>
+          ? (row['machines'] as List<dynamic>)
+              .whereType<String>()
+              .toList(growable: false)
+          : null,
+      area: row['area'] as String?,
+      lastActiveOn: row['lastActiveOn'] as String?,
+      // Presence of ANY of the six keys means the part is on — all-null still counts.
+      hasFacts: const <String>[
+        'firstName',
+        'tradeLine',
+        'expectedSalary',
+        'machines',
+        'area',
+        'lastActiveOn',
+      ].any(row.containsKey),
     );
   }
 

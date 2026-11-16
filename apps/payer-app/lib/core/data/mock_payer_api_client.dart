@@ -1336,6 +1336,11 @@ class MockPayerApiClient implements PayerApiClient {
       );
 
   @override
+  Future<ContactReadResult> readContact(String unlockId) async =>
+      // The mock has no contact rule, so it behaves like a server with it off: today's screen.
+      const ContactReadResult.off();
+
+  @override
   Future<DisclosureResult> disclose({
     required String workerId,
     String? jobPostingId,

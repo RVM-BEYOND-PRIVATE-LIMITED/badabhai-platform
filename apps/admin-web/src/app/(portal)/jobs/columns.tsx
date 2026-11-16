@@ -29,8 +29,30 @@ export const POSTING_COLUMNS: readonly GridColumn<JobPostingListItem>[] = [
     id: "title",
     header: "Role title",
     cell: (j) => j.role_title,
-    trail: (j) => <span className="table__meta">{j.vacancy_band} openings</span>,
-    title: (j) => `${j.role_title} · ${j.vacancy_band} openings`,
+    // #2746 — the audience and the RVM review ride under the title rather than
+    // taking two more fixed columns: the 1440px acceptance (#2574) leaves no room
+    // for them, and a list row only needs the fact, not a second table.
+    trail: (j) => (
+      <span className="table__meta">
+        {[
+          `${j.vacancy_band} openings`,
+          audienceLabel(j.audience),
+          j.rvm_review ? `RVM ${j.rvm_review.state}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </span>
+    ),
+    title: (j) =>
+      [
+        `${j.role_title} · ${j.vacancy_band} openings`,
+        `Audience: ${audienceLabel(j.audience)}`,
+        j.rvm_review
+          ? `RVM review: ${j.rvm_review.state}${j.rvm_review.reason ? ` — ${j.rvm_review.reason}` : ""}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
   },
   { id: "org", header: "Published as", cell: (j) => j.org_label, title: (j) => j.org_label },
   {
@@ -48,27 +70,6 @@ export const POSTING_COLUMNS: readonly GridColumn<JobPostingListItem>[] = [
     cell: (j) => formatPayBand(j.pay_min, j.pay_max),
   },
   { id: "status", header: "Status", width: "status", cell: (j) => <StatusPill value={j.status} /> },
-  {
-    id: "audience",
-    header: "Audience",
-    width: "status",
-    className: "table__meta",
-    cell: (j) => audienceLabel(j.audience),
-    title: (j) =>
-      j.rvm_review ? `RVM review: ${j.rvm_review.state}` : audienceLabel(j.audience),
-  },
-  {
-    id: "rvm",
-    header: "RVM review",
-    width: "status",
-    cell: (j) =>
-      j.rvm_review ? (
-        <span className="table__meta">{j.rvm_review.state}</span>
-      ) : (
-        <span className="table__meta">—</span>
-      ),
-    title: (j) => j.rvm_review?.reason ?? undefined,
-  },
   {
     id: "trust",
     header: "Trust review",
