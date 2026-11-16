@@ -10,6 +10,8 @@ import type {
   PrePayFactsRepository,
 } from "./pre-pay-facts.repository";
 import { PrePayFactsService } from "./pre-pay-facts.service";
+import type { WorkerActivityRepository } from "../worker-activity/worker-activity.repository";
+import { WorkerActivityService } from "../worker-activity/worker-activity.service";
 
 /**
  * #2747 items 1, 4 and 9 — the label is on every row; the facts only while `applicant_facts` is
@@ -220,5 +222,142 @@ describe("PrePayFactsService.decorate", () => {
     const { svc, repo } = setup({ on: true });
     repo.listForWorkers.mockRejectedValueOnce(new Error("connection reset"));
     await expect(svc.decorate([{ workerId: W1 }], TENANT, NOW)).rejects.toThrow("connection reset");
+  });
+});
+
+/**
+ * #2753 items 4 and 7 — with WORKER_ACTIVITY_ENABLED on, every row carries `notRecentlyActive`
+ * (whatever the facts switch or his consent say) and the pre-pay `lastActiveOn` is the one
+ * last-active day; off, the key is absent and `worker_activity` is never read.
+ */
+describe("PrePayFactsService.decorate — the last-active day and its mark (#2753)", () => {
+  // NOW is 2026-11-15 in India: 2026-08-16 is 91 days before it, 2026-08-17 is 90.
+  const W3 = "33333333-3333-4333-8333-333333333333";
+
+  function withActivity(opts: {
+    activityOn: boolean;
+    factsOn: boolean;
+    days?: Map<string, string>;
+    rows?: PrePayFactsRawRow[];
+    thresholdDays?: number;
+  }) {
+    const base = setup({ on: opts.factsOn, rows: opts.rows });
+    const activityRepo = {
+      touch: vi.fn(),
+      lastActiveDays: vi.fn(async () => opts.days ?? new Map<string, string>()),
+    };
+    const activity = new WorkerActivityService(
+      activityRepo as unknown as WorkerActivityRepository,
+      {
+        WORKER_ACTIVITY_ENABLED: opts.activityOn,
+        NOT_RECENTLY_ACTIVE_DAYS: opts.thresholdDays ?? 90,
+      },
+    );
+    const svc = new PrePayFactsService(
+      base.repo as unknown as PrePayFactsRepository,
+      base.rollout as unknown as FeatureRolloutService,
+      base.pii as unknown as PiiCryptoService,
+      base.corrections as unknown as EffectiveFactsService,
+      activity,
+    );
+    return { ...base, svc, activityRepo };
+  }
+
+  it("switch off: no `notRecentlyActive` key on any row, and worker_activity is never read", async () => {
+    for (const factsOn of [false, true]) {
+      const { svc, activityRepo } = withActivity({ activityOn: false, factsOn });
+      const out = await svc.decorate([{ workerId: W1 }, { workerId: W2 }], TENANT, NOW);
+      for (const row of out) expect(row).not.toHaveProperty("notRecentlyActive");
+      expect(activityRepo.lastActiveDays).not.toHaveBeenCalled();
+    }
+  });
+
+  it("switch off, facts off: byte-identical to today (the label only)", async () => {
+    const { svc } = withActivity({ activityOn: false, factsOn: false });
+    const out = await svc.decorate([{ workerId: W1 }], TENANT, NOW);
+    expect(out).toEqual([{ workerId: W1, source: "badabhai_worker" }]);
+  });
+
+  it("switch off, facts on: lastActiveOn is still the device sighting", async () => {
+    const { svc } = withActivity({
+      activityOn: false,
+      factsOn: true,
+      rows: [raw(W1, { lastSeenAt: "2026-11-10T20:00:00.000Z" })],
+    });
+    const [row] = await svc.decorate([{ workerId: W1 }], TENANT, NOW);
+    expect(row?.lastActiveOn).toBe("2026-11-11");
+  });
+
+  it("switch on, facts OFF: the mark is on every row anyway (not a profile fact)", async () => {
+    const { svc, activityRepo, repo } = withActivity({
+      activityOn: true,
+      factsOn: false,
+      days: new Map([
+        [W1, "2026-08-16"], // 91 days: marked
+        [W2, "2026-08-17"], // 90 days: not marked
+      ]),
+    });
+    const out = await svc.decorate(
+      [{ workerId: W1 }, { workerId: W2 }, { workerId: W3 }],
+      TENANT,
+      NOW,
+    );
+    expect(out).toEqual([
+      { workerId: W1, source: "badabhai_worker", notRecentlyActive: true },
+      { workerId: W2, source: "badabhai_worker", notRecentlyActive: false },
+      // Never seen: no day, not marked.
+      { workerId: W3, source: "badabhai_worker", notRecentlyActive: false },
+    ]);
+    for (const row of out) for (const key of PRE_PAY_FACT_KEYS) expect(row).not.toHaveProperty(key);
+    // ONE read for the whole page, never one per row; the facts read still does not run.
+    expect(activityRepo.lastActiveDays).toHaveBeenCalledTimes(1);
+    expect(activityRepo.lastActiveDays).toHaveBeenCalledWith([W1, W2, W3], NOW);
+    expect(repo.listForWorkers).not.toHaveBeenCalled();
+  });
+
+  it("switch on, facts on: lastActiveOn is the unified day, and the mark agrees with it", async () => {
+    const { svc } = withActivity({
+      activityOn: true,
+      factsOn: true,
+      // The device says August; the table says he used the app last week.
+      rows: [raw(W1, { lastSeenAt: "2026-08-01T10:00:00.000Z" })],
+      days: new Map([[W1, "2026-11-08"]]),
+    });
+    const [row] = await svc.decorate([{ workerId: W1 }], TENANT, NOW);
+    expect(row).toMatchObject({ lastActiveOn: "2026-11-08", notRecentlyActive: false });
+    // The mark is the row's last key, after the facts.
+    expect(Object.keys(row!).at(-1)).toBe("notRecentlyActive");
+  });
+
+  it("consent still decides the FACT, never the mark", async () => {
+    const { svc } = withActivity({
+      activityOn: true,
+      factsOn: true,
+      rows: [raw(W1, { employerSharing: false })],
+      days: new Map([[W1, "2026-01-01"]]),
+    });
+    const [row] = await svc.decorate([{ workerId: W1 }], TENANT, NOW);
+    expect(row).toMatchObject({ lastActiveOn: null, notRecentlyActive: true });
+  });
+
+  it("reads the custom NOT_RECENTLY_ACTIVE_DAYS", async () => {
+    const { svc } = withActivity({
+      activityOn: true,
+      factsOn: false,
+      thresholdDays: 30,
+      days: new Map([[W1, "2026-10-15"]]), // 31 days before 2026-11-15
+    });
+    const [row] = await svc.decorate([{ workerId: W1 }], TENANT, NOW);
+    expect(row?.notRecentlyActive).toBe(true);
+  });
+
+  it("keeps the order and the count: a mark, never a filter or a sort", async () => {
+    const { svc } = withActivity({
+      activityOn: true,
+      factsOn: false,
+      days: new Map([[W2, "2026-01-01"]]),
+    });
+    const out = await svc.decorate([{ workerId: W2 }, { workerId: W1 }], TENANT, NOW);
+    expect(out.map((r) => r.workerId)).toEqual([W2, W1]);
   });
 });
