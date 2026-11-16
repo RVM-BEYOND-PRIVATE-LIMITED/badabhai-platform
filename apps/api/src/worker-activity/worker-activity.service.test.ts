@@ -50,8 +50,8 @@ describe("WorkerActivityService — switch on", () => {
     const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const { svc, repo } = setup(true);
     repo.touch.mockRejectedValue(
-      Object.assign(new Error('relation "worker_activity" does not exist'), {
-        cause: { code: "42P01" },
+      Object.assign(new Error('terminating connection due to administrator command for "x"'), {
+        cause: { code: "57P01" },
       }),
     );
     expect(() => svc.touch(W1, "2026-11-16")).not.toThrow();
@@ -59,8 +59,30 @@ describe("WorkerActivityService — switch on", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     const line = String(warn.mock.calls[0]?.[0]);
     expect(line).toContain(`worker=${W1}`);
+    expect(line).toContain("sqlstate=57P01");
+    expect(line).not.toContain("administrator command");
+  });
+
+  // The only 42P01 in this file: the warning is once per PROCESS (module state), and vitest gives
+  // each file its own module registry, so this test sees the first and only one.
+  it("switched on before 0168 (42P01): writes are dropped with ONE warning per process, no worker id", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc, repo } = setup(true);
+    repo.touch.mockRejectedValue(
+      Object.assign(new Error('relation "worker_activity" does not exist'), {
+        cause: { code: "42P01" },
+      }),
+    );
+    for (const day of ["2026-11-14", "2026-11-15", "2026-11-16"]) {
+      expect(() => svc.touch(W1, day)).not.toThrow();
+    }
+    await flush();
+    expect(repo.touch).toHaveBeenCalledTimes(3);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const line = String(warn.mock.calls[0]?.[0]);
+    expect(line).toContain("0168_worker_activity");
     expect(line).toContain("sqlstate=42P01");
-    expect(line).not.toContain("does not exist");
+    expect(line).not.toContain(W1);
   });
 
   it("reads the page's days through the repository, once", async () => {

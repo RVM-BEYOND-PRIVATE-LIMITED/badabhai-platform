@@ -403,7 +403,9 @@ NestJS boot assertion).
   search row. Off is today exactly: nothing reads or writes the table, no row carries
   `notRecentlyActive`, and `lastActiveOn` is the device sighting. The card's activity band, the
   search order and the `worker.active` event never read it. Migration 0168 is
-  APPLY-BEFORE-THE-SWITCH: on without the table, the company lists and the agency list 500.
+  APPLY-BEFORE-THE-SWITCH: on without the table nothing answers 500 (the writes are lost and the
+  reads fall back to the device day, with one warning per process), but every day of activity
+  until the apply is lost.
   Bridged through the GitHub `production` environment secret of the same name (compose
   `${WORKER_ACTIVITY_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
   `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; values

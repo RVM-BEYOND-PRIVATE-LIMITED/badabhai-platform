@@ -2276,8 +2276,9 @@ jobs:
           # #2753 — last active, one definition. Unset/empty resolves to off through compose's
           # `:-false`: nothing reads or writes worker_activity and every response is today's. On,
           # worker requests and Campus applications record the IST day, and applicant / inbox /
-          # search rows carry `notRecentlyActive`. Apply migration 0168 FIRST (on without it, the
-          # company lists 500). true/false/1/0/empty only.
+          # search rows carry `notRecentlyActive`. Apply migration 0168 FIRST (on without it,
+          # activity is lost and the last-active day falls back to the device sighting; nothing
+          # answers 500). true/false/1/0/empty only.
           WORKER_ACTIVITY_ENABLED: ${{ secrets.WORKER_ACTIVITY_ENABLED }}
           # Loud AI alerts (B13, #2567). INERT UNTIL THE SECRETS EXIST: absent, compose's
           # `:-` defaults resolve to today's thresholds (24h window, 10-call minimum, 0.5

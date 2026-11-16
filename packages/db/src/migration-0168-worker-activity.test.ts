@@ -123,6 +123,9 @@ describe("once a day, and erasure", () => {
 describe("the header", () => {
   it("states the switch, the slot order, the lock and the rollback", () => {
     expect(RAW).toContain("WORKER_ACTIVITY_ENABLED");
+    // Switched on early, the reads fall back to the device day (the API catches 42P01).
+    expect(RAW).toContain("NOTHING ANSWERS 500");
+    expect(RAW).toContain("fall back to the");
     expect(RAW).toContain("Apply 0164, 0165, 0166 and 0167 first");
     expect(RAW).toContain("lock_timeout = '3s'");
     expect(RAW).toContain(`DROP TABLE "${TABLE}";`);

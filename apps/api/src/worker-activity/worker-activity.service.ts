@@ -1,7 +1,11 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { SERVER_CONFIG } from "../config/config.module";
 import { sqlStateOf } from "../common/db-error";
-import { WorkerActivityRepository } from "./worker-activity.repository";
+import {
+  isUndefinedTable,
+  WorkerActivityRepository,
+  warnWorkerActivityTableMissing,
+} from "./worker-activity.repository";
 import {
   DEFAULT_NOT_RECENTLY_ACTIVE_DAYS,
   isNotRecentlyActive,
@@ -14,7 +18,8 @@ import {
  * Last active, ONE DEFINITION (#2753 items 4 and 7), behind `WORKER_ACTIVITY_ENABLED`.
  *
  * WRITES are fire-and-forget: {@link touch} and {@link recordNow} return nothing, never await,
- * never throw, and log only the worker id and the SQLSTATE when the write fails. Activity is a
+ * never throw, and log only the worker id and the SQLSTATE when the write fails (a missing table,
+ * 42P01, is reported once per process instead: every write would fail the same way). Activity is a
  * side-signal; it must never slow or fail the request that carries it (the interceptor's rule).
  *
  * READS ({@link lastActiveDays}) answer `null` while the switch is off and run NO query, so every
@@ -53,6 +58,12 @@ export class WorkerActivityService {
   touch(workerId: string, activeOn: string): void {
     if (!this.enabled) return;
     void this.repo.touch(workerId, activeOn).catch((err: unknown) => {
+      // Switched on before migration 0168: the day is lost, silently but for one line per process
+      // (the read falls back to the device day, so nothing a company or agency sees breaks).
+      if (isUndefinedTable(err)) {
+        warnWorkerActivityTableMissing();
+        return;
+      }
       // Ids and a closed code only: the error text could quote the statement's parameters.
       this.logger.warn(
         `worker activity: day not recorded (worker=${workerId}, sqlstate=${sqlStateOf(err) ?? "none"})`,

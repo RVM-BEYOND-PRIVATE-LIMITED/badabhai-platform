@@ -1378,9 +1378,10 @@ export const serverEnvSchema = z.object({
   //
   // DEFAULT OFF, AND OFF IS TODAY EXACTLY: nothing reads or writes `worker_activity`, no row
   // carries `notRecentlyActive`, and `lastActiveOn` is the device sighting as before. That is what
-  // makes 0168 apply-before-the-switch rather than apply-before-the-deploy: on without the table,
-  // the company lists and the agency list 500 (42P01). The card's activity band, the search order
-  // and the `worker.active` event never read this switch.
+  // makes 0168 apply-before-the-switch rather than apply-before-the-deploy. On without the table,
+  // nothing answers 500: the writes are lost and the reads fall back to the device day (42P01,
+  // one warning per process). The card's activity band, the search order and the `worker.active`
+  // event never read this switch.
   WORKER_ACTIVITY_ENABLED: booleanFromString,
   // The "not recently active" mark (#2753 item 7, owner default): a worker whose last active day is
   // MORE than this many days before today (IST) is marked; day 90 is not, day 91 is. A mark only:

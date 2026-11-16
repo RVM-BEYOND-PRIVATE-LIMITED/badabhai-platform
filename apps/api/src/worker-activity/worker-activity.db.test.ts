@@ -21,6 +21,8 @@ import { WorkerActivityRepository } from "./worker-activity.repository";
  *  - the agency list's switched-on ORDER (the LIMIT's membership) is valid SQL and counts the
  *    table: a worker who used the app today but signed in months ago survives a LIMIT 1 that the
  *    device-only order would give to someone else;
+ *  - switched on before 0168 (the table renamed away), the real driver's 42P01 is caught and both
+ *    reads answer the device day instead of failing;
  *  - RLS is ENABLED and FORCED with no policy, and no Data-API role holds a grant.
  *
  * Fixtures carry no real PII: synthetic phone placeholders, opaque ids.
@@ -200,6 +202,32 @@ describe.skipIf(!RUN)("worker_activity against Postgres (#2753, migration 0168)"
     expect(on.map((r) => r.workerId)).toEqual([AGENCY_DAILY]);
     // The repository's own day is still the device's UTC day; the service replaces it.
     expect(on[0]?.lastActiveOn).toBe("2026-01-05");
+  });
+
+  it("switched on before 0168: with the table gone, both reads fall back to the device day (no 500)", async () => {
+    // A real driver error, through drizzle's wrapper, is what `sqlStateOf` must recognise. The
+    // table is renamed away (not dropped) and always renamed back: a failed statement inside a
+    // transaction would abort it, and the fallback runs as its own statement, as in production.
+    const { sql } = client;
+    await sql`ALTER TABLE worker_activity RENAME TO worker_activity_t2753_hidden`;
+    try {
+      const days = await repo.lastActiveDays([TABLE_LATER, DEVICE_LATER, NEVER_SEEN], NOW);
+      // TABLE_LATER's 14 Nov lived in the table: without it, his device day (1 Aug) is the answer.
+      expect(days.get(TABLE_LATER)).toBe("2026-08-01");
+      expect(days.get(DEVICE_LATER)).toBe("2026-11-12");
+      expect(days.has(NEVER_SEEN)).toBe(false);
+      const agency = await new AgencyWorkersRepository(client.db).listReferredWithConsent(
+        AGENCY as TenantKey,
+        1,
+        { activityOrder: true },
+      );
+      // Today's device-only order: the worker who signed in yesterday.
+      expect(agency.map((r) => r.workerId)).toEqual([AGENCY_SIGNED_IN]);
+    } finally {
+      await sql`ALTER TABLE worker_activity_t2753_hidden RENAME TO worker_activity`;
+    }
+    // Restored: the table's day is back.
+    expect((await repo.lastActiveDays([TABLE_LATER], NOW)).get(TABLE_LATER)).toBe("2026-11-14");
   });
 
   describe("deny by default", () => {

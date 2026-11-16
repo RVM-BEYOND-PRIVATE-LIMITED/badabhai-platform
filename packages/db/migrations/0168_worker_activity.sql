@@ -32,9 +32,13 @@
 --
 -- DEPLOY ORDER - APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY. Nothing names this table
 -- while WORKER_ACTIVITY_ENABLED (default off) is off: no write, no read, and every response
--- is today's. With the switch on before 0168, the writes fail silently (they are
--- fire-and-forget), but the reads fail (42P01): a company's applicant lists, its inbox,
--- candidate search and an agency's referred-workers list answer 500.
+-- is today's. With the switch on before 0168, NOTHING ANSWERS 500: the activity writes
+-- are lost silently (fire-and-forget), and the reads catch 42P01 and fall back to the
+-- device day (the IST day of the newest worker_devices.last_seen_at), so a company's
+-- applicant lists, its inbox, candidate search and an agency's referred-workers list keep
+-- working and the not-recently-active mark is computed from that day. The API logs ONE
+-- warning per process naming this migration. Every day of activity until 0168 is applied
+-- is lost for good, which is why it still goes in first.
 -- Apply 0164, 0165, 0166 and 0167 first (slot order), then this.
 --
 -- LOCKS. CREATE TABLE is instant, but the FOREIGN KEY takes SHARE ROW EXCLUSIVE on
