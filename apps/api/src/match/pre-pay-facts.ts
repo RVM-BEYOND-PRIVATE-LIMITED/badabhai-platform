@@ -55,7 +55,11 @@ export interface PrePayFacts {
    * city when the gazetteer knows the branch name, else his own.
    */
   area: string | null;
-  /** The IST calendar day he was last active (`yyyy-mm-dd`), or null when never seen. */
+  /**
+   * The IST calendar day he was last active (`yyyy-mm-dd`), or null when never seen. His newest
+   * device sighting; while `WORKER_ACTIVITY_ENABLED` is on, the later of that and his newest
+   * `worker_activity` day (#2753, `WorkerActivityRepository.lastActiveDays`).
+   */
   lastActiveOn: string | null;
 }
 
@@ -332,6 +336,9 @@ function finiteNumber(value: unknown): number | null {
  * A company-facing row as it goes on the wire: its base shape, the `source` label and, while the
  * `applicant_facts` switch is on for the company, every {@link PrePayFacts} key. `source` is
  * optional only in the TYPE, for hand-built unit instances without `PrePayFactsService`; the
- * @Global MatchModule provides it, so every served row carries it.
+ * @Global MatchModule provides it, so every served row carries it. `notRecentlyActive` (#2753
+ * item 7) is on every row while `WORKER_ACTIVITY_ENABLED` is on, and absent while it is off.
  */
-export type PrePayWire<R> = R & { source?: ApplicantSource } & Partial<PrePayFacts>;
+export type PrePayWire<R> = R & { source?: ApplicantSource } & Partial<PrePayFacts> & {
+    notRecentlyActive?: boolean;
+  };

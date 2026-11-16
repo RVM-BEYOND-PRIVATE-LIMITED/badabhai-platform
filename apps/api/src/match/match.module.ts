@@ -22,6 +22,7 @@ import { MatchCandidatesService } from "./match-candidates.service";
 import { FreeTierService } from "./free-tier.service";
 import { PrePayFactsRepository } from "./pre-pay-facts.repository";
 import { PrePayFactsService } from "./pre-pay-facts.service";
+import { WorkerActivityModule } from "../worker-activity/worker-activity.module";
 
 /**
  * Matching V1 (ADR-0036) — the shared matching layer.
@@ -52,6 +53,8 @@ import { PrePayFactsService } from "./pre-pay-facts.service";
     BullModule.registerQueue({ name: REACH_WIDEN_EXPIRY_QUEUE }),
     // #2747 — the `applicant_facts` switch read by PrePayFactsService.
     FeatureRolloutModule,
+    // #2753 - the last-active day and the not-recently-active mark, read by PrePayFactsService.
+    WorkerActivityModule,
   ],
   // Two guard sets, two controllers on purpose: the payer posting form (`PayerAuthGuard`)
   // and the worker's own exit (`WorkerAuthGuard` + `ConsentGuard`).

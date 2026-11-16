@@ -50,7 +50,34 @@ export class AgencyWorkersRepository {
   async listReferredWithConsent(
     tenant: TenantKey,
     limit: number,
+    opts: {
+      /**
+       * #2753 — WORKER_ACTIVITY_ENABLED is on. The LIMIT's order then also counts his newest
+       * `worker_activity` day, so a worker who uses the app daily but last signed in months ago is
+       * not cut from a long list. MEMBERSHIP ONLY: the day the agency SEES is replaced by the one
+       * definition (`WorkerActivityService.lastActiveDays`) in the service, which re-sorts anyway.
+       * Off (the default), this SQL does not name `worker_activity`: today's statement exactly.
+       */
+      readonly activityOrder?: boolean;
+    } = {},
   ): Promise<AgencyWorkerEngagementRow[]> {
+    // Both terms are `YYYY-MM-DD` text, so GREATEST (which skips a NULL) picks the later day. The
+    // device term is spelled out again rather than naming the `last_active_on` output column:
+    // Postgres resolves an output alias in ORDER BY only as a bare name, never inside an expression.
+    const orderDay = opts.activityOrder
+      ? sql`GREATEST(
+          (
+            SELECT to_char(max(wd.last_seen_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+            FROM worker_devices wd
+            WHERE wd.worker_id = ai.invited_worker_id AND wd.revoked_at IS NULL
+          ),
+          (
+            SELECT to_char(max(wa.active_on), 'YYYY-MM-DD')
+            FROM worker_activity wa
+            WHERE wa.worker_id = ai.invited_worker_id
+          )
+        )`
+      : sql`last_active_on`;
     const rows = await this.db.execute<{
       worker_id: string;
       profile_complete: boolean;
@@ -143,7 +170,7 @@ export class AgencyWorkersRepository {
       --
       -- NB: no backtick may appear anywhere in this block -- it lives inside a tagged
       -- template literal, so one would terminate the string mid-query.
-      ORDER BY last_active_on DESC NULLS LAST, ai.invited_worker_id ASC
+      ORDER BY ${orderDay} DESC NULLS LAST, ai.invited_worker_id ASC
       LIMIT ${limit}
     `);
 

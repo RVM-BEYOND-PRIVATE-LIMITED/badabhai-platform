@@ -11,6 +11,7 @@ import { CampusJobsController } from "./campus-jobs.controller";
 import { CampusLinkModule } from "./campus-link.module";
 import { CampusPostingsRepository } from "./campus-postings.repository";
 import { CampusPostingsService } from "./campus-postings.service";
+import { WorkerActivityModule } from "../worker-activity/worker-activity.module";
 
 /**
  * The Campus jobs and applications routes (#2752 part E), behind the same `CampusServiceGuard`.
@@ -31,6 +32,8 @@ import { CampusPostingsService } from "./campus-postings.service";
     JobPostingsModule,
     PayersModule,
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
+    // #2753 - a Campus application records the student's last-active day. A leaf module.
+    WorkerActivityModule,
   ],
   controllers: [CampusJobsController, CampusApplicationsController],
   providers: [
