@@ -95,7 +95,8 @@ Residuals, accepted for the pilot:
 - **Stored state is honoured.** Every read (both feeds, the inbox, `?stage=`) reports a stored outcome stage as itself, whatever the switch says. Moving an applicant out of one, back to Shortlist for example, is allowed with the switch off.
 - **The events.** `payer.applicant_stage_changed` v1 is pinned to the first three stages and still reports every move between them, byte for byte. A move to or from `selected` or `hired` is `payer.applicant_stage_changed_v2`, with the same fields over the wide set. A refine stops v2 carrying a move v1 can carry, so no move is reported twice.
 - **Switched on before 0166.** The write fails the CHECK (23514) and the transaction rolls back, so nothing is written and no event is emitted. The request answers 500 and the log line names the missing migration.
-- **payer-web** keeps its three tabs. A `selected` or `hired` row shows under Shortlist (`boardTabOf`), with its own badge and no move buttons, so nobody undoes a mark without seeing it. The outcome stages get their own UI from Rishi.
+- **payer-web** keeps its three tabs. A `selected` or `hired` row shows under Shortlist (`boardTabOf`), with its own badge and no move buttons, so nobody undoes a mark without seeing it. The outcome stages get their own UI from Rishi (#2852).
+- **What a screen may draw.** `GET /payer/reach/applicant-stages` answers `{ stages, outcomeStages, rvmSignal }` for the session's company, from the same two switch reads a move makes. A screen draws Selected and Hired only while `outcomeStages` is true, and says RVM is told (on an RVM student's row) only while `rvmSignal` is true. A pilot list that cannot be read answers false.
 
 A company may mark an applicant it never opened (a student met at a campus drive). RVM's verification, not the mark, decides the reward. RVM's systems learn of a mark on an RVM student two ways:
 
