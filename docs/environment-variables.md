@@ -412,6 +412,20 @@ NestJS boot assertion).
   `scripts/deploy/staging-deploy.sh`; the bridge shipped in #2613, after #2552). Arming is the
   secret set to `true` plus a redeploy, on the CEO's go-ahead; values lowercase
   `true`/`false`/`1`/`0`/empty only.
+- **The helper's name before sign-in (#2753 item 12)** — `REFERRAL_HELPER_NAME_ENABLED`, api
+  only (`booleanFromString`, default off). Off, `GET /referrals/helper` is a neutral 404 that
+  touches neither the rate limiter nor the database. On, the unauthenticated route answers
+  `{ "display_name": … }`: the agency's company name for a live agency code, `null` for every
+  other code (a worker referrer's, unknown, expired, spent, malformed) with the same 200 body;
+  never a worker's name. Capped per address by `REFERRAL_ATTRIBUTE_MAX_PER_IP_PER_HOUR` in its own
+  bucket. **Needs the owner's OK before it goes on:** it reverses the no-oracle rule of
+  `POST /referrals/attribute` and opens a code-to-name lookup to anyone; the screen's copy ("[Name]
+  helped you make this profile. Confirm with the OTP only if the details are yours and you have
+  not paid anyone.") waits for a lawyer's check. **No migration.** Contract:
+  `docs/api/worker-referrals-api-reference.md`. Bridged through the GitHub `production`
+  environment secret of the same name (compose `${REFERRAL_HELPER_NAME_ENABLED:-false}` on `api`,
+  `ci.yml` `env:` + `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`). Arming is the
+  secret set to `true` plus a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only.
 - **The brief's four availability answers (#2753 item 3)** —
   `AVAILABILITY_ANSWERS_V2_ENABLED`, api only (`booleanFromString`, default off). Off is today's
   `GET /workers/me/work-preferences/options` exactly. On, its `availability_status` serves `join_now` / `in_15_days` / `in_30_days` /

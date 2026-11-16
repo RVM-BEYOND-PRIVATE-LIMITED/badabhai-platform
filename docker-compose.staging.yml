@@ -435,6 +435,11 @@ services:
       # posting that names a rung sorts its applicants meets → not confirmed → below inside each
       # trade group. Nobody is hidden. `:-false` because this bool rejects "".
       LEVEL_NEEDED_SORT_ENABLED: ${LEVEL_NEEDED_SORT_ENABLED:-false}
+      # THE HELPER'S NAME BEFORE SIGN-IN (#2753 item 12). Off: GET /referrals/helper is a 404 and
+      # reads nothing. On, an agency code answers the agency's company name and every other code
+      # `display_name: null`; never a worker's name. NEEDS THE OWNER'S OK BEFORE IT GOES ON. No
+      # migration. `:-false` because this bool rejects "".
+      REFERRAL_HELPER_NAME_ENABLED: ${REFERRAL_HELPER_NAME_ENABLED:-false}
       # THE BRIEF'S FOUR AVAILABILITY ANSWERS (#2753 item 3). Off is today's options exactly. On,
       # GET /workers/me/work-preferences/options serves join_now / in_15_days / in_30_days /
       # working_open as `availability_status`. Writes accept both sets either way, and every reader
