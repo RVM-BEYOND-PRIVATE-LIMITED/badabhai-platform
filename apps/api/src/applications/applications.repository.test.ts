@@ -143,9 +143,10 @@ describe("findApplicationsByWorker — the location_label boundary", () => {
  * #2753 item 8 — `via` is read IN THIS STATEMENT. The service only maps the bit, and every
  * service test mocks this method, so only a statement-level test sees that it is one EXISTS (no
  * fourth join that could fan a decision out, no read per row) and that it counts a LIVE Campus
- * record only. That Postgres agrees is campus-jobs.db.test.ts.
+ * record that OWNS the application only (`via` names who created it). That Postgres agrees is
+ * campus-jobs.db.test.ts.
  */
-describe("findApplicationsByWorker — `via` from a live Campus record (#2753)", () => {
+describe("findApplicationsByWorker — `via` from a live Campus record that owns it (#2753)", () => {
   it("projects one EXISTS over institute_applications, correlated on the application AND the worker", async () => {
     const { repo, captured } = makeDb();
     await repo.findApplicationsByWorker(WORKER);
@@ -155,6 +156,8 @@ describe("findApplicationsByWorker — `via` from a live Campus record (#2753)",
     expect(via).toContain('"institute_applications"."application_id" = "applications"."id"');
     // The worker id puts it on `institute_applications_worker_idx` (no index on application_id).
     expect(via).toContain('"institute_applications"."worker_id" = "applications"."worker_id"');
+    // WHO CREATED it: a Campus record that points at his own app apply does not make it Campus's.
+    expect(via).toMatch(/and "institute_applications"\."owns_application" and/);
     expect(via).toContain('"institute_applications"."withdrawn_at" is null');
     // Still three joins: the Campus record is never joined, so it cannot multiply a row.
     expect(captured.joins).toHaveLength(3);

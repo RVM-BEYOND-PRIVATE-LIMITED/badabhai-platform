@@ -98,15 +98,15 @@ Rows mix `applied` and `skipped`; the app shows `applied`. The ops read
 | `matched_skill_label`       | string \| null                           | The V1 subtitle (#1051).                           |
 | `via`                       | `app`\|`campus`                          | **Added 2026-11-16 (#2753 item 8).** See below.    |
 
-### `via` — where the application came from
+### `via` — who created the application
 
-- **`campus`** while a live BadaBhai Campus record points at the application: an RVM student applied
-  through Campus (#2752 item 8), or Campus recorded an apply he had already made in the app.
-  **`app`** for every other row.
+- **`campus`** when BadaBhai Campus created it: an RVM student applied through Campus (#2752 item 8)
+  and a live Campus record owns the application. **`app`** for every other row, including an apply
+  he made in the app himself that Campus also recorded.
 - A Campus application is an ordinary row: listed whatever the posting's audience (an RVM-only posting
   included), with no field of its own besides `via`.
-- A Campus withdrawal deletes an application Campus made, so it leaves this list like any application
-  that is gone. An application he made in the app himself stays, and reads `app` again.
+- A Campus withdrawal deletes an application Campus created, so it leaves this list like any
+  application that is gone. An application he made in the app himself stays, and still reads `app`.
 - **Additive, no switch.** On every row, never null. The shipped app reads named keys only
   (`AppliedJob.fromJson`), so it ignores `via`.
 

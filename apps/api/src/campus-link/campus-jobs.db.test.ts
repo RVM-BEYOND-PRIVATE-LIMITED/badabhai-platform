@@ -676,7 +676,7 @@ describe.skipIf(!RUN)("#2752 part E — Campus jobs and applications against Pos
     expect((await companyList.listForOwned(postingId, companyId, CTX)).applicants).toEqual([]);
   });
 
-  it("#2753 — an app apply Campus also records reads campus while that record is live, app after the withdrawal", async () => {
+  it("#2753 — an app apply Campus also records reads app, before and after the Campus withdrawal", async () => {
     // A first Campus application links him; he then applies in the app to a posting for everyone,
     // and Campus sends the same apply: the Campus record points at HIS row and does not own it.
     const first = await posting("rvm_students");
@@ -694,9 +694,10 @@ describe.skipIf(!RUN)("#2752 part E — Campus jobs and applications against Pos
     expect(out.created).toBe(true);
     const viaOf = async () => (await myApplications(workerId)).find((a) => a.job_id === both)?.via;
 
-    expect(await viaOf()).toBe("campus");
+    // `via` names who created it: he did, in the app. The live Campus record does not own it.
+    expect(await viaOf()).toBe("app");
     await campusApps.withdraw(externalRef, CTX);
-    // His own application stays on his list, and is his own again.
+    // His own application stays on his list, still his own.
     expect(await viaOf()).toBe("app");
   });
 });

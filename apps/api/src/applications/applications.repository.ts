@@ -156,9 +156,10 @@ export interface ApplicationWithJob {
   // legacy decision (which has no reach row at all). The ID, not a label: turning it into a
   // human string is a taxonomy lookup and belongs in the service, not the repository.
   matchedSkillId: string | null;
-  // #2753 item 8. TRUE while a live Campus record (`institute_applications`, not withdrawn) points
-  // at this application; the service turns it into `via`. A bit, not the record: the Campus ref
-  // and the student ref stay off the worker's list.
+  // #2753 item 8. TRUE when Campus CREATED this application: a live Campus record
+  // (`institute_applications`, not withdrawn) points at it AND owns it (`owns_application`). An
+  // apply he made in the app that Campus also recorded is FALSE. The service turns it into `via`.
+  // A bit, not the record: the Campus ref and the student ref stay off the worker's list.
   viaCampus: boolean;
 }
 
@@ -684,15 +685,18 @@ export class ApplicationsRepository {
         // service. Keeping the repository to columns is also what stops this join from
         // becoming the place someone later reaches for pay or employer.
         matchedSkillId: jobReach.matchedSkillId,
-        // #2753 item 8. An EXISTS in this statement, not a join and not a read per row: it cannot
-        // fan a decision out, and the worker id keeps it on `institute_applications_worker_idx`
-        // (a Campus record and the application it points at always name the same worker). A
-        // withdrawal nulls `application_id` (the CHECK `institute_applications_withdrawn_chk`);
-        // `withdrawn_at IS NULL` says "live" in words as well.
+        // #2753 item 8 — WHO CREATED it. An EXISTS in this statement, not a join and not a read
+        // per row: it cannot fan a decision out, and the worker id keeps it on
+        // `institute_applications_worker_idx` (a Campus record and the application it points at
+        // always name the same worker). `owns_application` is what makes it Campus's: a record
+        // that points at an apply he had already made in the app does not. A withdrawal nulls
+        // `application_id` (the CHECK `institute_applications_withdrawn_chk`); `withdrawn_at IS
+        // NULL` says "live" in words as well.
         viaCampus: sql<boolean>`exists (
           select 1 from ${instituteApplications}
           where ${instituteApplications.workerId} = ${applications.workerId}
             and ${instituteApplications.applicationId} = ${applications.id}
+            and ${instituteApplications.ownsApplication}
             and ${instituteApplications.withdrawnAt} is null
         )`,
       })
