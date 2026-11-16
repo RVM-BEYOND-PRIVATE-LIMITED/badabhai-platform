@@ -391,6 +391,20 @@ export const serverEnvSchema = z.object({
   //
   // DEFAULT OFF = today's behaviour exactly: a typed tenure answer resolves no gate.
   FORM_TYPED_TENURE_DERIVE_ENABLED: booleanFromString,
+  // #2753 item 2 — a trade form's experience band becomes `worker_skill.months_bucketed`. A form
+  // worker has no profile row, so every skill he derives reads 0 months ("not recorded" to search)
+  // although the form asked him a band. ON gives each skill a form derived that form's band years
+  // (fresher 0, under one 0, 1–3 → 2, 3–5 → 4, 5–10 → 7, over 10 → 12) through the existing
+  // bucketing, so 3–5 years reads 48 months. A typed tenure counts only with
+  // FORM_TYPED_TENURE_DERIVE_ENABLED on too. FILL, NEVER OVERRIDE: a profile's own total_years
+  // keeps exactly today's months. Read by BOTH writers of worker_skill — the live rebuild and
+  // `db:backfill:worker-skills`, which reads this same name from its own environment.
+  //
+  // DEFAULT OFF = today's derivation byte for byte, and no extra query. It changes RANK INPUTS for
+  // every existing form worker (search order, new application snapshots, tier promotion at
+  // `tier_floor_months`), so switching it on waits for the owner's `engine_version` ruling
+  // (ADR-0036) and is followed by `db:backfill:worker-skills --apply` then `db:materialize:reach`.
+  FORM_TENURE_MONTHS_ENABLED: booleanFromString,
   // RÉSUMÉ SKINS (#1801, owner ruling 2026-09-28 "Plumbing, Neela only") — the per-worker colour
   // skin of the `bb_trade` sheet, chosen through GET/PUT /resume/skin.
   //
@@ -875,6 +889,18 @@ export const serverEnvSchema = z.object({
   // under-18 answer is refused WHATEVER this says — the flag only decides whether a missing
   // answer still passes. Arm only once the worker-app release that sends the answer is live.
   SIGNUP_AGE_GATE_ENABLED: booleanFromString,
+  // #2753 item 13 — where the full worker privacy notice is published. `GET /consent/notice`
+  // serves it beside the notice version, so the worker app (#2748) links to it instead of
+  // hard-coding it. Unset/empty (the default) serves `notice_url: null`: there is no published
+  // link yet, and none is invented here. `optionalSecret`, because compose passes an unset
+  // variable as "". https only: it opens in the worker's browser. A malformed value refuses boot
+  // (the deploy preflight refuses it first).
+  CONSENT_NOTICE_URL: optionalSecret(
+    z
+      .string()
+      .url()
+      .refine((raw) => new URL(raw).protocol === "https:", "must be an https URL"),
+  ),
   // Cadence (hours) of the deletion sweep that erases overdue rows. The DB marker is
   // authoritative — a missed run only delays erasure until the next sweep. Fractional
   // hours allowed for tests/staging (cadence precedent: PACE_WAVE_INTERVAL_HOURS).

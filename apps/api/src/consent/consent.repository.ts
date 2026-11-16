@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { type Database, workerConsents, type WorkerConsent, type NewWorkerConsent } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
@@ -46,6 +46,30 @@ export class ConsentRepository {
       .orderBy(desc(workerConsents.acceptedAt))
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * {@link findLatestStateByWorker} for many workers in ONE read (#2753 item 13): each worker's
+   * LATEST row by `acceptedAt`, `purposes` and `revokedAt` only. A worker with no row is absent
+   * from the map. For the model-training gate (`model-training-gate.ts`), which asks about a
+   * whole batch of workers at once.
+   */
+  async findLatestStatesByWorkers(
+    workerIds: readonly string[],
+  ): Promise<Map<string, Pick<WorkerConsent, "purposes" | "revokedAt">>> {
+    if (workerIds.length === 0) return new Map();
+    const rows = await this.db
+      .selectDistinctOn([workerConsents.workerId], {
+        workerId: workerConsents.workerId,
+        purposes: workerConsents.purposes,
+        revokedAt: workerConsents.revokedAt,
+      })
+      .from(workerConsents)
+      .where(inArray(workerConsents.workerId, [...workerIds]))
+      .orderBy(workerConsents.workerId, desc(workerConsents.acceptedAt));
+    return new Map(
+      rows.map((r) => [r.workerId, { purposes: r.purposes, revokedAt: r.revokedAt }]),
+    );
   }
 
   /**

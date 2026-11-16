@@ -186,6 +186,24 @@ NestJS boot assertion).
   ho gaye") at read time and uses them to resolve the experience gates, so a veteran is not shown
   fresher questions. Never stored; the question stays on screen; an ambiguous answer (two figures,
   a negated one, none, or outside 0–60) derives nothing.
+- **A trade form's experience band as match months (#2753 item 2)** — `FORM_TENURE_MONTHS_ENABLED`
+  (api, environment secret, `booleanFromString`; default `false`, today's derivation and no extra
+  query). `true` gives each skill a trade form derived that form's band years as
+  `worker_skill.months_bucketed`, through the existing 6-month bucketing (fresher and under one year
+  0, 1–3 years 24 months, 3–5 years 48, 5–10 years 84, over 10 years 144), and only where the
+  profile's own `total_years` buckets to 0 — a stated tenure is never overridden. A typed tenure
+  counts only with `FORM_TYPED_TENURE_DERIVE_ENABLED` on too. Rank input only, never printed on the
+  sheet. Bridged like its neighbours (compose `${FORM_TENURE_MONTHS_ENABLED:-false}` on `api`,
+  `ci.yml` `env:` + `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`).
+  `db:backfill:worker-skills` reads the SAME two names from the operator's own environment and
+  prints them; its `--apply` refuses (exit 1, one line naming the variable) unless
+  `FORM_TENURE_MONTHS_ENABLED` is set explicitly, and `FORM_TYPED_TENURE_DERIVE_ENABLED` too when the
+  first is true, so an operator's shell cannot silently write different months from the live path.
+  A dry run assumes false for an unset switch and prints `(assumed: unset)`.
+  Arming changes rank inputs for every form worker, so it waits for the owner's `engine_version`
+  ruling (ADR-0036), then: the secret `true` plus a redeploy, then from a tree equal to origin/main
+  `pnpm --filter @badabhai/db db:backfill:worker-skills --apply` (both switches exported) and
+  `pnpm --filter @badabhai/db db:materialize:reach --apply`.
 - **Stopping AI calls nobody uses (token-audit fixes, 2026-10-22)** — every one defaults to
   today's behaviour, and each is switched on separately:
   - `AI_REAL_CALL_TASKS_DENY` (ai-service, box only, never bridged; default empty) — tasks
@@ -382,6 +400,14 @@ NestJS boot assertion).
   (compose `${SIGNUP_AGE_GATE_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
   `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; off again
   is `false` plus a redeploy. Values lowercase `true`/`false`/`1`/`0`/empty only.
+- **Privacy notice link (#2753 item 13)** — `CONSENT_NOTICE_URL`, api only (`optionalSecret`, an
+  https URL). `GET /consent/notice` (worker-authed, `no-store`) serves
+  `{ version, employer_contact_versions, notice_url }`: `CURRENT_CONSENT_VERSION`,
+  `EMPLOYER_CONTACT_NOTICE_VERSIONS` and this value, or `notice_url: null` while it is unset (the
+  default; no link is invented). Not a switch. A plain-http or malformed value refuses boot.
+  Bridged through the GitHub `production` environment secret of the same name (compose
+  `${CONSENT_NOTICE_URL:-}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Setting it is the secret plus a redeploy.
 - **"Level needed" applicant sort (engine v1.1, CEO ruling 30 Oct 2026, ADR-0061)** —
   `LEVEL_NEEDED_SORT_ENABLED`, api only (`booleanFromString`, default off). Off is today's
   applicant list exactly: no extra query, the v1.0 ORDER BY, `levelFit: null` on every row. On, a

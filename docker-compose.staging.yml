@@ -400,6 +400,12 @@ services:
       # gates (read-time only, never stored). FALSE (the default) is today's form, in which a
       # typed tenure resolves nothing and a 10-year worker can be shown fresher questions.
       FORM_TYPED_TENURE_DERIVE_ENABLED: ${FORM_TYPED_TENURE_DERIVE_ENABLED:-false}
+      # #2753 item 2: a trade form's experience band fills worker_skill.months_bucketed where the
+      # profile states no tenure (3–5 years → 48 months; a typed tenure only with the flag above on
+      # too). FALSE (the default) is today's derivation: a form worker's skills read 0 months, "not
+      # recorded". It changes rank inputs: set it only after the engine_version ruling (ADR-0036),
+      # then rebuild (db:backfill:worker-skills, db:materialize:reach). `:-false`: this bool rejects "".
+      FORM_TENURE_MONTHS_ENABLED: ${FORM_TENURE_MONTHS_ENABLED:-false}
 
       # RÉSUMÉ SKINS (#1801). Off is every sheet in its template's own colours, and nothing reads
       # migration 0128's table. Turn on only after 0128 is applied. `:-false` because this bool
@@ -424,6 +430,10 @@ services:
       # a missing answer is a 400. Turn on only once the worker-app release that sends
       # `age_18_plus` is live. No migration. `:-false` because this bool rejects "".
       SIGNUP_AGE_GATE_ENABLED: ${SIGNUP_AGE_GATE_ENABLED:-false}
+      # THE PRIVACY NOTICE LINK (#2753 item 13). GET /consent/notice serves it beside the notice
+      # version. Unset/empty serves `notice_url: null` (no link published yet). https only; the
+      # deploy preflight refuses anything else before a container moves.
+      CONSENT_NOTICE_URL: ${CONSENT_NOTICE_URL:-}
       # "LEVEL NEEDED" APPLICANT SORT (engine v1.1, CEO ruling 30 Oct 2026, ADR-0061). Off is
       # today's list exactly: no extra query, the v1.0 ORDER BY, `levelFit` null. On, a 4-CNC-trade
       # posting that names a rung sorts its applicants meets → not confirmed → below inside each

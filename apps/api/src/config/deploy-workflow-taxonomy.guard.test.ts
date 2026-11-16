@@ -343,6 +343,14 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /SEARCH_EXIT_ENABLED:\s*\$\{\{\s*secrets\.SEARCH_EXIT_ENABLED\s*\}\}/,
       /envs:[^\n]*\bSEARCH_EXIT_ENABLED\b/,
     ],
+    // #2753 item 2 — a trade form's experience band fills `worker_skill.months_bucketed`. A plain
+    // boolean on the api only (the backfill reads the same name from its operator's shell), turned
+    // on in production ONLY by the environment secret, after the `engine_version` ruling.
+    [
+      "FORM_TENURE_MONTHS_ENABLED",
+      /FORM_TENURE_MONTHS_ENABLED:\s*\$\{\{\s*secrets\.FORM_TENURE_MONTHS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bFORM_TENURE_MONTHS_ENABLED\b/,
+    ],
     // #2753 item 9 — hire records. A plain boolean on the api only, turned on in production ONLY
     // by the environment secret, after the `hires` migration is applied.
     [
@@ -554,6 +562,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["WORKER_ACTIVITY_ENABLED", "false"],
     // #2753 item 6 — off is today: the worker routes 404 and nothing reads worker_search_exits.
     ["SEARCH_EXIT_ENABLED", "false"],
+    // #2753 item 2 — off is today's derivation: a form worker's skills read 0 months, no extra read.
+    ["FORM_TENURE_MONTHS_ENABLED", "false"],
     // #2753 item 9 — off is today's API: nothing reads or writes `hires`; GET /admin/hires 404s.
     ["HIRE_RECORDS_ENABLED", "false"],
     // #2753 item 11 — off is no pay-on-joining route at all (a 404 before any query); 70 is the

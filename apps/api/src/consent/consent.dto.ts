@@ -64,3 +64,22 @@ export interface MyConsentState {
   revoked_at: string | null;
   purposes: string[];
 }
+
+/**
+ * `GET /consent/notice` (#2753 item 13) — the notice facts the consent screen needs, from the
+ * server, so the worker app (#2748) stops hard-coding them (`kConsentVersion`).
+ *
+ *   - `version` — `CURRENT_CONSENT_VERSION`: the version a `POST /consent/accept` records for the
+ *     notice shown today;
+ *   - `employer_contact_versions` — `EMPLOYER_CONTACT_NOTICE_VERSIONS`: the versions whose screen
+ *     showed the employer-sharing copy (a grant at any other version is a 400);
+ *   - `notice_url` — `CONSENT_NOTICE_URL`, where the full privacy notice is published, or `null`
+ *     while none is configured. Never invented.
+ *
+ * Constants and one setting: nothing about the caller, and no switch.
+ */
+export interface ConsentNoticeResponse {
+  version: string;
+  employer_contact_versions: string[];
+  notice_url: string | null;
+}
