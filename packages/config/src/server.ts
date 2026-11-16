@@ -513,6 +513,17 @@ export const serverEnvSchema = z.object({
   // uncapped one lets an authed worker spam attribution reads (DB-load + a timing probe) —
   // bb-security-review LOW-MED. Same fail-closed idiom (Redis outage → 429, never uncapped).
   REFERRAL_ATTRIBUTE_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // THE HELPER'S NAME BEFORE SIGN-IN (#2753 item 12, brief 9). On, the unauthenticated
+  // `GET /referrals/helper?code=` answers `{ display_name }`: the agency's COMPANY name for a live
+  // agency code, null for every other code (a worker referrer's, unknown, expired, malformed),
+  // never a worker's name. It is capped per address with the attribute route's limiter and cap
+  // above, in its own bucket.
+  //
+  // DEFAULT OFF, AND OFF IS A 404 THAT READS NOTHING. NEEDS THE OWNER'S OK BEFORE IT GOES ON: it
+  // reverses the no-oracle rule of `POST /referrals/attribute` (a worker learns neither whether a
+  // code is valid nor who invited him) and opens a code-to-name lookup to anyone. The screen's
+  // copy waits for a lawyer's check. No migration.
+  REFERRAL_HELPER_NAME_ENABLED: booleanFromString,
   // B4 — per-IP cap / rolling UTC hour on the PUBLIC `POST /invites/:code/click`. That URL
   // is about to be printed on QR codes at factory gates and handed to ~450 agents, which
   // makes it the most-scanned UNAUTHENTICATED endpoint we own; uncapped, it is a free
