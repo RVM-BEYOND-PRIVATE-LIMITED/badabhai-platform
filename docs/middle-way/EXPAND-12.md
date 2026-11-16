@@ -207,6 +207,13 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > Union extension: none. Aliases: `laser operator` + `bending operator`
 > (+Hi) -> 7213.0101. Deviations in the @2 review_note.
 >
+> #2753 ITEM 1 — SHEET-METAL PROGRAMMER RUNG (`qp_sheet_metal_fab@3`). The @2 chip
+> "Senior / Programmer" is split into Senior (`senior`) and Programmer
+> (`programmer`), programmer above senior and below supervisor; the senior
+> confirm is asked of both (standing owner rule); posting ladder follows.
+> NOT LIVE UNTIL SEEDED: after merge the owner runs `db:seed:packs --apply`
+> from a tree equal to origin/main (runbook P3-0); until then @2 keeps serving.
+>
 > TRACK B #6 — ASSEMBLY RETAG ✅ CODE DONE (`feat/mw-assembly-retag`, PR #2524, merged).
 > `qp_assembly_line@2` live on production (seeded + verified post-merge):
 > Easy/Medium/Advanced tiers; 6-band experience; sheet-11 level ladder

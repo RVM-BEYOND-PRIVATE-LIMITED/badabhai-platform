@@ -394,6 +394,39 @@ NestJS boot assertion).
   `scripts/deploy/staging-deploy.sh`; the bridge shipped in #2613, after #2552). Arming is the
   secret set to `true` plus a redeploy, on the CEO's go-ahead; values lowercase
   `true`/`false`/`1`/`0`/empty only.
+- **The brief's four availability answers (#2753 item 3)** —
+  `AVAILABILITY_ANSWERS_V2_ENABLED`, api only (`booleanFromString`, default off). Off is today's
+  `GET /workers/me/work-preferences/options` exactly. On, its `availability_status` serves `join_now` / `in_15_days` / `in_30_days` /
+  `working_open` ("Can join now", "Can join in 15 days", "Can join in 30 days", "Working, open to a
+  better offer") in place of the first four, and clients render what they are served. **The flag
+  never narrows a write:** the worker PUT, admin corrections and the chat edit layer accept both
+  sets either way, because installed builds keep sending the old keys. Every reader (résumé, admin
+  candidate detail, applicant card) labels a stored key of either set in its own words; an old
+  answer is never shown in the new words. **No migration** (the answer lives in the `availability`
+  json attribute). Turn it on with the app release that renders the served chips. Bridged through
+  the GitHub `production` environment secret of the same name (compose
+  `${AVAILABILITY_ANSWERS_V2_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; values
+  lowercase `true`/`false`/`1`/`0`/empty only.
+- **Last active, one definition (#2753 items 4 and 7)** — `WORKER_ACTIVITY_ENABLED`, api only
+  (`booleanFromString`, default off). On, every signed-in worker request and every Campus
+  application records the worker's IST day in `worker_activity` (migration 0168; fire-and-forget,
+  never fails the request), and the one last-active read is the later of that table's newest day
+  and the IST day of his newest device sighting: the #2747 pre-pay fact `lastActiveOn`, the agency
+  referred-workers `lastActiveOn`, and `notRecentlyActive` on every applicant, inbox and company
+  search row. Off is today exactly: nothing reads or writes the table, no row carries
+  `notRecentlyActive`, and `lastActiveOn` is the device sighting. The card's activity band, the
+  search order and the `worker.active` event never read it. Migration 0168 is
+  APPLY-BEFORE-THE-SWITCH: on without the table nothing answers 500 (the writes are lost and the
+  reads fall back to the device day, with one warning per process), but every day of activity
+  until the apply is lost.
+  Bridged through the GitHub `production` environment secret of the same name (compose
+  `${WORKER_ACTIVITY_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; values
+  lowercase `true`/`false`/`1`/`0`/empty only. `NOT_RECENTLY_ACTIVE_DAYS` (integer, default 90, at
+  least 1) is the mark's threshold: more than that many days since the last active day (IST) marks
+  him, so day 90 is not marked and day 91 is. Not bridged (like `PAYER_APPLICANT_STAGE_MAX_PER_HOUR`):
+  production runs the default until a bridge is added.
 - **Leave company search (#2753 item 6)** — `SEARCH_EXIT_ENABLED`, api only (`booleanFromString`,
   default off). Off is today exactly: `GET`/`PUT /workers/me/search-visibility` are the plain 404
   of an unmounted route, the candidate search statement is byte-identical, the unlock path reads

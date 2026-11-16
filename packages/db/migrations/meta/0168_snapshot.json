@@ -1,5 +1,5 @@
 {
-  "id": "c2fb199e-6a1d-4266-a440-a7c87669515e",
+  "id": "b1cf5987-b5ca-488f-b581-83eccea6b763",
   "prevId": "3615a4ad-2e59-4e2b-9bd7-221f154358bf",
   "version": "7",
   "dialect": "postgresql",
@@ -18538,35 +18538,35 @@
       },
       "isRLSEnabled": true
     },
-    "public.worker_search_exits": {
-      "name": "worker_search_exits",
+    "public.worker_activity": {
+      "name": "worker_activity",
       "schema": "",
       "columns": {
         "worker_id": {
           "name": "worker_id",
           "type": "uuid",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true
         },
-        "hidden_at": {
-          "name": "hidden_at",
+        "active_on": {
+          "name": "active_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "via": {
-          "name": "via",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "worker_search_exits_worker_id_workers_id_fk": {
-          "name": "worker_search_exits_worker_id_workers_id_fk",
-          "tableFrom": "worker_search_exits",
+        "worker_activity_worker_id_workers_id_fk": {
+          "name": "worker_activity_worker_id_workers_id_fk",
+          "tableFrom": "worker_activity",
           "tableTo": "workers",
           "columnsFrom": [
             "worker_id"
@@ -18578,15 +18578,18 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "worker_search_exits_via_chk": {
-          "name": "worker_search_exits_via_chk",
-          "value": "\"worker_search_exits\".\"via\" IN ('worker', 'monthly_check')"
+      "compositePrimaryKeys": {
+        "worker_activity_pkey": {
+          "name": "worker_activity_pkey",
+          "columns": [
+            "worker_id",
+            "active_on"
+          ]
         }
       },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": true
     }
   },

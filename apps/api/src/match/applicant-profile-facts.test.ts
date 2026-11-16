@@ -78,6 +78,20 @@ describe("toApplicantProfileFacts", () => {
     expect(facts.availabilityLabel).toBeNull();
   });
 
+  it("#2753 item 3 — labels both availability sets, each key in its own words", () => {
+    const label = (availabilityStatus: string | null) =>
+      toApplicantProfileFacts(row({ availabilityStatus })).availabilityLabel;
+    expect(label("join_now")).toBe("Can join now");
+    expect(label("in_15_days")).toBe("Can join in 15 days");
+    expect(label("in_30_days")).toBe("Can join in 30 days");
+    expect(label("working_open")).toBe("Working, open to a better offer");
+    // An old answer is never shown in the new words, and empty stays not given.
+    expect(label("within_week")).toBe("Within a week");
+    expect(label("immediate")).toBe("Immediately");
+    expect(label(null)).toBeNull();
+    expect(label("")).toBeNull();
+  });
+
   it("an empty stored row maps to the all-empty facts, with a zero certificate count", () => {
     expect(toApplicantProfileFacts(row())).toEqual({
       ...EMPTY_APPLICANT_PROFILE_FACTS,
