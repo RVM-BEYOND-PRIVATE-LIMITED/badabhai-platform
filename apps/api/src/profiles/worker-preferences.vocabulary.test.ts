@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AVAILABILITY_STATUSES_ALL,
+  AVAILABILITY_STATUSES_V1,
+  AVAILABILITY_STATUSES_V2,
   DOCUMENTS_READY,
   EDUCATION_COUNCILS,
   EDUCATION_CREDENTIALS,
@@ -8,6 +11,7 @@ import {
   TRADE_FORM_EDUCATION_QUALIFICATIONS,
   labelFor,
   labelsFor,
+  toAvailabilityV2,
 } from "./worker-preferences.vocabulary";
 import { SetMyPreferencesSchema } from "./worker-preferences.dto";
 import { SetMyQualificationsSchema } from "./worker-qualifications.dto";
@@ -209,4 +213,93 @@ describe("DOCUMENTS_READY — the documents a worker says he can bring", () => {
     expect(dupes.success && dupes.data.documents_ready).toEqual(["esic", "pan"]);
     expect(SetMyPreferencesSchema.safeParse({ documents_ready: ["esi"] }).success).toBe(false);
   });
+});
+
+/**
+ * #2753 item 3 — the brief's four availability answers beside the first four.
+ *
+ * WHICH set a client is OFFERED is the flag's (`availability-answers.flag.ts`, pinned at the
+ * options route); what a write ACCEPTS and what a reader PRINTS is both sets, whatever the flag
+ * says. These pin the dictionaries and the one helper that maps between them.
+ */
+describe("AVAILABILITY_STATUSES_V1 / _V2 / _ALL — two answer sets, one reader", () => {
+  it("keeps the first set exactly as it was", () => {
+    expect(Object.entries(AVAILABILITY_STATUSES_V1)).toEqual([
+      ["immediate", "Immediately"],
+      ["within_week", "Within a week"],
+      ["within_month", "Within a month"],
+      ["serving_notice", "Serving notice"],
+    ]);
+  });
+
+  it("holds the brief's four in the brief's order, each with its label", () => {
+    expect(Object.entries(AVAILABILITY_STATUSES_V2)).toEqual([
+      ["join_now", "Can join now"],
+      ["in_15_days", "Can join in 15 days"],
+      ["in_30_days", "Can join in 30 days"],
+      ["working_open", "Working, open to a better offer"],
+    ]);
+  });
+
+  it("labels the union, each key in its OWN words — an old answer is never relabelled", () => {
+    const v1 = Object.keys(AVAILABILITY_STATUSES_V1);
+    const v2 = Object.keys(AVAILABILITY_STATUSES_V2);
+    // Disjoint, so neither set's spread can overwrite the other's label.
+    expect(v1.filter((key) => v2.includes(key))).toEqual([]);
+    expect(Object.keys(AVAILABILITY_STATUSES_ALL)).toEqual([...v1, ...v2]);
+    expect(labelFor(AVAILABILITY_STATUSES_ALL, "within_week")).toBe("Within a week");
+    expect(labelFor(AVAILABILITY_STATUSES_ALL, "serving_notice")).toBe("Serving notice");
+    expect(labelFor(AVAILABILITY_STATUSES_ALL, "in_15_days")).toBe("Can join in 15 days");
+    expect(labelFor(AVAILABILITY_STATUSES_ALL, "working_open")).toBe(
+      "Working, open to a better offer",
+    );
+    // Unknown or empty prints nothing (the `labelFor` rule), and a prototype name is not a label.
+    expect(labelFor(AVAILABILITY_STATUSES_ALL, "")).toBeNull();
+    expect(labelFor(AVAILABILITY_STATUSES_ALL, "notice_period")).toBeNull();
+    expect(labelFor(AVAILABILITY_STATUSES_ALL, "toString")).toBeNull();
+  });
+
+  it("the worker PUT accepts every key of both sets, and still refuses anything else", () => {
+    for (const status of Object.keys(AVAILABILITY_STATUSES_ALL)) {
+      expect(SetMyPreferencesSchema.safeParse({ availability: { status } }).success, status).toBe(
+        true,
+      );
+    }
+    for (const status of ["15_days", "Can join now", "JOIN_NOW", "unknown"]) {
+      expect(SetMyPreferencesSchema.safeParse({ availability: { status } }).success, status).toBe(
+        false,
+      );
+    }
+  });
+});
+
+describe("toAvailabilityV2 — a stored key in the brief's four (#2753 question 1)", () => {
+  it.each([
+    ["immediate", "join_now"],
+    ["within_week", "join_now"],
+    ["within_month", "in_30_days"],
+    ["serving_notice", "in_30_days"],
+    ["join_now", "join_now"],
+    ["in_15_days", "in_15_days"],
+    ["in_30_days", "in_30_days"],
+    ["working_open", "working_open"],
+  ] as const)("maps %s to %s", (status, expected) => {
+    expect(toAvailabilityV2(status)).toBe(expected);
+  });
+
+  it("is total over every stored key, and nothing old maps to 15 days or working-open", () => {
+    for (const key of Object.keys(AVAILABILITY_STATUSES_ALL)) {
+      expect(toAvailabilityV2(key), key).not.toBeNull();
+    }
+    const fromOld = Object.keys(AVAILABILITY_STATUSES_V1).map((key) => toAvailabilityV2(key));
+    expect(fromOld).not.toContain("in_15_days");
+    expect(fromOld).not.toContain("working_open");
+  });
+
+  it.each([null, undefined, "", "unknown", "notice_period", "JOIN_NOW", "toString", "__proto__"])(
+    "maps %s to null",
+    (status) => {
+      expect(toAvailabilityV2(status)).toBeNull();
+    },
+  );
 });
