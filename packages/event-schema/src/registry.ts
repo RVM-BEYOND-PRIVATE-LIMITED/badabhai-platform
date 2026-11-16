@@ -1793,6 +1793,13 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerSearchVisibilityChangedPayload,
   },
+  // #2753 item 9 — a hire record (one company, worker and posting) changed: created, a status
+  // move, or a source saying "hired" for the first time. Ids + closed values only, strict. v1.
+  "hire.recorded": {
+    version: 1,
+    domain: "hire",
+    payload: p.HireRecordedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

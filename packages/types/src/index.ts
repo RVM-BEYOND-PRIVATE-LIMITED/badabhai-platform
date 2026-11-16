@@ -1513,6 +1513,42 @@ export function isApplicantOutcomeStage(value: unknown): value is ApplicantOutco
   );
 }
 
+// ---- Hire records (#2753 item 9, migration `hires`) ----
+//
+// HERE FOR THE SAME REASON AS THE STAGES ABOVE: `packages/db` spells the statuses into a CHECK on
+// `hires`, `packages/event-schema` puts both sets on the spine (`hire.recorded`), and `apps/api`
+// writes and lists them. Declared once so the three cannot drift.
+
+/**
+ * Where one hire record (one company, worker and posting) stands.
+ *  - `reported`: one side said so and nobody who can confirm it has agreed (today: the worker's
+ *    own "hired" answer, owner question 2 default).
+ *  - `confirmed`: the company marked or answered "hired", or the worker desk confirmed it. Only a
+ *    confirmed hire counts toward the target.
+ *  - `rejected`: the desk rejected it, or the company took back its only confirming mark.
+ */
+export const HIRE_STATUSES = Object.freeze(["reported", "confirmed", "rejected"] as const);
+export type HireStatus = (typeof HIRE_STATUSES)[number];
+
+/**
+ * What moved a hire record: the `source` of `hire.recorded`. Four sources say "hired" and each
+ * stamps its own column on the row (so "how it was confirmed" is readable); two take it back.
+ *  - `company_mark`: the company moved the applicant INTO `hired` on its board;
+ *  - `company_unmark`: the company moved him OUT of `hired` again (the undo rule);
+ *  - `company_answer`: the company's follow-up answer was "hired";
+ *  - `worker_answer`: the worker's own monthly-check answer was "hired";
+ *  - `desk_confirm` / `desk_reject`: the worker desk confirmed or rejected it.
+ */
+export const HIRE_RECORD_SOURCES = Object.freeze([
+  "company_mark",
+  "company_unmark",
+  "company_answer",
+  "worker_answer",
+  "desk_confirm",
+  "desk_reject",
+] as const);
+export type HireRecordSource = (typeof HIRE_RECORD_SOURCES)[number];
+
 // ---- Display preferences: the theme (#2819, migration 0165) ----
 //
 // HERE FOR THE SAME REASON AS THE SKINS ABOVE: `packages/db` spells both sets into CHECK

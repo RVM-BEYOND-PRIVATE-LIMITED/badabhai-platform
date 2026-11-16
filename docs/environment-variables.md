@@ -471,6 +471,15 @@ NestJS boot assertion).
   (compose `${SEARCH_EXIT_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
   `scripts/deploy/staging-deploy.sh`). Arming is 0169 applied, then the secret set to `true` plus
   a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only.
+- **Hire records (#2753 item 9)** — `HIRE_RECORDS_ENABLED`, api only (`booleanFromString`, default
+  off). Off is today's API exactly: nothing reads or writes `hires`, a stage move is unchanged, and
+  `GET /admin/hires` is a 404. On, a company's real move of an applicant INTO `hired` confirms the
+  hire record in the stage transaction (one row per company, worker and posting), a move OUT takes
+  back a mark nothing else confirmed (`rejected`), and `GET /admin/hires` lists the records. The
+  migration `hires` is APPLY-BEFORE-THE-SWITCH: on without it, a move into or out of `hired` fails
+  (42P01) and rolls back. Bridged through the GitHub `production` environment secret of the same
+  name (compose `${HIRE_RECORDS_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted
+  in `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
 - **The Campus link (#2752)** — api only, four variables, all read by `CampusServiceGuard` on
   `/internal/campus/v1` (contract: `docs/api/campus-link-v1-api-reference.md`).
   - `CAMPUS_LINK_ENABLED` (`booleanFromString`, default off): off, every Campus route is a neutral

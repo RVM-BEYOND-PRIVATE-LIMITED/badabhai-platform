@@ -62,6 +62,8 @@ import {
   PROFILING_EDIT_CANCEL_REASONS,
   DISPLAY_THEMES,
   DISPLAY_PREFS_SUBJECT_KINDS,
+  HIRE_STATUSES,
+  HIRE_RECORD_SOURCES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -6676,3 +6678,52 @@ export const WorkerSearchVisibilityChangedPayload = z
 export type WorkerSearchVisibilityChangedPayload = z.infer<
   typeof WorkerSearchVisibilityChangedPayload
 >;
+
+// #2753 item 9 — HIRE RECORDS (`hires`). One record per company, worker and posting, moved by the
+// company's board (a move into or out of `hired`), the company's follow-up answer, the worker's own
+// answer and the worker desk. Written in the same transaction as the row, while
+// `HIRE_RECORDS_ENABLED` is on.
+//
+// IDS AND CLOSED VALUES ONLY: the record, the worker, the posting, the status it now holds and the
+// source that moved it. Never a name, a phone, a title or a note, and never the company's tenant
+// key (whoever acted rides the envelope).
+// ---------------------------------------------------------------------------
+
+/** The sources that confirm a hire: each one leaves the record `confirmed`. */
+const HIRE_CONFIRMING_SOURCES: readonly string[] = [
+  "company_mark",
+  "company_answer",
+  "desk_confirm",
+];
+/** The sources that take a hire back: each one leaves the record `rejected`. */
+const HIRE_TAKE_BACK_SOURCES: readonly string[] = ["company_unmark", "desk_reject"];
+
+/**
+ * #2753 item 9 — a hire record changed. ONE PER REAL CHANGE: the record was created, its status
+ * moved, or a source said "hired" for the first time. A repeat of a source already recorded writes
+ * nothing and emits nothing.
+ *
+ * THE STATUS FOLLOWS THE SOURCE: a company mark, a company answer or a desk confirmation leaves it
+ * `confirmed`; an undone mark or a desk rejection leaves it `rejected`; the worker's own answer
+ * leaves it `reported`, or `confirmed` when it already was (owner question 2 default).
+ */
+export const HireRecordedPayload = z
+  .object({
+    hire_id: uuidSchema,
+    worker_id: uuidSchema,
+    posting_kind: z.enum(APPLICANT_POSTING_KINDS),
+    posting_id: uuidSchema,
+    status: z.enum(HIRE_STATUSES),
+    source: z.enum(HIRE_RECORD_SOURCES),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      HIRE_CONFIRMING_SOURCES.includes(v.source)
+        ? v.status === "confirmed"
+        : HIRE_TAKE_BACK_SOURCES.includes(v.source)
+          ? v.status === "rejected"
+          : v.status !== "rejected",
+    { message: "the status must be the one its source leaves the record in" },
+  );
+export type HireRecordedPayload = z.infer<typeof HireRecordedPayload>;

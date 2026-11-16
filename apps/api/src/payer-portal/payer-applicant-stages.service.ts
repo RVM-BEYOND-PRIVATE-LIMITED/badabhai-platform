@@ -23,6 +23,7 @@ import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import { OutboundSignalsService } from "../outbound-signals/outbound-signals.service";
+import { HiresService } from "../hires/hires.service";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { applicantStagesEnabled, type ApplicantStagesConfig } from "./payer-applicant-stages.flag";
@@ -41,6 +42,15 @@ import {
 export type OwnedPostingStages = Readonly<
   Record<ApplicantPostingKind, ReadonlyMap<string, ApplicantStage>>
 >;
+
+/**
+ * Who is writing a stage: the session login (the row's `actor_payer_id`, the events' actor) and the
+ * tenant key the posting was resolved with (the hire record's company, #2753 item 9).
+ */
+interface StageWriter {
+  readonly actorPayerId: string;
+  readonly tenantKey: TenantKey;
+}
 
 const logger = new Logger("PayerApplicantStages");
 
@@ -94,6 +104,12 @@ export function readStoredStage(stored: string | null | undefined): ApplicantSta
  * commit together. A pilot list that cannot be read refuses the mark with a 503 (nothing written).
  * A no-op, a move out, or a BadaBhai worker queues nothing; nothing touches
  * `outbound_signals` (migration 0167) while that switch is off.
+ *
+ * THE HIRE RECORD (#2753 item 9). With `HIRE_RECORDS_ENABLED` on, a REAL move INTO `hired` also
+ * confirms the company's hire record ({@link HiresService.recordCompanyMark}) and a real move OUT
+ * of `hired` takes back a mark nothing else confirmed ({@link HiresService.undoCompanyMark}), both
+ * in the SAME transaction, keyed by the resolved tenant key. A no-op calls nothing; with the switch
+ * off nothing is called and nothing touches `hires`.
  */
 @Injectable()
 export class PayerApplicantStagesService {
@@ -107,6 +123,8 @@ export class PayerApplicantStagesService {
     private readonly rollout: FeatureRolloutService,
     // #2747 item 8 — the RVM selection signal, queued in the stage transaction.
     private readonly outbound: OutboundSignalsService,
+    // #2753 item 9 — the hire record, written in the stage transaction.
+    private readonly hires: HiresService,
   ) {}
 
   /** `PAYER_APPLICANT_STAGES_ENABLED`, read through the one shared reader. */
@@ -196,7 +214,14 @@ export class PayerApplicantStagesService {
       if (state === "unavailable") throw new ServiceUnavailableException();
       signal = state === "on";
     }
-    const outcome = await this.writeStage(key, stage, actorPayerId, ctx, now, signal);
+    const outcome = await this.writeStage(
+      key,
+      stage,
+      { actorPayerId, tenantKey: scope.tenantKey },
+      ctx,
+      now,
+      signal,
+    );
 
     return {
       postingId,
@@ -217,13 +242,13 @@ export class PayerApplicantStagesService {
   private async writeStage(
     key: ApplicantStageKey,
     stage: ApplicantStage,
-    actorPayerId: string,
+    who: StageWriter,
     ctx: RequestContext,
     now: Date,
     signal: boolean,
   ): Promise<{ previous: ApplicantStage; changed: boolean }> {
     try {
-      return await this.transact(key, stage, actorPayerId, ctx, now, signal);
+      return await this.transact(key, stage, who, ctx, now, signal);
     } catch (err) {
       if (sqlStateOf(err) === PG_CHECK_VIOLATION && isApplicantOutcomeStage(stage)) {
         logger.error(
@@ -237,11 +262,12 @@ export class PayerApplicantStagesService {
   private transact(
     key: ApplicantStageKey,
     stage: ApplicantStage,
-    actorPayerId: string,
+    who: StageWriter,
     ctx: RequestContext,
     now: Date,
     signal: boolean,
   ): Promise<{ previous: ApplicantStage; changed: boolean }> {
+    const { actorPayerId } = who;
     return this.repo.withTransaction(async (tx) => {
       if (!(await this.repo.isFeedApplicant(key, tx))) {
         throw new NotFoundException(APPLICANT_NOT_FOUND);
@@ -256,6 +282,7 @@ export class PayerApplicantStagesService {
         if (await this.repo.insertStage(key, stage, actorPayerId, now, tx)) {
           await this.emitChanged(key, stage, DEFAULT_APPLICANT_STAGE, actorPayerId, ctx, tx);
           if (signal) await this.queueSignal(key, stage, now, tx);
+          await this.recordHire(key, stage, DEFAULT_APPLICANT_STAGE, who, ctx, now, tx);
           return { previous: DEFAULT_APPLICANT_STAGE, changed: true } as const;
         }
         // A concurrent FIRST move won the insert (ours waited on it, so it is committed). Lock
@@ -268,6 +295,7 @@ export class PayerApplicantStagesService {
       await this.repo.updateStage(key, stage, actorPayerId, now, tx);
       await this.emitChanged(key, stage, previous, actorPayerId, ctx, tx);
       if (signal) await this.queueSignal(key, stage, now, tx);
+      await this.recordHire(key, stage, previous, who, ctx, now, tx);
       return { previous, changed: true } as const;
     });
   }
@@ -281,6 +309,34 @@ export class PayerApplicantStagesService {
   ): Promise<void> {
     if (!isApplicantOutcomeStage(stage)) return;
     await this.outbound.recordMark({ ...key, stage, at }, tx);
+  }
+
+  /**
+   * #2753 item 9 — the hire record of one REAL move (the caller already returned on a no-op). Into
+   * `hired`: the company's mark confirms the record. Out of `hired`: the undo rule. Any other move,
+   * or `HIRE_RECORDS_ENABLED` off: nothing is called. On the stage transaction, keyed by the tenant
+   * key the posting was resolved with, so a teammate's mark and the founder's are one company.
+   */
+  private async recordHire(
+    key: ApplicantStageKey,
+    stage: ApplicantStage,
+    previous: ApplicantStage,
+    who: StageWriter,
+    ctx: RequestContext,
+    at: Date,
+    tx: Database,
+  ): Promise<void> {
+    if (stage !== "hired" && previous !== "hired") return;
+    if (!this.hires.enabled) return;
+    const hireKey = { tenantPayerId: who.tenantKey, ...key };
+    const by = {
+      // The VERIFIED session login who moved the row, as on the stage event; never the tenant.
+      actor: { actor_type: "payer", actor_id: who.actorPayerId },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    } as const;
+    if (stage === "hired") await this.hires.recordCompanyMark(hireKey, at, tx, by);
+    else await this.hires.undoCompanyMark(hireKey, at, tx, by);
   }
 
   /**

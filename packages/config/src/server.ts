@@ -1433,6 +1433,16 @@ export const serverEnvSchema = z.object({
   // `worker_search_exits`. Migration 0169 is APPLY-BEFORE-THE-SWITCH, but on before it nothing
   // 500s: search and the unlock gate fail open (everyone visible) and the worker routes answer 503.
   SEARCH_EXIT_ENABLED: booleanFromString,
+  // HIRE RECORDS (#2753 item 9) — `hires`, one record per company, worker and posting. With it on,
+  // a company's real move of an applicant INTO `hired` on its board confirms the record in the
+  // stage transaction, a move OUT takes back a mark nothing else confirmed, and `GET /admin/hires`
+  // lists the records. The company's follow-up answer and the worker's own answer write the same
+  // row when they ship.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S API EXACTLY: nothing reads or writes `hires`, the stage move
+  // is unchanged, and `GET /admin/hires` is a 404. Migration `hires` is APPLY-BEFORE-THE-SWITCH:
+  // on without it, a move into or out of `hired` fails (42P01) and rolls back.
+  HIRE_RECORDS_ENABLED: booleanFromString,
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable

@@ -53,6 +53,7 @@ import { payerApplicantStages } from "./payer-applicant-stage";
 import { outboundSignals } from "./outbound-signal";
 import { workerActivity } from "./worker-activity";
 import { workerSearchExits } from "./worker-search-exit";
+import { hires } from "./hire";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -173,6 +174,8 @@ export * from "./outbound-signal";
 export * from "./worker-activity";
 // #2753 item 6 — a worker who left company search.
 export * from "./worker-search-exit";
+// #2753 item 9 — one hire record per company, worker and posting.
+export * from "./hire";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -485,4 +488,6 @@ export const schema = {
   workerActivity,
   // #2753 item 6 - a worker who left company search (migration 0169).
   workerSearchExits,
+  // #2753 item 9 - one hire record per company, worker and posting (behind HIRE_RECORDS_ENABLED).
+  hires,
 };

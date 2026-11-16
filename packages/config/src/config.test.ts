@@ -942,6 +942,15 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ SEARCH_EXIT_ENABLED: "yes" })).toThrow();
   });
 
+  it("HIRE_RECORDS_ENABLED (#2753 item 9) is OFF by default and for the empty string", () => {
+    // Off: nothing reads or writes `hires`, and GET /admin/hires is a 404.
+    expect(loadServerConfig({}).HIRE_RECORDS_ENABLED).toBe(false);
+    expect(loadServerConfig({ HIRE_RECORDS_ENABLED: "" }).HIRE_RECORDS_ENABLED).toBe(false);
+    expect(loadServerConfig({ HIRE_RECORDS_ENABLED: "0" }).HIRE_RECORDS_ENABLED).toBe(false);
+    expect(loadServerConfig({ HIRE_RECORDS_ENABLED: "true" }).HIRE_RECORDS_ENABLED).toBe(true);
+    expect(() => loadServerConfig({ HIRE_RECORDS_ENABLED: "yes" })).toThrow();
+  });
+
   describe("the Campus link (#2752)", () => {
     const HASH_A = "a".repeat(64);
     const HASH_B = "B".repeat(64);

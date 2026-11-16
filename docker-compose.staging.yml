@@ -454,6 +454,11 @@ services:
       # and nothing reads `worker_search_exits`. Apply migration 0169 before turning it on.
       # `:-false` because this bool rejects "".
       SEARCH_EXIT_ENABLED: ${SEARCH_EXIT_ENABLED:-false}
+      # HIRE RECORDS (#2753 item 9). Off is today's API exactly: nothing reads or writes `hires`
+      # and GET /admin/hires is a 404. On, a company's move into or out of `hired` writes the
+      # record in the stage transaction. Apply the `hires` migration first. `:-false` because this
+      # bool rejects "".
+      HIRE_RECORDS_ENABLED: ${HIRE_RECORDS_ENABLED:-false}
       # THE CAMPUS LINK (#2752). Off: every /internal/campus/v1 route is a neutral 404 and nothing
       # else runs. `:-false` because this bool rejects "". The two lists are empty when unset, and
       # empty refuses every caller (fail closed): token HASHES (sha256 hex, two during a rotation)
