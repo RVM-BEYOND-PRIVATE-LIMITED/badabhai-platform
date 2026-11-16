@@ -2,7 +2,7 @@
   "name": "@badabhai/admin-web",
   "version": "0.1.0",
   "private": true,
-  "description": "BadaBhai INTERNAL Admin Portal (Next.js) — ADR-0025/0038 ADMIN-4..8. Presentation layer over the verified admin backend.",
+  "description": "BadaBhai INTERNAL Admin Portal (Next.js) \u2014 ADR-0025/0038 ADMIN-4..8. Presentation layer over the verified admin backend.",
   "scripts": {
     "dev": "next dev -p 3003",
     "build": "next build",
@@ -17,6 +17,7 @@
     "@badabhai/design-tokens": "workspace:*",
     "@badabhai/icons": "workspace:*",
     "@badabhai/pricing": "workspace:*",
+    "@badabhai/theme-web": "workspace:*",
     "@badabhai/types": "workspace:*",
     "@badabhai/validators": "workspace:*",
     "next": "^15.5.28",

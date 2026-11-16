@@ -77,7 +77,7 @@ const nextConfig = {
   // @badabhai/icons ships TypeScript SOURCE (no build step, no dist), so Next compiles it with
   // the app. It is bundled into the app's own chunks, which also means `standalone` needs
   // nothing extra traced for it; its stylesheet is `@import`ed by src/app/globals.css.
-  transpilePackages: ["@badabhai/icons"],
+  transpilePackages: ["@badabhai/icons", "@badabhai/theme-web"],
   async redirects() {
     return LEGACY_ROUTE_REDIRECTS;
   },

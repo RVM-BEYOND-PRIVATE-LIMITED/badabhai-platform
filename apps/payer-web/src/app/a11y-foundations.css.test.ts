@@ -559,7 +559,11 @@ describe("W2-A · 2 — small controls clear a 44px hit area on phones (≤600px
     expect(G.filter((r) => r.selector === ".theme-toggle__system-label" && r.at !== "")).toEqual(
       [],
     );
-    const toggle = readFileSync(join(here, "..", "components", "ds", "theme-toggle.tsx"), "utf8");
+    // The control moved to the shared `@badabhai/theme-web` package (#2821); payer-web binds it.
+    const toggle = readFileSync(
+      join(here, "..", "..", "..", "..", "packages", "theme-web", "src", "theme-toggle.tsx"),
+      "utf8",
+    );
     const cls = toggle.indexOf('className="theme-toggle__system"');
     const btn = toggle.slice(toggle.lastIndexOf("<button", cls), toggle.indexOf("</button>", cls));
     expect(btn).toContain('aria-label="Follow system theme"');

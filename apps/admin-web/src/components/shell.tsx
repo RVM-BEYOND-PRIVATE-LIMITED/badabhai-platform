@@ -11,8 +11,10 @@ import { SidebarNav } from "./nav";
 import { QuickJump } from "./quick-jump";
 import { TopbarCrumb } from "./topbar-crumb";
 import { NavPendingStatus } from "./nav-pending";
+import { ThemeToggle } from "./theme-toggle";
 import type { NavSection } from "./nav-model";
 import type { JumpKindId } from "./quick-jump-model";
+import type { ThemePreference } from "@badabhai/theme-web";
 
 /**
  * The menu toggle's id: where focus goes back to when the drawer closes, and how the shell tells
@@ -54,6 +56,7 @@ export function Shell({
   adminId,
   environment,
   jumpKinds,
+  theme,
   children,
   onSignOut,
 }: {
@@ -64,6 +67,15 @@ export function Shell({
   environment: string | null;
   /** The record kinds this session may quick-jump to — filtered on the server, like `sections`. */
   jumpKinds: readonly JumpKindId[];
+  /**
+   * The server-saved theme choice. When `open` is false the toggle is not rendered at all and
+   * the portal stays Light; when true the server value wins and changes are PATCHed.
+   */
+  theme?: {
+    open: boolean;
+    initialPreference?: ThemePreference;
+    onPersist?: (pref: ThemePreference) => void | Promise<void>;
+  };
   children: React.ReactNode;
   onSignOut: React.ReactNode;
 }) {
@@ -200,6 +212,12 @@ export function Shell({
           <div className="topbar__spacer" />
           <QuickJump kinds={jumpKinds} />
           <EnvironmentBadge environment={environment} />
+          {theme?.open ? (
+            <ThemeToggle
+              initialPreference={theme.initialPreference}
+              onPersist={theme.onPersist}
+            />
+          ) : null}
           <AvatarMenu roleLabel={roleLabel} adminId={adminId} signOut={onSignOut} />
         </header>
 

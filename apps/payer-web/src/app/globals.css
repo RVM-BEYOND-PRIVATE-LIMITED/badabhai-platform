@@ -7819,12 +7819,12 @@ body:has(.invite-landing) .chrome-footer {
 }
 .mw-worker__ghost {
   font-size: var(--text-4xl);
-  color: rgb(255 255 255 / 0.08);
+  color: var(--on-ink-overlay-08);
 }
 .mw-worker__payer {
   margin: 0;
   font-size: var(--text-2xs);
-  color: rgb(255 255 255 / 0.6);
+  color: var(--on-ink-text-60);
 }
 .mw-worker__titlerow {
   display: flex;
@@ -7853,14 +7853,14 @@ body:has(.invite-landing) .chrome-footer {
   gap: 4px;
   margin: 0;
   font-size: var(--ui-caption-size);
-  color: rgb(255 255 255 / 0.75);
+  color: var(--on-ink-text-75);
 }
 .mw-worker__stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-3);
-  border-top: 1px solid rgb(255 255 255 / 0.16);
-  border-bottom: 1px solid rgb(255 255 255 / 0.16);
+  border-top: 1px solid var(--on-ink-overlay-16);
+  border-bottom: 1px solid var(--on-ink-overlay-16);
   padding: var(--space-2) 0;
 }
 .mw-worker__label {
@@ -7868,7 +7868,7 @@ body:has(.invite-landing) .chrome-footer {
   font-size: var(--text-2xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgb(255 255 255 / 0.55);
+  color: var(--on-ink-text-55);
   margin: 0 0 2px;
 }
 .mw-worker__stats strong {
@@ -7882,8 +7882,8 @@ body:has(.invite-landing) .chrome-footer {
 }
 .mw-chip {
   font-size: var(--text-2xs);
-  border: 1px solid rgb(255 255 255 / 0.2);
-  background: rgb(255 255 255 / 0.08);
+  border: 1px solid var(--on-ink-overlay-20);
+  background: var(--on-ink-overlay-08);
   color: var(--paper-1);
   border-radius: var(--radius-pill);
   padding: 3px 8px;
@@ -7893,8 +7893,8 @@ body:has(.invite-landing) .chrome-footer {
   justify-content: space-between;
   gap: var(--space-2);
   font-size: var(--text-2xs);
-  color: rgb(255 255 255 / 0.8);
-  border-top: 1px solid rgb(255 255 255 / 0.16);
+  color: var(--on-ink-text-80);
+  border-top: 1px solid var(--on-ink-overlay-16);
   padding-top: var(--space-2);
 }
 .mw-audit {
@@ -8106,8 +8106,8 @@ body:has(.invite-landing) .chrome-footer {
 .pshell > .pshell__rail {
   /* A quiet, static depth wash — no perpetual motion behind the navigation. */
   background-image:
-    radial-gradient(120% 55% at 0% 0%, rgb(255 255 255 / 0.055), transparent 58%),
-    linear-gradient(180deg, transparent 55%, rgb(0 0 0 / 0.07));
+    radial-gradient(120% 55% at 0% 0%, var(--on-ink-overlay-055), transparent 58%),
+    linear-gradient(180deg, transparent 55%, var(--ink-depth-shadow));
   background-size: 100% 100%, 100% 100%;
 }
 
@@ -9363,7 +9363,7 @@ body:has(.invite-landing) .chrome-footer {
 .dash-quick-action__badge {
   padding: 2px var(--space-2);
   border-radius: var(--radius-pill);
-  background: rgb(255 255 255 / 0.14);
+  background: var(--on-ink-overlay-14);
   color: var(--paper-1);
   font-size: var(--text-2xs);
   font-weight: var(--weight-semibold);
@@ -9388,7 +9388,7 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-2);
   margin-top: auto;
   padding-top: var(--space-3);
-  border-top: 1px solid rgb(255 255 255 / 0.14);
+  border-top: 1px solid var(--on-ink-overlay-14);
 }
 .dash-quick-action__limit {
   font-size: var(--text-2xs);
@@ -10053,7 +10053,7 @@ body:has(.invite-landing) .chrome-footer {
   width: var(--space-8);
   height: var(--space-8);
   border-radius: var(--radius-md);
-  background: rgb(255 255 255 / 0.1);
+  background: var(--on-ink-overlay-10);
   color: var(--brand);
   font-size: var(--text-base);
   flex: none;
@@ -10076,9 +10076,9 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-3);
   margin: var(--space-3) 0 0;
   padding: var(--space-3);
-  border: 1px solid rgb(255 255 255 / 0.12);
+  border: 1px solid var(--on-ink-overlay-12);
   border-radius: var(--radius-md);
-  background: rgb(255 255 255 / 0.06);
+  background: var(--on-ink-overlay-06);
 }
 .login-quote__avatar {
   display: inline-flex;
@@ -10744,14 +10744,14 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-1);
   width: 100%;
   padding: var(--space-2) 0;
-  border-top: 1px solid rgb(255 255 255 / 0.14);
-  border-bottom: 1px solid rgb(255 255 255 / 0.14);
+  border-top: 1px solid var(--on-ink-overlay-14);
+  border-bottom: 1px solid var(--on-ink-overlay-14);
 }
 .agency-qr__benefits > div {
   padding: var(--space-1);
-  border: 1px solid rgb(255 255 255 / 0.12);
+  border: 1px solid var(--on-ink-overlay-12);
   border-radius: var(--radius-sm);
-  background: rgb(255 255 255 / 0.06);
+  background: var(--on-ink-overlay-06);
   text-align: center;
 }
 .agency-qr__benefits strong {

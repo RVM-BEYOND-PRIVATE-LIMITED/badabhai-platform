@@ -2,8 +2,14 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { cookies } from "next/headers";
 import "./globals.css";
+import {
+  createThemeNoFoucScript,
+  displayThemeToPreference,
+  resolveServerTheme,
+} from "@badabhai/theme-web";
 import { publicConfig, resolvePayerTheme, THEME_COOKIE_NAME } from "../lib/config";
-import { ASYNC_CSS_SCRIPT, ASYNC_STYLESHEETS, THEME_NO_FOUC_SCRIPT } from "../lib/theme";
+import { getDisplayPrefsCached } from "../lib/display-prefs";
+import { ASYNC_CSS_SCRIPT, ASYNC_STYLESHEETS } from "../lib/theme";
 
 export const metadata: Metadata = {
   title: "BadaBhai for Business",
@@ -24,7 +30,18 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // from `prefers-color-scheme` BEFORE first paint — so the cookie path never mismatches on
   // hydration, and the system path is fixed before React mounts.
   const themeCookie = (await cookies()).get(THEME_COOKIE_NAME)?.value;
-  const theme = resolvePayerTheme(themeCookie);
+  // #2822: when the server-saved choice is open for this company, the SERVER value wins over the
+  // cookie (which stays the first-paint cache the no-FOUC script reads). While it is closed — or
+  // when the read fails, which is the closed case — today's exact cookie/env resolution is used.
+  const displayPrefs = await getDisplayPrefsCached();
+  const serverPreference = displayPrefs?.theme_open
+    ? displayThemeToPreference(displayPrefs.theme)
+    : undefined;
+  const theme =
+    serverPreference !== undefined
+      ? resolveServerTheme(serverPreference)
+      : resolvePayerTheme(themeCookie);
+  const noFouc = createThemeNoFoucScript(THEME_COOKIE_NAME, serverPreference);
   return (
     <html lang="en" data-theme={theme === "ink" ? "ink" : undefined}>
       <head>
@@ -35,7 +52,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         {/* No-FOUC: correct data-theme from the OS preference on the system/first-visit path
             and sync the theme-color meta, before paint + before hydration. No-op when an
             explicit paper/ink cookie already drove the SSR data-theme. */}
-        <script dangerouslySetInnerHTML={{ __html: THEME_NO_FOUC_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: noFouc }} />
         {/* Anek (display) + Roboto (body/multilingual) — the JUL31 type tokens
             (--font-display / --font-sans). Roboto Mono (--font-mono) is self-hosted via
             @font-face in @badabhai/design-tokens/tokens.css. Devanagari+Latin for Hinglish/regional copy.
