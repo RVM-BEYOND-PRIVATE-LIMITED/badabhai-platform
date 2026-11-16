@@ -89,6 +89,7 @@ number** — it is the only source that cannot lag.
 | `0165`        | Divyanshu | **ON BRANCH `feat/2819-display-prefs`, stacked on 0164 (PR pending) — NOT YET APPLIED anywhere.** #2819: new table `display_prefs`, one login's theme: `subject_kind` (`worker`/`payer_user`/`admin`, `display_prefs_subject_kind_chk`), `subject_id` uuid (`workers.id` / `payers.id` — the LOGIN, never the tenant key / `admin_users.id`), `theme` (`light`/`dark`/`system`, `display_prefs_theme_chk`, default `light`; no row also means `light`), `created_at`, `updated_at`; PK `(subject_kind, subject_id)`. **No FK** (one column names a row in one of three tables). **No erasure path names it yet** (#2837, risk R88: naming it in `hardDelete` before this migration is applied would roll every worker erasure back on 42P01). RLS ENABLE + hand-appended FORCE + four REVOKEs; registered as `0165-display-prefs-rls` in `schema-contract.ts` (no `table` entry: nothing names it unswitched); in `tests/e2e/rls-spine.e2e.test.ts` LOCKED_TABLES. `when` = `1794729354323` (> 0164's `1794726943864`). **APPLY-BEFORE-PILOT, NOT BEFORE MERGE OR DEPLOY**: the api reads and writes the table only for a login `THEME_ROLLOUT` is open for, and a missing table or column (42P01 / 42703) answers light / `theme_open: false` on GET and a 404 on PATCH (fails closed, no 500). Order (header): merge → **0164 applied AND its ledger row adopted first** (adopting 0165 while 0164 is unrecorded moves the watermark past 0164, and `db:migrate` then never applies it), so adopt in order: 0161–0163, then 0164 (its own header), then this one → `adopt-migrations.ts` verify-only (nothing unrecorded below 0165) → apply by hand in one transaction → `npx tsx adopt-migrations.ts --only 0165_display_prefs --apply --expect-host <HOST>` → `db:audit:schema-contract` → then add pilot rows and set the switch to `pilot`. Rollback: `THEME_ROLLOUT=off` + redeploy; the table DROP and ledger delete are in the header |
 | `0166`        | Divyanshu | **PR #2846 (branch `feat/2747-outcome-stages`), regenerated on top of #2820's 0164 and #2819's 0165 (both on main) — NOT YET APPLIED anywhere.** #2747 item 7: `payer_applicant_stages_stage_chk` WIDENED to admit `selected` and `hired` (DROP + ADD; every 0134 stage kept, so no stored row can fail the re-add). No column, no index, no row. **APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY**: the only write that needs it is refused with a `400` while `OUTCOME_STAGES_ROLLOUT` is off. Hand-apply both statements in ONE `BEGIN; SET LOCAL lock_timeout = '3s'; … COMMIT;` (retry on 55P03). **Verify the CHECK text** (adoption and `db:audit:schema-contract` see the constraint, not its list): `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'payer_applicant_stages_stage_chk';` must list all five stages. Not registered in `schema-contract.ts`: the constraint exists before and after, so the audit cannot tell them apart. Ledger adoption order: 0164, 0165, then 0166 (its `when` is above 0165's). Rollback in the header |
 | `0167`        | Divyanshu | **PR #2848 (branch `feat/2747-outbound-signals`), regenerated on top of 0166 — NOT YET APPLIED anywhere.** #2747 item 8: new table `outbound_signals`. It holds a mark BadaBhai owes RVM: ids, closed codes and dates only, with a unique `dedupe_key`. The worker FK cascades, and it has a partial due index. RLS ENABLE plus hand-appended FORCE and the four REVOKEs. Written in the stage transaction and sent by the `outbound-signals` sweep. **APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY**: nothing names the table while `OUTBOUND_SIGNALS_ROLLOUT` is off. With the switch on before 0167, a company's selected or hired marks on RVM students fail (42P01), roll back and answer 500. Registered as `0167-outbound-signals-rls` in `schema-contract.ts` and listed in the e2e RLS guard. Ledger adoption order: 0164, 0165, 0166, then 0167. Rollback in the header (`DROP TABLE`, switch off first) |
+| `0168`        | Divyanshu | **ON BRANCH `feat/2749-credit-lots` (#2749 PR 1) — NOT YET APPLIED anywhere.** New table `credit_lots` (a wallet's balance as lots: `source` behind `credit_lots_source_chk` = `CREDIT_LOT_SOURCES`, granted > 0, 0 ≤ remaining ≤ granted, expired ⇒ empty, partial UNIQUE one lot per paid order, two partial open-lot indexes; RLS ENABLE plus hand-appended FORCE and the four REVOKEs) + `credit_ledger.lot_id` (nullable FK, indexed) + an in-file backfill of one `legacy` lot per positive balance. **APPLY BEFORE DEPLOY, FROM THE PR BRANCH BEFORE THE MERGE** — Drizzle names `lot_id` in every ledger insert. Registered as `0168-credit-lots-table`, `0168-credit-ledger-lot-id`, `0168-credit-ledger-lot-fk`, `0168-credit-lots-rls`; listed in the e2e RLS guard. See the `0168` section below |
 
 ### The journal is five files behind, and what that actually costs — corrected 2026-08-20
 
@@ -315,6 +316,75 @@ trusting any migration to have applied it.
 recorded?"_. It now also asks _"is each recorded row a file?"_. A row with no journal entry means
 production has applied a migration this checkout does not contain — which is exactly how `0081`
 was found to be taken while a second branch was minting its own.
+
+### `0168` — additive, APPLY BEFORE DEPLOY (from the PR branch, before the merge), with backfill — 2026-11-16
+
+#2749 items 2–4 (brief 4C.1, section 7): a company's balance becomes a set of **lots** that may
+expire, spent soonest-expiring first, with a ledger line for every credit added, spent or expired.
+One new table, `credit_lots` (`payer_id` = the wallet key, the same tenant key as
+`payer_credits.payer_id`; `source`, `pack_code`, `payment_order_id`, `credits_granted`,
+`credits_remaining`, `expires_at` — NULL never expires — `expired_at`, `is_test`), and one new
+nullable column, `credit_ledger.lot_id` (FK, no cascade, indexed).
+
+**The invariant**, per wallet: `payer_credits.balance = Σ open credits_remaining = Σ ledger delta`.
+Every writer (the unlock debit, the mock pack, the Razorpay settle, the admin grant, the free-tier
+grant and its D6 script, the expiry sweep) now goes through `packages/db/src/credit-wallet.ts`,
+under the wallet row lock, in one order: wallet row → lots → ledger.
+
+**APPLY BEFORE DEPLOY, and from the PR branch before merging it** — merging auto-deploys. Drizzle
+0.45 names every model column in each insert, so the new build's ledger insert names `lot_id`, and
+its wallet code names `credit_lots`. Against a database without this file every contact open, pack
+purchase, Razorpay settle (5xx → Razorpay redelivers), admin grant and signup free-tier grant fails
+(`42703` / `42P01`), and `GET /payer/credits` 500s. Registered in `schema-contract.ts`, so the
+readiness question is answerable:
+
+```bash
+pnpm --filter @badabhai/db db:audit:schema-contract   # read-only; exits 1 if the DB is behind
+```
+
+**The window between apply and deploy is safe and self-healing.** The old build names neither
+object, so it keeps working — but it moves balances without lots. The new build's first touch of
+each wallet re-aligns its lots with its balance (`alignLotsWithBalance`: top up a never-expiring
+`legacy` lot, or remove the excess soonest-expiring first) and logs one `CreditWallet` warning with
+the wallet id and numbers. Balance stays the source of truth; nobody gains or loses a spendable
+credit, and no ledger line is written. The seeds (`seed-demand`, `seed-reach-pool`) and
+`db:grant:free-tier --repair-balances` set balances the same way and are healed the same way.
+
+**Backfill, in the same file:** one `legacy` lot per `payer_credits` row with `balance > 0`
+(granted = remaining = balance, no expiry, `is_test` false). **No ledger line** — the ledger
+already holds the grants those balances came from, so `Σ delta` is unchanged. The `INSERT` is
+guarded by `NOT EXISTS`, so it alone can be re-run. No lot gets an expiry in this PR: packs gain
+their validity with the catalogue (item 5), and what becomes of legacy balances is the switch-over
+question in the issue.
+
+**Locks.** `ADD COLUMN lot_id` (nullable, no default) is catalog-only but takes `ACCESS
+EXCLUSIVE` on `credit_ledger` for that instant; the two foreign keys take `SHARE ROW EXCLUSIVE`
+on `payment_orders`, `credit_ledger` and `credit_lots` (validation scans an all-NULL column);
+`credit_ledger_lot_id_idx` is built non-concurrently on a small table. Each queues behind any
+in-flight purchase or unlock: apply in one `BEGIN; SET LOCAL lock_timeout = '3s'; … COMMIT;` and
+retry on `55P03`.
+
+**RLS.** ENABLE is generated; FORCE and the four REVOKEs are hand-appended (a regenerate drops
+them). `credit_lots` is in `LOCKED_TABLES` (`tests/e2e/rls-spine.e2e.test.ts`), census C5,
+`ORG_TARGET_TABLES` (`reconcile-migrations.ts`) and T5's `TENANT_TABLES`. Pinned by
+`packages/db/src/migration-0168-credit-lots.test.ts`.
+
+**Erasure.** None, by design: lots are billing records with no FK to `payers`, kept through a
+payer account deletion like `credit_ledger` and `payment_orders`.
+
+**Rollback** — revert the app first (the new build cannot write a ledger line without `lot_id`).
+It drops a production column, so it is an incident fix only, and lossy once any lot carries an
+expiry:
+
+```sql
+ALTER TABLE "credit_ledger" DROP CONSTRAINT "credit_ledger_lot_id_credit_lots_id_fk";
+DROP INDEX "credit_ledger_lot_id_idx";
+ALTER TABLE "credit_ledger" DROP COLUMN "lot_id";
+DROP TABLE "credit_lots";
+DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1794807507414;
+```
+
+Remove `credit_lots` from `LOCKED_TABLES` in the same change that drops the table.
 
 ### `0082` — R39: permissions only, APPLY ANY TIME, no backfill — 2026-08-20
 

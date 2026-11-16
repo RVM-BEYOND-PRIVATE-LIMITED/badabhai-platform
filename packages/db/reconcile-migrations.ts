@@ -47,6 +47,8 @@ const ORG_TARGET_TABLES = [
   "unlocks",
   "payer_credits",
   "credit_ledger",
+  // #2749 (0168) — a wallet's lots, keyed exactly like payer_credits (the tenant key).
+  "credit_lots",
   "posting_plans",
   "posting_boosts",
   "resume_disclosures",

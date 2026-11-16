@@ -1513,6 +1513,59 @@ export function isApplicantOutcomeStage(value: unknown): value is ApplicantOutco
   );
 }
 
+// ---- Credit lots: a company's balance, as expiring lots (#2749, migration 0168) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells the sources into
+// `credit_lots_source_chk` and writes them from its wallet helpers, and the api returns them on
+// `GET /payer/credits`. Declared once so the CHECK, the writers and the readers cannot drift.
+
+/**
+ * Where a lot's credits came from (brief 4C.1). `pack` = a pack bought (mock or Razorpay);
+ * `welcome` = the one-time welcome credits; `goodwill` = an ops grant; `returned` = credits given
+ * back after a refund; `migrated` = moved from another wallet; `legacy` = what a wallet held before
+ * lots existed (migration 0168's backfill), and the free-tier signup grant. A new value is a
+ * migration widening `credit_lots_source_chk`.
+ */
+export const CREDIT_LOT_SOURCES = Object.freeze([
+  "pack",
+  "welcome",
+  "goodwill",
+  "returned",
+  "migrated",
+  "legacy",
+] as const);
+export type CreditLotSource = (typeof CREDIT_LOT_SOURCES)[number];
+
+export function isCreditLotSource(value: unknown): value is CreditLotSource {
+  return typeof value === "string" && (CREDIT_LOT_SOURCES as readonly string[]).includes(value);
+}
+
+/**
+ * One open lot on `GET /payer/credits` (`credits_remaining > 0`), in the order credits are spent:
+ * the soonest `expires_at` first, a lot that never expires last. No lot id and no payment
+ * reference: what a company can see is how many credits it holds and when they end.
+ */
+export interface PayerCreditLot {
+  readonly source: CreditLotSource;
+  readonly credits_remaining: number;
+  readonly credits_granted: number;
+  /** ISO 8601 instant the lot expires, or `null` when it never does. */
+  readonly expires_at: string | null;
+  /** The pack a `pack` lot came from; `null` for every other source. */
+  readonly pack_code: string | null;
+}
+
+/**
+ * The reply of `GET /payer/credits` (and the ops `GET /payers/:payerId/credits`). `payer_id`
+ * echoes the caller, `balance` is the wallet the caller spends from (the org wallet under org
+ * tenancy `on`, ADR-0053), and `balance` equals the sum of `lots[].credits_remaining`.
+ */
+export interface PayerCreditsResponse {
+  readonly payer_id: string;
+  readonly balance: number;
+  readonly lots: readonly PayerCreditLot[];
+}
+
 // ---- Display preferences: the theme (#2819, migration 0165) ----
 //
 // HERE FOR THE SAME REASON AS THE SKINS ABOVE: `packages/db` spells both sets into CHECK

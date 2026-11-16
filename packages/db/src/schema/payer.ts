@@ -16,7 +16,7 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
-import type { MessageDirection, MessageType } from "@badabhai/types";
+import type { CreditLotSource, MessageDirection, MessageType } from "@badabhai/types";
 import { jsonObject } from "./internal/sql-defaults";
 import { workers } from "./worker";
 import { generatedResumes } from "./profile";
@@ -294,10 +294,17 @@ export type UnlockDenyReason = "no_consent" | "capped" | "payment_required" | "u
  * Append-only credit-ledger movement reason (ADR-0010 §D5). `pack_purchase` =
  * a payer bought a credit pack (mock in alpha, see credit-packs.ts); `unlock_debit`
  * = one credit spent to grant an unlock; `refund` = a credit returned; `grant` =
- * an ops/internal top-up (no real money). No currency/PAN/UPI is ever stored —
- * `payment_ref` is an OPAQUE external order id only, never card/PII data.
+ * an ops/internal top-up (no real money); `expired` = a lot's unspent credits removed when its
+ * `expires_at` passed (#2749, migration 0168: one line per lot, ever, keyed
+ * `credit_lot_expired:<lot id>`). No currency/PAN/UPI is ever stored — `payment_ref` is an
+ * OPAQUE external order id only, never card/PII data.
+ *
+ * `reason` is plain `text` with no CHECK, so a new value needs no migration — but every reader
+ * with a closed set of its own (the admin finance filter, the payment-history mapping, the
+ * admin-web parsers) must learn it in the same change. `returned` / `waived` / `welcome` /
+ * `goodwill` arrive with #2750.
  */
-export type CreditReason = "pack_purchase" | "unlock_debit" | "refund" | "grant";
+export type CreditReason = "pack_purchase" | "unlock_debit" | "refund" | "grant" | "expired";
 
 /**
  * Routed-channel kind (ADR-0010 §D2). Alpha ships `in_app_relay` ONLY — it
@@ -383,6 +390,83 @@ export const payerCredits = pgTable(
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
+// ===========================================================================
+// credit_lots — a wallet's balance, as lots that may expire (#2749, migration 0168)
+// ===========================================================================
+//
+// ONE ROW PER GRANT INTO A WALLET: a pack bought, an ops grant, the free-tier grant, and (from the
+// 0168 backfill) one `legacy` lot per balance that existed before lots did. `payer_id` is the
+// WALLET key — the same key as `payer_credits.payer_id` (the tenant key, ADR-0053), so a team
+// spends one set of lots. No FK, like `payer_credits`: faceless rails.
+//
+// THE INVARIANT: per wallet, `payer_credits.balance = Σ credits_remaining` over its lots, and
+// `balance = Σ credit_ledger.delta`. Every writer goes through `credit-wallet.ts`, under the wallet
+// row lock (wallet row → lots → ledger, one order everywhere), so the three move together.
+//
+// SPEND ORDER: the open lot that expires soonest, a lot that never expires last
+// (`expires_at ASC NULLS LAST, created_at ASC, id ASC`; brief 7, register B7-08).
+//
+// EXPIRY: an open lot past `expires_at` is closed by the spend path or the `credit-lot-expiry`
+// sweep with ONE `expired` ledger line (idempotency key `credit_lot_expired:<id>`): remaining → 0,
+// `expired_at` stamped. `expires_at` NULL = never expires; nothing in #2749 PR 1 writes a date.
+//
+// Billing records: NOT erased with the payer account (no FK to `payers`, like the ledger).
+// NOT PII: opaque ids, integers, a closed source code, a pack code and dates.
+export const creditLots = pgTable(
+  "credit_lots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The wallet key (tenant key) — the same value as payer_credits.payer_id. No FK.
+    payerId: uuid("payer_id").notNull(),
+    /** One of `CREDIT_LOT_SOURCES` (@badabhai/types). */
+    source: text("source").$type<CreditLotSource>().notNull(),
+    // The pack a `pack` lot came from (e.g. 'pack_50'). Null for every other source.
+    packCode: text("pack_code"),
+    // The paid Razorpay order a lot came from. UNIQUE (partial, below): one lot per order, so a
+    // settle replay can never add a second lot even past the ledger's own key.
+    paymentOrderId: uuid("payment_order_id").references(() => paymentOrders.id),
+    creditsGranted: integer("credits_granted").notNull(),
+    creditsRemaining: integer("credits_remaining").notNull(),
+    // NULL = never expires.
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    // Stamped when the lot is expired (its remaining credits removed with an `expired` line).
+    expiredAt: timestamp("expired_at", { withTimezone: true }),
+    // A staff test company's lot (plan §14: the one live pilot purchase is marked is_test).
+    isTest: boolean("is_test").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The spend / align read: a wallet's OPEN lots in spend order (btree ASC is NULLS LAST).
+    index("credit_lots_open_spend_idx")
+      .on(t.payerId, t.expiresAt, t.createdAt, t.id)
+      .where(sql`${t.creditsRemaining} > 0`),
+    // The sweep read: open lots that can expire, by date.
+    index("credit_lots_due_idx")
+      .on(t.expiresAt)
+      .where(sql`${t.creditsRemaining} > 0 AND ${t.expiresAt} IS NOT NULL`),
+    // One lot per paid order.
+    uniqueIndex("credit_lots_payment_order_uq")
+      .on(t.paymentOrderId)
+      .where(sql`${t.paymentOrderId} IS NOT NULL`),
+    // `CREDIT_LOT_SOURCES`, spelled out because a CHECK is static SQL (0168's test pins the copy).
+    check(
+      "credit_lots_source_chk",
+      sql`${t.source} IN ('pack', 'welcome', 'goodwill', 'returned', 'migrated', 'legacy')`,
+    ),
+    check("credit_lots_granted_pos_chk", sql`${t.creditsGranted} > 0`),
+    check(
+      "credit_lots_remaining_range_chk",
+      sql`${t.creditsRemaining} >= 0 AND ${t.creditsRemaining} <= ${t.creditsGranted}`,
+    ),
+    // An expired lot holds nothing.
+    check(
+      "credit_lots_expired_empty_chk",
+      sql`${t.expiredAt} IS NULL OR ${t.creditsRemaining} = 0`,
+    ),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + four REVOKEs carried by migration 0168
+
 // credit_ledger — APPEND-ONLY credit movements (the source of truth; balance is a
 // materialization of it). Amounts + ids ONLY. NO currency/PAN/UPI — `payment_ref`
 // is an OPAQUE external payment/order id only, NEVER card/PII data (§D5).
@@ -417,19 +501,29 @@ export const creditLedger = pgTable(
     // number, UPI handle, or any PII. Null for ops grants / mock debits.
     paymentRef: text("payment_ref"),
     // EXACTLY-ONCE money guard (ADMIN-3a H2). An OPAQUE, caller-supplied stable key for a
-    // logical credit movement (e.g. an admin grant). The partial unique index below makes the
-    // ledger insert idempotent under at-least-once retry: a re-submit with the SAME key inserts
-    // NO second row and changes NO balance. NULLABLE on purpose (NULLS DISTINCT) — movements with
-    // no natural dedup key (legacy/mock debits) leave it null and never collide. Carries NO PII /
-    // value — an opaque UUID only; the admin.action_performed event is keyed on the SAME value so
-    // ledger + spine agree (no double-spend / no money-vs-spine divergence).
+    // logical credit movement (e.g. an admin grant). The unique index below makes the ledger
+    // insert idempotent under at-least-once retry: a re-submit with the SAME key inserts NO second
+    // row and changes NO balance. It is a FULL unique index on a nullable column, not a partial
+    // one: NULLABLE on purpose (NULLS DISTINCT) — movements with no natural dedup key
+    // (legacy/mock debits) leave it null and never collide. Carries NO PII / value — an opaque key
+    // only; the admin.action_performed event is keyed on the SAME value so ledger + spine agree
+    // (no double-spend / no money-vs-spine divergence).
     idempotencyKey: text("idempotency_key"),
+    // #2749 (migration 0168) — the lot this movement added to, spent from or expired. Null for
+    // every line written before 0168 (the backfill writes no ledger line; the `legacy` lots it
+    // creates stand for what those lines already granted). No cascade: lots are never deleted.
+    //
+    // ⚠️ APPLY BEFORE DEPLOY: Drizzle names every model column in each insert, so every ledger
+    // write (every purchase, unlock and grant) fails against a database without this column.
+    lotId: uuid("lot_id").references(() => creditLots.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("credit_ledger_payer_id_idx").on(t.payerId),
     // Exactly-once: non-null keys are unique; many NULLs allowed (Postgres NULLS DISTINCT).
     uniqueIndex("credit_ledger_idempotency_key_uq").on(t.idempotencyKey),
+    // #2749 — a lot's movements (and the FK's referencing-side index).
+    index("credit_ledger_lot_id_idx").on(t.lotId),
     // BP-1 — the admin per-payer ledger keyset. Payer-leading because the admin read is
     // ALWAYS scoped to one payer; a bare (created_at, id) index would not serve it.
     index("credit_ledger_payer_keyset_idx").on(t.payerId, t.createdAt.desc(), t.id.desc()),

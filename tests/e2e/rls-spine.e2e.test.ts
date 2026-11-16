@@ -251,6 +251,10 @@ const LOCKED_TABLES = [
   // 0167 (#2747 item 8): marks owed to RVM (ids, closed codes and dates; the body is built at send
   // time). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0167.
   "outbound_signals",
+  // 0168 (#2749): a company's credits as expiring lots (opaque wallet key, a closed source, a pack
+  // code, integers and dates). Billing records, no FK to payers, never erased. RLS+FORCE+REVOKE in
+  // 0168.
+  "credit_lots",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

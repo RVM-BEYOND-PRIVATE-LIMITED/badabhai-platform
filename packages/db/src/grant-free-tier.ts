@@ -6,19 +6,17 @@
  * balance top-up.
  *
  * EXACTLY-ONCE IS A DB GUARANTEE, NOT A LOOP INVARIANT. Each ledger row carries
- * `idempotency_key = 'free_tier_grant:<payerId>'`, and `credit_ledger_idempotency_key_uq`
- * (the partial unique from ADMIN-3a H2) rejects a second insert with the same key. So:
- *   * a re-run inserts NO second ledger row, and
- *   * the balance is bumped ONLY when the ledger insert actually inserted — the code
- *     reads RETURNING, it does not assume. A crash between the two is safe to re-run:
- *     the ledger insert no-ops and the balance top-up is skipped, so a partially applied
- *     run cannot double-credit. (The reverse gap — ledger written, process killed before
- *     the balance bump — is repaired by the `--repair-balances` pass below, which
- *     reconciles `payer_credits.balance` against the ledger sum.)
+ * `idempotency_key = 'free_tier_grant:<payerId>'` ({@link freeTierIdempotencyKey}, shared with
+ * `FreeTierService`). The grant goes through `grantCreditsWithinTx` (credit-wallet.ts, #2749),
+ * which checks the key under the wallet row lock and writes nothing when it is already on the
+ * ledger; `credit_ledger_idempotency_key_uq` (a full unique index on the nullable key, ADMIN-3a
+ * H2) stays the backstop. So a re-run inserts NO second ledger row, NO second lot and moves NO
+ * balance.
  *
- * The two writes run in ONE TRANSACTION per payer, so the normal path cannot diverge at
- * all; `--repair-balances` exists for a pre-existing divergence, not for this script's
- * own failure mode.
+ * Each payer's grant is ONE TRANSACTION: the wallet row, the `legacy` lot (no expiry), the
+ * ledger line naming it and the balance move together, so the normal path cannot diverge at
+ * all; `--repair-balances` exists for a pre-existing divergence, not for this script's own
+ * failure mode.
  *
  * DRY-RUN IS THE DEFAULT; `--apply` writes.
  *
@@ -32,6 +30,7 @@
 import { eq, notInArray, sql as dsql } from "drizzle-orm";
 
 import { createDbClient, type Database } from "./client";
+import { freeTierIdempotencyKey, grantCreditsWithinTx, lotAlignmentWarning } from "./credit-wallet";
 import { creditLedger, matchConfig, payerCredits, payers } from "./schema";
 import {
   argFlag,
@@ -48,10 +47,12 @@ const NAME = "grant:free-tier";
 /** Fallback if `match_config` has not been seeded (D1 seeds 50). */
 const FALLBACK_FREE_CREDITS = 50;
 
-/** The stable, per-payer idempotency key. Opaque; carries no PII and no value. */
-export function freeTierIdempotencyKey(payerId: string): string {
-  return `free_tier_grant:${payerId}`;
-}
+/**
+ * The stable, per-payer idempotency key. Opaque; carries no PII and no value. Lives in
+ * credit-wallet.ts since #2749 (the api's FreeTierService imports the same function); re-exported
+ * here so this file's export surface is unchanged.
+ */
+export { freeTierIdempotencyKey };
 
 async function readFreeCredits(db: Database): Promise<number> {
   const rows = await db
@@ -116,36 +117,24 @@ async function main(): Promise<void> {
     if (opts.apply) {
       for (const p of pending) {
         await db.transaction(async (tx) => {
-          const inserted = await tx
-            .insert(creditLedger)
-            .values({
-              payerId: p.id,
-              delta: credits,
-              reason: "grant",
-              idempotencyKey: freeTierIdempotencyKey(p.id),
-            })
-            .onConflictDoNothing({ target: creditLedger.idempotencyKey })
-            .returning({ id: creditLedger.id });
+          // The same grant FreeTierService makes at signup: a never-expiring `legacy` lot, one
+          // `grant` line naming it, the balance — or nothing at all when the key is on the ledger.
+          const grant = await grantCreditsWithinTx(tx, {
+            payerId: p.id,
+            credits,
+            lot: { source: "legacy", expiresAt: null },
+            ledger: { reason: "grant", idempotencyKey: freeTierIdempotencyKey(p.id) },
+          });
+          const realigned = lotAlignmentWarning(p.id, grant.alignment);
+          if (realigned) console.warn(`[${NAME}] ${realigned}`);
 
-          // The guarantee: no ledger row inserted ⇒ NO balance movement. Never assume.
-          if (inserted.length === 0) {
+          // The guarantee: the key already on the ledger ⇒ NO lot and NO balance movement.
+          if (!grant.applied) {
             raced += 1;
             return;
           }
           ledgerWritten += 1;
-
-          const bumped = await tx
-            .insert(payerCredits)
-            .values({ payerId: p.id, balance: credits })
-            .onConflictDoUpdate({
-              target: payerCredits.payerId,
-              set: {
-                balance: dsql`${payerCredits.balance} + ${credits}`,
-                updatedAt: dsql`now()`,
-              },
-            })
-            .returning({ id: payerCredits.id });
-          balanceRowsWritten += bumped.length;
+          balanceRowsWritten += 1;
         });
       }
     }
@@ -168,6 +157,11 @@ async function main(): Promise<void> {
         for (const r of rows) {
           // The ledger is the source of truth (ADR-0010 §D5); balance is its
           // materialization. Never repair in the other direction.
+          //
+          // #2749 — this moves the balance WITHOUT touching the wallet's lots. That is
+          // deliberate: the next wallet touch (a spend, a grant, the expiry sweep) re-aligns
+          // the lots with the repaired balance under the wallet lock (`alignLotsWithBalance`)
+          // and logs it, so a repair cannot leave the two apart for long.
           await db
             .update(payerCredits)
             .set({ balance: r.ledger_sum, updatedAt: dsql`now()` })
