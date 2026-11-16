@@ -1,9 +1,15 @@
 import "reflect-metadata";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createDbClient, type DbClient } from "@badabhai/db";
+import {
+  createDbClient,
+  loadFormTenureAnswers,
+  workerPackAnswers,
+  type DbClient,
+} from "@badabhai/db";
 import { getMatchSkill, MATCH_SKILLS } from "@badabhai/taxonomy";
 
 import type { EventsService } from "../events/events.service";
+import { otherAnswerValue, packAnswerRowFor } from "../profiling/pack-answer-row";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { descriptorForKind } from "../profiling/roles/role-registry";
 import { MatchConfigRepository } from "./match-config.repository";
@@ -11,7 +17,12 @@ import { MatchConfigService } from "./match-config.service";
 import { MatchFeedRepository } from "./match-feed.repository";
 import { WorkerSkillsRepository } from "./worker-skills.repository";
 import { WorkerSkillsService } from "./worker-skills.service";
-import { attributesFor, latestPack, TRADE_FORM_CASES } from "./form-onboarding.test-support";
+import {
+  answerRecordsFor,
+  attributesFor,
+  latestPack,
+  TRADE_FORM_CASES,
+} from "./form-onboarding.test-support";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -57,6 +68,9 @@ const chatWorker = (i: number): string => uuid(0x7b80 + i);
 const postingFor = (i: number): string => uuid(0x7c00 + i);
 const POSTINGS = MATCH_SKILLS.map((skill, i) => ({ id: postingFor(i), skillId: skill.skillId }));
 const ALL_WORKERS = TRADE_FORM_CASES.flatMap((_, i) => [formWorker(i), chatWorker(i)]);
+/** #2753 item 2 — the form-tenure workers, inside this file's own 0x7Bxx block. */
+const tenureWorker = (i: number): string => uuid(0x7bc0 + i);
+const TENURE_WORKERS = Array.from({ length: 8 }, (_, i) => tenureWorker(i));
 
 describe.skipIf(!RUN)("form-onboarded workers reach their trade's postings (Matching V1)", () => {
   let client: DbClient;
@@ -165,6 +179,204 @@ describe.skipIf(!RUN)("form-onboarded workers reach their trade's postings (Matc
     },
   );
 
+  /**
+   * #2753 item 2 — A FORM WORKER'S EXPERIENCE BAND REACHES `worker_skill.months_bucketed`.
+   *
+   * The issue's check, against the real tables: a form worker who picked the 3–5 years band shows
+   * that experience (48 months, through the real bucketing) on his skill row and on the feed's
+   * matched skill; with no band he shows as not recorded (0). Answers are written by the SAME
+   * builders the form uses (`answerRecordsFor` → `packAnswerRowFor` into `worker_pack_answer`, the
+   * projector into `worker_attributes`), and the read is the shared `loadFormTenureAnswers`
+   * statement `db:backfill:worker-skills` runs too.
+   */
+  describe("a trade form's experience band (#2753 item 2)", () => {
+    const ON = { FORM_TENURE_MONTHS_ENABLED: true, FORM_TYPED_TENURE_DERIVE_ENABLED: false };
+    const BOTH = { FORM_TENURE_MONTHS_ENABLED: true, FORM_TYPED_TENURE_DERIVE_ENABLED: true };
+    const serviceWith = (serverConfig: typeof ON): WorkerSkillsService =>
+      new WorkerSkillsService(
+        repo,
+        new MatchConfigService(new MatchConfigRepository(client.db)),
+        { emit: async () => undefined } as unknown as EventsService,
+        serverConfig,
+      );
+
+    /** A form worker: his chips (and, when given, his tenure answer) under each form's pack. */
+    async function formWorkerWith(
+      workerId: string,
+      forms: readonly {
+        kind: (typeof TRADE_FORM_CASES)[number]["kind"];
+        chips: Readonly<Record<string, readonly string[]>>;
+        tenure?: { band: string } | { typed: string };
+      }[],
+      totalYears?: number,
+    ): Promise<void> {
+      await client.sql`
+        INSERT INTO workers (id, phone_e164, phone_hash, status)
+        VALUES (${workerId}::uuid, ${`enc:form-tenure-${workerId}`},
+                ${`hash:form-tenure-${workerId}`}, 'active')
+      `;
+      if (totalYears !== undefined) {
+        await client.sql`
+          INSERT INTO worker_profiles (worker_id, canonical_role_id, skills, experience,
+                                       profile_status)
+          VALUES (${workerId}::uuid, NULL, '[]'::jsonb,
+                  ${JSON.stringify({ total_years: totalYears })}::jsonb, 'extracted')
+        `;
+      }
+      for (const form of forms) {
+        const descriptor = descriptorForKind(form.kind)!;
+        const pack = latestPack(descriptor.packId);
+        const tenureKey = descriptor.tenureQuestionKey;
+        const answers =
+          form.tenure !== undefined && "band" in form.tenure
+            ? { ...form.chips, [tenureKey]: [form.tenure.band] }
+            : form.chips;
+        await attributes.upsertMany(
+          attributesFor(pack, answers).map((attribute) => ({
+            workerId,
+            attributeKey: attribute.attributeKey,
+            valueKind: attribute.valueKind,
+            valueBool: attribute.valueKind === "boolean" ? (attribute.value as boolean) : null,
+            valueNumber:
+              attribute.valueKind === "number" ? String(attribute.value as number) : null,
+            valueText: attribute.valueKind === "text" ? (attribute.value as string) : null,
+            valueTextList:
+              attribute.valueKind === "text_list"
+                ? [...(attribute.value as readonly string[])]
+                : null,
+            source: attribute.source,
+            questionKey: attribute.attributeKey,
+            packId: descriptor.packId,
+            packVersion: pack.version,
+            sessionId: null,
+          })),
+        );
+        const records = answerRecordsFor(pack, answers);
+        if (form.tenure !== undefined && "typed" in form.tenure) {
+          // "Koi aur — khud likhein": the typed words, as the form's own "other" marker.
+          records.push({
+            question_key: tenureKey,
+            target_field: tenureKey,
+            status: "answered",
+            value_raw: form.tenure.typed,
+            value_normalized: otherAnswerValue(form.tenure.typed),
+            evidence: null,
+            turn: 0,
+            history: [],
+          });
+        }
+        for (const record of records) {
+          const row = packAnswerRowFor({
+            workerId,
+            sessionId: null,
+            packId: descriptor.packId,
+            packVersion: pack.version,
+            record,
+            source: "form",
+          });
+          if (row !== null) await client.db.insert(workerPackAnswers).values(row);
+        }
+      }
+    }
+
+    const monthsOf = async (workerId: string): Promise<Record<string, number>> =>
+      Object.fromEntries(
+        (await repo.listSkillRows(workerId)).map((row) => [row.skillId, row.monthsBucketed]),
+      );
+    const SHEET_METAL_CHIPS = { sheet_metal_machine: ["cnc_press_brake"] };
+    const WELDER_CHIPS = { welding_process: ["mig_mag"] };
+
+    it("the 3–5 years band: 48 months on his skill, his industry and his V1 feed", async () => {
+      const workerId = tenureWorker(0);
+      await formWorkerWith(workerId, [
+        { kind: "sheet_metal_worker", chips: SHEET_METAL_CHIPS, tenure: { band: "three_to_five" } },
+      ]);
+      await serviceWith(ON).rebuildForWorker(workerId);
+      expect(await monthsOf(workerId)).toEqual({ mskill_sheet_metal_worker: 48 });
+      expect(await repo.findIndustryMonths(workerId, "ind_industrial_manufacturing")).toBe(48);
+      const served = await feed.listFeed(workerId, 100, {});
+      expect(served.map((row) => row.matchedSkillId)).toEqual(["mskill_sheet_metal_worker"]);
+    });
+
+    it("OFF: the same worker reads 0 months — today's derivation", async () => {
+      const workerId = tenureWorker(1);
+      await formWorkerWith(workerId, [
+        { kind: "sheet_metal_worker", chips: SHEET_METAL_CHIPS, tenure: { band: "three_to_five" } },
+      ]);
+      await service.rebuildForWorker(workerId);
+      expect(await monthsOf(workerId)).toEqual({ mskill_sheet_metal_worker: 0 });
+    });
+
+    it("no band, or a fresher band, shows as not recorded (0)", async () => {
+      await formWorkerWith(tenureWorker(2), [
+        { kind: "sheet_metal_worker", chips: SHEET_METAL_CHIPS },
+      ]);
+      await formWorkerWith(tenureWorker(3), [
+        { kind: "sheet_metal_worker", chips: SHEET_METAL_CHIPS, tenure: { band: "fresher" } },
+      ]);
+      for (const workerId of [tenureWorker(2), tenureWorker(3)]) {
+        await serviceWith(ON).rebuildForWorker(workerId);
+        expect(await monthsOf(workerId)).toEqual({ mskill_sheet_metal_worker: 0 });
+      }
+    });
+
+    it("a typed tenure counts only with BOTH switches on", async () => {
+      const workerId = tenureWorker(4);
+      await formWorkerWith(workerId, [
+        { kind: "sheet_metal_worker", chips: SHEET_METAL_CHIPS, tenure: { typed: "das saal" } },
+      ]);
+      await serviceWith(ON).rebuildForWorker(workerId);
+      expect(await monthsOf(workerId)).toEqual({ mskill_sheet_metal_worker: 0 });
+      await serviceWith(BOTH).rebuildForWorker(workerId);
+      expect(await monthsOf(workerId)).toEqual({ mskill_sheet_metal_worker: 120 });
+    });
+
+    it("a profile's own total_years is not overridden", async () => {
+      const workerId = tenureWorker(5);
+      await formWorkerWith(
+        workerId,
+        [{ kind: "sheet_metal_worker", chips: SHEET_METAL_CHIPS, tenure: { band: "above_ten" } }],
+        5,
+      );
+      await serviceWith(ON).rebuildForWorker(workerId);
+      expect(await monthsOf(workerId)).toEqual({ mskill_sheet_metal_worker: 60 });
+    });
+
+    it("two forms give two skills, each with its own band", async () => {
+      const workerId = tenureWorker(6);
+      await formWorkerWith(workerId, [
+        { kind: "sheet_metal_worker", chips: SHEET_METAL_CHIPS, tenure: { band: "one_to_three" } },
+        { kind: "welder", chips: WELDER_CHIPS, tenure: { band: "above_ten" } },
+      ]);
+      await serviceWith(ON).rebuildForWorker(workerId);
+      expect(await monthsOf(workerId)).toEqual({
+        mskill_mig_welder: 144,
+        mskill_sheet_metal_worker: 24,
+      });
+    });
+
+    it("the shared statement reads every worker's tenure answers in ONE call", async () => {
+      const rows = await loadFormTenureAnswers(client.db, TENURE_WORKERS);
+      const byWorker = new Map<string, string[]>();
+      for (const row of rows) {
+        byWorker.set(row.workerId, [...(byWorker.get(row.workerId) ?? []), row.packId].sort());
+      }
+      // Worker 2 answered no tenure question and worker 7 does not exist: neither has a row.
+      expect(Object.fromEntries(byWorker)).toEqual({
+        [tenureWorker(0)]: ["qp_sheet_metal_fab"],
+        [tenureWorker(1)]: ["qp_sheet_metal_fab"],
+        [tenureWorker(3)]: ["qp_sheet_metal_fab"],
+        [tenureWorker(4)]: ["qp_sheet_metal_fab"],
+        [tenureWorker(5)]: ["qp_sheet_metal_fab"],
+        [tenureWorker(6)]: ["qp_sheet_metal_fab", "qp_welding_trade"],
+      });
+      // Only the tenure question: the chips stored beside it never come back from this read.
+      expect(new Set(rows.map((row) => row.questionKey))).toEqual(
+        new Set(["sheet_metal_experience", "welding_experience"]),
+      );
+    });
+  });
+
   it("a worker who answered only trade-neutral questions is left untouched (no rows, no prune)", async () => {
     // The guard: no profile, no pack evidence, no declared occupation → rebuild returns null and
     // deletes nothing. Seeded with a pre-existing derived row to prove it is NOT pruned.
@@ -231,7 +443,7 @@ async function seedPostings(client: DbClient): Promise<void> {
 
 async function cleanup(client: DbClient): Promise<void> {
   const { sql } = client;
-  const workers = [...ALL_WORKERS, uuid(0x7bff)];
+  const workers = [...ALL_WORKERS, ...TENURE_WORKERS, uuid(0x7bff)];
   const postings = POSTINGS.map((p) => p.id);
   await sql`DELETE FROM job_reach WHERE worker_id = ANY(${workers}::uuid[])
                                     OR job_posting_id = ANY(${postings}::uuid[])`;
@@ -240,6 +452,7 @@ async function cleanup(client: DbClient): Promise<void> {
   await sql`DELETE FROM worker_industry_tenure WHERE worker_id = ANY(${workers}::uuid[])`;
   await sql`DELETE FROM worker_skill WHERE worker_id = ANY(${workers}::uuid[])`;
   await sql`DELETE FROM worker_attributes WHERE worker_id = ANY(${workers}::uuid[])`;
+  await sql`DELETE FROM worker_pack_answer WHERE worker_id = ANY(${workers}::uuid[])`;
   await sql`DELETE FROM worker_profiles WHERE worker_id = ANY(${workers}::uuid[])`;
   await sql`DELETE FROM workers WHERE id = ANY(${workers}::uuid[])`;
 }
