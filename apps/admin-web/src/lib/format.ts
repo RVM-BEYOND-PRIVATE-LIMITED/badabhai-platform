@@ -375,6 +375,9 @@ export function creditReasonLabel(reason: string): string {
       return "Refund";
     case "grant":
       return "Credit grant";
+    case "expired":
+      // #2749 — a lot's unspent credits, removed when its date passed (one line per lot).
+      return "Credits expired";
     default:
       // An unmapped reason is shown RAW rather than hidden — a code nobody recognises is a
       // reason to look, not to render a blank cell.

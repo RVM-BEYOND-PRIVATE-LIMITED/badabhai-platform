@@ -191,6 +191,8 @@ export class AdminPaymentHistoryRepository {
       });
     }
     for (const l of ledger) {
+      // #2749 — `expired` (a lot's unspent credits removed at its date) is its own kind, so it
+      // is never counted as credits USED (the totals sum only `credit_spend`).
       const type =
         l.reason === "pack_purchase"
           ? "credit_purchase"
@@ -198,7 +200,9 @@ export class AdminPaymentHistoryRepository {
             ? "credit_grant"
             : l.reason === "refund"
               ? "credit_refund"
-              : "credit_spend";
+              : l.reason === "expired"
+                ? "credit_expired"
+                : "credit_spend";
       items.push({
         id: `${type}:${l.id}`,
         date: l.createdAt,

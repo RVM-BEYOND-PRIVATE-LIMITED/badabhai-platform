@@ -73,6 +73,8 @@ const TENANT_TABLES: Record<string, string> = {
   unlocks: "unlocks",
   resumeDisclosures: "resume_disclosures",
   payerCredits: "payer_credits",
+  // #2749 (migration 0168) — a wallet's lots, keyed by the same tenant key as its balance.
+  creditLots: "credit_lots",
   creditLedger: "credit_ledger",
   paymentOrders: "payment_orders",
   agencyInvites: "agency_invites",
@@ -89,6 +91,25 @@ const TENANT_TABLES: Record<string, string> = {
   // #2752 item 10 — a named-company search grant is keyed by the company's tenant key.
   instituteSearchGrants: "institute_search_grants",
 };
+/**
+ * #2749 — the packages/db wallet helpers (`credit-wallet.ts`). Each writes `payer_credits`,
+ * `credit_lots` and `credit_ledger` for the wallet key its caller hands it, so CALLING one is a
+ * tenant-table touch exactly as naming `payerCredits` is: a raw-id caller of a helper is a T5
+ * finding (or a §4 exception — the admin grant and the free-tier grant are). credit-wallet.ts
+ * itself sits in packages/db, outside this scan, on purpose: it takes whatever key it is handed and
+ * resolves none, so the keying this test holds is its callers' — the tenant key on every payer
+ * path, the account id on the two named ops/signup exceptions, and a key read back from
+ * `credit_lots` on the expiry sweep (`StoredWalletKey`, never a caller's id).
+ */
+const WALLET_HELPERS: ReadonlySet<string> = new Set([
+  "lockWallet",
+  "alignLotsWithBalance",
+  "expireDueLots",
+  "grantCreditsWithinTx",
+  "spendOneCreditWithinTx",
+  "expireWalletWithinTx",
+  "findWalletsWithDueLots",
+]);
 const SQL_TABLE = new RegExp(
   `\\b(?:from|join|into|update)\\s+(?:public\\.)?(${Object.values(TENANT_TABLES).join("|")})\\b`,
   "i",
@@ -242,7 +263,10 @@ function hasRawPayerIdParam(
   );
 }
 
-/** Drizzle tenant tables this file imports from @badabhai/db (local name → table). */
+/**
+ * Drizzle tenant tables — and the wallet helpers ({@link WALLET_HELPERS}) — this file imports from
+ * @badabhai/db (local names).
+ */
 function importedTenantTables(sf: ts.SourceFile): Set<string> {
   const locals = new Set<string>();
   sf.forEachChild((node) => {
@@ -258,7 +282,7 @@ function importedTenantTables(sf: ts.SourceFile): Set<string> {
     for (const el of bindings.elements) {
       if (el.isTypeOnly) continue;
       const imported = (el.propertyName ?? el.name).text;
-      if (imported in TENANT_TABLES) locals.add(el.name.text);
+      if (imported in TENANT_TABLES || WALLET_HELPERS.has(imported)) locals.add(el.name.text);
     }
   });
   return locals;
@@ -382,7 +406,8 @@ describe("T5 — no tenant-table callable takes a raw payer id, except the liste
     expect(found).toContain(
       "admin/admin-entities.repository.ts AdminEntitiesRepository.getCreditBalance",
     );
-    // Its only table reference is a `dsql` template (the file imports no Drizzle table).
+    // Its only tenant-table touch is a credit-wallet helper call (#2749; the file imports no
+    // Drizzle table). The raw `sql` template path it used to witness keeps its fixture below.
     expect(found).toContain("match/free-tier.service.ts FreeTierService.grantForPayer");
     // Its raw id is `filter.payerId` in an INLINE type literal (the parameter is `filter`).
     expect(found).toContain(
@@ -708,6 +733,20 @@ describe("T5's scanner — every detection path fires (fixtures, so a quiet scan
       "fx/intersect.repository.ts FxRepository.credit",
       "fx/intersect.repository.ts FxRepository.maybe",
     ]);
+  });
+
+  it("a call to a packages/db wallet helper (#2749), and not to an unrelated import", () => {
+    const found = scanRawTenantKeyCallables([
+      fixture(
+        "fx/wallet.service.ts",
+        `import { grantCreditsWithinTx, isSampleWorkerId } from "@badabhai/db";
+        export class FxService {
+          async grant(payerId: string) { return grantCreditsWithinTx(this.tx, { payerId, credits: 1 }); }
+          async sample(payerId: string) { return isSampleWorkerId(payerId); }
+        }`,
+      ),
+    ]);
+    expect(found).toEqual(["fx/wallet.service.ts FxService.grant"]);
   });
 
   it("a raw table name in a `sql` template", () => {

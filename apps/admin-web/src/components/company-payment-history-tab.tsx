@@ -15,6 +15,7 @@ const TYPE_LABELS: Record<string, string> = {
   credit_grant: "Credit grant",
   credit_refund: "Credit refund",
   credit_spend: "Credit spend",
+  credit_expired: "Credits expired",
   posting_plan: "Posting plan",
   boost: "Boost",
   capacity_purchase: "Capacity purchase",

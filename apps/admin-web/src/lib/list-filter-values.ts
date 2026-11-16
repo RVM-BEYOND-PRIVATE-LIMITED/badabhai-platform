@@ -15,8 +15,17 @@
 // #2564 — `archived` (the company archive) is a filterable payer status on the server.
 export const PAYER_STATUSES = ["pending", "active", "suspended", "archived"] as const;
 
-/** `AdminLedgerQuerySchema.reason` — the credit ledger's reason chips, in the chips' order. */
-export const LEDGER_REASONS = ["pack_purchase", "grant", "unlock_debit", "refund"] as const;
+/**
+ * `AdminLedgerQuerySchema.reason` — the credit ledger's reason chips, in the chips' order.
+ * `expired` (#2749): a lot's unspent credits removed at its date.
+ */
+export const LEDGER_REASONS = [
+  "pack_purchase",
+  "grant",
+  "unlock_debit",
+  "refund",
+  "expired",
+] as const;
 
 /** `AdminOrdersQuerySchema.status` — the Payment orders status chips, in the chips' order. */
 export const ORDER_STATUSES = ["created", "paid", "failed"] as const;

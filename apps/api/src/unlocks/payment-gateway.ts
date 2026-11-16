@@ -104,9 +104,10 @@ export class PaymentGateway {
 
   /**
    * Debit ONE credit for an unlock, inside the caller's transaction (F-6 atomicity).
-   * Returns `{ ok: true, balanceAfter }` on success, or `{ ok: false }` when the payer
-   * has insufficient credits (atomic conditional decrement updated no row). The caller
-   * (chokepoint) appends the ledger row in the SAME tx so balance + ledger never drift.
+   * Returns `{ ok: true, balanceAfter, lotId }` on success — `lotId` is the lot the credit came
+   * from, the soonest-expiring open one (#2749) — or `{ ok: false }` when the payer has no
+   * credit left once due lots are expired. The caller (chokepoint) appends the ledger row, naming
+   * `lotId`, in the SAME tx so balance + lots + ledger never drift.
    *
    * IDEMPOTENCY (F-6): the chokepoint only calls this on the grant path AFTER it has
    * established there is no pre-existing live grant for (payer, worker) within the same
@@ -116,10 +117,10 @@ export class PaymentGateway {
   async debitOneCreditWithinTx(
     tx: Tx,
     tenant: TenantKey,
-  ): Promise<{ ok: true; balanceAfter: number } | { ok: false }> {
-    const balanceAfter = await this.repo.tryDebit(tx, tenant, 1);
-    if (balanceAfter === undefined) return { ok: false };
-    return { ok: true, balanceAfter };
+  ): Promise<{ ok: true; balanceAfter: number; lotId: string } | { ok: false }> {
+    const debited = await this.repo.tryDebit(tx, tenant, 1);
+    if (debited === undefined) return { ok: false };
+    return { ok: true, balanceAfter: debited.balanceAfter, lotId: debited.lotId };
   }
 
   /**
@@ -261,9 +262,10 @@ export class PaymentGateway {
    *     {@link UnlocksRepository.claimAndCreditPaymentOrderWithinTx}) — a single statement, so
    *     there is no read-then-write window; concurrent settlers serialize on the row lock
    *     and exactly one gets a row back.
-   *  3. `credit_ledger.idempotency_key = payment_order:<row id>` — a partial UNIQUE index.
-   *     Even if (2) were somehow bypassed, the second ledger insert violates the index and
-   *     aborts the transaction, so the balance cannot double.
+   *  3. `credit_ledger.idempotency_key = payment_order:<row id>`, checked under the wallet
+   *     lock (a key already on the ledger grants nothing), with the full UNIQUE index
+   *     `credit_ledger_idempotency_key_uq` and the one-lot-per-order `credit_lots_payment_order_uq`
+   *     (#2749) behind it. Even if (2) were somehow bypassed, the balance cannot double.
    *
    * The claim and the grant run in ONE transaction, so "order marked paid" and "credits
    * granted" are inseparable — no crash window can produce one without the other.

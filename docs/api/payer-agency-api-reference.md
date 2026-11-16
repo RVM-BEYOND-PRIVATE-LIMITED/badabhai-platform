@@ -478,7 +478,9 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 #### `GET /payer/credits`
 
 - **Auth:** `PayerAuthGuard` (Bearer) only — any authenticated payer, any `org_role` (owner ruling 2026-10-07). With org tenancy `off` (production today) the balance is the **caller's own** `payer_id` wallet. With it `on` (PAY-DB-01; the code is complete since P3, arming is owner action O-8) it is the **org wallet** — the founder's — for every member (ADR-0053 O-1), and `payer_id` still echoes the caller. Shape unchanged.
-- **Response:** `{ payer_id, balance: number (≥0) }`.
+- **Response:** `{ payer_id, balance: number (≥0), lots: [{ source, credits_remaining, credits_granted, expires_at: string | null, pack_code: string | null }] }` (`PayerCreditsResponse` in `@badabhai/types`).
+- **Lots (#2749, additive):** the wallet's OPEN lots (`credits_remaining > 0`) in the order credits are spent — the soonest `expires_at` first, a lot that never expires (`expires_at: null`) last. `source` is one of `pack`, `welcome`, `goodwill`, `returned`, `migrated`, `legacy` (a balance held before lots existed, and the signup free-tier grant); `pack_code` is set only for a `pack` lot. `balance` = the sum of `credits_remaining`. No lot id and no payment reference are returned. Nothing writes an expiry date yet (packs gain theirs with the catalogue change), so today every lot reads `expires_at: null`. When a lot's date passes, the next contact open or the expiry sweep (every 15 minutes) removes its unspent credits with one `expired` line on `GET /payer/credits/ledger`; until then the lot is still listed. The ops route `GET /payers/:payerId/credits` returns the same shape.
+- **Mobile gotchas:** a reader that knows only `{ payer_id, balance }` is unaffected (the field is additive). A ledger reader must accept the new `reason` value `expired` (a negative `delta`).
 
 #### `POST /payer/credits`
 

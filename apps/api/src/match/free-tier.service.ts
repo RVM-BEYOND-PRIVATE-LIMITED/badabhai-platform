@@ -1,6 +1,10 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { sql as dsql } from "drizzle-orm";
-import type { Database } from "@badabhai/db";
+import {
+  type Database,
+  freeTierIdempotencyKey,
+  grantCreditsWithinTx,
+  lotAlignmentWarning,
+} from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { MatchConfigService } from "./match-config.service";
 
@@ -8,16 +12,16 @@ import { MatchConfigService } from "./match-config.service";
  * ADR-0036 §8 — the free tier. A new payer starts with
  * `match_config.free_unlock_credits` (50) unlock credits.
  *
- * EXACTLY-ONCE UNDER RETRY, ENFORCED BY THE DATABASE. The ledger insert carries
- * `idempotency_key = 'free_tier_grant:<payerId>'`, and `credit_ledger_idempotency_key_uq`
- * makes a second attempt insert NO row. The balance is bumped ONLY when the ledger
- * insert actually inserted — read from `RETURNING`, never assumed — and both writes share
- * ONE transaction. So a retried signup, a redelivered request, and a concurrent duplicate
- * all converge on exactly one grant and exactly one balance change.
+ * EXACTLY-ONCE UNDER RETRY. The grant carries `idempotency_key = 'free_tier_grant:<payerId>'`
+ * ({@link freeTierIdempotencyKey}, the SAME function the `db:grant:free-tier` D6 backfill uses)
+ * and goes through `grantCreditsWithinTx` (packages/db credit-wallet.ts, #2749): under the wallet
+ * row lock it checks the key, and a key already on the ledger writes nothing at all — no lot, no
+ * line, no balance move. `credit_ledger_idempotency_key_uq` stays the backstop. So a retried
+ * signup, a redelivered request, and a concurrent duplicate (or the backfill running at the same
+ * time) all converge on exactly one grant and exactly one balance change.
  *
- * That is the same mechanism (and the same key) the `db:grant:free-tier` D6 backfill uses
- * for EXISTING payers, deliberately: the two paths can run in either order, or at the same
- * time, and the payer still ends up with exactly 50.
+ * #2749 — the grant is a `legacy` lot that never expires (the switch-over decides what becomes of
+ * signup credits), ONE `grant` line naming it, and the balance, in ONE transaction.
  *
  * PII-free & faceless: an opaque payer id and an integer.
  */
@@ -40,29 +44,18 @@ export class FreeTierService {
     const credits = cfg.freeUnlockCredits;
     if (credits <= 0) return 0;
 
-    return this.db.transaction(async (tx) => {
-      // THE LEDGER FIRST. It is the source of truth and it carries the idempotency key,
-      // so it is the statement that decides whether this grant happens at all. Bumping
-      // the balance first and then discovering the ledger row already existed would
-      // double a payer's credits on every retry.
-      const inserted = await tx.execute<{ id: string }>(dsql`
-        INSERT INTO credit_ledger (payer_id, delta, reason, idempotency_key)
-        VALUES (${payerId}::uuid, ${credits}, 'grant', ${`free_tier_grant:${payerId}`})
-        ON CONFLICT (idempotency_key) DO NOTHING
-        RETURNING id
-      `);
-      const rows = inserted as unknown as { id: string }[];
-      // ALREADY GRANTED — read from RETURNING, not assumed. Nothing else runs.
-      if (rows.length === 0) return 0;
-
-      await tx.execute(dsql`
-        INSERT INTO payer_credits (payer_id, balance)
-        VALUES (${payerId}::uuid, ${credits})
-        ON CONFLICT (payer_id) DO UPDATE
-          SET balance = payer_credits.balance + ${credits}, updated_at = now()
-      `);
-      return credits;
-    });
+    const grant = await this.db.transaction((tx) =>
+      grantCreditsWithinTx(tx, {
+        payerId,
+        credits,
+        lot: { source: "legacy", expiresAt: null },
+        ledger: { reason: "grant", idempotencyKey: freeTierIdempotencyKey(payerId) },
+      }),
+    );
+    const realigned = lotAlignmentWarning(payerId, grant.alignment);
+    if (realigned !== null) this.logger.warn(realigned);
+    // ALREADY GRANTED — the key was on the ledger, so nothing was written.
+    return grant.applied ? credits : 0;
   }
 
   /**

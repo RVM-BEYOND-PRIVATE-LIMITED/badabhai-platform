@@ -47,6 +47,8 @@ describe("UnlocksModule wiring (cross-module DI regression guard)", () => {
     expect(providers).toContain("UnlockService");
     expect(providers).toContain("UnlocksRepository");
     expect(providers).toContain("PaymentGateway");
+    // #2749 item 4 — the credit-lot expiry sweep lives beside the wallet it expires.
+    expect(providers).toContain("CreditLotExpirySweepProcessor");
   });
 
   it("EVERY route is guarded by InternalServiceGuard (interim payer auth, F-7)", () => {

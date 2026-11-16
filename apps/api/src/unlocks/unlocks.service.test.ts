@@ -143,7 +143,10 @@ function setup(opts: SetupOpts = {}) {
     // E0 item 1 — the handle-keyed read the relay resolution starts from.
     findRoutingByHandle: vi.fn(async () => opts.routingByHandle),
     appendLedger: vi.fn(async () => undefined),
-    tryDebit: vi.fn(async () => ((opts.debitOk ?? true) ? balance - 1 : undefined)),
+    // #2749 — the debit names the lot the credit came from (the ledger line carries it).
+    tryDebit: vi.fn(async () =>
+      (opts.debitOk ?? true) ? { balanceAfter: balance - 1, lotId: "lot-1" } : undefined,
+    ),
     // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-checks). #2562 adds
     // the durable status so a suspended worker freezes exactly like a pending-deletion one.
     getWorkerDeletionMarker: vi.fn(async () =>
@@ -177,6 +180,8 @@ function setup(opts: SetupOpts = {}) {
     listByPayerWithStatus: vi.fn(async (): Promise<unknown[]> => []),
     // The wallet's ledger read and the mock pack credit (ADR-0053 tests key-check both).
     listCreditLedgerByPayer: vi.fn(async (): Promise<unknown[]> => []),
+    // #2749 — the wallet's open lots on GET /payer/credits.
+    listOpenLots: vi.fn(async (): Promise<unknown[]> => []),
     creditPack: vi.fn(async (input: { credits: number }) => balance + input.credits),
     // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
     // gate; return a worker_id-bearing projection whenever an unlock exists so that
@@ -535,6 +540,14 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
     expect(txMethods.tryDebit).toHaveBeenCalledTimes(1);
     expect(txMethods.upsertGrant).toHaveBeenCalledTimes(1);
     expect(txMethods.appendLedger).toHaveBeenCalledTimes(1);
+    // #2749 — the debit line names the lot the credit came from (one credit, one lot, one line).
+    expect(txMethods.appendLedger).toHaveBeenCalledWith(expect.anything(), {
+      payerId: PAYER,
+      delta: -1,
+      reason: "unlock_debit",
+      unlockId: "unlock-1",
+      lotId: "lot-1",
+    });
 
     // Every payment.* event carries real_call:false (mock honesty, F-6).
     for (const c of events.emit.mock.calls) {
@@ -2075,8 +2088,10 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
   it("on: the teammate's balance, ledger and unlock lists are the ORG's; each response echoes the CALLER", async () => {
     const t = setup({ balance: 9, tenancy: on() });
 
-    expect(await t.svc.getCredits(MEMBER)).toEqual({ payer_id: MEMBER, balance: 9 });
+    expect(await t.svc.getCredits(MEMBER)).toEqual({ payer_id: MEMBER, balance: 9, lots: [] });
     expect(t.repo.getBalance).toHaveBeenLastCalledWith(ANCHOR);
+    // #2749 — the lots are the ORG wallet's too, never the teammate's own.
+    expect(t.repo.listOpenLots).toHaveBeenLastCalledWith(ANCHOR);
 
     expect(await t.svc.getCreditLedger(MEMBER, 25)).toEqual({ payer_id: MEMBER, ledger: [] });
     expect(t.repo.listCreditLedgerByPayer).toHaveBeenCalledWith(ANCHOR, 25);
@@ -2095,6 +2110,7 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
     await t.svc.getCreditLedger(OUTSIDER, 10);
     await t.svc.listOwnForPayer(OUTSIDER);
     expect(t.repo.getBalance).toHaveBeenCalledWith(OUTSIDER);
+    expect(t.repo.listOpenLots).toHaveBeenCalledWith(OUTSIDER);
     expect(t.repo.listCreditLedgerByPayer).toHaveBeenCalledWith(OUTSIDER, 10);
     expect(t.repo.listByPayerWithStatus).toHaveBeenCalledWith(OUTSIDER, expect.any(Array));
     for (const fn of [

@@ -141,7 +141,8 @@ export class PayerUnlocksController {
 
   /**
    * The balance of the wallet the caller spends from — the TENANT's (the org wallet in mode `on`).
-   * `payer_id` echoes the caller (ADR-0053 §10). Amounts + id only.
+   * `payer_id` echoes the caller (ADR-0053 §10). Amounts + id only. #2749: plus the wallet's open
+   * `lots` in spend order (source, remaining, granted, expiry, pack) — no lot id, no payment ref.
    */
   @Get("credits")
   ownCredits(@CurrentPayer() payer: AuthenticatedPayer) {

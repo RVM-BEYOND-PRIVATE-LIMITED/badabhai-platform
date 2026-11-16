@@ -12,6 +12,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { PayerCreditsResponse } from "@badabhai/types";
 import {
   normalizeTradeLevelKey,
   priceTierForTradeRows,
@@ -496,12 +497,14 @@ export class UnlockService {
           expiresAt,
         });
         // Ledger debit in the SAME tx, on the SAME key as the wallet it debited (balance +
-        // ledger never drift; F-6 — and `balance = Σ delta` per payer_id holds, ADR-0053 §6).
+        // ledger never drift; F-6 — and `balance = Σ delta` per payer_id holds, ADR-0053 §6),
+        // naming the lot the credit came from (#2749: one line per lot; one credit, one lot).
         await this.repo.appendLedger(tx, {
           payerId: tenant,
           delta: -1,
           reason: "unlock_debit",
           unlockId: granted.id,
+          lotId: debit.lotId,
         });
 
         // Order preserved: payment.authorized → payment.captured → unlock.granted.
@@ -988,10 +991,19 @@ export class UnlockService {
    * The balance of the wallet `payerId` spends from: the org wallet in mode `on` (the anchor's
    * existing row, O-1), never a member's personal pre-team balance (O-2), and `payerId`'s own
    * wallet in `off`. `payer_id` in the response echoes the CALLER, not the wallet (ADR-0053 §10).
+   *
+   * #2749 — plus the wallet's OPEN lots in spend order (soonest expiry first, never-expiring
+   * last): source, what is left, what it granted, when it ends and its pack. Additive: a reader
+   * that knows only `{ payer_id, balance }` is unaffected. Two non-tx reads, so a purchase landing
+   * between them can show a lot the balance does not include yet (the next read agrees).
    */
-  async getCredits(payerId: string): Promise<{ payer_id: string; balance: number }> {
+  async getCredits(payerId: string): Promise<PayerCreditsResponse> {
     const scope = await this.tenancy.resolve(payerId);
-    return { payer_id: payerId, balance: await this.repo.getBalance(scope.tenantKey) };
+    const [balance, lots] = await Promise.all([
+      this.repo.getBalance(scope.tenantKey),
+      this.repo.listOpenLots(scope.tenantKey),
+    ]);
+    return { payer_id: payerId, balance, lots };
   }
 
   // R21 / LC-7: latency-normalisation helper. Pads the response to
