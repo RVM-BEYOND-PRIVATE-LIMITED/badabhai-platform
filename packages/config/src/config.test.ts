@@ -799,6 +799,19 @@ describe("loadServerConfig", () => {
         .FORM_TYPED_TENURE_DERIVE_ENABLED,
     ).toBe(true);
   });
+  it("FORM_TENURE_MONTHS_ENABLED (#2753 item 2) is OFF by default and for the empty string", () => {
+    // Off must be today's derivation exactly: a form worker's skills read 0 months.
+    const read = (value?: string): boolean =>
+      loadServerConfig(value === undefined ? {} : { FORM_TENURE_MONTHS_ENABLED: value })
+        .FORM_TENURE_MONTHS_ENABLED;
+    expect(read()).toBe(false);
+    expect(read("")).toBe(false);
+    expect(read("false")).toBe(false);
+    expect(read("0")).toBe(false);
+    expect(read("true")).toBe(true);
+    expect(read("1")).toBe(true);
+    expect(() => read("yes")).toThrow();
+  });
   it.each(["RESUME_OPTION_MAP_REQUIRES_AUTOFILL"] as const)(
     "%s (audit fix F4) is OFF by default and for the empty string — today's behaviour",
     (name) => {
@@ -916,6 +929,26 @@ describe("loadServerConfig", () => {
     // 0 would mark everyone not active today; a typo must fail the boot, not mark a whole list.
     expect(() => loadServerConfig({ NOT_RECENTLY_ACTIVE_DAYS: "0" })).toThrow();
     expect(() => loadServerConfig({ NOT_RECENTLY_ACTIVE_DAYS: "1.5" })).toThrow();
+  });
+
+  it("SEARCH_EXIT_ENABLED (#2753 item 6, leave company search) is OFF by default and for the empty string", () => {
+    // Off is today exactly: the worker routes 404 and nothing reads `worker_search_exits`.
+    expect(loadServerConfig({}).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "" }).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "0" }).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "false" }).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "1" }).SEARCH_EXIT_ENABLED).toBe(true);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "true" }).SEARCH_EXIT_ENABLED).toBe(true);
+    expect(() => loadServerConfig({ SEARCH_EXIT_ENABLED: "yes" })).toThrow();
+  });
+
+  it("HIRE_RECORDS_ENABLED (#2753 item 9) is OFF by default and for the empty string", () => {
+    // Off: nothing reads or writes `hires`, and GET /admin/hires is a 404.
+    expect(loadServerConfig({}).HIRE_RECORDS_ENABLED).toBe(false);
+    expect(loadServerConfig({ HIRE_RECORDS_ENABLED: "" }).HIRE_RECORDS_ENABLED).toBe(false);
+    expect(loadServerConfig({ HIRE_RECORDS_ENABLED: "0" }).HIRE_RECORDS_ENABLED).toBe(false);
+    expect(loadServerConfig({ HIRE_RECORDS_ENABLED: "true" }).HIRE_RECORDS_ENABLED).toBe(true);
+    expect(() => loadServerConfig({ HIRE_RECORDS_ENABLED: "yes" })).toThrow();
   });
 
   describe("the Campus link (#2752)", () => {

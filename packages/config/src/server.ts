@@ -391,6 +391,20 @@ export const serverEnvSchema = z.object({
   //
   // DEFAULT OFF = today's behaviour exactly: a typed tenure answer resolves no gate.
   FORM_TYPED_TENURE_DERIVE_ENABLED: booleanFromString,
+  // #2753 item 2 — a trade form's experience band becomes `worker_skill.months_bucketed`. A form
+  // worker has no profile row, so every skill he derives reads 0 months ("not recorded" to search)
+  // although the form asked him a band. ON gives each skill a form derived that form's band years
+  // (fresher 0, under one 0, 1–3 → 2, 3–5 → 4, 5–10 → 7, over 10 → 12) through the existing
+  // bucketing, so 3–5 years reads 48 months. A typed tenure counts only with
+  // FORM_TYPED_TENURE_DERIVE_ENABLED on too. FILL, NEVER OVERRIDE: a profile's own total_years
+  // keeps exactly today's months. Read by BOTH writers of worker_skill — the live rebuild and
+  // `db:backfill:worker-skills`, which reads this same name from its own environment.
+  //
+  // DEFAULT OFF = today's derivation byte for byte, and no extra query. It changes RANK INPUTS for
+  // every existing form worker (search order, new application snapshots, tier promotion at
+  // `tier_floor_months`), so switching it on waits for the owner's `engine_version` ruling
+  // (ADR-0036) and is followed by `db:backfill:worker-skills --apply` then `db:materialize:reach`.
+  FORM_TENURE_MONTHS_ENABLED: booleanFromString,
   // RÉSUMÉ SKINS (#1801, owner ruling 2026-09-28 "Plumbing, Neela only") — the per-worker colour
   // skin of the `bb_trade` sheet, chosen through GET/PUT /resume/skin.
   //
@@ -1421,6 +1435,26 @@ export const serverEnvSchema = z.object({
   // MORE than this many days before today (IST) is marked; day 90 is not, day 91 is. A mark only:
   // nobody is hidden or re-sorted (owner question 3). Read only while WORKER_ACTIVITY_ENABLED is on.
   NOT_RECENTLY_ACTIVE_DAYS: z.coerce.number().int().min(1).default(90),
+  // LEAVE COMPANY SEARCH (#2753 item 6). With it on, a worker can turn "companies can find me" off
+  // (`PUT /workers/me/search-visibility`): one `worker_search_exits` row takes him out of every
+  // company's candidate search, and only a company he applied to (or one already holding an open
+  // contact) can still open him. His consent is untouched.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the two worker routes are a plain 404, the search
+  // statement is byte-identical, the unlock path reads nothing, and NOTHING reads or writes
+  // `worker_search_exits`. Migration 0169 is APPLY-BEFORE-THE-SWITCH, but on before it nothing
+  // 500s: search and the unlock gate fail open (everyone visible) and the worker routes answer 503.
+  SEARCH_EXIT_ENABLED: booleanFromString,
+  // HIRE RECORDS (#2753 item 9) — `hires`, one record per company, worker and posting. With it on,
+  // a company's real move of an applicant INTO `hired` on its board confirms the record in the
+  // stage transaction, a move OUT takes back a mark nothing else confirmed, and `GET /admin/hires`
+  // lists the records. The company's follow-up answer and the worker's own answer write the same
+  // row when they ship.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S API EXACTLY: nothing reads or writes `hires`, the stage move
+  // is unchanged, and `GET /admin/hires` is a 404. Migration `hires` is APPLY-BEFORE-THE-SWITCH:
+  // on without it, a move into or out of `hired` fails (42P01) and rolls back.
+  HIRE_RECORDS_ENABLED: booleanFromString,
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable

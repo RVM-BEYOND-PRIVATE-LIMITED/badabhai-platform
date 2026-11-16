@@ -186,6 +186,24 @@ NestJS boot assertion).
   ho gaye") at read time and uses them to resolve the experience gates, so a veteran is not shown
   fresher questions. Never stored; the question stays on screen; an ambiguous answer (two figures,
   a negated one, none, or outside 0–60) derives nothing.
+- **A trade form's experience band as match months (#2753 item 2)** — `FORM_TENURE_MONTHS_ENABLED`
+  (api, environment secret, `booleanFromString`; default `false`, today's derivation and no extra
+  query). `true` gives each skill a trade form derived that form's band years as
+  `worker_skill.months_bucketed`, through the existing 6-month bucketing (fresher and under one year
+  0, 1–3 years 24 months, 3–5 years 48, 5–10 years 84, over 10 years 144), and only where the
+  profile's own `total_years` buckets to 0 — a stated tenure is never overridden. A typed tenure
+  counts only with `FORM_TYPED_TENURE_DERIVE_ENABLED` on too. Rank input only, never printed on the
+  sheet. Bridged like its neighbours (compose `${FORM_TENURE_MONTHS_ENABLED:-false}` on `api`,
+  `ci.yml` `env:` + `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`).
+  `db:backfill:worker-skills` reads the SAME two names from the operator's own environment and
+  prints them; its `--apply` refuses (exit 1, one line naming the variable) unless
+  `FORM_TENURE_MONTHS_ENABLED` is set explicitly, and `FORM_TYPED_TENURE_DERIVE_ENABLED` too when the
+  first is true, so an operator's shell cannot silently write different months from the live path.
+  A dry run assumes false for an unset switch and prints `(assumed: unset)`.
+  Arming changes rank inputs for every form worker, so it waits for the owner's `engine_version`
+  ruling (ADR-0036), then: the secret `true` plus a redeploy, then from a tree equal to origin/main
+  `pnpm --filter @badabhai/db db:backfill:worker-skills --apply` (both switches exported) and
+  `pnpm --filter @badabhai/db db:materialize:reach --apply`.
 - **Stopping AI calls nobody uses (token-audit fixes, 2026-10-22)** — every one defaults to
   today's behaviour, and each is switched on separately:
   - `AI_REAL_CALL_TASKS_DENY` (ai-service, box only, never bridged; default empty) — tasks
@@ -449,6 +467,27 @@ NestJS boot assertion).
   least 1) is the mark's threshold: more than that many days since the last active day (IST) marks
   him, so day 90 is not marked and day 91 is. Not bridged (like `PAYER_APPLICANT_STAGE_MAX_PER_HOUR`):
   production runs the default until a bridge is added.
+- **Leave company search (#2753 item 6)** — `SEARCH_EXIT_ENABLED`, api only (`booleanFromString`,
+  default off). Off is today exactly: `GET`/`PUT /workers/me/search-visibility` are the plain 404
+  of an unmounted route, the candidate search statement is byte-identical, the unlock path reads
+  nothing, and nothing names `worker_search_exits`. On, a worker can leave company search while
+  keeping his consent: he is absent from every company's search (its city facet and the admin card
+  read too), and only a company he applied to, or one already holding an open contact, can open
+  him. Migration 0169 is APPLY-BEFORE-THE-SWITCH, but on without it nothing answers 500: search,
+  its city facet, the admin card read and the unlock gate FAIL OPEN (everyone visible, one warning
+  per process), and the two worker routes answer 503 until it is applied. Bridged through the GitHub `production` environment secret of the same name
+  (compose `${SEARCH_EXIT_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is 0169 applied, then the secret set to `true` plus
+  a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only.
+- **Hire records (#2753 item 9)** — `HIRE_RECORDS_ENABLED`, api only (`booleanFromString`, default
+  off). Off is today's API exactly: nothing reads or writes `hires`, a stage move is unchanged, and
+  `GET /admin/hires` is a 404. On, a company's real move of an applicant INTO `hired` confirms the
+  hire record in the stage transaction (one row per company, worker and posting), a move OUT takes
+  back a mark nothing else confirmed (`rejected`), and `GET /admin/hires` lists the records. The
+  migration `hires` is APPLY-BEFORE-THE-SWITCH: on without it, a move into or out of `hired` fails
+  (42P01) and rolls back. Bridged through the GitHub `production` environment secret of the same
+  name (compose `${HIRE_RECORDS_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted
+  in `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
 - **The Campus link (#2752)** — api only, four variables, all read by `CampusServiceGuard` on
   `/internal/campus/v1` (contract: `docs/api/campus-link-v1-api-reference.md`).
   - `CAMPUS_LINK_ENABLED` (`booleanFromString`, default off): off, every Campus route is a neutral

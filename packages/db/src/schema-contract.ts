@@ -1321,6 +1321,42 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "open grant lets any PostgREST role read that daily pattern, or write a day that clears " +
       "a worker's not-recently-active mark",
   },
+  // 0169 (#2753 item 6): THE API names `worker_search_exits` only while SEARCH_EXIT_ENABLED is on
+  // (the worker routes, the search pool's predicate, the unlock refusal), so a deploy ahead of the
+  // migration breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134
+  // rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0169-worker-search-exits-rls",
+    migration: "0169_worker_search_exits",
+    kind: "rls",
+    table: "worker_search_exits",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. A readable grant lets any PostgREST role list which workers left company search; " +
+      "a writable one lets it take any worker out of every company's search, or put one back " +
+      "who asked to leave",
+  },
+  // 0170 (#2753 item 9): THE API names `hires` only while HIRE_RECORDS_ENABLED is on (the stage
+  // transaction's hire source, GET /admin/hires), so a deploy ahead of the migration breaks no
+  // request and the table is NOT a `table` entry. Listed for its lock (the 0134 rule). APPLY
+  // BEFORE THE SWITCH (migration header).
+  {
+    id: "0170-hires-rls",
+    migration: "0170_hires",
+    kind: "rls",
+    table: "hires",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which workers each company hired, keyed by worker and company " +
+      "id; an open grant lets any PostgREST role read those hires, or write a confirmed hire that " +
+      "counts toward the target",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

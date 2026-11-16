@@ -400,6 +400,12 @@ services:
       # gates (read-time only, never stored). FALSE (the default) is today's form, in which a
       # typed tenure resolves nothing and a 10-year worker can be shown fresher questions.
       FORM_TYPED_TENURE_DERIVE_ENABLED: ${FORM_TYPED_TENURE_DERIVE_ENABLED:-false}
+      # #2753 item 2: a trade form's experience band fills worker_skill.months_bucketed where the
+      # profile states no tenure (3–5 years → 48 months; a typed tenure only with the flag above on
+      # too). FALSE (the default) is today's derivation: a form worker's skills read 0 months, "not
+      # recorded". It changes rank inputs: set it only after the engine_version ruling (ADR-0036),
+      # then rebuild (db:backfill:worker-skills, db:materialize:reach). `:-false`: this bool rejects "".
+      FORM_TENURE_MONTHS_ENABLED: ${FORM_TENURE_MONTHS_ENABLED:-false}
 
       # RÉSUMÉ SKINS (#1801). Off is every sheet in its template's own colours, and nothing reads
       # migration 0128's table. Turn on only after 0128 is applied. `:-false` because this bool
@@ -447,6 +453,16 @@ services:
       # worker_activity, no row carries `notRecentlyActive`, `lastActiveOn` is the device sighting.
       # On needs migration 0168 applied first. `:-false` because this bool rejects "".
       WORKER_ACTIVITY_ENABLED: ${WORKER_ACTIVITY_ENABLED:-false}
+      # LEAVE COMPANY SEARCH (#2753 item 6). Off is today exactly: the two
+      # /workers/me/search-visibility routes are a plain 404, the candidate search is byte-identical
+      # and nothing reads `worker_search_exits`. Apply migration 0169 before turning it on.
+      # `:-false` because this bool rejects "".
+      SEARCH_EXIT_ENABLED: ${SEARCH_EXIT_ENABLED:-false}
+      # HIRE RECORDS (#2753 item 9). Off is today's API exactly: nothing reads or writes `hires`
+      # and GET /admin/hires is a 404. On, a company's move into or out of `hired` writes the
+      # record in the stage transaction. Apply the `hires` migration first. `:-false` because this
+      # bool rejects "".
+      HIRE_RECORDS_ENABLED: ${HIRE_RECORDS_ENABLED:-false}
       # THE CAMPUS LINK (#2752). Off: every /internal/campus/v1 route is a neutral 404 and nothing
       # else runs. `:-false` because this bool rejects "". The two lists are empty when unset, and
       # empty refuses every caller (fail closed): token HASHES (sha256 hex, two during a rotation)

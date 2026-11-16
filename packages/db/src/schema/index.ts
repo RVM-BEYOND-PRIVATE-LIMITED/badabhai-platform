@@ -52,6 +52,8 @@ import { workerResumeSkins } from "./worker-resume-skin";
 import { payerApplicantStages } from "./payer-applicant-stage";
 import { outboundSignals } from "./outbound-signal";
 import { workerActivity } from "./worker-activity";
+import { workerSearchExits } from "./worker-search-exit";
+import { hires } from "./hire";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -170,6 +172,10 @@ export * from "./display-prefs";
 export * from "./outbound-signal";
 // #2753 - the days a worker was active (the one read of his last-active day).
 export * from "./worker-activity";
+// #2753 item 6 — a worker who left company search.
+export * from "./worker-search-exit";
+// #2753 item 9 — one hire record per company, worker and posting.
+export * from "./hire";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -480,4 +486,8 @@ export const schema = {
   outboundSignals,
   // #2753 - the days a worker was active, one row per IST day (migration 0168).
   workerActivity,
+  // #2753 item 6 - a worker who left company search (migration 0169).
+  workerSearchExits,
+  // #2753 item 9 - one hire record per company, worker and posting (behind HIRE_RECORDS_ENABLED).
+  hires,
 };

@@ -711,6 +711,8 @@ describe.skipIf(!RUN)(
         tenancy,
         { isEnabledFor: async () => false } as never,
         { signalsStateFor: async () => "off", recordMark: async () => "not_rvm" } as never,
+        // #2753 item 9 — hire records have their own Postgres suite (hires.db.test.ts).
+        { enabled: false } as never,
       );
       const applicants = new PayerApplicantsService(reach, postings, candidates, stages, tenancy);
       const inbox = new PayerApplicantInboxService(

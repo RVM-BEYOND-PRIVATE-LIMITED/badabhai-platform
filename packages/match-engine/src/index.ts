@@ -34,6 +34,7 @@ export {
   deriveWorkerSkills,
   workerSkillDeriveInput,
   type DeriveWorkerSkillsInput,
+  type FormTenureFill,
   type WorkerSkillEvidence,
 } from "./derive";
 
