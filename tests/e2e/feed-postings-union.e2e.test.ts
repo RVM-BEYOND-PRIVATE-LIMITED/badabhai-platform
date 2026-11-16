@@ -8,6 +8,7 @@ import {
   unlocks,
   type DbClient,
 } from "@badabhai/db";
+import { SEED_PACK } from "./helpers/credit-packs";
 import { mintPayerSession } from "./helpers/payer-session";
 import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
@@ -343,7 +344,7 @@ describe.skipIf(!RUN)("Company postings on the legacy feed (e2e, #1823 interim u
     // the worker's employer_sharing grant — the two unlock preconditions this suite lacked.
     const seeded = await req("POST", `/payers/${payer.payerId}/credits`, {
       ops: true,
-      body: { pack_code: "pack_10" },
+      body: { pack_code: SEED_PACK.code },
     });
     expect(seeded.status).toBe(200);
     const balanceBefore = seeded.json.balance as number;

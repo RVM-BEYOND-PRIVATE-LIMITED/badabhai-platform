@@ -81,10 +81,11 @@ export const PACK_25: CreditPack = {
 } as const;
 
 /**
- * All resolvable credit packs, keyed by code (lookup at purchase time). Includes the
- * §3A offered packs (50/200/1000) AND the retained legacy packs (10/25) so historical
- * `credit_ledger.pack_code` references stay valid (invariant 8). The OFFERED set
- * (what the portal sells) is {@link OFFERED_CREDIT_PACKS}.
+ * Every credit-pack code ever sold, keyed by code: the §3A packs (50/200/1000) AND the
+ * retained legacy packs (10/25), so historical `credit_ledger.pack_code` references stay
+ * known (invariant 8). NOT a purchase source since #2749: `PaymentGateway.resolvePack`
+ * accepts only a pack the live pricing catalogue lists and has on sale, so a code that is
+ * only here cannot be ordered. The OFFERED set is {@link OFFERED_CREDIT_PACKS}.
  */
 export const CREDIT_PACKS: Readonly<Record<string, CreditPack>> = {
   [PACK_50.code]: PACK_50,
