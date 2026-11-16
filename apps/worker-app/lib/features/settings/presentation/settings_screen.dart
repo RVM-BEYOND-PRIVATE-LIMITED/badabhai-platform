@@ -27,6 +27,7 @@ import '../../consent/presentation/cubit/employer_contact_cubit.dart';
 import '../../../core/widgets/feedback_fab.dart';
 import '../domain/notification_prefs_repository.dart';
 import 'cubit/account_delete_cubit.dart';
+import 'widgets/debug_dark_toggle.dart';
 
 /// Minimum clearance under the last row. The REAL clearance now comes from
 /// [FeedbackFabInset], which knows the pill's live height and this page's own
@@ -204,6 +205,8 @@ class _SettingsView extends StatelessWidget {
                     onTap: () => _comingSoon(context),
                   ),
                   const _NotificationsToggleRow(),
+                  // #2824 — debug-only ink preview; absent from release builds.
+                  const DebugDarkToggleRow(),
                 ]),
                 const SizedBox(height: 16),
                 _group(<Widget>[
