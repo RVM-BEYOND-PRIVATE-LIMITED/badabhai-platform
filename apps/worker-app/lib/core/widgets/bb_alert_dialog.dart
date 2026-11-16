@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 import 'bb_button.dart';
 
@@ -22,13 +23,14 @@ Future<void> showBbAlert(
   required String message,
   String okLabel = 'Theek hai',
 }) {
+  final BbPalette p = context.bb;
   return showDialog<void>(
     context: context,
     barrierDismissible: false,
-    barrierColor: OnboardingColors.scrim,
+    barrierColor: p.scrim,
     builder: (BuildContext dialogContext) {
       return AlertDialog(
-        backgroundColor: OnboardingColors.paperWhite,
+        backgroundColor: p.card,
         // Design law: separation is the scrim + fill, never a shadow.
         elevation: 0,
         shape: const RoundedRectangleBorder(
@@ -51,7 +53,7 @@ Future<void> showBbAlert(
               style: OnboardingTypography.inter(
                 size: 14,
                 height: 1.45,
-                color: OnboardingColors.ink600,
+                color: p.textSecondary,
               ),
             ),
             const SizedBox(height: 24),
@@ -95,13 +97,14 @@ Future<bool> showBbConfirm(
   bool destructive = false,
   bool barrierDismissible = true,
 }) async {
+  final BbPalette p = context.bb;
   final bool? confirmed = await showDialog<bool>(
     context: context,
     barrierDismissible: barrierDismissible,
-    barrierColor: OnboardingColors.scrim,
+    barrierColor: p.scrim,
     builder: (BuildContext dialogContext) {
       return AlertDialog(
-        backgroundColor: OnboardingColors.paperWhite,
+        backgroundColor: p.card,
         elevation: 0,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(OnboardingRadii.card)),
@@ -125,7 +128,7 @@ Future<bool> showBbConfirm(
                   style: OnboardingTypography.inter(
                     size: 14,
                     height: 1.45,
-                    color: OnboardingColors.ink600,
+                    color: p.textSecondary,
                   ),
                 ),
               ),

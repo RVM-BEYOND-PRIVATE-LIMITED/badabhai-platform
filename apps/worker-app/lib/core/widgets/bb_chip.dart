@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 
 /// A selectable chip — skills, single-select filters, chat option chips.
 ///
-/// [selected] is the v3 selected paint: the warm [OnboardingColors.selectedCardBg]
-/// fill behind a safety-yellow 1.8 border with a navy label, the same grammar
+/// [selected] is the v3 selected paint: the warm selected-card fill behind a
+/// safety-yellow 1.8 border with a navy label, the same grammar
 /// as a ticked option card. When unselected, the surface depends on [onDark]:
 ///  - `false` (default, on a light card): white fill + hairline + ink label.
 ///  - `true`  (on a navy header): translucent-white fill + white label.
@@ -31,7 +32,7 @@ class BbChip extends StatelessWidget {
   final IconData? icon;
 
   /// HIGHLIGHTED BUT UNTICKED (#1499, ruling D2) — a soft
-  /// [OnboardingColors.yellowTint20] wash behind a safety-yellow hairline with
+  /// action-tint wash behind a safety-yellow hairline with
   /// a lightbulb glyph, keeping the ordinary ink label.
   ///
   /// The wash is what makes this a THIRD paint. A WHITE fill (what this briefly
@@ -61,23 +62,24 @@ class BbChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // `suggested` only paints when NOT selected — see its own doc.
     final bool hint = suggested && !selected;
     final Color background = selected
-        ? OnboardingColors.selectedCardBg
+        ? p.selectedCardBg
         : hint
-        ? OnboardingColors.yellowTint20
+        ? p.actionTint
         : (onDark
-              ? Colors.white.withValues(alpha: 0.14)
-              : OnboardingColors.paperWhite);
+              ? p.onBrandSurface.withValues(alpha: 0.14)
+              : p.card);
     final Color borderColor = selected
-        ? OnboardingColors.safetyYellow
+        ? p.action
         : hint
-        ? OnboardingColors.safetyYellow
-        : (onDark ? Colors.transparent : OnboardingColors.borderDefault);
+        ? p.action
+        : (onDark ? Colors.transparent : p.borderDefault);
     final Color foreground = selected
-        ? OnboardingColors.shiftBlue
-        : (onDark ? OnboardingColors.textOnBlue : OnboardingColors.ink900);
+        ? p.textBrand
+        : (onDark ? p.onBrandSurface : p.textPrimary);
     final double borderWidth = selected ? 1.8 : 1.2;
 
     return Semantics(
@@ -109,6 +111,7 @@ class BbChip extends StatelessWidget {
                   maxWidth: bounded ? incoming.maxWidth : double.infinity,
                 ),
                 child: _chipBody(
+                  p,
                   background,
                   borderColor,
                   foreground,
@@ -129,6 +132,7 @@ class BbChip extends StatelessWidget {
   /// [wrap] false → unbounded (a horizontally-scrolling chip row): render
   /// exactly as this widget always has, single line, no cap.
   Widget _chipBody(
+    BbPalette p,
     Color background,
     Color borderColor,
     Color foreground,
@@ -162,10 +166,10 @@ class BbChip extends StatelessWidget {
           ] else if (hint) ...<Widget>[
             // A hint says WHY it is highlighted. Without a mark, a yellow
             // outline alone is one glance away from reading as selected.
-            const Icon(
+            Icon(
               Icons.lightbulb_outline,
               size: 14,
-              color: OnboardingColors.safetyYellowDark,
+              color: p.actionPressed,
             ),
             const SizedBox(width: 6),
           ],

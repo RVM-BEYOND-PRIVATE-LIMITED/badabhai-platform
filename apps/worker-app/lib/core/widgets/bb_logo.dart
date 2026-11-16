@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_spacing.dart';
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 
 /// The BadaBhai app mark — a deep-blue squircle holding a white chat bubble with
@@ -13,19 +14,26 @@ class BbLogo extends StatelessWidget {
     super.key,
     this.size = 88,
     this.withWordmark = false,
-    this.wordmarkColor = OnboardingColors.ink900,
+    this.wordmarkColor,
   });
 
   final double size;
   final bool withWordmark;
-  final Color wordmarkColor;
+  final Color? wordmarkColor;
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final Widget mark = SizedBox(
       width: size,
       height: size,
-      child: CustomPaint(painter: _BbLogoPainter()),
+      child: CustomPaint(
+        painter: _BbLogoPainter(
+          navyColor: p.brandSurface,
+          bubbleColor: p.onBrandSurface,
+          liftColor: p.success,
+        ),
+      ),
     );
     if (!withWordmark) return mark;
     return Column(
@@ -39,7 +47,7 @@ class BbLogo extends StatelessWidget {
           style: OnboardingTypography.anek(
             size: size * 0.42,
             weight: FontWeight.w800,
-            color: wordmarkColor,
+            color: wordmarkColor ?? p.textPrimary,
           ),
         ),
       ],
@@ -48,6 +56,16 @@ class BbLogo extends StatelessWidget {
 }
 
 class _BbLogoPainter extends CustomPainter {
+  const _BbLogoPainter({
+    required this.navyColor,
+    required this.bubbleColor,
+    required this.liftColor,
+  });
+
+  final Color navyColor;
+  final Color bubbleColor;
+  final Color liftColor;
+
   @override
   void paint(Canvas canvas, Size size) {
     // The source art is authored on a 512×512 canvas; scale uniformly.
@@ -60,10 +78,10 @@ class _BbLogoPainter extends CustomPainter {
       Rect.fromLTWH(0, 0, sx(512), sx(512)),
       Radius.circular(sx(128)),
     );
-    canvas.drawRRect(squircle, Paint()..color = OnboardingColors.shiftBlue);
+    canvas.drawRRect(squircle, Paint()..color = navyColor);
 
     // White chat bubble + drip tail.
-    final Paint white = Paint()..color = Colors.white;
+    final Paint white = Paint()..color = bubbleColor;
     final RRect bubble = RRect.fromRectAndRadius(
       Rect.fromLTRB(sx(110), sx(124), sx(402), sx(296)),
       Radius.circular(sx(40)),
@@ -78,7 +96,7 @@ class _BbLogoPainter extends CustomPainter {
 
     // Green "lift" chevron.
     final Paint chevron = Paint()
-      ..color = OnboardingColors.successGreen
+      ..color = liftColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = sx(32)
       ..strokeCap = StrokeCap.round
@@ -91,5 +109,8 @@ class _BbLogoPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _BbLogoPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _BbLogoPainter oldDelegate) =>
+      oldDelegate.navyColor != navyColor ||
+      oldDelegate.bubbleColor != bubbleColor ||
+      oldDelegate.liftColor != liftColor;
 }

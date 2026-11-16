@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// Multi-select option card (master spec §2.3, rule 2 of §5): selected = yellow
@@ -127,22 +128,19 @@ class OptionCheckbox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool form = variant == OnboardingVariant.formFlow;
     final double size = form ? FormFlowLayout.indicatorSize : 22;
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: isSelected ? OnboardingColors.blueThemeDark : Colors.transparent,
+        color: isSelected ? p.brandSurface : Colors.transparent,
         borderRadius: BorderRadius.circular(FormFlowLayout.checkboxRadius),
-        border: _indicatorBorder(isSelected: isSelected, form: form),
+        border: _indicatorBorder(isSelected: isSelected, form: form, p: p),
       ),
       child: isSelected
-          ? const Icon(
-              Icons.check_rounded,
-              size: 16,
-              color: OnboardingColors.safetyYellow,
-            )
+          ? Icon(Icons.check_rounded, size: 16, color: p.action)
           : null,
     );
   }
@@ -161,6 +159,7 @@ class OptionRadio extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool form = variant == OnboardingVariant.formFlow;
     final double size = form ? FormFlowLayout.indicatorSize : 22;
     return Container(
@@ -168,17 +167,17 @@ class OptionRadio extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: isSelected ? OnboardingColors.blueThemeDark : Colors.transparent,
-        border: _indicatorBorder(isSelected: isSelected, form: form),
+        color: isSelected ? p.brandSurface : Colors.transparent,
+        border: _indicatorBorder(isSelected: isSelected, form: form, p: p),
       ),
       alignment: Alignment.center,
       child: isSelected
           ? Container(
               width: 8,
               height: 8,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: OnboardingColors.safetyYellow,
+                color: p.action,
               ),
             )
           : null,
@@ -193,11 +192,13 @@ class OptionRadio extends StatelessWidget {
 /// flow used to drop the border on a ticked box — so the one control a worker
 /// looks at to confirm what they picked was drawn two different ways in one
 /// app. [form] is kept because the SIZE still differs per variant.
-Border? _indicatorBorder({required bool isSelected, required bool form}) {
+Border? _indicatorBorder({
+  required bool isSelected,
+  required bool form,
+  required BbPalette p,
+}) {
   return Border.all(
-    color: isSelected
-        ? OnboardingColors.safetyYellow
-        : OnboardingColors.borderDefault,
+    color: isSelected ? p.action : p.borderDefault,
     width: 1.8,
   );
 }
@@ -217,18 +218,15 @@ class OptionIconTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool form = variant == OnboardingVariant.formFlow;
     final double size = form ? FormFlowLayout.tileSize : 38;
-    final Color glyph = form && !isSelected
-        ? FormFlowColors.tileGlyph
-        : OnboardingColors.shiftBlue;
+    final Color glyph = form && !isSelected ? FormFlowColors.tileGlyph : p.textBrand;
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: isSelected
-            ? OnboardingColors.safetyYellow.withValues(alpha: 0.2)
-            : OnboardingColors.cardIconBg,
+        color: isSelected ? p.actionTint : p.cardIconBg,
         borderRadius: BorderRadius.circular(
           form ? FormFlowLayout.tileRadius : 10,
         ),
@@ -271,14 +269,15 @@ class _SelectionCardShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool form = variant == OnboardingVariant.formFlow;
     final BorderRadius radius = BorderRadius.circular(
       FormFlowLayout.cardRadius,
     );
     final BorderSide side = BorderSide(
       color: isSelected
-          ? OnboardingColors.safetyYellow
-          : (form ? FormFlowColors.cardBorder : OnboardingColors.borderDefault),
+          ? p.action
+          : p.borderDefault,
       width: isSelected ? 1.8 : 1.2,
     );
     return Padding(
@@ -288,9 +287,7 @@ class _SelectionCardShell extends StatelessWidget {
         checked: checked,
         inMutuallyExclusiveGroup: inMutuallyExclusiveGroup,
         child: Material(
-          color: isSelected
-              ? OnboardingColors.selectedCardBg
-              : OnboardingColors.paperWhite,
+          color: isSelected ? p.selectedCardBg : p.card,
           // The form flow paints its hairline on the Material's shape, which
           // takes no layout space: the content then sits exactly
           // [FormFlowLayout.cardInset] from the card's outer edge whether the
@@ -343,7 +340,7 @@ class _SelectionCardShell extends StatelessWidget {
                         if (subtitle != null &&
                             subtitle!.isNotEmpty) ...<Widget>[
                           const SizedBox(height: 3),
-                          Text(subtitle!, style: _subtitleStyle(form)),
+                          Text(subtitle!, style: _subtitleStyle(form, p)),
                         ],
                       ],
                     ),
@@ -359,7 +356,7 @@ class _SelectionCardShell extends StatelessWidget {
     );
   }
 
-  TextStyle _subtitleStyle(bool form) {
+  TextStyle _subtitleStyle(bool form, BbPalette p) {
     if (form) {
       return subtitleMono
           ? OnboardingTypography.formCardSubtitleMono()
@@ -369,8 +366,8 @@ class _SelectionCardShell extends StatelessWidget {
         ? OnboardingTypography.mono(
             size: 11,
             weight: FontWeight.w400,
-            color: OnboardingColors.ink600,
+            color: p.textSecondary,
           )
-        : OnboardingTypography.inter(size: 12, color: OnboardingColors.ink600);
+        : OnboardingTypography.inter(size: 12, color: p.textSecondary);
   }
 }

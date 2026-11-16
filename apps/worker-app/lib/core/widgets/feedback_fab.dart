@@ -7,6 +7,7 @@ import '../../features/auth/domain/auth_session_manager.dart';
 import '../../router.dart';
 import '../di/locator.dart';
 import '../theme/app_spacing.dart';
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 import 'bottom_bar_inset.dart';
 
@@ -342,6 +343,7 @@ class _FeedbackButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final BorderRadius radius = BorderRadius.circular(
       OnboardingRadii.feedbackButton,
     );
@@ -351,7 +353,7 @@ class _FeedbackButton extends StatelessWidget {
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: Material(
-        color: OnboardingColors.shiftBlue,
+        color: p.brandSurface,
         borderRadius: radius,
         child: InkWell(
           onTap: onTap,
@@ -365,10 +367,10 @@ class _FeedbackButton extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  const Icon(
+                  Icon(
                     Icons.chat_bubble_outline_rounded,
                     size: 16,
-                    color: OnboardingColors.textOnBlue,
+                    color: p.onBrandSurface,
                   ),
                   const SizedBox(width: 8),
                   Text(
@@ -376,7 +378,7 @@ class _FeedbackButton extends StatelessWidget {
                     style: OnboardingTypography.inter(
                       size: 13,
                       weight: FontWeight.w700,
-                      color: OnboardingColors.textOnBlue,
+                      color: p.onBrandSurface,
                     ),
                   ),
                 ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_spacing.dart';
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 import 'kit/kit_content_column.dart';
 
@@ -27,11 +28,12 @@ Future<T?> showBbBottomSheet<T>({
   double maxWidth = OnboardingLayout.maxContentWidth,
   WidgetBuilder? footer,
 }) {
+  final BbPalette p = context.bb;
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: isScrollControlled,
-    backgroundColor: OnboardingColors.paperWhite,
-    barrierColor: OnboardingColors.scrim,
+    backgroundColor: p.card,
+    barrierColor: p.scrim,
     elevation: 0,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(
@@ -89,13 +91,14 @@ class BbSheetGrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       width: 40,
       height: 4,
       margin: const EdgeInsets.only(bottom: AppSpacing.s3),
-      decoration: const BoxDecoration(
-        color: OnboardingColors.borderDefault,
-        borderRadius: BorderRadius.all(Radius.circular(AppRadii.pill)),
+      decoration: BoxDecoration(
+        color: p.borderDefault,
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.pill)),
       ),
     );
   }

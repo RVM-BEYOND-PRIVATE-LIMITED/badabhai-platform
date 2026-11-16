@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../features/notifications/domain/notifications_repository.dart';
 import '../../router.dart';
 import '../di/locator.dart';
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 import '../../core/util/push_once.dart';
 
@@ -25,12 +26,12 @@ import '../../core/util/push_once.dart';
 /// tests) it degrades to a plain, badge-less bell — the entry point still
 /// works, it just cannot show a count.
 class BbAlertsAction extends StatelessWidget {
-  const BbAlertsAction({super.key, this.color = OnboardingColors.textOnBlue});
+  const BbAlertsAction({super.key, this.color});
 
-  /// Bell icon colour. Defaults to white, because every header that carries the
-  /// bell is the navy band (spec §4). A caller on another surface passes its own
-  /// ink.
-  final Color color;
+  /// Bell icon colour. Null uses the on-brand ink, because every header that
+  /// carries the bell is the navy band (spec §4). A caller on another surface
+  /// passes its own ink.
+  final Color? color;
 
   /// The painted glyph size (spec §4: 22 in the navy tab header).
   static const double glyphSize = 22;
@@ -48,6 +49,7 @@ class BbAlertsAction extends StatelessWidget {
   }
 
   Widget _bell(BuildContext context, int unread) {
+    final BbPalette p = context.bb;
     return IconButton(
       tooltip: 'Alerts',
       padding: EdgeInsets.zero,
@@ -59,7 +61,11 @@ class BbAlertsAction extends StatelessWidget {
       icon: Stack(
         clipBehavior: Clip.none,
         children: <Widget>[
-          Icon(Icons.notifications_outlined, size: glyphSize, color: color),
+          Icon(
+            Icons.notifications_outlined,
+            size: glyphSize,
+            color: color ?? p.onBrandSurface,
+          ),
           if (unread > 0)
             Positioned(top: -4, right: -6, child: _Badge(count: unread)),
         ],
@@ -75,14 +81,15 @@ class _Badge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       constraints: const BoxConstraints(minWidth: 16),
       height: 16,
       padding: const EdgeInsets.symmetric(horizontal: 4),
       alignment: Alignment.center,
-      decoration: const BoxDecoration(
-        color: OnboardingColors.errorRed,
-        borderRadius: BorderRadius.all(Radius.circular(999)),
+      decoration: BoxDecoration(
+        color: p.danger,
+        borderRadius: const BorderRadius.all(Radius.circular(999)),
       ),
       child: Text(
         '$count',
@@ -90,9 +97,9 @@ class _Badge extends StatelessWidget {
         style: OnboardingTypography.inter(
           size: 10,
           weight: FontWeight.w700,
-          // White on the red disc — the navy ink the rest of the kit uses for
-          // "on brand" surfaces read as dark here.
-          color: OnboardingColors.paperWhite,
+          // The card ink on the red disc — the navy ink the rest of the kit
+          // uses for "on brand" surfaces read as dark here.
+          color: p.card,
         ),
       ),
     );

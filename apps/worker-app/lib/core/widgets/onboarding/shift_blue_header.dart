@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 import 'brand_badge.dart';
 
@@ -84,7 +85,7 @@ class ShiftBlueHeader extends StatelessWidget {
     this.trailing,
     this.titleTrailing,
     this.actions = const <Widget>[],
-    this.titleColor = OnboardingColors.textOnBlue,
+    this.titleColor,
     this.variant = OnboardingVariant.standard,
     this.compact = false,
     this.autoCompact = true,
@@ -118,9 +119,9 @@ class ShiftBlueHeader extends StatelessWidget {
   /// a pill competing for that line is the first thing that should go.
   final Widget? titleTrailing;
 
-  /// The title colour. White by default; the form flow's question screens use
-  /// safety yellow.
-  final Color titleColor;
+  /// The title colour. Null uses the on-brand surface ink; the form flow's
+  /// question screens use safety yellow.
+  final Color? titleColor;
 
   final OnboardingVariant variant;
 
@@ -144,6 +145,8 @@ class ShiftBlueHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
+    final Color resolvedTitle = titleColor ?? p.onBrandSurface;
     final double top = MediaQuery.paddingOf(context).top;
     final bool form = variant == OnboardingVariant.formFlow;
     // The form flow's header is its own drawing; it does not collapse.
@@ -157,7 +160,7 @@ class ShiftBlueHeader extends StatelessWidget {
         maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
         child: Container(
           width: double.infinity,
-          color: OnboardingColors.shiftBlue,
+          color: p.brandSurface,
           padding: EdgeInsets.only(
             top: top + (form ? FormFlowLayout.headerTopPadding : 8),
             bottom: form
@@ -170,7 +173,9 @@ class ShiftBlueHeader extends StatelessWidget {
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: maxWidth),
-              child: dense ? _buildDense() : _buildFull(form),
+              child: dense
+                  ? _buildDense(p, resolvedTitle)
+                  : _buildFull(form, p, resolvedTitle),
             ),
           ),
         ),
@@ -179,7 +184,7 @@ class ShiftBlueHeader extends StatelessWidget {
   }
 
   /// The spec drawing: badge row, step badge, title, subtitle.
-  Widget _buildFull(bool form) {
+  Widget _buildFull(bool form, BbPalette p, Color titleColor) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -199,7 +204,7 @@ class ShiftBlueHeader extends StatelessWidget {
         ),
         if (stepBadge != null) ...<Widget>[
           SizedBox(height: form ? FormFlowLayout.headerRowToStepGap : 8),
-          _stepBadgeText(form),
+          _stepBadgeText(form, p),
         ],
         const SizedBox(height: 8),
         if (titleTrailing == null)
@@ -223,7 +228,7 @@ class ShiftBlueHeader extends StatelessWidget {
           ),
         if (subtitle != null && subtitle!.isNotEmpty) ...<Widget>[
           const SizedBox(height: 4),
-          Text(subtitle!, style: _subtitleStyle),
+          Text(subtitle!, style: _subtitleStyle(p)),
         ],
       ],
     );
@@ -232,7 +237,7 @@ class ShiftBlueHeader extends StatelessWidget {
   /// The collapsed drawing: back and title on ONE row, no brand badge, subtitle
   /// held to a single line. Actions are kept — a collapsed header still has to
   /// offer whatever the screen put in it.
-  Widget _buildDense() {
+  Widget _buildDense(BbPalette p, Color titleColor) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -246,7 +251,7 @@ class ShiftBlueHeader extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
                   if (stepBadge != null) ...<Widget>[
-                    _stepBadgeText(false),
+                    _stepBadgeText(false, p),
                     const SizedBox(height: 2),
                   ],
                   Text(
@@ -267,7 +272,7 @@ class ShiftBlueHeader extends StatelessWidget {
             subtitle!,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: _subtitleStyle,
+            style: _subtitleStyle(p),
           ),
         ],
       ],
@@ -287,7 +292,7 @@ class ShiftBlueHeader extends StatelessWidget {
   /// 'STEP 1 OF 2 • AVAILABILITY & TERMS' wrapped and pushed the whole header
   /// another 19dp down the screen, for context the progress strip already
   /// carries.
-  Widget _stepBadgeText(bool form) => Text(
+  Widget _stepBadgeText(bool form, BbPalette p) => Text(
     stepBadge!.toUpperCase(),
     maxLines: 1,
     overflow: TextOverflow.ellipsis,
@@ -297,13 +302,13 @@ class ShiftBlueHeader extends StatelessWidget {
             size: 10,
             weight: FontWeight.w700,
             letterSpacing: 1,
-            color: OnboardingColors.textOnBlueMuted,
+            color: p.onBrandSurfaceMuted,
           ),
   );
 
-  TextStyle get _subtitleStyle => OnboardingTypography.inter(
+  TextStyle _subtitleStyle(BbPalette p) => OnboardingTypography.inter(
     size: 13,
-    color: OnboardingColors.textOnBlueMuted,
+    color: p.onBrandSurfaceMuted,
     height: 1.35,
   );
 }
@@ -328,9 +333,9 @@ class _BackButton extends StatelessWidget {
         width: OnboardingLayout.tapTarget,
         height: OnboardingLayout.tapTarget,
       ),
-      icon: const Icon(
+      icon: Icon(
         Icons.arrow_back_rounded,
-        color: OnboardingColors.textOnBlue,
+        color: context.bb.onBrandSurface,
         size: 22,
       ),
     );

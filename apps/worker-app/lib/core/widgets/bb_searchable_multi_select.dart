@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/bb_palette.dart';
 import 'bb_chip.dart';
 import 'bb_search_field.dart';
 
@@ -144,6 +144,7 @@ class _BbSearchableMultiSelectState extends State<BbSearchableMultiSelect> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String q = _query.trim().toLowerCase();
     final Set<String> selected = widget.selectedKeys.toSet();
     final Set<String> suggested =
@@ -171,7 +172,7 @@ class _BbSearchableMultiSelectState extends State<BbSearchableMultiSelect> {
             widget.emptyHint,
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textFaint,
+              color: p.textMuted,
             ),
           )
         else

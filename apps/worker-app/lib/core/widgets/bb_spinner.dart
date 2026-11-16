@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 
 /// BadaBhai loading spinner: a cool hairline ring (track) with a navy arc head
@@ -46,11 +47,12 @@ class _BbSpinnerState extends State<BbSpinner>
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final Widget spinner = RotationTransition(
       turns: _controller,
       child: CustomPaint(
         size: Size.square(widget.size),
-        painter: const _SpinnerPainter(),
+        painter: _SpinnerPainter(track: p.borderSubtle, head: p.textBrand),
       ),
     );
 
@@ -68,7 +70,7 @@ class _BbSpinnerState extends State<BbSpinner>
           textAlign: TextAlign.center,
           style: OnboardingTypography.inter(
             size: 14,
-            color: OnboardingColors.ink600,
+            color: p.textSecondary,
           ),
         ),
       ],
@@ -78,7 +80,10 @@ class _BbSpinnerState extends State<BbSpinner>
 
 /// Paints the full hairline track plus the navy ~90deg head arc.
 class _SpinnerPainter extends CustomPainter {
-  const _SpinnerPainter();
+  const _SpinnerPainter({required this.track, required this.head});
+
+  final Color track;
+  final Color head;
 
   static const double _strokeWidth = 5;
 
@@ -87,27 +92,28 @@ class _SpinnerPainter extends CustomPainter {
     final Offset center = size.center(Offset.zero);
     final double radius = (size.shortestSide - _strokeWidth) / 2;
 
-    final Paint track = Paint()
+    final Paint trackPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = _strokeWidth
-      ..color = OnboardingColors.borderSubtle;
-    canvas.drawCircle(center, radius, track);
+      ..color = track;
+    canvas.drawCircle(center, radius, trackPaint);
 
-    final Paint head = Paint()
+    final Paint headPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = _strokeWidth
       ..strokeCap = StrokeCap.round
-      ..color = OnboardingColors.shiftBlue;
+      ..color = head;
     // A quarter-turn arc, starting at the top of the circle.
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
       -math.pi / 2,
       math.pi / 2,
       false,
-      head,
+      headPaint,
     );
   }
 
   @override
-  bool shouldRepaint(_SpinnerPainter oldDelegate) => false;
+  bool shouldRepaint(_SpinnerPainter oldDelegate) =>
+      oldDelegate.track != track || oldDelegate.head != head;
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 
 /// The BadaBhai switch: a 52x30 pill track that slides from the disabled grey
@@ -34,6 +35,7 @@ class BbToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // Vertical padding lifts the 30px track to the 48px sacred tap target.
     const double padV = (OnboardingLayout.tapTarget - _trackHeight) / 2;
 
@@ -53,14 +55,10 @@ class BbToggle extends StatelessWidget {
             width: _trackWidth,
             height: _trackHeight,
             decoration: BoxDecoration(
-              color: value
-                  ? OnboardingColors.shiftBlue
-                  : OnboardingColors.disabledBg,
+              color: value ? p.brandSurface : p.disabledBg,
               borderRadius: BorderRadius.circular(AppRadii.pill),
               border: Border.all(
-                color: value
-                    ? OnboardingColors.safetyYellow
-                    : OnboardingColors.disabledBg,
+                color: value ? p.action : p.disabledBg,
                 width: 1.5,
               ),
             ),
@@ -80,9 +78,7 @@ class BbToggle extends StatelessWidget {
                   // Elevation 0 — the design system BANS shadows (separation is
                   // by colour/hairline, never a drop shadow).
                   decoration: BoxDecoration(
-                    color: value
-                        ? OnboardingColors.safetyYellow
-                        : OnboardingColors.paperWhite,
+                    color: value ? p.action : p.card,
                     shape: BoxShape.circle,
                   ),
                 ),

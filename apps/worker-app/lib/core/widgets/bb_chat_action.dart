@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/util/push_once.dart';
 import '../../router.dart';
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 
 /// App-bar action that (re-)opens the Bada Bhai profiling chat.
@@ -25,6 +26,7 @@ class BbChatAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return IconButton(
       tooltip: 'Bada Bhai se baat karein',
       padding: EdgeInsets.zero,
@@ -32,11 +34,7 @@ class BbChatAction extends StatelessWidget {
         width: OnboardingLayout.tapTarget,
         height: OnboardingLayout.tapTarget,
       ),
-      icon: const Icon(
-        Icons.forum_outlined,
-        size: 20,
-        color: OnboardingColors.safetyYellow,
-      ),
+      icon: Icon(Icons.forum_outlined, size: 20, color: p.action),
       onPressed: () => context.pushOnce(Routes.chatProfiling),
     );
   }

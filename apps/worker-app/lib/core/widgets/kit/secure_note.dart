@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// The reassurance line under a PIN or auth CTA (spec §3.4).
@@ -18,14 +19,11 @@ class SecureNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
-        const Icon(
-          Icons.shield_outlined,
-          size: 16,
-          color: OnboardingColors.ink500,
-        ),
+        Icon(Icons.shield_outlined, size: 16, color: p.textMuted),
         const SizedBox(width: 6),
         Flexible(
           child: Text(
@@ -33,7 +31,7 @@ class SecureNote extends StatelessWidget {
             textAlign: TextAlign.center,
             style: OnboardingTypography.inter(
               size: 12,
-              color: OnboardingColors.ink500,
+              color: p.textMuted,
             ),
           ),
         ),

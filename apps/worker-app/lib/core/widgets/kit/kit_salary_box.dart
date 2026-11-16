@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// The green money box (spec §4): a label on the left, the figure on the right
@@ -30,15 +31,16 @@ class KitSalaryBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final TextStyle labelStyle = OnboardingTypography.inter(
       size: 12,
       weight: FontWeight.w600,
-      color: OnboardingColors.successGreen,
+      color: p.success,
     );
     final TextStyle valueStyle = OnboardingTypography.mono(
       size: 15,
       weight: FontWeight.w700,
-      color: OnboardingColors.successGreen,
+      color: p.success,
     );
     final Widget labelText = Text(label, style: labelStyle);
     final Widget valueText = Text(value, style: valueStyle);
@@ -46,9 +48,9 @@ class KitSalaryBox extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: OnboardingColors.successBg.withValues(alpha: 0.4),
+        color: p.successBg.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(OnboardingRadii.row),
-        border: Border.all(color: OnboardingColors.successBorder),
+        border: Border.all(color: p.successBorder),
       ),
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
