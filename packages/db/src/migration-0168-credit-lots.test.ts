@@ -184,8 +184,51 @@ describe("the backfill", () => {
     );
   });
 
-  it("runs after the table and its lock exist (it is the last statement)", () => {
-    expect(statements.at(-1)).toBe(backfill);
+  it("runs after the table and its lock exist, and BEFORE anything touches credit_ledger", () => {
+    const at = statements.indexOf(backfill);
+    expect(at).toBeGreaterThan(
+      statements.findIndex((x) => x.startsWith(`CREATE TABLE "${TABLE}"`)),
+    );
+    expect(at).toBeGreaterThan(
+      statements.findIndex((x) => x === `REVOKE ALL ON TABLE "${TABLE}" FROM service_role`),
+    );
+    expect(at).toBeLessThan(
+      statements.findIndex((x) => x.startsWith(`ALTER TABLE "credit_ledger"`)),
+    );
+  });
+});
+
+describe("the hand-written statement order (#2749 review: no lock inversion with a settle)", () => {
+  const position = (prefix: string): number => {
+    const at = statements.findIndex((x) => x.startsWith(prefix));
+    expect(at, prefix).toBeGreaterThanOrEqual(0);
+    return at;
+  };
+
+  it("takes the payment_orders FK BEFORE credit_ledger's ACCESS EXCLUSIVE (a settle's own order)", () => {
+    expect(
+      position(
+        `ALTER TABLE "${TABLE}" ADD CONSTRAINT "credit_lots_payment_order_id_payment_orders_id_fk"`,
+      ),
+    ).toBeLessThan(position(`ALTER TABLE "credit_ledger" ADD COLUMN "lot_id"`));
+  });
+
+  it("the three credit_ledger statements come LAST, so its lock is held for the shortest time", () => {
+    expect(statements.slice(-3).map((x) => x.split(" (")[0])).toEqual([
+      `ALTER TABLE "credit_ledger" ADD COLUMN "lot_id" uuid`,
+      `ALTER TABLE "credit_ledger" ADD CONSTRAINT "credit_ledger_lot_id_credit_lots_id_fk" FOREIGN KEY`,
+      `CREATE INDEX "credit_ledger_lot_id_idx" ON "credit_ledger" USING btree`,
+    ]);
+    const ledgerStatements = statements.filter((x) => x.includes(`"credit_ledger"`));
+    expect(ledgerStatements).toEqual(statements.slice(-3));
+  });
+
+  it("the header names the order, the held locks and the re-apply rule after a regenerate", () => {
+    expect(RAW).toContain("LOCKS, AND THE HAND-WRITTEN STATEMENT ORDER");
+    expect(RAW).toContain("ACCESS EXCLUSIVE on `credit_ledger`");
+    expect(RAW).toContain("held to COMMIT");
+    expect(RAW).toContain("SHARE ROW EXCLUSIVE on `payment_orders`");
+    expect(RAW).toContain("re-apply this order by hand");
   });
 });
 
@@ -243,6 +286,15 @@ describe("the operator instructions, the manifest and the slot", () => {
     expect(RAW).toContain("42703");
     expect(RAW).toContain("42P01");
     expect(RAW).toContain("alignLotsWithBalance");
+  });
+
+  it("says how to adopt it without lifting the watermark over a pending lower migration", () => {
+    expect(RAW).toContain(
+      "ADOPTION ORDER - DO NOT LIFT THE WATERMARK OVER A PENDING LOWER MIGRATION",
+    );
+    expect(RAW).toContain("`db:migrate` then skips it");
+    expect(RAW).toContain("--only <this tag>");
+    expect(RAW).toContain("the 0135 precedent");
   });
 
   it("gives the lock guidance and the rollback, with this migration's own ledger row", () => {
