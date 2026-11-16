@@ -90,7 +90,17 @@ export function gstPriceLine(priceInr: number, rateBps: number = GST_RATE_BPS): 
  * whole rupees with en-IN grouping, through {@link formatInr}; the bracket is the GST total.
  */
 export function formatPackPriceLine(priceInr: number): string {
-  const { totalPaise } = gstPriceLine(priceInr);
-  // totalPaise is a whole number of rupees by construction (step 3), so this division is exact.
-  return `${formatInr(priceInr)} plus GST (${formatInr(totalPaise / PAISE_PER_RUPEE)})`;
+  return formatGstPriceLine(gstPriceLine(priceInr));
+}
+
+/**
+ * {@link formatPackPriceLine} for a line already computed, so a caller that holds the line does
+ * not tax the price twice. Both amounts come from the line itself, so they cannot disagree.
+ */
+export function formatGstPriceLine(line: GstPriceLine): string {
+  // Both are whole rupees by construction (taxable = price × 100; total rounded to the rupee in
+  // step 3), so these divisions are exact.
+  const priceInr = line.taxablePaise / PAISE_PER_RUPEE;
+  const totalInr = line.totalPaise / PAISE_PER_RUPEE;
+  return `${formatInr(priceInr)} plus GST (${formatInr(totalInr)})`;
 }

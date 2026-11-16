@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GST_RATE_BPS, formatPackPriceLine, gstPriceLine } from "./index";
+import { GST_RATE_BPS, formatGstPriceLine, formatPackPriceLine, gstPriceLine } from "./index";
 
 /**
  * Why a line is inconsistent, or null: taxable + gst + roundOff must equal the total, the total
@@ -142,5 +142,11 @@ describe("formatPackPriceLine — '₹999 plus GST (₹1,179)' (B4C-06)", () => 
   it("rejects what gstPriceLine rejects", () => {
     expect(() => formatPackPriceLine(999.5)).toThrow(RangeError);
     expect(() => formatPackPriceLine(-1)).toThrow(RangeError);
+  });
+
+  it("formatGstPriceLine prints the same line from an already-computed GST line", () => {
+    for (const price of [999, 1599, 2999, 9999, 1001, 25, 0]) {
+      expect(formatGstPriceLine(gstPriceLine(price))).toBe(formatPackPriceLine(price));
+    }
   });
 });

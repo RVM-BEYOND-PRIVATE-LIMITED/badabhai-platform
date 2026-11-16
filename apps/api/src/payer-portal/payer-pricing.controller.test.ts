@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import { Logger } from "@nestjs/common";
 import {
   DEFAULT_CATALOG,
   formatPackPriceLine,
@@ -415,24 +416,143 @@ describe("GET /payer/pricing/catalog — credit packs on sale only, with GST (#2
     for (const product of products) expect(productSchema.safeParse(product).success).toBe(true);
   });
 
-  it("the catalogue and the purchase path agree on what is on sale (shown == orderable)", async () => {
-    const { pricing } = makeCtrl(BRIEF_TIERS);
-    const gw = new PaymentGateway(
+  /** A real PricingService over one repository row (`undefined` = no row, production today). */
+  const serviceOver = (row: { catalog: unknown; revision: number } | undefined) =>
+    new PricingService(
+      { getActive: vi.fn().mockResolvedValue(row) } as never,
+      { emit: vi.fn() } as never,
+    );
+  const gatewayOver = (pricing: PricingService) =>
+    new PaymentGateway(
       { creditPack: vi.fn() } as never,
       { PAYMENTS_ENABLE_REAL: false } as never,
       pricing,
       { isLive: false, keyId: null } as never,
     );
-    for (const now of [BEFORE_ANNUAL, ANNUAL_ON_SALE]) {
-      const shown = creditPackOf((await pricing.getPayerCatalog(now)).products)!.tiers;
-      for (const tier of BRIEF_TIERS) {
-        const listed = shown.find((t) => t.code === tier.code);
-        const orderable = await gw.resolvePack(tier.code, now);
-        expect(orderable === null).toBe(listed === undefined);
+  const HUGE: CreditPackTier = {
+    code: "pack_huge",
+    priceInr: 9_999_999_999,
+    credits: 1,
+    windowDays: 14,
+  };
+  /** DEFAULT_CATALOG plus a SECOND credit-pack product, which the purchase path does not sell. */
+  const withSecondPackProduct = (): Catalog =>
+    parseCatalog({
+      ...DEFAULT_CATALOG,
+      products: [
+        ...DEFAULT_CATALOG.products,
+        {
+          kind: "credit_pack",
+          code: "bulk_unlock",
+          tiers: [{ code: "pack_bulk", priceInr: 4321, credits: 99, windowDays: 14 }],
+        },
+      ],
+    });
+
+  it("#2749: with NO stored row (production today) the DEFAULT packs are listed as before", async () => {
+    const view = await serviceOver(undefined).getPayerCatalog();
+    expect(view).toMatchObject({ source: "default", revision: 0 });
+    expect(creditPackOf(view.products)!.tiers.map((t) => t.code)).toEqual([
+      "pack_50",
+      "pack_200",
+      "pack_1000",
+    ]);
+  });
+
+  it("#2749: a stored row that FAILS validation lists no packs — never the default ones", async () => {
+    const view = await serviceOver({
+      catalog: { version: 1, products: "broken" },
+      revision: 12,
+    }).getPayerCatalog();
+    expect(view).toMatchObject({ source: "default", revision: 12 });
+    expect(creditPackOf(view.products)).toBeUndefined();
+    expect(view.prices.some((p) => p.product_code === "contact_unlock")).toBe(false);
+    // Every other product still shows the default, which is what it would charge.
+    expect(view.products).toEqual(DEFAULT_CATALOG.products.filter((p) => p.kind !== "credit_pack"));
+  });
+
+  it("#2749: a pack whose GST line cannot be computed is skipped and logged — not a 500 for everyone", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { ctrl } = makeCtrl([BRIEF_TIERS[0]!, HUGE]);
+      const res = await ctrl.getCatalog();
+      expect(creditPackOf(res.products)!.tiers.map((t) => t.code)).toEqual(["pack_starter"]);
+      expect(res.prices.map((p) => p.tier_code)).not.toContain("pack_huge");
+      expect(warn).toHaveBeenCalledWith(
+        "credit pack skipped: GST line failed pack=pack_huge error=RangeError",
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("#2749: only contact_unlock is shown — another credit-pack product is never listed", async () => {
+    const view = await serviceOver({
+      catalog: withSecondPackProduct(),
+      revision: 5,
+    }).getPayerCatalog();
+    expect(view.products.filter((p) => p.kind === "credit_pack").map((p) => p.code)).toEqual([
+      "contact_unlock",
+    ]);
+    expect(view.prices.some((p) => p.product_code === "bulk_unlock")).toBe(false);
+    expect(JSON.stringify(view)).not.toMatch(/bulk_unlock|pack_bulk|4321/);
+  });
+
+  it.each([
+    [
+      "the brief's packs, before Annual's date",
+      { catalog: withPackTiers(BRIEF_TIERS), revision: 9 },
+      BEFORE_ANNUAL,
+    ],
+    [
+      "the brief's packs, from Annual's date",
+      { catalog: withPackTiers(BRIEF_TIERS), revision: 9 },
+      ANNUAL_ON_SALE,
+    ],
+    ["no stored row (the default packs)", undefined, BEFORE_ANNUAL],
+    [
+      "a stored row that fails validation",
+      { catalog: { version: 1, products: "broken" }, revision: 12 },
+      BEFORE_ANNUAL,
+    ],
+    [
+      "a pack whose GST line fails",
+      { catalog: withPackTiers([BRIEF_TIERS[0]!, HUGE]), revision: 9 },
+      BEFORE_ANNUAL,
+    ],
+    [
+      "a second credit-pack product",
+      { catalog: withSecondPackProduct(), revision: 5 },
+      BEFORE_ANNUAL,
+    ],
+  ] as const)("shown == orderable: %s", async (_label, row, now) => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    try {
+      const pricing = serviceOver(row);
+      const gw = gatewayOver(pricing);
+      const shown = creditPackOf((await pricing.getPayerCatalog(now)).products)?.tiers ?? [];
+      const candidates = [
+        ...BRIEF_TIERS.map((t) => t.code),
+        "pack_50",
+        "pack_200",
+        "pack_1000",
+        "pack_10",
+        "pack_25",
+        "pack_huge",
+        "pack_bulk",
+      ];
+      for (const code of candidates) {
+        const listed = shown.find((t) => t.code === code);
+        const orderable = await gw.resolvePack(code, now);
+        expect(orderable === null, code).toBe(listed === undefined);
         if (listed) {
           expect(orderable).toMatchObject({ priceInr: listed.priceInr, credits: listed.credits });
         }
       }
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
     }
   });
 

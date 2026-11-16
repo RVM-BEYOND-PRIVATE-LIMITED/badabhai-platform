@@ -3,29 +3,17 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { areRealPaymentsEnabled } from "@badabhai/config";
 import type { CreditPack, PaymentOrder } from "@badabhai/db";
-import { isCreditPackOnSale, type Catalog, type CreditPackTier } from "@badabhai/pricing";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PricingService } from "../pricing/pricing.service";
-import { chargeQuote } from "../pricing/charge-price";
+import { creditPackSale, findCreditPackTier } from "../pricing/credit-pack-sale";
 import { UnlocksRepository, type Tx } from "./unlocks.repository";
 import { RazorpayClient } from "./razorpay.client";
 
-/** The credit-pack product code in the pricing catalog (D-6). */
-const CREDIT_PACK_PRODUCT = "contact_unlock";
-
-/** The `contact_unlock` tier for `packCode` in `catalog`, or undefined. */
-function findCreditPackTier(catalog: Catalog, packCode: string): CreditPackTier | undefined {
-  const product = catalog.products.find(
-    (p) => p.kind === "credit_pack" && p.code === CREDIT_PACK_PRODUCT,
-  );
-  if (!product || product.kind !== "credit_pack") return undefined;
-  return product.tiers.find((t) => t.code === packCode);
-}
-
 /**
- * A credit pack a purchase may charge for (#2749): a tier the ACTIVE catalogue lists and has on
- * sale, priced through `chargeQuote`.
+ * A credit pack a purchase may charge for (#2749): a `contact_unlock` tier that `creditPackSale`
+ * calls sellable now — the same answer the payer catalogue shows packs on — priced through
+ * `chargeQuote`.
  */
 export interface ResolvedPack extends CreditPack {
   /** How long the pack's credits last, in days, or null when the catalogue sets none. */
@@ -143,42 +131,50 @@ export class PaymentGateway {
 
   /**
    * Resolve a credit pack a purchase may charge for: a `contact_unlock` tier the ACTIVE
-   * catalogue lists AND has on sale at `now`, else null (→ the caller's 404). ASYNC since D-6.
+   * catalogue lists and `creditPackSale` calls sellable at `now`, else null (→ the caller's 404).
+   * ASYNC since D-6.
    *
    * WHY ONE SOURCE (D-6 MEDIUM-1): the portal RENDERS the live `contact_unlock` tiers, so the
    * CHARGE must read the SAME source or an ops price edit makes advertised ≠ charged (and, worse,
-   * advertised-credits ≠ granted-credits). `getActiveCatalog` is itself fail-closed (an invalid
-   * stored row serves the typed default), so this can never resolve an unvalidated price.
+   * advertised-credits ≠ granted-credits). What `getActiveCatalog` falls back to, and what that
+   * means here: with NO stored row it serves DEFAULT_CATALOG, so the DEFAULT packs are sold (this
+   * is production today). With a stored row that FAILS validation it also serves DEFAULT_CATALOG,
+   * and selling from that would put the default packs back on sale in place of the catalogue ops
+   * published — so in that state (#2749) this sells NOTHING. Either way it never resolves an
+   * unvalidated price.
    *
-   * ON SALE ONLY (#2749): the on-sale test is {@link isCreditPackOnSale}, the same one the payer
-   * catalogue read filters with, so a pack a payer cannot see cannot be ordered — `offered:false`
-   * and a future `onSaleFrom` resolve to null. There is NO constant fallback any more: a code the
-   * catalogue does not list (`pack_10`, `pack_25`, or any old code a published catalogue drops) is
-   * null too. Old codes stay READABLE where they are history (`credit_ledger.pack_code`,
-   * `payment_orders.pack_code`, the admin views), none of which call this.
+   * SELLABLE ONLY (#2749): `creditPackSale` is the same answer the payer catalogue read shows
+   * packs on, so a pack a payer cannot see cannot be ordered — `offered:false`, a future
+   * `onSaleFrom`, a rejected row and a price whose GST line cannot be computed all resolve to
+   * null. There is NO constant fallback any more: a code the catalogue does not list (`pack_10`,
+   * `pack_25`, or any old code a published catalogue drops) is null too. Old codes stay READABLE
+   * where they are history (`credit_ledger.pack_code`, `payment_orders.pack_code`, the admin
+   * views), none of which call this.
    *
    * A catalog read failure propagates deliberately: unlike the DISPLAY seam (payer-web fails OPEN
    * to cached prices), the CHARGE path must never invent a price — the caller surfaces the error
    * and no money moves.
    */
   async resolvePack(packCode: string, now: Date = new Date()): Promise<ResolvedPack | null> {
-    const { catalog } = await this.pricing.getActiveCatalog();
-    const tier = findCreditPackTier(catalog, packCode);
-    if (!tier || !isCreditPackOnSale(tier, now)) return null;
-    // #2085: priced through `chargeQuote`, the ONE charge function the payer catalog also
-    // displays through, so the ₹ shown for a pack is the ₹ this charges (list price — see
-    // `chargeQuote` on why credit packs take no offer).
-    const result = chargeQuote(catalog, {
-      productCode: CREDIT_PACK_PRODUCT,
-      tierCode: packCode,
-      now,
-    });
-    if (!result.ok || result.quote.grants.kind !== "credit_pack") return null;
+    const active = await this.pricing.getActiveCatalog();
+    const tier = findCreditPackTier(active.catalog, packCode);
+    if (!tier) return null;
+    const sale = creditPackSale(active, tier, now);
+    if (!sale.sellable) {
+      if (sale.reason === "gst_error") {
+        this.logger.warn(
+          `credit pack refused: GST line failed pack=${tier.code} error=${sale.errorClass}`,
+        );
+      }
+      return null;
+    }
     return {
       code: packCode,
-      priceInr: result.quote.finalInr,
+      // #2085: priced through `chargeQuote`, the ONE charge function the payer catalog also
+      // displays through (list price — see `chargeQuote` on why credit packs take no offer).
+      priceInr: sale.pack.quote.finalInr,
       // The grant, not just the price, follows the live tier.
-      credits: result.quote.grants.credits,
+      credits: sale.pack.credits,
       // Unused for now: PR 3 of #2749 stamps it on the order and the lot.
       validityDays: tier.validityDays ?? null,
     };

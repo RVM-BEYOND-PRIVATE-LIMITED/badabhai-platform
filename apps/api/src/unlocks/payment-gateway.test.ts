@@ -1,11 +1,12 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import { Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { DEFAULT_CATALOG, type Catalog, type CreditPackTier } from "@badabhai/pricing";
 import { PaymentGateway } from "./payment-gateway";
 import type { UnlocksRepository } from "./unlocks.repository";
 import type { RazorpayClient } from "./razorpay.client";
-import type { PricingService } from "../pricing/pricing.service";
+import { PricingService } from "../pricing/pricing.service";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /**
@@ -48,10 +49,13 @@ function offlineRazorpay() {
   } as unknown as RazorpayClient;
 }
 
-function makeGateway(catalog: Catalog = DEFAULT_CATALOG) {
+function makeGateway(
+  catalog: Catalog = DEFAULT_CATALOG,
+  provenance: { source: "db" | "default"; revision: number } = { source: "db", revision: 2 },
+) {
   const repo = { creditPack: vi.fn(async () => 60) };
   const pricing = {
-    getActiveCatalog: vi.fn(async () => ({ catalog, revision: 2, source: "db" as const })),
+    getActiveCatalog: vi.fn(async () => ({ catalog, ...provenance })),
   };
   const gw = new PaymentGateway(
     repo as unknown as UnlocksRepository,
@@ -194,6 +198,83 @@ describe("PaymentGateway.resolvePack — LIVE catalog, on-sale packs only (D-6 +
       ]),
     );
     await expect(gw.resolvePack("pack_future")).resolves.toBeNull();
+  });
+
+  it("#2749: with NO stored row (production today) the DEFAULT packs still sell", async () => {
+    // getActiveCatalog reports "no row" as source:"default", revision 0.
+    const { gw } = makeGateway(DEFAULT_CATALOG, { source: "default", revision: 0 });
+    for (const code of ["pack_50", "pack_200", "pack_1000"]) {
+      await expect(gw.resolvePack(code)).resolves.toMatchObject({ code });
+    }
+  });
+
+  it("#2749: a stored row that FAILED validation sells nothing — not the default packs it falls back to", async () => {
+    // getActiveCatalog reports a rejected row as source:"default" with that row's revision (≥ 1).
+    const { gw } = makeGateway(DEFAULT_CATALOG, { source: "default", revision: 7 });
+    for (const code of ["pack_50", "pack_200", "pack_1000"]) {
+      await expect(gw.resolvePack(code)).resolves.toBeNull();
+    }
+  });
+
+  it("#2749: the same two states through the REAL PricingService", async () => {
+    const real = (row: unknown) =>
+      new PaymentGateway(
+        { creditPack: vi.fn() } as unknown as UnlocksRepository,
+        CONFIG,
+        new PricingService(
+          { getActive: vi.fn().mockResolvedValue(row) } as never,
+          {
+            emit: vi.fn(),
+          } as never,
+        ),
+        offlineRazorpay(),
+      );
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    try {
+      await expect(real(undefined).resolvePack("pack_50")).resolves.toMatchObject({
+        priceInr: 2000,
+        credits: 50,
+      });
+      await expect(
+        real({ catalog: { version: 1, products: "broken" }, revision: 3 }).resolvePack("pack_50"),
+      ).resolves.toBeNull();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("#2749: a pack whose GST line cannot be computed is refused and logged (code + error class)", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { gw } = makeGateway(
+        catalogWithUnlockTiers([
+          { code: "pack_50", priceInr: 2000, credits: 50, windowDays: 14 },
+          { code: "pack_huge", priceInr: 9_999_999_999, credits: 1, windowDays: 14 },
+        ]),
+      );
+      await expect(gw.resolvePack("pack_huge")).resolves.toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        "credit pack refused: GST line failed pack=pack_huge error=RangeError",
+      );
+      await expect(gw.resolvePack("pack_50")).resolves.toMatchObject({ priceInr: 2000 });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("#2749: a tier of ANOTHER credit-pack product is never sold (only contact_unlock)", async () => {
+    const { gw } = makeGateway({
+      ...DEFAULT_CATALOG,
+      products: [
+        ...DEFAULT_CATALOG.products,
+        {
+          kind: "credit_pack",
+          code: "bulk_unlock",
+          tiers: [{ code: "pack_bulk", priceInr: 4321, credits: 99, windowDays: 14 }],
+        },
+      ],
+    } as Catalog);
+    await expect(gw.resolvePack("pack_bulk")).resolves.toBeNull();
   });
 
   it("a catalog read failure PROPAGATES — the charge path never invents a price", async () => {

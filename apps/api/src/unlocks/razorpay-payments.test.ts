@@ -327,6 +327,21 @@ const captureEvent = (orderId: string = PROVIDER_ORDER, paymentId: string = PAYM
 // Order creation — the price is OURS, never the client's
 // ---------------------------------------------------------------------------
 
+/** DEFAULT_CATALOG whose only `contact_unlock` tier is pack_50 (₹2,000 / 50) with `extra` fields. */
+function catalogWithPack50(extra: { offered?: boolean; onSaleFrom?: string }) {
+  return {
+    ...DEFAULT_CATALOG,
+    products: DEFAULT_CATALOG.products.map((p) =>
+      p.kind === "credit_pack" && p.code === "contact_unlock"
+        ? {
+            ...p,
+            tiers: [{ code: "pack_50", priceInr: 2000, credits: 50, windowDays: 14, ...extra }],
+          }
+        : p,
+    ),
+  } as typeof DEFAULT_CATALOG;
+}
+
 describe("POST /payer/credits/order — the charged amount is the CATALOG price", () => {
   let d: ReturnType<typeof makeService>;
   beforeEach(() => {
@@ -441,6 +456,20 @@ describe("POST /payer/credits/order — the charged amount is the CATALOG price"
     expect(d.razorpay.createOrder).not.toHaveBeenCalled();
     expect(d.repo.createPaymentOrder).not.toHaveBeenCalled();
     expect(emitted(d.events)).toEqual([]);
+  });
+
+  it("#2749: a hidden pack with expected_price_inr is a 404 (null), NEVER a 409 — the sale check runs first", async () => {
+    // The 409 body carries `current_price_inr`, so a price check that ran before the sale check
+    // would disclose a hidden pack's price. Pin the order: off sale → null (the 404), no 409.
+    d.pricing.getActiveCatalog.mockResolvedValue({
+      catalog: catalogWithPack50({ offered: false }),
+      revision: 3,
+      source: "db" as const,
+    });
+    await expect(d.svc.createCreditOrder(PAYER, "pack_50", CTX, 1)).resolves.toBeNull();
+    await expect(d.svc.createCreditOrder(PAYER, "pack_50", CTX, 2000)).resolves.toBeNull();
+    expect(d.razorpay.createOrder).not.toHaveBeenCalled();
+    expect(d.repo.createPaymentOrder).not.toHaveBeenCalled();
   });
 
   it("emits exactly ONE payment.authorized, with real_call TRUE and no PII", async () => {
@@ -619,6 +648,37 @@ describe("webhook capture — grants once, replays are no-ops", () => {
     const payload = (d.events.emit.mock.calls[0]?.[0] as { payload: Record<string, unknown> })
       .payload;
     expect(payload).toMatchObject({ amount_inr: 2000, amount_credits: 50 });
+  });
+
+  it("#2749: an order placed while the pack was on sale still settles after it goes offered:false", async () => {
+    // On sale at order time: the order is created and stamped (₹2,000 / 50 credits). Its own
+    // provider id, since this suite's beforeEach already seeded PROVIDER_ORDER.
+    const ORDER_ID = "order_on_sale_then_off";
+    d.razorpay.createOrder.mockResolvedValueOnce({
+      orderId: ORDER_ID,
+      amountPaise: 200000,
+      currency: "INR",
+    });
+    const order = await d.svc.createCreditOrder(PAYER, "pack_50", CTX);
+    expect(order).toMatchObject({ providerOrderId: ORDER_ID, amountInr: 2000, credits: 50 });
+    // Ops takes the pack off sale while the buyer is on Razorpay's page.
+    d.pricing.getActiveCatalog.mockResolvedValue({
+      catalog: catalogWithPack50({ offered: false }),
+      revision: 4,
+      source: "db" as const,
+    });
+    // A NEW order is refused…
+    expect(await d.svc.createCreditOrder(PAYER, "pack_50", CTX)).toBeNull();
+    // …but the payment already in flight settles, with the stamped grant.
+    const out = await d.svc.handleRazorpayEvent(
+      captureEvent(ORDER_ID, "pay_on_sale_then_off"),
+      CTX,
+    );
+    expect(out).toEqual({ result: "granted" });
+    expect(d.balances.get(PAYER)).toBe(50);
+    expect(d.ledger).toHaveLength(1);
+    expect(d.ledger[0]).toMatchObject({ delta: 50, priceInr: 2000 });
+    expect(d.orders.get(`razorpay:${ORDER_ID}`)?.status).toBe("paid");
   });
 
   it("a pack DELETED from the catalog mid-flight still grants (it can no longer strand a payment)", async () => {
@@ -863,7 +923,7 @@ describe("PAYMENTS_ENABLE_REAL=false — the mock path is unchanged and remains 
       tenancyService("off"),
       { decide: vi.fn(async () => "not_linked") } as never, // #2752 — no institute students here
     );
-    return { svc, events, razorpay, repo: fake.repo };
+    return { svc, events, razorpay, pricing, repo: fake.repo };
   }
 
   it("realPaymentsLive is false, so the real routes are inert", () => {
@@ -882,6 +942,21 @@ describe("PAYMENTS_ENABLE_REAL=false — the mock path is unchanged and remains 
     // No provider was contacted and no order row exists.
     expect(d.razorpay.createOrder).not.toHaveBeenCalled();
     expect(d.repo.createPaymentOrder).not.toHaveBeenCalled();
+  });
+
+  it("#2749: a hidden pack with expected_price_inr is a 404 (null), NEVER a 409, on the mock route", async () => {
+    const d = makeMockService();
+    d.pricing.getActiveCatalog.mockResolvedValue({
+      catalog: catalogWithPack50({ onSaleFrom: "2999-01-01" }),
+      revision: 2,
+      source: "db" as const,
+    });
+    // A wrong confirmed price would be a 409 carrying current_price_inr if the price check ran
+    // first; the sale check runs first, so a hidden pack's price is never disclosed.
+    await expect(d.svc.purchaseCredits(PAYER, "pack_50", CTX, 1)).resolves.toBeNull();
+    await expect(d.svc.purchaseCredits(PAYER, "pack_50", CTX, 2000)).resolves.toBeNull();
+    expect(d.repo.creditPack).not.toHaveBeenCalled();
+    expect(emitted(d.events)).toEqual([]);
   });
 
   it("#2749: the mock route refuses a constant-only code — no credits, no ledger row, no event", async () => {
