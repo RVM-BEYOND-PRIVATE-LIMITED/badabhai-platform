@@ -451,8 +451,8 @@ reached the card as typed tokens. Each row now also carries, ADDITIVELY:
   qualification delete whose target names no list gets NO `field_label` rather than a guess.
 - `before_display` / `after_display` — the worker-facing label of a CLOSED-SET value, read from
   the dictionaries that already label it elsewhere: `LANGUAGES`, `EDUCATION_QUALIFICATIONS`,
-  `EDUCATION_COUNCILS`, `SHIFTS`, `JOB_TYPES` / `WORK_TYPES`, `AVAILABILITY_STATUSES`,
-  `DOCUMENTS_READY` (`profiles/worker-preferences.vocabulary.ts` — the labels the options
+  `EDUCATION_COUNCILS`, `SHIFTS`, `JOB_TYPES` / `WORK_TYPES`, `AVAILABILITY_STATUSES_ALL`
+  (both answer sets, #2753), `DOCUMENTS_READY` (`profiles/worker-preferences.vocabulary.ts` — the labels the options
   endpoints serve as form chips and the résumé prints), `labelForTaxonomyId` for a role id (as
   `GET /workers/me/occupations` labels it), and `EDIT_YES_NO_LABELS` ("Haan" / "Nahi") for the
   three yes/no preferences. Always present (possibly null). **Null** when the value is null, when
