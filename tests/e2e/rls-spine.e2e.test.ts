@@ -254,6 +254,9 @@ const LOCKED_TABLES = [
   // 0168 (#2753 item 9): one hire record per company, worker and posting (ids, dates and closed
   // codes). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0168.
   "hires",
+  // 0169 (#2753 item 10): one follow-up answer per opened contact (ids, closed codes and dates).
+  // Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0169.
+  "unlock_outcomes",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

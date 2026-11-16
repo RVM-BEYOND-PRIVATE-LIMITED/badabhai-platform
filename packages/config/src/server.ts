@@ -1380,6 +1380,26 @@ export const serverEnvSchema = z.object({
   // is unchanged, and `GET /admin/hires` is a 404. Migration `hires` is APPLY-BEFORE-THE-SWITCH:
   // on without it, a move into or out of `hired` fails (42P01) and rolls back.
   HIRE_RECORDS_ENABLED: booleanFromString,
+  // THE COMPANY FOLLOW-UP (#2753 item 10) — `unlock_outcomes`, one answer per opened contact. With
+  // it on, `GET /payer/unlock-outcomes/due` lists the company's contacts opened at least
+  // UNLOCK_FOLLOWUP_AFTER_DAYS ago with no answer (or a `still_talking` that old), and
+  // `POST /payer/unlocks/:unlockId/outcome` stores `hired` / `not_hired` / `still_talking`. A
+  // `hired` answer also confirms the hire record when HIRE_RECORDS_ENABLED is on and the unlock
+  // names a posting.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S API EXACTLY: both routes are a 404 and nothing reads or writes
+  // `unlock_outcomes`. Migration `unlock_outcomes` is APPLY-BEFORE-THE-SWITCH: on without it, the
+  // due list and every answer fail (42P01) and nothing is written.
+  UNLOCK_FOLLOWUP_ENABLED: booleanFromString,
+  // How long after the grant an opened contact is due for the follow-up, and how long a
+  // `still_talking` answer waits before it is due again. Whole days of 24 hours, at least 1 (owner
+  // question 4 default: 7). Empty reads as the default.
+  UNLOCK_FOLLOWUP_AFTER_DAYS: positiveIntFromString(7),
+  // Per-PAYER hourly cap on the follow-up ANSWER route, the stage route's analogue: every real
+  // change writes a row and an event. Its own bucket (scope "payer_unlock_outcome"), never the
+  // disclosure budget, so answering a long due list cannot lock a company out of opening contacts.
+  // Fail-closed (Redis down rejects).
+  PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR: z.coerce.number().int().positive().default(600),
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable

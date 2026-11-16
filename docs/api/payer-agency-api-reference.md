@@ -168,6 +168,7 @@ Purchase `409` reasons: `price_mismatch` (#2085), `in_flight` and `no_active_pla
 | Per-payer candidate search / hour       | `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR` (default 120)                    | `POST /payer/candidates/search` pages (its own bucket — never the reach budget)                          |
 | Per-payer invite-mint / hour            | `AGENCY_INVITE_MINT_MAX_PER_HOUR` (default 60)                         | agency invite mint                                                                                       |
 | Per-payer applicant-stage writes / hour | `PAYER_APPLICANT_STAGE_MAX_PER_HOUR` (default 600)                     | `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` (its own bucket — never the reach read budget) |
+| Per-payer follow-up answers / hour      | `PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR` (default 600)                      | `POST /payer/unlocks/:unlockId/outcome` (its own bucket — never the disclosure budget)                   |
 | Global OTP sends / day                  | `PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY` (default 2000; `0` = kill-switch) | total payer email sends                                                                                  |
 
 Per-worker protection caps also gate unlocks server-side (`UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY` default 5, `UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK` default 10, `UNLOCK_MAX_ATTEMPTS_PER_UNLOCK` default 3) — these surface to you only as a neutral `unavailable`. The per-payer disclosure cap is **shared** across unlock + reveal + resume-disclosure.
@@ -525,6 +526,30 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Neutral when:** the unlock is not your company's (or unknown); the worker was erased; the row never opened; he is a sample candidate, pending deletion or suspended; he no longer consents to employer sharing (for an RVM student: the RVM rule closes him); or **his consent is on a notice that does not describe this** (the 2026-11-04 notice promises initials and 14 days, ADR-0064 §3.8 — today that is every BadaBhai worker). Open for good never outlives these.
 - **Events:** `contact.viewed` on every read (ids only — never the name or the number), written BEFORE the answer: if it cannot be written the request fails and nothing is shown. `contact.revealed` is unchanged.
 - **Mobile gotchas:** Read it when the contact screen opens; do not cache or log the body. `full_name` is `null` when he never gave one. Not a credit spend — the credit was spent on `POST /payer/unlocks`.
+
+#### The company follow-up (#2753 item 10) — what became of a contact you opened
+
+- **Only while `UNLOCK_FOLLOWUP_ENABLED` is on** (default off: both routes are a `404`, the route is not there). The answers are what the launch numbers count, so the switch goes on only after the `unlock_outcomes` migration is applied.
+- **"Due", defined.** A contact is due for the follow-up when ALL of these hold: it is your company's (the tenant's) unlock; it was opened — `granted`, `revealed` or lapsed (`expired`), never a request or a denial; it was granted at least `UNLOCK_FOLLOWUP_AFTER_DAYS` ago (default **7**, whole days of 24 hours; exactly 7 × 24 h counts); and either you have not answered, or your answer is `still_talking` and is itself at least that old. A `hired`, `not_hired` or the desk's `not_reached` closes it for good. A worker who was erased, is pending deletion or is suspended is never listed. "Due" is computed when you read the list — nothing is marked by a background job — so it is always current. There is no notification yet: read the list when the screen opens.
+
+#### `GET /payer/unlock-outcomes/due`
+
+- **Auth:** `PayerAuthGuard` (Bearer), either role. In org tenancy `on` a teammate sees the org's contacts (the `GET /payer/unlocks` rule). No rate limit (a read of your own unlocks, like `GET /payer/unlocks`).
+- **Query:** `limit` (1–50, default 20), `cursor` (the previous page's `nextCursor`, passed back untouched). Anything else, or a cursor the server did not mint, is a `400`.
+- **Response:** `{ items: [{ unlock_id, worker_id, granted_at, outcome: null | 'still_talking' }], nextCursor: string | null }` — ids only: no name, no phone, no posting. Oldest grant first. Sent with `Cache-Control: no-store`.
+- **Events:** none.
+- **Mobile gotchas:** an answered contact drops off the list, so walk it with the cursor rather than an offset; the position after an answered row stays valid.
+
+#### `POST /payer/unlocks/:unlockId/outcome`
+
+- **Auth:** `PayerAuthGuard` (Bearer), either role. Own per-payer hourly bucket (`payer_unlock_outcome`, `PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR`, default 600), one unit per request (a repeat and a `404` count too), charged before anything is read; fails closed (Redis down → the same `429`).
+- **Headers:** `Idempotency-Key?: string` — the [Purchase idempotency](#purchase-idempotency-idempotency-key) seam (scope `unlock_outcome`, per session payer, 180 s); in-flight duplicate → `409 in_flight` (`"This answer is already being saved; check the contact before trying again"`): re-read the due list, never re-post.
+- **Body:** `{ outcome: 'hired' | 'not_hired' | 'still_talking' }` — strict. `not_reached` is the desk's answer (#2750) and is a `400` here, like any other value or extra key (no `payer_id`). A malformed `:unlockId` is a `400`.
+- **Ownership:** the unlock must be your company's (the tenant's — the same check as reveal and the contact read) and an opened contact whose worker still exists. An unknown id, another company's unlock, a request, a denial or an erased worker is one bare `404`, byte-identical to the switch-off `404`. Not due yet is **not** a refusal: you may answer early.
+- **Response (200):** `{ unlock_id, worker_id, outcome, previous_outcome: string|null, answered_at, changed: boolean }`.
+- **One answer per contact:** a later answer replaces the earlier one (`still_talking` → `hired`); the history is on the spine. A repeat is `changed: false` and writes no event; a repeated `still_talking` moves `answered_at` (the contact waits the full period again before it is due), any other repeat changes nothing.
+- **Hire record:** a `hired` answer also confirms your company's hire record in the same transaction when `HIRE_RECORDS_ENABLED` is on **and** the unlock was opened from a posting (`job_posting_id` or `job_id`). An unlock opened from search names no posting: the answer is stored, no hire record is written. A later `not_hired` does not take a confirmed hire back (only the desk can).
+- **Events:** `unlock.outcome_recorded` `{ unlock_id, worker_id, outcome, answered_by: 'company' }` on each real change (ids only; the login that answered is the envelope's actor); `hire.recorded` (`source: company_answer`) when the hire record changes.
 
 #### `POST /payer/resume-disclosures` (masked résumé — VERIFIED LIVE)
 

@@ -52,6 +52,7 @@ import { workerResumeSkins } from "./worker-resume-skin";
 import { payerApplicantStages } from "./payer-applicant-stage";
 import { outboundSignals } from "./outbound-signal";
 import { hires } from "./hire";
+import { unlockOutcomes } from "./unlock-outcome";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -170,6 +171,8 @@ export * from "./display-prefs";
 export * from "./outbound-signal";
 // #2753 item 9 — one hire record per company, worker and posting.
 export * from "./hire";
+// #2753 item 10 — what became of one opened contact (the company follow-up).
+export * from "./unlock-outcome";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -480,4 +483,6 @@ export const schema = {
   outboundSignals,
   // #2753 item 9 - one hire record per company, worker and posting (behind HIRE_RECORDS_ENABLED).
   hires,
+  // #2753 item 10 - one follow-up answer per opened contact (behind UNLOCK_FOLLOWUP_ENABLED).
+  unlockOutcomes,
 };

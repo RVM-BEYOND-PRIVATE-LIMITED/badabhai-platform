@@ -64,6 +64,8 @@ import {
   DISPLAY_PREFS_SUBJECT_KINDS,
   HIRE_STATUSES,
   HIRE_RECORD_SOURCES,
+  UNLOCK_OUTCOMES,
+  UNLOCK_OUTCOME_ANSWERERS,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -1945,6 +1947,23 @@ export const UnlockReopenedPayload = z
     unlock_id: uuidSchema,
     payer_id: uuidSchema,
     worker_id: uuidSchema,
+  })
+  .strict();
+
+/**
+ * #2753 item 10 — what became of an opened contact: the company's follow-up answer (`hired`,
+ * `not_hired`, `still_talking`) or the desk's `not_reached` (#2750), stored on
+ * `unlock_outcomes` (one row per unlock; a later answer replaces it). ONE PER REAL CHANGE, in the
+ * same transaction as the row: the first answer, or a different outcome or answerer. A repeat
+ * writes no event, so the sequence of these events IS the answer history the row does not keep.
+ * IDS AND CLOSED VALUES ONLY; whoever answered rides the envelope (a payer login or an admin).
+ */
+export const UnlockOutcomeRecordedPayload = z
+  .object({
+    unlock_id: uuidSchema,
+    worker_id: uuidSchema,
+    outcome: z.enum(UNLOCK_OUTCOMES),
+    answered_by: z.enum(UNLOCK_OUTCOME_ANSWERERS),
   })
   .strict();
 

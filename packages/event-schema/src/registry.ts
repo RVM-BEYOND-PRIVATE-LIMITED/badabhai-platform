@@ -422,6 +422,13 @@ export const EVENT_REGISTRY = {
   "contact.revealed": { version: 1, domain: "contact", payload: p.ContactRevealedPayload },
   "contact.viewed": { version: 1, domain: "contact", payload: p.ContactViewedPayload },
   "unlock.reopened": { version: 1, domain: "unlock", payload: p.UnlockReopenedPayload },
+  // #2753 item 10 — the company follow-up answer (or the desk's not_reached) on an opened contact.
+  // One per real change; ids + closed values only, strict. v1.
+  "unlock.outcome_recorded": {
+    version: 1,
+    domain: "unlock",
+    payload: p.UnlockOutcomeRecordedPayload,
+  },
   "payment.authorized": { version: 1, domain: "payment", payload: p.PaymentAuthorizedPayload },
   "payment.captured": { version: 1, domain: "payment", payload: p.PaymentCapturedPayload },
   "payment.failed": { version: 1, domain: "payment", payload: p.PaymentFailedPayload },

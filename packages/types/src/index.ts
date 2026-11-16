@@ -1549,6 +1549,42 @@ export const HIRE_RECORD_SOURCES = Object.freeze([
 ] as const);
 export type HireRecordSource = (typeof HIRE_RECORD_SOURCES)[number];
 
+// ---- Unlock outcomes: the company follow-up (#2753 item 10, migration `unlock_outcomes`) ----
+//
+// HERE FOR THE SAME REASON AS THE HIRE STATUSES ABOVE: `packages/db` spells both sets into CHECKs
+// on `unlock_outcomes`, `packages/event-schema` puts them on the spine (`unlock.outcome_recorded`),
+// and `apps/api` writes and lists them. Declared once so the three cannot drift.
+
+/**
+ * What became of one opened contact (one unlock). One answer per unlock; a later answer replaces
+ * the earlier one (`still_talking` → `hired`), and the history is on the spine.
+ *  - `hired`: the company hired him (it also confirms the hire record when the unlock names a
+ *    posting and `HIRE_RECORDS_ENABLED` is on);
+ *  - `not_hired`: they spoke and did not hire him;
+ *  - `still_talking`: no decision yet; the contact is asked about again after the follow-up wait;
+ *  - `not_reached`: the company could not reach him. Written by the desk (#2750), never by the
+ *    company's own answer.
+ */
+export const UNLOCK_OUTCOMES = Object.freeze([
+  "hired",
+  "not_hired",
+  "still_talking",
+  "not_reached",
+] as const);
+export type UnlockOutcome = (typeof UNLOCK_OUTCOMES)[number];
+
+/** The outcomes a company may give itself (`POST /payer/unlocks/:unlockId/outcome`). */
+export const UNLOCK_COMPANY_OUTCOMES = Object.freeze([
+  "hired",
+  "not_hired",
+  "still_talking",
+] as const satisfies readonly UnlockOutcome[]);
+export type UnlockCompanyOutcome = (typeof UNLOCK_COMPANY_OUTCOMES)[number];
+
+/** Who gave the stored answer: the company itself, or the desk on its behalf (#2750). */
+export const UNLOCK_OUTCOME_ANSWERERS = Object.freeze(["company", "desk"] as const);
+export type UnlockOutcomeAnswerer = (typeof UNLOCK_OUTCOME_ANSWERERS)[number];
+
 // ---- Display preferences: the theme (#2819, migration 0165) ----
 //
 // HERE FOR THE SAME REASON AS THE SKINS ABOVE: `packages/db` spells both sets into CHECK

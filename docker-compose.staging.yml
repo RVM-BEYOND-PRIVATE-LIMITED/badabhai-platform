@@ -434,6 +434,13 @@ services:
       # record in the stage transaction. Apply the `hires` migration first. `:-false` because this
       # bool rejects "".
       HIRE_RECORDS_ENABLED: ${HIRE_RECORDS_ENABLED:-false}
+      # THE COMPANY FOLLOW-UP (#2753 item 10). Off is today's API exactly: both routes are a 404 and
+      # nothing reads or writes `unlock_outcomes`. On, a company lists its contacts due for an answer
+      # and answers hired / not_hired / still_talking. Apply the `unlock_outcomes` migration first.
+      # `:-false` because this bool rejects "". The wait is UNLOCK_FOLLOWUP_AFTER_DAYS (`:-7`, the
+      # owner's default), bridged from the `production` secret of the same name.
+      UNLOCK_FOLLOWUP_ENABLED: ${UNLOCK_FOLLOWUP_ENABLED:-false}
+      UNLOCK_FOLLOWUP_AFTER_DAYS: ${UNLOCK_FOLLOWUP_AFTER_DAYS:-7}
       # THE CAMPUS LINK (#2752). Off: every /internal/campus/v1 route is a neutral 404 and nothing
       # else runs. `:-false` because this bool rejects "". The two lists are empty when unset, and
       # empty refuses every caller (fail closed): token HASHES (sha256 hex, two during a rotation)
