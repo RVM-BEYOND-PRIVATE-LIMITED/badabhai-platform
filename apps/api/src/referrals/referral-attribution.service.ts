@@ -5,6 +5,7 @@ import { ConsentRepository } from "../consent/consent.repository";
 import { InviteService } from "../messaging/invite.service";
 import { AgencyService } from "../agency/agency.service";
 import { ReferralLinkService } from "./referral-link.service";
+import { WorkerOriginRepository, type ReferralOriginKind } from "./worker-origin.repository";
 
 /**
  * INTERNAL outcome kinds — the HTTP surface returns a neutral body regardless.
@@ -48,6 +49,13 @@ export interface AttributionOutcome {
  *    failure must never break the worker's onboarding.
  *  - PII-FREE / NO-ORACLE: only opaque ids cross this path; the validated events live in
  *    the seams; the outcome distinctions never reach the client (see the controller).
+ *  - CAME-FROM (#2753 item 12): a SUCCESSFUL worker or agency attribution also writes the
+ *    worker's `worker_origins` row (#2752) — `referrer` / `partner`, ref = the code, first origin
+ *    wins. Neither seam opens a transaction (each attribution is one conditional UPDATE plus its
+ *    events), so the origin is the next write of the same call, after the seam said yes. It is
+ *    fail-safe ON ITS OWN: a failed origin write is logged and never changes the outcome, because
+ *    the attribution it follows has already committed. A résumé-QR claim writes no origin: it is
+ *    not a partner or referrer code and is never commissioned (#1800).
  */
 @Injectable()
 export class ReferralAttributionService {
@@ -58,6 +66,7 @@ export class ReferralAttributionService {
     private readonly workerInvites: InviteService,
     private readonly agency: AgencyService,
     private readonly referralLinks: ReferralLinkService,
+    private readonly origins: WorkerOriginRepository,
   ) {}
 
   /**
@@ -116,14 +125,20 @@ export class ReferralAttributionService {
       // 3) Worker→worker (ADR-0020). Only `unknown_code` falls through to agency; a
       //    KNOWN worker invite that can't attribute (self / already) is terminal here.
       const w = await this.workerInvites.recordAccept(code, workerId, source);
-      if (w.ok) return { attributed: true, kind: "worker", claimed: claim.claimed };
+      if (w.ok) {
+        await this.recordOrigin(workerId, "referrer", code);
+        return { attributed: true, kind: "worker", claimed: claim.claimed };
+      }
       if (w.reason !== "unknown_code") {
         return { attributed: false, kind: "worker", reason: w.reason, claimed: claim.claimed };
       }
 
       // 4) Agency→worker (ADR-0022). Its own consent re-check is harmless (already active).
       const a = await this.agency.attributeWorkerToInvite(code, workerId, source);
-      if (a.ok) return { attributed: true, kind: "agency", claimed: claim.claimed };
+      if (a.ok) {
+        await this.recordOrigin(workerId, "partner", code);
+        return { attributed: true, kind: "agency", claimed: claim.claimed };
+      }
       return { attributed: false, kind: "none", reason: a.reason, claimed: claim.claimed };
     } catch (err) {
       // FAIL-SAFE: attribution is a side-signal — never surface or propagate to onboarding.
@@ -135,6 +150,28 @@ export class ReferralAttributionService {
         })`,
       );
       return { attributed: false, kind: "none", reason: "error" };
+    }
+  }
+
+  /**
+   * #2753 item 12 — the came-from row after a successful attribution. NEVER THROWS: the
+   * attribution has committed, so a failure here (the table missing on a database 0161 has not
+   * reached, an outage) must not turn a recorded attribution into the `error` outcome. Logs the
+   * error CLASS and an opaque worker-id prefix only, never the code (a bearer token).
+   */
+  private async recordOrigin(
+    workerId: string,
+    kind: ReferralOriginKind,
+    code: string,
+  ): Promise<void> {
+    try {
+      await this.origins.recordFirst(workerId, kind, code);
+    } catch (err) {
+      this.logger.warn(
+        `referral came-from not recorded (neutralized) worker=${workerId.slice(0, 8)}… kind=${kind} (${
+          (err as Error).name
+        })`,
+      );
     }
   }
 }

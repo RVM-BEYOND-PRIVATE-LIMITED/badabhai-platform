@@ -315,6 +315,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /LEVEL_NEEDED_SORT_ENABLED:\s*\$\{\{\s*secrets\.LEVEL_NEEDED_SORT_ENABLED\s*\}\}/,
       /envs:[^\n]*\bLEVEL_NEEDED_SORT_ENABLED\b/,
     ],
+    // #2753 item 12 — the helper's name before sign-in (GET /referrals/helper). A plain boolean on
+    // the api only, turned on in production ONLY by the environment secret, after the owner's OK.
+    [
+      "REFERRAL_HELPER_NAME_ENABLED",
+      /REFERRAL_HELPER_NAME_ENABLED:\s*\$\{\{\s*secrets\.REFERRAL_HELPER_NAME_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bREFERRAL_HELPER_NAME_ENABLED\b/,
+    ],
     // #2753 item 3 — the brief's four availability answers on the options route. A plain boolean
     // on the api only, turned on in production ONLY by the environment secret.
     [
@@ -477,6 +484,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["PAYER_APPLICANT_STAGES_ENABLED", "true"],
     // ADR-0061 — off is today's applicant list: the v1.0 ORDER BY, no level read, levelFit null.
     ["LEVEL_NEEDED_SORT_ENABLED", "false"],
+    // #2753 item 12 — off is a 404 on GET /referrals/helper that reads nothing.
+    ["REFERRAL_HELPER_NAME_ENABLED", "false"],
     // #2753 item 3 — off is today's availability options; writes accept both sets either way.
     ["AVAILABILITY_ANSWERS_V2_ENABLED", "false"],
     // #2753 — off is today: nothing reads or writes worker_activity, no `notRecentlyActive`.
