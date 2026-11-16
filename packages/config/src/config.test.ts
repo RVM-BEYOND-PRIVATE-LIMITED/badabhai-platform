@@ -918,6 +918,17 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ NOT_RECENTLY_ACTIVE_DAYS: "1.5" })).toThrow();
   });
 
+  it("SEARCH_EXIT_ENABLED (#2753 item 6, leave company search) is OFF by default and for the empty string", () => {
+    // Off is today exactly: the worker routes 404 and nothing reads `worker_search_exits`.
+    expect(loadServerConfig({}).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "" }).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "0" }).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "false" }).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "1" }).SEARCH_EXIT_ENABLED).toBe(true);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "true" }).SEARCH_EXIT_ENABLED).toBe(true);
+    expect(() => loadServerConfig({ SEARCH_EXIT_ENABLED: "yes" })).toThrow();
+  });
+
   describe("the Campus link (#2752)", () => {
     const HASH_A = "a".repeat(64);
     const HASH_B = "B".repeat(64);

@@ -336,6 +336,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /WORKER_ACTIVITY_ENABLED:\s*\$\{\{\s*secrets\.WORKER_ACTIVITY_ENABLED\s*\}\}/,
       /envs:[^\n]*\bWORKER_ACTIVITY_ENABLED\b/,
     ],
+    // #2753 item 6 — leave company search. A plain boolean on the api only, turned on in
+    // production ONLY by the environment secret, after migration 0169.
+    [
+      "SEARCH_EXIT_ENABLED",
+      /SEARCH_EXIT_ENABLED:\s*\$\{\{\s*secrets\.SEARCH_EXIT_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bSEARCH_EXIT_ENABLED\b/,
+    ],
     // ADR-0053 (PAY-DB-01) — payer org tenancy (off | shadow | on), api only. The environment
     // secret is its one arming path (owner decision O-8); absent, the bridge holds it off.
     [
@@ -490,6 +497,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["AVAILABILITY_ANSWERS_V2_ENABLED", "false"],
     // #2753 — off is today: nothing reads or writes worker_activity, no `notRecentlyActive`.
     ["WORKER_ACTIVITY_ENABLED", "false"],
+    // #2753 item 6 — off is today: the worker routes 404 and nothing reads worker_search_exits.
+    ["SEARCH_EXIT_ENABLED", "false"],
     // #2752 — off is no Campus route at all: a neutral 404 before any token, address or audit.
     ["CAMPUS_LINK_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.
