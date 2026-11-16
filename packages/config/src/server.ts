@@ -513,6 +513,17 @@ export const serverEnvSchema = z.object({
   // uncapped one lets an authed worker spam attribution reads (DB-load + a timing probe) —
   // bb-security-review LOW-MED. Same fail-closed idiom (Redis outage → 429, never uncapped).
   REFERRAL_ATTRIBUTE_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // THE HELPER'S NAME BEFORE SIGN-IN (#2753 item 12, brief 9). On, the unauthenticated
+  // `GET /referrals/helper?code=` answers `{ display_name }`: the agency's COMPANY name for a live
+  // agency code, null for every other code (a worker referrer's, unknown, expired, malformed),
+  // never a worker's name. It is capped per address with the attribute route's limiter and cap
+  // above, in its own bucket.
+  //
+  // DEFAULT OFF, AND OFF IS A 404 THAT READS NOTHING. NEEDS THE OWNER'S OK BEFORE IT GOES ON: it
+  // reverses the no-oracle rule of `POST /referrals/attribute` (a worker learns neither whether a
+  // code is valid nor who invited him) and opens a code-to-name lookup to anyone. The screen's
+  // copy waits for a lawyer's check. No migration.
+  REFERRAL_HELPER_NAME_ENABLED: booleanFromString,
   // B4 — per-IP cap / rolling UTC hour on the PUBLIC `POST /invites/:code/click`. That URL
   // is about to be printed on QR codes at factory gates and handed to ~450 agents, which
   // makes it the most-scanned UNAUTHENTICATED endpoint we own; uncapped, it is a free
@@ -1370,6 +1381,44 @@ export const serverEnvSchema = z.object({
   // APPLY-BEFORE-DEPLOY regardless (the apply snapshot writes its columns with the flag off too:
   // history not captured is gone), so the flag gates the SORT only, never the capture.
   LEVEL_NEEDED_SORT_ENABLED: booleanFromString,
+  // THE FOUR AVAILABILITY ANSWERS OF THE BRIEF (#2753 item 3): "can join now", "15 days",
+  // "30 days", "working, open to a better offer". On, `GET /workers/me/work-preferences/options`
+  // serves them as `availability_status` (keys join_now / in_15_days / in_30_days / working_open)
+  // in place of today's four, and every client renders what it is served.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S OPTIONS EXACTLY. The flag never narrows a write: the worker
+  // PUT, admin corrections and the chat edit layer accept BOTH sets either way (installed builds
+  // keep sending the old keys), and every reader labels a stored key of either set in its own
+  // words. No migration: the answer lives in the `availability` json attribute. Turn on with the
+  // app release that renders the served chips.
+  AVAILABILITY_ANSWERS_V2_ENABLED: booleanFromString,
+  // LAST ACTIVE, ONE DEFINITION (#2753 items 4 and 7). With it on, every signed-in worker request
+  // and every Campus application records the worker's IST day in `worker_activity` (migration
+  // 0168), and the API's one last-active read is the later of that table's newest day and his
+  // newest device sighting: the #2747 pre-pay fact `lastActiveOn`, the agency referred-workers
+  // list, and `notRecentlyActive` on every applicant, inbox and company search row.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: nothing reads or writes `worker_activity`, no row
+  // carries `notRecentlyActive`, and `lastActiveOn` is the device sighting as before. That is what
+  // makes 0168 apply-before-the-switch rather than apply-before-the-deploy. On without the table,
+  // nothing answers 500: the writes are lost and the reads fall back to the device day (42P01,
+  // one warning per process). The card's activity band, the search order and the `worker.active`
+  // event never read this switch.
+  WORKER_ACTIVITY_ENABLED: booleanFromString,
+  // The "not recently active" mark (#2753 item 7, owner default): a worker whose last active day is
+  // MORE than this many days before today (IST) is marked; day 90 is not, day 91 is. A mark only:
+  // nobody is hidden or re-sorted (owner question 3). Read only while WORKER_ACTIVITY_ENABLED is on.
+  NOT_RECENTLY_ACTIVE_DAYS: z.coerce.number().int().min(1).default(90),
+  // LEAVE COMPANY SEARCH (#2753 item 6). With it on, a worker can turn "companies can find me" off
+  // (`PUT /workers/me/search-visibility`): one `worker_search_exits` row takes him out of every
+  // company's candidate search, and only a company he applied to (or one already holding an open
+  // contact) can still open him. His consent is untouched.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the two worker routes are a plain 404, the search
+  // statement is byte-identical, the unlock path reads nothing, and NOTHING reads or writes
+  // `worker_search_exits`. Migration 0169 is APPLY-BEFORE-THE-SWITCH, but on before it nothing
+  // 500s: search and the unlock gate fail open (everyone visible) and the worker routes answer 503.
+  SEARCH_EXIT_ENABLED: booleanFromString,
   // HIRE RECORDS (#2753 item 9) — `hires`, one record per company, worker and posting. With it on,
   // a company's real move of an applicant INTO `hired` on its board confirms the record in the
   // stage transaction, a move OUT takes back a mark nothing else confirmed, and `GET /admin/hires`
@@ -1380,6 +1429,24 @@ export const serverEnvSchema = z.object({
   // is unchanged, and `GET /admin/hires` is a 404. Migration `hires` is APPLY-BEFORE-THE-SWITCH:
   // on without it, a move into or out of `hired` fails (42P01) and rolls back.
   HIRE_RECORDS_ENABLED: booleanFromString,
+  // THE PAY-ON-JOINING PILOT'S RECORD (#2753 item 11): an admin records each hire of the pilot
+  // (factory, job, worker, partner, joining date, 30-day check, fee, invoice and payment dates)
+  // through `GET` / `POST /admin/pay-on-joining-hires` and `PATCH …/:id`. A RECORD ONLY: nothing
+  // invoices, pays or picks a factory.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: every route is a neutral 404 before any query, and
+  // nothing reads or writes `pay_on_joining_hires`. Needs migration 0171 applied first.
+  PAY_ON_JOINING_RECORDS_ENABLED: booleanFromString,
+  // The partner's share of a pay-on-joining fee, in whole percent (0..100; BadaBhai keeps the
+  // rest). Default 70 (the pilot's terms). COPIED onto each hire when it is created, so changing
+  // it never rewrites a recorded hire; the share in paise is floor(fee * percent / 100). Empty
+  // reads as the default, for the `${VAR:-70}` compose idiom; anything else outside 0..100 (or
+  // not a whole number) fails boot, and the deploy preflight refuses it first.
+  POJ_PARTNER_SHARE_PERCENT: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    // `.default()` on the INNER schema, for the reason written out on `positiveIntFromString`.
+    z.coerce.number().int().min(0).max(100).default(70),
+  ),
   // THE COMPANY FOLLOW-UP (#2753 item 10) — `unlock_outcomes`, one answer per opened contact. With
   // it on, `GET /payer/unlock-outcomes/due` lists the company's contacts opened at least
   // UNLOCK_FOLLOWUP_AFTER_DAYS ago with no answer (or a `still_talking` that old), and

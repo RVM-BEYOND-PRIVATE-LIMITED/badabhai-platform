@@ -208,6 +208,30 @@ case "${TRUST_PROXY_HOP_COUNT-}" in
     ;;
 esac
 
+# #2753 item 11: POJ_PARTNER_SHARE_PERCENT — the partner's share of a pay-on-joining fee, a whole
+# percent. The api parses it as an integer 0..100 at boot (z.coerce.number), so "70%" or "seventy"
+# would crash-loop it with no automatic rollback. Only empty or 0..100 pass, checked here before any
+# prune, pull or recreate. Empty means 70 through compose's `${POJ_PARTNER_SHARE_PERCENT:-70}`.
+case "${POJ_PARTNER_SHARE_PERCENT-}" in
+  "" | [0-9] | [1-9][0-9] | 100) ;;
+  *)
+    echo "::error::POJ_PARTNER_SHARE_PERCENT must be a whole number from 0 to 100, or empty (empty means 70). Fix the production secret (gh secret set POJ_PARTNER_SHARE_PERCENT --env production --body 70) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
+# #2753 item 10: UNLOCK_FOLLOWUP_AFTER_DAYS — the company follow-up's wait, whole days. The api parses
+# it as a positive integer at boot (positiveIntFromString), so "0", "7d" or "seven" would crash-loop
+# it with no automatic rollback. Only empty or 1..999 pass, checked here before any prune, pull or
+# recreate. Empty means 7 through compose's `${UNLOCK_FOLLOWUP_AFTER_DAYS:-7}`.
+case "${UNLOCK_FOLLOWUP_AFTER_DAYS-}" in
+  "" | [1-9] | [1-9][0-9] | [1-9][0-9][0-9]) ;;
+  *)
+    echo "::error::UNLOCK_FOLLOWUP_AFTER_DAYS must be a whole number from 1 to 999, or empty (empty means 7). Fix the production secret (gh secret set UNLOCK_FOLLOWUP_AFTER_DAYS --env production --body 7) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
 # EVERY OTHER BRIDGED BOOLEAN — the same boot-time grammar, the same reason. Each name below is
 # in the deploy job's `envs:` list in ci.yml AND parsed by the api's `booleanFromString`
 # (packages/config/src/server.ts), which throws at boot on anything but true/false/1/0/empty.
@@ -221,6 +245,7 @@ BRIDGED_BOOLEAN_FLAGS=(
   AGENCY_TWIN_SYNC_ENABLED
   AI_ALERT_EMAIL_ENABLED
   AI_ENABLE_REAL_CALLS
+  AVAILABILITY_ANSWERS_V2_ENABLED
   CAMPUS_LINK_ENABLED
   CHAT_COMPANION_ENABLED
   CHAT_COMPANION_V2_CAREER_ENABLED
@@ -239,17 +264,21 @@ BRIDGED_BOOLEAN_FLAGS=(
   HIRE_RECORDS_ENABLED
   LEVEL_NEEDED_SORT_ENABLED
   PAYER_APPLICANT_STAGES_ENABLED
+  PAY_ON_JOINING_RECORDS_ENABLED
   PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED
   PROFILING_TIERS_ENABLED
+  REFERRAL_HELPER_NAME_ENABLED
   RESUME_AUTOFILL_ENABLED
   RESUME_CHAT_UPDATE_OFFER_ENABLED
   RESUME_OPTION_MAP_REQUIRES_AUTOFILL
   RESUME_QR_SCAN_ENABLED
   RESUME_SKINS_ENABLED
+  SEARCH_EXIT_ENABLED
   SIGNUP_AGE_GATE_ENABLED
   TEST_IMMEDIATE_DELETE_ENABLED
   UNLOCK_FOLLOWUP_ENABLED
   WORK_HISTORY_POLISH_ENABLED
+  WORKER_ACTIVITY_ENABLED
 )
 _bad_flags=0
 for _flag in "${BRIDGED_BOOLEAN_FLAGS[@]}"; do

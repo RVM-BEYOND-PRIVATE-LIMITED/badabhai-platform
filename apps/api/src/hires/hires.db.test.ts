@@ -16,7 +16,7 @@ import { HiresRepository, type HireKey } from "./hires.repository";
 import { HiresService, type HireOrigin } from "./hires.service";
 
 /**
- * #2753 item 9 — `hires` (migration 0168) against a real Postgres, with HIRE_RECORDS_ENABLED on.
+ * #2753 item 9 — `hires` (migration 0170) against a real Postgres, with HIRE_RECORDS_ENABLED on.
  *
  * The unit suites prove the rules and the plumbing. Only a database proves:
  *  - THE REAL STAGE TRANSACTION writes the row: a company's move INTO `hired` confirms one record
@@ -58,7 +58,7 @@ const WORKERS = Object.values(W);
 
 const ctx = (): RequestContext => ({ correlationId: randomUUID(), requestId: `hires-db-${TAG}` });
 
-describe.skipIf(!RUN)("hires against Postgres (#2753 item 9, migration 0168)", () => {
+describe.skipIf(!RUN)("hires against Postgres (#2753 item 9, migration 0170)", () => {
   let client!: DbClient;
   let hires!: HiresService;
   let stages!: PayerApplicantStagesService;

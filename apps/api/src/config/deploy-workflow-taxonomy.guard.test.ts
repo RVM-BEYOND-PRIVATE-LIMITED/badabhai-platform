@@ -315,12 +315,54 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /LEVEL_NEEDED_SORT_ENABLED:\s*\$\{\{\s*secrets\.LEVEL_NEEDED_SORT_ENABLED\s*\}\}/,
       /envs:[^\n]*\bLEVEL_NEEDED_SORT_ENABLED\b/,
     ],
+    // #2753 item 12 — the helper's name before sign-in (GET /referrals/helper). A plain boolean on
+    // the api only, turned on in production ONLY by the environment secret, after the owner's OK.
+    [
+      "REFERRAL_HELPER_NAME_ENABLED",
+      /REFERRAL_HELPER_NAME_ENABLED:\s*\$\{\{\s*secrets\.REFERRAL_HELPER_NAME_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bREFERRAL_HELPER_NAME_ENABLED\b/,
+    ],
+    // #2753 item 3 — the brief's four availability answers on the options route. A plain boolean
+    // on the api only, turned on in production ONLY by the environment secret.
+    [
+      "AVAILABILITY_ANSWERS_V2_ENABLED",
+      /AVAILABILITY_ANSWERS_V2_ENABLED:\s*\$\{\{\s*secrets\.AVAILABILITY_ANSWERS_V2_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bAVAILABILITY_ANSWERS_V2_ENABLED\b/,
+    ],
+    // #2753 — last active, one definition (worker_activity, migration 0168). A plain boolean on
+    // the api only, turned on in production ONLY by the environment secret, after 0168.
+    [
+      "WORKER_ACTIVITY_ENABLED",
+      /WORKER_ACTIVITY_ENABLED:\s*\$\{\{\s*secrets\.WORKER_ACTIVITY_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bWORKER_ACTIVITY_ENABLED\b/,
+    ],
+    // #2753 item 6 — leave company search. A plain boolean on the api only, turned on in
+    // production ONLY by the environment secret, after migration 0169.
+    [
+      "SEARCH_EXIT_ENABLED",
+      /SEARCH_EXIT_ENABLED:\s*\$\{\{\s*secrets\.SEARCH_EXIT_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bSEARCH_EXIT_ENABLED\b/,
+    ],
     // #2753 item 9 — hire records. A plain boolean on the api only, turned on in production ONLY
     // by the environment secret, after the `hires` migration is applied.
     [
       "HIRE_RECORDS_ENABLED",
       /HIRE_RECORDS_ENABLED:\s*\$\{\{\s*secrets\.HIRE_RECORDS_ENABLED\s*\}\}/,
       /envs:[^\n]*\bHIRE_RECORDS_ENABLED\b/,
+    ],
+    // #2753 item 11 — the pay-on-joining pilot's hire record. A plain boolean on the api only,
+    // turned on in production ONLY by the environment secret, after migration 0171.
+    [
+      "PAY_ON_JOINING_RECORDS_ENABLED",
+      /PAY_ON_JOINING_RECORDS_ENABLED:\s*\$\{\{\s*secrets\.PAY_ON_JOINING_RECORDS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bPAY_ON_JOINING_RECORDS_ENABLED\b/,
+    ],
+    // #2753 item 11 — the partner's share (whole percent). A plain tuning number, bridged like
+    // CAMPUS_DRIVE_MAX_OPEN_REQUESTS: absent, compose's `:-70` holds it at the pilot's terms.
+    [
+      "POJ_PARTNER_SHARE_PERCENT",
+      /POJ_PARTNER_SHARE_PERCENT:\s*\$\{\{\s*secrets\.POJ_PARTNER_SHARE_PERCENT\s*\}\}/,
+      /envs:[^\n]*\bPOJ_PARTNER_SHARE_PERCENT\b/,
     ],
     // #2753 item 10 — the company follow-up. A plain boolean on the api only, turned on in production
     // ONLY by the environment secret, after the `unlock_outcomes` migration is applied.
@@ -484,8 +526,20 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["PAYER_APPLICANT_STAGES_ENABLED", "true"],
     // ADR-0061 — off is today's applicant list: the v1.0 ORDER BY, no level read, levelFit null.
     ["LEVEL_NEEDED_SORT_ENABLED", "false"],
+    // #2753 item 12 — off is a 404 on GET /referrals/helper that reads nothing.
+    ["REFERRAL_HELPER_NAME_ENABLED", "false"],
+    // #2753 item 3 — off is today's availability options; writes accept both sets either way.
+    ["AVAILABILITY_ANSWERS_V2_ENABLED", "false"],
+    // #2753 — off is today: nothing reads or writes worker_activity, no `notRecentlyActive`.
+    ["WORKER_ACTIVITY_ENABLED", "false"],
+    // #2753 item 6 — off is today: the worker routes 404 and nothing reads worker_search_exits.
+    ["SEARCH_EXIT_ENABLED", "false"],
     // #2753 item 9 — off is today's API: nothing reads or writes `hires`; GET /admin/hires 404s.
     ["HIRE_RECORDS_ENABLED", "false"],
+    // #2753 item 11 — off is no pay-on-joining route at all (a 404 before any query); 70 is the
+    // pilot's partner share, copied onto each hire when it is recorded.
+    ["PAY_ON_JOINING_RECORDS_ENABLED", "false"],
+    ["POJ_PARTNER_SHARE_PERCENT", "70"],
     // #2753 item 10 — off is today's API: both follow-up routes 404; nothing names unlock_outcomes.
     ["UNLOCK_FOLLOWUP_ENABLED", "false"],
     // #2753 item 10 — the zod default: the follow-up is due 7 days after the grant.

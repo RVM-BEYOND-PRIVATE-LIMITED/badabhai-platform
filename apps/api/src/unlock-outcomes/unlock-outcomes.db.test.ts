@@ -20,7 +20,7 @@ import { UnlockOutcomesRepository } from "./unlock-outcomes.repository";
 import { UnlockOutcomesService, type OutcomeOrigin } from "./unlock-outcomes.service";
 
 /**
- * #2753 item 10 — `unlock_outcomes` (migration 0169) against a real Postgres, with
+ * #2753 item 10 — `unlock_outcomes` (migration 0172) against a real Postgres, with
  * UNLOCK_FOLLOWUP_ENABLED and HIRE_RECORDS_ENABLED on.
  *
  * The unit suites prove the rules and the plumbing. Only a database proves:
@@ -100,7 +100,7 @@ const UL = Object.fromEntries(Object.keys(W).map((k) => [k, id()])) as Record<st
 const UL_ERASED_BEFORE = id(); // an unlock whose worker is already gone (worker_id NULL)
 const UNLOCK_IDS = [...Object.values(UL), UL_ERASED_BEFORE];
 
-describe.skipIf(!RUN)("unlock_outcomes against Postgres (#2753 item 10, migration 0169)", () => {
+describe.skipIf(!RUN)("unlock_outcomes against Postgres (#2753 item 10, migration 0172)", () => {
   let client!: DbClient;
   let outcomes!: UnlockOutcomesService;
   const correlations: string[] = [];

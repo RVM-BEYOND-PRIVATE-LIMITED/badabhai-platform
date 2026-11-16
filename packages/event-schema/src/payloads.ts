@@ -6666,6 +6666,38 @@ export const DisplayPrefsChangedPayload = z
 export type DisplayPrefsChangedPayload = z.infer<typeof DisplayPrefsChangedPayload>;
 
 // ---------------------------------------------------------------------------
+// #2753 item 6 — LEAVE COMPANY SEARCH (`worker_search_exits`, migration 0169). A worker turned
+// "companies can find me" off or back on, while `SEARCH_EXIT_ENABLED` was on. Written in the same
+// transaction as the row.
+//
+// IDS AND CLOSED VALUES ONLY. His consent is not part of this event and is never changed by it:
+// leaving search keeps every consent row as it was.
+// ---------------------------------------------------------------------------
+
+/**
+ * Which surface made the change: `worker` (his own switch, `PUT /workers/me/search-visibility`) or
+ * `monthly_check` (a later part: his "not now" on the monthly check). The same values as the
+ * `worker_search_exits_via_chk` CHECK. A new value is a new event version.
+ */
+export const SEARCH_VISIBILITY_VIAS = ["worker", "monthly_check"] as const;
+export type SearchVisibilityVia = (typeof SEARCH_VISIBILITY_VIAS)[number];
+
+/**
+ * #2753 item 6 — the worker left company search (`visible: false`) or came back to it
+ * (`visible: true`). ONE PER REAL CHANGE: leaving again while out, or coming back while in, writes
+ * nothing and emits nothing. The actor and the subject are the worker himself.
+ */
+export const WorkerSearchVisibilityChangedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    visible: z.boolean(),
+    via: z.enum(SEARCH_VISIBILITY_VIAS),
+  })
+  .strict();
+export type WorkerSearchVisibilityChangedPayload = z.infer<
+  typeof WorkerSearchVisibilityChangedPayload
+>;
+
 // #2753 item 9 — HIRE RECORDS (`hires`). One record per company, worker and posting, moved by the
 // company's board (a move into or out of `hired`), the company's follow-up answer, the worker's own
 // answer and the worker desk. Written in the same transaction as the row, while
@@ -6714,3 +6746,89 @@ export const HireRecordedPayload = z
     { message: "the status must be the one its source leaves the record in" },
   );
 export type HireRecordedPayload = z.infer<typeof HireRecordedPayload>;
+
+// ---------------------------------------------------------------------------
+// #2753 item 11 — THE PAY-ON-JOINING PILOT'S HIRE RECORD (`pay_on_joining_hires`, migration 0171).
+// An admin records each hire of the pilot by hand: the factory, the job, the worker, the partner,
+// the joining date, the 30-day check, the fee and the invoice and payment dates. Nothing on it is
+// automated: no invoice is raised, no money moves, no factory is chosen by code.
+//
+// IDS, PAISE INTEGERS AND CLOSED VALUES ONLY. The admin's `note` never rides the spine (only its
+// KEY in `changed_fields`), and the record holds no name, phone or company name to leak. Dates stay
+// on the row: the spine carries where the money STANDS (`payment_state`), not when.
+// ---------------------------------------------------------------------------
+
+/**
+ * The fields an admin writes on a hire record, by KEY. `partner_share_percent` and
+ * `partner_share_paise` are not among them: the server copies the one from the setting and
+ * computes the other, so no client ever sends either.
+ */
+export const POJ_HIRE_FIELDS = [
+  "factory_payer_id",
+  "job_posting_id",
+  "worker_id",
+  "partner_payer_id",
+  "joined_on",
+  "stay_checked_on",
+  "stayed_30_days",
+  "fee_paise",
+  "invoiced_on",
+  "factory_paid_on",
+  "partner_paid_on",
+  "note",
+] as const;
+export type PojHireField = (typeof POJ_HIRE_FIELDS)[number];
+
+/**
+ * Where a hire's money stands, DERIVED from the recorded dates (never set directly):
+ *   - `awaiting_factory` — the factory has not paid (`factory_paid_on` is empty);
+ *   - `partner_due`      — the factory paid, a partner is owed a share above zero, and has not
+ *                          been paid (the partner is paid when the factory pays);
+ *   - `settled`          — the factory paid and no partner is owed anything more.
+ */
+export const POJ_PAYMENT_STATES = ["awaiting_factory", "partner_due", "settled"] as const;
+export type PojPaymentState = (typeof POJ_PAYMENT_STATES)[number];
+
+/** Which write recorded the hire: the first (`created`) or a later edit (`updated`). */
+export const POJ_RECORD_CHANGES = ["created", "updated"] as const;
+export type PojRecordChange = (typeof POJ_RECORD_CHANGES)[number];
+
+/** An amount in integer paise: whole, never negative, never past a safe JavaScript integer. */
+const PaiseSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+
+/**
+ * #2753 item 11 — an admin created or edited a pay-on-joining hire record. Emitted in the SAME
+ * transaction as the row and its `audit_logs` row, once per real change (an edit that changes
+ * nothing writes and emits nothing).
+ *
+ * `changed_fields` names the KEYS the write set (every key the admin supplied on `created`, the
+ * keys whose value moved on `updated`), never a value. The record's ids, money and state ride
+ * along as they stand AFTER the write, so a reader of the spine can total the pilot without the
+ * table. The share is pinned to the server's arithmetic: floor(fee * percent / 100), in integers.
+ */
+export const PayOnJoiningRecordedPayload = z
+  .object({
+    hire_id: uuidSchema,
+    change: z.enum(POJ_RECORD_CHANGES),
+    changed_fields: z.array(z.enum(POJ_HIRE_FIELDS)).min(1).max(POJ_HIRE_FIELDS.length),
+    factory_payer_id: uuidSchema,
+    partner_payer_id: uuidSchema.nullable(),
+    job_posting_id: uuidSchema.nullable(),
+    worker_id: uuidSchema,
+    fee_paise: PaiseSchema,
+    partner_share_percent: z.number().int().min(0).max(100),
+    partner_share_paise: PaiseSchema,
+    stayed_30_days: z.boolean().nullable(),
+    payment_state: z.enum(POJ_PAYMENT_STATES),
+  })
+  .strict()
+  .refine((v) => new Set(v.changed_fields).size === v.changed_fields.length, {
+    message: "changed_fields must not repeat a key",
+  })
+  .refine(
+    (v) =>
+      BigInt(v.partner_share_paise) ===
+      (BigInt(v.fee_paise) * BigInt(v.partner_share_percent)) / 100n,
+    { message: "partner_share_paise must be floor(fee_paise * partner_share_percent / 100)" },
+  );
+export type PayOnJoiningRecordedPayload = z.infer<typeof PayOnJoiningRecordedPayload>;

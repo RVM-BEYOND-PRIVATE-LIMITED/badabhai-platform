@@ -429,11 +429,36 @@ services:
       # posting that names a rung sorts its applicants meets → not confirmed → below inside each
       # trade group. Nobody is hidden. `:-false` because this bool rejects "".
       LEVEL_NEEDED_SORT_ENABLED: ${LEVEL_NEEDED_SORT_ENABLED:-false}
+      # THE HELPER'S NAME BEFORE SIGN-IN (#2753 item 12). Off: GET /referrals/helper is a 404 and
+      # reads nothing. On, an agency code answers the agency's company name and every other code
+      # `display_name: null`; never a worker's name. NEEDS THE OWNER'S OK BEFORE IT GOES ON. No
+      # migration. `:-false` because this bool rejects "".
+      REFERRAL_HELPER_NAME_ENABLED: ${REFERRAL_HELPER_NAME_ENABLED:-false}
+      # THE BRIEF'S FOUR AVAILABILITY ANSWERS (#2753 item 3). Off is today's options exactly. On,
+      # GET /workers/me/work-preferences/options serves join_now / in_15_days / in_30_days /
+      # working_open as `availability_status`. Writes accept both sets either way, and every reader
+      # labels both. No migration. `:-false` because this bool rejects "".
+      AVAILABILITY_ANSWERS_V2_ENABLED: ${AVAILABILITY_ANSWERS_V2_ENABLED:-false}
+      # LAST ACTIVE, ONE DEFINITION (#2753). Off is today exactly: nothing reads or writes
+      # worker_activity, no row carries `notRecentlyActive`, `lastActiveOn` is the device sighting.
+      # On needs migration 0168 applied first. `:-false` because this bool rejects "".
+      WORKER_ACTIVITY_ENABLED: ${WORKER_ACTIVITY_ENABLED:-false}
+      # LEAVE COMPANY SEARCH (#2753 item 6). Off is today exactly: the two
+      # /workers/me/search-visibility routes are a plain 404, the candidate search is byte-identical
+      # and nothing reads `worker_search_exits`. Apply migration 0169 before turning it on.
+      # `:-false` because this bool rejects "".
+      SEARCH_EXIT_ENABLED: ${SEARCH_EXIT_ENABLED:-false}
       # HIRE RECORDS (#2753 item 9). Off is today's API exactly: nothing reads or writes `hires`
       # and GET /admin/hires is a 404. On, a company's move into or out of `hired` writes the
       # record in the stage transaction. Apply the `hires` migration first. `:-false` because this
       # bool rejects "".
       HIRE_RECORDS_ENABLED: ${HIRE_RECORDS_ENABLED:-false}
+      # THE PAY-ON-JOINING PILOT'S HIRE RECORD (#2753 item 11). Off: every /admin/pay-on-joining-hires
+      # route is a neutral 404 and nothing touches the table. A record only: no invoice, no payout.
+      # Needs migration 0171. `:-false` because this bool rejects "". The partner's share is a whole
+      # percent (0..100), copied onto each hire when it is recorded; `:-70` is the pilot's terms.
+      PAY_ON_JOINING_RECORDS_ENABLED: ${PAY_ON_JOINING_RECORDS_ENABLED:-false}
+      POJ_PARTNER_SHARE_PERCENT: ${POJ_PARTNER_SHARE_PERCENT:-70}
       # THE COMPANY FOLLOW-UP (#2753 item 10). Off is today's API exactly: both routes are a 404 and
       # nothing reads or writes `unlock_outcomes`. On, a company lists its contacts due for an answer
       # and answers hired / not_hired / still_talking. Apply the `unlock_outcomes` migration first.

@@ -1,7 +1,8 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { AgencyWorkersRepository } from "./agency-workers.repository";
+import { WorkerActivityService } from "../worker-activity/worker-activity.service";
 
 /** One referred worker as the agency portal sees him. PII-FREE by construction. */
 export interface AgencyWorkerView {
@@ -19,7 +20,10 @@ export interface AgencyWorkerView {
   profileComplete: boolean;
   appliedCount: number;
   unlockedCount: number;
-  /** Coarse UTC day (`YYYY-MM-DD`), or null. Never a time of day. */
+  /**
+   * Coarse day (`YYYY-MM-DD`), or null. Never a time of day. The UTC day of his newest live device;
+   * while WORKER_ACTIVITY_ENABLED is on, the one last-active day (IST, #2753).
+   */
   lastActiveOn: string | null;
 }
 
@@ -61,11 +65,28 @@ export class AgencyWorkersService {
     private readonly pii: PiiCryptoService,
     // ADR-0053 — the payer tenant resolver (PayersModule, already imported for the guards).
     private readonly tenancy: PayerTenantScopeService,
+    // #2753 — the one last-active read. Optional so a hand-built unit instance compiles;
+    // AgencyModule imports WorkerActivityModule, so Nest always injects it.
+    @Optional() private readonly activity?: WorkerActivityService,
   ) {}
 
   async listReferred(actorPayerId: string): Promise<{ workers: AgencyWorkerView[] }> {
     const { tenantKey } = await this.tenancy.resolve(actorPayerId);
-    const rows = await this.repo.listReferredWithConsent(tenantKey, AgencyWorkersService.MAX_ROWS);
+    // #2753 — with WORKER_ACTIVITY_ENABLED on, `lastActiveOn` is the ONE definition of last
+    // active (the later of his newest `worker_activity` day and his newest device sighting, as an
+    // IST day), read for the whole list in one statement after the consent-gated read. Off, it is
+    // the repository's UTC day of his newest live device, exactly as before, and nothing more is
+    // read. Either way it is a day, never a time.
+    const unified = this.activity?.enabled === true;
+    const rows = unified
+      ? await this.repo.listReferredWithConsent(tenantKey, AgencyWorkersService.MAX_ROWS, {
+          activityOrder: true,
+        })
+      : await this.repo.listReferredWithConsent(tenantKey, AgencyWorkersService.MAX_ROWS);
+    const days =
+      unified && this.activity
+        ? await this.activity.lastActiveDays(rows.map((r) => r.workerId))
+        : null;
     const workers = rows.map((r) => ({
       // Keyed HMAC over (agency, worker). Including the agency's TENANT KEY in the
       // input is what makes the pseudonym per-agency rather than global — without
@@ -82,7 +103,8 @@ export class AgencyWorkersService {
       // precisely so nothing here can shift it: an earlier version returned a
       // timestamptz and did `.toISOString().slice(0, 10)`, which on an IST server
       // rendered the PREVIOUS day (measured against a real Postgres, not guessed).
-      lastActiveOn: r.lastActiveOn,
+      // #2753: with the switch on, the unified IST day (already `YYYY-MM-DD`, never a Date).
+      lastActiveOn: days === null ? r.lastActiveOn : (days.get(r.workerId.toLowerCase()) ?? null),
     }));
 
     // THE ORDER THE CLIENT SEES IS RE-DERIVED FROM THE PSEUDONYM, NOT FROM THE UUID.

@@ -1,12 +1,12 @@
 -- ==============================================================================
--- 0169 - unlock_outcomes: what became of one opened contact
+-- 0172 - unlock_outcomes: what became of one opened contact
 -- ==============================================================================
 --
 -- #2753 item 10, the company follow-up. A company that opened a contact (an unlock) is asked,
 -- UNLOCK_FOLLOWUP_AFTER_DAYS (default 7) after the grant, what came of it, and its answer is
 -- stored here (POST /payer/unlocks/:unlockId/outcome): `hired`, `not_hired` or `still_talking`.
 -- The desk writes `not_reached` when the company could not reach him (#2750; the service method
--- is in, no route yet). A `hired` answer also confirms the hire record (`hires`, 0168) when the
+-- is in, no route yet). A `hired` answer also confirms the hire record (`hires`, 0170) when the
 -- unlock names a posting and HIRE_RECORDS_ENABLED is on, in the same transaction.
 --
 -- ONE ROW PER UNLOCK (the primary key). A later answer replaces the earlier one
@@ -32,18 +32,18 @@
 --
 -- DEPLOY ORDER - APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY. Nothing names this table while
 -- UNLOCK_FOLLOWUP_ENABLED (default false) is off: both routes are a 404 and the desk method
--- writes nothing. With the switch on before 0169, the due list and every answer fail (42P01) and
--- answer 500; nothing is written. Apply 0164 to 0168 first (slot order), then this.
+-- writes nothing. With the switch on before 0172, the due list and every answer fail (42P01) and
+-- answer 500; nothing is written. Apply 0164 to 0171 first (slot order), then this.
 --
 -- LOCKS. CREATE TABLE is instant, but each FOREIGN KEY takes SHARE ROW EXCLUSIVE on its parent -
 -- `unlocks` and `workers` - which blocks writes to them while it waits behind a long
 -- transaction. Apply by hand in ONE `BEGIN; SET LOCAL lock_timeout = '3s'; ... COMMIT;` and
--- retry on 55P03 (the 0129 / 0130 / 0166 / 0167 / 0168 precedent).
+-- retry on 55P03 (the 0129 / 0130 / 0166 / 0167 / 0170 / 0171 precedent).
 --
 -- RLS: ENABLE is generated; FORCE and the four REVOKEs at the end are HAND-WRITTEN (the
--- 0117 / 0156 / 0160 / 0161 / 0167 / 0168 pattern) - a regenerate drops them silently. Registered
--- as `0169-unlock-outcomes-rls` in `schema-contract.ts`; listed in LOCKED_TABLES in the e2e RLS
--- spine.
+-- 0117 / 0156 / 0160 / 0161 / 0167 / 0170 / 0171 pattern) - a regenerate drops them silently.
+-- Registered as `0172-unlock-outcomes-rls` in `schema-contract.ts`; listed in LOCKED_TABLES in the
+-- e2e RLS spine.
 --
 -- ROLLBACK (switch off and redeploy first; the answers are lost - nothing else holds them, and
 -- the spine keeps only their history):
@@ -73,7 +73,7 @@ CREATE INDEX "unlock_outcomes_worker_id_idx" ON "unlock_outcomes" USING btree ("
 -- ===========================================================================
 -- DENY BY DEFAULT - RLS forced, every role revoked, and NO POLICY.
 -- `drizzle-kit generate` emits only the ENABLE above; FORCE and the four REVOKEs are
--- HAND-WRITTEN (the 0117 / 0156 / 0160 / 0161 / 0167 / 0168 pattern), because a regenerate drops them.
+-- HAND-WRITTEN (the 0117 / 0156 / 0160 / 0161 / 0167 / 0170 / 0171 pattern), because a regenerate drops them.
 -- ===========================================================================
 ALTER TABLE "unlock_outcomes" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 REVOKE ALL ON TABLE "unlock_outcomes" FROM PUBLIC;--> statement-breakpoint

@@ -1303,13 +1303,49 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "worker id; an open grant lets any PostgREST role read those marks, or write a row the " +
       "sender would post to RVM as a company's selection",
   },
-  // 0168 (#2753 item 9): THE API names `hires` only while HIRE_RECORDS_ENABLED is on (the stage
+  // 0168 (#2753 items 4 and 7): THE API names `worker_activity` only while WORKER_ACTIVITY_ENABLED
+  // is on (the interceptor's and Campus's writes, the last-active read), so a deploy ahead of the
+  // migration breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134
+  // rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0168-worker-activity-rls",
+    migration: "0168_worker_activity",
+    kind: "rls",
+    table: "worker_activity",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records every day each worker used the app, keyed by worker id; an " +
+      "open grant lets any PostgREST role read that daily pattern, or write a day that clears " +
+      "a worker's not-recently-active mark",
+  },
+  // 0169 (#2753 item 6): THE API names `worker_search_exits` only while SEARCH_EXIT_ENABLED is on
+  // (the worker routes, the search pool's predicate, the unlock refusal), so a deploy ahead of the
+  // migration breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134
+  // rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0169-worker-search-exits-rls",
+    migration: "0169_worker_search_exits",
+    kind: "rls",
+    table: "worker_search_exits",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. A readable grant lets any PostgREST role list which workers left company search; " +
+      "a writable one lets it take any worker out of every company's search, or put one back " +
+      "who asked to leave",
+  },
+  // 0170 (#2753 item 9): THE API names `hires` only while HIRE_RECORDS_ENABLED is on (the stage
   // transaction's hire source, GET /admin/hires), so a deploy ahead of the migration breaks no
   // request and the table is NOT a `table` entry. Listed for its lock (the 0134 rule). APPLY
   // BEFORE THE SWITCH (migration header).
   {
-    id: "0168-hires-rls",
-    migration: "0168_hires",
+    id: "0170-hires-rls",
+    migration: "0170_hires",
     kind: "rls",
     table: "hires",
     requiredBy:
@@ -1321,13 +1357,31 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "id; an open grant lets any PostgREST role read those hires, or write a confirmed hire that " +
       "counts toward the target",
   },
-  // 0169 (#2753 item 10): THE API names `unlock_outcomes` only while UNLOCK_FOLLOWUP_ENABLED is on
+  // 0171 (#2753 item 11): THE API names `pay_on_joining_hires` only while
+  // PAY_ON_JOINING_RECORDS_ENABLED is on (every admin route is a 404 before a query while it is
+  // off), so a deploy ahead of the migration breaks no request and the table is NOT a `table`
+  // entry. Listed for its lock (the 0134 rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0171-pay-on-joining-hires-rls",
+    migration: "0171_pay_on_joining_hires",
+    kind: "rls",
+    table: "pay_on_joining_hires",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which worker each pilot factory hired, the fee in paise and the " +
+      "partner's share, with an admin's free-text note; an open grant lets any PostgREST role " +
+      "read the pilot's commercial terms, or write a hire record ops would act on",
+  },
+  // 0172 (#2753 item 10): THE API names `unlock_outcomes` only while UNLOCK_FOLLOWUP_ENABLED is on
   // (the due list, the company's answer, the desk's not_reached), so a deploy ahead of the
   // migration breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134
   // rule). APPLY BEFORE THE SWITCH (migration header).
   {
-    id: "0169-unlock-outcomes-rls",
-    migration: "0169_unlock_outcomes",
+    id: "0172-unlock-outcomes-rls",
+    migration: "0172_unlock_outcomes",
     kind: "rls",
     table: "unlock_outcomes",
     requiredBy:

@@ -325,6 +325,26 @@ describe("salary & preferences", () => {
     expect(d.preferences.availability.value.status_label).toBe("Within a week");
     expect(d.preferences.availability.source).toBe("worker_edit");
   });
+
+  it.each([
+    ["join_now", "Can join now"],
+    ["in_15_days", "Can join in 15 days"],
+    ["in_30_days", "Can join in 30 days"],
+    ["working_open", "Working, open to a better offer"],
+    // An old answer keeps its own words (#2753 item 3): never relabelled in the new set's.
+    ["serving_notice", "Serving notice"],
+    // Unknown or empty is not given, never a raw slug.
+    ["next_week", null],
+    ["", null],
+  ])("#2753 item 3 — an availability status of %j is labelled %j", (status, label) => {
+    const base = candidateInputs();
+    const d = toCandidateDetail({
+      ...base,
+      tradeSheet: { packId: null, attributes: { availability: { status } } },
+    });
+    expect(d.preferences.availability.value.status_label).toBe(label);
+    expect(() => AdminCandidateDetailSchema.parse(d)).not.toThrow();
+  });
 });
 
 describe("résumé, account, activity", () => {

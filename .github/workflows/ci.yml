@@ -1441,13 +1441,29 @@ jobs:
       #                    mark on an active RVM student, in the stage transaction, ids only;
       #                    the sweep's SKIP LOCKED claim, the body built at send time, and the
       #                    delivered / retried / cancelled states (src/outbound-signals).
-      #   * hires.db — #2753 item 9, hire records (migration 0168): the REAL stage transaction
+      #   * worker-activity.db — #2753, the days a worker was active (migration 0168): one row
+      #                    per worker per IST day however often it is written, the cascade on
+      #                    erasure, the last-active day merged with real device rows across the
+      #                    18:30 UTC boundary, and RLS forced with no grant (src/worker-activity).
+      #   * worker-search-exits.db — #2753 item 6, leave company search (migration 0169): the real
+      #                    search leaves out a worker with an exit row (the whole pool, a granted
+      #                    student included) and takes him back, consent untouched; the unlock
+      #                    rule against real application rows (the applicant read is the feeds'
+      #                    twin; requestUnlock grants a company he applied to, refuses any other
+      #                    with no debit and no row); the cascade on hardDelete; the CHECK; RLS
+      #                    forced with no grants (src/search-exit).
+      #   * hires.db — #2753 item 9, hire records (migration 0170): the REAL stage transaction
       #                    writes one record per company, worker and posting (a move into
       #                    `hired` confirms it, out rejects it, a re-mark confirms it again);
       #                    a mark, a company answer and a worker answer give ONE row; the unique
       #                    key, the CHECKs, both FKs, the hardDelete cascade and RLS forced with
       #                    no grant (src/hires).
-      #   * unlock-outcomes.db — #2753 item 10, the company follow-up (migration 0169): the due
+      #   * pay-on-joining-hires.db — #2753 item 11, the pay-on-joining pilot's hire record
+      #                    (migration 0171): the CHECKs (paise, percent, the floor share, the
+      #                    30-day pair), the unique hire key NULLS NOT DISTINCT, the worker
+      #                    hardDelete cascade, RLS forced with no grants, and a real create then
+      #                    patch with its audit row and event (src/pay-on-joining).
+      #   * unlock-outcomes.db — #2753 item 10, the company follow-up (migration 0172): the due
       #                    list over REAL unlock rows (the boundary day, still_talking due again,
       #                    answered / denied / erased / frozen / another company's never; the
       #                    microsecond keyset), the one-row upsert and its event, the hires link,
@@ -1466,7 +1482,7 @@ jobs:
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a six-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + candidate search + payer org tenancy + org tenancy census + free-chat probe + companion history + deletion event tx + admin candidate detail + admin funnel parity + admin empty-feed parity + payer login management + worker account actions + PIN-reset gate + admin posting control + admin cost ledger + admin company records + admin candidates search + admin candidate corrections + job audience visibility + payer job audience + campus review + Campus student link, tag rules and admin scope + Campus jobs and search grants + campus drives + pre-pay facts + open for good + theme rollout + display prefs + outbound signals + hire records + unlock outcomes)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + candidate search + payer org tenancy + org tenancy census + free-chat probe + companion history + deletion event tx + admin candidate detail + admin funnel parity + admin empty-feed parity + payer login management + worker account actions + PIN-reset gate + admin posting control + admin cost ledger + admin company records + admin candidates search + admin candidate corrections + job audience visibility + payer job audience + campus review + Campus student link, tag rules and admin scope + Campus jobs and search grants + campus drives + pre-pay facts + open for good + theme rollout + display prefs + outbound signals + worker activity + leave company search + hire records + pay-on-joining hires + unlock outcomes)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -1494,7 +1510,7 @@ jobs:
           # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
           # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
           # 2820-test `node` suite is database-free and has no shared state to race on.
-          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db payer-job-audience.db campus-review.db campus-jobs.db institute-grants.db campus-drives.db pre-pay-facts.db open-grant.db theme-rollout.db display-prefs.db outbound-signals.db hires.db unlock-outcomes.db 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db payer-job-audience.db campus-review.db campus-jobs.db institute-grants.db campus-drives.db pre-pay-facts.db open-grant.db theme-rollout.db display-prefs.db outbound-signals.db pay-on-joining-hires.db worker-activity.db worker-search-exits.db hires.db unlock-outcomes.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
@@ -1514,14 +1530,18 @@ jobs:
           # `admin-postings.db` under src/admin-postings and `admin-companies.db` under
           # src/admin/companies and `admin-corrections.db` under src/admin/corrections and
           # `theme-rollout.db` under src/feature-rollout and `display-prefs.db` under src/display-prefs
-          # and `hires.db` under src/hires and `unlock-outcomes.db` under src/unlock-outcomes
+          # and `worker-activity.db` under src/worker-activity
+          # and `worker-search-exits.db` under src/search-exit
+          # and `hires.db` under src/hires
+          # and `pay-on-joining-hires.db` under src/pay-on-joining
+          # and `unlock-outcomes.db` under src/unlock-outcomes
           # (nested paths need
           # and against a regex
           # missing any one of them
           # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
           # gate lands in a new directory.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db payer-job-audience.db campus-review.db campus-jobs.db institute-grants.db campus-drives.db pre-pay-facts.db open-grant.db theme-rollout.db display-prefs.db outbound-signals.db hires.db unlock-outcomes.db; do
-            line=$(grep -E "src/(ai|admin|admin/companies|admin/corrections|admin-postings|agency-twin|applications|auth|campus-drives|campus-link|candidates|chat-companion|common|display-prefs|feature-rollout|hires|match|outbound-signals|profiles|jobs|resume|payers|payer-portal|payer-portal/job-posting-chat|profiling/free-chat|unlock-outcomes|unlocks|workers)/${f}\.test\.ts" db-gates.log | head -1 || true)
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db payer-job-audience.db campus-review.db campus-jobs.db institute-grants.db campus-drives.db pre-pay-facts.db open-grant.db theme-rollout.db display-prefs.db outbound-signals.db pay-on-joining-hires.db worker-activity.db worker-search-exits.db hires.db unlock-outcomes.db ; do
+            line=$(grep -E "src/(ai|admin|admin/companies|admin/corrections|admin-postings|agency-twin|applications|auth|campus-drives|campus-link|candidates|chat-companion|common|display-prefs|feature-rollout|hires|match|outbound-signals|pay-on-joining|profiles|search-exit|jobs|resume|payers|payer-portal|payer-portal/job-posting-chat|profiling/free-chat|unlock-outcomes|unlocks|worker-activity|workers)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
               exit 1
@@ -1538,8 +1558,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +54 passed \(54\)' db-gates.log; then
-            echo "::error::Expected exactly the 54 gate files to run - the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +57 passed \(57\)' db-gates.log; then
+            echo "::error::Expected exactly the 57 gate files to run - the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
@@ -2281,10 +2301,41 @@ jobs:
           # 4-CNC-trade posting that names a rung sorts its applicants meets → not confirmed →
           # below. Migration 0153 is already applied. true/false/1/0/empty only.
           LEVEL_NEEDED_SORT_ENABLED: ${{ secrets.LEVEL_NEEDED_SORT_ENABLED }}
+          # #2753 item 12 — the helper's name before sign-in (GET /referrals/helper). Unset/empty
+          # resolves to off through compose's `:-false`: the route is a 404 and reads nothing. On,
+          # an agency code answers the agency's company name. NEEDS THE OWNER'S OK BEFORE IT IS
+          # SET (it reverses the attribute route's no-oracle rule). No migration.
+          # true/false/1/0/empty only.
+          REFERRAL_HELPER_NAME_ENABLED: ${{ secrets.REFERRAL_HELPER_NAME_ENABLED }}
+          # #2753 item 3 — the brief's four availability answers. Unset/empty resolves to off
+          # through compose's `:-false`: today's options. On, the options route
+          # (GET /workers/me/work-preferences/options) serves the four; writes accept both sets
+          # either way. No migration. true/false/1/0/empty only.
+          AVAILABILITY_ANSWERS_V2_ENABLED: ${{ secrets.AVAILABILITY_ANSWERS_V2_ENABLED }}
+          # #2753 — last active, one definition. Unset/empty resolves to off through compose's
+          # `:-false`: nothing reads or writes worker_activity and every response is today's. On,
+          # worker requests and Campus applications record the IST day, and applicant / inbox /
+          # search rows carry `notRecentlyActive`. Apply migration 0168 FIRST (on without it,
+          # activity is lost and the last-active day falls back to the device sighting; nothing
+          # answers 500). true/false/1/0/empty only.
+          WORKER_ACTIVITY_ENABLED: ${{ secrets.WORKER_ACTIVITY_ENABLED }}
+          # Leave company search (#2753 item 6). Unset/empty resolves to off through compose's
+          # `:-false`: the worker routes 404 and nothing reads `worker_search_exits`. Apply
+          # migration 0169 BEFORE setting this (on without it, search and unlocks fail open and
+          # the worker routes answer 503).
+          # true/false/1/0/empty only.
+          SEARCH_EXIT_ENABLED: ${{ secrets.SEARCH_EXIT_ENABLED }}
           # Hire records (#2753 item 9). Unset/empty resolves to off through compose's `:-false`:
           # nothing reads or writes `hires` and GET /admin/hires is a 404. Set it true only after
           # the `hires` migration is applied. true/false/1/0/empty only.
           HIRE_RECORDS_ENABLED: ${{ secrets.HIRE_RECORDS_ENABLED }}
+          # #2753 item 11 — the pay-on-joining pilot's hire record (/admin/pay-on-joining-hires).
+          # Unset/empty resolves to off through compose's `:-false`: every route a 404, nothing
+          # touches the table. Needs migration 0171 first. true/false/1/0/empty only. The partner's
+          # share (whole percent, 0..100) is a plain tuning number: absent, compose's `:-70` holds
+          # it at the pilot's 70; the preflight refuses anything else before a container moves.
+          PAY_ON_JOINING_RECORDS_ENABLED: ${{ secrets.PAY_ON_JOINING_RECORDS_ENABLED }}
+          POJ_PARTNER_SHARE_PERCENT: ${{ secrets.POJ_PARTNER_SHARE_PERCENT }}
           # The company follow-up (#2753 item 10). Unset/empty resolves to off through compose's
           # `:-false`: both routes are a 404 and nothing reads or writes `unlock_outcomes`. Set it
           # true only after the `unlock_outcomes` migration is applied. true/false/1/0/empty only.
@@ -2522,7 +2573,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,RESUME_OPTION_MAP_REQUIRES_AUTOFILL,PROFILING_TIERS_ENABLED,FORM_TYPED_TENURE_DERIVE_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_TURN_UNDERSTANDING_ENABLED,PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED,CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED,CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,CHAT_FREE_CHAT_DISABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,ADMIN_NAME_TOKEN_KEYS,ADMIN_NAME_TOKEN_ACTIVE_KID,AI_RAW_PII_ENABLED,MATCH_V1_ENABLED,FEED_POSTINGS_UNION_ENABLED,AGENCY_TWIN_SYNC_ENABLED,PAYER_APPLICANT_STAGES_ENABLED,LEVEL_NEEDED_SORT_ENABLED,HIRE_RECORDS_ENABLED,UNLOCK_FOLLOWUP_ENABLED,UNLOCK_FOLLOWUP_AFTER_DAYS,ADMIN_ENGINE_VIEW_ALLOW_PHONES,PAYER_LOGIN_METHOD,PAYER_ORG_TENANCY_MODE,JOB_AUDIENCE_ROLLOUT,CAMPUS_DRIVE_REQUESTS_ROLLOUT,CAMPUS_DRIVE_MAX_OPEN_REQUESTS,APPLICANT_FACTS_ROLLOUT,CONTACT_RULES_ROLLOUT,OUTCOME_STAGES_ROLLOUT,OUTBOUND_SIGNALS_ROLLOUT,THEME_ROLLOUT,CAMPUS_LINK_ENABLED,CAMPUS_SERVICE_TOKEN_SHA256S,CAMPUS_SERVICE_ALLOWED_IPS,CAMPUS_SERVICE_MAX_PER_MINUTE,RVM_STUDENT_API_BASE_URL,RVM_STUDENT_API_TOKEN,RVM_STUDENT_API_TIMEOUT_MS,RVM_CONSENT_RECHECK_SECONDS,PAYER_AUTH_MAX_PER_IP_PER_HOUR,SIGNUP_AGE_GATE_ENABLED,TRUST_PROXY_HOP_COUNT,AI_FALLBACK_ALERT_WINDOW_HOURS,AI_FALLBACK_ALERT_MIN_CALLS,AI_FALLBACK_ALERT_SHARE,AI_ALERT_EMAIL_ENABLED,AI_ALERT_EMAIL_TO
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,RESUME_OPTION_MAP_REQUIRES_AUTOFILL,PROFILING_TIERS_ENABLED,FORM_TYPED_TENURE_DERIVE_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_TURN_UNDERSTANDING_ENABLED,PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED,CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED,CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,CHAT_FREE_CHAT_DISABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,ADMIN_NAME_TOKEN_KEYS,ADMIN_NAME_TOKEN_ACTIVE_KID,AI_RAW_PII_ENABLED,MATCH_V1_ENABLED,FEED_POSTINGS_UNION_ENABLED,AGENCY_TWIN_SYNC_ENABLED,PAYER_APPLICANT_STAGES_ENABLED,LEVEL_NEEDED_SORT_ENABLED,SEARCH_EXIT_ENABLED,REFERRAL_HELPER_NAME_ENABLED,AVAILABILITY_ANSWERS_V2_ENABLED,PAY_ON_JOINING_RECORDS_ENABLED,POJ_PARTNER_SHARE_PERCENT,WORKER_ACTIVITY_ENABLED,ADMIN_ENGINE_VIEW_ALLOW_PHONES,PAYER_LOGIN_METHOD,PAYER_ORG_TENANCY_MODE,JOB_AUDIENCE_ROLLOUT,CAMPUS_DRIVE_REQUESTS_ROLLOUT,CAMPUS_DRIVE_MAX_OPEN_REQUESTS,APPLICANT_FACTS_ROLLOUT,CONTACT_RULES_ROLLOUT,OUTCOME_STAGES_ROLLOUT,OUTBOUND_SIGNALS_ROLLOUT,THEME_ROLLOUT,CAMPUS_LINK_ENABLED,CAMPUS_SERVICE_TOKEN_SHA256S,CAMPUS_SERVICE_ALLOWED_IPS,CAMPUS_SERVICE_MAX_PER_MINUTE,RVM_STUDENT_API_BASE_URL,RVM_STUDENT_API_TOKEN,RVM_STUDENT_API_TIMEOUT_MS,RVM_CONSENT_RECHECK_SECONDS,PAYER_AUTH_MAX_PER_IP_PER_HOUR,SIGNUP_AGE_GATE_ENABLED,TRUST_PROXY_HOP_COUNT,AI_FALLBACK_ALERT_WINDOW_HOURS,AI_FALLBACK_ALERT_MIN_CALLS,AI_FALLBACK_ALERT_SHARE,AI_ALERT_EMAIL_ENABLED,AI_ALERT_EMAIL_TO,HIRE_RECORDS_ENABLED,UNLOCK_FOLLOWUP_ENABLED,UNLOCK_FOLLOWUP_AFTER_DAYS
           #
           # ⚠ FIVE LINKS, AND A SECRET ONLY BUYS THE FIRST. A value reaches a container by:
           #   1. existing as a GitHub environment secret

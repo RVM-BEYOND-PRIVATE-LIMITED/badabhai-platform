@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import {
   applications,
   createDbClient,
+  instituteApplications,
   instituteCompanies,
   jobPostingInstituteReviews,
   jobPostings,
@@ -11,17 +12,28 @@ import {
   type DbClient,
   type JobPostingAudience,
 } from "@badabhai/db";
+import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
+import { ApplicationsRepository } from "../applications/applications.repository";
+import { ApplicationsService } from "../applications/applications.service";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsRepository } from "../events/events.repository";
 import { EventsService } from "../events/events.service";
+import type { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import { JobPostingsRepository } from "../job-postings/job-postings.repository";
 import { JobPostingsService } from "../job-postings/job-postings.service";
 import { postingAudienceOver } from "../job-postings/posting-audience.test-support";
+import { MatchCandidatesService } from "../match/match-candidates.service";
 import { MatchFeedRepository } from "../match/match-feed.repository";
+import { PrePayFactsRepository } from "../match/pre-pay-facts.repository";
+import { PrePayFactsService } from "../match/pre-pay-facts.service";
+import { stagesOff } from "../payer-portal/payer-applicant-stages.test-support";
+import { PayerApplicantsService } from "../payer-portal/payer-applicants.service";
 import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { PayersRepository } from "../payers/payers.repository";
+import { ReachRepository } from "../reach/reach.repository";
+import { ReachService } from "../reach/reach.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { CampusApplicationsRepository } from "./campus-applications.repository";
 import { CampusApplicationsService } from "./campus-applications.service";
@@ -41,7 +53,10 @@ import type { RvmStudentApiClient, RvmStudentLookup } from "./rvm-student-api.cl
  *     status feed, and a withdrawal takes him off the company's list;
  *   - posting for a company creates a pending company Campus owns, an open RVM posting approved
  *     by the staff ref, and it appears in the feed; a phone that is a company Campus did not create
- *     is refused, and the company lookup answers only Campus-created companies.
+ *     is refused, and the company lookup answers only Campus-created companies;
+ *   - #2753 item 8, the worker side: the student's own `GET workers/me/applications` lists his
+ *     Campus application in the row every application has, marked `via: 'campus'`; the company's
+ *     applicant list shows him as `source: 'rvm_student'`; a Campus withdrawal takes it off both.
  */
 const RUN = process.env.RUN_DB_TESTS === "1";
 const DATABASE_URL =
@@ -70,6 +85,10 @@ describe.skipIf(!RUN)("#2752 part E — Campus jobs and applications against Pos
   let feedRepo!: MatchFeedRepository;
   /** The company form's posting service with the audience switch ON (a company may pick one). */
   let companyForm!: JobPostingsService;
+  /** `GET workers/me/applications` (#2753 item 8): the worker's own list. */
+  let workerApps!: ApplicationsService;
+  /** `GET /payer/reach/jobs/:jobId/applicants`, the company's list, `applicant_facts` off. */
+  let companyList!: PayerApplicantsService;
   const students = new Map<string, RvmStudentLookup>();
   const touchedPayers: string[] = [];
   const touchedWorkers = new Set<string>();
@@ -146,6 +165,29 @@ describe.skipIf(!RUN)("#2752 part E — Campus jobs and applications against Pos
       {} as never,
       tenancy,
       postingAudienceOver(client.db, events, { JOB_AUDIENCE_ROLLOUT: "on" }),
+    );
+    // The list reads only the repository; the feed and apply collaborators stay unbuilt.
+    workerApps = new ApplicationsService(
+      new ApplicationsRepository(client.db),
+      events,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    companyList = new PayerApplicantsService(
+      new ReachService(new ReachRepository(client.db), events, {} as never),
+      jobPostingsService,
+      new MatchCandidatesService(new MatchFeedRepository(client.db), {
+        get: async () => DEFAULT_MATCH_CONFIG,
+      } as never),
+      stagesOff(),
+      tenancy,
+      new PrePayFactsService(
+        new PrePayFactsRepository(client.db),
+        { isEnabledFor: async () => false } as unknown as FeatureRolloutService,
+        pii,
+      ),
     );
 
     const [payer] = await client.db
@@ -554,5 +596,108 @@ describe.skipIf(!RUN)("#2752 part E — Campus jobs and applications against Pos
       ),
     ).toBe("COMPANY_NOT_CAMPUS_CREATED");
     expect(await campusPostings.findCompany(phone)).toBeNull();
+  });
+
+  // ── #2753 item 8 — the worker side of a Campus application ──────────────────────────────────
+
+  /** The student a Campus application linked: the Campus record names him. */
+  async function studentOf(externalRef: string): Promise<string> {
+    const [row] = await client.db
+      .select({ workerId: instituteApplications.workerId })
+      .from(instituteApplications)
+      .where(eq(instituteApplications.externalRef, externalRef));
+    return row!.workerId;
+  }
+
+  /** His own worker-app apply on a posting for everyone, as the V1 apply writes it. */
+  async function appliedInApp(workerId: string, postingId: string): Promise<void> {
+    await client.db.insert(applications).values({
+      jobPostingId: postingId,
+      workerId,
+      action: "applied",
+      sourceSurface: "feed",
+      rank: 1,
+    });
+  }
+
+  const myApplications = async (workerId: string) =>
+    (await workerApps.applicationsForWorker(workerId)).applications;
+
+  it("#2753 — lists a Campus application in the student's own list, in the row every application has", async () => {
+    const campusPosting = await posting("rvm_students");
+    await approve(campusPosting);
+    const app = await applied(campusPosting);
+    const workerId = await studentOf(app.externalRef);
+    const appPosting = await posting("both");
+    await appliedInApp(workerId, appPosting);
+
+    const mine = await myApplications(workerId);
+
+    // Nothing filters it out: not the posting's audience (RVM students only), not its kind, not
+    // the `other` surface a Campus apply records.
+    const campus = mine.find((a) => a.job_id === campusPosting);
+    const own = mine.find((a) => a.job_id === appPosting);
+    expect(campus).toMatchObject({
+      job_id: campusPosting,
+      trade_key: null,
+      title: "CNC Operator",
+      city: null,
+      area: null,
+      action: "applied",
+      reason: null,
+      source_surface: "other",
+      rank: null,
+      matched_skill_label: null,
+    });
+    // No field of its own: the keys of his app application, so a shipped build decodes it. The
+    // one additive key, `via`, is on both and tells them apart.
+    expect(own).toBeDefined();
+    expect(Object.keys(campus!).sort()).toEqual(Object.keys(own!).sort());
+    expect([campus!.via, own!.via]).toEqual(["campus", "app"]);
+  });
+
+  it("#2753 — the worker-side walk: his list says campus, the company sees an RVM student, a withdrawal takes it off both", async () => {
+    const postingId = await posting("rvm_students");
+    await approve(postingId);
+    const app = await applied(postingId);
+    const workerId = await studentOf(app.externalRef);
+
+    expect((await myApplications(workerId)).map((a) => [a.job_id, a.action, a.via])).toEqual([
+      [postingId, "applied", "campus"],
+    ]);
+    const listed = await companyList.listForOwned(postingId, companyId, CTX);
+    expect(listed.applicants).toHaveLength(1);
+    expect(listed.applicants[0]).toMatchObject({ workerId, source: "rvm_student" });
+
+    await campusApps.withdraw(app.externalRef, CTX);
+
+    // The same as an application that no longer exists: no row, no residue, on either list.
+    expect(await myApplications(workerId)).toEqual([]);
+    expect((await companyList.listForOwned(postingId, companyId, CTX)).applicants).toEqual([]);
+  });
+
+  it("#2753 — an app apply Campus also records reads app, before and after the Campus withdrawal", async () => {
+    // A first Campus application links him; he then applies in the app to a posting for everyone,
+    // and Campus sends the same apply: the Campus record points at HIS row and does not own it.
+    const first = await posting("rvm_students");
+    await approve(first);
+    const linked = await applied(first);
+    const workerId = await studentOf(linked.externalRef);
+    const both = await posting("both");
+    await approve(both);
+    await appliedInApp(workerId, both);
+    const externalRef = `campus-app-${randomUUID().slice(0, 12)}`;
+    const out = await campusApps.apply(
+      { external_ref: externalRef, posting_id: both, student_ref: linked.studentRef },
+      CTX,
+    );
+    expect(out.created).toBe(true);
+    const viaOf = async () => (await myApplications(workerId)).find((a) => a.job_id === both)?.via;
+
+    // `via` names who created it: he did, in the app. The live Campus record does not own it.
+    expect(await viaOf()).toBe("app");
+    await campusApps.withdraw(externalRef, CTX);
+    // His own application stays on his list, still his own.
+    expect(await viaOf()).toBe("app");
   });
 });

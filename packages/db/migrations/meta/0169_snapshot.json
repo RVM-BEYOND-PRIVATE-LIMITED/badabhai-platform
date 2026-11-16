@@ -1,6 +1,6 @@
 {
-  "id": "02461e97-a67c-4496-8cfb-62a8eb8a0bf9",
-  "prevId": "18fa83f7-9e19-4eff-ac31-4214fd358260",
+  "id": "4f91cf87-97f0-4231-984c-d72d80719f73",
+  "prevId": "b1cf5987-b5ca-488f-b581-83eccea6b763",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -18538,76 +18538,21 @@
       },
       "isRLSEnabled": true
     },
-    "public.hires": {
-      "name": "hires",
+    "public.worker_activity": {
+      "name": "worker_activity",
       "schema": "",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_payer_id": {
-          "name": "tenant_payer_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "worker_id": {
           "name": "worker_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "posting_kind": {
-          "name": "posting_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "posting_id": {
-          "name": "posting_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "company_marked_at": {
-          "name": "company_marked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "company_answered_at": {
-          "name": "company_answered_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "worker_answered_at": {
-          "name": "worker_answered_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "desk_confirmed_at": {
-          "name": "desk_confirmed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "hired_on": {
-          "name": "hired_on",
+        "active_on": {
+          "name": "active_on",
           "type": "date",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "created_at": {
           "name": "created_at",
@@ -18615,49 +18560,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
         }
       },
-      "indexes": {
-        "hires_worker_id_idx": {
-          "name": "hires_worker_id_idx",
-          "columns": [
-            {
-              "expression": "worker_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
-        "hires_tenant_payer_id_payers_id_fk": {
-          "name": "hires_tenant_payer_id_payers_id_fk",
-          "tableFrom": "hires",
-          "tableTo": "payers",
-          "columnsFrom": [
-            "tenant_payer_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "hires_worker_id_workers_id_fk": {
-          "name": "hires_worker_id_workers_id_fk",
-          "tableFrom": "hires",
+        "worker_activity_worker_id_workers_id_fk": {
+          "name": "worker_activity_worker_id_workers_id_fk",
+          "tableFrom": "worker_activity",
           "tableTo": "workers",
           "columnsFrom": [
             "worker_id"
@@ -18669,135 +18578,49 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "hires_tenant_worker_posting_uq": {
-          "name": "hires_tenant_worker_posting_uq",
-          "nullsNotDistinct": false,
+      "compositePrimaryKeys": {
+        "worker_activity_pkey": {
+          "name": "worker_activity_pkey",
           "columns": [
-            "tenant_payer_id",
             "worker_id",
-            "posting_kind",
-            "posting_id"
+            "active_on"
           ]
         }
       },
+      "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "hires_posting_kind_chk": {
-          "name": "hires_posting_kind_chk",
-          "value": "\"hires\".\"posting_kind\" IN ('company_posting', 'agency_job')"
-        },
-        "hires_status_chk": {
-          "name": "hires_status_chk",
-          "value": "\"hires\".\"status\" IN ('reported', 'confirmed', 'rejected')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": true
     },
-    "public.unlock_outcomes": {
-      "name": "unlock_outcomes",
+    "public.worker_search_exits": {
+      "name": "worker_search_exits",
       "schema": "",
       "columns": {
-        "unlock_id": {
-          "name": "unlock_id",
+        "worker_id": {
+          "name": "worker_id",
           "type": "uuid",
           "primaryKey": true,
           "notNull": true
         },
-        "tenant_payer_id": {
-          "name": "tenant_payer_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "worker_id": {
-          "name": "worker_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "answered_by": {
-          "name": "answered_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "answered_at": {
-          "name": "answered_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
+        "hidden_at": {
+          "name": "hidden_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        }
-      },
-      "indexes": {
-        "unlock_outcomes_tenant_answered_idx": {
-          "name": "unlock_outcomes_tenant_answered_idx",
-          "columns": [
-            {
-              "expression": "tenant_payer_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "answered_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         },
-        "unlock_outcomes_worker_id_idx": {
-          "name": "unlock_outcomes_worker_id_idx",
-          "columns": [
-            {
-              "expression": "worker_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+        "via": {
+          "name": "via",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         }
       },
+      "indexes": {},
       "foreignKeys": {
-        "unlock_outcomes_unlock_id_unlocks_id_fk": {
-          "name": "unlock_outcomes_unlock_id_unlocks_id_fk",
-          "tableFrom": "unlock_outcomes",
-          "tableTo": "unlocks",
-          "columnsFrom": [
-            "unlock_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "unlock_outcomes_worker_id_workers_id_fk": {
-          "name": "unlock_outcomes_worker_id_workers_id_fk",
-          "tableFrom": "unlock_outcomes",
+        "worker_search_exits_worker_id_workers_id_fk": {
+          "name": "worker_search_exits_worker_id_workers_id_fk",
+          "tableFrom": "worker_search_exits",
           "tableTo": "workers",
           "columnsFrom": [
             "worker_id"
@@ -18813,13 +18636,9 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "unlock_outcomes_outcome_chk": {
-          "name": "unlock_outcomes_outcome_chk",
-          "value": "\"unlock_outcomes\".\"outcome\" IN ('hired', 'not_hired', 'still_talking', 'not_reached')"
-        },
-        "unlock_outcomes_answered_by_chk": {
-          "name": "unlock_outcomes_answered_by_chk",
-          "value": "\"unlock_outcomes\".\"answered_by\" IN ('company', 'desk')"
+        "worker_search_exits_via_chk": {
+          "name": "worker_search_exits_via_chk",
+          "value": "\"worker_search_exits\".\"via\" IN ('worker', 'monthly_check')"
         }
       },
       "isRLSEnabled": true

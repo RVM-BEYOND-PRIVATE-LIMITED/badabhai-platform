@@ -101,6 +101,9 @@ import { PayerAccountController } from "../payers/payer-account.controller";
 import { WorkerDisplayPrefsController } from "../display-prefs/worker-display-prefs.controller";
 import { PayerDisplayPrefsController } from "../display-prefs/payer-display-prefs.controller";
 import { AdminDisplayPrefsController } from "../display-prefs/admin-display-prefs.controller";
+import { SearchExitController } from "../search-exit/search-exit.controller";
+// #2753 item 11 — the pay-on-joining pilot's hire record (admin, behind its own switch guard).
+import { PayOnJoiningHiresController } from "../pay-on-joining/pay-on-joining-hires.controller";
 // #2753 item 10 — the company follow-up: the payer realm's guard, then its own switch.
 import { PayerUnlockOutcomesController } from "../unlock-outcomes/payer-unlock-outcomes.controller";
 
@@ -153,6 +156,7 @@ const TL = "TestLoginGuard";
 const PTL = "PayerTestLoginGuard";
 const PE = "AgencyPayoutsEnabledGuard";
 const ATF = "AdminAiTraceFlagGuard";
+const POJ = "PayOnJoiningFlagGuard";
 /**
  * ⚠ NOT AN AUTH GUARD. `OptionalWorkerAuthGuard` attaches `req.worker` when a valid session
  * token happens to ride along and ALWAYS returns true — its `canActivate` has one return
@@ -166,6 +170,8 @@ const ATF = "AdminAiTraceFlagGuard";
 const OW = "OptionalWorkerAuthGuard";
 const RZ = "RazorpayWebhookGuard";
 const POR = "PayerOrgRoleGuard";
+/** #2753 item 6 — NOT AN AUTH GUARD: the SEARCH_EXIT_ENABLED switch's neutral 404, run first. */
+const SE = "SearchExitEnabledGuard";
 /** #2753 item 10 — NOT an auth guard: the follow-up switch, a neutral 404 while it is off. */
 const UFE = "UnlockFollowupEnabledGuard";
 
@@ -932,6 +938,20 @@ const CONTRACT: ControllerContract[] = [
     ctor: AdminDisplayPrefsController,
     routes: { get: [A], update: [A] },
   },
+  // #2753 item 6 — "companies can find me": the posture of every other `/workers/me/*` write
+  // ([C, W]) behind the switch's 404 (SE, first in order; pinned below).
+  {
+    name: "SearchExit",
+    ctor: SearchExitController,
+    routes: { get: [SE, C, W], set: [SE, C, W] },
+  },
+  // #2753 item 11 — the pay-on-joining hire record: admin session, then the
+  // PAY_ON_JOINING_RECORDS_ENABLED switch (a neutral 404 for every role), then the capability.
+  {
+    name: "PayOnJoiningHires",
+    ctor: PayOnJoiningHiresController,
+    routes: { listHires: [A, POJ, AR], createHire: [A, POJ, AR], updateHire: [A, POJ, AR] },
+  },
   // #2753 item 10 — the company follow-up: PayerAuthGuard (the session payer, either role, like the
   // unlock routes it follows up) plus the switch. Ownership is the service's tenant chokepoint.
   {
@@ -993,6 +1013,10 @@ describe("API authz contract — guards on every controller route", () => {
       WorkerDisplayPrefsController,
       PayerDisplayPrefsController,
       AdminDisplayPrefsController,
+      // #2753 item 6 — the worker's own search visibility; a route must not join unpinned.
+      SearchExitController,
+      // #2753 item 11 — a money record's write surface; a route must not join it unpinned.
+      PayOnJoiningHiresController,
       // #2753 item 10 — a company's answers about the contacts it opened; a route must not join
       // unpinned.
       PayerUnlockOutcomesController,
@@ -1046,6 +1070,16 @@ describe("API authz contract — guards on every controller route", () => {
         expect(guardNames(ctor)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
       });
     }
+
+    // #2753 item 6 — the same pair, behind the switch's 404 that runs FIRST, so with the switch
+    // off nothing at all runs (no token check, no consent read), as for an unmounted route.
+    it("SearchExitController runs [SearchExitEnabledGuard, WorkerAuthGuard, ConsentGuard] in order", () => {
+      expect(guardNames(SearchExitController)).toEqual([
+        "SearchExitEnabledGuard",
+        "WorkerAuthGuard",
+        "ConsentGuard",
+      ]);
+    });
 
     // WorkersController.setMyName applies the guards at the METHOD level (the
     // controller also has open ops routes), so assert the order on the handler.

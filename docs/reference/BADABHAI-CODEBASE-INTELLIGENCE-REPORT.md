@@ -509,6 +509,27 @@ Delhi), never displayed. Served whole rather than behind a `?q=` route because t
 values and ~1.2 KB, so the client filters it in memory — the pattern `SEARCHABLE_OPTION_THRESHOLD`
 already sets for every other long option list.
 
+## 5.6a Company Search Visibility APIs (#2753 item 6)
+
+| Method | Route | Purpose | Auth |
+|--------|-------|---------|------|
+| `GET /workers/me/search-visibility` | Whether companies can find the worker | SearchExitEnabledGuard, WorkerAuthGuard, ConsentGuard |
+| `PUT /workers/me/search-visibility` | Leave company search (`{ visible: false }`) or come back (`{ visible: true }`) | SearchExitEnabledGuard, WorkerAuthGuard, ConsentGuard |
+
+Behind `SEARCH_EXIT_ENABLED` (default off). While it is off, both routes answer the plain 404 of a
+route that does not exist, before any auth runs. On, both answer `{ visible: boolean, hidden_since:
+string | null }` (`hidden_since` is when he left, ISO 8601; `null` while he is in search), with
+`Cache-Control: no-store`. The PUT body is strict `{ visible: boolean }` (anything else is a 400),
+the worker id comes from the token, and no Idempotency-Key is needed: a repeat is a no-op that keeps
+the first `hidden_since` and returns the same body. One `worker.search_visibility_changed` event per
+real change.
+
+Leaving search writes one `worker_search_exits` row (migration 0169) and touches **no consent
+row**: withdrawing consent stays the stronger exit. While he is out he is absent from every company's
+candidate search, its city facet and the admin candidate card, and only a company he applied to (or
+one already holding an open contact) can open him. His own job feed, applying, chat and the
+applicant lists of companies he applied to are unaffected.
+
 ## 5.7 Employment APIs
 
 | Method | Route | Purpose | Auth |

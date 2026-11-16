@@ -1,5 +1,5 @@
 {
-  "id": "18fa83f7-9e19-4eff-ac31-4214fd358260",
+  "id": "b1cf5987-b5ca-488f-b581-83eccea6b763",
   "prevId": "3615a4ad-2e59-4e2b-9bd7-221f154358bf",
   "version": "7",
   "dialect": "postgresql",
@@ -18538,76 +18538,21 @@
       },
       "isRLSEnabled": true
     },
-    "public.hires": {
-      "name": "hires",
+    "public.worker_activity": {
+      "name": "worker_activity",
       "schema": "",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_payer_id": {
-          "name": "tenant_payer_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "worker_id": {
           "name": "worker_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "posting_kind": {
-          "name": "posting_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "posting_id": {
-          "name": "posting_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "company_marked_at": {
-          "name": "company_marked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "company_answered_at": {
-          "name": "company_answered_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "worker_answered_at": {
-          "name": "worker_answered_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "desk_confirmed_at": {
-          "name": "desk_confirmed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "hired_on": {
-          "name": "hired_on",
+        "active_on": {
+          "name": "active_on",
           "type": "date",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "created_at": {
           "name": "created_at",
@@ -18615,49 +18560,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
         }
       },
-      "indexes": {
-        "hires_worker_id_idx": {
-          "name": "hires_worker_id_idx",
-          "columns": [
-            {
-              "expression": "worker_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
-        "hires_tenant_payer_id_payers_id_fk": {
-          "name": "hires_tenant_payer_id_payers_id_fk",
-          "tableFrom": "hires",
-          "tableTo": "payers",
-          "columnsFrom": [
-            "tenant_payer_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "hires_worker_id_workers_id_fk": {
-          "name": "hires_worker_id_workers_id_fk",
-          "tableFrom": "hires",
+        "worker_activity_worker_id_workers_id_fk": {
+          "name": "worker_activity_worker_id_workers_id_fk",
+          "tableFrom": "worker_activity",
           "tableTo": "workers",
           "columnsFrom": [
             "worker_id"
@@ -18669,30 +18578,18 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "hires_tenant_worker_posting_uq": {
-          "name": "hires_tenant_worker_posting_uq",
-          "nullsNotDistinct": false,
+      "compositePrimaryKeys": {
+        "worker_activity_pkey": {
+          "name": "worker_activity_pkey",
           "columns": [
-            "tenant_payer_id",
             "worker_id",
-            "posting_kind",
-            "posting_id"
+            "active_on"
           ]
         }
       },
+      "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "hires_posting_kind_chk": {
-          "name": "hires_posting_kind_chk",
-          "value": "\"hires\".\"posting_kind\" IN ('company_posting', 'agency_job')"
-        },
-        "hires_status_chk": {
-          "name": "hires_status_chk",
-          "value": "\"hires\".\"status\" IN ('reported', 'confirmed', 'rejected')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": true
     }
   },
