@@ -1741,6 +1741,30 @@ class ApiClient {
     );
   }
 
+  /// The worker's display preference (GET /workers/me/display-prefs —
+  /// WorkerAuthGuard, NO ConsentGuard, so the splash and sign-in screens can
+  /// read it before consent). Returns the raw reply
+  /// `{ theme: light|dark|system, theme_open: bool }`; a 404 / older server is
+  /// handled by the repository as "closed, light".
+  Future<Map<String, dynamic>> getDisplayPrefs({
+    required String authToken,
+  }) async {
+    return _get('/workers/me/display-prefs', authToken: authToken);
+  }
+
+  /// Saves the worker's display preference (PATCH /workers/me/display-prefs).
+  /// [theme] is one of `light`, `dark`, `system`.
+  Future<Map<String, dynamic>> updateDisplayPrefs({
+    required String theme,
+    required String authToken,
+  }) async {
+    return _patch(
+      '/workers/me/display-prefs',
+      <String, dynamic>{'theme': theme},
+      authToken: authToken,
+    );
+  }
+
   /// The worker's master Notifications on/off preference (GET
   /// /workers/me/notification-prefs — WorkerAuthGuard). Worker-scoped: the worker
   /// is derived from [authToken]. `{ notifications_enabled: bool }`. ABSENT/older

@@ -1534,6 +1534,32 @@ class MockApiClient extends ApiClient {
     );
   }
 
+  /// Mock display preference. The switch stays CLOSED (theme_open: false), the
+  /// production default, so mock mode shows no Appearance row; the debug ink
+  /// toggle in Settings is the way to preview dark.
+  String _mockDisplayTheme = 'light';
+
+  @override
+  Future<Map<String, dynamic>> getDisplayPrefs({
+    required String authToken,
+  }) async {
+    await _delay();
+    return <String, dynamic>{
+      'theme': _mockDisplayTheme,
+      'theme_open': false,
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateDisplayPrefs({
+    required String theme,
+    required String authToken,
+  }) async {
+    await _delay();
+    _mockDisplayTheme = theme;
+    return <String, dynamic>{'theme': theme, 'theme_open': false};
+  }
+
   @override
   Future<bool> getNotificationPrefs({required String authToken}) async {
     await _delay();

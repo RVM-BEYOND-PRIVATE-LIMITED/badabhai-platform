@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/auth/account_deleted_signal.dart';
@@ -11,6 +12,7 @@ import 'core/consent/voice_consent.dart';
 import 'core/di/locator.dart';
 import 'core/observability/crash_route_observer.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/theme_cubit.dart';
 import 'core/widgets/bb_alert_dialog.dart';
 import 'core/widgets/feedback_fab.dart';
 import 'features/auth/domain/auth_session_manager.dart';
@@ -27,7 +29,12 @@ class BadaBhaiApp extends StatefulWidget {
   State<BadaBhaiApp> createState() => _BadaBhaiAppState();
 }
 
-class _BadaBhaiAppState extends State<BadaBhaiApp> {
+class _BadaBhaiAppState extends State<BadaBhaiApp>
+    with WidgetsBindingObserver {
+  /// Drives `MaterialApp.themeMode`. Null in the legacy widget-test graph
+  /// that never wires DI, so those tests keep the light theme exactly.
+  ThemeCubit? _themeCubit;
+
   LifecycleRelockObserver? _relock;
   late final GoRouter _router;
 
@@ -103,6 +110,21 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
           .stream
           .listen(_onWorkerSuspended);
     }
+    // Theme (#2824/#2828): read the server preference on start, and flush an
+    // offline choice on resume. Guarded for the DI-free legacy tests.
+    if (locator.isRegistered<ThemeCubit>()) {
+      _themeCubit = locator<ThemeCubit>();
+      WidgetsBinding.instance.addObserver(this);
+      unawaited(_themeCubit!.load());
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final ThemeCubit? theme = _themeCubit;
+      if (theme != null) unawaited(theme.flushPending());
+    }
   }
 
   /// The account is suspended. The HTTP seam already parsed any optional
@@ -130,6 +152,7 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
 
   @override
   void dispose() {
+    if (_themeCubit != null) WidgetsBinding.instance.removeObserver(this);
     _authForVoiceConsent?.removeListener(_onAuthChangedForVoiceConsent);
     _detachScreenTracking?.call();
     unawaited(_accountDeletedSub?.cancel());
@@ -174,10 +197,21 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeCubit? theme = _themeCubit;
+    if (theme == null) return _buildApp(ThemeState.closed);
+    return BlocBuilder<ThemeCubit, ThemeState>(
+      bloc: theme,
+      builder: (BuildContext context, ThemeState state) => _buildApp(state),
+    );
+  }
+
+  Widget _buildApp(ThemeState themeState) {
     return MaterialApp.router(
       title: 'BadaBhai',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: themeState.themeMode,
       routerConfig: _router,
       // #315 — localization. `localizationsDelegates` is the generated list
       // (AppLocalizations.delegate + the three Global* framework delegates), but
