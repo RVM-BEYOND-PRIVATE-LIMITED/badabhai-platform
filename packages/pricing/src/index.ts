@@ -12,6 +12,8 @@ export * from "./types";
 export { safeParseCatalog, parseCatalog, type CatalogLoadResult } from "./catalog";
 export { DEFAULT_CATALOG } from "./defaults";
 export { formatInr } from "./format";
+export { isCreditPackOnSale, istDayStartMs } from "./on-sale";
+export { GST_RATE_BPS, gstPriceLine, formatPackPriceLine, type GstPriceLine } from "./gst";
 export {
   resolvePrice,
   type Quote,
