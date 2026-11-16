@@ -35,11 +35,17 @@ export function chargeQuote(catalog: Catalog, request: ResolveRequest): ResolveR
 }
 
 /**
+ * The largest whole-rupee amount a purchase route deals in: the cap on `expected_price_inr`, and
+ * (#2749) on a credit pack's `priceInr` in an ops catalogue write.
+ */
+export const MAX_CHARGE_INR = 10_000_000;
+
+/**
  * Optional client guard on every payer purchase route (#2085): the ₹ the payer CONFIRMED.
  * It is never a price the server charges — the charge is always server-resolved (XT5); this
  * only lets the server REFUSE when the two differ. A non-negative whole-rupee integer.
  */
-export const expectedPriceInrSchema = z.number().int().min(0).max(10_000_000);
+export const expectedPriceInrSchema = z.number().int().min(0).max(MAX_CHARGE_INR);
 
 /** The 409 body a purchase gets when the confirmed price is not the price it would be charged. */
 export interface PriceMismatchErrorBody {

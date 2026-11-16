@@ -225,9 +225,9 @@ function setup(opts: SetupOpts = {}) {
 
   const events = { emit: vi.fn(async (p: Record<string, unknown>) => p) };
 
-  // D-6: the gateway resolves packs through the pricing engine (legacy constants as the
-  // fallback). Serve the typed default catalog — the same values the legacy constants carry,
-  // so every existing expectation here is unchanged.
+  // D-6: the gateway resolves packs through the pricing engine (since #2749 only a pack the
+  // catalog lists and has on sale). Serve the typed default catalog — pack_50/200/1000, the
+  // same values the legacy constants carry, so every existing expectation here is unchanged.
   const pricing = {
     getActiveCatalog: vi.fn(async () => ({
       catalog: DEFAULT_CATALOG,

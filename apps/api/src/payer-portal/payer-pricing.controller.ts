@@ -2,7 +2,14 @@ import { Controller, Get, UseGuards } from "@nestjs/common";
 import { PayerAuthGuard } from "../payers/payer-auth.guard";
 import { PricingService, type PayerCatalogView } from "../pricing/pricing.service";
 
-export type { PayerCatalogView, PayerTierPrice } from "../pricing/pricing.service";
+export type {
+  PayerCatalogView,
+  PayerTierPrice,
+  PayerProduct,
+  PayerCreditPackProduct,
+  PayerCreditPackTier,
+  PayerPackPrice,
+} from "../pricing/pricing.service";
 
 /**
  * Payer-facing READ-ONLY pricing surface (context-drift D-6, extended by #2085).
@@ -14,7 +21,10 @@ export type { PayerCatalogView, PayerTierPrice } from "../pricing/pricing.servic
  * WHAT IT RETURNS: the priced PRODUCTS (unchanged since D-6) plus, since #2085, `prices` —
  * each tier's EFFECTIVE charge price and the active automatic offer behind it, computed by
  * the same function every purchase route charges through, so the dialog can show what the
- * purchase will actually take. Coupons (codes + usage caps) and `floorPriceInr` never ship:
+ * purchase will actually take. Since #2749 credit packs are filtered and projected: only the
+ * packs ON SALE now appear (the same test the purchase path applies), each built from a
+ * whitelist with its GST price line, so a hidden pack and any new tier field never ship.
+ * Coupons (codes + usage caps) and `floorPriceInr` never ship:
  * a coupon is a code the payer types, not something to advertise. `revision`/`source` ride
  * along as provenance (source:"default" = the engine failed closed to the typed default,
  * which is STILL what the server would charge, so the portal may render it as live).
