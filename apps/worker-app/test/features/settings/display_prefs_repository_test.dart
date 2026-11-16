@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:badabhai_worker_app/core/api/api_client.dart';
-import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/settings/data/display_prefs_repository_impl.dart';
 import 'package:badabhai_worker_app/features/settings/domain/display_prefs.dart';
