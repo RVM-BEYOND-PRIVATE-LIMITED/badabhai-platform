@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/onboarding/option_icons.dart';
 
@@ -52,6 +53,7 @@ IconData tradeFormOptionIcon({
 /// card, a ticked checkbox, a chosen chip — so a caret resting in a field can
 /// never read as an answer already given.
 InputDecoration tradeFormInputDecoration({
+  required BbPalette p,
   required String hint,
   String? errorText,
   Widget? prefixIcon,
@@ -67,25 +69,19 @@ InputDecoration tradeFormInputDecoration({
     counterText: counterText,
     prefixIcon: prefixIcon,
     filled: true,
-    fillColor: OnboardingColors.paperWhite,
-    hintStyle: OnboardingTypography.inter(
-      size: 14,
-      color: OnboardingColors.ink500,
-    ),
-    errorStyle: OnboardingTypography.inter(
-      size: 12,
-      color: OnboardingColors.errorRed,
-    ),
+    fillColor: p.card,
+    hintStyle: OnboardingTypography.inter(size: 14, color: p.textMuted),
+    errorStyle: OnboardingTypography.inter(size: 12, color: p.danger),
     // A long Hinglish validation line must wrap, not ellipsize, on a 320dp
     // handset — the worker needs the whole reason.
     errorMaxLines: 3,
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
-    border: border(OnboardingColors.borderDefault, 1.2),
-    enabledBorder: border(OnboardingColors.borderDefault, 1.2),
-    focusedBorder: border(OnboardingColors.shiftBlue, 1.8),
-    errorBorder: border(OnboardingColors.errorRed, 1.5),
-    focusedErrorBorder: border(OnboardingColors.errorRed, 1.5),
-    disabledBorder: border(OnboardingColors.borderSubtle, 1.2),
+    border: border(p.borderDefault, 1.2),
+    enabledBorder: border(p.borderDefault, 1.2),
+    focusedBorder: border(p.focusRing, 1.8),
+    errorBorder: border(p.danger, 1.5),
+    focusedErrorBorder: border(p.danger, 1.5),
+    disabledBorder: border(p.borderSubtle, 1.2),
   );
 }
 
@@ -129,7 +125,7 @@ class TradeFormFieldLabel extends StatelessWidget {
         style: OnboardingTypography.inter(
           size: 13,
           weight: FontWeight.w600,
-          color: OnboardingColors.ink600,
+          color: context.bb.textSecondary,
         ),
       ),
     );
@@ -152,18 +148,16 @@ class TradeFormSecondaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(0, OnboardingLayout.tapTarget),
-          backgroundColor: OnboardingColors.paperWhite,
-          foregroundColor: OnboardingColors.shiftBlue,
-          side: const BorderSide(
-            color: OnboardingColors.borderDefault,
-            width: 1.2,
-          ),
+          backgroundColor: p.card,
+          foregroundColor: p.textBrand,
+          side: BorderSide(color: p.borderDefault, width: 1.2),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
@@ -173,7 +167,7 @@ class TradeFormSecondaryButton extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             if (icon != null) ...<Widget>[
-              Icon(icon, size: 20, color: OnboardingColors.shiftBlue),
+              Icon(icon, size: 20, color: p.textBrand),
               const SizedBox(width: 8),
             ],
             Flexible(
@@ -183,7 +177,7 @@ class TradeFormSecondaryButton extends StatelessWidget {
                 style: OnboardingTypography.anek(
                   size: 15,
                   weight: FontWeight.w700,
-                  color: OnboardingColors.shiftBlue,
+                  color: p.textBrand,
                 ),
               ),
             ),
@@ -223,14 +217,13 @@ class TradeFormPillChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final BorderRadius radius = BorderRadius.circular(OnboardingRadii.badge);
     return Semantics(
       button: true,
       selected: selected,
       child: Material(
-        color: selected
-            ? OnboardingColors.selectedCardBg
-            : OnboardingColors.paperWhite,
+        color: selected ? p.selectedCardBg : p.card,
         borderRadius: radius,
         child: InkWell(
           onTap: onTap,
@@ -242,9 +235,7 @@ class TradeFormPillChip extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: radius,
               border: Border.all(
-                color: selected
-                    ? OnboardingColors.safetyYellow
-                    : OnboardingColors.borderDefault,
+                color: selected ? p.action : p.borderDefault,
                 width: selected ? 1.8 : 1.2,
               ),
             ),
@@ -252,11 +243,7 @@ class TradeFormPillChip extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 if (leadingIcon != null) ...<Widget>[
-                  Icon(
-                    leadingIcon,
-                    size: 16,
-                    color: OnboardingColors.shiftBlue,
-                  ),
+                  Icon(leadingIcon, size: 16, color: p.textBrand),
                   const SizedBox(width: 6),
                 ],
                 Flexible(
@@ -271,11 +258,7 @@ class TradeFormPillChip extends StatelessWidget {
                 ),
                 if (trailingIcon != null) ...<Widget>[
                   const SizedBox(width: 6),
-                  Icon(
-                    trailingIcon,
-                    size: 18,
-                    color: OnboardingColors.shiftBlue,
-                  ),
+                  Icon(trailingIcon, size: 18, color: p.textBrand),
                 ],
               ],
             ),
@@ -305,10 +288,11 @@ class TradeFormSwitchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final BorderRadius radius = BorderRadius.circular(14);
     return MergeSemantics(
       child: Material(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: radius,
         child: InkWell(
           onTap: () => onChanged(!value),
@@ -319,10 +303,7 @@ class TradeFormSwitchRow extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
             decoration: BoxDecoration(
               borderRadius: radius,
-              border: Border.all(
-                color: OnboardingColors.borderDefault,
-                width: 1.2,
-              ),
+              border: Border.all(color: p.borderDefault, width: 1.2),
             ),
             child: Row(
               children: <Widget>[
@@ -340,19 +321,16 @@ class TradeFormSwitchRow extends StatelessWidget {
                   value: value,
                   onChanged: onChanged,
                   thumbColor: WidgetStateProperty.resolveWith(
-                    (Set<WidgetState> s) => _on(s)
-                        ? OnboardingColors.safetyYellow
-                        : OnboardingColors.paperWhite,
+                    (Set<WidgetState> s) =>
+                        _on(s) ? p.action : p.onBrandSurface,
                   ),
                   trackColor: WidgetStateProperty.resolveWith(
-                    (Set<WidgetState> s) => _on(s)
-                        ? OnboardingColors.shiftBlue
-                        : OnboardingColors.disabledBg,
+                    (Set<WidgetState> s) =>
+                        _on(s) ? p.brandSurface : p.disabledBg,
                   ),
                   trackOutlineColor: WidgetStateProperty.resolveWith(
-                    (Set<WidgetState> s) => _on(s)
-                        ? OnboardingColors.shiftBlue
-                        : OnboardingColors.borderDefault,
+                    (Set<WidgetState> s) =>
+                        _on(s) ? p.brandSurface : p.borderDefault,
                   ),
                 ),
               ],
@@ -380,13 +358,14 @@ class TradeFormCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(16, onRemove == null ? 16 : 4, 16, 16),
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(OnboardingRadii.card),
-        border: Border.all(color: OnboardingColors.borderDefault, width: 1.2),
+        border: Border.all(color: p.borderDefault, width: 1.2),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -397,11 +376,7 @@ class TradeFormCard extends StatelessWidget {
               child: IconButton(
                 onPressed: onRemove,
                 tooltip: removeTooltip,
-                icon: const Icon(
-                  Icons.close,
-                  size: 20,
-                  color: OnboardingColors.ink500,
-                ),
+                icon: Icon(Icons.close, size: 20, color: p.textMuted),
               ),
             ),
           child,
@@ -417,10 +392,10 @@ class TradeFormSpinner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Padding(
-        padding: EdgeInsets.all(24),
-        child: CircularProgressIndicator(color: OnboardingColors.shiftBlue),
+        padding: const EdgeInsets.all(24),
+        child: CircularProgressIndicator(color: context.bb.textBrand),
       ),
     );
   }

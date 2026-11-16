@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/auth/biometric_service.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/push_once.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
@@ -165,6 +166,7 @@ class _EnterPinViewState extends State<_EnterPinView> {
         }
       },
       builder: (BuildContext context, EnterPinState state) {
+        final BbPalette p = context.bb;
         final AppLocalizations strings = AppLocalizations.of(context);
         final bool error =
             state.status == EnterPinStatus.failure && !_errorAcknowledged;
@@ -172,7 +174,7 @@ class _EnterPinViewState extends State<_EnterPinView> {
         // body holds the masked dots + on-screen keypad. NO back arrow — this is
         // the locked root, and there is nothing behind it to go back to.
         return Scaffold(
-          backgroundColor: OnboardingColors.canvasBg,
+          backgroundColor: p.page,
           body: Column(
             children: <Widget>[
               const ShiftBlueHeader(
@@ -239,7 +241,7 @@ class _EnterPinViewState extends State<_EnterPinView> {
                             textAlign: TextAlign.center,
                             style: OnboardingTypography.inter(
                               size: 12,
-                              color: OnboardingColors.ink600,
+                              color: p.textSecondary,
                             ),
                           ),
                         ],
@@ -262,23 +264,20 @@ class _EnterPinViewState extends State<_EnterPinView> {
   /// app's Hinglish CTA; deliberately a SECONDARY control so it never competes
   /// with the keypad the worker already trusts.
   Widget _biometricCta(AppLocalizations strings) {
+    final BbPalette p = context.bb;
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: TextButton.icon(
         key: const Key('enterPinBiometricButton'),
         onPressed: () => context.read<EnterPinCubit>().biometricUnlock(),
-        icon: const Icon(
-          Icons.fingerprint,
-          color: OnboardingColors.shiftBlue,
-          size: 26,
-        ),
+        icon: Icon(Icons.fingerprint, color: p.textBrand, size: 26),
         label: Text(
           strings.biometricUnlockCta,
           textAlign: TextAlign.center,
           style: OnboardingTypography.inter(
             size: 13,
             weight: FontWeight.w600,
-            color: OnboardingColors.shiftBlue,
+            color: p.textBrand,
           ),
         ),
         style: TextButton.styleFrom(
@@ -318,6 +317,7 @@ class _EnterPinViewState extends State<_EnterPinView> {
   /// (brand) as body text on white is ~1.4:1 and illegible; the w700 weight
   /// carries the emphasis once [EnterPinState.suggestForgot] is set.
   Widget _forgotLink(BuildContext context, EnterPinState state) {
+    final BbPalette p = context.bb;
     return TextButton(
       onPressed: () => context.pushOnce(Routes.forgotPin),
       style: TextButton.styleFrom(
@@ -336,7 +336,7 @@ class _EnterPinViewState extends State<_EnterPinView> {
         style: OnboardingTypography.inter(
           size: 13,
           weight: state.suggestForgot ? FontWeight.w700 : FontWeight.w600,
-          color: OnboardingColors.shiftBlue,
+          color: p.link,
           decoration: TextDecoration.underline,
         ),
       ),

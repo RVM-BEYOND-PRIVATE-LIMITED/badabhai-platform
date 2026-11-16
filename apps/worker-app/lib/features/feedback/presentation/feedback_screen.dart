@@ -10,6 +10,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/kit/kit_callout.dart';
@@ -507,6 +508,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // While the mic is live the bottom CTA stays enabled even with an empty box:
     // the words are in the recogniser, not the field yet, and [_submit] lands
     // them first. A disabled button there would be the same dead control this
@@ -514,7 +516,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     final bool canSend = (_hasText || _dictation.dictating) && !_sending;
     final double width = MediaQuery.sizeOf(context).width;
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: Column(
         children: <Widget>[
           ShiftBlueHeader(
@@ -577,7 +579,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                     'Likhna mushkil ho to box ke "$kFeedbackSpeakLabel" par tap '
                     'karke boliye — aapki baat yahin likhi jayegi.',
                     style: OnboardingTypography.bodyMuted(
-                      color: OnboardingColors.ink500,
+                      color: p.textMuted,
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -672,10 +674,11 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   }
 
   Widget _messageField() {
+    final BbPalette p = context.bb;
     final OutlineInputBorder border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(_kBoxRadius),
-      borderSide: const BorderSide(
-        color: OnboardingColors.borderDefault,
+      borderSide: BorderSide(
+        color: p.borderDefault,
         width: _kBorderWidth,
       ),
     );
@@ -711,9 +714,9 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       style: OnboardingTypography.body(),
       decoration: InputDecoration(
         hintText: 'Yahan likhein…',
-        hintStyle: OnboardingTypography.body(color: OnboardingColors.ink500),
+        hintStyle: OnboardingTypography.body(color: p.textMuted),
         filled: true,
-        fillColor: OnboardingColors.paperWhite,
+        fillColor: p.card,
         // The trailing inset RESERVES the voice control's column, so no line of
         // the worker's text ever runs underneath it.
         contentPadding: const EdgeInsets.fromLTRB(
@@ -726,8 +729,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         // The spec's ONE focus rule (§3.3): navy at 1.8. Yellow means SELECTED.
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_kBoxRadius),
-          borderSide: const BorderSide(
-            color: OnboardingColors.shiftBlue,
+          borderSide: BorderSide(
+            color: p.focusRing,
             width: 1.8,
           ),
         ),
@@ -740,7 +743,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   /// composer's control, so a worker who finished the interview already knows it.
   ///
   /// It is drawn as the kit's small square tile (white, a 1.2dp
-  /// [OnboardingColors.borderDefault] outline, a 12dp corner) so that a control
+  /// default-border outline, a 12dp corner) so that a control
   /// sitting on top of an identically white field still reads as a BUTTON.
   ///
   /// ACCESSIBILITY: it carries a VISIBLE Hinglish caption and an explicit
@@ -750,14 +753,15 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   /// caption into that one node (so it is announced once, not three times) and
   /// [Semantics.onTap] re-publishes the action the excluded [InkWell] would have.
   Widget _voiceControl() {
+    final BbPalette p = context.bb;
     final bool live = _dictation.listening;
     final VoidCallback onTap = live ? _stopDictation : _startDictation;
     // The stop takes the chat composer's quiet ink, not crimson: ending
     // dictation is not a destructive action, and this design system reserves
     // danger for ones that are.
     final Color ink = live
-        ? OnboardingColors.ink600
-        : OnboardingColors.shiftBlue;
+        ? p.textSecondary
+        : p.textBrand;
     return Semantics(
       container: true,
       button: true,
@@ -768,11 +772,11 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       // material, underneath the field's own fill, and the control gives no
       // press feedback at all.
       child: Material(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_kBoxRadius),
-          side: const BorderSide(
-            color: OnboardingColors.borderDefault,
+          side: BorderSide(
+            color: p.borderDefault,
             width: _kBorderWidth,
           ),
         ),
@@ -835,6 +839,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   /// One semantics node, [Semantics.liveRegion], so a screen reader is TOLD the
   /// mic went live instead of having to find a painted waveform.
   Widget _listeningStrip() {
+    final BbPalette p = context.bb;
     return Semantics(
       container: true,
       liveRegion: true,
@@ -842,9 +847,9 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       excludeSemantics: true,
       child: Container(
         decoration: BoxDecoration(
-          color: OnboardingColors.infoBg,
+          color: p.infoBg,
           borderRadius: BorderRadius.circular(_kBoxRadius),
-          border: Border.all(color: OnboardingColors.infoBorder),
+          border: Border.all(color: p.infoBorder),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         child: Row(
@@ -863,7 +868,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                 style: OnboardingTypography.inter(
                   size: 13,
                   weight: FontWeight.w700,
-                  color: OnboardingColors.shiftBlue,
+                  color: p.textBrand,
                 ),
               ),
             ),
@@ -897,10 +902,11 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   /// sentence this screen has always shown — the wording is unchanged, only the
   /// face the digits are cut in.
   Widget _counter() {
+    final BbPalette p = context.bb;
     final bool full = _remaining <= 0;
     final Color color = full
-        ? OnboardingColors.errorRed
-        : OnboardingColors.ink500;
+        ? p.danger
+        : p.textMuted;
     // Same size as the prose it sits in (bodyMuted is 13), so the digits share
     // the sentence's baseline rather than standing off it.
     final TextStyle number = OnboardingTypography.mono(
@@ -931,6 +937,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   /// thumbnails, and the add control — which DISAPPEARS at [kFeedbackMaxImages] so
   /// the worker cannot pick a fourth the server would reject.
   Widget _photoSection() {
+    final BbPalette p = context.bb;
     final bool canAdd = _images.length < kFeedbackMaxImages;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -940,7 +947,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         Text(
           'Dikkat ki photo laga sakte hain — screenshot, machine, ya parchi. '
           '$kFeedbackMaxImages tak.',
-          style: OnboardingTypography.bodyMuted(color: OnboardingColors.ink500),
+          style: OnboardingTypography.bodyMuted(color: p.textMuted),
         ),
         if (_images.isNotEmpty) ...<Widget>[
           const SizedBox(height: 10),
@@ -957,12 +964,13 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   /// this audience uses. Disabled while a send is in flight so the picked set
   /// cannot change under an upload.
   Widget _addPhotoButton() {
+    final BbPalette p = context.bb;
     return Material(
-      color: OnboardingColors.paperWhite,
+      color: p.card,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(_kBoxRadius),
-        side: const BorderSide(
-          color: OnboardingColors.borderDefault,
+        side: BorderSide(
+          color: p.borderDefault,
           width: _kBorderWidth,
         ),
       ),
@@ -977,10 +985,10 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: <Widget>[
-              const Icon(
+              Icon(
                 Icons.add_a_photo_outlined,
                 size: 20,
-                color: OnboardingColors.shiftBlue,
+                color: p.textBrand,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -989,7 +997,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                   style: OnboardingTypography.inter(
                     size: 14,
                     weight: FontWeight.w700,
-                    color: OnboardingColors.shiftBlue,
+                    color: p.textBrand,
                   ),
                 ),
               ),
@@ -1020,6 +1028,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   /// remove (X) whose TAP area clears the 48dp floor even though the glyph is
   /// small, so a wrong pick is one tap to undo.
   Widget _thumbnail(BuildContext context, int index, double side) {
+    final BbPalette p = context.bb;
     // Decode each picked image to the tile's on-screen size — a multi-megapixel
     // camera/gallery pick would otherwise decode at full resolution per tile.
     final int cachePx = (side * MediaQuery.devicePixelRatioOf(context)).round();
@@ -1040,10 +1049,10 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                 // A corrupt/undecodable pick must never paint a red error box on
                 // the one screen whose job is reporting problems — neutral tile.
                 errorBuilder: (_, __, ___) => Container(
-                  color: OnboardingColors.surfaceMuted,
-                  child: const Icon(
+                  color: p.raised,
+                  child: Icon(
                     Icons.broken_image_outlined,
-                    color: OnboardingColors.ink500,
+                    color: p.textMuted,
                   ),
                 ),
               ),
@@ -1122,6 +1131,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   /// snackbar, and was left on a screen with no consent anywhere on it. It now
   /// carries the way out — see [_openConsent] for why that way out is a push.
   Widget _consentPanel(({IconData icon, String reason}) shown) {
+    final BbPalette p = context.bb;
     return KitCallout(
       tileIcon: shown.icon,
       child: Column(
@@ -1134,7 +1144,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
               size: 13,
               weight: FontWeight.w700,
               height: 1.35,
-              color: OnboardingColors.infoTitle,
+              color: p.infoTitle,
             ),
           ),
           const SizedBox(height: 4),
@@ -1149,7 +1159,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
               size: 12,
               weight: FontWeight.w600,
               height: 1.4,
-              color: OnboardingColors.infoText,
+              color: p.infoText,
             ),
           ),
           const SizedBox(height: 12),
@@ -1172,12 +1182,13 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   /// that resolves it, so the panel says what happened and stays put while the
   /// worker edits — it never sends them away to wait.
   Widget _invalidPanel(({IconData icon, String reason}) shown) {
+    final BbPalette p = context.bb;
     return Container(
       decoration: BoxDecoration(
-        color: OnboardingColors.errorBg,
+        color: p.dangerBg,
         borderRadius: BorderRadius.circular(_kBoxRadius),
         border: Border.all(
-          color: OnboardingColors.errorRed,
+          color: p.danger,
           width: _kBorderWidth,
         ),
       ),
@@ -1185,7 +1196,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Icon(shown.icon, size: 20, color: OnboardingColors.errorRed),
+          Icon(shown.icon, size: 20, color: p.danger),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -1194,7 +1205,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                 size: 13,
                 weight: FontWeight.w600,
                 height: 1.4,
-                color: OnboardingColors.ink900,
+                color: p.textPrimary,
               ),
             ),
           ),
@@ -1212,17 +1223,18 @@ class _RemoveBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       width: 24,
       height: 24,
-      decoration: const BoxDecoration(
-        color: OnboardingColors.shiftBlue,
+      decoration: BoxDecoration(
+        color: p.brandSurface,
         shape: BoxShape.circle,
       ),
-      child: const Icon(
+      child: Icon(
         Icons.close,
         size: 14,
-        color: OnboardingColors.paperWhite,
+        color: p.onBrandSurface,
       ),
     );
   }

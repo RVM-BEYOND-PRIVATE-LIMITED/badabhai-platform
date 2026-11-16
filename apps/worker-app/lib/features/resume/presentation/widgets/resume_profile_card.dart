@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/di/locator.dart';
@@ -87,6 +88,7 @@ class _ResumeProfileCardState extends State<ResumeProfileCard> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final ResumeSafeFields? fields = _fields;
     final String name = fields?.displayName ?? '';
     final bool showPhoto = fields?.showPhoto ?? false;
@@ -139,7 +141,7 @@ class _ResumeProfileCardState extends State<ResumeProfileCard> {
                           style: OnboardingTypography.inter(
                             size: 10,
                             weight: FontWeight.w700,
-                            color: OnboardingColors.ink600,
+                            color: p.textSecondary,
                           ),
                         ),
                         if (widget.profileConfirmed == false)
@@ -181,7 +183,7 @@ class _ResumeProfileCardState extends State<ResumeProfileCard> {
               style: OnboardingTypography.inter(
                 size: 13,
                 height: 1.45,
-                color: OnboardingColors.ink600,
+                color: p.textSecondary,
               ),
             ),
           ],
@@ -192,7 +194,7 @@ class _ResumeProfileCardState extends State<ResumeProfileCard> {
               style: OnboardingTypography.inter(
                 size: 12,
                 height: 1.35,
-                color: OnboardingColors.ink600,
+                color: p.textSecondary,
               ),
             ),
           ],
@@ -220,6 +222,7 @@ class _Avatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String? src = url;
     if (showPhoto && src != null) {
       // Decode to the on-screen size, not the photo's full resolution.
@@ -227,7 +230,7 @@ class _Avatar extends StatelessWidget {
           .round();
       return CircleAvatar(
         radius: _kRadius,
-        backgroundColor: OnboardingColors.borderDefault,
+        backgroundColor: p.borderDefault,
         child: ClipOval(
           child: Image.network(
             src,
@@ -237,22 +240,22 @@ class _Avatar extends StatelessWidget {
             cacheHeight: cachePx,
             fit: BoxFit.cover,
             // Signed url expired / offline → the placeholder, never an error.
-            errorBuilder: (_, __, ___) => const Icon(
+            errorBuilder: (_, __, ___) =>  Icon(
               Icons.person_rounded,
               size: 32,
-              color: OnboardingColors.safetyYellow,
+              color: p.action,
             ),
           ),
         ),
       );
     }
-    return const CircleAvatar(
+    return  CircleAvatar(
       radius: _kRadius,
-      backgroundColor: OnboardingColors.selectedCardBg,
+      backgroundColor: p.selectedCardBg,
       child: Icon(
         Icons.person_rounded,
         size: 32,
-        color: OnboardingColors.safetyYellow,
+        color: p.action,
       ),
     );
   }
@@ -277,6 +280,7 @@ class _EditResumeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       container: true,
       label: 'Edit resume',
@@ -292,8 +296,8 @@ class _EditResumeButton extends StatelessWidget {
           ),
           tapTargetSize: MaterialTapTargetSize.padded,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          side: const BorderSide(color: OnboardingColors.borderDefault),
-          foregroundColor: OnboardingColors.ink900,
+          side:  BorderSide(color: p.borderDefault),
+          foregroundColor: p.textPrimary,
           textStyle: OnboardingTypography.inter(
             size: 12,
             weight: FontWeight.w600,

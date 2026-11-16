@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 import 'package:flutter/services.dart';
 
 import '../../../../core/theme/onboarding_theme.dart';
@@ -30,16 +31,6 @@ import '../../domain/interview_kit.dart';
 // The mock is P3-shifted like the others: the navy equals [shiftBlue] and the
 // yellows equal [safetyYellow] once the shift is undone, so those are NOT
 // redefined. Only the values the token layer does not carry are named here.
-
-/// The back disc drawn ON the navy header.
-const Color _kOnNavyPill = Color(0xFF1E305E);
-
-/// The interview-tip card's cream fill and amber hairline.
-const Color _kTipBg = Color(0xFFFBF9EF);
-const Color _kTipBorder = Color(0xFFF8E8A8);
-
-/// The interview-tip card's glyph tile.
-const Color _kTipTileBg = Color(0xFFFDEBA8);
 
 /// The header's geometry, in dp at the mock's scale.
 const double _kHeaderGutter = 16;
@@ -81,6 +72,7 @@ class InterviewKitHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final double top = MediaQuery.paddingOf(context).top;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
@@ -88,8 +80,8 @@ class InterviewKitHeader extends StatelessWidget {
         maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
         child: Container(
           width: double.infinity,
-          decoration: const BoxDecoration(
-            color: OnboardingColors.shiftBlue,
+          decoration: BoxDecoration(
+            color: p.brandSurface,
             borderRadius: BorderRadius.vertical(
               bottom: Radius.circular(_kHeaderBottomRadius),
             ),
@@ -145,6 +137,7 @@ class _TitleBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
@@ -163,7 +156,7 @@ class _TitleBlock extends StatelessWidget {
                   // rule must fit the header row's fixed 48 at the 1.3 chrome
                   // clamp, and the font's own leading is 0.5dp over that.
                   height: 1.2,
-                  color: OnboardingColors.textOnBlue,
+                  color: p.onBrandSurface,
                 ),
               ),
             ),
@@ -171,8 +164,8 @@ class _TitleBlock extends StatelessWidget {
             Container(
               width: _kTitleDot,
               height: _kTitleDot,
-              decoration: const BoxDecoration(
-                color: OnboardingColors.safetyYellow,
+              decoration:  BoxDecoration(
+                color: p.action,
                 shape: BoxShape.circle,
               ),
             ),
@@ -183,7 +176,7 @@ class _TitleBlock extends StatelessWidget {
           width: _kTitleRuleWidth,
           height: _kTitleRuleHeight,
           decoration: BoxDecoration(
-            color: OnboardingColors.safetyYellow,
+            color: p.action,
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -201,6 +194,7 @@ class _CircleBackButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Tooltip(
       message: 'Wapas',
       child: Material(
@@ -215,14 +209,14 @@ class _CircleBackButton extends StatelessWidget {
               child: Container(
                 width: _kBackCircle,
                 height: _kBackCircle,
-                decoration: const BoxDecoration(
-                  color: _kOnNavyPill,
+                decoration: BoxDecoration(
+                  color: p.brandSurfaceRaised,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child:  Icon(
                   Icons.chevron_left_rounded,
                   size: 26,
-                  color: OnboardingColors.textOnBlue,
+                  color: p.onBrandSurface,
                 ),
               ),
             ),
@@ -251,19 +245,20 @@ class InterviewKitSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       height: _kSearchHeight,
       padding: const EdgeInsets.only(left: 12, right: 6),
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(_kSearchRadius),
       ),
       child: Row(
         children: <Widget>[
-          const Icon(
+           Icon(
             Icons.search_rounded,
             size: 20,
-            color: OnboardingColors.ink500,
+            color: p.textMuted,
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -282,7 +277,7 @@ class InterviewKitSearchField extends StatelessWidget {
               style: OnboardingTypography.inter(
                 size: 14,
                 weight: FontWeight.w500,
-                color: OnboardingColors.ink900,
+                color: p.textPrimary,
               ),
               // The app-wide InputDecorationTheme paints an outline on every
               // field, and `InputDecoration.collapsed` only clears `border` —
@@ -302,7 +297,7 @@ class InterviewKitSearchField extends StatelessWidget {
                 hintText: hint,
                 hintStyle: OnboardingTypography.inter(
                   size: 14,
-                  color: OnboardingColors.ink500,
+                  color: p.textMuted,
                 ),
               ),
             ),
@@ -317,10 +312,10 @@ class InterviewKitSearchField extends StatelessWidget {
                 height: OnboardingLayout.tapTarget,
               ),
               onPressed: onClear,
-              icon: const Icon(
+              icon:  Icon(
                 Icons.close_rounded,
                 size: 18,
-                color: OnboardingColors.ink500,
+                color: p.textMuted,
               ),
             ),
         ],
@@ -338,6 +333,7 @@ class InterviewKitSectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: <Widget>[
@@ -348,7 +344,7 @@ class InterviewKitSectionHeader extends StatelessWidget {
               size: 11,
               weight: FontWeight.w800,
               letterSpacing: 0.8,
-              color: OnboardingColors.shiftBlue,
+              color: p.brandSurface,
             ),
           ),
         ),
@@ -360,7 +356,7 @@ class InterviewKitSectionHeader extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 12.5,
               weight: FontWeight.w500,
-              color: OnboardingColors.ink500,
+              color: p.textMuted,
             ),
           ),
         ),
@@ -387,12 +383,13 @@ class InterviewKitCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final _KitTileStyle tile = _kitTileStyle(tradeKey, title);
+    final BbPalette p = context.bb;
+    final _KitTileStyle tile = _kitTileStyle(tradeKey, title, p);
     return Semantics(
       button: true,
       label: '$title, $subtitle',
       child: Material(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(_kCardRadius),
         child: InkWell(
           onTap: onTap,
@@ -401,7 +398,7 @@ class InterviewKitCard extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(_kCardRadius),
-              border: Border.all(color: OnboardingColors.borderDefault),
+              border: Border.all(color: p.borderDefault),
             ),
             child: Row(
               children: <Widget>[
@@ -427,7 +424,7 @@ class InterviewKitCard extends StatelessWidget {
                         style: OnboardingTypography.anek(
                           size: 16,
                           weight: FontWeight.w800,
-                          color: OnboardingColors.shiftBlue,
+                          color: p.brandSurface,
                         ),
                       ),
                       const SizedBox(height: 3),
@@ -437,7 +434,7 @@ class InterviewKitCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: OnboardingTypography.inter(
                           size: 13,
-                          color: OnboardingColors.ink500,
+                          color: p.textMuted,
                         ),
                       ),
                     ],
@@ -449,12 +446,12 @@ class InterviewKitCard extends StatelessWidget {
                   height: _kChevronCircle,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: OnboardingColors.borderDefault),
+                    border: Border.all(color: p.borderDefault),
                   ),
-                  child: const Icon(
+                  child:  Icon(
                     Icons.chevron_right_rounded,
                     size: 20,
-                    color: OnboardingColors.ink600,
+                    color: p.textSecondary,
                   ),
                 ),
               ],
@@ -477,12 +474,13 @@ class InterviewKitTipCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _kTipBg,
+        color: p.selectedCardBg,
         borderRadius: BorderRadius.circular(_kCardRadius),
-        border: Border.all(color: _kTipBorder),
+        border: Border.all(color: p.action.withValues(alpha: 0.3)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -491,13 +489,13 @@ class InterviewKitTipCard extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: _kTipTileBg,
+              color: p.action.withValues(alpha: 0.25),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(
+            child:  Icon(
               Icons.lightbulb_rounded,
               size: 20,
-              color: OnboardingColors.haldi,
+              color: p.haldi,
             ),
           ),
           const SizedBox(width: 10),
@@ -511,7 +509,7 @@ class InterviewKitTipCard extends StatelessWidget {
                   style: OnboardingTypography.inter(
                     size: 13,
                     weight: FontWeight.w700,
-                    color: OnboardingColors.ink900,
+                    color: p.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -520,7 +518,7 @@ class InterviewKitTipCard extends StatelessWidget {
                   style: OnboardingTypography.inter(
                     size: 13,
                     height: 1.45,
-                    color: OnboardingColors.ink600,
+                    color: p.textSecondary,
                   ),
                 ),
               ],
@@ -606,6 +604,7 @@ class _EmptyKits extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -615,7 +614,7 @@ class _EmptyKits extends StatelessWidget {
               ? InterviewKitListView.emptySearch
               : InterviewKitListView.emptyCatalogue,
           style: OnboardingTypography.bodyMuted(
-            color: OnboardingColors.ink500,
+            color: p.textMuted,
           ),
         ),
         if (filtering) ...<Widget>[
@@ -639,113 +638,85 @@ class _KitTileStyle {
   final Color fg;
 }
 
-// The six pastels the mock draws, in its own order.
-const _KitTileStyle _kTileBlue = _KitTileStyle(
-  Icons.build_outlined,
-  Color(0xFFEFF6FF),
-  Color(0xFF1E3A8A),
-);
-const _KitTileStyle _kTileCream = _KitTileStyle(
-  Icons.settings_outlined,
-  Color(0xFFFFFBEB),
-  Color(0xFFD97706),
-);
-const _KitTileStyle _kTileLavender = _KitTileStyle(
-  Icons.architecture_rounded,
-  Color(0xFFEEF2FF),
-  Color(0xFF4F46E5),
-);
-const _KitTileStyle _kTileMint = _KitTileStyle(
-  Icons.verified_outlined,
-  Color(0xFFF0FDFA),
-  Color(0xFF0D9488),
-);
-const _KitTileStyle _kTilePeach = _KitTileStyle(
-  Icons.bolt_rounded,
-  Color(0xFFFFF7ED),
-  Color(0xFFEA580C),
-);
-const _KitTileStyle _kTileRose = _KitTileStyle(
-  Icons.handyman_outlined,
-  Color(0xFFFFF1F2),
-  Color(0xFFE11D48),
-);
+// The six tone families the mock draws, in its own order. Each is expressed in
+// theme roles so the tiles follow the light/ink switch.
+class _TileColors {
+  const _TileColors(this.bg, this.fg);
+  final Color bg;
+  final Color fg;
+}
 
-/// Every wired kit gets its own drawing, so two adjacent trades never share a
-/// tile. Keys are the server's stable `trade_key`s.
-const Map<String, _KitTileStyle> _kTradeTiles = <String, _KitTileStyle>{
-  'cnc_operator': _kTileBlue,
-  'vmc_operator': _kTileCream,
-  'cnc_vmc_setter': _KitTileStyle(
-    Icons.tune_rounded,
-    Color(0xFFEFF6FF),
-    Color(0xFF1E3A8A),
-  ),
-  'cnc_programmer': _KitTileStyle(
-    Icons.code_rounded,
-    Color(0xFFEEF2FF),
-    Color(0xFF4F46E5),
-  ),
-  'vmc_programmer': _KitTileStyle(
-    Icons.terminal_rounded,
-    Color(0xFFEEF2FF),
-    Color(0xFF4F46E5),
-  ),
-  'cad_designer': _kTileLavender,
-  'solidworks_designer': _KitTileStyle(
-    Icons.view_in_ar_outlined,
-    Color(0xFFEEF2FF),
-    Color(0xFF4F46E5),
-  ),
-  'autocad_draftsman': _KitTileStyle(
-    Icons.description_outlined,
-    Color(0xFFEFF6FF),
-    Color(0xFF1E3A8A),
-  ),
-  'quality_inspector': _kTileMint,
-  'production_engineer': _kTilePeach,
-  'maintenance_technician': _kTileRose,
-  'tool_room_technician': _KitTileStyle(
-    Icons.construction_rounded,
-    Color(0xFFFFF7ED),
-    Color(0xFFEA580C),
-  ),
-  'machine_operator': _KitTileStyle(
-    Icons.precision_manufacturing_outlined,
-    Color(0xFFFFF7ED),
-    Color(0xFFEA580C),
-  ),
-  'assembly_technician': _KitTileStyle(
-    Icons.extension_outlined,
-    Color(0xFFF0FDFA),
-    Color(0xFF0D9488),
-  ),
-  'fitter': _KitTileStyle(
-    Icons.hardware_outlined,
-    Color(0xFFEFF6FF),
-    Color(0xFF1E3A8A),
-  ),
+_TileColors _tileBlue(BbPalette p) => _TileColors(p.infoBg, p.infoTitle);
+_TileColors _tileCream(BbPalette p) =>
+    _TileColors(p.selectedCardBg, p.warning);
+_TileColors _tileLavender(BbPalette p) =>
+    _TileColors(p.shieldCircle, p.link);
+_TileColors _tileMint(BbPalette p) => _TileColors(p.successBg, p.success);
+_TileColors _tilePeach(BbPalette p) => _TileColors(p.actionTint, p.warning);
+_TileColors _tileRose(BbPalette p) => _TileColors(p.dangerBg, p.danger);
+
+typedef _TileTone = _TileColors Function(BbPalette p);
+
+const Map<String, IconData> _kTradeIcons = <String, IconData>{
+  'cnc_operator': Icons.build_outlined,
+  'vmc_operator': Icons.settings_outlined,
+  'cnc_vmc_setter': Icons.tune_rounded,
+  'cnc_programmer': Icons.code_rounded,
+  'vmc_programmer': Icons.terminal_rounded,
+  'cad_designer': Icons.architecture_rounded,
+  'solidworks_designer': Icons.view_in_ar_outlined,
+  'autocad_draftsman': Icons.description_outlined,
+  'quality_inspector': Icons.verified_outlined,
+  'production_engineer': Icons.bolt_rounded,
+  'maintenance_technician': Icons.handyman_outlined,
+  'tool_room_technician': Icons.construction_rounded,
+  'machine_operator': Icons.precision_manufacturing_outlined,
+  'assembly_technician': Icons.extension_outlined,
+  'fitter': Icons.hardware_outlined,
+};
+
+const Map<String, _TileTone> _kTradeTones = <String, _TileTone>{
+  'cnc_operator': _tileBlue,
+  'vmc_operator': _tileCream,
+  'cnc_vmc_setter': _tileBlue,
+  'cnc_programmer': _tileLavender,
+  'vmc_programmer': _tileLavender,
+  'cad_designer': _tileLavender,
+  'solidworks_designer': _tileLavender,
+  'autocad_draftsman': _tileBlue,
+  'quality_inspector': _tileMint,
+  'production_engineer': _tilePeach,
+  'maintenance_technician': _tileRose,
+  'tool_room_technician': _tilePeach,
+  'machine_operator': _tilePeach,
+  'assembly_technician': _tileMint,
+  'fitter': _tileBlue,
 };
 
 /// The tile for a kit. Known trade keys draw their own rule; anything the
-/// catalogue adds later falls back to the shared option-icon rules and a pastel
+/// catalogue adds later falls back to the shared option-icon rules and a tone
 /// picked deterministically from the key — always an icon, never a blank tile.
-_KitTileStyle _kitTileStyle(String tradeKey, String title) {
-  final _KitTileStyle? known = _kTradeTiles[tradeKey];
-  if (known != null) return known;
-  final IconData icon = iconForOption(optionKey: tradeKey, label: title);
-  final List<_KitTileStyle> palettes = <_KitTileStyle>[
-    _kTileBlue,
-    _kTileCream,
-    _kTileLavender,
-    _kTileMint,
-    _kTilePeach,
-    _kTileRose,
+_KitTileStyle _kitTileStyle(String tradeKey, String title, BbPalette p) {
+  final _TileTone? tone = _kTradeTones[tradeKey];
+  final IconData icon =
+      _kTradeIcons[tradeKey] ??
+      iconForOption(optionKey: tradeKey, label: title);
+  if (tone != null) {
+    final _TileColors colors = tone(p);
+    return _KitTileStyle(icon, colors.bg, colors.fg);
+  }
+  const List<_TileTone> tones = <_TileTone>[
+    _tileBlue,
+    _tileCream,
+    _tileLavender,
+    _tileMint,
+    _tilePeach,
+    _tileRose,
   ];
   int sum = 0;
   for (final int unit in tradeKey.codeUnits) {
     sum += unit;
   }
-  final _KitTileStyle base = palettes[sum % palettes.length];
-  return _KitTileStyle(icon, base.bg, base.fg);
+  final _TileColors colors = tones[sum % tones.length](p);
+  return _KitTileStyle(icon, colors.bg, colors.fg);
 }

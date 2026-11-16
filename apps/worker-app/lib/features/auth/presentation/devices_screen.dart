@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/auth/auth_api.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -39,11 +40,12 @@ class _DevicesView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // Kit chrome (spec §2.1): the full-bleed navy header carries the status-bar
     // inset over a canvas body. Pushed from Settings, so a back affordance is
     // shown. Not [BbScaffold] — the header bleeds to the status bar.
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: Column(
         children: <Widget>[
           ShiftBlueHeader(
@@ -191,6 +193,7 @@ class _DeviceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String label = _deviceLabel(device);
     final bool isRevoking = revokingId == device.id;
     final bool revokeBlocked = revokingId != null;
@@ -203,9 +206,7 @@ class _DeviceTile extends StatelessWidget {
             width: _kIconTile,
             height: _kIconTile,
             decoration: BoxDecoration(
-              color: device.isCurrent
-                  ? OnboardingColors.infoBg
-                  : OnboardingColors.pillMutedBg,
+              color: device.isCurrent ? p.infoBg : p.inset,
               borderRadius: BorderRadius.circular(_kIconTileRadius),
             ),
             alignment: Alignment.center,
@@ -214,9 +215,7 @@ class _DeviceTile extends StatelessWidget {
                   ? Icons.smartphone_rounded
                   : Icons.devices_other_rounded,
               size: 20,
-              color: device.isCurrent
-                  ? OnboardingColors.shiftBlue
-                  : OnboardingColors.ink500,
+              color: device.isCurrent ? p.textBrand : p.textMuted,
             ),
           ),
           const SizedBox(width: 12),
@@ -266,24 +265,24 @@ class _DeviceTile extends StatelessWidget {
             MediaQuery.withClampedTextScaling(
               maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
               child: isRevoking
-                ? const Padding(
+                ? Padding(
                     padding: EdgeInsets.symmetric(horizontal: 12),
                     child: SizedBox(
                       width: 24,
                       height: 24,
                       child: CircularProgressIndicator(
                         strokeWidth: 2.5,
-                        color: OnboardingColors.shiftBlue,
+                        color: p.textBrand,
                       ),
                     ),
                   )
                 : TextButton(
                     style: TextButton.styleFrom(
-                      foregroundColor: OnboardingColors.errorRed,
+                      foregroundColor: p.danger,
                       textStyle: OnboardingTypography.inter(
                         size: 13,
                         weight: FontWeight.w700,
-                        color: OnboardingColors.errorRed,
+                        color: p.danger,
                       ),
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       minimumSize: const Size(

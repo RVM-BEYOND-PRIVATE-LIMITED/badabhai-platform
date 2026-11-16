@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/api/api_models.dart';
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/bb_search_field.dart';
 import '../../../../core/widgets/kit/kit_select_chip.dart';
@@ -417,10 +418,11 @@ class _FiltersSheetState extends State<FiltersSheet> {
   /// inset, and a bar inside a modal would publish a bottom-bar inset for the
   /// page underneath it.
   Widget _footer(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.only(top: 12),
-      decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: OnboardingColors.borderDefault)),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: p.borderDefault)),
       ),
       child: PrimaryActionButton(
         label: 'Show $_count jobs',

@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/bb_palette.dart';
 // The waveform lives under chat/ where it was first built; it is already a
 // standalone, reusable leaf (it takes a plain ValueListenable and paints), so it
 // is consumed as-is rather than moved.
@@ -50,6 +50,7 @@ class DictationBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       children: <Widget>[
         Expanded(
@@ -81,18 +82,18 @@ class DictationBar extends StatelessWidget {
         _NamedIconButton(
           label: kStopLabel,
           onPressed: onStop,
-          icon: const Icon(
+          icon: Icon(
             Icons.stop_circle_rounded,
-            color: AppColors.textSecondary,
+            color: p.textSecondary,
             size: 30,
           ),
         ),
         _NamedIconButton(
           label: kSendLabel,
           onPressed: onSend,
-          icon: const Icon(
+          icon: Icon(
             Icons.send_rounded,
-            color: AppColors.blue,
+            color: p.textBrand,
             size: 24,
           ),
         ),

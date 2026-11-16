@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/di/locator.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/onboarding/onboarding_select_field.dart';
 import '../../../../core/widgets/onboarding/primary_action_button.dart';
@@ -196,6 +197,7 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s4,
@@ -206,9 +208,9 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: OnboardingColors.paperWhite,
+          color: p.card,
           borderRadius: BorderRadius.circular(OnboardingRadii.card),
-          border: Border.all(color: OnboardingColors.borderCard),
+          border: Border.all(color: p.borderCard),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -243,16 +245,11 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
                   : const Icon(Icons.my_location, size: 18),
               label: Text(
                 _loading ? kChatLocationGpsBusy : kChatLocationGpsCta,
-                style: OnboardingTypography.buttonLabel(
-                  color: OnboardingColors.shiftBlue,
-                ),
+                style: OnboardingTypography.buttonLabel(color: p.textBrand),
               ),
               style: OutlinedButton.styleFrom(
-                foregroundColor: OnboardingColors.shiftBlue,
-                side: const BorderSide(
-                  color: OnboardingColors.shiftBlue,
-                  width: 1.5,
-                ),
+                foregroundColor: p.textBrand,
+                side: BorderSide(color: p.textBrand, width: 1.5),
                 minimumSize: const Size(double.infinity, 48),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(OnboardingRadii.button),
@@ -266,7 +263,7 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
                 style: OnboardingTypography.inter(
                   size: 12,
                   height: 1.35,
-                  color: OnboardingColors.errorRed,
+                  color: p.danger,
                 ),
               ),
             ],
@@ -275,7 +272,7 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
               kChatLocationOrLabel,
               style: OnboardingTypography.inter(
                 size: 12,
-                color: OnboardingColors.ink500,
+                color: p.textMuted,
               ),
             ),
             const SizedBox(height: 10),
@@ -285,7 +282,7 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
                 style: OnboardingTypography.inter(
                   size: 11,
                   weight: FontWeight.w700,
-                  color: OnboardingColors.ink600,
+                  color: p.textSecondary,
                 ),
               ),
               const SizedBox(height: 6),
@@ -303,7 +300,7 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
                 style: OnboardingTypography.inter(
                   size: 11,
                   weight: FontWeight.w700,
-                  color: OnboardingColors.ink600,
+                  color: p.textSecondary,
                 ),
               ),
               const SizedBox(height: 6),
@@ -324,25 +321,19 @@ class _ChatLocationCardState extends State<ChatLocationCard> {
                     hintText: kChatLocationCityManualHint,
                     hintStyle: OnboardingTypography.inter(
                       size: 14,
-                      color: OnboardingColors.ink500,
+                      color: p.textMuted,
                     ),
                     counterText: '',
                     filled: true,
-                    fillColor: OnboardingColors.paperWhite,
+                    fillColor: p.card,
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
                       horizontal: 14,
                       vertical: 14,
                     ),
-                    enabledBorder: _fieldBorder(
-                      OnboardingColors.borderDefault,
-                      1.2,
-                    ),
-                    // Spec §3.3: a focused input rings navy at 1.8.
-                    focusedBorder: _fieldBorder(
-                      OnboardingColors.shiftBlue,
-                      1.8,
-                    ),
+                    enabledBorder: _fieldBorder(p.borderDefault, 1.2),
+                    // Spec §3.3: a focused input rings at 1.8.
+                    focusedBorder: _fieldBorder(p.focusRing, 1.8),
                   ),
                 )
               else
@@ -491,12 +482,13 @@ class _CityModeSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: OnboardingColors.chipBg,
+        color: p.raised,
         borderRadius: BorderRadius.circular(OnboardingRadii.pillSm * 3),
-        border: Border.all(color: OnboardingColors.borderDefault),
+        border: Border.all(color: p.borderDefault),
       ),
       child: Row(
         children: <Widget>[
@@ -538,9 +530,8 @@ class _CityModeOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color ink = selected
-        ? OnboardingColors.paperWhite
-        : OnboardingColors.shiftBlue;
+    final BbPalette p = context.bb;
+    final Color ink = selected ? p.onBrandSurface : p.textBrand;
     final BorderRadius radius =
         BorderRadius.circular(OnboardingRadii.pillSm * 3);
     return Semantics(
@@ -549,7 +540,7 @@ class _CityModeOption extends StatelessWidget {
       label: label,
       excludeSemantics: true,
       child: Material(
-        color: selected ? OnboardingColors.shiftBlue : Colors.transparent,
+        color: selected ? p.brandSurface : Colors.transparent,
         borderRadius: radius,
         child: InkWell(
           onTap: selected ? null : onTap,

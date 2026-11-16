@@ -3,8 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -245,7 +245,7 @@ class _VoiceFormScreenState extends State<VoiceFormScreen>
       VoiceFormInterrupted() => _AskingView.interrupted(state),
       VoiceFormError(:final Failure failure) => BbStatusView(
           icon: Icons.error_outline,
-          iconColor: AppColors.danger,
+          iconColor: context.bb.danger,
           title: _kTitle,
           subtitle: failure.message,
           action: BbButton(
@@ -281,6 +281,7 @@ class _AskingView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final VoiceQuestion q = state.question;
     final VoiceFormCubit? c = cubit;
     return SingleChildScrollView(
@@ -304,8 +305,7 @@ class _AskingView extends StatelessWidget {
                     const BoxConstraints(minWidth: 48, minHeight: 48),
                 tooltip: _kReplayLabel,
                 onPressed: c?.replay,
-                icon: const Icon(Icons.volume_up_outlined,
-                    color: AppColors.blue),
+                icon: Icon(Icons.volume_up_outlined, color: p.textBrand),
               ),
             ],
           ),
@@ -322,32 +322,32 @@ class _AskingView extends StatelessWidget {
             ),
           ],
           const SizedBox(height: AppSpacing.s7),
-          _micRow(c),
+          _micRow(p, c),
           const SizedBox(height: AppSpacing.s6),
           if (c != null) _actions(c),
           const SizedBox(height: AppSpacing.s4),
           Text(
             _kMicFootnote,
             style: AppTypography.body(
-                size: AppTypography.sizeXs, color: AppColors.textMuted),
+                size: AppTypography.sizeXs, color: p.textMuted),
           ),
         ],
       ),
     );
   }
 
-  Widget _micRow(VoiceFormCubit? c) {
+  Widget _micRow(BbPalette p, VoiceFormCubit? c) {
     final bool listening = state.micPhase == MicPhase.listening;
     return Row(
       children: <Widget>[
         Icon(Icons.circle,
-            size: 10, color: listening ? AppColors.danger : AppColors.ink300),
+            size: 10, color: listening ? p.danger : p.disabledBg),
         const SizedBox(width: AppSpacing.s2),
         Text(
           listening ? _kListening : _kNotListening,
           style: AppTypography.body(
               weight: FontWeight.w600,
-              color: listening ? AppColors.textPrimary : AppColors.textMuted),
+              color: listening ? p.textPrimary : p.textMuted),
         ),
         const SizedBox(width: AppSpacing.s4),
         if (c != null)
@@ -403,6 +403,7 @@ class _WhyTextState extends State<_WhyText> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -415,14 +416,13 @@ class _WhyTextState extends State<_WhyText> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  const Icon(Icons.info_outline,
-                      size: 18, color: AppColors.blue),
+                  Icon(Icons.info_outline, size: 18, color: p.textBrand),
                   const SizedBox(width: AppSpacing.s2),
                   Text(_kWhyLabel,
                       style: AppTypography.body(
-                          size: 14, color: AppColors.blue)),
+                          size: 14, color: p.textBrand)),
                   Icon(_open ? Icons.expand_less : Icons.expand_more,
-                      size: 18, color: AppColors.blue),
+                      size: 18, color: p.textBrand),
                 ],
               ),
             ),
@@ -433,7 +433,7 @@ class _WhyTextState extends State<_WhyText> {
             padding: const EdgeInsets.only(bottom: AppSpacing.s2),
             child: Text(widget.whyText,
                 style:
-                    AppTypography.body(size: 14, color: AppColors.textSecondary)),
+                    AppTypography.body(size: 14, color: p.textSecondary)),
           ),
       ],
     );
@@ -524,7 +524,7 @@ class _VoiceCorrectionDialogState extends State<_VoiceCorrectionDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(_kSpeakTitle, style: AppTypography.display(size: 18)),
-      content: const Icon(Icons.mic, size: 48, color: AppColors.danger),
+      content: Icon(Icons.mic, size: 48, color: context.bb.danger),
       actions: <Widget>[
         BbButton(
           label: _kCancel,

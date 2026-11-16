@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/onboarding/primary_action_button.dart';
 
@@ -218,6 +219,7 @@ class _Shine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Positioned.fill(
       child: IgnorePointer(
         child: ClipRRect(
@@ -239,13 +241,13 @@ class _Shine extends StatelessWidget {
                     width: band,
                     child: Transform(
                       transform: Matrix4.skewX(-0.35),
-                      child: const DecoratedBox(
+                      child: DecoratedBox(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: <Color>[
-                              Color(0x00FFFFFF),
-                              Color(0x8CFFFFFF),
-                              Color(0x00FFFFFF),
+                              p.onBrandSurface.withValues(alpha: 0),
+                              p.onBrandSurface.withValues(alpha: 0.55),
+                              p.onBrandSurface.withValues(alpha: 0),
                             ],
                           ),
                         ),

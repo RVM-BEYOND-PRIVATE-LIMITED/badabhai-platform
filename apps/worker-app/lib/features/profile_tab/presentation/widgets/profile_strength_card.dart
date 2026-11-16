@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/missing_field_label.dart';
@@ -94,6 +95,7 @@ class ProfileStrengthCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final ProfileStrengthBand band = profileStrengthBand(
       signals: signals,
       max: max,
@@ -124,7 +126,7 @@ class ProfileStrengthCard extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 13,
               weight: FontWeight.w700,
-              color: OnboardingColors.infoTitle,
+              color: p.infoTitle,
             ),
           ),
           const SizedBox(height: 2),
@@ -134,7 +136,7 @@ class ProfileStrengthCard extends StatelessWidget {
               size: 12,
               weight: FontWeight.w600,
               height: 1.4,
-              color: OnboardingColors.infoText,
+              color: p.infoText,
             ),
           ),
         ],

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -78,7 +78,7 @@ class VoiceReviewScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return BbScaffold(
       appBar: const BbAppBar(title: _kTitle),
-      bottomBar: _bottomBar(),
+      bottomBar: _bottomBar(context),
       body: ListView.separated(
         padding: const EdgeInsets.symmetric(vertical: AppSpacing.s4),
         itemCount: rows.length,
@@ -89,6 +89,7 @@ class VoiceReviewScreen extends StatelessWidget {
   }
 
   Widget _row(BuildContext context, int index, VoiceReviewRow row) {
+    final BbPalette p = context.bb;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -99,12 +100,12 @@ class VoiceReviewScreen extends StatelessWidget {
               Text(row.fieldLabel,
                   style: AppTypography.body(
                       size: AppTypography.sizeXs,
-                      color: AppColors.textMuted)),
+                      color: p.textMuted)),
               const SizedBox(height: AppSpacing.s1),
               if (row.declined)
                 Text(_kDeclined,
                     style: AppTypography.body(
-                        color: AppColors.textMuted,
+                        color: p.textMuted,
                         weight: FontWeight.w500))
               else
                 Text(
@@ -123,14 +124,14 @@ class VoiceReviewScreen extends StatelessWidget {
             constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
             tooltip: _kReplayLabel,
             onPressed: () => clipPlayer.playFile(row.clipPath!),
-            icon: const Icon(Icons.volume_up_outlined, color: AppColors.blue),
+            icon: Icon(Icons.volume_up_outlined, color: p.textBrand),
           ),
         IconButton(
           iconSize: 22,
           constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
           tooltip: _kCorrectLabel,
           onPressed: () => _openCorrection(context, row),
-          icon: const Icon(Icons.replay, color: AppColors.textSecondary),
+          icon: Icon(Icons.replay, color: p.textSecondary),
         ),
       ],
     );
@@ -148,13 +149,13 @@ class VoiceReviewScreen extends StatelessWidget {
     if (method != null) onCorrect(questionId, method);
   }
 
-  Widget _bottomBar() {
+  Widget _bottomBar(BuildContext context) {
     if (_draining) {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Text('$_kSending…',
-              style: AppTypography.body(color: AppColors.textMuted)),
+              style: AppTypography.body(color: context.bb.textMuted)),
           const SizedBox(height: AppSpacing.s2),
           Row(
             children: <Widget>[
@@ -222,7 +223,7 @@ class VoiceCorrectionSheet extends StatelessWidget {
   Widget _option(BuildContext context, IconData icon, String label,
       CorrectionMethod method) {
     return ListTile(
-      leading: Icon(icon, color: AppColors.blue),
+      leading: Icon(icon, color: context.bb.textBrand),
       title: Text(label, style: AppTypography.body(size: 16)),
       onTap: () => Navigator.of(context).pop(method),
     );

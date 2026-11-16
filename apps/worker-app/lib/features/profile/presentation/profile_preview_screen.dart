@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../../../core/theme/bb_palette.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -166,6 +167,7 @@ class _ProfileViewState extends State<_ProfileView> {
         }
       },
       builder: (BuildContext context, ProfileState state) {
+        final BbPalette p = context.bb;
         final bool isReady =
             state.status == ProfileStatus.ready ||
             state.status == ProfileStatus.confirmed;
@@ -182,14 +184,14 @@ class _ProfileViewState extends State<_ProfileView> {
         // paced checklist, tip and status footer.
         if (state.status == ProfileStatus.extracting) {
           return Scaffold(
-            backgroundColor: OnboardingColors.paperWhite,
+            backgroundColor: p.card,
             body: ProfilePreparingView(
               onBack: canGoBack ? () => Navigator.maybePop(context) : null,
             ),
           );
         }
         return Scaffold(
-          backgroundColor: OnboardingColors.canvasBg,
+          backgroundColor: p.page,
           body: Column(
             children: <Widget>[
               ShiftBlueHeader(
@@ -261,10 +263,11 @@ class _ProfileViewState extends State<_ProfileView> {
 
 
   Widget _buildFailed(BuildContext context, ProfileState state) {
+    final BbPalette p = context.bb;
     return _StatusPanel(
       icon: failureReason(state.failure).icon,
-      iconColor: OnboardingColors.errorRed,
-      iconBackground: OnboardingColors.errorBg,
+      iconColor: p.danger,
+      iconBackground: p.dangerBg,
       title: 'Profile taiyaar nahi ho payi.',
       subtitle: failureReason(state.failure).reason,
       // TWO ways out, never a dead-end loop. "Try again" re-runs extraction —
@@ -295,10 +298,11 @@ class _ProfileViewState extends State<_ProfileView> {
   /// draft confirmed becomes a near-empty resume. Be honest about why, and route
   /// the worker back to chat to say more (their transcript is redrawn by #502).
   Widget _buildDraft(BuildContext context) {
+    final BbPalette p = context.bb;
     return _StatusPanel(
       icon: Icons.edit_note_outlined,
-      iconColor: OnboardingColors.shiftBlue,
-      iconBackground: OnboardingColors.cardIconBg,
+      iconColor: p.textBrand,
+      iconBackground: p.cardIconBg,
       title: 'Thodi aur detail chahiye.',
       subtitle:
           'Bada Bhai aapki poori profile banane ke liye thoda aur jaanna '
@@ -560,19 +564,20 @@ class _ChatSourceHeading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       children: <Widget>[
-        const Icon(
+        Icon(
           Icons.chat_bubble_outline,
           size: 18,
-          color: OnboardingColors.shiftBlue,
+          color: p.textBrand,
         ),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             kChatProfileHeading,
             style: OnboardingTypography.microLabel(
-              color: OnboardingColors.ink600,
+              color: p.textSecondary,
             ),
           ),
         ),
@@ -622,6 +627,7 @@ class _ConfirmRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final Widget content = ConstrainedBox(
       constraints: const BoxConstraints(minHeight: OnboardingLayout.tapTarget),
       child: Padding(
@@ -658,10 +664,10 @@ class _ConfirmRow extends StatelessWidget {
             ),
             if (onEdit != null) ...<Widget>[
               const SizedBox(width: 12),
-              const Icon(
+              Icon(
                 Icons.edit,
                 size: 18,
-                color: OnboardingColors.shiftBlue,
+                color: p.textBrand,
               ),
             ],
           ],
@@ -670,11 +676,11 @@ class _ConfirmRow extends StatelessWidget {
     );
 
     return Material(
-      color: OnboardingColors.paperWhite,
+      color: p.card,
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(_kConfirmRowRadius),
-        side: const BorderSide(color: OnboardingColors.borderDefault),
+        side:  BorderSide(color: p.borderDefault),
       ),
       child: onEdit == null ? content : InkWell(onTap: onEdit, child: content),
     );
@@ -701,6 +707,7 @@ class _SecondaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: SizedBox(
@@ -722,7 +729,7 @@ class _SecondaryButton extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 if (icon != null) ...<Widget>[
-                  Icon(icon, size: 20, color: OnboardingColors.shiftBlue),
+                  Icon(icon, size: 20, color: p.textBrand),
                   const SizedBox(width: 8),
                 ],
                 Text(label, style: OnboardingTypography.buttonLabel()),
@@ -740,12 +747,13 @@ class _ProgressPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _CentredBody(
+    final BbPalette p = context.bb;
+    return _CentredBody(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
           CircularProgressIndicator(
-            color: OnboardingColors.shiftBlue,
+            color: p.textBrand,
             strokeWidth: 3,
           ),
         ],
@@ -815,6 +823,7 @@ class _StatusPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return _CentredBody(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -838,14 +847,14 @@ class _StatusPanel extends StatelessWidget {
             title,
             textAlign: TextAlign.center,
             style: OnboardingTypography.questionHeadline(
-              color: OnboardingColors.shiftBlue,
+              color: p.textBrand,
             ),
           ),
           const SizedBox(height: 8),
           Text(
             subtitle,
             textAlign: TextAlign.center,
-            style: OnboardingTypography.body(color: OnboardingColors.ink600),
+            style: OnboardingTypography.body(color: p.textSecondary),
           ),
           const SizedBox(height: 24),
           ...actions,

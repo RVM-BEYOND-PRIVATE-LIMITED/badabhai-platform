@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../domain/finishing_models.dart';
 import 'finishing_controls.dart';
@@ -43,10 +44,10 @@ const List<String> _kMonths = <String>[
 
 /// The kit's form-field label — Inter, muted, sentence case (these labels are
 /// whole questions, so the kit's uppercase micro-label would hurt reading).
-TextStyle finishingFieldLabelStyle() => OnboardingTypography.inter(
+TextStyle finishingFieldLabelStyle(Color color) => OnboardingTypography.inter(
       size: 13,
       weight: FontWeight.w600,
-      color: OnboardingColors.ink600,
+      color: color,
     );
 
 /// A themed text field for the finishing form, in the kit's input style: white,
@@ -89,6 +90,7 @@ class FinishingTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       label: label ?? hint,
       textField: true,
@@ -100,23 +102,22 @@ class FinishingTextField extends StatelessWidget {
         keyboardType: keyboardType,
         maxLength: maxLength,
         maxLines: maxLines,
-        cursorColor: OnboardingColors.shiftBlue,
+        cursorColor: p.focusRing,
         style: OnboardingTypography.inter(size: 14, weight: FontWeight.w500),
         decoration: InputDecoration(
           hintText: hint,
           filled: true,
-          fillColor: OnboardingColors.paperWhite,
+          fillColor: p.card,
           counterText: maxLength == null ? null : '',
-          hintStyle: OnboardingTypography.inter(
-              size: 14, color: OnboardingColors.ink500),
+          hintStyle: OnboardingTypography.inter(size: 14, color: p.textMuted),
           constraints: const BoxConstraints(
             minHeight: OnboardingLayout.tapTarget,
           ),
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          border: _border(OnboardingColors.borderDefault, 1.2),
-          enabledBorder: _border(OnboardingColors.borderDefault, 1.2),
-          focusedBorder: _border(OnboardingColors.shiftBlue, 1.8),
+          border: _border(p.borderDefault, 1.2),
+          enabledBorder: _border(p.borderDefault, 1.2),
+          focusedBorder: _border(p.focusRing, 1.8),
         ),
       ),
     );
@@ -190,13 +191,14 @@ class _EmployerCardState extends State<EmployerCard> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final EmploymentEntry e = widget.entry;
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 8, 8, 16),
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(OnboardingRadii.card),
-        border: Border.all(color: OnboardingColors.borderDefault, width: 1.2),
+        border: Border.all(color: p.borderDefault, width: 1.2),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -205,11 +207,19 @@ class _EmployerCardState extends State<EmployerCard> {
           // remove target costs no extra height of its own.
           Row(
             children: <Widget>[
-              Expanded(child: Text(_kNameLabel, style: finishingFieldLabelStyle())),
+              Expanded(
+                child: Text(
+                  _kNameLabel,
+                  style: finishingFieldLabelStyle(p.textSecondary),
+                ),
+              ),
               IconButton(
                 onPressed: widget.onRemove,
-                icon: const Icon(Icons.close_rounded,
-                    size: 20, color: OnboardingColors.ink600),
+                icon: Icon(
+                  Icons.close_rounded,
+                  size: 20,
+                  color: p.textSecondary,
+                ),
                 tooltip: _kRemove,
                 constraints: const BoxConstraints(
                   minWidth: OnboardingLayout.tapTarget,
@@ -291,7 +301,7 @@ class _EmployerCardState extends State<EmployerCard> {
                 FinishingToggleRow(
                   label: _kStillWorking,
                   value: _stillWorking,
-                  color: OnboardingColors.chipBg,
+                  color: p.raised,
                   onChanged: (bool on) {
                     setState(() => _stillWorking = on);
                     // "Still working" is end_ym: null; turning it off clears the
@@ -328,7 +338,7 @@ class _EmployerCardState extends State<EmployerCard> {
 
   Widget _label(String text) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
-        child: Text(text, style: finishingFieldLabelStyle()),
+        child: Text(text, style: finishingFieldLabelStyle(context.bb.textSecondary)),
       );
 }
 
@@ -354,14 +364,15 @@ class _YearMonthField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool set = value != null;
     final BorderRadius radius =
         BorderRadius.circular(OnboardingRadii.nameField);
     return Material(
-      color: OnboardingColors.paperWhite,
+      color: p.card,
       shape: RoundedRectangleBorder(
         borderRadius: radius,
-        side: const BorderSide(color: OnboardingColors.borderDefault, width: 1.2),
+        side: BorderSide(color: p.borderDefault, width: 1.2),
       ),
       child: InkWell(
         onTap: () => _open(context),
@@ -373,8 +384,11 @@ class _YearMonthField extends StatelessWidget {
             padding: EdgeInsets.only(left: 14, right: set ? 0 : 14),
             child: Row(
               children: <Widget>[
-                const Icon(Icons.event_outlined,
-                    size: 20, color: OnboardingColors.ink600),
+                Icon(
+                  Icons.event_outlined,
+                  size: 20,
+                  color: p.textSecondary,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Padding(
@@ -385,7 +399,7 @@ class _YearMonthField extends StatelessWidget {
                           ? OnboardingTypography.inter(
                               size: 14, weight: FontWeight.w500)
                           : OnboardingTypography.inter(
-                              size: 14, color: OnboardingColors.ink500),
+                              size: 14, color: p.textMuted),
                     ),
                   ),
                 ),
@@ -393,8 +407,11 @@ class _YearMonthField extends StatelessWidget {
                   IconButton(
                     onPressed: () => onPicked(null),
                     tooltip: _kRemove,
-                    icon: const Icon(Icons.close_rounded,
-                        size: 18, color: OnboardingColors.ink600),
+                    icon: Icon(
+                      Icons.close_rounded,
+                      size: 18,
+                      color: p.textSecondary,
+                    ),
                     constraints: const BoxConstraints(
                       minWidth: OnboardingLayout.tapTarget,
                       minHeight: OnboardingLayout.tapTarget,
@@ -412,7 +429,7 @@ class _YearMonthField extends StatelessWidget {
   Future<void> _open(BuildContext context) async {
     final String? picked = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: OnboardingColors.paperWhite,
+      backgroundColor: context.bb.card,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius:
@@ -441,6 +458,7 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
@@ -475,7 +493,7 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
                               labelStyle: OnboardingTypography.mono(
                                 size: 14,
                                 weight: FontWeight.w600,
-                                color: OnboardingColors.ink900,
+                                color: p.textPrimary,
                               ),
                               onTap: () => setState(() => _year = y),
                             )

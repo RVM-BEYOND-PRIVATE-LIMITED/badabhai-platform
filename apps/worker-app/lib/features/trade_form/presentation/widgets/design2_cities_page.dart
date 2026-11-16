@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/api/api_client.dart' show CityHubDto;
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import 'trade_form_text_field.dart';
 
@@ -139,6 +140,7 @@ class Design2CitiesPage extends StatelessWidget {
   /// ticked. Re-tapping the picked state clears it — the sheet reports the
   /// tap and the caller's toggle owns the semantics, exactly like the chips.
   Future<void> _openStateSheet(BuildContext context) async {
+    final BbPalette p = context.bb;
     final String? picked = await showModalBottomSheet<String>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -157,7 +159,7 @@ class Design2CitiesPage extends StatelessWidget {
                   style: OnboardingTypography.anek(
                     size: 16,
                     weight: FontWeight.w800,
-                    color: OnboardingColors.ink900,
+                    color: p.textPrimary,
                   ),
                 ),
               ),
@@ -175,14 +177,11 @@ class Design2CitiesPage extends StatelessWidget {
                         style: OnboardingTypography.inter(
                           size: 14,
                           weight: FontWeight.w600,
-                          color: OnboardingColors.ink900,
+                          color: p.textPrimary,
                         ),
                       ),
                       trailing: isSel
-                          ? const Icon(
-                              Icons.check_rounded,
-                              color: OnboardingColors.successGreen,
-                            )
+                          ? Icon(Icons.check_rounded, color: p.success)
                           : null,
                       onTap: () => Navigator.of(sheetContext).pop(s),
                     );
@@ -217,7 +216,7 @@ class Design2CitiesPage extends StatelessWidget {
           // state is picked, then lists that state's cities only.
           if (selectedState != null) ...<Widget>[
             const SizedBox(height: 10),
-            _City1Card(child: _citiesSection()),
+            _City1Card(child: _citiesSection(context)),
           ],
           const SizedBox(height: 12),
           const _TrustFooter(text: _kTrust),
@@ -267,7 +266,8 @@ class Design2CitiesPage extends StatelessWidget {
   /// Card 2 — the cities step. The search results REPLACE the popular grid
   /// while a query matches (the cards ARE the answer, so there is no
   /// not-found error); with no state picked yet a hint holds the place.
-  Widget _citiesSection() {
+  Widget _citiesSection(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool showingResults = searchResults.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -284,10 +284,10 @@ class Design2CitiesPage extends StatelessWidget {
           label: _kSearchHint,
           textInputAction: TextInputAction.search,
           onChanged: onSearchChanged,
-          prefixIcon: const Icon(
+          prefixIcon: Icon(
             Icons.search_rounded,
             size: 20,
-            color: OnboardingColors.ink500,
+            color: p.textMuted,
           ),
         ),
         const SizedBox(height: 10),
@@ -309,7 +309,7 @@ class Design2CitiesPage extends StatelessWidget {
         // OWNER ASK (2026-10-21) — only the SELECTED state's cities: the
         // cross-state "Other best places" list ([popularHubs]) is not drawn.
         const SizedBox(height: 4),
-        const Divider(color: OnboardingColors.borderDefault, height: 17),
+        Divider(color: p.borderDefault, height: 17),
         const SizedBox(height: 4),
         _SelectedCitiesBlock(
           cities: selectedCities,
@@ -374,19 +374,20 @@ class _CountBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: OnboardingColors.selectedCardBg,
+        color: p.selectedCardBg,
         borderRadius: BorderRadius.circular(OnboardingRadii.badge),
-        border: Border.all(color: OnboardingColors.safetyYellow, width: 1.2),
+        border: Border.all(color: p.action, width: 1.2),
       ),
       child: Text(
         '$chosen/$max Sheher Chune',
         style: OnboardingTypography.inter(
           size: 12,
           weight: FontWeight.w700,
-          color: OnboardingColors.textOnYellow,
+          color: p.onAction,
         ),
       ),
     );
@@ -408,10 +409,11 @@ class _SelectedStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: OnboardingColors.selectedCardBg,
+        color: p.selectedCardBg,
         borderRadius: BorderRadius.circular(OnboardingRadii.row),
       ),
       // Chrome, not the question — clamp its scale like the count badge and
@@ -424,14 +426,14 @@ class _SelectedStrip extends StatelessWidget {
             Container(
               width: 34,
               height: 34,
-              decoration: const BoxDecoration(
-                color: OnboardingColors.safetyYellow,
+              decoration: BoxDecoration(
+                color: p.action,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.place_rounded,
                 size: 19,
-                color: OnboardingColors.shiftBlue,
+                color: p.onAction,
               ),
             ),
             const SizedBox(width: 10),
@@ -447,7 +449,7 @@ class _SelectedStrip extends StatelessWidget {
                     style: OnboardingTypography.inter(
                       size: 14,
                       weight: FontWeight.w800,
-                      color: OnboardingColors.ink900,
+                      color: p.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 1),
@@ -458,7 +460,7 @@ class _SelectedStrip extends StatelessWidget {
                     style: OnboardingTypography.inter(
                       size: 12,
                       weight: FontWeight.w500,
-                      color: OnboardingColors.ink500,
+                      color: p.textMuted,
                     ),
                   ),
                 ],
@@ -482,10 +484,7 @@ class _SelectedStrip extends StatelessWidget {
                       borderRadius: BorderRadius.circular(
                         OnboardingRadii.badge,
                       ),
-                      border: Border.all(
-                        color: OnboardingColors.safetyYellow,
-                        width: 1.2,
-                      ),
+                      border: Border.all(color: p.action, width: 1.2),
                     ),
                     child: Text(
                       Design2CitiesPage._kClearAll,
@@ -494,7 +493,7 @@ class _SelectedStrip extends StatelessWidget {
                       style: OnboardingTypography.inter(
                         size: 12,
                         weight: FontWeight.w700,
-                        color: OnboardingColors.shiftBlue,
+                        color: p.textBrand,
                       ),
                     ),
                   ),
@@ -517,16 +516,14 @@ class _City1Card extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(OnboardingRadii.card),
-        border: Border.all(
-          color: OnboardingColors.borderDefault,
-          width: 1.2,
-        ),
+        border: Border.all(color: p.borderDefault, width: 1.2),
       ),
       child: child,
     );
@@ -547,14 +544,15 @@ class _StepHead extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Container(
           width: 26,
           height: 26,
-          decoration: const BoxDecoration(
-            color: OnboardingColors.safetyYellow,
+          decoration: BoxDecoration(
+            color: p.action,
             shape: BoxShape.circle,
           ),
           child: Center(
@@ -563,7 +561,7 @@ class _StepHead extends StatelessWidget {
               style: OnboardingTypography.inter(
                 size: 13,
                 weight: FontWeight.w800,
-                color: OnboardingColors.textOnYellow,
+                color: p.onAction,
               ),
             ),
           ),
@@ -575,7 +573,7 @@ class _StepHead extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 15,
               weight: FontWeight.w800,
-              color: OnboardingColors.ink900,
+              color: p.textPrimary,
             ),
           ),
         ),
@@ -598,7 +596,7 @@ class _MicroLabel extends StatelessWidget {
         size: 11,
         weight: FontWeight.w800,
         letterSpacing: 0.6,
-        color: OnboardingColors.ink600,
+        color: context.bb.textSecondary,
       ),
     );
   }
@@ -614,9 +612,10 @@ class _StateDropdownField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String? v = value;
     return Material(
-      color: OnboardingColors.paperWhite,
+      color: p.card,
       borderRadius: BorderRadius.circular(OnboardingRadii.row),
       child: InkWell(
         key: const Key('stateDropdownField'),
@@ -629,18 +628,11 @@ class _StateDropdownField extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(OnboardingRadii.row),
-            border: Border.all(
-              color: OnboardingColors.borderDefault,
-              width: 1.2,
-            ),
+            border: Border.all(color: p.borderDefault, width: 1.2),
           ),
           child: Row(
             children: <Widget>[
-              const Icon(
-                Icons.map_outlined,
-                size: 22,
-                color: OnboardingColors.shiftBlue,
-              ),
+              Icon(Icons.map_outlined, size: 22, color: p.textBrand),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -650,16 +642,14 @@ class _StateDropdownField extends StatelessWidget {
                   style: OnboardingTypography.inter(
                     size: 14,
                     weight: FontWeight.w500,
-                    color: v == null
-                        ? OnboardingColors.ink500
-                        : OnboardingColors.ink900,
+                    color: v == null ? p.textMuted : p.textPrimary,
                   ),
                 ),
               ),
-              const Icon(
+              Icon(
                 Icons.keyboard_arrow_down_rounded,
                 size: 24,
-                color: OnboardingColors.ink500,
+                color: p.textMuted,
               ),
             ],
           ),
@@ -685,13 +675,12 @@ class _SmallChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       button: true,
       selected: selected,
       child: Material(
-        color: selected
-            ? OnboardingColors.selectedCardBg
-            : OnboardingColors.paperWhite,
+        color: selected ? p.selectedCardBg : p.card,
         borderRadius: BorderRadius.circular(OnboardingRadii.badge),
         child: InkWell(
           onTap: onTap,
@@ -702,9 +691,7 @@ class _SmallChip extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(OnboardingRadii.badge),
               border: Border.all(
-                color: selected
-                    ? OnboardingColors.safetyYellow
-                    : OnboardingColors.borderDefault,
+                color: selected ? p.action : p.borderDefault,
                 width: selected ? 1.5 : 1.2,
               ),
             ),
@@ -717,7 +704,7 @@ class _SmallChip extends StatelessWidget {
                 style: OnboardingTypography.inter(
                   size: 12,
                   weight: FontWeight.w700,
-                  color: OnboardingColors.ink900,
+                  color: p.textPrimary,
                 ),
               ),
             ),
@@ -812,14 +799,13 @@ class _CityCheckCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       button: true,
       selected: hub.selected,
       label: hub.areas == null ? hub.title : '${hub.title}, ${hub.areas}',
       child: Material(
-        color: hub.selected
-            ? OnboardingColors.selectedCardBg
-            : OnboardingColors.paperWhite,
+        color: hub.selected ? p.selectedCardBg : p.card,
         borderRadius: BorderRadius.circular(OnboardingRadii.row),
         child: InkWell(
           onTap: onTap,
@@ -829,9 +815,7 @@ class _CityCheckCard extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(OnboardingRadii.row),
               border: Border.all(
-                color: hub.selected
-                    ? OnboardingColors.safetyYellow
-                    : OnboardingColors.borderDefault,
+                color: hub.selected ? p.action : p.borderDefault,
                 width: hub.selected ? 1.5 : 1.2,
               ),
             ),
@@ -845,7 +829,7 @@ class _CityCheckCard extends StatelessWidget {
                     style: OnboardingTypography.inter(
                       size: 12,
                       weight: FontWeight.w700,
-                      color: OnboardingColors.ink900,
+                      color: p.textPrimary,
                     ),
                   ),
                 ),
@@ -855,9 +839,7 @@ class _CityCheckCard extends StatelessWidget {
                       ? Icons.check_box_rounded
                       : Icons.check_box_outline_blank_rounded,
                   size: 18,
-                  color: hub.selected
-                      ? OnboardingColors.successGreen
-                      : OnboardingColors.ink500,
+                  color: hub.selected ? p.success : p.textMuted,
                 ),
               ],
             ),
@@ -883,6 +865,7 @@ class _SelectedCitiesBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -895,7 +878,7 @@ class _SelectedCitiesBlock extends StatelessWidget {
                 style: OnboardingTypography.inter(
                   size: 12,
                   weight: FontWeight.w700,
-                  color: OnboardingColors.ink600,
+                  color: p.textSecondary,
                 ),
               ),
             ),
@@ -904,7 +887,7 @@ class _SelectedCitiesBlock extends StatelessWidget {
               style: OnboardingTypography.inter(
                 size: 12,
                 weight: FontWeight.w600,
-                color: OnboardingColors.ink500,
+                color: p.textMuted,
               ),
             ),
           ],
@@ -916,7 +899,7 @@ class _SelectedCitiesBlock extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 12,
               weight: FontWeight.w500,
-              color: OnboardingColors.ink500,
+              color: p.textMuted,
             ).copyWith(fontStyle: FontStyle.italic),
           )
         else
@@ -929,7 +912,7 @@ class _SelectedCitiesBlock extends StatelessWidget {
                   button: true,
                   label: c,
                   child: Material(
-                    color: OnboardingColors.selectedCardBg,
+                    color: p.selectedCardBg,
                     borderRadius: BorderRadius.circular(
                       OnboardingRadii.badge,
                     ),
@@ -948,10 +931,7 @@ class _SelectedCitiesBlock extends StatelessWidget {
                           borderRadius: BorderRadius.circular(
                             OnboardingRadii.badge,
                           ),
-                          border: Border.all(
-                            color: OnboardingColors.safetyYellow,
-                            width: 1.5,
-                          ),
+                          border: Border.all(color: p.action, width: 1.5),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -964,15 +944,15 @@ class _SelectedCitiesBlock extends StatelessWidget {
                                 style: OnboardingTypography.inter(
                                   size: 12,
                                   weight: FontWeight.w700,
-                                  color: OnboardingColors.ink900,
+                                  color: p.textPrimary,
                                 ),
                               ),
                             ),
                             const SizedBox(width: 4),
-                            const Icon(
+                            Icon(
                               Icons.close_rounded,
                               size: 16,
-                              color: OnboardingColors.shiftBlue,
+                              color: p.textBrand,
                             ),
                           ],
                         ),
@@ -994,14 +974,11 @@ class _TrustFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
-        const Icon(
-          Icons.verified_user_outlined,
-          size: 15,
-          color: OnboardingColors.ink500,
-        ),
+        Icon(Icons.verified_user_outlined, size: 15, color: p.textMuted),
         const SizedBox(width: 6),
         Flexible(
           child: Text(
@@ -1010,7 +987,7 @@ class _TrustFooter extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 11,
               weight: FontWeight.w600,
-              color: OnboardingColors.ink500,
+              color: p.textMuted,
             ),
           ),
         ),

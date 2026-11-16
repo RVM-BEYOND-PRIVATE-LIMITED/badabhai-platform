@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 import '../../../../core/api/api_models.dart';
 import '../../../../core/theme/onboarding_theme.dart';
@@ -130,6 +131,7 @@ class _HistoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String? badge = resumeSourceLabel(item.source);
     final ({String label, KitPillTone tone}) status = _statusPill(item);
     final DateTime? made = item.generatedAt;
@@ -141,7 +143,7 @@ class _HistoryCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(OnboardingRadii.card),
         border: Border.all(
           color: item.isCurrent
-              ? OnboardingColors.borderActive
+              ? p.borderActive
               : Colors.transparent,
           width: 2,
         ),
@@ -166,7 +168,7 @@ class _HistoryCard extends StatelessWidget {
                       style: OnboardingTypography.inter(
                         size: 12,
                         weight: FontWeight.w600,
-                        color: OnboardingColors.ink600,
+                        color: p.textSecondary,
                       ),
                     ),
                   ),
@@ -195,6 +197,7 @@ class ResumeUpdateCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return KitCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -205,14 +208,14 @@ class ResumeUpdateCard extends StatelessWidget {
                 width: 20,
                 height: 20,
                 child: failed
-                    ? const Icon(
+                    ?  Icon(
                         Icons.error_outline_rounded,
                         size: 20,
-                        color: OnboardingColors.errorRed,
+                        color: p.danger,
                       )
-                    : const CircularProgressIndicator(
+                    : CircularProgressIndicator(
                         strokeWidth: 2.5,
-                        color: OnboardingColors.shiftBlue,
+                        color: p.textBrand,
                       ),
               ),
               const SizedBox(width: 12),
@@ -221,8 +224,8 @@ class ResumeUpdateCard extends StatelessWidget {
                   failed ? kResumeUpdateFailed : kResumeUpdateInProgress,
                   style: OnboardingTypography.cardTitle(
                     color: failed
-                        ? OnboardingColors.errorRed
-                        : OnboardingColors.shiftBlue,
+                        ? p.danger
+                        : p.textBrand,
                   ),
                 ),
               ),
@@ -234,7 +237,7 @@ class ResumeUpdateCard extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 12,
               height: 1.4,
-              color: OnboardingColors.ink600,
+              color: p.textSecondary,
             ),
           ),
           if (failed && onRetry != null) ...<Widget>[

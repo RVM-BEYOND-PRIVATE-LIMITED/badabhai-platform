@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_motion.dart';
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 
 /// ADR-0048 — the worker's freshly-entered name, flying from the chat bubble it
@@ -155,16 +156,17 @@ class _FlyingPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Material(
       color: Colors.transparent,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: OnboardingColors.safetyYellow,
+          color: p.action,
           borderRadius: BorderRadius.circular(999),
           boxShadow: <BoxShadow>[
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.20),
+              color: p.scrim.withValues(alpha: 0.20),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
@@ -177,7 +179,7 @@ class _FlyingPill extends StatelessWidget {
           style: OnboardingTypography.inter(
             size: 14,
             weight: FontWeight.w700,
-            color: OnboardingColors.textOnYellow,
+            color: p.onAction,
           ),
         ),
       ),

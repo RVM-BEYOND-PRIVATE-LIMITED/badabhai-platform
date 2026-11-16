@@ -10,7 +10,9 @@ import '../../../core/config/build_info.dart';
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/theme/theme_cubit.dart';
 import '../../../core/util/date_label.dart';
 import '../../../core/util/push_once.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
@@ -18,6 +20,7 @@ import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../core/widgets/kit/kit_card.dart';
 import '../../../core/widgets/kit/kit_content_column.dart';
+import '../../../core/widgets/kit/kit_select_chip.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../l10n/gen/app_localizations.dart';
 import '../../../router.dart';
@@ -26,6 +29,7 @@ import '../../consent/presentation/cubit/consent_withdraw_cubit.dart';
 import '../../consent/presentation/cubit/employer_contact_cubit.dart';
 import '../../consent/presentation/widgets/free_for_workers_line.dart';
 import '../../../core/widgets/feedback_fab.dart';
+import '../domain/display_prefs.dart';
 import '../domain/notification_prefs_repository.dart';
 import 'cubit/account_delete_cubit.dart';
 import 'widgets/debug_dark_toggle.dart';
@@ -119,7 +123,7 @@ class _SettingsView extends StatelessWidget {
     await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      barrierColor: OnboardingColors.scrim,
+      barrierColor: context.bb.scrim,
       builder: (BuildContext dialogContext) =>
           BlocProvider<AccountDeleteCubit>.value(
             value: cubit,
@@ -145,6 +149,7 @@ class _SettingsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // Still [BbScaffold], with its own chrome switched off: the navy header has
     // to bleed into the status bar (so `safeArea: false`) and the list owns its
     // gutter (so `padded: false`). What it is kept FOR is the `bottomBarInset`
@@ -205,6 +210,7 @@ class _SettingsView extends StatelessWidget {
                     subtitle: 'Job alert · resume · reply',
                     onTap: () => _comingSoon(context),
                   ),
+                  const _AppearanceRow(),
                   const _NotificationsToggleRow(),
                   // #2824 — debug-only ink preview; absent from release builds.
                   const DebugDarkToggleRow(),
@@ -342,7 +348,7 @@ class _SettingsView extends StatelessWidget {
                         textAlign: TextAlign.center,
                         style: OnboardingTypography.inter(
                           size: 11,
-                          color: OnboardingColors.ink500,
+                          color: p.textMuted,
                         ),
                       ),
                     ),
@@ -369,6 +375,7 @@ class _PendingDeletionBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool cancelling = state.status == AccountDeleteStatus.cancelling;
     final DateTime? due = state.scheduledFor;
     final String line = due == null
@@ -387,7 +394,7 @@ class _PendingDeletionBanner extends StatelessWidget {
           'Aap is dauraan cancel kar sakte hain',
           style: OnboardingTypography.inter(
             size: 12,
-            color: OnboardingColors.ink600,
+            color: p.textSecondary,
           ),
         ),
       ],
@@ -395,11 +402,11 @@ class _PendingDeletionBanner extends StatelessWidget {
 
     final Widget action = TextButton(
       style: TextButton.styleFrom(
-        foregroundColor: OnboardingColors.shiftBlue,
+        foregroundColor: p.textBrand,
         textStyle: OnboardingTypography.inter(
           size: 13,
           weight: FontWeight.w700,
-          color: OnboardingColors.shiftBlue,
+          color: p.textBrand,
         ),
         minimumSize: const Size(
           OnboardingLayout.tapTarget,
@@ -411,12 +418,12 @@ class _PendingDeletionBanner extends StatelessWidget {
           ? null
           : () => context.read<AccountDeleteCubit>().cancelDelete(),
       child: cancelling
-          ? const SizedBox(
+          ? SizedBox(
               width: 18,
               height: 18,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: OnboardingColors.shiftBlue,
+                color: p.textBrand,
               ),
             )
           : const Text('Delete cancel karein'),
@@ -430,9 +437,9 @@ class _PendingDeletionBanner extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: OnboardingColors.selectedCardBg,
+        color: p.selectedCardBg,
         borderRadius: BorderRadius.circular(OnboardingRadii.note),
-        border: Border.all(color: OnboardingColors.safetyYellow),
+        border: Border.all(color: p.action),
       ),
       child: stack
           ? Column(
@@ -441,9 +448,9 @@ class _PendingDeletionBanner extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    const Icon(
+                    Icon(
                       Icons.schedule_rounded,
-                      color: OnboardingColors.safetyYellowDark,
+                      color: p.actionPressed,
                     ),
                     const SizedBox(width: 12),
                     Expanded(child: text),
@@ -454,9 +461,9 @@ class _PendingDeletionBanner extends StatelessWidget {
             )
           : Row(
               children: <Widget>[
-                const Icon(
+                Icon(
                   Icons.schedule_rounded,
-                  color: OnboardingColors.safetyYellowDark,
+                  color: p.actionPressed,
                 ),
                 const SizedBox(width: 12),
                 Expanded(child: text),
@@ -525,6 +532,7 @@ class _DeleteOtpDialogState extends State<DeleteOtpDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BlocConsumer<AccountDeleteCubit, AccountDeleteState>(
       listener: (BuildContext context, AccountDeleteState state) {
         if (state.status == AccountDeleteStatus.scheduled) {
@@ -546,7 +554,7 @@ class _DeleteOtpDialogState extends State<DeleteOtpDialog> {
             state.status == AccountDeleteStatus.confirming || sending;
         final bool isError = state.status == AccountDeleteStatus.error;
         return AlertDialog(
-          backgroundColor: OnboardingColors.paperWhite,
+          backgroundColor: p.card,
           // Design law: separation is the scrim + fill, never a shadow.
           elevation: 0,
           shape: const RoundedRectangleBorder(
@@ -578,7 +586,7 @@ class _DeleteOtpDialogState extends State<DeleteOtpDialog> {
                 style: OnboardingTypography.inter(
                   size: 14,
                   height: 1.45,
-                  color: OnboardingColors.ink600,
+                  color: p.textSecondary,
                 ),
               ),
               const SizedBox(height: 12),
@@ -596,7 +604,7 @@ class _DeleteOtpDialogState extends State<DeleteOtpDialog> {
                 style: OnboardingTypography.mono(
                   size: 16,
                   weight: FontWeight.w700,
-                  color: OnboardingColors.ink900,
+                  color: p.textPrimary,
                 ),
                 decoration: const InputDecoration(
                   counterText: '',
@@ -613,7 +621,7 @@ class _DeleteOtpDialogState extends State<DeleteOtpDialog> {
                   style: OnboardingTypography.inter(
                     size: 13,
                     weight: FontWeight.w500,
-                    color: OnboardingColors.errorRed,
+                    color: p.danger,
                   ),
                 ),
               ],
@@ -630,7 +638,7 @@ class _DeleteOtpDialogState extends State<DeleteOtpDialog> {
                   'Dobara bhejne ke liye $_remaining second',
                   style: OnboardingTypography.inter(
                     size: 12,
-                    color: OnboardingColors.ink500,
+                    color: p.textMuted,
                   ),
                 )
               else
@@ -638,11 +646,11 @@ class _DeleteOtpDialogState extends State<DeleteOtpDialog> {
                   alignment: Alignment.centerLeft,
                   child: TextButton(
                     style: TextButton.styleFrom(
-                      foregroundColor: OnboardingColors.shiftBlue,
+                      foregroundColor: p.textBrand,
                       textStyle: OnboardingTypography.inter(
                         size: 13,
                         weight: FontWeight.w700,
-                        color: OnboardingColors.shiftBlue,
+                        color: p.textBrand,
                       ),
                       minimumSize: const Size(
                         OnboardingLayout.tapTarget,
@@ -654,12 +662,12 @@ class _DeleteOtpDialogState extends State<DeleteOtpDialog> {
                     // (and trip the server's rate limit against the worker).
                     onPressed: busy ? null : () => _resend(context),
                     child: sending
-                        ? const SizedBox(
+                        ? SizedBox(
                             width: 16,
                             height: 16,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: OnboardingColors.shiftBlue,
+                              color: p.textBrand,
                             ),
                           )
                         : const Text('Dobara OTP bhejein'),
@@ -670,11 +678,11 @@ class _DeleteOtpDialogState extends State<DeleteOtpDialog> {
           actions: <Widget>[
             TextButton(
               style: TextButton.styleFrom(
-                foregroundColor: OnboardingColors.ink600,
+                foregroundColor: p.textSecondary,
                 textStyle: OnboardingTypography.inter(
                   size: 14,
                   weight: FontWeight.w700,
-                  color: OnboardingColors.ink600,
+                  color: p.textSecondary,
                 ),
                 minimumSize: const Size(
                   OnboardingLayout.tapTarget,
@@ -687,11 +695,11 @@ class _DeleteOtpDialogState extends State<DeleteOtpDialog> {
             ),
             TextButton(
               style: TextButton.styleFrom(
-                foregroundColor: OnboardingColors.errorRed,
+                foregroundColor: p.danger,
                 textStyle: OnboardingTypography.inter(
                   size: 14,
                   weight: FontWeight.w700,
-                  color: OnboardingColors.errorRed,
+                  color: p.danger,
                 ),
                 minimumSize: const Size(
                   OnboardingLayout.tapTarget,
@@ -708,12 +716,12 @@ class _DeleteOtpDialogState extends State<DeleteOtpDialog> {
               // covers a resend, and showing two spinners at once would read as
               // "the delete is going through" while nothing is being confirmed.
               child: state.status == AccountDeleteStatus.confirming
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: OnboardingColors.errorRed,
+                        color: p.danger,
                       ),
                     )
                   : const Text('Delete karein'),
@@ -1011,6 +1019,93 @@ class _NotificationsToggleRowState extends State<_NotificationsToggleRow> {
           : 'Off — sirf suraksha alerts aayenge',
       value: _enabled,
       onChanged: _onChanged,
+    );
+  }
+}
+
+
+/// Settings → Appearance: Light / Dark / System (#2828).
+///
+/// Shown ONLY while [ThemeState.canChoose] is true (the server answered
+/// `theme_open: true`). A closed rollout renders nothing — not a greyed row —
+/// and the app stays Light, per the rollback contract.
+class _AppearanceRow extends StatelessWidget {
+  const _AppearanceRow();
+
+  @override
+  Widget build(BuildContext context) {
+    if (!locator.isRegistered<ThemeCubit>()) return const SizedBox.shrink();
+    final ThemeCubit cubit = locator<ThemeCubit>();
+    final AppLocalizations? strings = Localizations.of<AppLocalizations>(
+      context,
+      AppLocalizations,
+    );
+    if (strings == null) return const SizedBox.shrink();
+    final BbPalette p = context.bb;
+    return BlocBuilder<ThemeCubit, ThemeState>(
+      bloc: cubit,
+      builder: (BuildContext context, ThemeState state) {
+        if (!state.canChoose) return const SizedBox.shrink();
+        final Map<DisplayTheme, String> labels = <DisplayTheme, String>{
+          DisplayTheme.light: strings.appearanceLight,
+          DisplayTheme.dark: strings.appearanceDark,
+          DisplayTheme.system: strings.appearanceSystem,
+        };
+        return Container(
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: p.borderSubtle)),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Icon(
+                    Icons.palette_outlined,
+                    size: 22,
+                    color: p.textSecondary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      strings.appearanceTitle,
+                      style: OnboardingTypography.inter(
+                        size: 14,
+                        weight: FontWeight.w600,
+                        color: p.textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  for (final DisplayTheme theme in DisplayTheme.values)
+                    KitSelectChip(
+                      label: labels[theme]!,
+                      selected: state.choice == theme,
+                      onTap: () => cubit.choose(theme),
+                    ),
+                ],
+              ),
+              if (state.choice == DisplayTheme.system) ...<Widget>[
+                const SizedBox(height: 8),
+                Text(
+                  strings.appearanceSystemHelper,
+                  style: OnboardingTypography.inter(
+                    size: 12,
+                    color: p.textMuted,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 }

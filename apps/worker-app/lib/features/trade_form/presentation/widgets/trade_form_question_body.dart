@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/devanagari_guard.dart' show stripDevanagari;
 import '../../../../core/widgets/onboarding/form_flow_parts.dart';
@@ -781,14 +782,14 @@ String? _seedDraftSingleKey(
 ///
 /// ONE definition, because the hint banner and the framed card below it are
 /// read as a pair — restyling one without the other would split the pair. The
-/// fill is [OnboardingColors.infoBg], the kit's token for an informational
-/// panel; `shieldCircle` is the same value but names the privacy shield's disc.
-/// Only [radius] differs: a card's frame is rounder than a note's.
-BoxDecoration _suggestionFrame(double radius) => BoxDecoration(
-  color: OnboardingColors.infoBg,
+/// fill is the informational panel token; `shieldCircle` is the same value but
+/// names the privacy shield's disc. Only [radius] differs: a card's frame is
+/// rounder than a note's.
+BoxDecoration _suggestionFrame(BbPalette p, double radius) => BoxDecoration(
+  color: p.infoBg,
   borderRadius: BorderRadius.circular(radius),
   border: Border.all(
-    color: OnboardingColors.shiftBlueLight.withValues(alpha: 0.35),
+    color: p.brandSurfaceLight.withValues(alpha: 0.35),
     width: 1.2,
   ),
 );
@@ -807,12 +808,13 @@ class TradeFormSuggestedOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Container(
         // No bottom padding: the kit card carries its own 10px bottom gap.
         padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
-        decoration: _suggestionFrame(OnboardingRadii.card + 2),
+        decoration: _suggestionFrame(p, OnboardingRadii.card + 2),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
@@ -821,10 +823,10 @@ class TradeFormSuggestedOption extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(6, 2, 6, 6),
               child: Row(
                 children: <Widget>[
-                  const Icon(
+                  Icon(
                     Icons.description_outlined,
                     size: 14,
-                    color: OnboardingColors.shiftBlue,
+                    color: p.textBrand,
                   ),
                   const SizedBox(width: 4),
                   Flexible(
@@ -834,7 +836,7 @@ class TradeFormSuggestedOption extends StatelessWidget {
                         size: 11,
                         weight: FontWeight.w700,
                         letterSpacing: 0.3,
-                        color: OnboardingColors.shiftBlue,
+                        color: p.textBrand,
                       ),
                     ),
                   ),
@@ -867,16 +869,17 @@ class _SuggestionConfirm extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: _suggestionFrame(OnboardingRadii.note),
+      decoration: _suggestionFrame(p, OnboardingRadii.note),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Icon(
+          Icon(
             Icons.description_outlined,
             size: 18,
-            color: OnboardingColors.shiftBlue,
+            color: p.textBrand,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -961,6 +964,7 @@ class _SearchableOptionListState extends State<_SearchableOptionList> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String q = _query.trim().toLowerCase();
     final List<VoiceChoice> visible = widget.options
         .where((VoiceChoice o) =>
@@ -984,14 +988,12 @@ class _SearchableOptionListState extends State<_SearchableOptionList> {
             controller: _search,
             onChanged: (String value) => setState(() => _query = value),
             textInputAction: TextInputAction.search,
-            cursorColor: OnboardingColors.shiftBlue,
+            cursorColor: p.focusRing,
             style: OnboardingTypography.inter(size: 14, weight: FontWeight.w500),
             decoration: tradeFormInputDecoration(
+              p: p,
               hint: _kSearchHint,
-              prefixIcon: const Icon(
-                Icons.search_rounded,
-                color: OnboardingColors.ink600,
-              ),
+              prefixIcon: Icon(Icons.search_rounded, color: p.textSecondary),
             ),
           ),
         ),
