@@ -684,6 +684,43 @@ describe("grantCredits", () => {
     expect(m.events.emit).not.toHaveBeenCalled();
   });
 
+  it("#2749: a key already used for ANOTHER payer → 409 (the ledger key's 23505), not a 500", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    const driver = Object.assign(new Error("duplicate key value"), {
+      code: "23505",
+      constraint_name: "credit_ledger_idempotency_key_uq",
+    });
+    m.actions.grantCredits.mockRejectedValue(
+      new DrizzleQueryError("insert into credit_ledger ...", [], driver),
+    );
+    await expect(
+      m.service.grantCredits(
+        ADMIN_ID,
+        PAYER_ID,
+        { amount: 10, reason_code: "promo", idempotency_key: GRANT_KEY },
+        CTX,
+      ),
+    ).rejects.toThrow(ConflictException);
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("#2749: any OTHER unique violation still propagates (only the ledger key is a 409)", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    const other = Object.assign(new Error("duplicate key value"), {
+      code: "23505",
+      constraint_name: "events_idempotency_key_uq",
+    });
+    m.actions.grantCredits.mockRejectedValue(other);
+    await expect(
+      m.service.grantCredits(
+        ADMIN_ID,
+        PAYER_ID,
+        { amount: 10, reason_code: "promo", idempotency_key: GRANT_KEY },
+        CTX,
+      ),
+    ).rejects.toBe(other);
+  });
+
   it("a PENDING payer CAN be granted credits (pre-provisioning is legitimate)", async () => {
     // Deliberately allowed: the credits are unspendable until the payer verifies, and
     // blocking this would break granting a signup bonus before first login.

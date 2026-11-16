@@ -4160,11 +4160,11 @@ export type PayerCreditsExhaustedPayload = z.infer<typeof PayerCreditsExhaustedP
 /**
  * #2749 — a credit lot passed its `expires_at` and its unspent credits left the wallet.
  *
- * ONE EVENT PER LOT, EVER: emitted after the transaction that wrote the lot's one `expired`
- * ledger line commits (idempotency key `payer.credits_expired:<lot id>`, the same identity as the
- * ledger line's `credit_lot_expired:<lot id>`), by whichever closed it first — a contact open
- * that found the lot past its date before it spent (`trigger: spend`) or the `credit-lot-expiry`
- * sweep (`trigger: sweep`). An emit failure is logged; the expiry stands (the ledger is the record).
+ * ONE EVENT PER LOT, EVER: written in the SAME transaction as the lot's one `expired` ledger line
+ * (idempotency key `payer.credits_expired:<lot id>`, the same identity as the ledger line's
+ * `credit_lot_expired:<lot id>`), so the two commit or roll back together, by whichever closed it
+ * first — a contact open that spent a credit and found the lot past its date (`trigger: spend`)
+ * or the `credit-lot-expiry` sweep (`trigger: sweep`).
  *
  * FACELESS: the wallet key (`payer_id`, the tenant key — the same key `payer.credits_exhausted`
  * carries), the opaque lot id, integers, two closed codes and a date. No pack price, no payment

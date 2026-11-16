@@ -103,6 +103,8 @@ interface SetupOpts {
   consentVersion?: string;
   /** #2747: the pilot list could not be read (`stateFor` → unavailable). */
   rolloutUnavailable?: boolean;
+  /** #2749: spendable credits for the F-1 precondition (default: `balance`). */
+  spendable?: number;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -165,6 +167,9 @@ function setup(opts: SetupOpts = {}) {
   const repo = {
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work(txMethods)),
     getBalance: vi.fn(async () => balance),
+    // #2749 review — the F-1 precondition reads SPENDABLE credits (due lots out). Defaults to the
+    // balance (no lot is past due); a test overrides it to model a wallet of due lots.
+    getSpendableBalance: vi.fn(async () => opts.spendable ?? balance),
     // #1903: a global-pool read, so it lives on the repo only — NOT in txMethods, where a
     // call through the locked `tx` handle would be the pool-vs-lock deadlock shape.
     legacyJobExists: vi.fn(async (_jobId: string) => opts.jobRowExists ?? true),
@@ -873,7 +878,7 @@ describe("UnlockService — #1899 payer-session job reference must be null or th
 
   function expectNothingHappened(t: ReturnType<typeof setup>) {
     expect(t.events.emit).not.toHaveBeenCalled(); // not even unlock.requested
-    expect(t.repo.getBalance).not.toHaveBeenCalled();
+    expect(t.repo.getSpendableBalance).not.toHaveBeenCalled();
     expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
     expect(t.repo.withTransaction).not.toHaveBeenCalled();
     expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
@@ -1541,11 +1546,14 @@ describe("#2562 - a suspended worker is frozen on every unlock surface", () => {
  * instead of stubbing a balance read.
  */
 /**
- * #2749 — `payer.credits_expired`: one per lot the spend path expired, emitted only AFTER the
- * unlock transaction commits (the deferred set). The no-credit branch commits too, so its expiry
- * is reported; a transaction that throws after the debit rolls the expiry back and reports nothing.
+ * #2749 — `payer.credits_expired` from the spend path, and the review's F-1/F-3 fix.
+ *
+ * The event is written ON the unlock transaction (`tx`), one per lot the spend expired, so it
+ * commits or rolls back with the expiry. A spend that cannot happen writes nothing (the wallet
+ * helper), and a wallet whose credits are all past due is refused at F-1 on its SPENDABLE
+ * credits, before any worker state is read.
  */
-describe("UnlockService — #2749 payer.credits_expired from the spend path", () => {
+describe("UnlockService — #2749 payer.credits_expired and the spendable F-1", () => {
   const grantFixture = { payerId: PAYER, workerId: WORKER, jobId: null };
   const lot = (lotId: string, credits: number) => ({
     lotId,
@@ -1556,7 +1564,7 @@ describe("UnlockService — #2749 payer.credits_expired from the spend path", ()
 
   /** Track the commit: the fake transaction "commits" when its work resolves. */
   function withCommitTracking(t: ReturnType<typeof setup>) {
-    const state = { committed: false, expiredEmittedBeforeCommit: 0 };
+    const state = { committed: false, expiredEmittedInsideTx: 0 };
     t.repo.withTransaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => {
       const out = await work(t.txMethods);
       state.committed = true;
@@ -1564,21 +1572,21 @@ describe("UnlockService — #2749 payer.credits_expired from the spend path", ()
     });
     t.events.emit.mockImplementation(async (e: Record<string, unknown>) => {
       if (e.event_name === "payer.credits_expired" && !state.committed) {
-        state.expiredEmittedBeforeCommit += 1;
+        state.expiredEmittedInsideTx += 1;
       }
       return e;
     });
     return state;
   }
 
-  type Emitted = { event_name: string; payload: Record<string, unknown> };
+  type Emitted = { event_name: string; payload: Record<string, unknown>; tx?: unknown };
   function expiredEvents(t: ReturnType<typeof setup>) {
     return t.events.emit.mock.calls
       .map((c) => c[0] as Emitted)
       .filter((e) => e.event_name === "payer.credits_expired");
   }
 
-  it("emits ONE event per expired lot, after the commit, on a grant", async () => {
+  it("emits ONE event per expired lot, ON the unlock transaction (before it commits)", async () => {
     const t = setup({ balance: 5 });
     const state = withCommitTracking(t);
     t.txMethods.tryDebit.mockResolvedValueOnce({
@@ -1593,7 +1601,9 @@ describe("UnlockService — #2749 payer.credits_expired from the spend path", ()
 
     const fired = expiredEvents(t);
     expect(fired).toHaveLength(2);
-    expect(state.expiredEmittedBeforeCommit).toBe(0);
+    // Inside the transaction, on its handle: the event shares the expiry's commit or rollback.
+    expect(state.expiredEmittedInsideTx).toBe(2);
+    for (const e of fired) expect(e.tx).toBe(t.txMethods);
     expect(fired[0]).toMatchObject({
       actor: { actor_type: "payer", actor_id: PAYER },
       subject: { subject_type: "payer", subject_id: PAYER },
@@ -1611,23 +1621,6 @@ describe("UnlockService — #2749 payer.credits_expired from the spend path", ()
     expect(fired[1]!.payload).toMatchObject({ lot_id: "lot-b", credits: 1 });
   });
 
-  it("the no-credit branch COMMITS its expiry, so it is reported (and the body stays neutral)", async () => {
-    const t = setup({ balance: 2 });
-    const state = withCommitTracking(t);
-    t.txMethods.tryDebit.mockResolvedValueOnce({
-      ok: false,
-      expiredLots: [lot("lot-gone", 2)],
-    } as never);
-
-    expect(await t.svc.requestUnlock(grantFixture, CTX)).toEqual({ status: "unavailable" });
-    expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
-    const fired = expiredEvents(t);
-    expect(fired).toHaveLength(1);
-    expect(fired[0]!.payload).toMatchObject({ lot_id: "lot-gone", credits: 2, trigger: "spend" });
-    expect(state.expiredEmittedBeforeCommit).toBe(0);
-    expect(emitted(t.events)).toContain("payment.failed");
-  });
-
   it("emits NOTHING when nothing expired", async () => {
     const t = setup({ balance: 5 }); // the default debit expires nothing
     await t.svc.requestUnlock(grantFixture, CTX);
@@ -1635,18 +1628,34 @@ describe("UnlockService — #2749 payer.credits_expired from the spend path", ()
     expect(emitted(t.events)).toContain("unlock.granted");
   });
 
-  it("a transaction that throws after the debit rolls the expiry back: nothing is reported", async () => {
-    const t = setup({ balance: 5 });
-    t.txMethods.tryDebit.mockResolvedValueOnce({
-      ok: true,
-      balanceAfter: 4,
-      lotId: "lot-1",
-      expiredLots: [lot("lot-a", 3)],
-    } as never);
-    t.txMethods.upsertGrant.mockRejectedValueOnce(new Error("deadlock detected"));
-
-    await expect(t.svc.requestUnlock(grantFixture, CTX)).rejects.toThrow("deadlock detected");
+  it("a debit that cannot happen (wrote nothing) emits no credits_expired, and the body is neutral", async () => {
+    const t = setup({ balance: 2, debitOk: false });
+    expect(await t.svc.requestUnlock(grantFixture, CTX)).toEqual({ status: "unavailable" });
+    expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
+    expect(t.txMethods.appendLedger).not.toHaveBeenCalled();
     expect(expiredEvents(t)).toHaveLength(0);
+    expect(emitted(t.events)).toContain("payment.failed");
+  });
+
+  it("F-1 reads SPENDABLE credits: a balance held only in lots past due is refused before any worker read", async () => {
+    // balance 3, all of it in lots past their date → spendable 0.
+    const t = setup({ balance: 3, spendable: 0 });
+    expect(await t.svc.requestUnlock(grantFixture, CTX)).toEqual({ status: "unavailable" });
+    expect(t.repo.getSpendableBalance).toHaveBeenCalledWith(PAYER);
+    // No worker state consulted, nothing locked, nothing debited or expired.
+    expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+    expect(emitted(t.events)).toEqual(["unlock.requested", "payment.failed"]);
+  });
+
+  it("F-1 answers byte-identically whether the worker consented or does not exist (no oracle)", async () => {
+    const consented = setup({ balance: 3, spendable: 0 });
+    const unknown = setup({ balance: 3, spendable: 0, workerExists: false, consentPurposes: null });
+    const a = await consented.svc.requestUnlock(grantFixture, CTX);
+    const b = await unknown.svc.requestUnlock(grantFixture, CTX);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    expect(emitted(consented.events)).toEqual(emitted(unknown.events));
   });
 });
 
@@ -2017,7 +2026,7 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
     const payerIdOf = (calls: unknown[][]): unknown[] =>
       calls.map((c) => (c[1] as { payerId: unknown }).payerId);
     return [
-      ...arg(t.repo.getBalance.mock.calls as unknown[][], 0),
+      ...arg(t.repo.getSpendableBalance.mock.calls as unknown[][], 0),
       ...arg(t.txMethods.findByPayerWorker.mock.calls as unknown[][], 1),
       ...arg(t.txMethods.tryDebit.mock.calls as unknown[][], 1),
       ...payerIdOf(t.txMethods.upsertGrant.mock.calls as unknown[][]),
@@ -2082,7 +2091,7 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
     await expect(
       t.svc.requestUnlock({ payerId: MEMBER, workerId: WORKER, jobId: null }, CTX),
     ).rejects.toMatchObject({ status: 403 });
-    expect(t.repo.getBalance).not.toHaveBeenCalled();
+    expect(t.repo.getSpendableBalance).not.toHaveBeenCalled();
     expect(t.repo.withTransaction).not.toHaveBeenCalled();
     expect(t.events.emit).not.toHaveBeenCalled();
   });

@@ -3,7 +3,7 @@ import { InjectQueue, Processor, WorkerHost } from "@nestjs/bullmq";
 import { Inject, Logger, type OnApplicationBootstrap } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
-import type { WalletExpiryResult } from "@badabhai/db";
+import type { Database, WalletExpiryResult } from "@badabhai/db";
 import { sqlStateOf } from "../common/db-error";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
@@ -22,10 +22,13 @@ export interface CreditLotExpirySweepResult {
   walletsExpired: number;
   lotsExpired: number;
   creditsExpired: number;
-  /** Wallets whose transaction failed (logged one by one; retried on the next tick). */
+  /**
+   * Wallets whose transaction failed — the expiry or its event (they share it) — logged one by
+   * one, rolled back, retried on the next tick.
+   */
   walletsFailed: number;
-  /** `payer.credits_expired` emits that failed after their commit (logged; the expiry stands). */
-  eventsFailed: number;
+  /** Wallet keys holding a due lot but no `payer_credits` row: never in the work list, logged. */
+  orphanWallets: number;
 }
 
 /**
@@ -43,18 +46,20 @@ export interface CreditLotExpirySweepResult {
  * sweep racing an unlock on the same wallet waits on the row lock and never deadlocks, and one
  * wallet's failure (logged with its id and SQLSTATE) neither rolls back nor stops the others.
  * The work list is bounded (CREDIT_LOT_EXPIRY_BATCH_LIMIT wallets, longest-overdue first); a
- * backlog drains across ticks.
+ * backlog drains across ticks. It holds only wallets that HAVE a `payer_credits` row: a due lot
+ * whose wallet row is gone can never be expired, so it would otherwise take a slot on every tick;
+ * those are counted and logged once per tick instead.
  *
  * ARMED, WITH NO DRY RUN AND NO FLAG, deliberately: nothing in #2749 PR 1 writes an `expires_at`
  * (packs gain their validity with the catalogue in PR 2, legacy lots their date at the
  * switch-over), so until the data carries a date every tick finds nothing. The restriction lives
  * in the data, not in a switch someone must remember to flip.
  *
- * EVENTS: one `payer.credits_expired` (trigger `sweep`, actor `system`) per lot, emitted AFTER
- * that wallet's transaction commits — never inside it, so an event cannot outlive a rolled-back
- * expiry. An emit failure is logged with ids only and does NOT undo the expiry: the `expired`
- * ledger line is the record, the event its audit copy (the post-commit trade-off UnlockService
- * documents). Not on `/health`.
+ * EVENTS: one `payer.credits_expired` (trigger `sweep`, actor `system`) per lot, written INSIDE
+ * that wallet's transaction (`EventsService.emit({ tx })`), so the expiry and its event commit
+ * together: a committed expiry can never lose its event, and an event that cannot be written
+ * (validation, the events table) rolls that wallet's expiry back — counted in `walletsFailed`
+ * and retried on the next tick. Not on `/health`.
  */
 @Processor(CREDIT_LOT_EXPIRY_QUEUE)
 export class CreditLotExpirySweepProcessor extends WorkerHost implements OnApplicationBootstrap {
@@ -92,24 +97,50 @@ export class CreditLotExpirySweepProcessor extends WorkerHost implements OnAppli
     const wallets = await this.repo.findWalletsWithDueLots(
       this.config.CREDIT_LOT_EXPIRY_BATCH_LIMIT,
     );
+    const orphanWallets = await this.repo.countOrphanWalletsWithDueLots();
+    if (orphanWallets > 0) {
+      // Once per tick, a count only: these lots name a wallet with no `payer_credits` row, so
+      // nothing can lock or expire them. Skipped, not retried into the batch.
+      this.logger.warn(
+        `credit-lot expiry sweep: skipped ${orphanWallets} wallet key(s) holding due lots ` +
+          `but no payer_credits row`,
+      );
+    }
     const result: CreditLotExpirySweepResult = {
       walletsDue: wallets.length,
       walletsExpired: 0,
       lotsExpired: 0,
       creditsExpired: 0,
       walletsFailed: 0,
-      eventsFailed: 0,
+      orphanWallets,
     };
     for (const wallet of wallets) {
       let done: WalletExpiryResult;
       try {
-        done = await this.repo.expireDueLotsForWallet(wallet);
+        const correlationId = randomUUID();
+        // The events ride the wallet's OWN transaction: they commit with the expiry or not at all.
+        done = await this.repo.expireDueLotsForWallet(wallet, async (tx, expired) => {
+          for (const lot of expired.expiredLots) {
+            await this.events.emit({
+              ...creditsExpiredEvent({
+                walletKey: wallet,
+                lot,
+                trigger: "sweep",
+                actor: { actor_type: "system", actor_id: null },
+                correlationId,
+                requestId: CREDIT_LOT_EXPIRY_SWEEP_SCHEDULER_ID,
+              }),
+              tx: tx as unknown as Database,
+            });
+          }
+        });
       } catch (err) {
         result.walletsFailed += 1;
         // Ids and the SQLSTATE only: a driver message carries the bound parameters.
         this.logger.error(
           `credit-lot expiry failed for wallet=${wallet} sqlstate=${sqlStateOf(err) ?? "none"} ` +
-            `(${err instanceof Error ? err.name : "UnknownError"}); retried on the next tick`,
+            `(${err instanceof Error ? err.name : "UnknownError"}); rolled back (expiry and ` +
+            `events), retried on the next tick`,
         );
         continue;
       }
@@ -118,35 +149,12 @@ export class CreditLotExpirySweepProcessor extends WorkerHost implements OnAppli
         result.lotsExpired += done.lotsExpired;
         result.creditsExpired += done.creditsExpired;
       }
-      // COMMITTED — the wallet's transaction is closed. Now the audit events, one per lot.
-      const correlationId = randomUUID();
-      for (const lot of done.expiredLots ?? []) {
-        try {
-          await this.events.emit(
-            creditsExpiredEvent({
-              walletKey: wallet,
-              lot,
-              trigger: "sweep",
-              actor: { actor_type: "system", actor_id: null },
-              correlationId,
-              requestId: CREDIT_LOT_EXPIRY_SWEEP_SCHEDULER_ID,
-            }),
-          );
-        } catch (err) {
-          result.eventsFailed += 1;
-          this.logger.error(
-            `payer.credits_expired emit failed wallet=${wallet} lot=${lot.lotId} ` +
-              `(${err instanceof Error ? err.name : "UnknownError"}); the expiry stands`,
-          );
-        }
-      }
     }
     if (result.walletsDue > 0) {
       this.logger.log(
         `credit-lot expiry sweep: wallets_due=${result.walletsDue} ` +
           `wallets_expired=${result.walletsExpired} lots_expired=${result.lotsExpired} ` +
-          `credits_expired=${result.creditsExpired} wallets_failed=${result.walletsFailed} ` +
-          `events_failed=${result.eventsFailed}`,
+          `credits_expired=${result.creditsExpired} wallets_failed=${result.walletsFailed}`,
       );
     }
     return result;

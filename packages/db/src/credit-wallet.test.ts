@@ -8,6 +8,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   compareLotSpendOrder,
   creditLotExpiredIdempotencyKey,
+  dueCreditsAfterAlignment,
+  LOT_ALIGNMENT_LOG_PREFIX,
   freeTierIdempotencyKey,
   grantCreditsWithinTx,
   lotAlignmentWarning,
@@ -113,6 +115,33 @@ describe("planLotAlignment — balance is the source of truth", () => {
   });
 });
 
+describe("dueCreditsAfterAlignment — what a spend would expire first (#2749 review)", () => {
+  it("counts the due lots' credits; lots that are not due do not count", () => {
+    const lots = [
+      lot({ id: "due", creditsRemaining: 3, expiresAt: day(1), due: true }),
+      lot({ id: "live", creditsRemaining: 5, expiresAt: day(40) }),
+      lot({ id: "never", creditsRemaining: 2 }),
+    ];
+    expect(dueCreditsAfterAlignment(lots, planLotAlignment(lots, 10))).toBe(3);
+  });
+
+  it("a trim taken from a due lot first shrinks what is due", () => {
+    const lots = [
+      lot({ id: "due", creditsRemaining: 3, expiresAt: day(1), due: true }),
+      lot({ id: "never", creditsRemaining: 4 }),
+    ];
+    // Σ 7, balance 5: the trim takes 2 from the soonest-expiring (the due lot).
+    expect(dueCreditsAfterAlignment(lots, planLotAlignment(lots, 5))).toBe(1);
+    // Balance 3: the 4-credit trim empties the due lot (3) before it takes 1 from the other.
+    expect(dueCreditsAfterAlignment(lots, planLotAlignment(lots, 3))).toBe(0);
+  });
+
+  it("a top-up never touches a due lot", () => {
+    const lots = [lot({ id: "due", creditsRemaining: 2, expiresAt: day(1), due: true })];
+    expect(dueCreditsAfterAlignment(lots, planLotAlignment(lots, 6))).toBe(2);
+  });
+});
+
 describe("keys and the warning line", () => {
   it("a lot expires once, keyed by the lot", () => {
     expect(creditLotExpiredIdempotencyKey("lot-1")).toBe("credit_lot_expired:lot-1");
@@ -130,9 +159,11 @@ describe("keys and the warning line", () => {
     expect(
       lotAlignmentWarning("w-1", { action: "top_up", credits: 3, openBefore: 1, balance: 4 }),
     ).toBe(
-      "credit lots realigned with the balance (balance unchanged) wallet=w-1 action=top_up " +
-        "credits=3 open_before=1 balance=4",
+      "credit-wallet: lots out of step with balance (self-healed; balance unchanged) wallet=w-1 " +
+        "action=top_up credits=3 open_before=1 balance=4",
     );
+    // The stable prefix an alert keys on.
+    expect(LOT_ALIGNMENT_LOG_PREFIX).toBe("credit-wallet: lots out of step with balance");
   });
 });
 

@@ -4,9 +4,9 @@ import type { EmitParams } from "../events/events.service";
 
 /**
  * #2749 — the ONE spelling of `payer.credits_expired`, shared by its two emitters: the contact
- * open that found a lot past its date (`spend`, UnlockService) and the expiry sweep (`sweep`,
- * CreditLotExpirySweepProcessor). Both call it only AFTER the transaction that wrote the lot's
- * `expired` ledger line has committed.
+ * open that spent a credit and found a lot past its date (`spend`, UnlockService) and the expiry
+ * sweep (`sweep`, CreditLotExpirySweepProcessor). Both emit it ON the transaction that writes the
+ * lot's `expired` ledger line (`EventsService.emit({ tx })`), so a committed expiry cannot lose it.
  *
  * ONE PER LOT, EVER: the idempotency key is the lot (the ledger line's own identity is
  * `credit_lot_expired:<lot id>`), so a replayed flush records it once, and a lot can only be

@@ -24,8 +24,18 @@
  * move balances without lots. {@link alignLotsWithBalance} heals that at the next touch, under the
  * wallet lock, without a ledger line and without changing what the company can spend: it tops up
  * a never-expiring `legacy` lot, or removes the excess soonest-expiring first (the order a spend
- * would have taken it). The caller logs one warning when it acts (ids and numbers only, through
- * {@link lotAlignmentWarning}). After the deploy it should never fire outside seeds and tests.
+ * would have taken it). The caller logs it at ERROR level when it acts (ids and numbers only,
+ * through {@link lotAlignmentWarning}, prefix `credit-wallet: lots out of step with balance`).
+ * Outside the apply-to-deploy window and the seeds it should NEVER fire: any occurrence in
+ * production means a writer moved a balance without going through these helpers.
+ *
+ * NO WRITE WITHOUT A SPEND (#2749 review, F-1/F-3). A spend that cannot happen writes nothing at
+ * all — no expiry line, no lot or balance change, no alignment — so a company cannot learn from its
+ * own ledger that a request got as far as the debit (which only a worker who passed the consent,
+ * deletion and cap gates does). Due lots are expired on the spend path only when a credit IS
+ * spent; the grant is visible then anyway. The caller's F-1 precondition reads
+ * {@link readSpendableCredits}, so a wallet whose credits are all past due is refused before any
+ * worker state is read.
  *
  * NOT PII: opaque ids, integers, closed codes and dates. Nothing here logs.
  */
@@ -165,13 +175,33 @@ export function planLotAlignment(
  * The ONE warning line a caller logs when an alignment acted, or null when it did nothing.
  * Ids and numbers only.
  */
+/** The stable prefix of the alignment line — alert on it. */
+export const LOT_ALIGNMENT_LOG_PREFIX = "credit-wallet: lots out of step with balance";
+
 export function lotAlignmentWarning(walletKey: string, alignment: LotAlignment): string | null {
   if (alignment.action === "none") return null;
   return (
-    `credit lots realigned with the balance (balance unchanged) wallet=${walletKey} ` +
+    `${LOT_ALIGNMENT_LOG_PREFIX} (self-healed; balance unchanged) wallet=${walletKey} ` +
     `action=${alignment.action} credits=${alignment.credits} ` +
     `open_before=${alignment.openBefore} balance=${alignment.balance}`
   );
+}
+
+/**
+ * The credits held in DUE lots once `plan` is applied — what a spend would expire before it can
+ * spend. A top-up only ever grows a never-expiring `legacy` lot (never due); a trim takes from the
+ * soonest-expiring lots first, so it can shrink a due lot.
+ */
+export function dueCreditsAfterAlignment(
+  lots: readonly OpenCreditLot[],
+  plan: LotAlignmentPlan,
+): number {
+  const taken = new Map(
+    plan.action === "trim" ? plan.takes.map((t) => [t.lotId, t.credits] as const) : [],
+  );
+  return lots
+    .filter((l) => l.due)
+    .reduce((sum, l) => sum + l.creditsRemaining - (taken.get(l.id) ?? 0), 0);
 }
 
 const noAlignment = (balance: number, openBefore = balance): LotAlignment => ({
@@ -316,8 +346,9 @@ export async function alignLotsWithBalance(
 }
 
 /**
- * One lot an expiry closed, as the caller reports it (`payer.credits_expired`, emitted AFTER the
- * caller's transaction commits). Ids, an integer, a closed source and the lot's date.
+ * One lot an expiry closed, as the caller reports it (`payer.credits_expired`, emitted INSIDE the
+ * caller's transaction, so the event commits or rolls back with the expiry). Ids, an integer, a
+ * closed source and the lot's date.
  */
 export interface ExpiredCreditLot {
   readonly lotId: string;
@@ -385,6 +416,31 @@ async function expireLoaded(
     })),
     openLots: lots.filter((l) => !dueIds.has(l.id)),
   };
+}
+
+/**
+ * The credits a wallet can SPEND now: its balance minus what its open lots past `expires_at` still
+ * hold (they expire before any spend), never below 0; 0 for a wallet with no row. READ-ONLY and
+ * unlocked: the unlock path's F-1 precondition reads it BEFORE its transaction (so the global pool
+ * is fine there), and the spend re-decides under the wallet lock.
+ */
+export async function readSpendableCredits(db: WalletTx, payerId: string): Promise<number> {
+  const [row] = await db
+    .select({
+      balance: payerCredits.balance,
+      // The wallet key is BOUND, not correlated: in a single-table select Drizzle renders a
+      // column inside `sql` unqualified, so `${payerCredits.payerId}` here would read as the
+      // subquery's own `payer_id` and sum every wallet's due lots.
+      due: sql<number>`coalesce((
+        SELECT sum(l.credits_remaining) FROM ${creditLots} l
+        WHERE l.payer_id = ${payerId}::uuid AND l.credits_remaining > 0
+          AND l.expires_at IS NOT NULL AND l.expires_at <= now()), 0)::int`,
+    })
+    .from(payerCredits)
+    .where(eq(payerCredits.payerId, payerId))
+    .limit(1);
+  if (!row) return 0;
+  return Math.max(0, row.balance - Number(row.due));
 }
 
 /**
@@ -537,25 +593,25 @@ export type WalletSpendResult =
       /** The lot the credit came from — the caller's ledger line names it. */
       readonly lotId: string;
       readonly creditsExpired: number;
-      /** The lots this spend expired first (the caller emits one event per lot after commit). */
+      /** The lots this spend expired first (the caller emits one event per lot in its transaction). */
       readonly expiredLots: readonly ExpiredCreditLot[];
       readonly alignment: LotAlignment;
     }
   | {
-      /** Not enough credits once due lots were expired (an expiry still commits with the caller). */
+      /**
+       * No spendable credit (due lots do not count). NOTHING was written: no expiry, no lot or
+       * balance change, no alignment.
+       */
       readonly ok: false;
+      /** The stored balance, unchanged. */
       readonly balanceAfter: number;
-      readonly creditsExpired: number;
-      /** The lots this spend expired — written even though nothing was spent. */
-      readonly expiredLots: readonly ExpiredCreditLot[];
-      readonly alignment: LotAlignment;
     };
 
 /**
- * Spend ONE credit: lock the wallet (no row = no credits) → align → expire the due lots → if
- * fewer than 1 credit is left, `ok: false` (the expiry is still written; the caller commits or
- * rolls back as it would) → take 1 from the first open, unexpired lot in spend order → balance
- * −= 1. The CALLER writes the spend's ledger line (`unlock_debit`, −1) with the returned `lotId`:
+ * Spend ONE credit: lock the wallet (no row = no credits) → read its lots → if fewer than 1 credit
+ * is spendable once due lots are counted out, `ok: false` and NOTHING is written → otherwise
+ * align → expire the due lots → take 1 from the first open, unexpired lot in spend order →
+ * balance −= 1. The CALLER writes the spend's ledger line (`unlock_debit`, −1) with the returned `lotId`:
  * a one-credit spend touches one lot, so it is one line.
  */
 export async function spendOneCreditWithinTx(
@@ -563,30 +619,17 @@ export async function spendOneCreditWithinTx(
   payerId: string,
 ): Promise<WalletSpendResult> {
   const balance = await lockWallet(tx, payerId);
-  if (balance === undefined) {
-    return {
-      ok: false,
-      balanceAfter: 0,
-      creditsExpired: 0,
-      expiredLots: [],
-      alignment: noAlignment(0),
-    };
+  if (balance === undefined) return { ok: false, balanceAfter: 0 };
+  const lots = await readOpenLots(tx, payerId);
+  // Decide BEFORE writing: what is spendable once the due lots (after any alignment) are out.
+  if (balance - dueCreditsAfterAlignment(lots, planLotAlignment(lots, balance)) < 1) {
+    return { ok: false, balanceAfter: balance };
   }
-  const aligned = await alignLoaded(tx, payerId, balance, await readOpenLots(tx, payerId));
+  const aligned = await alignLoaded(tx, payerId, balance, lots);
   const expired = await expireLoaded(tx, payerId, aligned.openLots);
-  const available = balance - expired.credits;
-  if (available < 1) {
-    return {
-      ok: false,
-      balanceAfter: available,
-      creditsExpired: expired.credits,
-      expiredLots: expired.expiredLots,
-      alignment: aligned.alignment,
-    };
-  }
 
   const lot = expired.openLots.find((l) => !l.due && l.creditsRemaining > 0);
-  // Σ open = available ≥ 1 after the alignment and the expiry, so an open lot exists.
+  // Σ open = balance − expired ≥ 1 after the alignment and the expiry, so an open lot exists.
   if (!lot) throw new Error("credit-wallet: no open lot holds the balance");
   const [taken] = await tx
     .update(creditLots)
@@ -617,7 +660,7 @@ export interface WalletExpiryResult {
   readonly walletFound: boolean;
   readonly creditsExpired: number;
   readonly lotsExpired: number;
-  /** The lots this pass expired (the sweep emits one event per lot after the commit). */
+  /** The lots this pass expired (the sweep emits one event per lot in the same transaction). */
   readonly expiredLots: readonly ExpiredCreditLot[];
   readonly balanceAfter: number;
   readonly alignment: LotAlignment;
@@ -657,11 +700,16 @@ export async function expireWalletWithinTx(
 /**
  * Up to `limit` wallets holding an open lot whose `expires_at` has passed, the longest-overdue
  * first. Read-only and unlocked (the per-wallet pass locks); served by `credit_lots_due_idx`.
+ *
+ * ONLY WALLETS WITH A `payer_credits` ROW (an inner join): a lot whose wallet row is gone can never
+ * be expired (the pass finds no wallet to lock), so without the join it would be read — and fill a
+ * slot — on every tick. Those are counted by {@link countOrphanWalletsWithDueLots} instead.
  */
 export async function findWalletsWithDueLots(tx: WalletTx, limit: number): Promise<string[]> {
   const rows = await tx
     .select({ payerId: creditLots.payerId })
     .from(creditLots)
+    .innerJoin(payerCredits, eq(payerCredits.payerId, creditLots.payerId))
     .where(
       and(
         gt(creditLots.creditsRemaining, 0),
@@ -673,4 +721,20 @@ export async function findWalletsWithDueLots(tx: WalletTx, limit: number): Promi
     .orderBy(sql`min(${creditLots.expiresAt})`)
     .limit(limit);
   return rows.map((r) => r.payerId);
+}
+
+/** How many wallet keys hold a due open lot but have no `payer_credits` row (the sweep skips them). */
+export async function countOrphanWalletsWithDueLots(tx: WalletTx): Promise<number> {
+  const [row] = await tx
+    .select({ n: sql<number>`count(DISTINCT ${creditLots.payerId})::int` })
+    .from(creditLots)
+    .where(
+      and(
+        gt(creditLots.creditsRemaining, 0),
+        isNotNull(creditLots.expiresAt),
+        lte(creditLots.expiresAt, sql`now()`),
+        sql`NOT EXISTS (SELECT 1 FROM ${payerCredits} pc WHERE pc.payer_id = ${creditLots.payerId})`,
+      ),
+    );
+  return Number(row?.n ?? 0);
 }

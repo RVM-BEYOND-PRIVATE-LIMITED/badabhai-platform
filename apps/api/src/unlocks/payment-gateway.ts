@@ -114,9 +114,9 @@ export class PaymentGateway {
    * credit left once due lots are expired. The caller (chokepoint) appends the ledger row, naming
    * `lotId`, in the SAME tx so balance + lots + ledger never drift.
    *
-   * `expiredLots` (both branches, possibly empty): the lots this spend expired before it spent.
-   * Their `expired` lines are written in the caller's transaction, so the caller reports them
-   * (`payer.credits_expired`) only after that transaction commits.
+   * `expiredLots` (possibly empty): the lots this spend expired before it spent. Their `expired`
+   * lines are written in the caller's transaction, and the caller emits `payer.credits_expired`
+   * on that SAME transaction. `{ ok: false }` means NOTHING was written (#2749 review, F-1/F-3).
    *
    * IDEMPOTENCY (F-6): the chokepoint only calls this on the grant path AFTER it has
    * established there is no pre-existing live grant for (payer, worker) within the same
@@ -128,11 +128,10 @@ export class PaymentGateway {
     tenant: TenantKey,
   ): Promise<
     | { ok: true; balanceAfter: number; lotId: string; expiredLots: readonly ExpiredCreditLot[] }
-    | { ok: false; expiredLots: readonly ExpiredCreditLot[] }
+    | { ok: false }
   > {
     const debited = await this.repo.tryDebit(tx, tenant, 1);
-    if (debited === undefined) return { ok: false, expiredLots: [] };
-    if (debited.ok === false) return { ok: false, expiredLots: debited.expiredLots };
+    if (debited === undefined) return { ok: false };
     return {
       ok: true,
       balanceAfter: debited.balanceAfter,

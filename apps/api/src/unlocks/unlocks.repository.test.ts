@@ -11,9 +11,11 @@ import {
   paymentOrders,
   workers,
   jobs,
+  countOrphanWalletsWithDueLots,
   expireWalletWithinTx,
   findWalletsWithDueLots,
   grantCreditsWithinTx,
+  readSpendableCredits,
   spendOneCreditWithinTx,
   type Database,
 } from "@badabhai/db";
@@ -42,14 +44,18 @@ vi.mock("@badabhai/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@badabhai/db")>();
   return {
     ...actual,
+    countOrphanWalletsWithDueLots: vi.fn(),
     expireWalletWithinTx: vi.fn(),
     findWalletsWithDueLots: vi.fn(),
     grantCreditsWithinTx: vi.fn(),
+    readSpendableCredits: vi.fn(),
     spendOneCreditWithinTx: vi.fn(),
   };
 });
 
 beforeEach(() => {
+  vi.mocked(countOrphanWalletsWithDueLots).mockReset();
+  vi.mocked(readSpendableCredits).mockReset();
   vi.mocked(expireWalletWithinTx).mockReset();
   vi.mocked(findWalletsWithDueLots).mockReset();
   vi.mocked(grantCreditsWithinTx).mockReset();
@@ -600,35 +606,14 @@ describe("UnlocksRepository.tryDebit — one credit from the soonest-expiring lo
     const { db, tx } = makeDb();
     const out = await new UnlocksRepository(db).tryDebit(tx, PAYER_ID, 1);
     expect(spendOneCreditWithinTx).toHaveBeenCalledWith(tx, PAYER_ID);
-    // The lots it expired first ride along, for the caller to report after its commit.
+    // The lots it expired first ride along, for the caller to report on the same transaction.
     expect(out).toEqual({ ok: true, balanceAfter: 3, lotId: "lot-1", expiredLots: [EXPIRED_LOT] });
   });
 
-  it("returns undefined when the wallet holds no credit and nothing expired (the pre-#2749 answer)", async () => {
-    vi.mocked(spendOneCreditWithinTx).mockResolvedValueOnce({
-      ok: false,
-      balanceAfter: 0,
-      creditsExpired: 0,
-      expiredLots: [],
-      alignment: NO_ALIGNMENT,
-    });
+  it("returns undefined when no credit is spendable — and the helper wrote nothing (#2749 review)", async () => {
+    vi.mocked(spendOneCreditWithinTx).mockResolvedValueOnce({ ok: false, balanceAfter: 2 });
     const { db, tx } = makeDb();
     expect(await new UnlocksRepository(db).tryDebit(tx, PAYER_ID, 1)).toBeUndefined();
-  });
-
-  it("no credit left AFTER expiring due lots: ok:false WITH the expired lots (they commit)", async () => {
-    vi.mocked(spendOneCreditWithinTx).mockResolvedValueOnce({
-      ok: false,
-      balanceAfter: 0,
-      creditsExpired: 2,
-      expiredLots: [EXPIRED_LOT],
-      alignment: NO_ALIGNMENT,
-    });
-    const { db, tx } = makeDb();
-    expect(await new UnlocksRepository(db).tryDebit(tx, PAYER_ID, 1)).toEqual({
-      ok: false,
-      expiredLots: [EXPIRED_LOT],
-    });
   });
 
   it("spends exactly one credit — any other amount is refused before the database", async () => {
@@ -851,6 +836,58 @@ describe("UnlocksRepository — the credit-lot expiry sweep's two calls (#2749 i
     const { db } = makeDb();
     expect(await new UnlocksRepository(db).findWalletsWithDueLots(200)).toEqual(["w-1", "w-2"]);
     expect(findWalletsWithDueLots).toHaveBeenCalledWith(db, 200);
+  });
+
+  it("getSpendableBalance reads the spendable credits (due lots out) on the pool, for F-1", async () => {
+    vi.mocked(readSpendableCredits).mockResolvedValueOnce(3);
+    const { db } = makeDb();
+    expect(await new UnlocksRepository(db).getSpendableBalance(PAYER_ID)).toBe(3);
+    expect(readSpendableCredits).toHaveBeenCalledWith(db, PAYER_ID);
+  });
+
+  it("countOrphanWalletsWithDueLots counts the lots the sweep can never expire", async () => {
+    vi.mocked(countOrphanWalletsWithDueLots).mockResolvedValueOnce(2);
+    const { db } = makeDb();
+    expect(await new UnlocksRepository(db).countOrphanWalletsWithDueLots()).toBe(2);
+  });
+
+  it("expireDueLotsForWallet runs the caller's work on the SAME transaction, after the expiry", async () => {
+    const result = {
+      walletFound: true,
+      creditsExpired: 1,
+      lotsExpired: 1,
+      expiredLots: [{ lotId: "lot-9", credits: 1, source: "pack", expiresAt: new Date() }] as const,
+      balanceAfter: 0,
+      alignment: NO_ALIGNMENT,
+    };
+    vi.mocked(expireWalletWithinTx).mockResolvedValueOnce(result);
+    const { db, tx } = makeDb();
+    const seen: unknown[] = [];
+    const out = await new UnlocksRepository(db).expireDueLotsForWallet(
+      "w-9" as never,
+      async (within, done) => {
+        seen.push(within, done);
+      },
+    );
+    expect(out).toEqual(result);
+    expect(seen).toEqual([tx, result]);
+  });
+
+  it("expireDueLotsForWallet: a failure in the caller's work rejects (the transaction rolls back)", async () => {
+    vi.mocked(expireWalletWithinTx).mockResolvedValueOnce({
+      walletFound: true,
+      creditsExpired: 1,
+      lotsExpired: 1,
+      expiredLots: [],
+      balanceAfter: 0,
+      alignment: NO_ALIGNMENT,
+    });
+    const { db } = makeDb();
+    await expect(
+      new UnlocksRepository(db).expireDueLotsForWallet("w-9" as never, async () => {
+        throw new Error("events table unreachable");
+      }),
+    ).rejects.toThrow("events table unreachable");
   });
 
   it("expireDueLotsForWallet runs ONE wallet in its OWN transaction", async () => {

@@ -47,8 +47,9 @@ export interface GrantCreditsResult {
 @Injectable()
 export class AdminActionsRepository {
   /**
-   * #2749 — the one log line this repository writes: a wallet whose lots the credit-wallet helper
-   * re-aligned with its balance during a grant (ids and numbers only; the state of its own write).
+   * #2749 — the one log line this repository writes, at ERROR: a wallet whose lots the
+   * credit-wallet helper re-aligned with its balance during a grant (ids and numbers only; the
+   * state of its own write). It should never fire after the 0168 apply-to-deploy window.
    */
   private readonly walletLog = new Logger("CreditWallet");
 
@@ -290,8 +291,10 @@ export class AdminActionsRepository {
         ledger: { reason: "grant", idempotencyKey },
       }),
     );
+    // ERROR, not warn: after the 0168 apply-to-deploy window a realignment means some writer
+    // moved a balance without the wallet helpers (the self-heal stays; see credit-wallet.ts).
     const realigned = lotAlignmentWarning(payerId, grant.alignment);
-    if (realigned !== null) this.walletLog.warn(realigned);
+    if (realigned !== null) this.walletLog.error(realigned);
     return { ledgerId: grant.ledgerId, balance: grant.balanceAfter, applied: grant.applied };
   }
 

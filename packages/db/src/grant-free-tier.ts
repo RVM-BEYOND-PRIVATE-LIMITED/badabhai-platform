@@ -126,7 +126,7 @@ async function main(): Promise<void> {
             ledger: { reason: "grant", idempotencyKey: freeTierIdempotencyKey(p.id) },
           });
           const realigned = lotAlignmentWarning(p.id, grant.alignment);
-          if (realigned) console.warn(`[${NAME}] ${realigned}`);
+          if (realigned) console.error(`[${NAME}] ${realigned}`);
 
           // The guarantee: the key already on the ledger ⇒ NO lot and NO balance movement.
           if (!grant.applied) {

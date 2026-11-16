@@ -896,8 +896,8 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerCreditsExhaustedPayload,
   },
-  // #2749 — a credit lot's unspent credits expired: ONE per lot, ever, after the transaction that
-  // wrote its `expired` ledger line commits (a spend that found it due, or the expiry sweep). v1.
+  // #2749 — a credit lot's unspent credits expired: ONE per lot, ever, in the transaction that
+  // writes its `expired` ledger line (a spend that found it due, or the expiry sweep). v1.
   "payer.credits_expired": {
     version: 1,
     domain: "payer",

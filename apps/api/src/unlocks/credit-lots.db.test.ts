@@ -1,14 +1,29 @@
+import "reflect-metadata";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Logger } from "@nestjs/common";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { loadServerConfig } from "@badabhai/config";
 import { createDbClient, type DbClient } from "@badabhai/db";
+import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
+import type { RequestContext } from "../common/request-context";
+import { PiiCryptoService } from "../common/pii-crypto.service";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { AdminActionsRepository } from "../admin/admin-actions.repository";
+import { ConsentRepository } from "../consent/consent.repository";
 import { EventsRepository } from "../events/events.repository";
 import { EventsService } from "../events/events.service";
 import { FreeTierService } from "../match/free-tier.service";
+import { InstituteLinkRepository } from "../campus-link/institute-link.repository";
+import { InstituteOpenGate } from "../campus-link/institute-open-gate.service";
+import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
+import { PayersRepository } from "../payers/payers.repository";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import { WorkersRepository } from "../workers/workers.repository";
 import { CreditLotExpirySweepProcessor } from "./credit-lot-expiry-sweep.processor";
 import { PaymentGateway } from "./payment-gateway";
+import { UnlockService } from "./unlocks.service";
 import { UnlocksRepository, type StoredWalletKey } from "./unlocks.repository";
 
 /**
@@ -25,9 +40,10 @@ import { UnlocksRepository, type StoredWalletKey } from "./unlocks.repository";
  *   payer_credits.balance = Σ open credits_remaining   (always)
  *   payer_credits.balance = Σ credit_ledger.delta      (when no raw SQL moved the balance)
  *
- * The sweep's `payer.credits_expired` rows are asserted from the real `events` table (one per lot,
- * after the commit, never a second); the spend path's emit lives in UnlockService and is unit-tested
- * there.
+ * `payer.credits_expired` rows are asserted from the real `events` table: the sweep's (one per lot,
+ * on the wallet's transaction, never a second) and the contact open's (through the real
+ * UnlockService, on the unlock transaction). The #2749 review's F-1/F-3 fix is proven the same
+ * way: a wallet whose credits are all past due is refused with nothing written, worker or not.
  *
  * Nothing in #2749 PR 1 writes an `expires_at`, so the scenarios that need one set it by SQL.
  * Wallet keys are fresh uuids (no `payers` row is needed: the wallet tables carry no FK to it);
@@ -44,6 +60,9 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
   let repo: UnlocksRepository;
   const wallets: string[] = [];
   const orderIds: string[] = [];
+  const workerIds: string[] = [];
+  const TAG = randomUUID().slice(0, 8);
+  const CTX: RequestContext = { correlationId: randomUUID(), requestId: `credit-lots-db-${TAG}` };
 
   /** A fresh wallet key, registered for cleanup. */
   function wallet(): TenantKey {
@@ -70,6 +89,10 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
       await sql`
         DELETE FROM events WHERE event_name = 'payer.credits_expired'
           AND payload->>'payer_id' = ANY(${wallets}::text[])`;
+      await sql`DELETE FROM events WHERE correlation_id = ${CTX.correlationId}::uuid`;
+      await sql`DELETE FROM unlocks WHERE payer_id = ANY(${wallets}::uuid[])`;
+      await sql`DELETE FROM worker_consents WHERE worker_id = ANY(${workerIds}::uuid[])`;
+      await sql`DELETE FROM workers WHERE id = ANY(${workerIds}::uuid[])`;
       await sql`DELETE FROM credit_ledger WHERE payer_id = ANY(${wallets}::uuid[])`;
       await sql`DELETE FROM credit_lots WHERE payer_id = ANY(${wallets}::uuid[])`;
       await sql`DELETE FROM payment_orders WHERE id = ANY(${orderIds}::uuid[])`;
@@ -110,7 +133,7 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
   async function spendRaw(w: TenantKey) {
     return repo.withTransaction(async (tx) => {
       const debit = await repo.tryDebit(tx, w, 1);
-      if (debit !== undefined && debit.ok !== false) {
+      if (debit !== undefined) {
         await repo.appendLedger(tx, {
           payerId: w,
           delta: -1,
@@ -125,9 +148,59 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
   /** {@link spendRaw}, as "what was spent": the balance and the lot, or undefined for none. */
   async function spend(w: TenantKey): Promise<{ balanceAfter: number; lotId: string } | undefined> {
     const debit = await spendRaw(w);
-    return debit !== undefined && debit.ok !== false
+    return debit !== undefined
       ? { balanceAfter: debit.balanceAfter, lotId: debit.lotId }
       : undefined;
+  }
+
+  /** Every row a wallet owns (ledger, lots, balance) and its credits_expired count, as text. */
+  async function snapshot(w: string): Promise<string> {
+    const { sql } = client;
+    const ledger = await sql`SELECT * FROM credit_ledger WHERE payer_id = ${w}::uuid ORDER BY id`;
+    const lots = await sql`SELECT * FROM credit_lots WHERE payer_id = ${w}::uuid ORDER BY id`;
+    const balance = await sql`SELECT * FROM payer_credits WHERE payer_id = ${w}::uuid`;
+    const [events] = await sql`
+      SELECT count(*)::int AS n FROM events
+      WHERE event_name = 'payer.credits_expired' AND payload->>'payer_id' = ${w}`;
+    return JSON.stringify({ ledger: [...ledger], lots: [...lots], balance: [...balance], events });
+  }
+
+  /** A worker who can be opened (consented to employer sharing), registered for cleanup. */
+  async function consentingWorker(pii: PiiCryptoService): Promise<string> {
+    const id = randomUUID();
+    const phone = `+9198${String(workerIds.length).padStart(8, "0")}`;
+    await client.sql`
+      INSERT INTO workers (id, phone_e164, phone_hash, status)
+      VALUES (${id}::uuid, ${pii.encrypt(phone)}, ${`hash:2749-${TAG}-${id}`}, 'active')`;
+    await client.sql`
+      INSERT INTO worker_consents (worker_id, consent_version, purposes, accepted_at)
+      VALUES (${id}::uuid, '2026-06-01',
+              ${JSON.stringify(["profiling", "employer_sharing", "employer_messaging"])}::jsonb, now())`;
+    workerIds.push(id);
+    return id;
+  }
+
+  /** The REAL contact-open service on this database (tenancy off: the payer is its own wallet). */
+  function unlockService(): { svc: UnlockService; pii: PiiCryptoService } {
+    const config = loadServerConfig({ NODE_ENV: "test", UNLOCK_LATENCY_TARGET_MS: "0" });
+    const pii = new PiiCryptoService(config);
+    const events = new EventsService(new EventsRepository(client.db), config);
+    const gateway = new PaymentGateway(repo, config, {} as never, {} as never);
+    const svc = new UnlockService(
+      repo,
+      new ConsentRepository(client.db),
+      new WorkersRepository(client.db),
+      pii,
+      gateway,
+      events,
+      config,
+      { add: async () => undefined } as never, // the referral-bonus queue (post-commit)
+      { get: async () => DEFAULT_MATCH_CONFIG } as never,
+      new PayersRepository(client.db, pii),
+      new PayerTenantScopeService(config, new PayerOrgsRepository(client.db)),
+      new InstituteOpenGate(new InstituteLinkRepository(client.db), {} as never),
+    );
+    return { svc, pii };
   }
 
   async function expiredEvents(w: string): Promise<{ payload: Record<string, unknown> }[]> {
@@ -224,19 +297,17 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
     await expectInvariant(w, { ledger: true });
   });
 
-  it("(b) an expiry on a spend that then finds no credit still commits (the balance reads true)", async () => {
+  it("(b) a spend that CANNOT happen (every lot past due) writes NOTHING (#2749 review, F-1/F-3)", async () => {
     const w = wallet();
     const past = await pack(w, 4);
     await setExpiry(past, "-2 days");
     expect(await balanceOf(w)).toBe(4);
+    expect(await repo.getSpendableBalance(w)).toBe(0);
 
-    // Nothing left to spend once the lot expired — and the expiry is reported with the answer.
-    expect(await spendRaw(w)).toEqual({
-      ok: false,
-      expiredLots: [{ lotId: past, credits: 4, source: "pack", expiresAt: expect.any(Date) }],
-    });
-    expect(await balanceOf(w)).toBe(0);
-    expect(await expiredLines(w)).toEqual([{ lot_id: past, delta: -4 }]);
+    const before = await snapshot(w);
+    expect(await spendRaw(w)).toBeUndefined();
+    // Byte for byte: no expiry line, no lot or balance change, no event.
+    expect(await snapshot(w)).toBe(before);
     await expectInvariant(w, { ledger: true });
   });
 
@@ -411,10 +482,13 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
   // (f) alignment
   // -------------------------------------------------------------------------------------------
 
-  it("(f) a balance moved WITHOUT lots (old code, a seed, a repair) is re-aligned at the next touch, with one warning", async () => {
-    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+  it("(f) a balance moved WITHOUT lots (old code, a seed, a repair) is re-aligned at the next touch, with one ERROR line", async () => {
+    // ERROR level, stable prefix: after the apply-to-deploy window this must never fire.
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
     const realignWarnings = () =>
-      warn.mock.calls.filter((c) => String(c[0]).startsWith("credit lots realigned"));
+      error.mock.calls.filter((c) =>
+        String(c[0]).startsWith("credit-wallet: lots out of step with balance"),
+      );
 
     // UP: +3 credits by raw SQL → the next spend tops up a never-expiring legacy lot.
     const w = wallet();
@@ -508,7 +582,7 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
     const lotTwo = await pack(two, 2);
     await setExpiry(lotOne, "-1 day");
 
-    expect(await spend(one)).toBeUndefined(); // its only lot expired: nothing spent
+    expect(await spend(one)).toBeUndefined(); // its only lot is past due: nothing spent or written
     expect(await remaining(lotTwo)).toBe(2);
     expect(await expiredLines(two)).toEqual([]);
     expect((await spend(two))!.lotId).toBe(lotTwo);
@@ -542,6 +616,222 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
       ["credits_granted", "credits_remaining", "expires_at", "pack_code", "source"].sort(),
     );
     expect(never).not.toBe(soon);
+    await expectInvariant(w, { ledger: true });
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // #2749 review — the F-1/F-3 oracle, the spend path's event, the backfill, the races
+  // -------------------------------------------------------------------------------------------
+
+  it("F-1/F-3: a balance held only in lots past due is refused with NOTHING written — worker or no worker", async () => {
+    const { svc, pii } = unlockService();
+    const w = wallet();
+    const past = await pack(w, 3);
+    await setExpiry(past, "-1 day");
+    const realWorker = await consentingWorker(pii);
+    const before = await snapshot(w);
+
+    const withWorker = await svc.requestUnlock(
+      { payerId: w, workerId: realWorker, jobId: null },
+      CTX,
+    );
+    const afterWorker = await snapshot(w);
+    const noWorker = await svc.requestUnlock(
+      { payerId: w, workerId: randomUUID(), jobId: null },
+      CTX,
+    );
+
+    expect(withWorker).toEqual({ status: "unavailable" });
+    expect(JSON.stringify(noWorker)).toBe(JSON.stringify(withWorker));
+    // Ledger, lots, balance and the credits_expired count are byte-for-byte unchanged, both ways.
+    expect(afterWorker).toBe(before);
+    expect(await snapshot(w)).toBe(before);
+    const [unlocks] = await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM unlocks WHERE payer_id = ${w}::uuid`;
+    expect(Number(unlocks!.n)).toBe(0);
+    // The two requests left the same events on the spine: the request audit and payment.failed,
+    // once each — and no credits_expired.
+    const names = await client.sql<{ event_name: string }[]>`
+      SELECT event_name FROM events
+      WHERE correlation_id = ${CTX.correlationId}::uuid AND actor_id = ${w}::uuid
+      ORDER BY event_name`;
+    expect(names.map((e) => e.event_name)).toEqual([
+      "payment.failed",
+      "payment.failed",
+      "unlock.requested",
+      "unlock.requested",
+    ]);
+  });
+
+  it("a contact open that spends expires the due lot first, with ONE payer.credits_expired on the unlock transaction", async () => {
+    const { svc, pii } = unlockService();
+    const w = wallet();
+    const due = await pack(w, 2);
+    const live = await pack(w, 3);
+    await setExpiry(due, "-1 hour");
+    const worker = await consentingWorker(pii);
+    // Spendable = 5 − the 2 past due — THIS wallet's due lots only (the F-1 test's wallet above
+    // still holds a due lot in this database; a correlated read that leaked across wallets
+    // would answer 0 here).
+    expect(await repo.getSpendableBalance(w)).toBe(3);
+
+    const out = await svc.requestUnlock({ payerId: w, workerId: worker, jobId: null }, CTX);
+    expect(out).toMatchObject({ ok: true, status: "granted" });
+    expect(await remaining(due)).toBe(0);
+    expect(await remaining(live)).toBe(2);
+    expect(await expiredLines(w)).toEqual([{ lot_id: due, delta: -2 }]);
+    const fired = await expiredEvents(w);
+    expect(fired.map((e) => e.payload)).toEqual([
+      {
+        payer_id: w,
+        lot_id: due,
+        credits: 2,
+        source: "pack",
+        expires_at: expect.stringMatching(/Z$/),
+        trigger: "spend",
+      },
+    ]);
+    await expectInvariant(w, { ledger: true });
+  });
+
+  it("the 0168 backfill statement: one legacy lot per positive balance, and a second run adds nothing", async () => {
+    const raw = readFileSync(
+      join(__dirname, "../../../../packages/db/migrations/0168_credit_lots.sql"),
+      "utf8",
+    );
+    const backfill = raw
+      .replace(/--[^\n]*/g, " ")
+      .split(";")
+      .map((x) => x.trim())
+      .find((x) => x.startsWith(`INSERT INTO "credit_lots"`));
+    expect(backfill).toBeDefined();
+    const [zero, one, fifty] = [wallet(), wallet(), wallet()];
+    const ROLLBACK = new Error("roll the backfill probe back");
+    // In ONE transaction rolled back at the end: the backfill is global, so it must not touch the
+    // rest of this shared database.
+    const probe = client.sql.begin(async (sql) => {
+      await sql`
+        INSERT INTO payer_credits (payer_id, balance)
+        VALUES (${zero}::uuid, 0), (${one}::uuid, 1), (${fifty}::uuid, 50)`;
+      await sql.unsafe(backfill!);
+      const first = await sql<
+        { payer_id: string; source: string; g: number; r: number; e: Date | null }[]
+      >`
+        SELECT payer_id, source, credits_granted AS g, credits_remaining AS r, expires_at AS e
+        FROM credit_lots WHERE payer_id = ANY(${[zero, one, fifty]}::uuid[]) ORDER BY credits_granted`;
+      expect(first.map((l) => [l.payer_id, l.source, Number(l.g), Number(l.r), l.e])).toEqual([
+        [one, "legacy", 1, 1, null],
+        [fifty, "legacy", 50, 50, null],
+      ]);
+      await sql.unsafe(backfill!);
+      const [again] = await sql<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM credit_lots WHERE payer_id = ANY(${[zero, one, fifty]}::uuid[])`;
+      expect(Number(again!.n)).toBe(2);
+      throw ROLLBACK;
+    });
+    await expect(probe).rejects.toBe(ROLLBACK);
+    const [left] = await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM payer_credits WHERE payer_id = ANY(${[zero, one, fifty]}::uuid[])`;
+    expect(Number(left!.n)).toBe(0);
+  });
+
+  it("two concurrent FIRST grants on a brand-new wallet (distinct keys) both land: one wallet row, two lots", async () => {
+    const w = wallet();
+    const admin = new AdminActionsRepository(client.db);
+    const [a, b] = await Promise.all([
+      admin.grantCredits(w, 5, randomUUID()),
+      admin.grantCredits(w, 7, randomUUID()),
+    ]);
+    expect(a.applied && b.applied).toBe(true);
+    // They serialised on the wallet row: the second saw the first's balance.
+    expect(Math.max(a.balance, b.balance)).toBe(12);
+    expect([5, 7]).toContain(Math.min(a.balance, b.balance));
+    expect(await balanceOf(w)).toBe(12);
+    const [rows] = await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM payer_credits WHERE payer_id = ${w}::uuid`;
+    expect(Number(rows!.n)).toBe(1);
+    const lots = await client.sql<{ credits_granted: number }[]>`
+      SELECT credits_granted FROM credit_lots WHERE payer_id = ${w}::uuid ORDER BY credits_granted`;
+    expect(lots.map((l) => Number(l.credits_granted))).toEqual([5, 7]);
+    await expectInvariant(w, { ledger: true });
+  });
+
+  it("two settleOrder calls racing on ONE order: one lot, one ledger line, one grant", async () => {
+    const w = wallet();
+    const providerOrderId = `order_2749r_${randomUUID().slice(0, 8)}`;
+    const order = await repo.createPaymentOrder({
+      payerId: w,
+      packCode: "pack_50",
+      amountInr: 2000,
+      creditsGranted: 50,
+      providerOrderId,
+    });
+    orderIds.push(order.id);
+    const pricing = {
+      getActiveCatalog: async () => {
+        throw new Error("no catalog in this test");
+      },
+    };
+    const gateway = new PaymentGateway(repo, {} as never, pricing as never, {} as never);
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+
+    const results = await Promise.all([
+      gateway.settleOrder({ providerOrderId, providerPaymentRef: "pay_2749r_1" }),
+      gateway.settleOrder({ providerOrderId, providerPaymentRef: "pay_2749r_1" }),
+    ]);
+    expect(results.map((r) => r.outcome).sort()).toEqual(["already_settled", "granted"]);
+    const [lots] = await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM credit_lots WHERE payment_order_id = ${order.id}::uuid`;
+    expect(Number(lots!.n)).toBe(1);
+    const [lines] = await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM credit_ledger WHERE idempotency_key = ${`payment_order:${order.id}`}`;
+    expect(Number(lines!.n)).toBe(1);
+    expect(await balanceOf(w)).toBe(50);
+    await expectInvariant(w, { ledger: true });
+  });
+
+  it("the sweep's work list holds only wallets with a payer_credits row; orphans are counted (no starvation)", async () => {
+    const w = wallet();
+    const lotId = await pack(w, 2);
+    await setExpiry(lotId, "-1 hour");
+    expect(await repo.findWalletsWithDueLots(10_000)).toContain(w);
+    const orphansBefore = await repo.countOrphanWalletsWithDueLots();
+    // The wallet row disappears (a hand-deleted row): its due lot can never be expired.
+    await client.sql`DELETE FROM payer_credits WHERE payer_id = ${w}::uuid`;
+    expect(await repo.findWalletsWithDueLots(10_000)).not.toContain(w);
+    expect(await repo.countOrphanWalletsWithDueLots()).toBe(orphansBefore + 1);
+    // Close the orphan by hand so the shared database is left clean for the counts above.
+    await client.sql`
+      UPDATE credit_lots SET credits_remaining = 0, updated_at = now() WHERE payer_id = ${w}::uuid`;
+    expect(await repo.countOrphanWalletsWithDueLots()).toBe(orphansBefore);
+  });
+
+  it("mixed writers racing on one wallet (spends, a pack, an admin grant, the sweep) finish with no deadlock and the invariants hold", async () => {
+    const w = wallet();
+    const due = await pack(w, 3);
+    await pack(w, 4);
+    await setExpiry(due, "-1 minute");
+    const admin = new AdminActionsRepository(client.db);
+
+    const settled = await Promise.allSettled([
+      spend(w),
+      spend(w),
+      repo.creditPack({
+        payerId: w,
+        credits: 2,
+        reason: "pack_purchase",
+        packCode: "pack_test",
+        paymentRef: null,
+      }),
+      admin.grantCredits(w, 1, randomUUID()),
+      repo.expireDueLotsForWallet(w as unknown as StoredWalletKey),
+      spend(w),
+    ]);
+    // No 40P01 (deadlock) or any other failure: every writer took the wallet row first.
+    expect(settled.filter((r) => r.status === "rejected")).toEqual([]);
+    expect(await expiredLines(w)).toEqual([{ lot_id: due, delta: -3 }]);
+    // 3 + 4 + 2 + 1 granted, 3 expired, 3 spent.
+    expect(await balanceOf(w)).toBe(4);
     await expectInvariant(w, { ledger: true });
   });
 });

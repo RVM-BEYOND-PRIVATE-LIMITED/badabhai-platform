@@ -1976,7 +1976,11 @@ describe.skipIf(!RUN)(
       expect(Number(row?.ledger), `ledger of ${payerId}`).toBe(Number(row?.balance));
     }
 
-    /** A credited wallet with its ledger line, exactly as an ops grant writes it (reconciled). */
+    /**
+     * A credited wallet with its ledger line, reconciled (Σ ledger = balance) — written by raw SQL
+     * as the pre-#2749 ops grant wrote it: NO credit lot. The next wallet touch (the spend below)
+     * re-aligns the lots with the balance (credit-wallet.ts), so balance = Σ lots holds after it.
+     */
     async function grantCredits(payerId: string, credits: number): Promise<void> {
       await client.sql`
       INSERT INTO payer_credits (payer_id, balance) VALUES (${payerId}::uuid, ${credits})

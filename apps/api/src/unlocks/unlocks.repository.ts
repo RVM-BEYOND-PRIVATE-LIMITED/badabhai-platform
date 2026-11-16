@@ -15,10 +15,12 @@ import {
   type WalletExpiryResult,
   type WalletGrantResult,
   CREDIT_LOT_SPEND_ORDER,
+  countOrphanWalletsWithDueLots,
   expireWalletWithinTx,
   findWalletsWithDueLots,
   grantCreditsWithinTx,
   lotAlignmentWarning,
+  readSpendableCredits,
   spendOneCreditWithinTx,
   unlocks,
   unlockRouting,
@@ -109,21 +111,18 @@ export interface OpenLotProjection {
 }
 
 /**
- * What {@link UnlocksRepository.tryDebit} answers (#2749). `undefined` keeps its pre-#2749 meaning
- * — no credit to spend, and nothing expired. `ok: false` with `expiredLots` is the same "no
- * credit" answer when the spend expired due lots first (they commit with the caller's
- * transaction, so the caller reports them). `ok` is optional on the success branch so callers'
- * fakes that return `{ balanceAfter, lotId }` keep their meaning.
+ * What {@link UnlocksRepository.tryDebit} answers when it spent a credit (#2749): the new balance,
+ * the lot, and the lots it expired first (absent = none). `undefined` keeps its pre-#2749 meaning,
+ * no credit to spend, and since the #2749 review it also means NOTHING was written. `ok` is
+ * optional so callers' fakes that return `{ balanceAfter, lotId }` keep their meaning.
  */
-export type TryDebitResult =
-  | {
-      ok?: true;
-      balanceAfter: number;
-      lotId: string;
-      /** The lots this spend expired before it spent (absent = none). */
-      expiredLots?: readonly ExpiredCreditLot[];
-    }
-  | { ok: false; expiredLots: readonly ExpiredCreditLot[] };
+export interface TryDebitResult {
+  ok?: true;
+  balanceAfter: number;
+  lotId: string;
+  /** The lots this spend expired before it spent (absent = none). */
+  expiredLots?: readonly ExpiredCreditLot[];
+}
 
 /**
  * A wallet key READ FROM `credit_lots` by {@link UnlocksRepository.findWalletsWithDueLots} — the
@@ -175,9 +174,10 @@ export interface UnlockProjection {
 @Injectable()
 export class UnlocksRepository {
   /**
-   * #2749 — the one log line this repository writes: a wallet whose lots the credit-wallet helper
-   * just re-aligned with its balance (ids and numbers only). It reports the state of the write it
-   * made, so it lives beside the write; after the 0168 deploy it should never fire.
+   * #2749 — the one log line this repository writes, at ERROR: a wallet whose lots the
+   * credit-wallet helper just re-aligned with its balance (ids and numbers only). It reports the
+   * state of the write it made, so it lives beside the write; after the 0168 apply-to-deploy
+   * window it should never fire, and any occurrence means a writer bypassed the helpers.
    */
   private readonly walletLog = new Logger("CreditWallet");
 
@@ -583,6 +583,16 @@ export class UnlocksRepository {
   // atomic conditional decrement below guarantee balance never goes negative.
   // -------------------------------------------------------------------------
 
+  /**
+   * #2749 — the credits the tenant wallet can SPEND now: its balance minus what its lots past
+   * `expires_at` still hold (non-tx read, 0 if no row). The unlock path's F-1 precondition reads
+   * THIS, not {@link getBalance}: a wallet whose credits are all past due is refused before any
+   * worker state is consulted.
+   */
+  async getSpendableBalance(tenant: TenantKey): Promise<number> {
+    return readSpendableCredits(this.db, tenant);
+  }
+
   /** The tenant wallet's current balance (non-tx read), or 0 if no row. */
   async getBalance(tenant: TenantKey): Promise<number> {
     const rows = await this.db
@@ -648,10 +658,11 @@ export class UnlocksRepository {
 
   /**
    * Debit ONE credit (F-6) from the soonest-expiring open lot (#2749): returns the new balance, the
-   * lot it came from and any lots it expired first — or, when the wallet holds no credit once due
-   * lots are expired, `undefined` (nothing expired) or `{ ok: false, expiredLots }` (see
-   * {@link TryDebitResult}). Tx-scoped; the caller writes the `unlock_debit` ledger line with the
-   * returned `lotId`, and reports each expired lot after its transaction commits.
+   * lot it came from and any lots it expired first — or `undefined` when no credit is spendable
+   * once due lots are counted out, in which case NOTHING was written (no expiry, no lot, no
+   * balance; F-1/F-3: the ledger never shows that a request reached the debit). Tx-scoped; the
+   * caller writes the `unlock_debit` ledger line with the returned `lotId` and the expired lots'
+   * events in the SAME transaction.
    *
    * THE ORG WALLET LOCK (ADR-0053 §6). `spendOneCreditWithinTx` takes the wallet row's lock
    * (`SELECT … FOR UPDATE`), keyed by the tenant, before it reads a lot: in mode `on` two members
@@ -659,20 +670,15 @@ export class UnlocksRepository {
    * and lots — so a team can never overdraw its one wallet, or any lot in it, exactly as one payer
    * never could. The DB CHECKs (balance >= 0, 0 <= remaining <= granted) are the backstop.
    *
-   * A due lot is expired here too (one `expired` line, once per lot), and that expiry commits
-   * with the caller's transaction even when no credit is left to spend.
+   * A due lot is expired here too (one `expired` line, once per lot) — only when a credit is spent.
    *
    * `amount` stays in the signature for its callers; a spend is always one credit (one lot).
    */
   async tryDebit(tx: Tx, tenant: TenantKey, amount: 1): Promise<TryDebitResult | undefined> {
     if (amount !== 1) throw new RangeError(`tryDebit spends one credit (asked for ${amount})`);
     const spent = await spendOneCreditWithinTx(tx, tenant);
-    this.warnIfRealigned(tenant, spent.alignment);
-    if (!spent.ok) {
-      return spent.expiredLots.length === 0
-        ? undefined
-        : { ok: false, expiredLots: spent.expiredLots };
-    }
+    if (!spent.ok) return undefined;
+    this.reportRealigned(tenant, spent.alignment);
     return {
       ok: true,
       balanceAfter: spent.balanceAfter,
@@ -767,14 +773,19 @@ export class UnlocksRepository {
         idempotencyKey: credit.idempotencyKey ?? null,
       },
     });
-    this.warnIfRealigned(walletKey, grant.alignment);
+    this.reportRealigned(walletKey, grant.alignment);
     return grant;
   }
 
-  /** Log the one alignment warning, when the wallet helper re-aligned lots (ids + numbers). */
-  private warnIfRealigned(walletKey: string, alignment: LotAlignment): void {
+  /**
+   * Log, at ERROR, that the wallet helper re-aligned a wallet's lots with its balance (ids and
+   * numbers, the stable `credit-wallet: lots out of step with balance` prefix). The self-heal
+   * stays; after the 0168 apply-to-deploy window this should never fire, and any occurrence
+   * means some writer moved a balance without going through the wallet helpers.
+   */
+  private reportRealigned(walletKey: string, alignment: LotAlignment): void {
     const line = lotAlignmentWarning(walletKey, alignment);
-    if (line !== null) this.walletLog.warn(line);
+    if (line !== null) this.walletLog.error(line);
   }
 
   // ===========================================================================
@@ -783,21 +794,37 @@ export class UnlocksRepository {
 
   /**
    * Up to `limit` wallets holding a lot past its `expires_at`, the longest-overdue first — the
-   * sweep's work list. Keys are READ FROM `credit_lots` (see {@link StoredWalletKey}).
+   * sweep's work list. Keys are READ FROM `credit_lots` (see {@link StoredWalletKey}), and only
+   * for wallets that have a `payer_credits` row (an orphan lot can never be expired, so it must
+   * not take a slot on every tick).
    */
   async findWalletsWithDueLots(limit: number): Promise<StoredWalletKey[]> {
     const keys = await findWalletsWithDueLots(this.db, limit);
     return keys as StoredWalletKey[];
   }
 
+  /** Wallet keys holding a due lot but no `payer_credits` row — skipped by the sweep. */
+  async countOrphanWalletsWithDueLots(): Promise<number> {
+    return countOrphanWalletsWithDueLots(this.db);
+  }
+
   /**
    * Expire one wallet's due lots in its OWN transaction: lock the wallet row → align → one
-   * `expired` line per due lot → balance down. The same lock order as a spend, so a sweep racing
-   * an unlock on the same wallet waits on the row lock and never deadlocks.
+   * `expired` line per due lot → balance down → then `withinTx` (the sweep's events) on the SAME
+   * transaction, so a committed expiry can never lose its event and a failed event rolls the
+   * expiry back. The same lock order as a spend, so a sweep racing an unlock on the same wallet
+   * waits on the row lock and never deadlocks.
    */
-  async expireDueLotsForWallet(wallet: StoredWalletKey): Promise<WalletExpiryResult> {
-    const result = await this.db.transaction((tx) => expireWalletWithinTx(tx, wallet));
-    this.warnIfRealigned(wallet, result.alignment);
+  async expireDueLotsForWallet(
+    wallet: StoredWalletKey,
+    withinTx?: (tx: Tx, result: WalletExpiryResult) => Promise<void>,
+  ): Promise<WalletExpiryResult> {
+    const result = await this.db.transaction(async (tx) => {
+      const done = await expireWalletWithinTx(tx, wallet);
+      if (withinTx) await withinTx(tx, done);
+      return done;
+    });
+    this.reportRealigned(wallet, result.alignment);
     return result;
   }
 
