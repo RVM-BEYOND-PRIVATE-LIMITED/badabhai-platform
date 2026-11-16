@@ -15,10 +15,18 @@ Since #2749 (PR 2):
 - a purchase (`POST /payer/credits`, `POST /payer/credits/order`, the ops
   `POST /payers/:payerId/credits`) accepts **only** a pack the active catalogue lists and has on sale.
   Old codes (`pack_10`, `pack_25`, and after this publish `pack_50` / `pack_200` / `pack_1000`) return
-  `404`. They stay readable wherever they are history (ledger, payment history, admin views).
+  `404`. They stay readable wherever they are history (ledger, payment history, admin views);
+- if a stored catalogue row ever fails validation, **no pack is sold or listed** (it does not fall
+  back to selling the default packs). With no row at all, the default packs sell, as today.
 
 A pack is off sale when its catalogue entry has `offered: false`, or before 00:00 IST on its
 `onSaleFrom` date (`YYYY-MM-DD`).
+
+> ⚠️ **The GST price line is not yet what a company pays.** The catalogue shows each pack's
+> `price.totalPaise` and `price.display` (`₹999 plus GST (₹1,179)`), but an order still charges
+> `priceInr`, **before GST** (₹999), until part 3 of #2749 ships. Until then the price line is
+> informational and must not be shown to companies, and real payments must not be switched on for
+> these packs (see [Switch-on checks](#switch-on-checks)).
 
 ## This is a go-live decision
 
@@ -40,6 +48,12 @@ Check these first:
   the old contact-access window. Every pack keeps it because older readers still require it.
 - **The ops console** (`apps/web` → Pricing → credits top-up) lists every credit-pack entry in the
   catalogue, including Annual. Before 1 April 2027 a top-up of Annual returns `404`.
+- **Owner question — Annual's validity: 365 days, or a calendar year?** The brief says "12 months";
+  this runbook uses `validityDays: 365` (the default until the owner decides otherwise). Every
+  Annual sold between 1 April 2027 and 29 February 2028 spans 29 February 2028, so 365 days ends one
+  day before the same date a year later (bought 1 April 2027 → ends 31 March 2028, not 1 April 2028).
+  If the owner wants a true calendar year (or calendar months for any pack), that needs code
+  support: `validityDays` is a count of days and there is no month unit. It is not in this PR.
 
 ## The publish
 
@@ -47,6 +61,12 @@ Check these first:
 from `DEFAULT_CATALOG` unchanged. The API validates the whole body with `catalogSchema` (a bad value
 is a `400` and nothing is stored). The service validates it again, stores it as the next revision,
 deactivates the previous one, and emits `pricing.changed` (field names only, never values).
+
+On a credit-pack tier this write also refuses, with a `400` that names the field:
+
+- an **unknown key**. A misspelt `onsaleFrom`, `on_sale_from` or `Offered` would otherwise be
+  dropped, and Annual would go on sale the moment the row is stored;
+- a `priceInr` above `10,000,000`.
 
 - **Auth:** header `x-internal-service-token` (the shared `INTERNAL_SERVICE_TOKEN`).
 - **`updated_by`:** a uuid naming whoever is publishing. Replace the zero uuid below.
@@ -157,28 +177,54 @@ it returns `404`. From then on it is listed and sells, with no further publish.
 
 ### After publishing, check
 
-1. `GET /pricing/catalog` (ops token): `source: "db"` and the new `revision`.
-2. `GET /payer/pricing/catalog` (any company session) lists exactly three packs, with these
+1. **First, before anything else:** the `PUT` response's `catalog` shows the `contact_unlock` tier
+   `pack_annual` with `onSaleFrom: "2027-04-01"`. If the date is missing, Annual is already on sale:
+   publish again at once without Annual, then find out why.
+2. `GET /pricing/catalog` (ops token): `source: "db"` and the new `revision`.
+3. `GET /payer/pricing/catalog` (any company session) lists exactly three packs, with these
    `price.display` lines:
    - `pack_starter`: `₹999 plus GST (₹1,179)`
    - `pack_standard`: `₹1,599 plus GST (₹1,887)`
    - `pack_big`: `₹2,999 plus GST (₹3,539)`
 
-   No `pack_annual` appears, and neither does any `onSaleFrom` or `offered` key.
+   No `pack_annual` appears, and neither does any `onSaleFrom` or `offered` key. (These lines are
+   informational until part 3 — see the warning at the top.)
 
-3. `POST /payer/credits` with `{ "pack_code": "pack_50" }` → `404`.
+4. `POST /payer/credits` with `{ "pack_code": "pack_50" }` → `404`.
 
 **Undo:** publish again. A `PUT` with the previous catalogue (the old `contact_unlock` tiers from
 `DEFAULT_CATALOG`) becomes the next revision. The API cannot remove the row. Going back to "no row"
 takes a manual database change.
 
+### ⚠️ Never roll back below this PR once the row carries `onSaleFrom` or `offered`
+
+Once a stored row carries `onSaleFrom` or `offered`, do **not** revert to, or deploy, any build from
+before #2749 PR 2 (#2866). An older build ignores both fields (its schema drops them), shows and sells
+every tier, and brings back the `CREDIT_PACKS` constant fallback (`pack_10`, `pack_25`, …). It would
+put **Annual on sale immediately**. If such a rollback is unavoidable, first publish a row without
+Annual (and without any `offered: false` pack you do not want sold), check it, and only then roll
+back.
+
+## Switch-on checks
+
+Before real payments (`PAYMENTS_ENABLE_REAL`) are switched on for these packs, for anyone, including
+the pilot:
+
+- **The order amount equals `price.totalPaise` for every pack on sale.** For each pack the catalogue
+  lists, create an order on test keys (`POST /payer/credits/order`) and compare its `amount` (paise)
+  with that pack's `price.totalPaise` (₹999 → `117900`). This **fails until part 3 of #2749 ships**:
+  today the order charges `priceInr` before GST (`99900`). Do not switch on while it fails.
+- The rest of the issue's switch-on list (hardening items, pilot gating) still applies.
+
 ## The same go-live change: make `DEFAULT_CATALOG` the brief's three packs
 
-`DEFAULT_CATALOG` is also the fail-closed fallback. It is served whenever the stored row fails
-validation. While it still holds `pack_50` / `pack_200` / `pack_1000`, a bad row would put the old
-prices back on sale. So in the same go-live change, a PR replaces its `contact_unlock` tiers with
-Starter, Standard and Big exactly as above, **without Annual**. That PR also removes the
-`TODO(#2749 go-live)` note in `defaults.ts` and updates `on-sale.test.ts`, which pins the old packs.
+`DEFAULT_CATALOG` is what sells whenever there is **no** stored row (production today, a fresh
+environment, or a row removed by hand). A stored row that fails validation sells no packs at all,
+but the default still decides what every other product costs in that state. While the default
+still holds `pack_50` / `pack_200` / `pack_1000`, losing the row would put the old prices back on
+sale. So in the same go-live change, a PR replaces its `contact_unlock` tiers with Starter, Standard
+and Big exactly as above, **without Annual**. That PR also removes the `TODO(#2749 go-live)` note in
+`defaults.ts` and updates `on-sale.test.ts`, which pins the old packs.
 
 Order: publish the row first (it takes effect at once), check it, then merge the `DEFAULT_CATALOG`
 PR the same day. Once the row exists, the default serves only as the fallback, so merging the PR
