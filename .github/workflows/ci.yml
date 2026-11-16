@@ -1445,7 +1445,7 @@ jobs:
       #                    per worker per IST day however often it is written, the cascade on
       #                    erasure, the last-active day merged with real device rows across the
       #                    18:30 UTC boundary, and RLS forced with no grant (src/worker-activity).
-      #   * worker-search-exits.db — #2753 item 6, leave company search (migration 0168): the real
+      #   * worker-search-exits.db — #2753 item 6, leave company search (migration 0169): the real
       #                    search leaves out a worker with an exit row (the whole pool, a granted
       #                    student included) and takes him back, consent untouched; the unlock
       #                    rule against real application rows (the applicant read is the feeds'
@@ -2295,7 +2295,7 @@ jobs:
           WORKER_ACTIVITY_ENABLED: ${{ secrets.WORKER_ACTIVITY_ENABLED }}
           # Leave company search (#2753 item 6). Unset/empty resolves to off through compose's
           # `:-false`: the worker routes 404 and nothing reads `worker_search_exits`. Apply
-          # migration 0168 BEFORE setting this (on without it, search and unlocks fail open and
+          # migration 0169 BEFORE setting this (on without it, search and unlocks fail open and
           # the worker routes answer 503).
           # true/false/1/0/empty only.
           SEARCH_EXIT_ENABLED: ${{ secrets.SEARCH_EXIT_ENABLED }}

@@ -6645,7 +6645,7 @@ export const DisplayPrefsChangedPayload = z
 export type DisplayPrefsChangedPayload = z.infer<typeof DisplayPrefsChangedPayload>;
 
 // ---------------------------------------------------------------------------
-// #2753 item 6 — LEAVE COMPANY SEARCH (`worker_search_exits`, migration 0168). A worker turned
+// #2753 item 6 — LEAVE COMPANY SEARCH (`worker_search_exits`, migration 0169). A worker turned
 // "companies can find me" off or back on, while `SEARCH_EXIT_ENABLED` was on. Written in the same
 // transaction as the row.
 //

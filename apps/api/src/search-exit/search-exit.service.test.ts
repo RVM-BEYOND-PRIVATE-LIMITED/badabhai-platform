@@ -244,7 +244,7 @@ describe("SearchExitService — PUT: one event per REAL change, in the row's tra
   });
 });
 
-describe("SearchExitService — switched on before migration 0168: 503, never 500", () => {
+describe("SearchExitService — switched on before migration 0169: 503, never 500", () => {
   /** drizzle's wrapper with the driver's SQLSTATE on `cause`. */
   const driverError = (code: string) =>
     Object.assign(new Error("Failed query"), { cause: Object.assign(new Error(code), { code }) });

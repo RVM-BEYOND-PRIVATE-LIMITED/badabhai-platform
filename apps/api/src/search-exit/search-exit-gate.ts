@@ -94,7 +94,7 @@ const firstPresent = (rows: unknown): boolean =>
  * OFF IS TODAY: with `SEARCH_EXIT_ENABLED` off this returns false WITHOUT A READ, so the unlock path
  * is byte-identical and `worker_search_exits` is never named.
  *
- * ON BEFORE MIGRATION 0168: FAIL OPEN, WITHOUT A FAILED STATEMENT. Nobody can have left search
+ * ON BEFORE MIGRATION 0169: FAIL OPEN, WITHOUT A FAILED STATEMENT. Nobody can have left search
  * without the table (leaving writes it), so a missing table means "not hidden". It must not be
  * learned by catching a 42P01: a failed statement ABORTS the Postgres transaction this runs in, and
  * the unlock would then fail on its next statement (25P02). So the gate first PROBES with

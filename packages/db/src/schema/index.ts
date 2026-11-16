@@ -483,6 +483,6 @@ export const schema = {
   outboundSignals,
   // #2753 - the days a worker was active, one row per IST day (migration 0168).
   workerActivity,
-  // #2753 item 6 - a worker who left company search (migration 0168).
+  // #2753 item 6 - a worker who left company search (migration 0169).
   workerSearchExits,
 };

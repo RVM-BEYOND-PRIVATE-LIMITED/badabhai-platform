@@ -433,11 +433,11 @@ NestJS boot assertion).
   nothing, and nothing names `worker_search_exits`. On, a worker can leave company search while
   keeping his consent: he is absent from every company's search (its city facet and the admin card
   read too), and only a company he applied to, or one already holding an open contact, can open
-  him. Migration 0168 is APPLY-BEFORE-THE-SWITCH, but on without it nothing answers 500: search,
+  him. Migration 0169 is APPLY-BEFORE-THE-SWITCH, but on without it nothing answers 500: search,
   its city facet, the admin card read and the unlock gate FAIL OPEN (everyone visible, one warning
   per process), and the two worker routes answer 503 until it is applied. Bridged through the GitHub `production` environment secret of the same name
   (compose `${SEARCH_EXIT_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
-  `scripts/deploy/staging-deploy.sh`). Arming is 0168 applied, then the secret set to `true` plus
+  `scripts/deploy/staging-deploy.sh`). Arming is 0169 applied, then the secret set to `true` plus
   a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only.
 - **The Campus link (#2752)** — api only, four variables, all read by `CampusServiceGuard` on
   `/internal/campus/v1` (contract: `docs/api/campus-link-v1-api-reference.md`).

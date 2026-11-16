@@ -11,10 +11,10 @@ export interface StoredSearchExit {
 }
 
 /**
- * `worker_search_exits` (migration 0168, #2753 item 6) — DATABASE ACCESS ONLY. Whether the switch is
+ * `worker_search_exits` (migration 0169, #2753 item 6) — DATABASE ACCESS ONLY. Whether the switch is
  * on, whether a request is a real change and what it emits are `SearchExitService`'s.
  *
- * NOTHING HERE MAY RUN WHILE `SEARCH_EXIT_ENABLED` IS OFF. 0168 is apply-before-the-switch: the
+ * NOTHING HERE MAY RUN WHILE `SEARCH_EXIT_ENABLED` IS OFF. 0169 is apply-before-the-switch: the
  * service and the route guard ask the switch first, which is what lets a build reach a database
  * without the table and fail no request.
  *

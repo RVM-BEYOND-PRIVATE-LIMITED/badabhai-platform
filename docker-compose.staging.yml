@@ -440,7 +440,7 @@ services:
       WORKER_ACTIVITY_ENABLED: ${WORKER_ACTIVITY_ENABLED:-false}
       # LEAVE COMPANY SEARCH (#2753 item 6). Off is today exactly: the two
       # /workers/me/search-visibility routes are a plain 404, the candidate search is byte-identical
-      # and nothing reads `worker_search_exits`. Apply migration 0168 before turning it on.
+      # and nothing reads `worker_search_exits`. Apply migration 0169 before turning it on.
       # `:-false` because this bool rejects "".
       SEARCH_EXIT_ENABLED: ${SEARCH_EXIT_ENABLED:-false}
       # THE CAMPUS LINK (#2752). Off: every /internal/campus/v1 route is a neutral 404 and nothing

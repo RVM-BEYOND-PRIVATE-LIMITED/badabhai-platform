@@ -1,5 +1,5 @@
 /**
- * Migration 0168 — `worker_search_exits`, a worker who left company search (#2753 item 6).
+ * Migration 0169 — `worker_search_exits`, a worker who left company search (#2753 item 6).
  *
  * The drizzle model and CI's drift check cover the table-vs-model half. What this file pins is the
  * half they do not see:
@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 import { SCHEMA_REQUIREMENTS } from "./schema-contract";
 import { WORKER_SEARCH_EXIT_VIAS } from "./schema/worker-search-exit";
 
-const TAG = "0168_worker_search_exits";
+const TAG = "0169_worker_search_exits";
 const TABLE = "worker_search_exits";
 const RAW = readFileSync(join(__dirname, "..", "migrations", `${TAG}.sql`), "utf8");
 /** Statements with comments stripped, so the header's prose cannot satisfy a DDL assertion. */
@@ -59,7 +59,7 @@ describe("the fixture is real (no assertion below is vacuous)", () => {
   });
 });
 
-describe("0168 is additive", () => {
+describe("0169 is additive", () => {
   it("creates exactly one table and no index of its own", () => {
     expect([...FLAT.matchAll(/CREATE TABLE/g)]).toHaveLength(1);
     expect([...FLAT.matchAll(/CREATE (UNIQUE )?INDEX/g)]).toHaveLength(0);
@@ -101,7 +101,7 @@ describe("deny by default", () => {
   });
 
   it("is registered for its lock in the schema contract", () => {
-    const entry = SCHEMA_REQUIREMENTS.find((r) => r.id === "0168-worker-search-exits-rls");
+    const entry = SCHEMA_REQUIREMENTS.find((r) => r.id === "0169-worker-search-exits-rls");
     expect(entry).toMatchObject({ migration: TAG, kind: "rls", table: TABLE });
   });
 });
@@ -135,14 +135,14 @@ describe("the columns", () => {
 describe("the header", () => {
   it("states the switch, the slot order, the lock and the rollback", () => {
     expect(RAW).toContain("SEARCH_EXIT_ENABLED");
-    expect(RAW).toContain("Apply 0164, 0165, 0166 and 0167 first");
+    expect(RAW).toMatch(/Apply 0164, 0165, 0166, 0167 and 0168 first/);
     expect(RAW).toContain("SET LOCAL lock_timeout = '3s'");
     expect(RAW).toContain("55P03");
     expect(RAW).toContain(`DROP TABLE "${TABLE}";`);
     expect(RAW).toContain("SAFE TO RE-RUN: no");
   });
 
-  it("says what the switch does before 0168: the readers fail open, the worker routes 503", () => {
+  it("says what the switch does before 0169: the readers fail open, the worker routes 503", () => {
     expect(RAW).toContain("READERS FAIL OPEN");
     expect(RAW).toContain("answer\n-- 503");
     expect(RAW).not.toMatch(/answer 500/);
@@ -156,19 +156,19 @@ describe("the header", () => {
 
 describe("the journal and the snapshot", () => {
   // Located by TAG, not `.at(-1)`, so a later migration cannot fail this file (the 0126 lesson).
-  it("records 0168 at idx 168, after 0167, with a `when` above its predecessor's", () => {
+  it("records 0169 at idx 169, after 0168, with a `when` above its predecessor's", () => {
     const at = JOURNAL.entries.findIndex((e) => e.tag === TAG);
     expect(at).toBeGreaterThan(0);
     const entry = JOURNAL.entries[at]!;
     const previous = JOURNAL.entries[at - 1]!;
-    expect(entry.idx).toBe(168);
-    expect(previous.tag).toBe("0167_outbound_signals");
+    expect(entry.idx).toBe(169);
+    expect(previous.tag).toBe("0168_worker_activity");
     expect(entry.when).toBeGreaterThan(previous.when);
   });
 
-  it("0168's snapshot builds on 0167's and records the table", () => {
-    const next = snapshot("0168");
-    expect(next.prevId).toBe(snapshot("0167").id);
+  it("0169's snapshot builds on 0168's and records the table", () => {
+    const next = snapshot("0169");
+    expect(next.prevId).toBe(snapshot("0168").id);
     expect(next.tables).toHaveProperty(`public.${TABLE}`);
   });
 });

@@ -45,7 +45,7 @@ import {
  * branch included (a student who left search left it for named-company search too). It feeds the
  * city facet and the admin card read (`onlyWorkerId`) as well, which then says "not in the pool".
  * With the switch off the statement is byte-identical to the one before #2753 and the table is
- * never named (`candidate-search.search-exit.test.ts`). With it on and the table MISSING (0168 not
+ * never named (`candidate-search.search-exit.test.ts`). With it on and the table MISSING (0169 not
  * applied), each reader FAILS OPEN: on 42P01 it re-runs the switch-off statement byte for byte
  * (nobody can have left search without the table, since leaving writes it) and the first fallback
  * logs one warning per process. Any other error propagates.

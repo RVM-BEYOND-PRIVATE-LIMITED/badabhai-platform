@@ -75,7 +75,7 @@ describe("searchExitRefuses", () => {
     expect(t.reads).toEqual(["probe", "exit", "applied"]);
   });
 
-  it("on, the table MISSING (0168 not applied): fails open after the probe alone, warning once per process", async () => {
+  it("on, the table MISSING (0169 not applied): fails open after the probe alone, warning once per process", async () => {
     const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     try {
       for (let i = 0; i < 3; i += 1) {

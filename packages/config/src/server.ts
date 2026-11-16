@@ -1405,7 +1405,7 @@ export const serverEnvSchema = z.object({
   //
   // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the two worker routes are a plain 404, the search
   // statement is byte-identical, the unlock path reads nothing, and NOTHING reads or writes
-  // `worker_search_exits`. Migration 0168 is APPLY-BEFORE-THE-SWITCH, but on before it nothing
+  // `worker_search_exits`. Migration 0169 is APPLY-BEFORE-THE-SWITCH, but on before it nothing
   // 500s: search and the unlock gate fail open (everyone visible) and the worker routes answer 503.
   SEARCH_EXIT_ENABLED: booleanFromString,
 

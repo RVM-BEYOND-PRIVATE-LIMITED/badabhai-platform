@@ -330,7 +330,7 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /envs:[^\n]*\bWORKER_ACTIVITY_ENABLED\b/,
     ],
     // #2753 item 6 — leave company search. A plain boolean on the api only, turned on in
-    // production ONLY by the environment secret, after migration 0168.
+    // production ONLY by the environment secret, after migration 0169.
     [
       "SEARCH_EXIT_ENABLED",
       /SEARCH_EXIT_ENABLED:\s*\$\{\{\s*secrets\.SEARCH_EXIT_ENABLED\s*\}\}/,

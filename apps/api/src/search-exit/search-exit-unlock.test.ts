@@ -36,7 +36,7 @@ import type { WorkersRepository } from "../workers/workers.repository";
  *   - hidden, a LAPSED grant of this company       → refused like an unrelated one;
  *   - not hidden                                   → unchanged (one extra read, then the grant);
  *   - switch off                                   → unchanged and the gate reads nothing;
- *   - switch on, the table MISSING (before 0168)   → granted: the probe fails open and the
+ *   - switch on, the table MISSING (before 0169)   → granted: the probe fails open and the
  *                                                     table is never named (no aborted tx).
  * Every read of the gate is on the transaction's handle.
  */
@@ -57,7 +57,7 @@ interface Opts {
   switchOn?: boolean;
   hidden?: boolean;
   applied?: boolean;
-  /** Migration 0168 not applied: `to_regclass` answers NULL, and naming the table would raise. */
+  /** Migration 0169 not applied: `to_regclass` answers NULL, and naming the table would raise. */
   tableMissing?: boolean;
   existingUnlock?: Record<string, unknown>;
 }
@@ -240,7 +240,7 @@ describe("requestUnlock × a worker who left company search (switch on)", () => 
     expect(t.tx.tryDebit).toHaveBeenCalledTimes(1);
   });
 
-  it("the table MISSING (switch on before 0168): FAIL OPEN — granted after the probe alone, no 500", async () => {
+  it("the table MISSING (switch on before 0169): FAIL OPEN — granted after the probe alone, no 500", async () => {
     const t = setup({ hidden: true, applied: false, tableMissing: true });
     expect(await t.unlock()).toMatchObject({ ok: true, status: "granted" });
     expect(t.order).toEqual(["marker", "gate:probe", "caps"]);

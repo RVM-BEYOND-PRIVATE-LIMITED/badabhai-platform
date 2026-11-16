@@ -1321,13 +1321,13 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "open grant lets any PostgREST role read that daily pattern, or write a day that clears " +
       "a worker's not-recently-active mark",
   },
-  // 0168 (#2753 item 6): THE API names `worker_search_exits` only while SEARCH_EXIT_ENABLED is on
+  // 0169 (#2753 item 6): THE API names `worker_search_exits` only while SEARCH_EXIT_ENABLED is on
   // (the worker routes, the search pool's predicate, the unlock refusal), so a deploy ahead of the
   // migration breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134
   // rule). APPLY BEFORE THE SWITCH (migration header).
   {
-    id: "0168-worker-search-exits-rls",
-    migration: "0168_worker_search_exits",
+    id: "0169-worker-search-exits-rls",
+    migration: "0169_worker_search_exits",
     kind: "rls",
     table: "worker_search_exits",
     requiredBy:

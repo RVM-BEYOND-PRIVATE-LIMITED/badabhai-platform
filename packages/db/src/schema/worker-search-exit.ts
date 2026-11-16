@@ -13,7 +13,7 @@ import { workers } from "./worker";
 //
 // A SIDE TABLE, NOT A COLUMN ON `workers`, on purpose: nothing reads or writes it while
 // `SEARCH_EXIT_ENABLED` is off, so the migration is apply-before-the-switch rather than
-// apply-before-deploy on a hot table (migration 0168's header).
+// apply-before-deploy on a hot table (migration 0169's header).
 //
 // IDS, A TIME AND A CLOSED CODE ONLY. `via` says which surface took him out: `worker` (his own
 // switch, `PUT /workers/me/search-visibility`) or `monthly_check` (a later part writes it when he
@@ -21,7 +21,7 @@ import { workers } from "./worker";
 //
 // `worker_id` is the primary key (one exit per worker) and cascades on worker deletion (DPDP:
 // `WorkersRepository.hardDelete` deletes the workers row). RLS forced, every role revoked
-// (migration 0168).
+// (migration 0169).
 // ---------------------------------------------------------------------------
 
 /** Which surface took the worker out of company search. */
@@ -44,7 +44,7 @@ export const workerSearchExits = pgTable(
     // this in its own migration, with a new event version.
     check("worker_search_exits_via_chk", sql`${t.via} IN ('worker', 'monthly_check')`),
   ],
-).enableRLS(); // RLS tracked in the model; FORCE + four REVOKEs carried by migration 0168
+).enableRLS(); // RLS tracked in the model; FORCE + four REVOKEs carried by migration 0169
 
 export type WorkerSearchExit = typeof workerSearchExits.$inferSelect;
 export type NewWorkerSearchExit = typeof workerSearchExits.$inferInsert;

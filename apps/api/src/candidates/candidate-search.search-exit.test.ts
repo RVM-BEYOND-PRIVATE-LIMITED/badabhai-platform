@@ -20,7 +20,7 @@ import {
  *  - It sits over the WHOLE pool: after the institute-grant branch's OR, so a granted student who
  *    left search is out of that company's pool too.
  *  - It reaches all three readers: the search, the city facet and the admin card read.
- *  - ON with the table MISSING (42P01, 0168 not applied) each reader FAILS OPEN: it re-runs the
+ *  - ON with the table MISSING (42P01, 0169 not applied) each reader FAILS OPEN: it re-runs the
  *    switch-off statement byte for byte, and the process logs ONE warning. Any other SQLSTATE, and
  *    a 42P01 with the switch off, still throws.
  *
@@ -189,7 +189,7 @@ function missingTableDb(missingCode = "42P01", offFails: string | null = null) {
   return { db: db as unknown as Database, executed };
 }
 
-describe("SEARCH_EXIT_ENABLED on before migration 0168 — the readers FAIL OPEN", () => {
+describe("SEARCH_EXIT_ENABLED on before migration 0169 — the readers FAIL OPEN", () => {
   it("search, city facet and card read: on 42P01 each re-runs the switch-off statement byte for byte; ONE warning per process", async () => {
     const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     try {

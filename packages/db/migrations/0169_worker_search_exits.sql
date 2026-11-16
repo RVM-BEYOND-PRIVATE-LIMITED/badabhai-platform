@@ -1,5 +1,5 @@
 -- ==============================================================================
--- 0168 - worker_search_exits: a worker who left company search
+-- 0169 - worker_search_exits: a worker who left company search
 -- ==============================================================================
 --
 -- #2753 item 6. A worker turns "companies can find me" off (`PUT
@@ -29,13 +29,14 @@
 -- DEPLOY ORDER - APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY. Nothing names this table
 -- while SEARCH_EXIT_ENABLED (default off) is off: the two worker routes are a plain 404, the
 -- search statement is byte-identical to the one before #2753 and the unlock path reads
--- nothing. With the switch on before 0168 nothing answers 500, and the READERS FAIL OPEN
+-- nothing. With the switch on before 0169 nothing answers 500, and the READERS FAIL OPEN
 -- (nobody can have left search without this table, because leaving writes it): company
 -- search, its city facet and the admin candidate card re-run the switch-off statement on
 -- 42P01 (one warning per process), and the unlock gate probes
 -- to_regclass('public.worker_search_exits') first and names the table only when it exists,
 -- so the unlock transaction is never aborted. The two worker routes, the WRITE path, answer
--- 503 until this is applied. Apply 0164, 0165, 0166 and 0167 first (slot order), then this.
+-- 503 until this is applied. Apply 0164, 0165, 0166, 0167 and 0168 first (slot order), then
+-- this.
 --
 -- LOCKS. CREATE TABLE is instant, but the FOREIGN KEY takes SHARE ROW EXCLUSIVE on `workers`,
 -- which blocks writes to it while it waits behind a long transaction. Apply by hand in ONE
@@ -44,7 +45,7 @@
 --
 -- RLS: ENABLE is generated; FORCE and the four REVOKEs at the end are HAND-WRITTEN (the
 -- 0117 / 0156 / 0160 / 0161 / 0167 pattern) - a regenerate drops them silently. Registered as
--- `0168-worker-search-exits-rls` in `schema-contract.ts`; listed in LOCKED_TABLES in the e2e
+-- `0169-worker-search-exits-rls` in `schema-contract.ts`; listed in LOCKED_TABLES in the e2e
 -- RLS spine.
 --
 -- ROLLBACK (switch off first; every worker who left search is back in it):

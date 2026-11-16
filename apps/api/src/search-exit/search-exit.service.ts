@@ -41,9 +41,9 @@ const replyFor = (exit: StoredSearchExit | null): SearchVisibilityResponse =>
  *
  * THE SWITCH FIRST, ALWAYS. With `SEARCH_EXIT_ENABLED` off every method is a 404 that reads and
  * writes nothing (the route guard 404s even earlier, before auth). That is what makes migration
- * 0168 apply-before-the-switch.
+ * 0169 apply-before-the-switch.
  *
- * ON BEFORE 0168: 503, NOT 500, AND NOT FAIL OPEN. The two routes are the WRITE path of this table
+ * ON BEFORE 0169: 503, NOT 500, AND NOT FAIL OPEN. The two routes are the WRITE path of this table
  * (the GET is the screen the switch is on), so with the table missing (42P01) there is nothing
  * honest to answer: "visible" would show a switch that cannot be flipped, and a PUT cannot store a
  * leave. They answer 503 Service Unavailable and write nothing (the transaction rolls back).
@@ -119,7 +119,7 @@ export class SearchExitService {
     if (!searchExitEnabled(this.config)) throw new NotFoundException();
   }
 
-  /** One write transaction; a missing table (0168 not applied) is a 503, rolled back. */
+  /** One write transaction; a missing table (0169 not applied) is a 503, rolled back. */
   private async write<T>(workerId: string, work: (tx: Database) => Promise<T>): Promise<T> {
     try {
       return await this.repo.withTransaction(work);

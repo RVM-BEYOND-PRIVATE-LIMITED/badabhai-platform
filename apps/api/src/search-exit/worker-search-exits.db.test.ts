@@ -31,7 +31,7 @@ import { SearchExitRepository } from "./search-exit.repository";
 import { SearchExitService } from "./search-exit.service";
 
 /**
- * #2753 item 6 — leaving company search (`worker_search_exits`, migration 0168) against a real
+ * #2753 item 6 — leaving company search (`worker_search_exits`, migration 0169) against a real
  * Postgres.
  *
  * The unit suites prove the service, the gate and the statement SAY the right thing. Only a database
@@ -46,7 +46,7 @@ import { SearchExitService } from "./search-exit.service";
  *    applicant feeds' own membership (`feedMembershipStatement`), and `requestUnlock` (the real
  *    service) grants a company he applied to and answers an unrelated one the neutral body with no
  *    debit and no row;
- *  - switched on BEFORE 0168 (the table renamed away), nothing answers 500: the search, the facet
+ *  - switched on BEFORE 0169 (the table renamed away), nothing answers 500: the search, the facet
  *    and the card read re-run today's statement (fail open), the unlock gate probes with
  *    `to_regclass` and keeps its transaction alive (a CASE guard in the same statement would not:
  *    Postgres resolves the table at parse time), `requestUnlock` grants, and the worker routes 503;
@@ -104,7 +104,7 @@ function query(over: Partial<CandidatePoolQuery> = {}): CandidatePoolQuery {
   };
 }
 
-describe.skipIf(!RUN)("worker_search_exits against Postgres (#2753 item 6, migration 0168)", () => {
+describe.skipIf(!RUN)("worker_search_exits against Postgres (#2753 item 6, migration 0169)", () => {
   let client!: DbClient;
   let config!: ServerConfig;
   let on!: CandidateSearchRepository;
@@ -357,7 +357,7 @@ describe.skipIf(!RUN)("worker_search_exits against Postgres (#2753 item 6, migra
     expect(reopened).toMatchObject({ ok: true, status: "granted" });
   });
 
-  it("switched on before 0168 (the table missing): search, facet, card and unlock FAIL OPEN, the worker routes 503, nothing 500s", async () => {
+  it("switched on before 0169 (the table missing): search, facet, card and unlock FAIL OPEN, the worker routes 503, nothing 500s", async () => {
     // He has left search, and GRANT_CO (never applied, no grant of him) would be refused today.
     await exits.setVisibility(HIDER, false, "worker", CTX);
     expect(await on.findCardRow(HIDER)).toBeNull();
