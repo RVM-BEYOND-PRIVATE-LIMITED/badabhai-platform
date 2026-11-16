@@ -1392,6 +1392,23 @@ export const serverEnvSchema = z.object({
   // words. No migration: the answer lives in the `availability` json attribute. Turn on with the
   // app release that renders the served chips.
   AVAILABILITY_ANSWERS_V2_ENABLED: booleanFromString,
+  // LAST ACTIVE, ONE DEFINITION (#2753 items 4 and 7). With it on, every signed-in worker request
+  // and every Campus application records the worker's IST day in `worker_activity` (migration
+  // 0168), and the API's one last-active read is the later of that table's newest day and his
+  // newest device sighting: the #2747 pre-pay fact `lastActiveOn`, the agency referred-workers
+  // list, and `notRecentlyActive` on every applicant, inbox and company search row.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: nothing reads or writes `worker_activity`, no row
+  // carries `notRecentlyActive`, and `lastActiveOn` is the device sighting as before. That is what
+  // makes 0168 apply-before-the-switch rather than apply-before-the-deploy. On without the table,
+  // nothing answers 500: the writes are lost and the reads fall back to the device day (42P01,
+  // one warning per process). The card's activity band, the search order and the `worker.active`
+  // event never read this switch.
+  WORKER_ACTIVITY_ENABLED: booleanFromString,
+  // The "not recently active" mark (#2753 item 7, owner default): a worker whose last active day is
+  // MORE than this many days before today (IST) is marked; day 90 is not, day 91 is. A mark only:
+  // nobody is hidden or re-sorted (owner question 3). Read only while WORKER_ACTIVITY_ENABLED is on.
+  NOT_RECENTLY_ACTIVE_DAYS: z.coerce.number().int().min(1).default(90),
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable

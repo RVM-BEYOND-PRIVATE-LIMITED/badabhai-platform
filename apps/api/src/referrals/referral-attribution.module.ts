@@ -20,6 +20,7 @@ import { WorkerOriginRepository } from "./worker-origin.repository";
 import { ReferralHelperController } from "./referral-helper.controller";
 import { ReferralHelperNameService } from "./referral-helper-name.service";
 import { ReferralHelperNameRepository } from "./referral-helper-name.repository";
+import { WorkerActivityModule } from "../worker-activity/worker-activity.module";
 
 /**
  * Referral attribution (ADR-0020 + ADR-0022) — the worker-onboarding hook that finally
@@ -75,6 +76,8 @@ import { ReferralHelperNameRepository } from "./referral-helper-name.repository"
     // #1800 — ReferralLinkRepository + ReferralLinkService (and the résumé-QR mint), extracted so
     // ResumeModule can reach the mint without importing this module. One instance each.
     ReferralLinksModule,
+    // #2753 - WorkerActivityService for the interceptor below (the IST-day write). A leaf module.
+    WorkerActivityModule,
     // The bonus-evaluation queue — consumed by ReferralBonusProcessor below, produced by
     // ProfilesService (confirm) and UnlocksService (grant).
     BullModule.registerQueue({ name: REFERRAL_BONUS_QUEUE }),

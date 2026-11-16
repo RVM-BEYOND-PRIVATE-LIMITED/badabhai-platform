@@ -24,6 +24,7 @@ import { AgencyMatchSkillsAdminController } from "./agency-match-skills-admin.co
 import { AgencyWorkersController } from "./agency-workers.controller";
 import { AgencyWorkersRepository } from "./agency-workers.repository";
 import { AgencyWorkersService } from "./agency-workers.service";
+import { WorkerActivityModule } from "../worker-activity/worker-activity.module";
 
 /**
  * Agency Supply Portal — demand slice (ADR-0022, ACCEPTED; mock + staging-only).
@@ -59,6 +60,8 @@ import { AgencyWorkersService } from "./agency-workers.service";
     AdminModule,
     // Reuse BullMQ's Redis connection (client only) for the per-payer invite-mint cap.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
+    // #2753 - the referred-workers list reads the one last-active day. A leaf module.
+    WorkerActivityModule,
   ],
   controllers: [
     AgencyJobsController,

@@ -899,6 +899,25 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "yes" })).toThrow();
   });
 
+  it("WORKER_ACTIVITY_ENABLED (#2753) is OFF by default and for the empty string", () => {
+    // Off is today exactly: nothing reads or writes worker_activity (migration 0168).
+    expect(loadServerConfig({}).WORKER_ACTIVITY_ENABLED).toBe(false);
+    expect(loadServerConfig({ WORKER_ACTIVITY_ENABLED: "" }).WORKER_ACTIVITY_ENABLED).toBe(false);
+    expect(loadServerConfig({ WORKER_ACTIVITY_ENABLED: "0" }).WORKER_ACTIVITY_ENABLED).toBe(false);
+    expect(loadServerConfig({ WORKER_ACTIVITY_ENABLED: "true" }).WORKER_ACTIVITY_ENABLED).toBe(
+      true,
+    );
+    expect(() => loadServerConfig({ WORKER_ACTIVITY_ENABLED: "yes" })).toThrow();
+  });
+
+  it("NOT_RECENTLY_ACTIVE_DAYS (#2753) defaults to 90 and refuses anything under 1", () => {
+    expect(loadServerConfig({}).NOT_RECENTLY_ACTIVE_DAYS).toBe(90);
+    expect(loadServerConfig({ NOT_RECENTLY_ACTIVE_DAYS: "30" }).NOT_RECENTLY_ACTIVE_DAYS).toBe(30);
+    // 0 would mark everyone not active today; a typo must fail the boot, not mark a whole list.
+    expect(() => loadServerConfig({ NOT_RECENTLY_ACTIVE_DAYS: "0" })).toThrow();
+    expect(() => loadServerConfig({ NOT_RECENTLY_ACTIVE_DAYS: "1.5" })).toThrow();
+  });
+
   describe("the Campus link (#2752)", () => {
     const HASH_A = "a".repeat(64);
     const HASH_B = "B".repeat(64);

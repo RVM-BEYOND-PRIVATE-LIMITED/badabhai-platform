@@ -422,6 +422,25 @@ NestJS boot assertion).
   `${AVAILABILITY_ANSWERS_V2_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
   `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; values
   lowercase `true`/`false`/`1`/`0`/empty only.
+- **Last active, one definition (#2753 items 4 and 7)** — `WORKER_ACTIVITY_ENABLED`, api only
+  (`booleanFromString`, default off). On, every signed-in worker request and every Campus
+  application records the worker's IST day in `worker_activity` (migration 0168; fire-and-forget,
+  never fails the request), and the one last-active read is the later of that table's newest day
+  and the IST day of his newest device sighting: the #2747 pre-pay fact `lastActiveOn`, the agency
+  referred-workers `lastActiveOn`, and `notRecentlyActive` on every applicant, inbox and company
+  search row. Off is today exactly: nothing reads or writes the table, no row carries
+  `notRecentlyActive`, and `lastActiveOn` is the device sighting. The card's activity band, the
+  search order and the `worker.active` event never read it. Migration 0168 is
+  APPLY-BEFORE-THE-SWITCH: on without the table nothing answers 500 (the writes are lost and the
+  reads fall back to the device day, with one warning per process), but every day of activity
+  until the apply is lost.
+  Bridged through the GitHub `production` environment secret of the same name (compose
+  `${WORKER_ACTIVITY_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; values
+  lowercase `true`/`false`/`1`/`0`/empty only. `NOT_RECENTLY_ACTIVE_DAYS` (integer, default 90, at
+  least 1) is the mark's threshold: more than that many days since the last active day (IST) marks
+  him, so day 90 is not marked and day 91 is. Not bridged (like `PAYER_APPLICANT_STAGE_MAX_PER_HOUR`):
+  production runs the default until a bridge is added.
 - **The Campus link (#2752)** — api only, four variables, all read by `CampusServiceGuard` on
   `/internal/campus/v1` (contract: `docs/api/campus-link-v1-api-reference.md`).
   - `CAMPUS_LINK_ENABLED` (`booleanFromString`, default off): off, every Campus route is a neutral
