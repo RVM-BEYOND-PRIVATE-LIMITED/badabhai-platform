@@ -40,8 +40,14 @@ class EmployerSharingPromptGate {
   final bool Function() _isSignedIn;
   final String? Function() _workerId;
 
-  /// The notice version the prompt shows (and a grant certifies).
+  /// The notice version the prompt shows (and a grant certifies). It is the
+  /// COMPILED fallback; [claim] prefers the version the server serves
+  /// (`GET /consent/notice`, #2753 item 13).
   final String noticeVersion;
+
+  /// The version this launch's decision used (server-served when available),
+  /// so the dismissal is stored under the same key the prompt was judged by.
+  String? _versionUsed;
 
   final Set<String> _claimedThisLaunch = <String>{};
 
@@ -54,11 +60,22 @@ class EmployerSharingPromptGate {
       if (!_claimedThisLaunch.add(_workerId() ?? '')) return false;
       // Server first: a worker the server says is not due never touches disk.
       final EmployerContactInfo info = await _repository.employerContactState();
-      if (!employerSharingPromptDue(info, noticeVersion: noticeVersion)) {
+      // Compare the row's certified version with the version the SERVER serves,
+      // not the one compiled into this build. A failed read keeps the fallback,
+      // so an older server behaves exactly as before.
+      String version = noticeVersion;
+      try {
+        final String served = (await _repository.consentNotice()).version;
+        if (served.isNotEmpty) version = served;
+      } catch (_) {
+        // No route / transient failure — keep the compiled version.
+      }
+      _versionUsed = version;
+      if (!employerSharingPromptDue(info, noticeVersion: version)) {
         return false;
       }
       return !await _store.isDismissed(
-        version: noticeVersion,
+        version: version,
         workerId: _workerId(),
       );
     } catch (_) {
@@ -70,7 +87,7 @@ class EmployerSharingPromptGate {
   Future<void> recordDismissal() async {
     try {
       await _store.markDismissed(
-        version: noticeVersion,
+        version: _versionUsed ?? noticeVersion,
         workerId: _workerId(),
       );
     } catch (_) {

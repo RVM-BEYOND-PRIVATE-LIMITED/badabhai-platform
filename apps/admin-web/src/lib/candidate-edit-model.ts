@@ -191,10 +191,17 @@ const PERIOD_OPTIONS = [
 ] as const;
 
 const AVAILABILITY_OPTIONS = [
+  // The first answer set — still readable/editable for an old stored answer.
   { value: "immediate", label: "Immediately" },
   { value: "within_week", label: "Within a week" },
   { value: "within_month", label: "Within a month" },
   { value: "serving_notice", label: "Serving notice" },
+  // #2753 item 3 — the brief's four answers. The PUT accepts BOTH sets at any
+  // time; an old answer keeps its own wording.
+  { value: "join_now", label: "Can join now" },
+  { value: "in_15_days", label: "Can join in 15 days" },
+  { value: "in_30_days", label: "Can join in 30 days" },
+  { value: "working_open", label: "Working, open to a better offer" },
 ] as const;
 
 const TRI_OPTIONS = [

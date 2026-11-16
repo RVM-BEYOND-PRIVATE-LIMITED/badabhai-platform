@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Badge, Button, Card, Dialog } from "../../../components/ds";
+import { RvmReviewBadge } from "../../../components/rvm-review";
 import { PortalLink } from "../../../components/portal-link";
 import { formatInr } from "../../../lib/format";
 import { postingsErrorMessage } from "../../../lib/postings-messages";
@@ -393,6 +394,9 @@ export function PostingsManager({
                   <Badge tone={statusTone(p.status)} upper>
                     {p.status}
                   </Badge>
+                  {/* #2746 — the placement team's decision, when this posting has an RVM part.
+                      `reason` is their own note and renders as plain text. */}
+                  <RvmReviewBadge review={p.rvmReview} />
                 </div>
                 {/* The middot separators are drawn by CSS (`::before` on the segments) so the
                     glyph travels with its following segment and can't orphan on a wrap — see
@@ -408,6 +412,11 @@ export function PostingsManager({
                     Posted <span className="bb-mono">{day(p.createdAt)}</span>
                   </span>
                 </div>
+                {p.rvmReview?.reason ? (
+                  <p className="posting-card__meta" role="note">
+                    <strong>RVM review note:</strong> {p.rvmReview.reason}
+                  </p>
+                ) : null}
                 {/* The row's two page links get their own line: inside the facts row they read
                     as one "Applicants Edit" label led by a separator dot. The title above opens
                     the posting's details. A read-only row has neither. */}

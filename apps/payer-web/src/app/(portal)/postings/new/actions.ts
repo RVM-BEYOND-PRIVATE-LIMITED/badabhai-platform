@@ -2,7 +2,13 @@
 
 import { createPostingInputSchema, matchSelectionInputSchema } from "../../../../lib/contracts";
 import { createPosting, publishPostingWithMatchSkills } from "../../../../lib/payer-api";
-import { isPayerValidationError, isPostingTradeRequired } from "../../../../lib/payer-errors";
+import {
+  isPayerValidationError,
+  isPostingTradeRequired,
+  isTargetingNeedsRvmAudience,
+  isTargetingOptionNotOffered,
+} from "../../../../lib/payer-errors";
+import { postingsErrorMessage } from "../../../../lib/postings-messages";
 import {
   mapPostingIssues,
   postingTradeRequiredFieldErrors,
@@ -78,6 +84,10 @@ export async function createPostingAction(input: {
   tradeAnswers?: Record<string, string[]>;
   matchSkillIds: string[];
   untickedRelatedIds: string[];
+  /** #2746 — sent only when the audience picker was shown (the switch is on for the company). */
+  audience?: string;
+  rvmBranchIds?: number[];
+  rvmCourseIds?: string[];
 }): Promise<CreatePostingResult> {
   // #2645 — no role is refused BEFORE anything is created: a job without a trade could never go
   // live. Presence only (see above); the API decides whether a given role is one of the 16.
@@ -108,6 +118,10 @@ export async function createPostingAction(input: {
     tradeLevel: input.tradeLevel,
     // Always the trade form (#2645): `{}` still names the trade, so the server derives the set.
     tradeAnswers: input.tradeAnswers ?? {},
+    // #2746 — omitted on a switched-off company (the form had no options to pick from).
+    audience: input.audience,
+    rvmBranchIds: input.rvmBranchIds,
+    rvmCourseIds: input.rvmCourseIds,
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues.map((i) => i.message).join("; ") };
@@ -146,6 +160,11 @@ export async function createPostingAction(input: {
   try {
     postingId = (await createPosting(parsed.data)).id;
   } catch (e) {
+    // #2746 — the two audience refusals are machine reasons, never the server's sentence.
+    if (isTargetingNeedsRvmAudience(e) || isTargetingOptionNotOffered(e)) {
+      const message = postingsErrorMessage(e);
+      return { ok: false, error: message, fieldErrors: { audience: message } };
+    }
     // #1912 — the server screens the worker-visible text too (it is the authority);
     // a refused `role_title` / `description` comes back as per-field issues. Attach
     // each to the field the payer typed into instead of one generic banner.

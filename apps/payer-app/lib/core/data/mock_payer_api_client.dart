@@ -293,6 +293,23 @@ class MockPayerApiClient implements PayerApiClient {
 
   int _jobSeq = 100;
 
+  @override
+  Future<AudienceOptions?> fetchAudienceOptions() async => const AudienceOptions(
+        audiences: <JobAudience>[
+          JobAudience.badabhaiWorkers,
+          JobAudience.rvmStudents,
+          JobAudience.both,
+        ],
+        branches: <AudienceBranchOption>[
+          AudienceBranchOption(id: 1, label: 'Pune'),
+          AudienceBranchOption(id: 2, label: 'Nashik'),
+        ],
+        courses: <AudienceCourseOption>[
+          AudienceCourseOption(id: 'cnc', label: 'CNC Operator'),
+          AudienceCourseOption(id: 'vmc', label: 'VMC Operator'),
+        ],
+      );
+
   JobPosting _cannedJob(String? id, {required String wireStatus}) => JobPosting(
         id: id,
         title: 'CNC Setter',
@@ -333,6 +350,9 @@ class MockPayerApiClient implements PayerApiClient {
     List<String>? requirements,
     String? tradeLevel,
     Map<String, List<String>>? tradeAnswers,
+    JobAudience? audience,
+    List<int>? rvmBranchIds,
+    List<String>? rvmCourseIds,
   }) async {
     if ((vacancyBand == null) == (vacancies == null)) {
       throw ArgumentError(
@@ -372,6 +392,12 @@ class MockPayerApiClient implements PayerApiClient {
       matchSkillIds: matchSkillIds ?? const <String>[],
       tradeLevel: tradeLevel,
       tradeAnswers: tradeAnswers,
+      audience: audience,
+      rvmBranchIds: rvmBranchIds ?? const <int>[],
+      rvmCourseIds: rvmCourseIds ?? const <String>[],
+      rvmReview: audience != null && audience.hasRvm
+          ? const RvmReview(state: 'pending')
+          : null,
       createdAt: '2026-07-08T00:00:00Z',
       status: JobStatus.review,
       filled: 0,
@@ -414,6 +440,9 @@ class MockPayerApiClient implements PayerApiClient {
     List<String>? requirements,
     String? tradeLevel,
     Map<String, List<String>>? tradeAnswers,
+    JobAudience? audience,
+    List<int>? rvmBranchIds,
+    List<String>? rvmCourseIds,
     List<JobPostingClearField>? clear,
   }) async {
     // The real PATCH accepts every key above and returns the UPDATED row, so the
@@ -478,6 +507,12 @@ class MockPayerApiClient implements PayerApiClient {
         tradeAnswers,
         current.tradeAnswers,
       ),
+      audience: audience ?? current.audience,
+      rvmBranchIds: rvmBranchIds ?? current.rvmBranchIds,
+      rvmCourseIds: rvmCourseIds ?? current.rvmCourseIds,
+      rvmReview: (audience ?? current.audience)?.hasRvm == true
+          ? (current.rvmReview ?? const RvmReview(state: 'pending'))
+          : null,
       createdAt: current.createdAt,
       status: current.status,
       filled: current.filled,
@@ -705,9 +740,23 @@ class MockPayerApiClient implements PayerApiClient {
     required List<String> matchSkillIds,
     List<String> untickedRelatedIds = const <String>[],
     String? roleKind,
+    JobAudience? audience,
   }) async {
+    // #2746 — an RVM-only audience reaches no BadaBhai worker by design, and the
+    // server reports `zero_reach: false` (not "a posting into a void").
+    if (audience == JobAudience.rvmStudents) {
+      return ReachPreview(
+        skills: const <ReachSkill>[],
+        reachSkillIds: const <String>[],
+        reachTotal: 0,
+        reachTier1: 0,
+        zeroReach: false,
+        appliedUntickedIds: const <String>[],
+        maxSkillsPerPosting: 5,
+      );
+    }
     // Deterministic canned maths: each picked skill reaches a fixed base, each
-    // still-ticked related skill adds a smaller slice. Mirrors the shape the
+    // still-ticked relative skill adds a smaller slice. Mirrors the shape the
     // real deterministic matcher returns (never generative). [roleKind] is
     // accepted for parity (#2635); the canned vocabulary has no trade scope.
     const Map<String, int> baseReach = <String, int>{
@@ -1447,6 +1496,9 @@ class MockPayerApiClient implements PayerApiClient {
         experienceBand: c.exp,
         tradeLabel: c.trade,
         cityLabel: c.loc,
+        // #2753 item 7 — one canned inactive row so the mark is visible in a
+        // demo build without inventing a rule the server owns.
+        notRecentlyActive: rank == 3,
       );
     }).toList(growable: false);
   }
@@ -1633,6 +1685,9 @@ class _MockWorker {
         city: city,
         tradeLevels: levels,
         isSample: isSample,
+        // #2753 item 7 — a canned mark on one pool row, so the card's badge is
+        // exercised in mock mode. The server owns the real rule.
+        notRecentlyActive: workerId.endsWith('0004'),
       ),
     );
   }

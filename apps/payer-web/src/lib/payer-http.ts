@@ -118,7 +118,7 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
     // O-5). Surface it as a typed forbidden — no PII, no oracle — so a page can render
     // its neutral owner-only / agency-only state instead of a retryable error,
     // identical to the Flutter app's AgencyEarningsStatus.forbidden handling.
-    if (res.status === 403) throw new PayerForbiddenError(path);
+    if (res.status === 403) throw await readForbidden(path, res);
     // A 409 is read too (#2085): a `price_mismatch` must reach the payer as "the price
     // changed", and must never be read as a purchase seam's other 409s. Nothing from the
     // body is rendered except the API's current price.
@@ -174,6 +174,24 @@ async function readConflict(path: string, res: Response): Promise<Error> {
     typeof fields.message === "string" ? fields.message : null,
     reasonOf(fields),
   );
+}
+
+/**
+ * Read a 403 body ONCE, defensively. A campus-drive `company_not_verified` names its `reason` and
+ * the `missing` steps, both closed tokens the app may show; every other 403 names neither and
+ * keeps the historic class-only behaviour. Never echoes free text from the body.
+ */
+async function readForbidden(path: string, res: Response): Promise<PayerForbiddenError> {
+  let fields: Record<string, unknown> = {};
+  try {
+    fields = envelopeFields(await res.json());
+  } catch {
+    fields = {};
+  }
+  const missing = Array.isArray(fields.missing)
+    ? fields.missing.filter((m): m is string => typeof m === "string")
+    : [];
+  return new PayerForbiddenError(path, reasonOf(fields), missing);
 }
 
 /**

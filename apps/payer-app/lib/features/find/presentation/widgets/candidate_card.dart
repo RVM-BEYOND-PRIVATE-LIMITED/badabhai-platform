@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/data/candidate_search_models.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/util/activity_mark.dart';
 import '../../../../core/util/months_label.dart';
 import '../../../../core/widgets/bb_avatar.dart';
 import '../../../../core/widgets/bb_badge.dart';
@@ -201,6 +202,16 @@ class CandidateCard extends StatelessWidget {
             related,
             tone: BbBadgeTone.warning,
             icon: Icons.hub_rounded,
+          ),
+        ],
+        // #2753 item 7 — the server's activity mark, present only while its
+        // switch is on. A label only: no row is hidden or re-sorted.
+        if (row.notRecentlyActive) ...<Widget>[
+          const SizedBox(height: AppSpacing.gap6),
+          const BbBadge(
+            kNotRecentlyActiveLabel,
+            tone: BbBadgeTone.neutral,
+            icon: Icons.schedule_rounded,
           ),
         ],
         const SizedBox(height: AppSpacing.gap6),

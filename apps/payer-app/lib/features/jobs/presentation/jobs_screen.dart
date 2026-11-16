@@ -27,6 +27,7 @@ import 'edit_company_job_screen.dart';
 import 'widgets/job_card_actions.dart';
 import 'widgets/job_list_format.dart';
 import 'widgets/jobs_empty_state.dart';
+import 'widgets/posting_audience_fields.dart' show RvmReviewNote;
 import 'widgets/trade_posting_fields.dart' show humaniseTradeKey;
 import '../../../core/theme/bb_palette.dart';
 
@@ -584,6 +585,12 @@ class _RealJobCardState extends State<_RealJobCard> {
                   ),
               ],
             ),
+          ],
+          // #2746 — the placement team's decision and its plain-text note, on a
+          // posting that has an RVM part. Absent for a BadaBhai-only job.
+          if (job.rvmReview != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.s2),
+            RvmReviewNote(review: job.rvmReview!),
           ],
           if (job.quota > 0) ...<Widget>[
             const SizedBox(height: AppSpacing.s3),

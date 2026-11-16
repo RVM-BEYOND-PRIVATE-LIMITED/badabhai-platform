@@ -236,6 +236,7 @@ void main() {
               'matchedSkillLabel': 'MIG Welding',
               'engineVersion': 'match_v1',
               'levelFit': 'not_confirmed',
+              'notRecentlyActive': true,
             },
           ],
         }),
@@ -252,6 +253,8 @@ void main() {
       expect(a.matchedSkillLabel, 'MIG Welding');
       expect(a.lastWorkedAt, '2026-05-01T00:00:00Z');
       expect(a.levelFit, 'not_confirmed');
+      expect(a.notRecentlyActive, isTrue,
+          reason: '#2753 item 7 — the server mark is carried verbatim');
       expect(a.viaRelated, isTrue);
       // V1 carries no weights: score/hot are structural placeholders and no
       // signal list is fabricated, so the card shows the tier badge alone.
@@ -580,4 +583,134 @@ void main() {
       expect(req.headers['authorization'], 'Bearer tok-abc');
     });
   });
+  // #2746 — audience, RVM targeting and review. Only shown/sent when the
+  // options route answers 200; a neutral 404 (switch off) hides everything.
+  group('HttpPayerApiClient — job audience (#2746)', () {
+    test('fetchAudienceOptions → GET the options route; a 404 is null, not an error',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/job-postings/audience-options': _json(<String, dynamic>{
+          'audiences': <String>['badabhai_workers', 'rvm_students', 'both'],
+          'branches': <Map<String, dynamic>>[
+            <String, dynamic>{'id': 1, 'label': 'Pune', 'sort_order': 1},
+          ],
+          'courses': <Map<String, dynamic>>[
+            <String, dynamic>{'id': 'cnc', 'label': 'CNC', 'sort_order': 1},
+          ],
+        }),
+      });
+      final AudienceOptions? options = await h.api.fetchAudienceOptions();
+      expect(options, isNotNull);
+      expect(options!.audiences, contains(JobAudience.rvmStudents));
+      expect(options.branches.single.label, 'Pune');
+
+      final h404 = _harness(<String, http.Response>{
+        'GET /payer/job-postings/audience-options':
+            _json(<String, dynamic>{}, 404),
+      });
+      expect(await h404.api.fetchAudienceOptions(), isNull);
+    });
+
+    test('createCompanyJob sends audience + targeting when supplied', () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/job-postings': _json(<String, dynamic>{
+          'id': 'job-1',
+          'roleTitle': 'CNC Turner',
+          'vacancyBand': '1',
+        }),
+      });
+      await h.api.createCompanyJob(
+        orgLabel: 'Acme',
+        roleTitle: 'CNC Turner',
+        vacancyBand: '1',
+        audience: JobAudience.both,
+        rvmBranchIds: const <int>[1],
+        rvmCourseIds: const <String>['cnc'],
+      );
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body['audience'], 'both');
+      expect(body['rvm_branch_ids'], <int>[1]);
+      expect(body['rvm_course_ids'], <String>['cnc']);
+    });
+
+    test('updateJob sends audience + targeting when supplied', () async {
+      final h = _harness(<String, http.Response>{
+        'PATCH /payer/job-postings/job-1': _json(<String, dynamic>{
+          'id': 'job-1',
+          'roleTitle': 'CNC Turner',
+          'vacancyBand': '1',
+        }),
+      });
+      await h.api.updateJob(
+        'job-1',
+        audience: JobAudience.rvmStudents,
+        rvmBranchIds: const <int>[],
+        rvmCourseIds: const <String>[],
+      );
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body['audience'], 'rvm_students');
+      expect(body['rvm_branch_ids'], <int>[]);
+      expect(body['rvm_course_ids'], <String>[]);
+    });
+
+    test('reachPreview sends the audience when supplied', () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/match/reach-preview': _json(<String, dynamic>{
+          'skills': <dynamic>[],
+          'reach_skill_ids': <dynamic>[],
+          'reach_total': 0,
+          'reach_tier1': 0,
+          'zero_reach': false,
+          'applied_unticked_ids': <dynamic>[],
+          'max_skills_per_posting': 5,
+        }),
+      });
+      await h.api.reachPreview(
+        matchSkillIds: const <String>['mskill_cnc_turner'],
+        audience: JobAudience.rvmStudents,
+      );
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body['audience'], 'rvm_students');
+    });
+
+    test('a row with an RVM review parses its audience block; one without stays null',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/job-postings/job-1': _json(<String, dynamic>{
+          'id': 'job-1',
+          'roleTitle': 'CNC Turner',
+          'vacancyBand': '1',
+          'status': 'open',
+          'audience': 'both',
+          'rvm_branch_ids': <int>[2],
+          'rvm_course_ids': <String>['vmc'],
+          'rvm_review': <String, dynamic>{
+            'state': 'rejected',
+            'reason': 'Please add the shift timing.',
+          },
+        }),
+      });
+      final JobPosting? job = await h.api.getJob('job-1');
+      expect(job!.audience, JobAudience.both);
+      expect(job.rvmBranchIds, <int>[2]);
+      expect(job.rvmReview!.state, 'rejected');
+      expect(job.rvmReview!.reason, 'Please add the shift timing.');
+
+      final h2 = _harness(<String, http.Response>{
+        'GET /payer/job-postings/job-2': _json(<String, dynamic>{
+          'id': 'job-2',
+          'roleTitle': 'CNC Turner',
+          'vacancyBand': '1',
+          'status': 'open',
+        }),
+      });
+      final JobPosting? plain = await h2.api.getJob('job-2');
+      expect(plain!.audience, isNull);
+      expect(plain.rvmReview, isNull);
+    });
+  });
+
 }

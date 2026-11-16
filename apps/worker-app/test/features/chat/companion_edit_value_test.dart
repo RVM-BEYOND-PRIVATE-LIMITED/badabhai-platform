@@ -30,11 +30,14 @@ void main() {
       expect(companionEditValue('TRUE'), 'Haan');
     });
 
-    test('an unknown snake_case slug is never shown raw', () {
-      // qualifications:education_credential and availability_status are closed
-      // sets the card can carry whose members this build has no table for.
-      expect(companionEditValue('serving_notice'), 'Serving Notice');
-      expect(companionEditValue('within_week'), 'Within Week');
+    test('a closed-set slug is rendered in its own words, never raw', () {
+      // availability_status is a closed set whose members both answer sets can
+      // carry (#2753 item 3); each key keeps its own words.
+      expect(companionEditValue('serving_notice'), 'Serving notice');
+      expect(companionEditValue('within_week'), 'Within a week');
+      expect(companionEditValue('in_15_days'), 'Can join in 15 days');
+      // An UNKNOWN slug still never reaches the screen raw.
+      expect(companionEditValue('some_future_slug'), 'Some Future Slug');
       // Nothing that came back may still look like a token.
       for (final String out in <String>[
         companionEditValue('serving_notice'),

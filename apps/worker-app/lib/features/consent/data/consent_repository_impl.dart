@@ -35,6 +35,10 @@ class ConsentRepositoryImpl implements ConsentRepository {
         authToken: token,
         purposes: purposes,
         age18Plus: age18Plus,
+        // #2753 item 13 — certify the version the SERVER serves, not a copy
+        // compiled into the app. Fall back to `kConsentVersion` only when the
+        // notice read fails (an older server), exactly as before.
+        consentVersion: await _servedNoticeVersion(token),
       );
     } catch (error) {
       throw mapError(error);
@@ -92,14 +96,44 @@ class ConsentRepositoryImpl implements ConsentRepository {
   @override
   Future<void> grantEmployerContact() async {
     // The bearer is the subject; the version is the notice the app just
-    // showed (ApiClient's default, kConsentVersion). No purposes are sent.
+    // showed. It is read from the API so a server-side notice bump does not
+    // leave the grant certifying a stale compiled version.
     final String? token = _session.sessionToken;
     if (token == null || token.isEmpty) throw const UnauthorizedFailure();
     try {
-      await _api.grantEmployerContact(authToken: token);
+      await _api.grantEmployerContact(
+        authToken: token,
+        consentVersion: await _servedNoticeVersion(token),
+      );
     } catch (error) {
       throw mapError(error);
     }
+  }
+
+  @override
+  Future<ConsentNoticeDto> consentNotice() async {
+    final String? token = _session.sessionToken;
+    if (token == null || token.isEmpty) throw const UnauthorizedFailure();
+    try {
+      return await _api.getConsentNotice(authToken: token);
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  /// The server's current notice version, or the compiled `kConsentVersion`
+  /// when the notice read fails (an older server has no `/consent/notice`).
+  /// Never throws: the write that follows certifies a version the server either
+  /// just served or the one this build is known to have shown.
+  Future<String> _servedNoticeVersion(String token) async {
+    try {
+      final String version =
+          (await _api.getConsentNotice(authToken: token)).version;
+      if (version.isNotEmpty) return version;
+    } catch (_) {
+      // Older server / transient read failure — keep the compiled version.
+    }
+    return kConsentVersion;
   }
 
   /// Consumes a pending referral code (captured from a deep link) exactly once

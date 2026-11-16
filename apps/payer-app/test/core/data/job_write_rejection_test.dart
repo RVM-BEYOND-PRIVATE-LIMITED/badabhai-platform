@@ -231,4 +231,29 @@ void main() {
       });
     });
   });
+  group('#2746 — audience refusals', () {
+    http.Response reason(String code) => _json(<String, dynamic>{
+          'statusCode': 400,
+          'error': <String, dynamic>{'reason': code, 'message': 'refused'},
+        }, 400);
+
+    test('targeting_needs_rvm_audience lands at the audience picker', () async {
+      final PayerApiException e =
+          await _companyCreateFailure(reason('targeting_needs_rvm_audience'));
+      expect(e.isTargetingNeedsRvmAudience, isTrue);
+      expect(e.fieldErrors, <String, String>{
+        'audience': kTargetingNeedsRvmAudienceMessage,
+      });
+    });
+
+    test('targeting_option_not_offered lands at the audience picker', () async {
+      final PayerApiException e =
+          await _companyCreateFailure(reason('targeting_option_not_offered'));
+      expect(e.isTargetingOptionNotOffered, isTrue);
+      expect(e.fieldErrors, <String, String>{
+        'audience': kTargetingOptionNotOfferedMessage,
+      });
+    });
+  });
+
 }
