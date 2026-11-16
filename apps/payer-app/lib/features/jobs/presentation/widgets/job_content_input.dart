@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show TextInputFormatter;
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_motion.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
@@ -12,6 +11,7 @@ import '../../../../core/widgets/bb_field.dart';
 import '../../../../core/widgets/bb_field_error.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_focus_chain.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// Shared rules + inputs for the WORKER-VISIBLE content of a posting — the
 /// description and the benefits / requirements chips the worker's job card
@@ -116,7 +116,7 @@ Future<String?> promptForPostingPhrase(
     isScrollControlled: true,
     useSafeArea: true,
     showDragHandle: true,
-    backgroundColor: AppColors.surfaceCard,
+    backgroundColor: context.bb.card,
     sheetAnimationStyle: AppMotion.sheetStyle(context),
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.xxl)),

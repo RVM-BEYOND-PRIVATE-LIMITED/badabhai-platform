@@ -6,7 +6,6 @@ import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/payer_failure.dart';
 import '../../../core/session/credits_cubit.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/name_mask.dart';
@@ -32,6 +31,7 @@ import 'widgets/candidate_card.dart' show CandidateCard;
 import 'widgets/find_pinned_list.dart';
 import 'widgets/find_view_switch.dart';
 import 'widgets/unlock_button.dart';
+import '../../../core/theme/bb_palette.dart';
 
 export 'widgets/find_view_switch.dart' show FindView;
 
@@ -530,7 +530,7 @@ class _FindViewState extends State<_FindView> {
             child: Text(
               'No applicants for this job yet.',
               textAlign: TextAlign.center,
-              style: AppTypography.body(color: AppColors.textSecondary),
+              style: AppTypography.body(color: context.bb.textSecondary),
             ),
           ),
         );
@@ -637,7 +637,7 @@ class _FindViewState extends State<_FindView> {
             Expanded(
               child: Text(
                 'CANDIDATES FOR ${role.toUpperCase()}',
-                style: AppTypography.eyebrow(color: AppColors.textMuted),
+                style: AppTypography.eyebrow(color: context.bb.textMuted),
               ),
             ),
             const SizedBox(width: AppSpacing.s2),
@@ -683,7 +683,7 @@ class _FindViewState extends State<_FindView> {
           text: TextSpan(
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
+              color: context.bb.textMuted,
             ),
             children: <InlineSpan>[
               TextSpan(
@@ -691,7 +691,7 @@ class _FindViewState extends State<_FindView> {
                 style: AppTypography.body(
                   size: AppTypography.sizeSm,
                   weight: FontWeight.w700,
-                  color: AppColors.textPrimary,
+                  color: context.bb.textPrimary,
                 ),
               ),
               const TextSpan(
@@ -744,6 +744,7 @@ class _ApplicantPager extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     if (total <= 1) return const SizedBox(height: AppSpacing.s2);
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.s2),
@@ -754,7 +755,7 @@ class _ApplicantPager extends StatelessWidget {
         style: AppTypography.body(
           size: AppTypography.sizeSm,
           weight: FontWeight.w600,
-          color: AppColors.textMuted,
+          color: p.textMuted,
         ),
       ),
     );
@@ -795,6 +796,7 @@ class _ApplicantCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool masked = !applicant.unlocked;
 
     // The shake is a failed unlock's nudge ([UnlockButton]); transform only.
@@ -804,7 +806,7 @@ class _ApplicantCard extends StatelessWidget {
         // never uniform. A green outline still marks an already-unlocked card.
         featured: applicant.hot,
         border:
-            masked ? null : Border.all(color: AppColors.success, width: 1.5),
+            masked ? null : Border.all(color: p.success, width: 1.5),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
@@ -818,7 +820,7 @@ class _ApplicantCard extends StatelessWidget {
                   sealed: true,
                 ),
                 const SizedBox(width: AppSpacing.s3),
-                Expanded(child: _facts()),
+                Expanded(child: _facts(context)),
               ],
             ),
             const SizedBox(height: AppSpacing.s3),
@@ -841,7 +843,7 @@ class _ApplicantCard extends StatelessWidget {
   }
 
   /// Everything the card says about him, beside the avatar.
-  Widget _facts() {
+  Widget _facts(BuildContext context) {
     final List<String> signals = applicant.softSignals();
     // E18 — the match-tier chip. Null on legacy / non-V1 rows (no matchTier),
     // so those cards render exactly as before (soft signals + Hot only).
@@ -881,7 +883,7 @@ class _ApplicantCard extends StatelessWidget {
           style: AppTypography.body(
             size: AppTypography.sizeSm,
             weight: FontWeight.w600,
-            color: AppColors.textSecondary,
+            color: context.bb.textSecondary,
           ),
         ),
         if (tierBadge != null ||
@@ -962,6 +964,7 @@ class _CandidateCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool masked = !candidate.unlocked;
 
     return BbShake(
@@ -970,7 +973,7 @@ class _CandidateCard extends StatelessWidget {
         // unlocked.
         featured: candidate.hot,
         border:
-            masked ? null : Border.all(color: AppColors.success, width: 1.5),
+            masked ? null : Border.all(color: p.success, width: 1.5),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
@@ -984,7 +987,7 @@ class _CandidateCard extends StatelessWidget {
                   sealed: true,
                 ),
                 const SizedBox(width: AppSpacing.s3),
-                Expanded(child: _facts(masked)),
+                Expanded(child: _facts(context, masked)),
               ],
             ),
             const SizedBox(height: AppSpacing.s3),
@@ -1003,7 +1006,7 @@ class _CandidateCard extends StatelessWidget {
   /// The name line, trade · skill, and the meta row, beside the avatar. The
   /// fit badge wraps with the meta: beside the facts it starved the name line
   /// at 360dp.
-  Widget _facts(bool masked) {
+  Widget _facts(BuildContext context, bool masked) {
     final String shownName =
         masked ? NameMask.redacted(candidate.name) : candidate.name;
     return Column(
@@ -1019,13 +1022,13 @@ class _CandidateCard extends StatelessWidget {
                 style: AppTypography.body(
                   size: AppTypography.sizeBase,
                   weight: FontWeight.w700,
-                  color: AppColors.textPrimary,
+                  color: context.bb.textPrimary,
                 ),
               ),
             ),
             const SizedBox(width: AppSpacing.gap6),
-            const Icon(Icons.verified_rounded,
-                size: 15, color: AppColors.success),
+            Icon(Icons.verified_rounded,
+                size: 15, color: context.bb.success),
             if (candidate.hot) ...<Widget>[
               const SizedBox(width: AppSpacing.gap6),
               const BbBadge(
@@ -1045,7 +1048,7 @@ class _CandidateCard extends StatelessWidget {
           style: AppTypography.body(
             size: AppTypography.sizeSm,
             weight: FontWeight.w600,
-            color: AppColors.textSecondary,
+            color: context.bb.textSecondary,
           ),
         ),
         const SizedBox(height: 4),
@@ -1053,12 +1056,13 @@ class _CandidateCard extends StatelessWidget {
           spacing: AppSpacing.s3,
           runSpacing: AppSpacing.gap2,
           children: <Widget>[
-            _meta(Icons.military_tech_rounded, candidate.exp),
-            _meta(Icons.location_on_rounded, candidate.loc),
+            _meta(context, Icons.military_tech_rounded, candidate.exp),
+            _meta(context, Icons.location_on_rounded, candidate.loc),
             _meta(
+              context,
               Icons.circle_rounded,
               candidate.avail,
-              color: AppColors.success,
+              color: context.bb.success,
               bold: true,
             ),
             if (candidate.fit.label != null)
@@ -1069,12 +1073,12 @@ class _CandidateCard extends StatelessWidget {
     );
   }
 
-  Widget _meta(IconData icon, String text, {Color? color, bool bold = false}) {
-    final Color c = color ?? AppColors.textMuted;
+  Widget _meta(BuildContext context, IconData icon, String text, {Color? color, bool bold = false}) {
+    final Color c = color ?? context.bb.textMuted;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Icon(icon, size: color == AppColors.success ? 9 : 13, color: c),
+        Icon(icon, size: color == context.bb.success ? 9 : 13, color: c),
         const SizedBox(width: 4),
         Flexible(
           child: Text(

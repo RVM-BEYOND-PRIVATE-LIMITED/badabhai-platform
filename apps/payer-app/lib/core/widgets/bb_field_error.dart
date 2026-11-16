@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/bb_palette.dart';
 
 /// The inline error under a form control (#2595, M7) — a crimson icon + line
 /// AT the field the payer has to fix, instead of a toast that only names it.
@@ -108,6 +108,7 @@ class _BbFieldErrorState extends State<BbFieldError>
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String? text = _shown;
     if (text == null) return const SizedBox.shrink();
     return Padding(
@@ -127,12 +128,12 @@ class _BbFieldErrorState extends State<BbFieldError>
               key: BbFieldError.lineKey,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                const Padding(
+                Padding(
                   padding: EdgeInsets.only(top: AppSpacing.gap2),
                   child: Icon(
                     Icons.error_rounded,
                     size: 16,
-                    color: AppColors.danger,
+                    color: p.danger,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.s2),
@@ -141,7 +142,7 @@ class _BbFieldErrorState extends State<BbFieldError>
                     text,
                     style: AppTypography.body(
                       size: AppTypography.sizeSm,
-                      color: AppColors.danger,
+                      color: p.danger,
                     ),
                   ),
                 ),

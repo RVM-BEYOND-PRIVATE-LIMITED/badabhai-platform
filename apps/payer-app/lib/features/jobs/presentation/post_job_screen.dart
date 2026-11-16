@@ -11,7 +11,6 @@ import '../../../core/di/locator.dart';
 import '../../../core/error/payer_failure.dart';
 import '../../../core/session/app_session.dart';
 import '../../../core/session/app_session_cubit.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_haptics.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -35,6 +34,7 @@ import 'widgets/job_form_rules.dart';
 import 'widgets/match_skill_picker.dart';
 import 'widgets/trade_posting_fields.dart';
 import 'widgets/voice_description_control.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Availability of the Matching-V1 demand-skill vocabulary, resolved once at
 /// load.
@@ -434,7 +434,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         'Pick a role above and the facts that role is hired on appear here.',
         style: AppTypography.body(
           size: AppTypography.sizeSm,
-          color: AppColors.textMuted,
+          color: context.bb.textMuted,
           height: 1.45,
         ),
       );
@@ -487,8 +487,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
             style: AppTypography.body(
               size: AppTypography.sizeSm,
               color: _reach!.zeroReach
-                  ? AppColors.warning
-                  : AppColors.textSecondary,
+                  ? context.bb.warning
+                  : context.bb.textSecondary,
             ),
           ),
         ],
@@ -1343,7 +1343,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
               style: AppTypography.heading(
                 size: AppTypography.sizeMd,
                 weight: FontWeight.w800,
-                color: AppColors.blue,
+                color: context.bb.textBrand,
               ),
             ),
             const SizedBox(height: AppSpacing.s3),
@@ -1701,7 +1701,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
             'names, phone numbers and links.',
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
+              color: context.bb.textMuted,
               height: 1.45,
             ),
           ),
@@ -1721,22 +1721,22 @@ class _PostJobScreenState extends State<PostJobScreen> {
         Container(
           padding: const EdgeInsets.all(AppSpacing.s3),
           decoration: BoxDecoration(
-            color: AppColors.successTint,
+            color: context.bb.successBg,
             borderRadius: BorderRadius.circular(AppRadii.md),
-            border: Border.all(color: AppColors.success, width: 1.5),
+            border: Border.all(color: context.bb.success, width: 1.5),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              const Icon(Icons.verified_user_rounded,
-                  size: 22, color: AppColors.green700),
+              Icon(Icons.verified_user_rounded,
+                  size: 22, color: context.bb.success),
               const SizedBox(width: AppSpacing.s2),
               Expanded(
                 child: RichText(
                   text: TextSpan(
                     style: AppTypography.body(
                       size: AppTypography.sizeSm,
-                      color: AppColors.green700,
+                      color: context.bb.success,
                       height: 1.45,
                     ),
                     children: <InlineSpan>[
@@ -1809,18 +1809,18 @@ class _PostJobScreenState extends State<PostJobScreen> {
   Widget _skillsLoading() => Container(
         padding: const EdgeInsets.all(AppSpacing.s3),
         decoration: BoxDecoration(
-          color: AppColors.surfaceSunken,
+          color: context.bb.raised,
           borderRadius: BorderRadius.circular(AppRadii.md),
-          border: Border.all(color: AppColors.borderDefault),
+          border: Border.all(color: context.bb.borderDefault),
         ),
         child: Row(
           children: <Widget>[
-            const SizedBox(
+            SizedBox(
               width: 18,
               height: 18,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: AppColors.textMuted,
+                color: context.bb.textMuted,
               ),
             ),
             const SizedBox(width: AppSpacing.s2),
@@ -1831,7 +1831,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 'Loading matching skills…',
                 style: AppTypography.body(
                   size: AppTypography.sizeSm,
-                  color: AppColors.textSecondary,
+                  color: context.bb.textSecondary,
                 ),
               ),
             ),
@@ -1953,7 +1953,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
             'names, phone numbers and links.',
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
+              color: context.bb.textMuted,
               height: 1.45,
             ),
           ),
@@ -1966,15 +1966,15 @@ class _PostJobScreenState extends State<PostJobScreen> {
         Container(
           padding: const EdgeInsets.all(AppSpacing.s3),
           decoration: BoxDecoration(
-            color: AppColors.infoTint,
+            color: context.bb.infoBg,
             borderRadius: BorderRadius.circular(AppRadii.md),
-            border: Border.all(color: AppColors.info, width: 1.5),
+            border: Border.all(color: context.bb.info, width: 1.5),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              const Icon(Icons.info_rounded,
-                  size: 22, color: AppColors.bluePressed),
+              Icon(Icons.info_rounded,
+                  size: 22, color: context.bb.infoText),
               const SizedBox(width: AppSpacing.s2),
               Expanded(
                 child: Text(
@@ -1983,7 +1983,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                   'Posting is free.',
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    color: AppColors.bluePressed,
+                    color: context.bb.infoText,
                     height: 1.45,
                   ),
                 ),

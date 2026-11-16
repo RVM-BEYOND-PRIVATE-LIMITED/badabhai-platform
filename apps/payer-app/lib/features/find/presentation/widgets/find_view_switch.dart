@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_motion.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// The two views of the Find tab (owner rulings 2026-11-03).
 enum FindView {
@@ -42,13 +42,14 @@ class FindViewSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool rtl = Directionality.of(context) == TextDirection.rtl;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.s1),
       decoration: BoxDecoration(
-        color: AppColors.surfaceSunken,
+        color: p.raised,
         borderRadius: BorderRadius.circular(AppRadii.xl),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: p.borderDefault),
       ),
       child: Stack(
         children: <Widget>[
@@ -64,7 +65,7 @@ class FindViewSwitch extends StatelessWidget {
                 curve: AppMotion.emphasized,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: AppColors.blue,
+                    color: p.textBrand,
                     borderRadius: BorderRadius.circular(AppRadii.md),
                   ),
                 ),
@@ -115,7 +116,8 @@ class _Segment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color foreground = selected ? AppColors.onBlue : AppColors.textSecondary;
+    final BbPalette p = context.bb;
+    final Color foreground = selected ? p.onBrandSurface : p.textSecondary;
     return Semantics(
       button: true,
       selected: selected,

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
+import '../theme/bb_palette.dart';
 
 /// The BadaBhai app mark (#2590) — a squircle holding a chat bubble with a
 /// "lift" chevron. The same drawing as the worker app's `BbLogo` (a port of
@@ -16,24 +16,33 @@ class BbLogo extends StatelessWidget {
   const BbLogo({
     super.key,
     this.size = 88,
-    this.squircleColor = AppColors.blue,
-    this.bubbleColor = AppColors.paper,
-    this.chevronColor = AppColors.green,
-  });
+    this.squircleColor,
+    this.bubbleColor,
+    this.chevronColor,
+  }) : _onBlueSurface = false;
 
   /// The mark for a deep-blue surface: haldi squircle, blue bubble, haldi lift.
   const BbLogo.onBlue({super.key, this.size = 88})
-      : squircleColor = AppColors.haldi,
-        bubbleColor = AppColors.onHaldi,
-        chevronColor = AppColors.haldi;
+      : squircleColor = null,
+        bubbleColor = null,
+        chevronColor = null,
+        _onBlueSurface = true;
 
   final double size;
-  final Color squircleColor;
-  final Color bubbleColor;
-  final Color chevronColor;
+  final Color? squircleColor;
+  final Color? bubbleColor;
+  final Color? chevronColor;
+  final bool _onBlueSurface;
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
+    final Color squircle =
+        squircleColor ?? (_onBlueSurface ? p.action : p.textBrand);
+    final Color bubble =
+        bubbleColor ?? (_onBlueSurface ? p.onAction : p.card);
+    final Color chevron =
+        chevronColor ?? (_onBlueSurface ? p.action : p.success);
     return Semantics(
       label: 'BadaBhai',
       image: true,
@@ -42,9 +51,9 @@ class BbLogo extends StatelessWidget {
         height: size,
         child: CustomPaint(
           painter: _BbLogoPainter(
-            squircle: squircleColor,
-            bubble: bubbleColor,
-            chevron: chevronColor,
+            squircle: squircle,
+            bubble: bubble,
+            chevron: chevron,
           ),
         ),
       ),

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../error/payer_failure.dart';
-import '../theme/app_colors.dart';
 import '../theme/app_haptics.dart';
 import '../theme/app_motion.dart';
 import 'bb_skeleton.dart';
 import 'bb_toast.dart';
+import '../theme/bb_palette.dart';
 
 /// #2592 (M4) — refreshing without losing the page: pull-to-refresh, stale rows
 /// dimmed under a thin progress bar while their replacement loads, a quiet
@@ -27,9 +27,10 @@ class BbRefreshIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return RefreshIndicator(
-      color: AppColors.blue,
-      backgroundColor: AppColors.paper,
+      color: p.textBrand,
+      backgroundColor: p.card,
       onRefresh: () {
         AppHaptics.tap();
         return onRefresh();
@@ -127,6 +128,7 @@ class BbStaleFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Stack(
       children: <Widget>[
         child,
@@ -137,12 +139,12 @@ class BbStaleFrame extends StatelessWidget {
             right: 0,
             height: barHeight,
             child: AppMotion.reduced(context)
-                ? const ColoredBox(key: barKey, color: AppColors.blue)
-                : const LinearProgressIndicator(
+                ? ColoredBox(key: barKey, color: p.textBrand)
+                : LinearProgressIndicator(
                     key: barKey,
                     minHeight: barHeight,
-                    color: AppColors.blue,
-                    backgroundColor: AppColors.borderLight,
+                    color: p.textBrand,
+                    backgroundColor: p.borderSubtle,
                     semanticsLabel: 'Updating',
                   ),
           ),

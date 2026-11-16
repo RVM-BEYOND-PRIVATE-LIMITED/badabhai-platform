@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/bb_palette.dart';
 
 /// Centered icon + title + (optional) subtitle + (optional) action — the shared
 /// empty / error / consent layout, plus a [BbStatusView.loading] spinner mode.
@@ -14,7 +14,7 @@ class BbStatusView extends StatelessWidget {
     super.key,
     required IconData this.icon,
     required String this.title,
-    this.iconColor = AppColors.textMuted,
+    this.iconColor,
     this.subtitle,
     this.action,
   })  : caption = null,
@@ -27,14 +27,14 @@ class BbStatusView extends StatelessWidget {
   const BbStatusView.loading({super.key, this.caption, this.progress})
       : icon = null,
         title = null,
-        iconColor = AppColors.textMuted,
+        iconColor = null,
         subtitle = null,
         action = null,
         _loading = true;
 
   final IconData? icon;
   final String? title;
-  final Color iconColor;
+  final Color? iconColor;
   final String? subtitle;
   final Widget? action;
 
@@ -49,6 +49,8 @@ class BbStatusView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
+    final Color effectiveIconColor = iconColor ?? p.textMuted;
     if (_loading) {
       final double? fraction = progress?.clamp(0.0, 1.0).toDouble();
       return Center(
@@ -64,19 +66,19 @@ class BbStatusView extends StatelessWidget {
                   child: LinearProgressIndicator(
                     value: fraction,
                     minHeight: 6,
-                    backgroundColor: AppColors.surfaceInset,
-                    color: AppColors.blue,
+                    backgroundColor: p.inset,
+                    color: p.textBrand,
                   ),
                 ),
               )
             else
               // Branded deep-blue spinner — never the bare default Material one.
-              const SizedBox(
+              SizedBox(
                 width: 34,
                 height: 34,
                 child: CircularProgressIndicator(
                   strokeWidth: 3,
-                  color: AppColors.blue,
+                  color: p.textBrand,
                 ),
               ),
             if (caption != null) ...<Widget>[
@@ -84,7 +86,7 @@ class BbStatusView extends StatelessWidget {
               Text(
                 caption!,
                 textAlign: TextAlign.center,
-                style: AppTypography.body(color: AppColors.textSecondary),
+                style: AppTypography.body(color: p.textSecondary),
               ),
             ],
           ],
@@ -98,7 +100,7 @@ class BbStatusView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(icon, size: 48, color: iconColor),
+            Icon(icon, size: 48, color: effectiveIconColor),
             const SizedBox(height: AppSpacing.s4),
             Text(
               title!,
@@ -110,7 +112,7 @@ class BbStatusView extends StatelessWidget {
               Text(
                 subtitle!,
                 textAlign: TextAlign.center,
-                style: AppTypography.body(color: AppColors.textSecondary),
+                style: AppTypography.body(color: p.textSecondary),
               ),
             ],
             if (action != null) ...<Widget>[

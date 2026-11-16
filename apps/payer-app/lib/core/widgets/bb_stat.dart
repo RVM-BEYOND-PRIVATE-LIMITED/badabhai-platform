@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_pressable.dart';
+import '../theme/bb_palette.dart';
 
 /// Trend direction of a [BbStat] delta — `.bb-stat__delta--*`.
 enum BbStatDelta { up, down, flat }
@@ -35,10 +35,11 @@ class BbStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final (Color deltaColor, IconData deltaIcon) = switch (delta) {
-      BbStatDelta.up => (AppColors.success, Icons.trending_up_rounded),
-      BbStatDelta.down => (AppColors.danger, Icons.trending_down_rounded),
-      BbStatDelta.flat => (AppColors.textMuted, Icons.remove_rounded),
+      BbStatDelta.up => (p.success, Icons.trending_up_rounded),
+      BbStatDelta.down => (p.danger, Icons.trending_down_rounded),
+      BbStatDelta.flat => (p.textMuted, Icons.remove_rounded),
     };
 
     final Widget deltaRow = Row(
@@ -63,9 +64,9 @@ class BbStat extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.s4),
       decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
+        color: p.card,
         borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(color: AppColors.borderSubtle),
+        border: Border.all(color: p.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -78,11 +79,11 @@ class BbStat extends StatelessWidget {
                   style: AppTypography.body(
                     size: AppTypography.sizeXs,
                     weight: FontWeight.w600,
-                    color: AppColors.textMuted,
+                    color: p.textMuted,
                   ),
                 ),
               ),
-              Icon(icon, size: 16, color: AppColors.textFaint),
+              Icon(icon, size: 16, color: p.textMuted),
             ],
           ),
           const SizedBox(height: AppSpacing.s2),
@@ -109,14 +110,14 @@ class BbStat extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      const Icon(Icons.add_rounded, size: 14, color: AppColors.success),
+                      Icon(Icons.add_rounded, size: 14, color: p.success),
                       const SizedBox(width: 4),
                       Text(
                         deltaText,
                         style: AppTypography.body(
                           size: AppTypography.sizeXs,
                           weight: FontWeight.w700,
-                          color: AppColors.success,
+                          color: p.success,
                         ),
                       ),
                     ],

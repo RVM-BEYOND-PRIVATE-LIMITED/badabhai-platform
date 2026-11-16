@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -18,6 +17,7 @@ import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/org_cubit.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Team / Org members (ADR-0027). Lists the caller's org members (masked email +
 /// role/status chips + a "You" tag), and — for an OWNER session only — an
@@ -41,8 +41,9 @@ class _TeamView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: AppColors.surfacePage,
+      backgroundColor: p.page,
       body: SafeArea(
         child: BlocBuilder<OrgCubit, OrgState>(
           builder: (BuildContext context, OrgState state) {
@@ -145,7 +146,7 @@ class _TeamView extends StatelessWidget {
                 'Paste the token from your invite link to join a team.',
                 style: AppTypography.body(
                   size: AppTypography.sizeSm,
-                  color: AppColors.textSecondary,
+                  color: context.bb.textSecondary,
                 ),
               ),
               const SizedBox(height: AppSpacing.s3),
@@ -168,7 +169,7 @@ class _TeamView extends StatelessWidget {
       context: context,
       sheetAnimationStyle: AppMotion.sheetStyle(context),
       isScrollControlled: true,
-      backgroundColor: AppColors.surfaceCard,
+      backgroundColor: context.bb.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.xxl)),
       ),
@@ -182,7 +183,7 @@ class _TeamView extends StatelessWidget {
       context: context,
       sheetAnimationStyle: AppMotion.sheetStyle(context),
       isScrollControlled: true,
-      backgroundColor: AppColors.surfaceCard,
+      backgroundColor: context.bb.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.xxl)),
       ),
@@ -257,10 +258,11 @@ class _MemberRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       decoration: BoxDecoration(
         border: showBorder
-            ? const Border(bottom: BorderSide(color: AppColors.divider))
+            ? Border(bottom: BorderSide(color: p.borderSubtle))
             : null,
       ),
       constraints: const BoxConstraints(minHeight: AppSpacing.tap),
@@ -374,6 +376,7 @@ class _InviteSheetState extends State<_InviteSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final double bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -401,7 +404,7 @@ class _InviteSheetState extends State<_InviteSheet> {
             "They join as a recruiter. We'll email them a link to accept.",
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textSecondary,
+              color: p.textSecondary,
             ),
           ),
           const SizedBox(height: AppSpacing.s4),

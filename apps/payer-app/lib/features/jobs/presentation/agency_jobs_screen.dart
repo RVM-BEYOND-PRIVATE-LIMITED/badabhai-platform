@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_badge.dart';
@@ -19,6 +18,7 @@ import 'widgets/job_card_actions.dart';
 import 'widgets/job_list_format.dart';
 import 'widgets/jobs_empty_state.dart';
 import 'widgets/trade_posting_fields.dart' show humaniseTradeKey;
+import '../../../core/theme/bb_palette.dart';
 
 /// My jobs — AGENCY branch. Lists the agency session's own faceless postings
 /// (`GET /payer/agency/jobs`): trade label · title · city/area · pay & experience
@@ -87,6 +87,7 @@ class _AgencyJobsBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // #2592 — job-card skeletons while the postings load; the list
     // cross-fades in over them.
     return BbLoadingBuilder<AgencyJobsCubit, AgencyJobsState>(
@@ -160,7 +161,7 @@ class _AgencyJobsBody extends StatelessWidget {
                           Text(
                             'AGENCY JOB POSTINGS',
                             style: AppTypography.eyebrow(
-                                color: AppColors.textMuted),
+                                color: p.textMuted),
                           ),
                           const SizedBox(height: 2),
                           Text(
@@ -257,6 +258,7 @@ class _AgencyJobCardState extends State<_AgencyJobCard> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final (String label, BbBadgeTone tone) = _pill;
     final List<String> meta = <String>[
       job.locationText,
@@ -294,7 +296,7 @@ class _AgencyJobCardState extends State<_AgencyJobCard> {
                       style: AppTypography.body(
                         size: AppTypography.sizeSm,
                         weight: FontWeight.w600,
-                        color: AppColors.brandPress,
+                        color: p.actionPressed,
                       ),
                     ),
                   ],
@@ -309,7 +311,7 @@ class _AgencyJobCardState extends State<_AgencyJobCard> {
             meta.join(' · '),
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
+              color: p.textMuted,
             ),
           ),
           const SizedBox(height: 4),
@@ -317,7 +319,7 @@ class _AgencyJobCardState extends State<_AgencyJobCard> {
             '${countLabel(job.applicantsReceived, 'applicant')} received',
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
+              color: p.textMuted,
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
@@ -349,7 +351,7 @@ class _AgencyJobCardState extends State<_AgencyJobCard> {
         'This job is closed.',
         style: AppTypography.body(
           size: AppTypography.sizeSm,
-          color: AppColors.textMuted,
+          color: context.bb.textMuted,
         ),
       );
     }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_motion.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// A Find view's layout (#2593): [header] — the filters and the counts — stays
 /// PINNED at the top while [list] scrolls under it. Both used to scroll away
@@ -117,11 +117,12 @@ class _HeaderShadow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const DecoratedBox(
+    final BbPalette p = context.bb;
+    return DecoratedBox(
       decoration: BoxDecoration(
         boxShadow: <BoxShadow>[
           BoxShadow(
-            color: AppColors.border,
+            color: p.borderDefault,
             blurRadius: AppSpacing.s2,
             spreadRadius: AppSpacing.gap2,
           ),
