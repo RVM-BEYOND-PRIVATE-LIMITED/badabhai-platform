@@ -322,6 +322,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /AVAILABILITY_ANSWERS_V2_ENABLED:\s*\$\{\{\s*secrets\.AVAILABILITY_ANSWERS_V2_ENABLED\s*\}\}/,
       /envs:[^\n]*\bAVAILABILITY_ANSWERS_V2_ENABLED\b/,
     ],
+    // #2753 — last active, one definition (worker_activity, migration 0168). A plain boolean on
+    // the api only, turned on in production ONLY by the environment secret, after 0168.
+    [
+      "WORKER_ACTIVITY_ENABLED",
+      /WORKER_ACTIVITY_ENABLED:\s*\$\{\{\s*secrets\.WORKER_ACTIVITY_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bWORKER_ACTIVITY_ENABLED\b/,
+    ],
     // #2753 item 2 — a trade form's experience band fills `worker_skill.months_bucketed`. A plain
     // boolean on the api only (the backfill reads the same name from its operator's shell), turned
     // on in production ONLY by the environment secret, after the `engine_version` ruling.
@@ -480,6 +487,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["LEVEL_NEEDED_SORT_ENABLED", "false"],
     // #2753 item 3 — off is today's availability options; writes accept both sets either way.
     ["AVAILABILITY_ANSWERS_V2_ENABLED", "false"],
+    // #2753 — off is today: nothing reads or writes worker_activity, no `notRecentlyActive`.
+    ["WORKER_ACTIVITY_ENABLED", "false"],
     // #2753 item 2 — off is today's derivation: a form worker's skills read 0 months, no extra read.
     ["FORM_TENURE_MONTHS_ENABLED", "false"],
     // #2752 — off is no Campus route at all: a neutral 404 before any token, address or audit.

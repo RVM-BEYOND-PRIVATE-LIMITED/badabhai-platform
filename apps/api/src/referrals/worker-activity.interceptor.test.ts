@@ -4,6 +4,8 @@ import { of } from "rxjs";
 import type { CallHandler, ExecutionContext } from "@nestjs/common";
 import { WorkerActivityInterceptor } from "./worker-activity.interceptor";
 import type { EventsService } from "../events/events.service";
+import type { WorkerActivityRepository } from "../worker-activity/worker-activity.repository";
+import { WorkerActivityService } from "../worker-activity/worker-activity.service";
 
 const WORKER_A = "11111111-1111-4111-8111-111111111111";
 const WORKER_B = "22222222-2222-4222-8222-222222222222";
@@ -111,5 +113,108 @@ describe("WorkerActivityInterceptor — the X.6 retention signal", () => {
     await flush();
     const payload = (h.emit.mock.calls[0]![0] as { payload: Record<string, unknown> }).payload;
     expect(Object.keys(payload).sort()).toEqual(["day", "worker_id"]);
+  });
+});
+
+/**
+ * #2753 — the IST-day write to `worker_activity`, beside the event. A REAL WorkerActivityService
+ * over a fake repository, so the switch and the swallow are the production code, not a stub.
+ */
+describe("WorkerActivityInterceptor — the last-active day (#2753)", () => {
+  function makeWithActivity(on: boolean) {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const repo = {
+      touch: vi.fn().mockResolvedValue(undefined),
+      lastActiveDays: vi.fn(),
+    };
+    const activity = new WorkerActivityService(repo as unknown as WorkerActivityRepository, {
+      WORKER_ACTIVITY_ENABLED: on,
+      NOT_RECENTLY_ACTIVE_DAYS: 90,
+    });
+    const interceptor = new WorkerActivityInterceptor(
+      { emit } as unknown as EventsService,
+      activity,
+    );
+    const handler: CallHandler = { handle: vi.fn(() => of("response")) };
+    return { interceptor, emit, repo, handler };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // 09:00 UTC = 14:30 IST, the same calendar day in both.
+    vi.setSystemTime(new Date("2026-07-30T09:00:00.000Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("switch OFF: no repository call at all, and the event exactly as before", async () => {
+    const h = makeWithActivity(false);
+    h.interceptor.intercept(ctx(WORKER_A), h.handler);
+    await flush();
+    expect(h.repo.touch).not.toHaveBeenCalled();
+    expect(h.emit).toHaveBeenCalledTimes(1);
+  });
+
+  it("switch ON: one write per worker per IST day, however many requests", async () => {
+    const h = makeWithActivity(true);
+    for (let i = 0; i < 20; i++) h.interceptor.intercept(ctx(WORKER_A), h.handler);
+    h.interceptor.intercept(ctx(WORKER_B), h.handler);
+    await flush();
+    expect(h.repo.touch).toHaveBeenCalledTimes(2);
+    expect(h.repo.touch).toHaveBeenCalledWith(WORKER_A, "2026-07-30");
+    expect(h.repo.touch).toHaveBeenCalledWith(WORKER_B, "2026-07-30");
+  });
+
+  it("the IST day turns over at 18:30 UTC, on its own cache; the UTC event does not move", async () => {
+    const h = makeWithActivity(true);
+    h.interceptor.intercept(ctx(WORKER_A), h.handler);
+    await flush();
+    // 18:31 UTC: a new IST day (31 Jul in India), still 30 Jul in UTC.
+    vi.setSystemTime(new Date("2026-07-30T18:31:00.000Z"));
+    h.interceptor.intercept(ctx(WORKER_A), h.handler);
+    await flush();
+    expect(h.repo.touch).toHaveBeenCalledTimes(2);
+    expect(h.repo.touch).toHaveBeenLastCalledWith(WORKER_A, "2026-07-31");
+    // The event is still once for UTC 30 Jul, with today's key and payload.
+    expect(h.emit).toHaveBeenCalledTimes(1);
+    const call = h.emit.mock.calls[0]![0] as { idempotencyKey: string; payload: unknown };
+    expect(call.idempotencyKey).toBe(`worker.active:${WORKER_A}:2026-07-30`);
+    expect(call.payload).toEqual({ worker_id: WORKER_A, day: "2026-07-30" });
+    // UTC midnight: the event fires for 31 Jul; the IST day is unchanged, so no second write.
+    vi.setSystemTime(new Date("2026-07-31T00:01:00.000Z"));
+    h.interceptor.intercept(ctx(WORKER_A), h.handler);
+    await flush();
+    expect(h.emit).toHaveBeenCalledTimes(2);
+    expect(h.repo.touch).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips the restricted SUSPENDED DPDP token (it would clear his mark) and the anonymous", async () => {
+    const h = makeWithActivity(true);
+    h.interceptor.intercept(ctx(WORKER_A, "suspended_dpdp"), h.handler);
+    h.interceptor.intercept(ctx(), h.handler);
+    await flush();
+    expect(h.repo.touch).not.toHaveBeenCalled();
+    expect(h.handler.handle).toHaveBeenCalledTimes(2);
+  });
+
+  it("a repository failure NEVER fails the request", async () => {
+    const h = makeWithActivity(true);
+    h.repo.touch.mockRejectedValue(Object.assign(new Error("down"), { code: "57P01" }));
+    const out = h.interceptor.intercept(ctx(WORKER_A), h.handler);
+    await flush();
+    await expect(new Promise((r) => out.subscribe((v) => r(v)))).resolves.toBe("response");
+  });
+
+  it("does not await the write — the handler runs while it is still pending", () => {
+    const h = makeWithActivity(true);
+    h.repo.touch.mockReturnValue(new Promise(() => undefined));
+    h.interceptor.intercept(ctx(WORKER_A), h.handler);
+    expect(h.handler.handle).toHaveBeenCalled();
+  });
+
+  it("a hand-built interceptor with no activity service behaves exactly as before", async () => {
+    const h = make();
+    h.interceptor.intercept(ctx(WORKER_A), h.handler);
+    await flush();
+    expect(h.emit).toHaveBeenCalledTimes(1);
   });
 });
