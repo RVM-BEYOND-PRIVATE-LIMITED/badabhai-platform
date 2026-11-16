@@ -3,7 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import { IconButtonBase } from "@badabhai/icons/button";
 import { Badge, Button, Card, Tabs } from "../../../../../components/ds";
-import type { FacelessApplicant } from "../../../../../lib/contracts";
+import type { ApplicantStageOptions, FacelessApplicant } from "../../../../../lib/contracts";
 import type { ApplicantPosting } from "../../../../../lib/candidate-inbox";
 import type { CandidateRow } from "./applicant-actions";
 import type { StageActionResult } from "./actions";
@@ -37,6 +37,7 @@ const unlockAction = vi.fn();
 const revealContactAction = vi.fn();
 const maskedResumeAction = vi.fn();
 const setApplicantStageAction = vi.fn<(i: unknown) => Promise<StageActionResult>>();
+const applicantStageOptionsAction = vi.fn();
 
 vi.mock("next/link", () => ({
   useLinkStatus: () => ({ pending: false }),
@@ -64,6 +65,7 @@ vi.mock("./actions", () => ({
   revealContactAction: (i: unknown) => revealContactAction(i),
   maskedResumeAction: (i: unknown) => maskedResumeAction(i),
   setApplicantStageAction: (i: unknown) => setApplicantStageAction(i),
+  applicantStageOptionsAction: () => applicantStageOptionsAction(),
 }));
 
 let cells: unknown[] = [];
@@ -121,7 +123,10 @@ const applicant = (
 });
 
 /** Mount ONE posting's board (its Applicants page). */
-function mountBoard(applicants: FacelessApplicant[] | (() => FacelessApplicant[])) {
+function mountBoard(
+  applicants: FacelessApplicant[] | (() => FacelessApplicant[]),
+  stageOptions: ApplicantStageOptions | null = null,
+) {
   cells = [];
   renderFn = () => {
     cursor = 0;
@@ -132,6 +137,7 @@ function mountBoard(applicants: FacelessApplicant[] | (() => FacelessApplicant[]
       applicants: typeof applicants === "function" ? applicants() : applicants,
       balance: 5,
       balanceAsOf: 0,
+      stageOptions,
     }) as ReactElement;
   };
   renderFn();
@@ -266,7 +272,10 @@ const SAVED_ROWS = [
   applicant(WB, 2, { stage: "shortlist" }),
   applicant(WC, 3, { stage: "passed" }),
 ];
-const ok = (stage: "new" | "shortlist" | "passed", changed = true): StageActionResult => ({
+const ok = (
+  stage: "new" | "shortlist" | "passed" | "selected" | "hired",
+  changed = true,
+): StageActionResult => ({
   ok: true,
   stage,
   changed,
@@ -277,6 +286,7 @@ beforeEach(() => {
   revealContactAction.mockReset();
   maskedResumeAction.mockReset();
   setApplicantStageAction.mockReset();
+  applicantStageOptionsAction.mockReset().mockResolvedValue(null);
 });
 
 describe("FLAG OFF — rows with no stage keep today's LOCAL board", () => {
@@ -771,5 +781,140 @@ describe("FLAG ON — the Candidates inbox", () => {
     const inner = (toast.type as (p: unknown) => ReactNode)(toast.props) as El;
     const close = elements(inner).find((el) => el.type === IconButtonBase)!;
     expect(close.props.label).toBe("Dismiss");
+  });
+});
+
+
+describe("#2747 — Selected and Hired", () => {
+  const FLAGS: ApplicantStageOptions = {
+    stages: ["new", "shortlist", "selected", "hired", "passed"],
+    outcomeStages: true,
+    rvmSignal: false,
+  };
+
+  it("draws Selected and Hired after Shortlist only while outcomeStages is true", () => {
+    mountBoard(SAVED_ROWS);
+    expect(tabLabels()).toEqual(["New (1)", "Shortlist (1)", "Passed (1)"]);
+
+    mountBoard(SAVED_ROWS, FLAGS);
+    expect(tabLabels()).toEqual([
+      "New (1)",
+      "Shortlist (1)",
+      "Selected (0)",
+      "Hired (0)",
+      "Passed (1)",
+    ]);
+  });
+
+  it("while outcomeStages is false an outcome row shows its badge under Shortlist and NO buttons", () => {
+    mountBoard([applicant(WA, 1, { stage: "selected", source: "rvm_student" })]);
+    showTab("shortlist");
+    expect(badges(cardOf(WA))).toContain("Selected");
+    expect(buttons(cardOf(WA)).map((b) => b.text)).not.toEqual(
+      expect.arrayContaining(["Mark selected", "Mark hired", "Move to Shortlist"]),
+    );
+  });
+
+  it("on the outcome board, moving out of Selected back to Shortlist works after a confirmation", async () => {
+    mountBoard([applicant(WA, 1, { stage: "selected", source: "rvm_student" })], FLAGS);
+    showTab("selected");
+    setApplicantStageAction.mockResolvedValueOnce(ok("shortlist"));
+    button(cardOf(WA), "Move to Shortlist")!.onClick!();
+    button(currentTree, "Confirm")!.onClick!();
+    await flush();
+    expect(setApplicantStageAction.mock.calls[0]![0]).toEqual({
+      jobId: POSTING,
+      workerId: WA,
+      stage: "shortlist",
+    });
+  });
+
+  it("marks selected after a confirmation, optimistically, then uses the server's stage", async () => {
+    const answer = deferred<StageActionResult>();
+    setApplicantStageAction.mockReturnValueOnce(answer.promise);
+    mountBoard(SAVED_ROWS, FLAGS);
+    button(cardOf(WA), "Mark selected")!.onClick!();
+    // Confirmation is required: nothing sent yet, and the dialog is on screen.
+    expect(setApplicantStageAction).not.toHaveBeenCalled();
+    expect(button(currentTree, "Confirm")).toBeDefined();
+    button(currentTree, "Confirm")!.onClick!();
+    expect(setApplicantStageAction.mock.calls[0]![0]).toEqual({
+      jobId: POSTING,
+      workerId: WA,
+      stage: "selected",
+    });
+    expect(tabLabels()).toContain("Selected (1)");
+    answer.resolve(ok("selected"));
+    await flush();
+    expect(cells[STAGES]).toEqual({ [WA]: "selected" });
+  });
+
+  it("a 400 means the stage is not open: the row goes back, the flags are re-read", async () => {
+    setApplicantStageAction.mockResolvedValueOnce({ ok: false, reason: "stage-not-open" });
+    mountBoard(SAVED_ROWS, FLAGS);
+    button(cardOf(WA), "Mark selected")!.onClick!();
+    button(currentTree, "Confirm")!.onClick!();
+    await flush();
+    expect(cells[STAGES]).toEqual({});
+    expect(toastText()).toContain("is back in New");
+    expect(applicantStageOptionsAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("a 503 saved nothing: say try again", async () => {
+    setApplicantStageAction.mockResolvedValueOnce({ ok: false, reason: "unavailable" });
+    mountBoard(SAVED_ROWS, FLAGS);
+    button(cardOf(WA), "Mark hired")!.onClick!();
+    button(currentTree, "Confirm")!.onClick!();
+    await flush();
+    expect(cells[STAGES]).toEqual({});
+    expect(toastText()).toContain("Nothing was saved");
+    expect(toastText()).toContain("try again");
+  });
+
+  it("a 404 reloads the feed through the action (the existing gone path)", async () => {
+    setApplicantStageAction.mockResolvedValueOnce({ ok: false, reason: "gone" });
+    mountBoard(SAVED_ROWS, FLAGS);
+    button(cardOf(WA), "Mark selected")!.onClick!();
+    button(currentTree, "Confirm")!.onClick!();
+    await flush();
+    expect(cells[STAGES]).toEqual({});
+    expect(toastText()).toContain("has been refreshed");
+  });
+
+  it("#2747 — the source label is always on, and an all-null facts row reads 'not given' six times", () => {
+    mountBoard([
+      applicant(WA, 1, {
+        source: "rvm_student",
+        factsOn: true,
+        firstName: null,
+        tradeLine: null,
+        expectedSalary: null,
+        machines: null,
+        area: null,
+        lastActiveOn: null,
+      }),
+    ]);
+    const card = cardOf(WA);
+    expect(badges(card)).toContain("RVM student");
+    const text = textOf(card);
+    expect((text.match(/not given/g) ?? []).length).toBe(6);
+  });
+
+  it("says RVM is told on an RVM student's row only while rvmSignal is true — and never mentions a reward", () => {
+    mountBoard([applicant(WA, 1, { stage: "new", source: "rvm_student" })], {
+      ...FLAGS,
+      rvmSignal: true,
+    });
+    button(cardOf(WA), "Mark selected")!.onClick!();
+    const text = textOf(currentTree);
+    expect(text).toContain("RVM is told about this mark");
+    expect(text.toLowerCase()).not.toContain("reward");
+
+    mountBoard([applicant(WA, 1, { stage: "new", source: "rvm_student" })], {
+      ...FLAGS,
+      rvmSignal: false,
+    });
+    button(cardOf(WA), "Mark selected")!.onClick!();
+    expect(textOf(currentTree)).not.toContain("RVM is told");
   });
 });

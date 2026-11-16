@@ -2,10 +2,15 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../../../lib/auth";
-import { getApplicantFeed, getDashboard } from "../../../../../lib/payer-api";
+import {
+  getApplicantFeed,
+  getApplicantStageOptions,
+  getDashboard,
+} from "../../../../../lib/payer-api";
 import type { ApplicantFeed, UnlockHistoryItem } from "../../../../../lib/contracts";
 import { COMPANY_POSTING_ROUTES } from "../../../../../lib/posting-routes";
 import { liveUnlocksFor } from "../../../../../lib/unlock-history";
+import { readUnlockContacts } from "../../../../../lib/unlock-contact.server";
 import { Card } from "../../../../../components/ds";
 import { PageHeader } from "../../../../../components/page-header";
 import { PortalLink } from "../../../../../components/portal-link";
@@ -98,11 +103,27 @@ export default async function ApplicantsPage({
     balance = null;
   }
 
+  // #2747 — the board's stages, read once per board load; a failed/off read leaves today's board.
+  let stageOptions = null;
+  try {
+    stageOptions = await getApplicantStageOptions();
+  } catch {
+    stageOptions = null;
+  }
+
   const header = applicantsHeader(id, roleTitle);
 
   // `.applicants-page` only NAMESPACES this screen's layout rules (see the "APPLICANT FEED
   // (DS1.3 · W2-B polish)" block in globals.css); it carries no styling of its own.
   if (feed && feed.applicants.length > 0) {
+    const granted = liveUnlocksFor(
+      unlocks,
+      feed.applicants.map((a) => a.workerId),
+      Date.now(),
+    );
+    // #2747 — the contact read for what this company already opened. Read on every open, never
+    // cached; a 404 (the rule off) keeps today's relay + résumé screen.
+    const contacts = await readUnlockContacts(Object.values(granted));
     return (
       <div className="applicants-page">
         {/* The feed renders its own head: the New / Shortlist tabs are its state and sit in the
@@ -118,11 +139,9 @@ export default async function ApplicantsPage({
           balanceAsOf={balanceAsOf}
           // Only this feed's workers, only live grants — the client gets no unlock id it has no
           // row for. Request time: this page is force-dynamic.
-          unlocked={liveUnlocksFor(
-            unlocks,
-            feed.applicants.map((a) => a.workerId),
-            Date.now(),
-          )}
+          unlocked={granted}
+          stageOptions={stageOptions}
+          contacts={contacts}
         />
       </div>
     );

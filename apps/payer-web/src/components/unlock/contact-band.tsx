@@ -19,7 +19,13 @@
  */
 import type { ReactElement } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
-import type { ContactView, RevealView, UnlockView } from "../../lib/unlock-view";
+import type {
+  ContactLookupView,
+  ContactView,
+  RevealView,
+  UnlockView,
+} from "../../lib/unlock-view";
+import { NOT_GIVEN } from "../../lib/prepay-facts";
 import { isoDay } from "../../lib/unlock-history";
 import { Badge, Button } from "../ds";
 import { PortalLink } from "../portal-link";
@@ -71,6 +77,12 @@ export interface ContactBandInput {
   onMaskedResume: (unlockId: string) => void;
   /** A fresh grant's stamp has played: clear the row's `fresh`, so it never plays again. */
   onRevealed: () => void;
+  /**
+   * #2747 — the contact read for this unlock (read when the screen opens, never cached). A
+   * success shows the name and number; `off`/`unavailable`/null keeps today's relay screen; a
+   * `limited` (429) says so politely.
+   */
+  contactLookup?: ContactLookupView | null;
 }
 
 export function contactBand({
@@ -83,6 +95,7 @@ export function contactBand({
   onRevealContact,
   onMaskedResume,
   onRevealed,
+  contactLookup = null,
 }: ContactBandInput): ReactElement {
   const granted = row.unlock?.kind === "granted" ? row.unlock : null;
   return (
@@ -113,10 +126,42 @@ export function contactBand({
             >
               Unlocked
             </Badge>
-            <span className="applicant__until">
-              until <span className="bb-mono">{isoDay(granted.expiresAt)}</span>
-            </span>
+            {/* #2747 — `openUntil: null` is open for good: no "until" date at all. An old
+                server sends none, and then the stored window's end still shows. */}
+            {granted.openUntil === null ? null : (
+              <span className="applicant__until">
+                until{" "}
+                <span className="bb-mono">{isoDay(granted.openUntil ?? granted.expiresAt)}</span>
+              </span>
+            )}
           </div>
+          {contactLookup?.kind === "contact" ? (
+            <div className="applicant__reveal">
+              <div className="applicant__granted-head">
+                <Badge tone="success">{contactLookup.fullName || NOT_GIVEN}</Badge>
+              </div>
+              <span className="bb-mono applicant__until">{contactLookup.phone}</span>
+              <div className="applicant__unlock-actions">
+                <a className="bb-btn bb-btn--secondary" href={`tel:${contactLookup.phone}`}>
+                  Call
+                </a>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    // The number is read from the response in memory; nothing is stored or logged.
+                    void navigator.clipboard?.writeText(contactLookup.phone);
+                  }}
+                >
+                  Copy
+                </Button>
+              </div>
+            </div>
+          ) : contactLookup?.kind === "limited" ? (
+            <p className="applicant__neutral">
+              Contact details are unavailable right now. Please try again later.
+            </p>
+          ) : null}
           <div className="applicant__reveal">
             {row.contact?.kind === "routed" ? (
               <RoutedContactCard view={row.contact} />

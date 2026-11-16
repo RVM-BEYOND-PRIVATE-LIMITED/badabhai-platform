@@ -35,6 +35,7 @@ const getPostings = vi.fn();
 const listAgencyJobs = vi.fn();
 const getCredits = vi.fn();
 const getUnlocks = vi.fn();
+const getApplicantStageOptions = vi.fn();
 const notFound = vi.fn(() => {
   throw new Error("NEXT_NOT_FOUND");
 });
@@ -51,11 +52,14 @@ vi.mock("../../../../lib/payer-api", () => ({
   listAgencyJobs: () => listAgencyJobs(),
   getCredits: () => getCredits(),
   getUnlocks: () => getUnlocks(),
+  getApplicantStageOptions: () => getApplicantStageOptions(),
 }));
 vi.mock("../../postings/[id]/applicants/actions", () => ({
   unlockAction: vi.fn(),
   revealContactAction: vi.fn(),
   maskedResumeAction: vi.fn(),
+  readUnlockContactAction: vi.fn(),
+  applicantStageOptionsAction: vi.fn(),
 }));
 vi.mock("next/link", async () => {
   const React = await vi.importActual<typeof ReactModule>("react");
@@ -187,6 +191,7 @@ beforeEach(() => {
   listAgencyJobs.mockReset().mockResolvedValue(JOBS);
   getCredits.mockReset().mockResolvedValue({ payerId: "x", balance: 5 });
   getUnlocks.mockReset().mockResolvedValue([]);
+  getApplicantStageOptions.mockReset().mockResolvedValue(null);
   notFound.mockClear();
 });
 
@@ -707,6 +712,28 @@ describe("candidates page — SAVED stages (#2139): the Stage filter, and each c
     expect(toolbar.match(/<form /g)).toHaveLength(1);
     expect(toolbar).not.toContain('name="cursor"');
     expect(out).toContain('aria-label="Filter candidates"');
+  });
+
+  it("#2747: Selected and Hired join the Stage filter only while the board draws them", async () => {
+    getCandidateInbox.mockResolvedValueOnce(STAGED);
+    getApplicantStageOptions.mockResolvedValueOnce({
+      stages: ["new", "shortlist", "selected", "hired", "passed"],
+      outcomeStages: true,
+      rvmSignal: true,
+    });
+    const out = await html();
+    const options = Array.from(
+      (stageSelect(out) ?? "").matchAll(/<option value="([^"]*)"[^>]*>([^<]*)</g),
+      (m) => [m[1], m[2]],
+    );
+    expect(options).toEqual([
+      ["", "All stages"],
+      ["new", "New"],
+      ["shortlist", "Shortlist"],
+      ["selected", "Selected"],
+      ["hired", "Hired"],
+      ["passed", "Passed"],
+    ]);
   });
 
   it("FLAG ON: each card shows its stage and offers its moves (still no stage tabs)", async () => {

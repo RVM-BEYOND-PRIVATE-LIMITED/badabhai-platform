@@ -521,6 +521,14 @@ class Applicant extends Equatable {
     this.lastWorkedAt,
     this.levelFit,
     this.notRecentlyActive = false,
+    this.source,
+    this.firstName,
+    this.tradeLine,
+    this.expectedSalary,
+    this.machines,
+    this.area,
+    this.lastActiveOn,
+    this.hasFacts = false,
     this.unlocked = false,
     this.unlockId,
   });
@@ -571,6 +579,19 @@ class Applicant extends Equatable {
   /// never a filter: the feed's order and membership are the server's.
   final bool notRecentlyActive;
 
+  /// #2747 — `rvm_student` | `badabhai_worker`. A label only; never a filter or an order.
+  final String? source;
+
+  /// #2747 — the six facts before paying, present together only while the part is on for the
+  /// company. Each may be null ("not given"); [hasFacts] is true EVEN when all six are null.
+  final String? firstName;
+  final String? tradeLine;
+  final String? expectedSalary;
+  final List<String>? machines;
+  final String? area;
+  final String? lastActiveOn;
+  final bool hasFacts;
+
   final bool unlocked;
 
   /// The granted unlock id (set once a paid unlock succeeds) — carried so the
@@ -612,6 +633,14 @@ class Applicant extends Equatable {
         lastWorkedAt: lastWorkedAt,
         levelFit: levelFit,
         notRecentlyActive: notRecentlyActive,
+        source: source,
+        firstName: firstName,
+        tradeLine: tradeLine,
+        expectedSalary: expectedSalary,
+        machines: machines,
+        area: area,
+        lastActiveOn: lastActiveOn,
+        hasFacts: hasFacts,
         unlocked: unlocked ?? this.unlocked,
         unlockId: unlockId ?? this.unlockId,
       );
@@ -635,6 +664,14 @@ class Applicant extends Equatable {
         lastWorkedAt,
         levelFit,
         notRecentlyActive,
+        source,
+        firstName,
+        tradeLine,
+        expectedSalary,
+        machines,
+        area,
+        lastActiveOn,
+        hasFacts,
         unlocked,
         unlockId,
       ];
@@ -646,23 +683,27 @@ class Applicant extends Equatable {
 /// without inventing a reason. A grant requires the real [unlockId] on the wire
 /// — the status string alone is never trusted.
 class UnlockResult extends Equatable {
-  const UnlockResult.granted({required this.unlockId, this.expiresAt})
+  const UnlockResult.granted({required this.unlockId, this.expiresAt, this.openUntil})
       : available = true;
 
   const UnlockResult.unavailable()
       : available = false,
         unlockId = null,
-        expiresAt = null;
+        expiresAt = null,
+        openUntil = null;
 
   final bool available;
   final String? unlockId;
   final String? expiresAt;
 
+  /// #2747 — null = open for good (no end date). Present on a grant from the live API.
+  final String? openUntil;
+
   /// True only when the server granted a real unlock (carried an [unlockId]).
   bool get granted => available;
 
   @override
-  List<Object?> get props => <Object?>[available, unlockId, expiresAt];
+  List<Object?> get props => <Object?>[available, unlockId, expiresAt, openUntil];
 }
 
 /// One row of `GET /payer/unlocks` — the caller's OWN unlocks (#2033 payer
@@ -679,6 +720,7 @@ class PayerUnlock extends Equatable {
     required this.workerId,
     required this.status,
     this.expiresAt,
+    this.openUntil,
   });
 
   final String unlockId;
@@ -688,9 +730,13 @@ class PayerUnlock extends Equatable {
   final String status;
   final String? expiresAt;
 
+  /// #2747 — null = open for good (no "until" date); absent reads as [expiresAt].
+  final String? openUntil;
+
   /// A grant this payer can still reveal: the server says `granted`/`revealed`
   /// AND its window has not lapsed by [now]. Both must agree, so a device clock
-  /// running behind can never present a grant the server already expired.
+  /// running behind can never present a grant the server already expired. A null
+  /// [openUntil] is open for good.
   bool isLiveAt(DateTime now) {
     if (status != 'granted' && status != 'revealed') return false;
     final DateTime? until =
@@ -711,12 +757,56 @@ class PayerUnlock extends Equatable {
       workerId: worker is String && worker.isNotEmpty ? worker : null,
       status: status is String ? status : '',
       expiresAt: expires is String && expires.isNotEmpty ? expires : null,
+      // A KEY present with null means open for good; an ABSENT key is an older server, where the
+      // stored window's end is the answer.
+      openUntil: json.containsKey('open_until')
+          ? (json['open_until'] is String && (json['open_until'] as String).isNotEmpty
+              ? json['open_until'] as String
+              : null)
+          : (expires is String && expires.isNotEmpty ? expires : null),
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[unlockId, workerId, status, expiresAt];
+  List<Object?> get props => <Object?>[unlockId, workerId, status, expiresAt, openUntil];
 }
+
+/// #2747 — what `GET /payer/unlocks/:unlockId/contact` says. The success carries the name and
+/// number for display ONLY: never cached, stored or logged. The neutral deny gives no reason; an
+/// `off` (404) means the rule is off for the company, so today's opened screen stays.
+class ContactReadResult extends Equatable {
+  const ContactReadResult.contact({
+    required this.fullName,
+    required this.phone,
+    this.openedAt,
+  })  : status = ContactReadStatus.contact,
+        available = true;
+
+  const ContactReadResult.unavailable()
+      : status = ContactReadStatus.unavailable,
+        available = false,
+        fullName = null,
+        phone = null,
+        openedAt = null;
+
+  const ContactReadResult.off()
+      : status = ContactReadStatus.off,
+        available = false,
+        fullName = null,
+        phone = null,
+        openedAt = null;
+
+  final ContactReadStatus status;
+  final bool available;
+  final String? fullName;
+  final String? phone;
+  final String? openedAt;
+
+  @override
+  List<Object?> get props => <Object?>[status, available, fullName, phone, openedAt];
+}
+
+enum ContactReadStatus { contact, unavailable, off }
 
 /// Result of `POST /payer/unlocks/:unlockId/reveal`. Success carries a
 /// [relayHandle] (an in-app relay/proxy address — NEVER a raw phone) + [channel]

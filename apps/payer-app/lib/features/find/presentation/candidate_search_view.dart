@@ -73,6 +73,7 @@ class CandidateSearchView extends StatelessWidget {
     CandidateSearchRow row,
     String unlockId, {
     bool justUnlocked = false,
+    String? openUntil,
   }) =>
       RevealArgs.relay(
         workerId: row.workerId,
@@ -84,6 +85,7 @@ class CandidateSearchView extends StatelessWidget {
           if (row.city != null) row.city!,
         ],
         justUnlocked: justUnlocked,
+        openUntil: openUntil,
       );
 
   /// #2592 — the quiet re-read: pull-to-refresh reloads from the first page;
@@ -249,7 +251,12 @@ class CandidateSearchView extends StatelessWidget {
     await credits.load();
     // #2596 — the reveal's stamp confirms the unlock; no duplicate toast.
     if (context.mounted) {
-      onReveal(revealArgsFor(row, result.unlockId!, justUnlocked: true));
+      onReveal(revealArgsFor(
+        row,
+        result.unlockId!,
+        justUnlocked: true,
+        openUntil: result.openUntil,
+      ));
     }
     return UnlockOutcome.granted;
   }

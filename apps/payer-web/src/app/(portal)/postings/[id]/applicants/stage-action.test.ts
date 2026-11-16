@@ -117,11 +117,21 @@ describe("setApplicantStageAction — the answer", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
   });
 
-  it("a 429 is `rate-limited`; anything else is `failed` — never the API's own words", async () => {
+  it("a 429 is `rate-limited`; a 400 is the stage not open; a 503 saved nothing; anything else is `failed`", async () => {
     setApplicantStage.mockRejectedValueOnce(new PayerHttpError("/payer/reach/jobs/x", 429));
     await expect(setApplicantStageAction(INPUT)).resolves.toEqual({
       ok: false,
       reason: "rate-limited",
+    });
+    setApplicantStage.mockRejectedValueOnce(new PayerHttpError("/payer/reach/jobs/x", 400));
+    await expect(setApplicantStageAction(INPUT)).resolves.toEqual({
+      ok: false,
+      reason: "stage-not-open",
+    });
+    setApplicantStage.mockRejectedValueOnce(new PayerHttpError("/payer/reach/jobs/x", 503));
+    await expect(setApplicantStageAction(INPUT)).resolves.toEqual({
+      ok: false,
+      reason: "unavailable",
     });
     setApplicantStage.mockRejectedValueOnce(new PayerHttpError("/payer/reach/jobs/x", 500));
     await expect(setApplicantStageAction(INPUT)).resolves.toEqual({ ok: false, reason: "failed" });

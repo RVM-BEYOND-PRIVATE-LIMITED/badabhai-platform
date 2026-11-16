@@ -17,6 +17,7 @@ class RevealArgs {
       : applicant = null,
         unlockId = null,
         jobId = null,
+        openUntil = null,
         _workerId = null,
         _title = null,
         _facets = const <String>[];
@@ -26,6 +27,7 @@ class RevealArgs {
     required String this.unlockId,
     this.jobId,
     this.justUnlocked = false,
+    this.openUntil,
   })  : candidate = null,
         _workerId = null,
         _title = null,
@@ -40,6 +42,7 @@ class RevealArgs {
     required String title,
     List<String> facets = const <String>[],
     this.justUnlocked = false,
+    this.openUntil,
   })  : candidate = null,
         applicant = null,
         jobId = null,
@@ -61,6 +64,9 @@ class RevealArgs {
   /// the reveal then plays its one-shot success stamp (#2596). A "View" of an
   /// earlier unlock leaves it false, so the stamp never replays for it.
   final bool justUnlocked;
+
+  /// #2747 — null = open for good (no "until" date); a date is the window's end.
+  final String? openUntil;
 
   final String? _workerId;
   final String? _title;

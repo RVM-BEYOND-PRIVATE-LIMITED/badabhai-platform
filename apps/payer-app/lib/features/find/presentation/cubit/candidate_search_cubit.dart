@@ -225,9 +225,10 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
           await _api.unlock(workerId: workerId, jobId: null);
       if (!isClosed) {
         final String? unlockId = result.granted ? result.unlockId : null;
-        final DateTime? until = unlockId == null || result.expiresAt == null
-            ? null
-            : DateTime.tryParse(result.expiresAt!);
+        // #2747 — null `openUntil` is open for good: no end to record.
+        final String? end = result.openUntil;
+        final DateTime? until =
+            unlockId == null || end == null ? null : DateTime.tryParse(end);
         emit(state.copyWith(
           unlocking: state.unlocking.difference(<String>{workerId}),
           unlocks: unlockId == null
@@ -341,9 +342,9 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
         for (final PayerUnlock u in history)
           if (u.workerId != null &&
               live.containsKey(u.workerId) &&
-              u.expiresAt != null &&
-              DateTime.tryParse(u.expiresAt!) != null)
-            u.workerId!: DateTime.parse(u.expiresAt!),
+              (u.openUntil ?? u.expiresAt) != null &&
+              DateTime.tryParse((u.openUntil ?? u.expiresAt)!) != null)
+            u.workerId!: DateTime.parse((u.openUntil ?? u.expiresAt)!),
       };
       // An in-session grant is newer than anything this read saw: it wins.
       emit(state.copyWith(

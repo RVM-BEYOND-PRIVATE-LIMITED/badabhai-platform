@@ -4,7 +4,13 @@ import { ACTION_ICON } from "@badabhai/icons";
 import { Button } from "../ds";
 import { NEUTRAL_UNLOCK_MESSAGE } from "../../lib/unlock-view";
 import type { ContactView } from "../../lib/unlock-view";
-import { ConfirmSpendDialog, RoutedContactCard, UnlockResultToast } from "./index";
+import {
+  ConfirmSpendDialog,
+  RoutedContactCard,
+  UnlockResultToast,
+  contactBand,
+  EMPTY_UNLOCK_ROW,
+} from "./index";
 
 /**
  * SHARED unlock→reveal UX tests (DS1.5) — assert on the extracted components directly.
@@ -81,6 +87,80 @@ describe("RoutedContactCard — routed relay ONLY, never a phone (ADR-0010 F-4)"
     const text = deepText(RoutedContactCard({ view: { ...view, channel: "proxy_number" } }) as ReactElement);
     expect(text).toContain("Proxy number");
     expect(text).not.toMatch(/\d{10,}/); // still no phone digits — only a channel LABEL
+  });
+});
+
+describe("#2747 — an opened contact stays open; what a credit opens", () => {
+  const granted = (openUntil: string | null) => ({
+    ...EMPTY_UNLOCK_ROW,
+    unlock: {
+      kind: "granted" as const,
+      unlockId: "u1",
+      expiresAt: "2099-12-31T23:59:59.000Z",
+      openUntil,
+    },
+  });
+  const band = (row: typeof EMPTY_UNLOCK_ROW, contactLookup?: Parameters<typeof contactBand>[0]["contactLookup"]) =>
+    contactBand({
+      row,
+      unlockError: null,
+      balance: 1,
+      unlockHintId: "hint",
+      viewOnly: false,
+      onUnlock: () => {},
+      onRevealContact: () => {},
+      onMaskedResume: () => {},
+      onRevealed: () => {},
+      contactLookup,
+    }) as ReactElement;
+
+  it("open_until: null shows NO 'until' date", () => {
+    const text = deepText(band(granted(null)));
+    expect(text).not.toContain("until");
+  });
+
+  it("a dated window still shows its end as today", () => {
+    const text = deepText(band(granted("2026-11-30T00:00:00.000Z")));
+    expect(text).toContain("2026-11-30");
+  });
+
+  it("a successful contact read shows the name, number, Call and Copy", () => {
+    const view = band(granted(null), {
+      kind: "contact",
+      fullName: "Aslam Khan",
+      phone: "+919876543210",
+      openedAt: "2026-11-16T10:00:00.000Z",
+    });
+    const text = deepText(view);
+    expect(text).toContain("Aslam Khan");
+    expect(text).toContain("+919876543210");
+    expect(collectButtons(view).map((b) => b.text)).toContain("Copy");
+    expect(text).toContain("Call");
+  });
+
+  it("a null full_name reads 'not given'", () => {
+    const text = deepText(
+      band(granted(null), {
+        kind: "contact",
+        fullName: null,
+        phone: "+919876543210",
+        openedAt: null,
+      }),
+    );
+    expect(text).toContain("not given");
+  });
+
+  it("`unavailable` and `off` show nothing new", () => {
+    const unavailable = deepText(band(granted(null), { kind: "unavailable" }));
+    const off = deepText(band(granted(null), { kind: "off" }));
+    expect(unavailable).not.toContain("Contact details");
+    expect(off).not.toContain("Contact details");
+  });
+
+  it("a 429 says so politely", () => {
+    expect(deepText(band(granted(null), { kind: "limited" }))).toContain(
+      "Please try again later",
+    );
   });
 });
 
