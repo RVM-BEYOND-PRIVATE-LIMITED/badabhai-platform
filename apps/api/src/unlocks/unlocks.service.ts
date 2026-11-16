@@ -67,6 +67,7 @@ import {
   openUntilOf,
 } from "./open-grant";
 import { onBriefNotice } from "./brief-notice";
+import { searchExitRefuses } from "../search-exit/search-exit-gate";
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
 const EMPLOYER_SHARING = "employer_sharing";
@@ -429,6 +430,12 @@ export class UnlockService {
           marker.deletionScheduledAt !== null ||
           marker.status === "suspended"
         ) {
+          return { response: neutralUnavailable(), events };
+        }
+
+        // #2753 item 6 — he left company search: only a company he applied to opens him.
+        if (await searchExitRefuses(tx, this.config, workerId, tenant)) {
+          events.push(() => this.emitDenied(null, party, workerId, jobContext, "no_consent", ctx));
           return { response: neutralUnavailable(), events };
         }
 

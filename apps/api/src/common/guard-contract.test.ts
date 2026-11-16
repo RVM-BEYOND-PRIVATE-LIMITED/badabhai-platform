@@ -101,6 +101,7 @@ import { PayerAccountController } from "../payers/payer-account.controller";
 import { WorkerDisplayPrefsController } from "../display-prefs/worker-display-prefs.controller";
 import { PayerDisplayPrefsController } from "../display-prefs/payer-display-prefs.controller";
 import { AdminDisplayPrefsController } from "../display-prefs/admin-display-prefs.controller";
+import { SearchExitController } from "../search-exit/search-exit.controller";
 // #2753 item 11 — the pay-on-joining pilot's hire record (admin, behind its own switch guard).
 import { PayOnJoiningHiresController } from "../pay-on-joining/pay-on-joining-hires.controller";
 
@@ -167,6 +168,8 @@ const POJ = "PayOnJoiningFlagGuard";
 const OW = "OptionalWorkerAuthGuard";
 const RZ = "RazorpayWebhookGuard";
 const POR = "PayerOrgRoleGuard";
+/** #2753 item 6 — NOT AN AUTH GUARD: the SEARCH_EXIT_ENABLED switch's neutral 404, run first. */
+const SE = "SearchExitEnabledGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [I], recordBatch: [I] } },
@@ -931,6 +934,13 @@ const CONTRACT: ControllerContract[] = [
     ctor: AdminDisplayPrefsController,
     routes: { get: [A], update: [A] },
   },
+  // #2753 item 6 — "companies can find me": the posture of every other `/workers/me/*` write
+  // ([C, W]) behind the switch's 404 (SE, first in order; pinned below).
+  {
+    name: "SearchExit",
+    ctor: SearchExitController,
+    routes: { get: [SE, C, W], set: [SE, C, W] },
+  },
   // #2753 item 11 — the pay-on-joining hire record: admin session, then the
   // PAY_ON_JOINING_RECORDS_ENABLED switch (a neutral 404 for every role), then the capability.
   {
@@ -992,6 +1002,8 @@ describe("API authz contract — guards on every controller route", () => {
       WorkerDisplayPrefsController,
       PayerDisplayPrefsController,
       AdminDisplayPrefsController,
+      // #2753 item 6 — the worker's own search visibility; a route must not join unpinned.
+      SearchExitController,
       // #2753 item 11 — a money record's write surface; a route must not join it unpinned.
       PayOnJoiningHiresController,
     ] as Ctor[]) {
@@ -1044,6 +1056,16 @@ describe("API authz contract — guards on every controller route", () => {
         expect(guardNames(ctor)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
       });
     }
+
+    // #2753 item 6 — the same pair, behind the switch's 404 that runs FIRST, so with the switch
+    // off nothing at all runs (no token check, no consent read), as for an unmounted route.
+    it("SearchExitController runs [SearchExitEnabledGuard, WorkerAuthGuard, ConsentGuard] in order", () => {
+      expect(guardNames(SearchExitController)).toEqual([
+        "SearchExitEnabledGuard",
+        "WorkerAuthGuard",
+        "ConsentGuard",
+      ]);
+    });
 
     // WorkersController.setMyName applies the guards at the METHOD level (the
     // controller also has open ops routes), so assert the order on the handler.

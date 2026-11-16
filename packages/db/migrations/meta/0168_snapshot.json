@@ -1,5 +1,5 @@
 {
-  "id": "c360cbcf-9de7-4577-b018-75373d36f0f6",
+  "id": "b1cf5987-b5ca-488f-b581-83eccea6b763",
   "prevId": "3615a4ad-2e59-4e2b-9bd7-221f154358bf",
   "version": "7",
   "dialect": "postgresql",
@@ -18538,110 +18538,19 @@
       },
       "isRLSEnabled": true
     },
-    "public.pay_on_joining_hires": {
-      "name": "pay_on_joining_hires",
+    "public.worker_activity": {
+      "name": "worker_activity",
       "schema": "",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "factory_payer_id": {
-          "name": "factory_payer_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "job_posting_id": {
-          "name": "job_posting_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "worker_id": {
           "name": "worker_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "partner_payer_id": {
-          "name": "partner_payer_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "joined_on": {
-          "name": "joined_on",
+        "active_on": {
+          "name": "active_on",
           "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "stay_checked_on": {
-          "name": "stay_checked_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "stayed_30_days": {
-          "name": "stayed_30_days",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "fee_paise": {
-          "name": "fee_paise",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "partner_share_percent": {
-          "name": "partner_share_percent",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "partner_share_paise": {
-          "name": "partner_share_paise",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "invoiced_on": {
-          "name": "invoiced_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "factory_paid_on": {
-          "name": "factory_paid_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "partner_paid_on": {
-          "name": "partner_paid_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_by_admin_id": {
-          "name": "created_by_admin_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_by_admin_id": {
-          "name": "updated_by_admin_id",
-          "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
@@ -18651,77 +18560,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
         }
       },
-      "indexes": {
-        "pay_on_joining_hires_worker_id_idx": {
-          "name": "pay_on_joining_hires_worker_id_idx",
-          "columns": [
-            {
-              "expression": "worker_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "pay_on_joining_hires_partner_payer_id_idx": {
-          "name": "pay_on_joining_hires_partner_payer_id_idx",
-          "columns": [
-            {
-              "expression": "partner_payer_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
-        "pay_on_joining_hires_factory_payer_id_payers_id_fk": {
-          "name": "pay_on_joining_hires_factory_payer_id_payers_id_fk",
-          "tableFrom": "pay_on_joining_hires",
-          "tableTo": "payers",
-          "columnsFrom": [
-            "factory_payer_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "pay_on_joining_hires_job_posting_id_job_postings_id_fk": {
-          "name": "pay_on_joining_hires_job_posting_id_job_postings_id_fk",
-          "tableFrom": "pay_on_joining_hires",
-          "tableTo": "job_postings",
-          "columnsFrom": [
-            "job_posting_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "pay_on_joining_hires_worker_id_workers_id_fk": {
-          "name": "pay_on_joining_hires_worker_id_workers_id_fk",
-          "tableFrom": "pay_on_joining_hires",
+        "worker_activity_worker_id_workers_id_fk": {
+          "name": "worker_activity_worker_id_workers_id_fk",
+          "tableFrom": "worker_activity",
           "tableTo": "workers",
           "columnsFrom": [
             "worker_id"
@@ -18731,60 +18576,20 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "pay_on_joining_hires_partner_payer_id_payers_id_fk": {
-          "name": "pay_on_joining_hires_partner_payer_id_payers_id_fk",
-          "tableFrom": "pay_on_joining_hires",
-          "tableTo": "payers",
-          "columnsFrom": [
-            "partner_payer_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "pay_on_joining_hires_hire_uq": {
-          "name": "pay_on_joining_hires_hire_uq",
-          "nullsNotDistinct": true,
+      "compositePrimaryKeys": {
+        "worker_activity_pkey": {
+          "name": "worker_activity_pkey",
           "columns": [
-            "factory_payer_id",
             "worker_id",
-            "job_posting_id"
+            "active_on"
           ]
         }
       },
+      "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "pay_on_joining_hires_fee_chk": {
-          "name": "pay_on_joining_hires_fee_chk",
-          "value": "\"pay_on_joining_hires\".\"fee_paise\" >= 0"
-        },
-        "pay_on_joining_hires_percent_chk": {
-          "name": "pay_on_joining_hires_percent_chk",
-          "value": "\"pay_on_joining_hires\".\"partner_share_percent\" >= 0 AND \"pay_on_joining_hires\".\"partner_share_percent\" <= 100"
-        },
-        "pay_on_joining_hires_share_chk": {
-          "name": "pay_on_joining_hires_share_chk",
-          "value": "\"pay_on_joining_hires\".\"partner_share_paise\" >= 0"
-        },
-        "pay_on_joining_hires_share_math_chk": {
-          "name": "pay_on_joining_hires_share_math_chk",
-          "value": "\"pay_on_joining_hires\".\"partner_share_paise\" = (\"pay_on_joining_hires\".\"fee_paise\" * \"pay_on_joining_hires\".\"partner_share_percent\") / 100"
-        },
-        "pay_on_joining_hires_stay_check_chk": {
-          "name": "pay_on_joining_hires_stay_check_chk",
-          "value": "(\"pay_on_joining_hires\".\"stay_checked_on\" IS NULL) = (\"pay_on_joining_hires\".\"stayed_30_days\" IS NULL)"
-        },
-        "pay_on_joining_hires_note_chk": {
-          "name": "pay_on_joining_hires_note_chk",
-          "value": "\"pay_on_joining_hires\".\"note\" IS NULL OR char_length(\"pay_on_joining_hires\".\"note\") BETWEEN 1 AND 500"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": true
     }
   },

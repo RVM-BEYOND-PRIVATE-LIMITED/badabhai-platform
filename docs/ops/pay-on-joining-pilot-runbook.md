@@ -1,6 +1,6 @@
 # Pay-on-joining pilot — the hire record (runbook note)
 
-Issue #2753 item 11 · API: [`docs/api/admin-pay-on-joining-api-reference.md`](../api/admin-pay-on-joining-api-reference.md) · migration `0168_pay_on_joining_hires`
+Issue #2753 item 11 · API: [`docs/api/admin-pay-on-joining-api-reference.md`](../api/admin-pay-on-joining-api-reference.md) · migration `0171_pay_on_joining_hires`
 
 ## What this is, and what it is not
 
@@ -18,7 +18,7 @@ The pilot (3 anchor factories and 5 partners in NCR, December to January) is **r
 
 ## Switching it on
 
-1. Apply migration 0168 by hand (its header has the transaction, lock timeout and rollback).
+1. Apply migration 0171 by hand (its header has the transaction, lock timeout and rollback).
 2. Leave `POJ_PARTNER_SHARE_PERCENT` unset for 70, or set it as a `production` environment secret (a whole number 0..100; the deploy refuses anything else).
 3. Set `PAY_ON_JOINING_RECORDS_ENABLED=true` as a `production` environment secret and redeploy. Off again: set it `false` and redeploy; the records stay in the table.
 

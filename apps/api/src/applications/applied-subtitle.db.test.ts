@@ -138,6 +138,12 @@ describe.skipIf(!RUN)("Applied-tab subtitle: the reach join and the label seam (
     expect(legacy.trade_key).toBe("fitter");
   });
 
+  it("#2753 — says `via: app` for a decision no Campus record points at, legacy and V1 alike", async () => {
+    // The Campus side (`via: campus`, and back to `app` after a withdrawal) is campus-jobs.db.
+    const out = await service.applicationsForWorker(WORKER);
+    expect(out.applications.map((a) => a.via)).toEqual(["app", "app"]);
+  });
+
   it("every returned row can render a subtitle — the #1051 regression, stated as a property", async () => {
     // What actually broke: a card whose subtitle had neither a label nor a usable trade, so it
     // rendered the place alone. Both shapes must yield something, by DIFFERENT routes.

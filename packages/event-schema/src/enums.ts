@@ -156,6 +156,10 @@ export const EVENT_DOMAINS = [
   // shape and the same event serve all three logins, and the subject kind rides the payload. IDS
   // AND ENUMS ONLY: an opaque id, the subject kind and the two themes.
   "display_prefs",
+  // #2753 item 9 — one hire record per company, worker and posting (`hires`). A DISTINCT domain
+  // from `payer` and `worker`: one record is moved by the company, the worker and the worker desk
+  // alike, and the source rides the payload. IDS AND CLOSED VALUES ONLY.
+  "hire",
   // #2753 item 11 — the pay-on-joining pilot's hire record (`pay_on_joining_hires`), written by
   // hand by an admin. A DISTINCT domain from `payer` / `admin`: the record is its own row with its
   // own lifecycle, and nothing on it is automated. IDS, PAISE INTEGERS AND CLOSED VALUES ONLY: the

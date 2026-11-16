@@ -48,7 +48,7 @@ import { workers } from "./worker";
 // `created_by_admin_id` / `updated_by_admin_id` are opaque admin ids with no FK, so the record
 // survives a change to the admin's account (the worker_flags / worker_admin_override convention).
 //
-// RLS forced, every role revoked, no policy (migration 0168's hand-written tail).
+// RLS forced, every role revoked, no policy (migration 0171's hand-written tail).
 // ---------------------------------------------------------------------------
 
 /** The longest admin note, in characters. */
@@ -125,7 +125,7 @@ export const payOnJoiningHires = pgTable(
       sql`${t.note} IS NULL OR char_length(${t.note}) BETWEEN 1 AND 500`,
     ),
   ],
-).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0168
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0171
 
 export type PayOnJoiningHire = typeof payOnJoiningHires.$inferSelect;
 export type NewPayOnJoiningHire = typeof payOnJoiningHires.$inferInsert;

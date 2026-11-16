@@ -1,5 +1,5 @@
 /**
- * Migration 0168 — `pay_on_joining_hires`, the pay-on-joining pilot's record (#2753 item 11).
+ * Migration 0171 — `pay_on_joining_hires`, the pay-on-joining pilot's record (#2753 item 11).
  *
  * The drizzle model and CI's drift check cover the table-vs-model half. What this file pins is the
  * half they do not see:
@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 
 import { POJ_NOTE_MAX_CHARS } from "./schema/pay-on-joining";
 
-const TAG = "0168_pay_on_joining_hires";
+const TAG = "0171_pay_on_joining_hires";
 const TABLE = "pay_on_joining_hires";
 const RAW = readFileSync(join(__dirname, "..", "migrations", `${TAG}.sql`), "utf8");
 /** Statements with comments stripped, so the header's prose cannot satisfy a DDL assertion. */
@@ -64,7 +64,7 @@ describe("the fixture is real (no assertion below is vacuous)", () => {
   });
 });
 
-describe("0168 is additive", () => {
+describe("0171 is additive", () => {
   it("creates exactly one table and two indexes", () => {
     expect([...FLAT.matchAll(/CREATE TABLE/g)]).toHaveLength(1);
     expect([...FLAT.matchAll(/CREATE (UNIQUE )?INDEX/g)]).toHaveLength(2);
@@ -213,19 +213,19 @@ describe("the header", () => {
 
 describe("the journal and the snapshot", () => {
   // Located by TAG, not `.at(-1)`, so a later migration cannot fail this file (the 0126 lesson).
-  it("records 0168 after 0167, with a `when` above its predecessor's", () => {
+  it("records 0171 after 0170, with a `when` above its predecessor's", () => {
     const at = JOURNAL.entries.findIndex((e) => e.tag === TAG);
     expect(at).toBeGreaterThan(0);
     const entry = JOURNAL.entries[at]!;
     const previous = JOURNAL.entries[at - 1]!;
-    expect(entry.idx).toBe(168);
-    expect(previous.tag).toBe("0167_outbound_signals");
+    expect(entry.idx).toBe(171);
+    expect(previous.tag).toBe("0170_hires");
     expect(entry.when).toBeGreaterThan(previous.when);
   });
 
-  it("0168's snapshot builds on 0167's and records the table", () => {
-    const next = snapshot("0168");
-    expect(next.prevId).toBe(snapshot("0167").id);
+  it("0171's snapshot builds on 0170's and records the table", () => {
+    const next = snapshot("0171");
+    expect(next.prevId).toBe(snapshot("0170").id);
     expect(next.tables).toHaveProperty(`public.${TABLE}`);
   });
 });

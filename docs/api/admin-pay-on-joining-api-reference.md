@@ -1,6 +1,6 @@
 # Admin API — pay-on-joining hire records (`/admin/pay-on-joining-hires`)
 
-Issue #2753 item 11 · code: `apps/api/src/pay-on-joining/*` · migration `0168_pay_on_joining_hires` · switch `PAY_ON_JOINING_RECORDS_ENABLED` · setting `POJ_PARTNER_SHARE_PERCENT` · runbook: [`docs/ops/pay-on-joining-pilot-runbook.md`](../ops/pay-on-joining-pilot-runbook.md)
+Issue #2753 item 11 · code: `apps/api/src/pay-on-joining/*` · migration `0171_pay_on_joining_hires` · switch `PAY_ON_JOINING_RECORDS_ENABLED` · setting `POJ_PARTNER_SHARE_PERCENT` · runbook: [`docs/ops/pay-on-joining-pilot-runbook.md`](../ops/pay-on-joining-pilot-runbook.md)
 
 The pay-on-joining pilot's record, one row per hire: the factory, the job, the worker, the partner, the joining date, the 30-day check, the fee, the invoice date, the date the factory paid, the partner's share and the date the partner was paid. **A record only.** No route here raises an invoice, moves money, pays a partner, or decides which factory qualifies: the pilot runs by hand (brief section 4F) and the owner chooses its factories.
 
@@ -103,6 +103,6 @@ Each write commits in ONE transaction: the row, an `audit_logs` row (`entity_typ
 
 ## Deploy order
 
-1. Apply migration `0168_pay_on_joining_hires` (header: one transaction, `lock_timeout = '3s'`, retry on 55P03), then adopt its ledger row in slot order.
+1. Apply migration `0171_pay_on_joining_hires` (header: one transaction, `lock_timeout = '3s'`, retry on 55P03), then adopt its ledger row in slot order.
 2. Set `POJ_PARTNER_SHARE_PERCENT` only if the pilot's 70 changes (empty means 70).
 3. Set `PAY_ON_JOINING_RECORDS_ENABLED=true` as a `production` environment secret and redeploy.

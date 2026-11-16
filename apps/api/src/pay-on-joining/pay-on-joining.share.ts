@@ -5,7 +5,7 @@
  * FLOOR, IN INTEGER ARITHMETIC: floor(fee_paise * percent / 100). BadaBhai keeps the remainder
  * paisa, so the partner is never paid a paisa the arithmetic did not owe. Computed with BigInt,
  * never a float product: `fee * 70` passes 2^53 for a fee above ~1.29e14 paise and a float floor
- * would then be off by whole paise. Migration 0168's `pay_on_joining_hires_share_math_chk` holds
+ * would then be off by whole paise. Migration 0171's `pay_on_joining_hires_share_math_chk` holds
  * the database to the same formula (Postgres bigint division truncates, the floor for a
  * non-negative fee), and `pay_on_joining.recorded` refuses any other figure.
  *

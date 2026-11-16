@@ -394,6 +394,20 @@ NestJS boot assertion).
   `scripts/deploy/staging-deploy.sh`; the bridge shipped in #2613, after #2552). Arming is the
   secret set to `true` plus a redeploy, on the CEO's go-ahead; values lowercase
   `true`/`false`/`1`/`0`/empty only.
+- **The helper's name before sign-in (#2753 item 12)** — `REFERRAL_HELPER_NAME_ENABLED`, api
+  only (`booleanFromString`, default off). Off, `GET /referrals/helper` is a neutral 404 that
+  touches neither the rate limiter nor the database. On, the unauthenticated route answers
+  `{ "display_name": … }`: the agency's company name for a live agency code, `null` for every
+  other code (a worker referrer's, unknown, expired, spent, malformed) with the same 200 body;
+  never a worker's name. Capped per address by `REFERRAL_ATTRIBUTE_MAX_PER_IP_PER_HOUR` in its own
+  bucket. **Needs the owner's OK before it goes on:** it reverses the no-oracle rule of
+  `POST /referrals/attribute` and opens a code-to-name lookup to anyone; the screen's copy ("[Name]
+  helped you make this profile. Confirm with the OTP only if the details are yours and you have
+  not paid anyone.") waits for a lawyer's check. **No migration.** Contract:
+  `docs/api/worker-referrals-api-reference.md`. Bridged through the GitHub `production`
+  environment secret of the same name (compose `${REFERRAL_HELPER_NAME_ENABLED:-false}` on `api`,
+  `ci.yml` `env:` + `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`). Arming is the
+  secret set to `true` plus a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only.
 - **The brief's four availability answers (#2753 item 3)** —
   `AVAILABILITY_ANSWERS_V2_ENABLED`, api only (`booleanFromString`, default off). Off is today's
   `GET /workers/me/work-preferences/options` exactly. On, its `availability_status` serves `join_now` / `in_15_days` / `in_30_days` /
@@ -408,12 +422,52 @@ NestJS boot assertion).
   `${AVAILABILITY_ANSWERS_V2_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
   `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; values
   lowercase `true`/`false`/`1`/`0`/empty only.
+- **Last active, one definition (#2753 items 4 and 7)** — `WORKER_ACTIVITY_ENABLED`, api only
+  (`booleanFromString`, default off). On, every signed-in worker request and every Campus
+  application records the worker's IST day in `worker_activity` (migration 0168; fire-and-forget,
+  never fails the request), and the one last-active read is the later of that table's newest day
+  and the IST day of his newest device sighting: the #2747 pre-pay fact `lastActiveOn`, the agency
+  referred-workers `lastActiveOn`, and `notRecentlyActive` on every applicant, inbox and company
+  search row. Off is today exactly: nothing reads or writes the table, no row carries
+  `notRecentlyActive`, and `lastActiveOn` is the device sighting. The card's activity band, the
+  search order and the `worker.active` event never read it. Migration 0168 is
+  APPLY-BEFORE-THE-SWITCH: on without the table nothing answers 500 (the writes are lost and the
+  reads fall back to the device day, with one warning per process), but every day of activity
+  until the apply is lost.
+  Bridged through the GitHub `production` environment secret of the same name (compose
+  `${WORKER_ACTIVITY_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; values
+  lowercase `true`/`false`/`1`/`0`/empty only. `NOT_RECENTLY_ACTIVE_DAYS` (integer, default 90, at
+  least 1) is the mark's threshold: more than that many days since the last active day (IST) marks
+  him, so day 90 is not marked and day 91 is. Not bridged (like `PAYER_APPLICANT_STAGE_MAX_PER_HOUR`):
+  production runs the default until a bridge is added.
+- **Leave company search (#2753 item 6)** — `SEARCH_EXIT_ENABLED`, api only (`booleanFromString`,
+  default off). Off is today exactly: `GET`/`PUT /workers/me/search-visibility` are the plain 404
+  of an unmounted route, the candidate search statement is byte-identical, the unlock path reads
+  nothing, and nothing names `worker_search_exits`. On, a worker can leave company search while
+  keeping his consent: he is absent from every company's search (its city facet and the admin card
+  read too), and only a company he applied to, or one already holding an open contact, can open
+  him. Migration 0169 is APPLY-BEFORE-THE-SWITCH, but on without it nothing answers 500: search,
+  its city facet, the admin card read and the unlock gate FAIL OPEN (everyone visible, one warning
+  per process), and the two worker routes answer 503 until it is applied. Bridged through the GitHub `production` environment secret of the same name
+  (compose `${SEARCH_EXIT_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is 0169 applied, then the secret set to `true` plus
+  a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only.
+- **Hire records (#2753 item 9)** — `HIRE_RECORDS_ENABLED`, api only (`booleanFromString`, default
+  off). Off is today's API exactly: nothing reads or writes `hires`, a stage move is unchanged, and
+  `GET /admin/hires` is a 404. On, a company's real move of an applicant INTO `hired` confirms the
+  hire record in the stage transaction (one row per company, worker and posting), a move OUT takes
+  back a mark nothing else confirmed (`rejected`), and `GET /admin/hires` lists the records. The
+  migration `hires` is APPLY-BEFORE-THE-SWITCH: on without it, a move into or out of `hired` fails
+  (42P01) and rolls back. Bridged through the GitHub `production` environment secret of the same
+  name (compose `${HIRE_RECORDS_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted
+  in `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
 - **The pay-on-joining pilot's hire record (#2753 item 11)** — api only, two variables
   (contract: `docs/api/admin-pay-on-joining-api-reference.md`; runbook:
   `docs/ops/pay-on-joining-pilot-runbook.md`).
   - `PAY_ON_JOINING_RECORDS_ENABLED` (`booleanFromString`, default off): off, every
     `/admin/pay-on-joining-hires` route is a neutral 404 for every admin role before any query,
-    and nothing reads or writes `pay_on_joining_hires`. **Needs migration 0168 applied first**
+    and nothing reads or writes `pay_on_joining_hires`. **Needs migration 0171 applied first**
     (APPLY BEFORE THE SWITCH, not before the deploy). A record only: no invoice, no payout, no
     eligibility rule. Bridged through the GitHub `production` environment secret of the same name
     (compose `${PAY_ON_JOINING_RECORDS_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`,

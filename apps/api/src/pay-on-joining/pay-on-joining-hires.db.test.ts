@@ -13,7 +13,7 @@ import { PayOnJoiningHiresService } from "./pay-on-joining-hires.service";
 import { paymentStateOf } from "./pay-on-joining.state";
 
 /**
- * #2753 item 11 — `pay_on_joining_hires` (migration 0168) against a real Postgres.
+ * #2753 item 11 — `pay_on_joining_hires` (migration 0171) against a real Postgres.
  *
  * The unit suites prove the service SAYS the right thing. Only a database proves:
  *  - a real create then patch: the percent copied from the setting, the floor share, the share
@@ -64,7 +64,7 @@ const PAYERS = [FACTORY, FACTORY_2, PARTNER, PARTNER_GONE];
 const NOTE = `Confirmed by the plant manager on a visit ${TAG}`;
 
 describe.skipIf(!RUN)(
-  "pay_on_joining_hires against Postgres (#2753 item 11, migration 0168)",
+  "pay_on_joining_hires against Postgres (#2753 item 11, migration 0171)",
   () => {
     let client!: DbClient;
     let repo!: PayOnJoiningHiresRepository;

@@ -1,5 +1,5 @@
 -- ==============================================================================
--- 0168 - pay_on_joining_hires: the pay-on-joining pilot's record, one row per hire
+-- 0171 - pay_on_joining_hires: the pay-on-joining pilot's record, one row per hire
 -- ==============================================================================
 --
 -- #2753 item 11. The pilot (3 anchor factories, 5 partners, NCR, December to January): a factory
@@ -36,7 +36,7 @@
 --
 -- DEPLOY ORDER - APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY. Nothing names this table while
 -- PAY_ON_JOINING_RECORDS_ENABLED (default false) is off: every route is a 404 before a query.
--- With the switch on before 0168, the list and both writes fail (42P01) and answer 500; nothing
+-- With the switch on before 0171, the list and both writes fail (42P01) and answer 500; nothing
 -- is written. Apply the earlier slots first (slot order), then this.
 --
 -- LOCKS. CREATE TABLE is instant, but the four FOREIGN KEYs take SHARE ROW EXCLUSIVE on
@@ -46,7 +46,7 @@
 --
 -- RLS: ENABLE is generated; FORCE and the four REVOKEs at the end are HAND-WRITTEN (the
 -- 0117 / 0156 / 0160 / 0161 / 0167 pattern) - a regenerate drops them silently. Registered as
--- `0168-pay-on-joining-hires-rls` in `schema-contract.ts`; listed in LOCKED_TABLES in the e2e
+-- `0171-pay-on-joining-hires-rls` in `schema-contract.ts`; listed in LOCKED_TABLES in the e2e
 -- RLS spine.
 --
 -- ROLLBACK (switch off first; the recorded hires are lost, so export them before):
