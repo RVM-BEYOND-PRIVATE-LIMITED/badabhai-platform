@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 import '../bb_bottom_sheet.dart';
 
@@ -32,6 +33,7 @@ class OnboardingSelectField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool hasValue = value.isNotEmpty;
     return Semantics(
       button: true,
@@ -39,9 +41,7 @@ class OnboardingSelectField extends StatelessWidget {
       label: semanticLabel,
       value: hasValue ? value : hint,
       child: Material(
-        color: enabled
-            ? OnboardingColors.paperWhite
-            : OnboardingColors.canvasBg,
+        color: enabled ? p.card : p.page,
         borderRadius: BorderRadius.circular(OnboardingRadii.nameField),
         child: InkWell(
           onTap: enabled ? onTap : null,
@@ -51,10 +51,7 @@ class OnboardingSelectField extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(OnboardingRadii.nameField),
-              border: Border.all(
-                color: OnboardingColors.borderDefault,
-                width: 1.2,
-              ),
+              border: Border.all(color: p.borderDefault, width: 1.2),
             ),
             child: Row(
               children: <Widget>[
@@ -68,15 +65,13 @@ class OnboardingSelectField extends StatelessWidget {
                           )
                         : OnboardingTypography.inter(
                             size: 14,
-                            color: OnboardingColors.ink500,
+                            color: p.textMuted,
                           ),
                   ),
                 ),
                 Icon(
                   Icons.keyboard_arrow_down_rounded,
-                  color: enabled
-                      ? OnboardingColors.ink900
-                      : OnboardingColors.ink500,
+                  color: enabled ? p.textPrimary : p.textMuted,
                 ),
               ],
             ),
@@ -104,7 +99,7 @@ Future<String?> showOnboardingPicker(
   return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: OnboardingColors.paperWhite,
+    backgroundColor: context.bb.card,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(
         top: Radius.circular(OnboardingRadii.card),
@@ -167,6 +162,7 @@ class _PickerSheetState extends State<_PickerSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String query = _search.text.trim();
     final String q = query.toLowerCase();
     final List<String> visible = q.isEmpty
@@ -216,24 +212,22 @@ class _PickerSheetState extends State<_PickerSheet> {
                     hintText: widget.searchHint,
                     hintStyle: OnboardingTypography.inter(
                       size: 14,
-                      color: OnboardingColors.ink500,
+                      color: p.textMuted,
                     ),
                     counterText: '',
                     filled: true,
-                    fillColor: OnboardingColors.paperWhite,
+                    fillColor: p.card,
                     isDense: true,
-                    prefixIcon: const Icon(
-                      Icons.search_rounded,
-                      color: OnboardingColors.ink600,
-                    ),
+                    prefixIcon: Icon(Icons.search_rounded, color: p.textSecondary),
                     contentPadding: const EdgeInsets.symmetric(
                       horizontal: 14,
                       vertical: 14,
                     ),
-                    enabledBorder: _border(OnboardingColors.borderDefault, 1.2),
-                    // Spec §3.3: a FOCUSED input rings navy at 1.8. Yellow
-                    // (borderActive) means selected, which a text box never is.
-                    focusedBorder: _border(OnboardingColors.shiftBlue, 1.8),
+                    enabledBorder: _border(p.borderDefault, 1.2),
+                    // Spec §3.3: a FOCUSED input rings in the focus colour at
+                    // 1.8. Yellow (borderActive) means selected, which a text
+                    // box never is.
+                    focusedBorder: _border(p.focusRing, 1.8),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -248,16 +242,16 @@ class _PickerSheetState extends State<_PickerSheet> {
                         ListTile(
                           key: kOnboardingPickerCustomKey,
                           contentPadding: EdgeInsets.zero,
-                          leading: const Icon(
+                          leading: Icon(
                             Icons.edit_location_alt_outlined,
-                            color: OnboardingColors.shiftBlue,
+                            color: p.textBrand,
                           ),
                           title: Text(
                             '"$query" use karein',
                             style: OnboardingTypography.inter(
                               size: 14,
                               weight: FontWeight.w600,
-                              color: OnboardingColors.shiftBlue,
+                              color: p.textBrand,
                             ),
                           ),
                           onTap: () => Navigator.of(context).pop(query),
@@ -287,10 +281,7 @@ class _PickerSheetState extends State<_PickerSheet> {
                             ),
                           ),
                           trailing: option == widget.selected
-                              ? const Icon(
-                                  Icons.check_rounded,
-                                  color: OnboardingColors.shiftBlue,
-                                )
+                              ? Icon(Icons.check_rounded, color: p.textBrand)
                               : null,
                           onTap: () => Navigator.of(context).pop(option),
                         ),

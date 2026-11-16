@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// The BadaBhai brand lockup in the Shift Blue header: the two-figure mark
@@ -17,9 +18,9 @@ import '../../theme/onboarding_theme.dart';
 class BrandBadge extends StatelessWidget {
   const BrandBadge({super.key, this.wordmarkColor});
 
-  /// The wordmark's ink. Null keeps the header's white
-  /// ([OnboardingColors.textOnBlue]); a surface that is NOT the navy band — a
-  /// white job card — passes its own so the name is readable there.
+  /// The wordmark's ink. Null keeps the on-brand surface ink for the navy band;
+  /// a surface that is NOT the navy band — a white job card — passes its own so
+  /// the name is readable there.
   ///
   /// The MARK is untouched by this: it is a shipped PNG, not a glyph, so its
   /// two figures keep their own colours wherever it is drawn.
@@ -30,6 +31,7 @@ class BrandBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
@@ -56,7 +58,7 @@ class BrandBadge extends StatelessWidget {
           style: OnboardingTypography.anek(
             size: 14,
             weight: FontWeight.w800,
-            color: wordmarkColor ?? OnboardingColors.textOnBlue,
+            color: wordmarkColor ?? p.onBrandSurface,
           ),
         ),
       ],

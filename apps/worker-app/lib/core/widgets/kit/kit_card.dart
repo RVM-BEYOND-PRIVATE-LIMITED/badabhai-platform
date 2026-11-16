@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 import 'kit_pill.dart';
 
-/// The white content card every resume / profile section sits in (spec §4):
-/// 16 radius, a 1px [OnboardingColors.borderDefault] hairline, 16 padding.
+/// The content card every resume / profile section sits in (spec §4):
+/// 16 radius, a 1px default-border hairline, 16 padding.
 ///
 /// Elevation 0 — the hairline is the separation, never a shadow.
 class KitCard extends StatelessWidget {
@@ -19,12 +20,13 @@ class KitCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(OnboardingRadii.card),
-        border: Border.all(color: OnboardingColors.borderDefault),
+        border: Border.all(color: p.borderDefault),
       ),
       child: child,
     );
@@ -42,22 +44,23 @@ class KitCardHeader extends StatelessWidget {
     super.key,
     required this.icon,
     required this.title,
-    this.iconColor = OnboardingColors.shiftBlue,
+    this.iconColor,
     this.count,
   });
 
   final IconData icon;
   final String title;
-  final Color iconColor;
+  final Color? iconColor;
   final int? count;
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final int? n = count;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
-        Icon(icon, size: 18, color: iconColor),
+        Icon(icon, size: 18, color: iconColor ?? p.textBrand),
         const SizedBox(width: 8),
         Expanded(
           child: Text(

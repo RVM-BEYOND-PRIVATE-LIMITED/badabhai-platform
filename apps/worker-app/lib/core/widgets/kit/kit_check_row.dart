@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// A full-width fact row with a green check — the spec §4 'CONTROLLERS KNOWN'
@@ -14,12 +15,13 @@ class KitCheckRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: OnboardingColors.rowBg,
+        color: p.raised,
         borderRadius: BorderRadius.circular(OnboardingRadii.row),
-        border: Border.all(color: OnboardingColors.borderSubtle),
+        border: Border.all(color: p.borderSubtle),
       ),
       child: Row(
         children: <Widget>[
@@ -33,11 +35,7 @@ class KitCheckRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          const Icon(
-            Icons.check_rounded,
-            size: 16,
-            color: OnboardingColors.successGreen,
-          ),
+          Icon(Icons.check_rounded, size: 16, color: p.success),
         ],
       ),
     );

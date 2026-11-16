@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../theme/app_theme.dart';
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 import '../bottom_bar_inset.dart';
 import '../kit/kit_square_icon_button.dart';
@@ -104,11 +105,10 @@ class _QuestionnaireBottomBarState extends State<QuestionnaireBottomBar> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool form = widget.variant == OnboardingVariant.formFlow;
     final bool enabled = widget.onNext != null && !widget.isLoading;
-    final Color ink = enabled
-        ? OnboardingColors.shiftBlue
-        : OnboardingColors.disabledText;
+    final Color ink = enabled ? p.onAction : p.disabledText;
     final Widget? left =
         widget.leading ??
         (widget.isAudioSupported && widget.onListen != null
@@ -128,12 +128,10 @@ class _QuestionnaireBottomBarState extends State<QuestionnaireBottomBar> {
               (form ? FormFlowLayout.bottomBarPaddingBottom : 10),
         ),
         decoration: BoxDecoration(
-          color: OnboardingColors.paperWhite,
+          color: p.card,
           border: Border(
             top: BorderSide(
-              color: form
-                  ? FormFlowColors.bottomBarBorder
-                  : OnboardingColors.borderDefault,
+              color: form ? FormFlowColors.bottomBarBorder : p.borderDefault,
             ),
           ),
         ),
@@ -154,7 +152,7 @@ class _QuestionnaireBottomBarState extends State<QuestionnaireBottomBar> {
                         : OnboardingLayout.dockedButtonHeight,
                     child: ElevatedButton(
                       key: widget.nextKey,
-                      style: KitButtonStyles.primary.copyWith(
+                      style: KitButtonStyles.primaryFor(p).copyWith(
                         shape: WidgetStatePropertyAll<OutlinedBorder>(
                           RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(
@@ -178,12 +176,12 @@ class _QuestionnaireBottomBarState extends State<QuestionnaireBottomBar> {
                       child: widget.isLoading
                           ? Semantics(
                               label: widget.nextLabel,
-                              child: const SizedBox(
+                              child: SizedBox(
                                 width: 20,
                                 height: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2.5,
-                                  color: OnboardingColors.shiftBlue,
+                                  color: p.onAction,
                                 ),
                               ),
                             )

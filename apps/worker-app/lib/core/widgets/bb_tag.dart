@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 
 /// A small, non-interactive fact pill — a skill/machine tag ("Fanuc"), a kit
@@ -18,12 +19,13 @@ class BbTag extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(OnboardingRadii.chip),
-        border: Border.all(color: OnboardingColors.borderDefault),
+        border: Border.all(color: p.borderDefault),
       ),
       child: Text(label, style: OnboardingTypography.chipLabel()),
     );
@@ -40,18 +42,21 @@ class BbHotTag extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: const BoxDecoration(
-        color: OnboardingColors.safetyYellow,
-        borderRadius: BorderRadius.all(Radius.circular(OnboardingRadii.pillSm)),
+      decoration: BoxDecoration(
+        color: p.action,
+        borderRadius: const BorderRadius.all(
+          Radius.circular(OnboardingRadii.pillSm),
+        ),
       ),
       child: Text(
         'HOT',
         style: OnboardingTypography.anek(
           size: 10,
           weight: FontWeight.w800,
-          color: OnboardingColors.textOnYellow,
+          color: p.onAction,
         ),
       ),
     );

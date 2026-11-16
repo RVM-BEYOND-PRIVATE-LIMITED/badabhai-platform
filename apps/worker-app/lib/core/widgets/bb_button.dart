@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 
 /// Visual style of a [BbButton]. The four kit kinds come first; the rest are
@@ -113,21 +114,21 @@ class BbButton extends StatelessWidget {
 
   /// The label's ink, so the loading spinner can match it instead of always
   /// being white on a yellow button.
-  Color get _foreground => switch (variant) {
+  Color _foreground(BbPalette p) => switch (variant) {
     BbButtonVariant.primary ||
     BbButtonVariant.brand ||
-    BbButtonVariant.tonal => OnboardingColors.shiftBlue,
+    BbButtonVariant.tonal => p.onAction,
     BbButtonVariant.navy ||
     BbButtonVariant.success ||
-    BbButtonVariant.danger => OnboardingColors.textOnBlue,
-    BbButtonVariant.outline ||
-    BbButtonVariant.ghost => OnboardingColors.shiftBlue,
-    BbButtonVariant.secondary => OnboardingColors.ink900,
+    BbButtonVariant.danger => p.onBrandSurface,
+    BbButtonVariant.outline || BbButtonVariant.ghost => p.textBrand,
+    BbButtonVariant.secondary => p.textPrimary,
   };
 
-  ButtonStyle get _base => switch (variant) {
-    BbButtonVariant.primary || BbButtonVariant.brand => KitButtonStyles.primary,
-    BbButtonVariant.navy => KitButtonStyles.navy,
+  ButtonStyle _baseFor(BbPalette p) => switch (variant) {
+    BbButtonVariant.primary || BbButtonVariant.brand =>
+      KitButtonStyles.primaryFor(p),
+    BbButtonVariant.navy => KitButtonStyles.navyFor(p),
     BbButtonVariant.success => KitButtonStyles.success,
     BbButtonVariant.danger => KitButtonStyles.danger,
     BbButtonVariant.tonal => KitButtonStyles.tonal,
@@ -138,6 +139,7 @@ class BbButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // Light haptic on every press (design system motion §8) — wraps the caller's
     // callback so it fires for every variant. `loading` suppresses the action.
     final VoidCallback? base = loading ? null : onPressed;
@@ -154,7 +156,7 @@ class BbButton extends StatelessWidget {
       iconRight: iconRight,
       loading: loading,
       size: size,
-      spinnerColor: _foreground,
+      spinnerColor: _foreground(p),
       allowMultilineLabel: allowMultilineLabel,
     );
 
@@ -164,7 +166,7 @@ class BbButton extends StatelessWidget {
       BbButtonSize.md => 14,
       BbButtonSize.lg => 16,
     };
-    final ButtonStyle style = _base.copyWith(
+    final ButtonStyle style = _baseFor(p).copyWith(
       minimumSize: WidgetStatePropertyAll<Size>(
         Size(block ? double.infinity : 64, _height),
       ),
