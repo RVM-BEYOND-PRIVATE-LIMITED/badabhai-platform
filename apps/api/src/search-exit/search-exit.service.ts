@@ -1,13 +1,21 @@
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { Database, WorkerSearchExitVia } from "@badabhai/db";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 
+import { sqlStateOf } from "../common/db-error";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import type { SearchVisibilityResponse } from "./search-exit.dto";
 import { searchExitEnabled } from "./search-exit.flag";
+import { PG_UNDEFINED_TABLE } from "./search-exit-missing-table";
 import { SearchExitRepository, type StoredSearchExit } from "./search-exit.repository";
 
 /** The reply for a stored exit (or none). A fresh object per reply. */
@@ -35,6 +43,13 @@ const replyFor = (exit: StoredSearchExit | null): SearchVisibilityResponse =>
  * writes nothing (the route guard 404s even earlier, before auth). That is what makes migration
  * 0168 apply-before-the-switch.
  *
+ * ON BEFORE 0168: 503, NOT 500, AND NOT FAIL OPEN. The two routes are the WRITE path of this table
+ * (the GET is the screen the switch is on), so with the table missing (42P01) there is nothing
+ * honest to answer: "visible" would show a switch that cannot be flipped, and a PUT cannot store a
+ * leave. They answer 503 Service Unavailable and write nothing (the transaction rolls back).
+ * The READERS fail open instead (search and unlock: nobody can be hidden without the table). The
+ * log line carries the worker id and the SQLSTATE only; any other error propagates.
+ *
  * REUSABLE. {@link setVisibility} takes the `via`, so the later monthly check ("not now") calls it
  * with `monthly_check` and inherits the same no-op and event rules.
  */
@@ -51,7 +66,11 @@ export class SearchExitService {
   /** `GET /workers/me/search-visibility`. A read: no event. */
   async visibilityFor(workerId: string): Promise<SearchVisibilityResponse> {
     this.assertOn();
-    return replyFor(await this.repo.find(workerId));
+    try {
+      return replyFor(await this.repo.find(workerId));
+    } catch (err) {
+      throw this.unavailableIfMissing(err, "read", workerId);
+    }
   }
 
   /**
@@ -73,7 +92,7 @@ export class SearchExitService {
     ctx: RequestContext,
   ): Promise<SearchVisibilityResponse> {
     this.assertOn();
-    const { reply, changed } = await this.repo.withTransaction(async (tx) => {
+    const { reply, changed } = await this.write(workerId, async (tx) => {
       if (visible) {
         const removed = await this.repo.remove(workerId, tx);
         if (removed) await this.emitChanged(workerId, true, via, ctx, tx);
@@ -98,6 +117,25 @@ export class SearchExitService {
 
   private assertOn(): void {
     if (!searchExitEnabled(this.config)) throw new NotFoundException();
+  }
+
+  /** One write transaction; a missing table (0168 not applied) is a 503, rolled back. */
+  private async write<T>(workerId: string, work: (tx: Database) => Promise<T>): Promise<T> {
+    try {
+      return await this.repo.withTransaction(work);
+    } catch (err) {
+      throw this.unavailableIfMissing(err, "write", workerId);
+    }
+  }
+
+  /** A 503 (logged: the worker id and the SQLSTATE) for 42P01; any other error unchanged. */
+  private unavailableIfMissing(err: unknown, op: "read" | "write", workerId: string): unknown {
+    if (sqlStateOf(err) !== PG_UNDEFINED_TABLE) return err;
+    this.logger.warn(
+      `search visibility ${op} unavailable: worker_search_exits is missing ` +
+        `(worker=${workerId} sqlstate=${PG_UNDEFINED_TABLE})`,
+    );
+    return new ServiceUnavailableException();
   }
 
   private async emitChanged(

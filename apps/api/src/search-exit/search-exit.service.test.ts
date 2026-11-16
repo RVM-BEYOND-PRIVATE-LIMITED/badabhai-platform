@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import { Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { WORKER_SEARCH_EXIT_VIAS } from "@badabhai/db";
 import { SEARCH_VISIBILITY_VIAS, validateEvent } from "@badabhai/event-schema";
@@ -242,6 +242,71 @@ describe("SearchExitService — PUT: one event per REAL change, in the row's tra
       expect(result.success).toBe(true);
     }
   });
+});
+
+describe("SearchExitService — switched on before migration 0168: 503, never 500", () => {
+  /** drizzle's wrapper with the driver's SQLSTATE on `cause`. */
+  const driverError = (code: string) =>
+    Object.assign(new Error("Failed query"), { cause: Object.assign(new Error(code), { code }) });
+
+  function failing(code: string) {
+    const tx = { tx: true };
+    const repo = {
+      // The transaction itself rolls back and rethrows what its callback threw.
+      withTransaction: vi.fn(async (cb: (t: unknown) => Promise<unknown>) => cb(tx)),
+      find: vi.fn(async () => {
+        throw driverError(code);
+      }),
+      insert: vi.fn(async () => {
+        throw driverError(code);
+      }),
+      remove: vi.fn(async () => {
+        throw driverError(code);
+      }),
+    };
+    const events = { emit: vi.fn() };
+    const svc = new SearchExitService(
+      repo as unknown as SearchExitRepository,
+      events as unknown as EventsService,
+      { SEARCH_EXIT_ENABLED: true } as unknown as ServerConfig,
+    );
+    return { svc, events };
+  }
+
+  it("42P01 (the table missing): GET and both PUTs answer 503, nothing emitted, the worker id and code logged", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { svc, events } = failing("42P01");
+      await expect(svc.visibilityFor(WORKER)).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await expect(svc.setVisibility(WORKER, false, "worker", CTX)).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+      await expect(svc.setVisibility(WORKER, true, "worker", CTX)).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+      expect(events.emit).not.toHaveBeenCalled();
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      expect(lines).toHaveLength(3);
+      for (const line of lines) {
+        expect(line).toContain("worker_search_exits");
+        expect(line).toContain("sqlstate=42P01");
+        expect(line).toContain(`worker=${WORKER}`);
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it.each(["42703", "23514", "40P01", "57014"])(
+    "any other SQLSTATE (%s) propagates unchanged (never a 503)",
+    async (code) => {
+      const { svc } = failing(code);
+      await expect(svc.visibilityFor(WORKER)).rejects.toMatchObject({ cause: { code } });
+      await expect(svc.setVisibility(WORKER, false, "worker", CTX)).rejects.toMatchObject({
+        cause: { code },
+      });
+    },
+  );
 });
 
 describe("SearchExitService — never a consent write", () => {

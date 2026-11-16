@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { Logger } from "@nestjs/common";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { Database } from "@badabhai/db";
@@ -19,6 +20,9 @@ import {
  *  - It sits over the WHOLE pool: after the institute-grant branch's OR, so a granted student who
  *    left search is out of that company's pool too.
  *  - It reaches all three readers: the search, the city facet and the admin card read.
+ *  - ON with the table MISSING (42P01, 0168 not applied) each reader FAILS OPEN: it re-runs the
+ *    switch-off statement byte for byte, and the process logs ONE warning. Any other SQLSTATE, and
+ *    a 42P01 with the switch off, still throws.
  *
  * The real search excluding and re-including a worker is the DB gate's
  * (`search-exit/worker-search-exits.db.test.ts`).
@@ -157,3 +161,107 @@ describe("CandidateSearchRepository — the switch reaches the search, the city 
     for (const q of executed) expect(q.sql).not.toContain("worker_search_exits");
   });
 });
+
+/** Postgres's undefined_table, shaped as drizzle wraps it (the SQLSTATE on `cause`). */
+function driverError(code: string): Error {
+  return Object.assign(new Error("Failed query"), {
+    cause: Object.assign(new Error(code), { code }),
+  });
+}
+
+/**
+ * A database where `worker_search_exits` does not exist: any statement naming it fails with
+ * `missingCode` (42P01 by default), every other statement answers like the recording database.
+ */
+function missingTableDb(missingCode = "42P01", offFails: string | null = null) {
+  const executed: { sql: string; params: unknown[] }[] = [];
+  const db = {
+    execute: async (statement: SQL) => {
+      const q = render(statement);
+      executed.push(q);
+      if (q.sql.includes("worker_search_exits")) throw driverError(missingCode);
+      if (offFails !== null) throw driverError(offFails);
+      // The city facet's rows; every other reader gets the counts row.
+      if (q.sql.includes("SELECT DISTINCT current_city")) return [];
+      return [{ total: 0, matched: 0, unrecorded: 0, worker_id: null }];
+    },
+  };
+  return { db: db as unknown as Database, executed };
+}
+
+describe("SEARCH_EXIT_ENABLED on before migration 0168 — the readers FAIL OPEN", () => {
+  it("search, city facet and card read: on 42P01 each re-runs the switch-off statement byte for byte; ONE warning per process", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { db, executed } = missingTableDb();
+      const repo = new CandidateSearchRepository(db, { SEARCH_EXIT_ENABLED: true });
+      await expect(repo.searchPool(query({ tenant: TENANT }))).resolves.toMatchObject({
+        counts: { total: 0, matched: 0, unrecorded: 0 },
+        rows: [],
+      });
+      await expect(repo.listPoolCities()).resolves.toEqual([]);
+      await expect(repo.findCardRow(WORKER)).resolves.toBeNull();
+      // A second round: still answered, still no second warning.
+      await repo.searchPool(query());
+
+      // Two statements per read: the switch's (with the predicate), then today's, exactly.
+      expect(executed).toHaveLength(8);
+      const off = await runAllOff();
+      const pairs = [
+        [executed[0], executed[1], off[0]],
+        [executed[2], executed[3], off[1]],
+        [executed[4], executed[5], off[2]],
+      ] as const;
+      for (const [first, fallback, today] of pairs) {
+        expect(first!.sql).toContain("worker_search_exits");
+        expect(fallback!.sql).toBe(today!.sql);
+        expect(fallback!.params).toEqual(today!.params);
+      }
+      expect(executed[7]!.sql).toBe(render(candidateSearchStatement(query())).sql);
+
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("worker_search_exits");
+      expect(lines[0]).toContain("42P01");
+      expect(lines[0]).not.toContain(WORKER);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it.each(["42703", "57014", "40P01", "08006"])(
+    "any other SQLSTATE (%s) throws, after ONE attempt (no fallback)",
+    async (code) => {
+      const { db, executed } = missingTableDb(code);
+      const repo = new CandidateSearchRepository(db, { SEARCH_EXIT_ENABLED: true });
+      await expect(repo.searchPool(query())).rejects.toMatchObject({ cause: { code } });
+      await expect(repo.listPoolCities()).rejects.toMatchObject({ cause: { code } });
+      expect(executed).toHaveLength(2);
+    },
+  );
+
+  it("a 42P01 with the switch OFF is not this table's: it throws, with no retry", async () => {
+    const { db, executed } = missingTableDb("42P01", "42P01");
+    const repo = new CandidateSearchRepository(db, { SEARCH_EXIT_ENABLED: false });
+    await expect(repo.searchPool(query())).rejects.toMatchObject({ cause: { code: "42P01" } });
+    expect(executed).toHaveLength(1);
+  });
+
+  it("a 42P01 the switch-off statement ALSO raises (another table is missing) throws", async () => {
+    const { db, executed } = missingTableDb("42P01", "42P01");
+    const repo = new CandidateSearchRepository(db, { SEARCH_EXIT_ENABLED: true });
+    await expect(repo.listPoolCities()).rejects.toMatchObject({ cause: { code: "42P01" } });
+    expect(executed).toHaveLength(2);
+    expect(executed[1]!.sql).not.toContain("worker_search_exits");
+  });
+});
+
+/** Today's three statements (the search with a tenant, the facet, the card read), switch off. */
+async function runAllOff() {
+  const { db, executed } = recordingDb();
+  const repo = new CandidateSearchRepository(db);
+  await repo.searchPool(query({ tenant: TENANT }));
+  await repo.listPoolCities();
+  await repo.findCardRow(WORKER);
+  return executed;
+}

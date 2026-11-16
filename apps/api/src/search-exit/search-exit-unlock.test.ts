@@ -35,7 +35,9 @@ import type { WorkersRepository } from "../workers/workers.repository";
  *                                                     with an internal reason;
  *   - hidden, a LAPSED grant of this company       → refused like an unrelated one;
  *   - not hidden                                   → unchanged (one extra read, then the grant);
- *   - switch off                                   → unchanged and the gate reads nothing.
+ *   - switch off                                   → unchanged and the gate reads nothing;
+ *   - switch on, the table MISSING (before 0168)   → granted: the probe fails open and the
+ *                                                     table is never named (no aborted tx).
  * Every read of the gate is on the transaction's handle.
  */
 const dialect = new PgDialect();
@@ -55,6 +57,8 @@ interface Opts {
   switchOn?: boolean;
   hidden?: boolean;
   applied?: boolean;
+  /** Migration 0168 not applied: `to_regclass` answers NULL, and naming the table would raise. */
+  tableMissing?: boolean;
   existingUnlock?: Record<string, unknown>;
 }
 
@@ -62,7 +66,12 @@ function setup(opts: Opts = {}) {
   const order: string[] = [];
   const execute = vi.fn(async (statement: SQL) => {
     const { sql } = dialect.sqlToQuery(statement);
+    if (sql.includes("to_regclass(")) {
+      order.push("gate:probe");
+      return [{ present: opts.tableMissing !== true }];
+    }
     if (sql.includes("FROM worker_search_exits")) {
+      if (opts.tableMissing) throw new Error("42P01 would abort the unlock transaction");
       order.push("gate:exit");
       return opts.hidden ? [{ hidden: 1 }] : [];
     }
@@ -212,9 +221,9 @@ describe("requestUnlock × a worker who left company search (switch on)", () => 
   it("refused INSIDE the transaction, after the deletion re-check and before the caps", async () => {
     const t = setup({ hidden: true, applied: false });
     await t.unlock();
-    expect(t.order).toEqual(["marker", "gate:exit", "gate:applied"]);
+    expect(t.order).toEqual(["marker", "gate:probe", "gate:exit", "gate:applied"]);
     // Every read of the gate went through the transaction's handle (the repo has no `execute`).
-    expect(t.execute).toHaveBeenCalledTimes(2);
+    expect(t.execute).toHaveBeenCalledTimes(3);
   });
 
   it("hidden, a LAPSED grant of this company → refused like an unrelated one (only an open grant re-opens)", async () => {
@@ -224,11 +233,19 @@ describe("requestUnlock × a worker who left company search (switch on)", () => 
     expect(t.tx.tryDebit).not.toHaveBeenCalled();
   });
 
-  it("not hidden → unchanged: one exit read, then the caps and the grant", async () => {
+  it("not hidden → unchanged: the probe and one exit read, then the caps and the grant", async () => {
     const t = setup({ hidden: false });
     expect(await t.unlock()).toMatchObject({ ok: true, status: "granted" });
-    expect(t.order).toEqual(["marker", "gate:exit", "caps"]);
+    expect(t.order).toEqual(["marker", "gate:probe", "gate:exit", "caps"]);
     expect(t.tx.tryDebit).toHaveBeenCalledTimes(1);
+  });
+
+  it("the table MISSING (switch on before 0168): FAIL OPEN — granted after the probe alone, no 500", async () => {
+    const t = setup({ hidden: true, applied: false, tableMissing: true });
+    expect(await t.unlock()).toMatchObject({ ok: true, status: "granted" });
+    expect(t.order).toEqual(["marker", "gate:probe", "caps"]);
+    expect(t.tx.tryDebit).toHaveBeenCalledTimes(1);
+    expect(t.emitted().map((e) => e.event_name)).not.toContain("unlock.denied");
   });
 });
 

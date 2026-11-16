@@ -142,6 +142,12 @@ describe("the header", () => {
     expect(RAW).toContain("SAFE TO RE-RUN: no");
   });
 
+  it("says what the switch does before 0168: the readers fail open, the worker routes 503", () => {
+    expect(RAW).toContain("READERS FAIL OPEN");
+    expect(RAW).toContain("answer\n-- 503");
+    expect(RAW).not.toMatch(/answer 500/);
+  });
+
   it("says consent is untouched (the design note: leaving search writes no consent row)", () => {
     expect(RAW).toContain("CONSENT IS UNTOUCHED");
     expect(FLAT).not.toContain("worker_consents");

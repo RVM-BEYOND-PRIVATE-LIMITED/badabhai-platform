@@ -28,6 +28,11 @@ import { SearchExitService } from "./search-exit.service";
  *
  * NO Idempotency-Key, like `PUT me/work-preferences`: the PUT sets a state, a repeat is a no-op
  * that answers the same body, and an event is written only for a real change.
+ *
+ * 503 BEFORE MIGRATION 0168. These two routes are the WRITE path of `worker_search_exits` (the GET
+ * is the screen that flips it), so with the switch on and the table missing (42P01) they answer 503
+ * Service Unavailable rather than fail open: there is no honest state to show and nowhere to store
+ * a leave. The READERS (company search, the unlock gate) fail open instead. See the service.
  */
 @Controller("workers/me/search-visibility")
 @UseGuards(SearchExitEnabledGuard, WorkerAuthGuard, ConsentGuard)

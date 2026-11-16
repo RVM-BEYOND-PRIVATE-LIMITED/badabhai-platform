@@ -29,10 +29,13 @@
 -- DEPLOY ORDER - APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY. Nothing names this table
 -- while SEARCH_EXIT_ENABLED (default off) is off: the two worker routes are a plain 404, the
 -- search statement is byte-identical to the one before #2753 and the unlock path reads
--- nothing. With the switch on before 0168, every company search, its city facet, the admin
--- candidate card and every POST /payer/unlocks that reaches the refusals fail (42P01) and
--- answer 500, and the worker routes 500 too. Apply 0164, 0165, 0166 and 0167 first (slot
--- order), then this.
+-- nothing. With the switch on before 0168 nothing answers 500, and the READERS FAIL OPEN
+-- (nobody can have left search without this table, because leaving writes it): company
+-- search, its city facet and the admin candidate card re-run the switch-off statement on
+-- 42P01 (one warning per process), and the unlock gate probes
+-- to_regclass('public.worker_search_exits') first and names the table only when it exists,
+-- so the unlock transaction is never aborted. The two worker routes, the WRITE path, answer
+-- 503 until this is applied. Apply 0164, 0165, 0166 and 0167 first (slot order), then this.
 --
 -- LOCKS. CREATE TABLE is instant, but the FOREIGN KEY takes SHARE ROW EXCLUSIVE on `workers`,
 -- which blocks writes to it while it waits behind a long transaction. Apply by hand in ONE

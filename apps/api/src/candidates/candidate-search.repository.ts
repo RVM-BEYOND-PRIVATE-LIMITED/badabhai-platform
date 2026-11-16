@@ -1,10 +1,15 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import { sql as dsql, type SQL } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
+import { sqlStateOf } from "../common/db-error";
 import { SERVER_CONFIG } from "../config/config.module";
 import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { searchExitEnabled, type SearchExitConfig } from "../search-exit/search-exit.flag";
+import {
+  PG_UNDEFINED_TABLE,
+  warnSearchExitsTableMissingOnce,
+} from "../search-exit/search-exit-missing-table";
 
 /**
  * DB access for the payer's ALL-CANDIDATES search (`POST /payer/candidates/search`, ADR-0040,
@@ -40,7 +45,10 @@ import { searchExitEnabled, type SearchExitConfig } from "../search-exit/search-
  * branch included (a student who left search left it for named-company search too). It feeds the
  * city facet and the admin card read (`onlyWorkerId`) as well, which then says "not in the pool".
  * With the switch off the statement is byte-identical to the one before #2753 and the table is
- * never named (`candidate-search.search-exit.test.ts`).
+ * never named (`candidate-search.search-exit.test.ts`). With it on and the table MISSING (0168 not
+ * applied), each reader FAILS OPEN: on 42P01 it re-runs the switch-off statement byte for byte
+ * (nobody can have left search without the table, since leaving writes it) and the first fallback
+ * logs one warning per process. Any other error propagates.
  * NEVER WIDEN THIS TO MAKE ROWS APPEAR (E2_BUILD "THE EMPTY-RESULT TRAP"): a search that returns
  * a worker who never consented has already disclosed him.
  *
@@ -436,18 +444,33 @@ export class CandidateSearchRepository {
     this.excludeSearchExits = searchExitEnabled(config);
   }
 
-  /** The query the statement is built from: the predicate is the SWITCH's, never the caller's. */
-  private withSearchExits(q: CandidatePoolQuery): CandidatePoolQuery {
-    return { ...q, excludeSearchExits: this.excludeSearchExits };
+  /**
+   * Run one pool statement with the SWITCH's predicate (never the caller's), FAILING OPEN when the
+   * switch is on but `worker_search_exits` is missing: on 42P01 the switch-off statement is run
+   * instead, byte for byte, and the first such fallback in the process logs one warning. The
+   * fallback is a separate statement on the global pool, never inside a transaction (a failed
+   * statement aborts a Postgres transaction). Off, or any other error: exactly one attempt.
+   */
+  private async executeFailOpen<T>(statement: (excludeSearchExits: boolean) => SQL): Promise<T[]> {
+    try {
+      return (await this.db.execute(statement(this.excludeSearchExits))) as unknown as T[];
+    } catch (err) {
+      if (!this.excludeSearchExits || sqlStateOf(err) !== PG_UNDEFINED_TABLE) throw err;
+      // The off statement differs only by the predicate: if it succeeds, the missing relation
+      // was `worker_search_exits`; if another table is missing, it throws its own 42P01 here.
+      const rows = (await this.db.execute(statement(false))) as unknown as T[];
+      warnSearchExitsTableMissingOnce("search");
+      return rows;
+    }
   }
 
   /** The counts and one page of the pool, in the search order. */
   async searchPool(
     q: CandidatePoolQuery,
   ): Promise<{ counts: CandidatePoolCounts; rows: CandidatePoolRow[] }> {
-    const raw = (await this.db.execute<SearchSqlRow>(
-      candidateSearchStatement(this.withSearchExits(q)),
-    )) as unknown as SearchSqlRow[];
+    const raw = await this.executeFailOpen<SearchSqlRow>((excludeSearchExits) =>
+      candidateSearchStatement({ ...q, excludeSearchExits }),
+    );
     const head = raw[0];
     // The counts CTE always yields exactly one row; none at all is a defect, never data.
     if (!head) throw new Error("candidate search: the counts row is missing");
@@ -489,10 +512,12 @@ export class CandidateSearchRepository {
 
   /** Every trimmed raw city the eligible pool records — the city facet's source. */
   async listPoolCities(): Promise<string[]> {
-    const rows = (await this.db.execute<{ city: string }>(dsql`
-      WITH consenting AS (${consentingWorkers(null, undefined, this.excludeSearchExits)})
+    const rows = await this.executeFailOpen<{ city: string }>(
+      (excludeSearchExits) => dsql`
+      WITH consenting AS (${consentingWorkers(null, undefined, excludeSearchExits)})
       SELECT DISTINCT current_city AS city FROM consenting WHERE current_city IS NOT NULL
-    `)) as unknown as { city: string }[];
+    `,
+    );
     return rows.map((r) => r.city);
   }
 

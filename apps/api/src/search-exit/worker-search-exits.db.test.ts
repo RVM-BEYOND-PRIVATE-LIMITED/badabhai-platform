@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { Logger, ServiceUnavailableException } from "@nestjs/common";
 import { sql as dsql } from "drizzle-orm";
 import { loadServerConfig, type ServerConfig } from "@badabhai/config";
 import { createDbClient, type Database, type DbClient } from "@badabhai/db";
@@ -45,6 +46,10 @@ import { SearchExitService } from "./search-exit.service";
  *    applicant feeds' own membership (`feedMembershipStatement`), and `requestUnlock` (the real
  *    service) grants a company he applied to and answers an unrelated one the neutral body with no
  *    debit and no row;
+ *  - switched on BEFORE 0168 (the table renamed away), nothing answers 500: the search, the facet
+ *    and the card read re-run today's statement (fail open), the unlock gate probes with
+ *    `to_regclass` and keeps its transaction alive (a CASE guard in the same statement would not:
+ *    Postgres resolves the table at parse time), `requestUnlock` grants, and the worker routes 503;
  *  - erasure: `WorkersRepository.hardDelete` removes his exit (the FK cascade);
  *  - the `via` CHECK, and RLS forced with no grant to any client role.
  *
@@ -350,6 +355,78 @@ describe.skipIf(!RUN)("worker_search_exits against Postgres (#2753 item 6, migra
       CTX,
     );
     expect(reopened).toMatchObject({ ok: true, status: "granted" });
+  });
+
+  it("switched on before 0168 (the table missing): search, facet, card and unlock FAIL OPEN, the worker routes 503, nothing 500s", async () => {
+    // He has left search, and GRANT_CO (never applied, no grant of him) would be refused today.
+    await exits.setVisibility(HIDER, false, "worker", CTX);
+    expect(await on.findCardRow(HIDER)).toBeNull();
+    const grantBefore = await balance(GRANT_CO);
+
+    const warn = vi.spyOn(Logger.prototype, "warn");
+    const { sql } = client;
+    // Renamed away, not dropped (his row survives), and ALWAYS renamed back. The real driver error,
+    // through drizzle's wrapper, is what `sqlStateOf` has to recognise.
+    await sql`ALTER TABLE worker_search_exits RENAME TO worker_search_exits_t2753c_away`;
+    try {
+      // Company search, its city facet and the admin card read: everyone visible, no throw.
+      expect(await on.findCardRow(HIDER)).toMatchObject({ workerId: HIDER });
+      expect(await on.listPoolCities()).toContain(CITY);
+      expect(await total(on)).toBe(await total(off));
+
+      // Why the gate probes in a statement of its own: a CASE guard in the SAME statement still
+      // fails, because Postgres resolves every relation a statement names when it parses it.
+      const guarded = await sql`
+        SELECT CASE WHEN to_regclass('public.worker_search_exits') IS NULL THEN false
+                    ELSE EXISTS (SELECT 1 FROM worker_search_exits) END AS hidden`.catch(
+        (e: unknown) => e,
+      );
+      expect((guarded as { code?: string }).code).toBe("42P01");
+
+      // The gate on a REAL transaction: not refused, and the transaction is still usable after it.
+      const inTx = await client.db.transaction(async (tx) => {
+        const refused = await searchExitRefuses(
+          tx as unknown as Database,
+          config,
+          HIDER,
+          OTHER_CO as TenantKey,
+        );
+        const [alive] = await tx.execute<{ ok: number }>(dsql`SELECT 1 AS ok`);
+        return { refused, ok: alive?.ok };
+      });
+      expect(inTx).toEqual({ refused: false, ok: 1 });
+
+      // The real unlock path: granted (fail open), one credit, no 500.
+      const opened = await unlocks.requestUnlock(
+        { payerId: GRANT_CO, workerId: HIDER, jobId: null },
+        CTX,
+      );
+      expect(opened).toMatchObject({ ok: true, status: "granted" });
+      expect(await balance(GRANT_CO)).toBe(grantBefore - 1);
+
+      // The worker routes are the write path: 503, not 500, and nothing written.
+      await expect(exits.visibilityFor(HIDER)).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await expect(exits.setVisibility(HIDER, true, "worker", CTX)).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+
+      // ONE fail-open warning for the process, naming the table and the code.
+      const failOpen = warn.mock.calls
+        .map((c) => String(c[0]))
+        .filter((line) => line.includes("failing open"));
+      expect(failOpen).toHaveLength(1);
+      expect(failOpen[0]).toContain("worker_search_exits");
+      expect(failOpen[0]).toContain("42P01");
+    } finally {
+      warn.mockRestore();
+      await sql`ALTER TABLE worker_search_exits_t2753c_away RENAME TO worker_search_exits`;
+    }
+
+    // Restored: his row is back in force, and coming back works again.
+    expect(await exitRows(HIDER)).toHaveLength(1);
+    expect(await on.findCardRow(HIDER)).toBeNull();
+    await exits.setVisibility(HIDER, true, "worker", CTX);
+    expect(await on.findCardRow(HIDER)).toMatchObject({ workerId: HIDER });
   });
 
   it("erasure: hardDelete removes his exit (ON DELETE CASCADE)", async () => {

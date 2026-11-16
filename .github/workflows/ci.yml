@@ -2278,7 +2278,8 @@ jobs:
           LEVEL_NEEDED_SORT_ENABLED: ${{ secrets.LEVEL_NEEDED_SORT_ENABLED }}
           # Leave company search (#2753 item 6). Unset/empty resolves to off through compose's
           # `:-false`: the worker routes 404 and nothing reads `worker_search_exits`. Apply
-          # migration 0168 BEFORE setting this (on without it, search and unlocks 500).
+          # migration 0168 BEFORE setting this (on without it, search and unlocks fail open and
+          # the worker routes answer 503).
           # true/false/1/0/empty only.
           SEARCH_EXIT_ENABLED: ${{ secrets.SEARCH_EXIT_ENABLED }}
           # Loud AI alerts (B13, #2567). INERT UNTIL THE SECRETS EXIST: absent, compose's

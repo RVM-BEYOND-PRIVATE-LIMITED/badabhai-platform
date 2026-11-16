@@ -4,11 +4,27 @@ import type { Database } from "@badabhai/db";
 
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { searchExitEnabled, type SearchExitConfig } from "./search-exit.flag";
+import { warnSearchExitsTableMissingOnce } from "./search-exit-missing-table";
 
 /** What the gate reads with: the unlock transaction's own handle (`execute` is all it needs). */
 export type SearchExitExecutor = Pick<Database, "execute">;
 
 const logger = new Logger("SearchExitGate");
+
+/**
+ * Whether `worker_search_exits` exists, WITHOUT naming it as a relation. `to_regclass` takes the
+ * name as text and answers NULL for a missing table instead of raising, so this statement cannot
+ * fail on 42P01 and never aborts the unlock transaction it runs in.
+ *
+ * WHY A STATEMENT OF ITS OWN, not a CASE in front of the read: Postgres resolves every relation a
+ * statement names when it PARSES it, before any CASE is evaluated, so
+ * `CASE WHEN to_regclass(...) IS NULL THEN false ELSE EXISTS (SELECT … FROM worker_search_exits …)`
+ * still raises 42P01 when the table is missing (`worker-search-exits.db.test.ts` shows it). The
+ * read below is sent only after this probe has answered true.
+ */
+export function searchExitsTablePresentStatement(): SQL {
+  return dsql`SELECT to_regclass('public.worker_search_exits') IS NOT NULL AS present`;
+}
 
 /** Whether he left company search: one primary-key read of `worker_search_exits`. */
 export function leftSearchStatement(workerId: string): SQL {
@@ -55,6 +71,8 @@ export function appliedToTenantStatement(workerId: string, tenant: TenantKey): S
 }
 
 const hasRow = (rows: unknown): boolean => (rows as unknown as unknown[]).length > 0;
+const firstPresent = (rows: unknown): boolean =>
+  (rows as unknown as { present?: unknown }[])[0]?.present === true;
 
 /**
  * #2753 item 6 — THE UNLOCK RULE FOR A WORKER WHO LEFT COMPANY SEARCH. "A company he applied to can
@@ -74,8 +92,15 @@ const hasRow = (rows: unknown): boolean => (rows as unknown as unknown[]).length
  * transaction is the pool-vs-lock deadlock the unlock service's class doc describes.
  *
  * OFF IS TODAY: with `SEARCH_EXIT_ENABLED` off this returns false WITHOUT A READ, so the unlock path
- * is byte-identical and `worker_search_exits` is never named (migration 0168 is apply-before-the-
- * switch). A read error propagates, failing the transaction closed (nothing is written).
+ * is byte-identical and `worker_search_exits` is never named.
+ *
+ * ON BEFORE MIGRATION 0168: FAIL OPEN, WITHOUT A FAILED STATEMENT. Nobody can have left search
+ * without the table (leaving writes it), so a missing table means "not hidden". It must not be
+ * learned by catching a 42P01: a failed statement ABORTS the Postgres transaction this runs in, and
+ * the unlock would then fail on its next statement (25P02). So the gate first PROBES with
+ * {@link searchExitsTablePresentStatement}, which cannot raise, and names the table only once the
+ * probe says it exists. The first miss in the process logs one warning. Any other read error
+ * propagates, failing the transaction closed (nothing is written).
  *
  * NOT AFFECTED, BY DESIGN: his own job feed, applying, chat, and every company's applicant list for
  * a job he applied to. Leaving search narrows who can FIND him, never what he can do.
@@ -87,6 +112,10 @@ export async function searchExitRefuses(
   tenant: TenantKey,
 ): Promise<boolean> {
   if (!searchExitEnabled(config)) return false;
+  if (!firstPresent(await tx.execute(searchExitsTablePresentStatement()))) {
+    warnSearchExitsTableMissingOnce("unlock");
+    return false;
+  }
   if (!hasRow(await tx.execute(leftSearchStatement(workerId)))) return false;
   if (hasRow(await tx.execute(appliedToTenantStatement(workerId, tenant)))) return false;
   // Ids only (truncated, the institute gate's convention): the internal reason never reaches the
