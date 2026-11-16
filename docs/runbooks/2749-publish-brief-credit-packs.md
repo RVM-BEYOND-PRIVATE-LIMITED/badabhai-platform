@@ -224,7 +224,9 @@ but the default still decides what every other product costs in that state. Whil
 still holds `pack_50` / `pack_200` / `pack_1000`, losing the row would put the old prices back on
 sale. So in the same go-live change, a PR replaces its `contact_unlock` tiers with Starter, Standard
 and Big exactly as above, **without Annual**. That PR also removes the `TODO(#2749 go-live)` note in
-`defaults.ts` and updates `on-sale.test.ts`, which pins the old packs.
+`defaults.ts`, updates `on-sale.test.ts`, which pins the old packs, and updates
+`tests/e2e/helpers/credit-packs.ts`: the e2e suites seed credits by buying a `DEFAULT_CATALOG` pack
+(`pack_50` and `pack_200` today) and fail once those codes are no longer sold.
 
 Order: publish the row first (it takes effect at once), check it, then merge the `DEFAULT_CATALOG`
 PR the same day. Once the row exists, the default serves only as the fallback, so merging the PR

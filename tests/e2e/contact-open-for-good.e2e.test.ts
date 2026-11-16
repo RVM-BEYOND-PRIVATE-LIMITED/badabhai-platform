@@ -9,6 +9,7 @@ import {
 } from "@badabhai/db";
 import { BRIEF_CONTACT_NOTICE_VERSIONS } from "@badabhai/types";
 import { and, eq } from "drizzle-orm";
+import { SEED_PACK } from "./helpers/credit-packs";
 import { mintPayerSession, type MintedPayerSession } from "./helpers/payer-session";
 import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
@@ -95,14 +96,14 @@ describe.skipIf(!RUN)("Contacts open for good (e2e, #2747)", () => {
     return { workerId: login.json.worker_id as string, phone };
   }
 
-  /** A company with ten credits, on the `contact_rules` pilot list. */
+  /** A company with {@link SEED_PACK}'s credits, on the `contact_rules` pilot list. */
   async function pilotCompany(): Promise<MintedPayerSession> {
     const company = await mintPayerSession();
     const buy = await req("POST", `/payers/${company.payerId}/credits`, {
       ops: true,
-      body: { pack_code: "pack_10" },
+      body: { pack_code: SEED_PACK.code },
     });
-    expect(buy.json.balance).toBe(10);
+    expect(buy.json.balance).toBe(SEED_PACK.credits);
     await client.db.insert(featurePilotPayers).values({
       feature: "contact_rules",
       payerId: company.payerId,
@@ -132,14 +133,18 @@ describe.skipIf(!RUN)("Contacts open for good (e2e, #2747)", () => {
   it("a company NOT on the pilot list: the contact route is not there", async () => {
     const w = await worker(OLD_NOTICE);
     const company = await mintPayerSession();
-    await req("POST", `/payers/${company.payerId}/credits`, {
+    const buy = await req("POST", `/payers/${company.payerId}/credits`, {
       ops: true,
-      body: { pack_code: "pack_10" },
+      body: { pack_code: SEED_PACK.code },
     });
+    expect(buy.json.balance).toBe(SEED_PACK.credits);
     const grant = await req("POST", "/payer/unlocks", {
       token: company.token,
       body: { worker_id: w.workerId },
     });
+    // The contact route is only reached with a REAL unlock id: without one the request is
+    // `/payer/unlocks/undefined/contact`, which fails the id check (400) before the pilot gate.
+    expect(grant.json).toMatchObject({ ok: true, status: "granted" });
     const read = await req("GET", `/payer/unlocks/${grant.json.unlock_id}/contact`, {
       token: company.token,
     });

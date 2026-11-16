@@ -133,6 +133,9 @@ describe("creditPackTierSchema — the #2749 optional fields", () => {
   });
 
   it("DEFAULT_CATALOG's packs are unchanged and carry none of the new fields (#2749 go-live note)", () => {
+    // Changing these packs is the go-live act (docs/runbooks/2749-publish-brief-credit-packs.md).
+    // The e2e suites buy pack_50 / pack_200 to seed credits: update tests/e2e/helpers/credit-packs.ts
+    // in the same change.
     const packs = DEFAULT_CATALOG.products.find((p) => p.kind === "credit_pack")!;
     expect(packs.tiers).toEqual([
       { code: "pack_50", priceInr: 2000, credits: 50, windowDays: 14 },
