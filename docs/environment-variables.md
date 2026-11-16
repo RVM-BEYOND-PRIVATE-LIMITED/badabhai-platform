@@ -459,6 +459,18 @@ NestJS boot assertion).
   least 1) is the mark's threshold: more than that many days since the last active day (IST) marks
   him, so day 90 is not marked and day 91 is. Not bridged (like `PAYER_APPLICANT_STAGE_MAX_PER_HOUR`):
   production runs the default until a bridge is added.
+- **Leave company search (#2753 item 6)** — `SEARCH_EXIT_ENABLED`, api only (`booleanFromString`,
+  default off). Off is today exactly: `GET`/`PUT /workers/me/search-visibility` are the plain 404
+  of an unmounted route, the candidate search statement is byte-identical, the unlock path reads
+  nothing, and nothing names `worker_search_exits`. On, a worker can leave company search while
+  keeping his consent: he is absent from every company's search (its city facet and the admin card
+  read too), and only a company he applied to, or one already holding an open contact, can open
+  him. Migration 0169 is APPLY-BEFORE-THE-SWITCH, but on without it nothing answers 500: search,
+  its city facet, the admin card read and the unlock gate FAIL OPEN (everyone visible, one warning
+  per process), and the two worker routes answer 503 until it is applied. Bridged through the GitHub `production` environment secret of the same name
+  (compose `${SEARCH_EXIT_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is 0169 applied, then the secret set to `true` plus
+  a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only.
 - **The Campus link (#2752)** — api only, four variables, all read by `CampusServiceGuard` on
   `/internal/campus/v1` (contract: `docs/api/campus-link-v1-api-reference.md`).
   - `CAMPUS_LINK_ENABLED` (`booleanFromString`, default off): off, every Campus route is a neutral

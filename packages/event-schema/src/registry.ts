@@ -1785,6 +1785,14 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerApplicantStageChangedV2Payload,
   },
+  // #2753 item 6 — a worker left company search or came back to it (`worker_search_exits`,
+  // migration 0169). One per real change, in the row's transaction. His consent is untouched. IDS
+  // AND CLOSED VALUES ONLY, strict. v1.
+  "worker.search_visibility_changed": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerSearchVisibilityChangedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
