@@ -502,6 +502,12 @@ abstract class PayerApiClient {
   /// or the neutral `unavailable`. Never a raw phone.
   Future<RevealResult> reveal(String unlockId);
 
+  /// #2747 — what a credit opens (`GET /payer/unlocks/:unlockId/contact`). Read EVERY time the
+  /// contact screen opens; never cached, stored or logged. A 404 is [ContactReadResult.off] (the
+  /// rule is off for the company — today's opened screen stays); the neutral 200 body is
+  /// [ContactReadResult.unavailable]; a 429 is the hourly disclosure cap and throws.
+  Future<ContactReadResult> readContact(String unlockId);
+
   /// REAL masked-résumé disclosure — request a signed masked-PDF URL for
   /// [workerId] (`POST /payer/resume-disclosures`), optionally scoped to
   /// [jobPostingId]. Returns the URL, or the neutral `unavailable`.

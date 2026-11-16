@@ -27,10 +27,12 @@ export type GrantedUnlock = Extract<UnlockView, { kind: "granted" }>;
  * `expired` (server-derived or stored) and revoked access are never live, whatever the window says.
  */
 export function isLiveUnlock(
-  unlock: Pick<UnlockHistoryItem, "status" | "expiresAt">,
+  unlock: Pick<UnlockHistoryItem, "status" | "expiresAt" | "openUntil">,
   now: number,
 ): boolean {
   if (unlock.status !== "granted") return false;
+  // #2747 — null is open for good; no window end to compare.
+  if (unlock.openUntil === null) return true;
   const end = Date.parse(unlock.expiresAt);
   return Number.isFinite(end) && end > now;
 }
@@ -52,7 +54,12 @@ export function liveUnlocksFor(
     // The unique index allows one row per worker; if two ever arrive, keep the later window.
     const held = out[u.workerId];
     if (held && Date.parse(held.expiresAt) >= Date.parse(u.expiresAt)) continue;
-    out[u.workerId] = { kind: "granted", unlockId: u.unlockId, expiresAt: u.expiresAt };
+    out[u.workerId] = {
+      kind: "granted",
+      unlockId: u.unlockId,
+      expiresAt: u.expiresAt,
+      openUntil: u.openUntil,
+    };
   }
   return out;
 }

@@ -702,6 +702,8 @@ describe("W3-A · 2b — the back link clears a 44px hit area on phones AND coar
       "(portal)/agency/jobs/[jobId]/applicants/page.tsx",
       "(portal)/agency/jobs/[jobId]/edit/page.tsx",
       "(portal)/agency/jobs/[jobId]/page.tsx",
+      "(portal)/campus-drives/[id]/page.tsx",
+      "(portal)/campus-drives/new/page.tsx",
       "(portal)/postings/[id]/applicants/page.tsx",
       "(portal)/postings/[id]/edit/page.tsx",
       "(portal)/postings/[id]/page.tsx",

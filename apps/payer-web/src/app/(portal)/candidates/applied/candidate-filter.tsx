@@ -37,6 +37,7 @@ export function CandidateFilter({
   selected,
   unavailable,
   stage = null,
+  includeOutcomeStages = false,
   stageRefused = false,
 }: {
   options: readonly PostingOption[];
@@ -49,6 +50,8 @@ export function CandidateFilter({
    * Null/omitted = no stage filter on this page.
    */
   stage?: { selected: ApplicantStage | null } | null;
+  /** #2747 — offer Selected / Hired only while the board draws them. */
+  includeOutcomeStages?: boolean;
   /**
    * The address asked for a stage and the server refused it (it does not save stages right now),
    * so the list below is every stage. Said once, calmly — it is not an outage, and nothing about
@@ -87,7 +90,10 @@ export function CandidateFilter({
             defaultValue={stage.selected ?? ""}
           >
             <option value="">All stages</option>
-            {STAGE_OPTIONS.map((o) => (
+            {STAGE_OPTIONS.filter(
+              (o) =>
+                includeOutcomeStages || (o.id !== "selected" && o.id !== "hired"),
+            ).map((o) => (
               <option key={o.id} value={o.id}>
                 {o.label}
               </option>

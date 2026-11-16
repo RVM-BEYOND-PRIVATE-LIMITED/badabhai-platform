@@ -46,7 +46,7 @@ export default async function NewCampusDrivePage() {
       <PageHeader
         back={{ href: "/campus-drives", label: "Campus drives" }}
         title="Ask for a campus drive"
-        description="RVM's placement team schedules the drive in BadaBhai Campus. Tell them the branches, dates and numbers you need."
+        description="Tell RVM's placement team the branches, dates and numbers you need."
       />
       <CampusDriveForm
         postings={postings}

@@ -3,6 +3,7 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../../lib/auth";
 import { agencyFlags } from "../../../../lib/config";
 import {
+  getApplicantStageOptions,
   getCandidateInbox,
   getCredits,
   getPostings,
@@ -17,6 +18,7 @@ import {
   type ApplicantStage,
 } from "../../../../lib/applicant-stages";
 import { liveUnlocksFor } from "../../../../lib/unlock-history";
+import { readUnlockContacts } from "../../../../lib/unlock-contact.server";
 import { postingRoutes } from "../../../../lib/posting-routes";
 import {
   agencyPostingOptions,
@@ -144,11 +146,12 @@ export default async function CandidatesAppliedPage({
   const query = parseCandidatesQuery(params);
   // When the balance below was read (#2585 — the list orders it against an unlock's read-back).
   const balanceAsOf = Date.now();
-  const [read, options, balance, unlocks] = await Promise.all([
+  const [read, options, balance, unlocks, stageOptions] = await Promise.all([
     readInbox(query),
     readPostingOptions(isAgency),
     readBalance(),
     readUnlocks(),
+    readApplicantStageOptions(),
   ]);
 
   const selected = selectedPosting(query.filter);
@@ -175,6 +178,7 @@ export default async function CandidatesAppliedPage({
           selected={selected}
           unavailable={options === null}
           stage={offerStages ? { selected: stage } : null}
+          includeOutcomeStages={stageOptions?.outcomeStages === true}
           stageRefused={read.kind === "ok" && read.stageRefused}
         />
         {paged && range ? (
@@ -191,6 +195,13 @@ export default async function CandidatesAppliedPage({
   if (read.kind === "ok" && inboxRows.length > 0) {
     const viewer = { isAgency, agencyPortalEnabled };
     const rows = inboxRows.map((row) => ({ ...row, posting: candidatePosting(row.posting, viewer) }));
+    const granted = liveUnlocksFor(
+      unlocks,
+      rows.map((r) => r.workerId),
+      Date.now(),
+    );
+    // #2747 — the contact reads for this page, read on every open (never cached).
+    const contacts = await readUnlockContacts(Object.values(granted));
     return (
       <div className="applicants-page candidates-page">
         <ApplicantActions
@@ -205,11 +216,9 @@ export default async function CandidatesAppliedPage({
           balance={balance ?? 1}
           balanceAsOf={balanceAsOf}
           // Only this page's workers, only live grants. Request time: this page is force-dynamic.
-          unlocked={liveUnlocksFor(
-            unlocks,
-            rows.map((r) => r.workerId),
-            Date.now(),
-          )}
+          unlocked={granted}
+          stageOptions={stageOptions}
+          contacts={contacts}
         />
         <Pager
           postingId={keep}
@@ -302,6 +311,15 @@ async function readPostingOptions(isAgency: boolean): Promise<PostingOption[] | 
     return isAgency
       ? agencyPostingOptions(await listAgencyJobs())
       : companyPostingOptions(await getPostings());
+  } catch {
+    return null;
+  }
+}
+
+/** #2747 — the board's stage flags; null while off/failed, keeping today's three-tab board. */
+async function readApplicantStageOptions() {
+  try {
+    return await getApplicantStageOptions();
   } catch {
     return null;
   }

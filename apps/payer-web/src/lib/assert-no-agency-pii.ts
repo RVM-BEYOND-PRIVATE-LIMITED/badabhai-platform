@@ -61,6 +61,10 @@ const ALLOWED_KEY_EXACT = new Set<string>([
   "relayhandle",
   "displayinitials", // masked initials ("R***** K.") — already masked, not raw PII
   "display_initials",
+  // #2747 — the FIRST name is a sanctioned "facts before paying" fact (ADR-0064 §3.2), shown
+  // only while the server sends it. A surname or full name is still forbidden: `full_name`,
+  // `lastName` and every other name-bearing key keep matching the token below.
+  "firstname",
   // Agency KYC MASKED last-4 (ADR-0022 Amendment 2) — the API returns ONLY the last 4
   // chars for display (`••••234F`), never the raw PAN/bank. Allowed like masked initials;
   // the raw `pan` / `bank` / `ifsc` tokens stay FORBIDDEN above (they are write-only, in

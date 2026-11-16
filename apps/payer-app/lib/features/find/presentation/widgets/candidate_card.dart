@@ -5,6 +5,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/util/activity_mark.dart';
 import '../../../../core/util/months_label.dart';
+import '../../../../core/util/prepay_facts.dart';
 import '../../../../core/widgets/bb_avatar.dart';
 import '../../../../core/widgets/bb_badge.dart';
 import '../../../../core/widgets/bb_card.dart';
@@ -186,6 +187,14 @@ class CandidateCard extends StatelessWidget {
             color: context.bb.textMuted,
           ),
         ),
+        if (applicantSourceLabel(row.source) != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.gap6),
+          BbBadge(
+            applicantSourceLabel(row.source)!,
+            tone: BbBadgeTone.neutral,
+            icon: Icons.workspace_premium_rounded,
+          ),
+        ],
         if (sample) ...<Widget>[
           const SizedBox(height: AppSpacing.gap6),
           const BbBadge(
@@ -214,6 +223,18 @@ class CandidateCard extends StatelessWidget {
             icon: Icons.schedule_rounded,
           ),
         ],
+        if (row.hasFacts) ...<Widget>[
+          const SizedBox(height: AppSpacing.gap6),
+          for (final (String label, String value) in prePayFactLines(
+            firstName: row.firstName,
+            tradeLine: row.tradeLine,
+            expectedSalary: row.expectedSalary,
+            machines: row.machines,
+            area: row.area,
+            lastActiveOn: row.lastActiveOn,
+          ))
+            _Fact(text: '$label: $value'),
+        ] else ...<Widget>[
         const SizedBox(height: AppSpacing.gap6),
         _Fact(text: candidateExperienceLine(row), strong: true),
         if (industry != null) _Fact(text: industry),
@@ -237,6 +258,7 @@ class CandidateCard extends StatelessWidget {
                 BbBadge(role.label, tone: BbBadgeTone.neutral),
             ],
           ),
+        ],
         ],
       ],
     );

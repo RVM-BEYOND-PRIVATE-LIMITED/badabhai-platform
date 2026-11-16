@@ -8,6 +8,7 @@ import '../../../core/theme/app_haptics.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/name_mask.dart';
+import '../../../core/util/prepay_facts.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_badge.dart';
@@ -64,6 +65,10 @@ const String kUnlockedToastTitle = 'Unlocked!';
 /// The relay card's closed state: the neutral deny and an outage alike.
 const String kRelayUnavailableMessage =
     'Contact relay is not available right now.';
+
+/// #2747 — the polite line when the hourly disclosure cap refuses the contact read.
+const String kContactLimitedMessage =
+    'Contact details can’t be shown right now. Please try again later.';
 
 /// Revealed profile. Two shapes behind one screen (see [RevealArgs]):
 ///
@@ -233,6 +238,7 @@ class _RealReveal extends StatelessWidget {
                 const SizedBox(height: AppSpacing.s4),
                 _identityCard(context),
                 const SizedBox(height: AppSpacing.s4),
+                _contactCard(context, state),
                 _relayCard(context, state),
                 const SizedBox(height: AppSpacing.s4),
                 _resumeRow(context, state),
@@ -318,6 +324,19 @@ class _RealReveal extends StatelessWidget {
               ),
             ),
           ],
+          // #2747 — null is open for good: no "until" date at all. A window that has an end
+          // prints the day only.
+          if (args.openUntil != null) ...<Widget>[
+            const SizedBox(height: 2),
+            Text(
+              'Open until ${args.openUntil!.split('T').first}',
+              textAlign: TextAlign.center,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: context.bb.textMuted,
+              ),
+            ),
+          ],
           const SizedBox(height: AppSpacing.s3),
           Text(
             'Identity stays masked — reach this candidate through the '
@@ -331,6 +350,83 @@ class _RealReveal extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// #2747 — what the credit opened: the name and number, with Call and Copy. A neutral deny
+  /// shows nothing new; a 404 keeps today's relay + résumé screen; a 429 says so politely.
+  /// Nothing here is cached, stored or logged.
+  Widget _contactCard(BuildContext context, RevealState state) {
+    final ContactReadResult? contact = state.contact;
+    if (contact != null && contact.status == ContactReadStatus.contact) {
+      final String phone = contact.phone ?? '';
+      final String name = factText(contact.fullName);
+      return Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.s4),
+        child: BbCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              _sectionLabel(context, 'Contact'),
+              const SizedBox(height: AppSpacing.s2),
+              Text(
+                name,
+                style: AppTypography.body(
+                  size: AppTypography.sizeBase,
+                  weight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.gap2),
+              Text(
+                phone,
+                style: AppTypography.mono(
+                  size: AppTypography.sizeBase,
+                  weight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.s3),
+              Wrap(
+                spacing: AppSpacing.s2,
+                runSpacing: AppSpacing.s2,
+                children: <Widget>[
+                  BbButton(
+                    label: 'Call',
+                    iconLeft: Icons.phone_rounded,
+                    onPressed: () async {
+                      // The number goes to the dialer only; it is never logged or stored.
+                      await launchUrl(
+                        Uri(scheme: 'tel', path: phone),
+                        mode: LaunchMode.externalApplication,
+                      );
+                    },
+                  ),
+                  BbCopyButton(
+                    text: phone,
+                    label: 'Copy',
+                    copiedLabel: 'Copied',
+                    variant: BbButtonVariant.secondary,
+                    size: BbButtonSize.lg,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (state.contactLimited) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.s4),
+        child: Text(
+          kContactLimitedMessage,
+          style: AppTypography.body(
+            size: AppTypography.sizeSm,
+            color: context.bb.textMuted,
+          ),
+        ),
+      );
+    }
+    // Unavailable / off / not yet read: nothing new; today's relay and résumé screens stay.
+    return const SizedBox.shrink();
   }
 
   Widget _relayCard(BuildContext context, RevealState state) {

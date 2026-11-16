@@ -10,6 +10,7 @@ import type {
   UnlockHistoryItem,
 } from "../../../lib/contracts";
 import { liveUnlocksFor } from "../../../lib/unlock-history";
+import { readUnlockContacts } from "../../../lib/unlock-contact.server";
 // The inbox's rule, word for word: a 400 with a cursor in the address is the CURSOR's refusal.
 import { inboxRefusal as cursorRefusal } from "../../../lib/candidate-inbox";
 import {
@@ -161,6 +162,13 @@ export default async function CandidatesPage({
   // `.candidates-page` the Candidates tab's own (the filter, the views, the pager).
   if (read.kind === "ok" && read.page.candidates.length > 0) {
     const { candidates: rows, total, matched, unrecorded, filtered, strict } = read.page;
+    const granted = liveUnlocksFor(
+      unlocks,
+      rows.map((r) => r.workerId),
+      Date.now(),
+    );
+    // #2747 — read what each live credit opened, on every screen open; never cached.
+    const contacts = await readUnlockContacts(Object.values(granted));
     return (
       <div className="applicants-page candidates-page">
         <CandidateSearchList
@@ -174,11 +182,8 @@ export default async function CandidatesPage({
           balance={balance ?? 1}
           balanceAsOf={balanceAsOf}
           // Only this page's workers, only live grants. Request time: this page is force-dynamic.
-          unlocked={liveUnlocksFor(
-            unlocks,
-            rows.map((r) => r.workerId),
-            Date.now(),
-          )}
+          unlocked={granted}
+          contacts={contacts}
         />
         <Pager
           query={query}

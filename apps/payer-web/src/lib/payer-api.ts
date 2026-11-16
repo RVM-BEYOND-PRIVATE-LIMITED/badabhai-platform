@@ -18,6 +18,8 @@ import {
   toCampusDriveCreateBody,
   applicantFeedSchema,
   applicantStageChangeWireSchema,
+  applicantStageOptionsWireSchema,
+  unlockContactWireSchema,
   buyCapacityWireSchema,
   buyPackResultWireSchema,
   candidateFiltersWireSchema,
@@ -78,6 +80,7 @@ import {
   type AgencyWorker,
   type ApplicantFeed,
   type ApplicantStageChange,
+  type ApplicantStageOptions,
   type AudienceOptions,
   type CampusDriveCreateInput,
   type CampusDriveRequest,
@@ -113,11 +116,13 @@ import {
   type ReachPreview,
   type RevealResult,
   type TopUpResult,
+  type UnlockContactWire,
   type UnlockHistoryItem,
   type UnlockQuotes,
   type UnlockResult,
   type UpdatePostingInput,
 } from "./contracts";
+import { hasPrePayFacts } from "./prepay-facts";
 import { revealResultSchema } from "./contracts";
 import { assertNoAgencyPII } from "./assert-no-agency-pii";
 import type { ApplicantStage } from "./applicant-stages";
@@ -286,6 +291,9 @@ export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
         // The current grant's time (a re-grant moves it; created_at does not): the day a Recent
         // unlocks row prints and is ordered by.
         grantedAt: u.granted_at,
+        // #2747 — null is "open for good" (the stored date ships as expiresAt); absent is an
+        // older API, where the window's end is still the answer.
+        openUntil: u.open_until === undefined ? u.expires_at : u.open_until,
         // #2033's company-posting context; absent (a pre-#2033 API) and null both mean none.
         jobPostingId: u.job_posting_id ?? null,
       }))
@@ -344,6 +352,7 @@ function toWeightedApplicant(a: ReachApplicantWire): FacelessApplicant {
     levelFit: a.levelFit ?? undefined,
     ...savedStage(a),
     ...activityMark(a),
+    ...prePayRow(a),
   };
 }
 
@@ -378,6 +387,7 @@ function toMatchCandidate(a: MatchCandidateWire): FacelessApplicant {
     levelFit: a.levelFit ?? undefined,
     ...savedStage(a),
     ...activityMark(a),
+    ...prePayRow(a),
   };
 }
 
@@ -399,6 +409,41 @@ function activityMark(a: { notRecentlyActive?: boolean }): { notRecentlyActive?:
  */
 function savedStage(a: { stage?: ApplicantStage }): { stage?: ApplicantStage } {
   return a.stage !== undefined ? { stage: a.stage } : {};
+}
+
+/**
+ * The #2747 source label and six facts, carried across only when the wire row carries them. The
+ * server sends all six keys while the facts part is on for the company (each may be null), and
+ * none while it is off — so key presence is the switch, and an old row maps to today's card.
+ */
+function prePayRow(a: {
+  source?: FacelessApplicant["source"];
+  firstName?: string | null;
+  tradeLine?: string | null;
+  expectedSalary?: string | null;
+  machines?: string[] | null;
+  area?: string | null;
+  lastActiveOn?: string | null;
+}): {
+  source?: FacelessApplicant["source"];
+  firstName?: string | null;
+  tradeLine?: string | null;
+  expectedSalary?: string | null;
+  machines?: string[] | null;
+  area?: string | null;
+  lastActiveOn?: string | null;
+  factsOn?: boolean;
+} {
+  return {
+    ...(a.source !== undefined ? { source: a.source } : {}),
+    ...(a.firstName !== undefined ? { firstName: a.firstName } : {}),
+    ...(a.tradeLine !== undefined ? { tradeLine: a.tradeLine } : {}),
+    ...(a.expectedSalary !== undefined ? { expectedSalary: a.expectedSalary } : {}),
+    ...(a.machines !== undefined ? { machines: a.machines } : {}),
+    ...(a.area !== undefined ? { area: a.area } : {}),
+    ...(a.lastActiveOn !== undefined ? { lastActiveOn: a.lastActiveOn } : {}),
+    ...(hasPrePayFacts(a) ? { factsOn: true } : {}),
+  };
 }
 
 /**
@@ -652,6 +697,44 @@ export async function getUnlockQuotes(
 }
 
 /**
+ * GET /payer/reach/applicant-stages — what this company's board may do now (#2747). The route is
+ * a neutral 404 while the board flag is off (the same answer the stage route gives), mapped to
+ * `null`: the board then keeps today's three tabs. A read failure is the same `null` — the pilot
+ * list the server reads fails closed, so the screen draws no outcome controls on a guess.
+ */
+export async function getApplicantStageOptions(): Promise<ApplicantStageOptions | null> {
+  try {
+    return await payerFetch("/payer/reach/applicant-stages", {
+      schema: applicantStageOptionsWireSchema,
+    });
+  } catch (e) {
+    if (isPayerStatus(e, 404)) return null;
+    throw e;
+  }
+}
+
+/**
+ * GET /payer/unlocks/:unlockId/contact — what a credit opens (#2747). Read EVERY time the contact
+ * screen opens: never cached, stored or logged (the response is `no-store`). A 404 means the rule
+ * is off for this company — the caller keeps today's opened screen (the relay handle + résumé).
+ * Any other non-2xx (429 over the hourly disclosure cap included) throws for the caller to say
+ * so politely; the neutral 200 body is a deny with no reason.
+ */
+export async function getUnlockContact(
+  unlockId: string,
+): Promise<UnlockContactWire | { off: true }> {
+  try {
+    const wire = await payerFetch(`/payer/unlocks/${unlockId}/contact`, {
+      schema: unlockContactWireSchema,
+    });
+    return wire;
+  } catch (e) {
+    if (isPayerStatus(e, 404)) return { off: true };
+    throw e;
+  }
+}
+
+/**
  * POST /payer/unlocks — spend a credit to unlock a candidate (LIVE). The body carries
  * ONLY `worker_id` + `job_id`; the payer is the session token (XB-A — there
  * is nowhere to put a payer_id). Every deny cause (no credits / no consent / capped /
@@ -677,6 +760,7 @@ export async function requestUnlock(input: {
       unlockId: wire.unlock_id,
       status: "granted",
       expiresAt: wire.expires_at,
+      openUntil: wire.open_until === undefined ? wire.expires_at : wire.open_until,
       ...(wire.credits_charged === undefined
         ? {}
         : { creditsCharged: wire.credits_charged }),

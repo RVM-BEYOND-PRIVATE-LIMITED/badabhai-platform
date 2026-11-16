@@ -122,6 +122,8 @@ export const unlockHistoryItemSchema = z.object({
   status: z.enum(["granted", "expired"]),
   createdAt: z.string(),
   expiresAt: z.string(),
+  /** #2747 — null = open for good (a stored date ships as `expiresAt`). Absent = old server. */
+  openUntil: z.string().nullable().optional(),
   /** When the current grant was made (a re-grant after a lapse moves it; `createdAt` does not). */
   grantedAt: z.string().nullable().optional(),
   /** The company posting the unlock was made from (#2033); null/absent = none recorded. */
@@ -647,7 +649,31 @@ export type LevelFit = z.infer<typeof levelFitSchema>;
  * opaque worker_id + banded, post-masking signals the API authorizes (XB-C: no
  * existence/consent oracle leaks here either).
  */
+/** #2747 — where an applicant came from. A label only; it never filters or reorders a row. */
+export const APPLICANT_SOURCES = ["rvm_student", "badabhai_worker"] as const;
+export const applicantSourceSchema = z.enum(APPLICANT_SOURCES);
+export type ApplicantSource = z.infer<typeof applicantSourceSchema>;
+
+/**
+ * #2747 — the source label and the six facts before paying, appended to every applicant, inbox
+ * and search row. Optional only for an older API (and the now-checked fixture): while
+ * `APPLICANT_FACTS_ROLLOUT` is on all six keys are always present, each possibly `null`
+ * ("not given"); while it is off none is. `source` has no switch.
+ */
+const applicantFactsWireFields = {
+  source: applicantSourceSchema.optional(),
+  firstName: z.string().nullable().optional(),
+  tradeLine: z.string().nullable().optional(),
+  expectedSalary: z.string().nullable().optional(),
+  machines: z.array(z.string()).nullable().optional(),
+  area: z.string().nullable().optional(),
+  lastActiveOn: z.string().nullable().optional(),
+};
+
 export const facelessApplicantSchema = z.object({
+  ...applicantFactsWireFields,
+  /** True when the mapper saw any of the six keys — all-null still counts as ON. */
+  factsOn: z.boolean().optional(),
   workerId: z.string().uuid(),
   /** Deterministic relevance rank from the RANK core (LIVE: payer reach view). */
   rank: z.number().int().nonnegative(),
@@ -731,6 +757,8 @@ export const unlockGrantedSchema = z.object({
   expiresAt: z.string(),
   /** #2750: the credits the open took (0 on a re-open); absent outside the credit rules. */
   creditsCharged: z.number().int().nonnegative().optional(),
+  /** #2747 — null = open for good; absent = an older server. */
+  openUntil: z.string().nullable().optional(),
 });
 
 /** The byte-identical neutral body shared by every deny branch (XB-C / no-oracle). */
@@ -1094,6 +1122,8 @@ export const unlockProjectionWireSchema = z.object({
   reveal_count: z.number().int().nonnegative(),
   granted_at: z.string().nullable(),
   expires_at: z.string().nullable(),
+  /** #2747 — null = open for good; absent = an older server. */
+  open_until: z.string().nullable().optional(),
   created_at: z.string(),
 });
 export const unlocksListWireSchema = z.object({
@@ -1108,6 +1138,8 @@ export const unlockGrantedWireSchema = z.object({
   expires_at: z.string(),
   /** #2750, additive: absent for a company outside the credit rules. */
   credits_charged: z.number().int().nonnegative().optional(),
+  /** #2747 — null = open for good; absent = an older server. */
+  open_until: z.string().nullable().optional(),
 });
 export const neutralWireSchema = z.object({ status: z.literal("unavailable") });
 export const unlockInsufficientWireSchema = z.object({
@@ -1142,6 +1174,22 @@ export const unlockQuotesWireSchema = z.object({
   credits_available: z.number().int().nonnegative(),
 });
 export type UnlockQuotesWire = z.infer<typeof unlockQuotesWireSchema>;
+
+/**
+ * #2747 — `GET /payer/unlocks/:unlockId/contact`, what a credit opens. The route answers `404`
+ * while the rule is off for the company (the caller keeps today's opened screen); on it, the one
+ * distinguishable success or the same neutral body as every other deny. `Cache-Control: no-store`
+ * — this is read when the contact screen opens and never cached, stored or logged.
+ */
+export const unlockContactWireSchema = z.union([
+  z.object({
+    ok: z.literal(true),
+    full_name: z.string().nullable(),
+    phone: z.string(),
+    opened_at: z.string().nullable(),
+  }),
+  neutralWireSchema,
+]);
 
 /**
  * POST /payer/credits — buy a credit pack (LIVE, @HttpCode(201)). The request body
@@ -1246,6 +1294,17 @@ export const buyCapacityWireSchema = z.object({
  */
 export const applicantStageWireSchema = z.enum(APPLICANT_STAGES);
 
+/** #2747 — `GET /payer/reach/applicant-stages`: what this company's board may do now. */
+export const applicantStageOptionsWireSchema = z.object({
+  stages: z.array(applicantStageWireSchema),
+  outcomeStages: z.boolean(),
+  rvmSignal: z.boolean(),
+});
+export type ApplicantStageOptions = z.infer<typeof applicantStageOptionsWireSchema>;
+
+/** One contact read (#2747): the success body, or the one neutral deny. */
+export type UnlockContactWire = z.infer<typeof unlockContactWireSchema>;
+
 /**
  * GET /payer/reach/jobs/:jobId/applicants — faceless ranked rows (no PII).
  *
@@ -1258,6 +1317,7 @@ export const applicantStageWireSchema = z.enum(APPLICANT_STAGES);
  * projection yet (stays optional on the UI type).
  */
 export const reachApplicantWireSchema = z.object({
+  ...applicantFactsWireFields,
   workerId: z.string().uuid(),
   rank: z.number().int(),
   score: z.number(),
@@ -1285,6 +1345,7 @@ export const reachApplicantWireSchema = z.object({
  * explainable from the row rather than only reproducible by re-running the rule.
  */
 export const matchCandidateWireSchema = z.object({
+  ...applicantFactsWireFields,
   workerId: z.string().uuid(),
   applicationId: z.string().uuid(),
   rank: z.number().int(),
@@ -1435,6 +1496,7 @@ export type LabelledId = z.infer<typeof labelledIdWireSchema>;
  *    Always sent; the API also refuses its unlock with the neutral body.
  */
 export const candidateSearchRowWireSchema = z.object({
+  ...applicantFactsWireFields,
   workerId: z.string().uuid(),
   matchesFilters: z.boolean(),
   matchTier: z.union([z.literal(1), z.literal(2)]).nullable(),
