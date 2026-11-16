@@ -1386,7 +1386,7 @@ describe("fix A-14 — the deletion event on the delete's own transaction", () =
   }
 
   it.each([undefined, false])(
-    "switch %s: today exactly — delete with no callback, then the event, with no transaction",
+    "switch %s: today's order — delete with no callback, then the event, with no transaction",
     async (eventInTx) => {
       const h = make({ ...(eventInTx === undefined ? {} : { eventInTx }), hadPin: true });
       await h.svc.execute(WORKER_ID);
@@ -1396,7 +1396,8 @@ describe("fix A-14 — the deletion event on the delete's own transaction", () =
       const emitted = h.events.emit.mock.calls[0]![0] as Record<string, unknown>;
       expect(emitted.event_name).toBe("worker.account_deleted");
       expect("tx" in emitted).toBe(false);
-      expect("idempotencyKey" in emitted).toBe(false);
+      // #2753 item 13 — keyed once per worker on this path too, so a second run cannot add a row.
+      expect(emitted.idempotencyKey).toBe(`worker.account_deleted:${WORKER_ID}`);
       // The event follows the delete.
       expect(h.events.emit.mock.invocationCallOrder[0]!).toBeGreaterThan(
         h.workers.hardDelete.mock.invocationCallOrder[0]!,
@@ -1404,7 +1405,7 @@ describe("fix A-14 — the deletion event on the delete's own transaction", () =
     },
   );
 
-  it("switch on: the SAME event is written on the delete's transaction, keyed once per worker", async () => {
+  it("switch on: the SAME event is written on the delete's transaction, under the SAME key", async () => {
     const off = make({ hadPin: true, devices: 2, sessions: 3 });
     await off.svc.execute(WORKER_ID);
     const today = off.events.emit.mock.calls[0]![0] as Record<string, unknown>;
@@ -1417,9 +1418,25 @@ describe("fix A-14 — the deletion event on the delete's own transaction", () =
     const emitted = h.events.emit.mock.calls[0]![0] as Record<string, unknown>;
     expect(emitted.tx).toBe(TX);
     expect(emitted.idempotencyKey).toBe(`worker.account_deleted:${WORKER_ID}`);
-    // Name, actor, subject and payload: identical to today's event.
-    const { tx: _tx, idempotencyKey: _key, ...rest } = emitted;
+    // Name, actor, subject, payload and key: identical to the switch-off event.
+    const { tx: _tx, ...rest } = emitted;
     expect(rest).toEqual(today);
+  });
+
+  // #2753 item 13 — two runs on one worker (two sweep ticks, or the sweep beside the QA seam) both
+  // pass `findById` before either deletes. The loser's hardDelete answers false, and the switch-off
+  // path still emits; the shared key is what keeps that to one row (proved against Postgres in
+  // account-deletion-exit-paths.db.test.ts). Here: both runs offer the SAME key.
+  it("switch off: a run that lost the delete to a concurrent run emits under the winner's key", async () => {
+    const winner = make({ hadPin: true });
+    await winner.svc.execute(WORKER_ID);
+    const loser = make({ hadPin: true });
+    loser.workers.hardDelete.mockResolvedValue(false);
+    await loser.svc.execute(WORKER_ID);
+
+    const keyOf = (h: Harness) =>
+      (h.events.emit.mock.calls[0]![0] as Record<string, unknown>).idempotencyKey;
+    expect(keyOf(loser)).toBe(keyOf(winner));
   });
 
   it("switch on: a failed event write rolls the erasure back — it throws, and no tombstone is written", async () => {

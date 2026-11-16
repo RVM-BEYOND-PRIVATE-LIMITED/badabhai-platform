@@ -232,6 +232,12 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
       .where(
         and(eq(events.subjectId, workerId), eq(events.eventName, "worker.institute_unlinked")),
       );
+  /** #2753 item 13 — the erasure record every path that deletes a workers row writes once. */
+  const accountDeletedEvents = (workerId: string) =>
+    client.db
+      .select()
+      .from(events)
+      .where(and(eq(events.subjectId, workerId), eq(events.eventName, "worker.account_deleted")));
 
   describe("the open gate", () => {
     it("leaves a worker who is not linked to the caller's own rule", async () => {
@@ -356,6 +362,63 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
         worker_deleted: true,
       });
       expect(JSON.stringify(ended[0])).not.toContain(ref);
+      // #2753 item 13 — and exactly one erasure record, written with the delete.
+      const erased = await accountDeletedEvents(workerId);
+      expect(erased).toHaveLength(1);
+      expect(erased[0]!.payload).toEqual({
+        worker_id: workerId,
+        sessions_revoked: 0,
+        devices_revoked: 0,
+        storage_objects_deleted: 0,
+        storage_objects_failed: 0,
+        had_pin: false,
+      });
+      expect(erased[0]!.actorType).toBe("system");
+      expect(erased[0]!.idempotencyKey).toBe(`worker.account_deleted:${workerId}`);
+      expect(JSON.stringify(erased[0])).not.toContain(ref);
+    });
+
+    // #2753 item 13 — the unlink is one transaction whatever ACCOUNT_DELETION_EVENT_IN_TX says, so
+    // the switch changes nothing on this path: one record with it on, one with it off.
+    it.each([false, true])(
+      "writes exactly one worker.account_deleted with ACCOUNT_DELETION_EVENT_IN_TX=%s",
+      async (eventInTx) => {
+        const own = new InstituteLinkService(
+          new InstituteLinkRepository(client.db),
+          workersRepo,
+          {
+            readStudent: async (ref: string) => {
+              const answer = answers.get(ref);
+              if (answer === undefined || answer instanceof Error) throw new Error("no answer");
+              return answer;
+            },
+          } as unknown as RvmStudentApiClient,
+          pii,
+          new EventsService(new EventsRepository(client.db), { NODE_ENV: "test" } as never),
+          {
+            RVM_CONSENT_RECHECK_SECONDS: RECHECK_SECONDS,
+            ACCOUNT_DELETION_EVENT_IN_TX: eventInTx,
+          } as never,
+        );
+        const { workerId, ref } = await linkedStudent();
+
+        await own.unlinkStudent(ref, "campus_request", CTX);
+        await own.unlinkStudent(ref, "campus_request", CTX);
+
+        expect(await workerOf(workerId)).toBeUndefined();
+        expect(await accountDeletedEvents(workerId)).toHaveLength(1);
+      },
+    );
+
+    it("writes no worker.account_deleted when the row stays (only the link ends)", async () => {
+      const s = student();
+      const own = await ownWorker(s.phone);
+      const { ref } = await linkedStudent(s);
+
+      await links.unlinkStudent(ref, "campus_request", CTX);
+
+      expect(await workerOf(own.id)).toBeDefined();
+      expect(await accountDeletedEvents(own.id)).toHaveLength(0);
     });
 
     it("keeps a worker with his own BadaBhai account and erases only what came from RVM", async () => {

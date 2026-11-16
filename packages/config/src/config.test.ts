@@ -1156,6 +1156,18 @@ describe("loadServerConfig", () => {
     expect(read("true")).toBe(true);
   });
 
+  it("CONSENT_NOTICE_URL (#2753 item 13) is absent by default and for the empty string, https only", () => {
+    // Absent is `notice_url: null` on GET /consent/notice: no published link yet, none invented.
+    expect(loadServerConfig({}).CONSENT_NOTICE_URL).toBeUndefined();
+    expect(loadServerConfig({ CONSENT_NOTICE_URL: "" }).CONSENT_NOTICE_URL).toBeUndefined();
+    expect(
+      loadServerConfig({ CONSENT_NOTICE_URL: "https://example.com/privacy" }).CONSENT_NOTICE_URL,
+    ).toBe("https://example.com/privacy");
+    // It opens in the worker's browser: a plain-http or malformed value refuses boot.
+    expect(() => loadServerConfig({ CONSENT_NOTICE_URL: "http://example.com/privacy" })).toThrow();
+    expect(() => loadServerConfig({ CONSENT_NOTICE_URL: "privacy notice" })).toThrow();
+  });
+
   it("AI_RAW_PII_ENABLED (ADR-0047) is OFF by default, for the empty string and for 'false'", () => {
     // Off is the masked prompt path exactly as before. The deploy bridge exports an unset secret
     // as "", so the empty string must read as OFF rather than throw — and only an explicit
