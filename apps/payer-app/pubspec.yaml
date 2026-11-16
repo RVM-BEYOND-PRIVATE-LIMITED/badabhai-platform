@@ -38,6 +38,10 @@ dependencies:
   get_it: ^7.7.0
   # Persistent auth seam (not exercised in PASS A — mock session only).
   flutter_secure_storage: ^9.2.4
+  # #2830 — the display (theme) preference cache + offline queue. Holds only
+  # `{ choice, open, pending }`; the bearer stays in secure storage and is never
+  # written here.
+  shared_preferences: ^2.3.5
   # Client-side QR rendering for the agency referral link (no PII, no network).
   qr_flutter: ^4.1.0
   # #354 — opens the SIGNED masked-résumé URL straight in the OS browser
