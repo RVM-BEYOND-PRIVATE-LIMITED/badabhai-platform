@@ -5,7 +5,7 @@ import {
   type TradeLevel,
 } from "@badabhai/taxonomy";
 import {
-  AVAILABILITY_STATUSES,
+  AVAILABILITY_STATUSES_ALL,
   EDUCATION_QUALIFICATIONS,
   labelFor,
 } from "../profiles/worker-preferences.vocabulary";
@@ -135,9 +135,11 @@ export function toApplicantProfileFacts(
         ? EDUCATION_QUALIFICATIONS[row.educationCredential as keyof typeof EDUCATION_QUALIFICATIONS]!
         : null,
     certificationCount: row.certificateCount,
+    // Either availability set (#2753 item 3), each key in its own words: an old answer is never
+    // shown in the new set's. Unknown or empty stays null (not given), never a raw slug.
     availabilityLabel:
       typeof row.availabilityStatus === "string"
-        ? (labelFor(AVAILABILITY_STATUSES, row.availabilityStatus) ?? null)
+        ? (labelFor(AVAILABILITY_STATUSES_ALL, row.availabilityStatus) ?? null)
         : null,
     lastActiveBand: lastActiveBandFrom(row.lastSeenAt, now),
     tradeLevels: row.tradeLevels.map(toApplicantTradeLevelBadge),

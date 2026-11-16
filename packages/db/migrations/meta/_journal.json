@@ -1182,8 +1182,22 @@
     {
       "idx": 168,
       "version": "7",
-      "when": 1794808978332,
-      "tag": "0168_hires",
+      "when": 1794807159188,
+      "tag": "0168_worker_activity",
+      "breakpoints": true
+    },
+    {
+      "idx": 169,
+      "version": "7",
+      "when": 1794811724360,
+      "tag": "0169_worker_search_exits",
+      "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1794816246230,
+      "tag": "0170_hires",
       "breakpoints": true
     }
   ]

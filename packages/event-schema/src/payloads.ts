@@ -6647,6 +6647,38 @@ export const DisplayPrefsChangedPayload = z
 export type DisplayPrefsChangedPayload = z.infer<typeof DisplayPrefsChangedPayload>;
 
 // ---------------------------------------------------------------------------
+// #2753 item 6 — LEAVE COMPANY SEARCH (`worker_search_exits`, migration 0169). A worker turned
+// "companies can find me" off or back on, while `SEARCH_EXIT_ENABLED` was on. Written in the same
+// transaction as the row.
+//
+// IDS AND CLOSED VALUES ONLY. His consent is not part of this event and is never changed by it:
+// leaving search keeps every consent row as it was.
+// ---------------------------------------------------------------------------
+
+/**
+ * Which surface made the change: `worker` (his own switch, `PUT /workers/me/search-visibility`) or
+ * `monthly_check` (a later part: his "not now" on the monthly check). The same values as the
+ * `worker_search_exits_via_chk` CHECK. A new value is a new event version.
+ */
+export const SEARCH_VISIBILITY_VIAS = ["worker", "monthly_check"] as const;
+export type SearchVisibilityVia = (typeof SEARCH_VISIBILITY_VIAS)[number];
+
+/**
+ * #2753 item 6 — the worker left company search (`visible: false`) or came back to it
+ * (`visible: true`). ONE PER REAL CHANGE: leaving again while out, or coming back while in, writes
+ * nothing and emits nothing. The actor and the subject are the worker himself.
+ */
+export const WorkerSearchVisibilityChangedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    visible: z.boolean(),
+    via: z.enum(SEARCH_VISIBILITY_VIAS),
+  })
+  .strict();
+export type WorkerSearchVisibilityChangedPayload = z.infer<
+  typeof WorkerSearchVisibilityChangedPayload
+>;
+
 // #2753 item 9 — HIRE RECORDS (`hires`). One record per company, worker and posting, moved by the
 // company's board (a move into or out of `hired`), the company's follow-up answer, the worker's own
 // answer and the worker desk. Written in the same transaction as the row, while

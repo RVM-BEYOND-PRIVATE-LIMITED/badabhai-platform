@@ -1,6 +1,6 @@
 # Admin API — hire records (`GET /admin/hires`)
 
-Issue #2753 item 9 · code: `apps/api/src/hires/*` · migration `0168_hires` · switch `HIRE_RECORDS_ENABLED` (default off)
+Issue #2753 item 9 · code: `apps/api/src/hires/*` · migration `0170_hires` · switch `HIRE_RECORDS_ENABLED` (default off)
 
 One record per company, worker and posting: who the company took on, and how that is known. Read-only. Only `confirmed` records count toward the hires target.
 

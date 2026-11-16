@@ -1,7 +1,15 @@
-import { type CallHandler, type ExecutionContext, Injectable, type NestInterceptor } from "@nestjs/common";
+import {
+  type CallHandler,
+  type ExecutionContext,
+  Injectable,
+  type NestInterceptor,
+  Optional,
+} from "@nestjs/common";
 import type { Request } from "express";
 import type { Observable } from "rxjs";
 import { EventsService } from "../events/events.service";
+import { istDayOf } from "../worker-activity/worker-activity";
+import { WorkerActivityService } from "../worker-activity/worker-activity.service";
 
 /**
  * §X.6 — the `worker.active` RETENTION producer. The referral chain previously went dark
@@ -38,6 +46,15 @@ import { EventsService } from "../events/events.service";
  * route, session id, ip/ip_hash, or user-agent — with those this would be a per-worker
  * movement trace instead of a daily-active fact (the payload is `.strict()`, so the schema
  * enforces that rather than trusting this comment).
+ *
+ * #2753 — THE LAST-ACTIVE DAY, beside the event and independent of it. With
+ * `WORKER_ACTIVITY_ENABLED` on, the same request also records the worker's IST day in
+ * `worker_activity` (the one read of "last active" for companies and agencies). App use, an apply
+ * and a reply to a company are all signed-in worker requests, so this one place covers all three.
+ * Same rules as the event: fire-and-forget, never fails the request, skips the suspended token,
+ * and a per-process cache keeps it to one write per worker per day. The cache is its OWN, keyed by
+ * the IST day: the event's UTC-day cache, key and payload are exactly what they were, so the
+ * retention signal cannot move when the switch does. Off, this half does nothing at all.
  */
 @Injectable()
 export class WorkerActivityInterceptor implements NestInterceptor {
@@ -45,8 +62,17 @@ export class WorkerActivityInterceptor implements NestInterceptor {
   private readonly seen = new Map<string, string>();
   /** The UTC day the cache belongs to; a rollover drops the whole map. */
   private cacheDay = WorkerActivityInterceptor.utcDay();
+  /** #2753 — worker_id -> the IST day already written to `worker_activity` IN THIS PROCESS. */
+  private readonly seenIst = new Map<string, string>();
+  /** The IST day `seenIst` belongs to; a rollover drops the whole map. */
+  private istCacheDay = istDayOf(new Date());
 
-  constructor(private readonly events: EventsService) {}
+  constructor(
+    private readonly events: EventsService,
+    // #2753 — optional only so a hand-built instance compiles; ReferralAttributionModule imports
+    // WorkerActivityModule, so Nest always injects it (worker-activity.module.test.ts pins that).
+    @Optional() private readonly activity?: WorkerActivityService,
+  ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     // Non-HTTP contexts (none today, but a queue/RPC context has no request) are skipped.
@@ -55,9 +81,31 @@ export class WorkerActivityInterceptor implements NestInterceptor {
     const worker = context.switchToHttp().getRequest<Request>().worker;
     // #2701 — a restricted SUSPENDED DPDP token is not activity. It exists only to reach a
     // DPDP exit, so it must not emit `worker.active` (retention) or seed the daily cache.
-    if (worker?.id && worker.scope === undefined) this.recordActive(worker.id);
+    // #2753 — nor does it record a last-active day: it would clear his "not recently active" mark.
+    if (worker?.id && worker.scope === undefined) {
+      this.recordActive(worker.id);
+      this.recordActiveDay(worker.id);
+    }
 
     return next.handle();
+  }
+
+  /**
+   * #2753 — fire-and-forget IST-day write, at most once per worker per IST day per process. The
+   * switch is checked first, so with it off not even the cache is touched.
+   */
+  private recordActiveDay(workerId: string): void {
+    if (this.activity?.enabled !== true) return;
+    const day = istDayOf(new Date());
+    if (day !== this.istCacheDay) {
+      this.seenIst.clear();
+      this.istCacheDay = day;
+    }
+    if (this.seenIst.get(workerId) === day) return;
+    // Marked before the write, as the event is: a burst must not fire N inserts. A failed write
+    // loses the day for this process only; the next process, or tomorrow, writes again.
+    this.seenIst.set(workerId, day);
+    this.activity.touch(workerId, day);
   }
 
   /** Fire-and-forget daily-active record. Synchronous cache check, async emit, never throws. */

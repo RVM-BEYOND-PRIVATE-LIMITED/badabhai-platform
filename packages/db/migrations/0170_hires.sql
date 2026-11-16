@@ -1,5 +1,5 @@
 -- ==============================================================================
--- 0168 - hires: one hire record per company, worker and posting
+-- 0170 - hires: one hire record per company, worker and posting
 -- ==============================================================================
 --
 -- #2753 item 9. A hire is said by the company's board (a real move INTO `hired`, #2747),
@@ -30,9 +30,9 @@
 --
 -- DEPLOY ORDER - APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY. Nothing names this table
 -- while HIRE_RECORDS_ENABLED (default false) is off: the stage transaction writes nothing
--- here and GET /admin/hires is a 404. With the switch on before 0168, a company's move into
+-- here and GET /admin/hires is a 404. With the switch on before 0170, a company's move into
 -- or out of `hired` fails (42P01): the stage transaction rolls back, nothing is written, the
--- request answers 500; GET /admin/hires answers 500. Apply 0164 to 0167 first (slot
+-- request answers 500; GET /admin/hires answers 500. Apply 0164 to 0169 first (slot
 -- order), then this.
 --
 -- LOCKS. CREATE TABLE is instant, but each FOREIGN KEY takes SHARE ROW EXCLUSIVE on its
@@ -42,7 +42,7 @@
 --
 -- RLS: ENABLE is generated; FORCE and the four REVOKEs at the end are HAND-WRITTEN (the
 -- 0117 / 0156 / 0160 / 0161 / 0167 pattern) - a regenerate drops them silently. Registered as
--- `0168-hires-rls` in `schema-contract.ts`; listed in LOCKED_TABLES in the e2e RLS spine.
+-- `0170-hires-rls` in `schema-contract.ts`; listed in LOCKED_TABLES in the e2e RLS spine.
 --
 -- ROLLBACK (switch off and redeploy first; the records are lost - they cannot be rebuilt
 -- from the board alone, since the company and worker answers live only here):

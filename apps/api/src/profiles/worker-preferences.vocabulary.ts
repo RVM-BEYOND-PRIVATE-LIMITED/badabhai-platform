@@ -125,19 +125,105 @@ export const SALARY_PERIODS: PreferenceVocabulary = {
 };
 
 /**
- * Layer A (c) — WHEN the worker can start, as a closed set.
+ * Layer A (c) — WHEN the worker can start, as a closed set. THE FIRST OF TWO: #2753 item 3 named
+ * it `_V1` when the brief's four answers arrived beside it; its keys and labels are unchanged.
  *
  * The interview's `availability` object has always carried a model-written status string. This
  * dictionary is the WORKER's own closed answer, and it is what the new `json` attribute is
  * bounded by. A status the list does not know yields no printed segment (the `labelFor` rule),
  * never a raw slug.
+ *
+ * STILL SERVED, AND NEVER RETIRED FROM STORAGE. `GET …/work-preferences/options` serves it while
+ * `AVAILABILITY_ANSWERS_V2_ENABLED` is off, and a row saved under it keeps printing its own label
+ * whatever the flag says: "Within a week" is a true statement the worker made, and no reader
+ * rewrites it in the new set's words.
  */
-export const AVAILABILITY_STATUSES: PreferenceVocabulary = {
+export const AVAILABILITY_STATUSES_V1: PreferenceVocabulary = {
   immediate: "Immediately",
   within_week: "Within a week",
   within_month: "Within a month",
   serving_notice: "Serving notice",
 };
+
+/**
+ * #2753 item 3 — the FOUR availability answers of the CEO's brief (4E), the second closed set.
+ *
+ * The brief's words are "can join now", "15 days", "30 days" and "working, open to a better
+ * offer". The two day counts print as "Can join in 15 days" / "Can join in 30 days" because a bare
+ * "15 days" on a supervisor's sheet does not say what it counts.
+ *
+ * SERVED ONLY WHILE `AVAILABILITY_ANSWERS_V2_ENABLED` IS ON (`availability-answers.flag.ts`). The
+ * options route is the switch because every client renders the chips the server sends; the PUT
+ * accepts these keys whatever the flag says (see {@link AVAILABILITY_STATUSES_ALL}).
+ *
+ * KEY ORDER IS CHIP ORDER (`Object.keys`), soonest start first. None of the keys is integer-like,
+ * so JavaScript keeps the order as written (the hoisting trap {@link EDUCATION_QUALIFICATIONS}
+ * documents). The digits in `in_15_days` / `in_30_days` break the `^[a-z_]+$` habit that note
+ * describes; they are the keys the issue's contract names, and they are values inside the
+ * `availability` json row, which no attribute-key CHECK reads.
+ */
+export const AVAILABILITY_STATUSES_V2 = {
+  join_now: "Can join now",
+  in_15_days: "Can join in 15 days",
+  in_30_days: "Can join in 30 days",
+  working_open: "Working, open to a better offer",
+} as const satisfies PreferenceVocabulary;
+
+/** A key of {@link AVAILABILITY_STATUSES_V2}. */
+export type AvailabilityStatusV2 = keyof typeof AVAILABILITY_STATUSES_V2;
+
+/**
+ * Every availability key a stored row may hold: the first set and the brief's four (#2753).
+ *
+ * THE WRITE ENUM AND THE READ LABELS, WHATEVER THE FLAG SAYS. Installed app builds keep sending
+ * the first set's keys after the switch, and refusing one would 400 the whole `.strict()` page
+ * save. A key of the second set can be stored while the flag is off (an admin correction, a chat
+ * edit, a client released ahead of the switch), so every reader must be able to print it. Each
+ * key keeps ITS OWN label: an old answer is never shown in the new words.
+ *
+ * SPREAD, NOT RESTATED, so a label lives in one place. The two sets share no key (pinned by
+ * `worker-preferences.vocabulary.test.ts`), so neither can overwrite the other here.
+ */
+export const AVAILABILITY_STATUSES_ALL: PreferenceVocabulary = {
+  ...AVAILABILITY_STATUSES_V1,
+  ...AVAILABILITY_STATUSES_V2,
+};
+
+/**
+ * Every stored key → its answer in the brief's four: the default map for #2753 question 1, as the
+ * issue proposes it. "Immediately" and "within a week" become "can join now"; "within a month" and
+ * "serving notice" become "30 days". Nothing maps to "15 days" or "working, open to a better
+ * offer", which is why such a worker is asked again rather than migrated.
+ *
+ * FROZEN, AND TOTAL OVER {@link AVAILABILITY_STATUSES_ALL}: the brief's own keys map to themselves.
+ */
+const AVAILABILITY_TO_V2: Readonly<Record<string, AvailabilityStatusV2>> = Object.freeze({
+  immediate: "join_now",
+  within_week: "join_now",
+  within_month: "in_30_days",
+  serving_notice: "in_30_days",
+  join_now: "join_now",
+  in_15_days: "in_15_days",
+  in_30_days: "in_30_days",
+  working_open: "working_open",
+});
+
+/**
+ * A stored availability key as one of the brief's four, or null when it is none of the known keys.
+ *
+ * NOTHING CALLS THIS YET, ON PURPOSE. Its reader is the monthly "still looking?" check (#2753 item
+ * 5), which needs to know what to pre-select and whose answer is an old one worth asking again.
+ * A reader that PRINTS must never call it: an old answer keeps its own label (see
+ * {@link AVAILABILITY_STATUSES_ALL}), and the map is lossy ("within a week" is not "now").
+ *
+ * The `typeof` check is {@link labelFor}'s: a key naming an `Object.prototype` member resolves to
+ * a function on a plain object, and that must read as unknown, not as an answer.
+ */
+export function toAvailabilityV2(status: string | null | undefined): AvailabilityStatusV2 | null {
+  if (typeof status !== "string") return null;
+  const mapped = AVAILABILITY_TO_V2[status];
+  return typeof mapped === "string" ? mapped : null;
+}
 
 /**
  * Shift. THE FORM'S SET IS A DELIBERATE SUPERSET OF THE PACK'S.

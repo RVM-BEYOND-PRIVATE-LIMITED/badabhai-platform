@@ -1,16 +1,16 @@
 /**
- * Migration 0168 — `hires`, one hire record per company, worker and posting (#2753 item 9).
+ * Migration 0169 — `worker_search_exits`, a worker who left company search (#2753 item 6).
  *
  * The drizzle model and CI's drift check cover the table-vs-model half. What this file pins is the
  * half they do not see:
  *
- *   1. ADDITIVE — one new table and its one index. Nothing dropped, no existing table altered.
+ *   1. ADDITIVE — one new table, no index of its own (the primary key backs the cascade). Nothing
+ *      dropped, no existing table altered: a side table, not a column on the hot `workers` table.
  *   2. THE RLS TAIL — FORCE and the four REVOKEs are hand-appended; a regenerate drops them.
- *   3. THE VOCABULARIES — each CHECK is exactly its shared constant, so the table cannot hold a
- *      status or posting kind the API does not know.
- *   4. ONE ROW — the unique (tenant, worker, posting kind, posting id) every source upserts on.
- *   5. ERASURE — `worker_id` cascades and the cascade is indexed; the tenant FK cascades too.
- *   6. THE HEADER — deploy order (before the SWITCH), the locks and the rollback.
+ *   3. THE VOCABULARY — the `via` CHECK is exactly its shared constant.
+ *   4. ONE EXIT PER WORKER — `worker_id` is the primary key; erasure cascades.
+ *   5. IDS ONLY — no name, phone or free-text column.
+ *   6. THE HEADER — deploy order (before the SWITCH), the lock note and the rollback.
  *
  * Nothing here connects to a database — it reads the committed SQL, journal and snapshot.
  */
@@ -19,10 +19,11 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { APPLICANT_POSTING_KINDS, HIRE_STATUSES } from "@badabhai/types";
+import { SCHEMA_REQUIREMENTS } from "./schema-contract";
+import { WORKER_SEARCH_EXIT_VIAS } from "./schema/worker-search-exit";
 
-const TAG = "0168_hires";
-const TABLE = "hires";
+const TAG = "0169_worker_search_exits";
+const TABLE = "worker_search_exits";
 const RAW = readFileSync(join(__dirname, "..", "migrations", `${TAG}.sql`), "utf8");
 /** Statements with comments stripped, so the header's prose cannot satisfy a DDL assertion. */
 const DDL = RAW.replace(/--[^\n]*/g, " ");
@@ -42,7 +43,7 @@ function checkValues(constraint: string): string[] {
   const head = `CONSTRAINT "${constraint}" CHECK (`;
   const start = FLAT.indexOf(head);
   if (start < 0) throw new Error(`${constraint} not found`);
-  const end = FLAT.indexOf(")", start + head.length);
+  const end = FLAT.indexOf(")", FLAT.indexOf("IN (", start));
   const body = FLAT.slice(start + head.length, end < 0 ? undefined : end);
   return [...body.matchAll(/'([a-z_]+)'/g)].map((m) => m[1] as string);
 }
@@ -58,15 +59,17 @@ describe("the fixture is real (no assertion below is vacuous)", () => {
   });
 });
 
-describe("0168 is additive", () => {
-  it("creates exactly one table and one index", () => {
+describe("0169 is additive", () => {
+  it("creates exactly one table and no index of its own", () => {
     expect([...FLAT.matchAll(/CREATE TABLE/g)]).toHaveLength(1);
-    expect([...FLAT.matchAll(/CREATE (UNIQUE )?INDEX/g)]).toHaveLength(1);
+    expect([...FLAT.matchAll(/CREATE (UNIQUE )?INDEX/g)]).toHaveLength(0);
   });
 
-  it("alters only the new table", () => {
+  it("alters only the new table — never `workers`, the hot table the design kept a column off", () => {
     const altered = [...FLAT.matchAll(/ALTER TABLE "([a-z_]+)"/g)].map((m) => m[1]);
     expect(new Set(altered)).toEqual(new Set([TABLE]));
+    expect(FLAT).not.toContain('ALTER TABLE "workers"');
+    expect(FLAT).not.toContain("search_hidden_at");
   });
 
   it("drops nothing, deletes nothing, writes no rows, and never touches the ledger", () => {
@@ -96,88 +99,76 @@ describe("deny by default", () => {
     expect(FLAT.toUpperCase()).not.toContain("CREATE POLICY");
     expect(FLAT.toUpperCase()).not.toContain("GRANT ");
   });
-});
 
-describe("the vocabularies", () => {
-  it.each([
-    ["hires_status_chk", HIRE_STATUSES],
-    ["hires_posting_kind_chk", APPLICANT_POSTING_KINDS],
-  ] as const)("%s admits exactly its shared constant", (constraint, values) => {
-    expect(checkValues(constraint)).toEqual([...values]);
-  });
-
-  it("status is required; every source timestamp and hired_on are nullable", () => {
-    expect(FLAT).toContain('"status" text NOT NULL,');
-    for (const column of [
-      "company_marked_at",
-      "company_answered_at",
-      "worker_answered_at",
-      "desk_confirmed_at",
-    ]) {
-      expect(FLAT).toContain(`"${column}" timestamp with time zone,`);
-    }
-    expect(FLAT).toContain('"hired_on" date,');
+  it("is registered for its lock in the schema contract", () => {
+    const entry = SCHEMA_REQUIREMENTS.find((r) => r.id === "0169-worker-search-exits-rls");
+    expect(entry).toMatchObject({ migration: TAG, kind: "rls", table: TABLE });
   });
 });
 
-describe("one row per company, worker and posting, and erasure", () => {
-  it("the unique key every source upserts on", () => {
-    expect(FLAT).toContain(
-      `CONSTRAINT "hires_tenant_worker_posting_uq" UNIQUE("tenant_payer_id","worker_id","posting_kind","posting_id")`,
-    );
+describe("the columns", () => {
+  it("`via` admits exactly its shared constant", () => {
+    expect(checkValues("worker_search_exits_via_chk")).toEqual([...WORKER_SEARCH_EXIT_VIAS]);
   });
 
-  it("worker_id cascades on worker deletion, and the cascade is indexed", () => {
+  it("one exit per worker: worker_id is the primary key, and every column is NOT NULL", () => {
+    expect(FLAT).toContain('"worker_id" uuid PRIMARY KEY NOT NULL');
+    expect(FLAT).toContain('"hidden_at" timestamp with time zone DEFAULT now() NOT NULL');
+    expect(FLAT).toContain('"via" text NOT NULL');
+  });
+
+  it("worker_id cascades on worker deletion (erasure)", () => {
     expect(FLAT).toMatch(
       /FOREIGN KEY \("worker_id"\) REFERENCES "public"\."workers"\("id"\) ON DELETE cascade/,
     );
-    expect(FLAT).toContain(
-      `CREATE INDEX "hires_worker_id_idx" ON "${TABLE}" USING btree ("worker_id")`,
-    );
   });
 
-  it("the tenant key references payers and cascades with it (the tenant-keyed table rule)", () => {
-    expect(FLAT).toMatch(
-      /FOREIGN KEY \("tenant_payer_id"\) REFERENCES "public"\."payers"\("id"\) ON DELETE cascade/,
-    );
-  });
-
-  it("posting_id has no foreign key (one column names a jobs or a job_postings row)", () => {
-    expect(FLAT).not.toMatch(/FOREIGN KEY \("posting_id"\)/);
-  });
-
-  it("stores no name, phone, title, note or reference column", () => {
-    for (const column of ["name", "phone", "title", "note", "company", "student_ref", "reason"]) {
-      expect(FLAT).not.toMatch(new RegExp(`"[a-z_]*${column}[a-z_]*" (text|jsonb)`));
-    }
+  it("stores ids, a time and a closed code only — three columns, no name, phone or text", () => {
+    const columns = [...FLAT.matchAll(/"([a-z_]+)" (uuid|text|timestamp|jsonb|integer|boolean)/g)]
+      .map((m) => m[1])
+      .filter((c) => c !== TABLE);
+    expect(columns.sort()).toEqual(["hidden_at", "via", "worker_id"]);
+    expect(FLAT).not.toMatch(/jsonb/);
   });
 });
 
 describe("the header", () => {
-  it("states the switch, the slot order, the locks and the rollback", () => {
-    expect(RAW).toContain("HIRE_RECORDS_ENABLED");
-    expect(RAW).toContain("Apply 0164 to 0167 first");
-    expect(RAW).toContain("lock_timeout");
+  it("states the switch, the slot order, the lock and the rollback", () => {
+    expect(RAW).toContain("SEARCH_EXIT_ENABLED");
+    expect(RAW).toMatch(/Apply 0164, 0165, 0166, 0167 and 0168 first/);
+    expect(RAW).toContain("SET LOCAL lock_timeout = '3s'");
     expect(RAW).toContain("55P03");
     expect(RAW).toContain(`DROP TABLE "${TABLE}";`);
+    expect(RAW).toContain("SAFE TO RE-RUN: no");
+  });
+
+  it("says what the switch does before 0169: the readers fail open, the worker routes 503", () => {
+    expect(RAW).toContain("READERS FAIL OPEN");
+    expect(RAW).toContain("answer\n-- 503");
+    expect(RAW).not.toMatch(/answer 500/);
+  });
+
+  it("says consent is untouched (the design note: leaving search writes no consent row)", () => {
+    expect(RAW).toContain("CONSENT IS UNTOUCHED");
+    expect(FLAT).not.toContain("worker_consents");
   });
 });
 
 describe("the journal and the snapshot", () => {
   // Located by TAG, not `.at(-1)`, so a later migration cannot fail this file (the 0126 lesson).
-  it("records 0168 at idx 168, after 0167, with a `when` above its predecessor's", () => {
+  it("records 0169 at idx 169, after 0168, with a `when` above its predecessor's", () => {
     const at = JOURNAL.entries.findIndex((e) => e.tag === TAG);
     expect(at).toBeGreaterThan(0);
     const entry = JOURNAL.entries[at]!;
     const previous = JOURNAL.entries[at - 1]!;
-    expect(entry.idx).toBe(168);
-    expect(previous.tag).toBe("0167_outbound_signals");
+    expect(entry.idx).toBe(169);
+    expect(previous.tag).toBe("0168_worker_activity");
     expect(entry.when).toBeGreaterThan(previous.when);
   });
 
-  it("0168's snapshot builds on 0167's and records the table", () => {
-    const next = snapshot("0168");
-    expect(next.prevId).toBe(snapshot("0167").id);
+  it("0169's snapshot builds on 0168's and records the table", () => {
+    const next = snapshot("0169");
+    expect(next.prevId).toBe(snapshot("0168").id);
     expect(next.tables).toHaveProperty(`public.${TABLE}`);
   });
 });
