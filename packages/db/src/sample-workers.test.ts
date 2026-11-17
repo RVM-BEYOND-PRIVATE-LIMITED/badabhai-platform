@@ -6,6 +6,8 @@ import {
   isSampleWorkerId,
   payerDemoIdLikePattern,
   payerDemoUuid,
+  samplePayerIdLikePatterns,
+  samplePostingIdLikePatterns,
   sampleWorkerIdLikePatterns,
   workforceIdLikePattern,
   workforceUuid,
@@ -101,6 +103,35 @@ describe("sampleWorkerIdLikePatterns — the SQL twin of isSampleWorkerId (#2755
     for (let i = 0; i < 500; i += 1) {
       const id = randomUUID();
       expect(matchesAny(id)).toBe(isSampleWorkerId(id));
+    }
+  });
+});
+
+describe("samplePayerIdLikePatterns / samplePostingIdLikePatterns — the sample companies (#2755 part B)", () => {
+  const prefixOf = (pattern: string) => {
+    expect(pattern.endsWith("%") && !pattern.slice(0, -1).includes("%")).toBe(true);
+    return pattern.slice(0, -1);
+  };
+
+  it("are exactly the workforce seed's payer and posting namespaces", () => {
+    expect(samplePayerIdLikePatterns()).toEqual(["face1000-0000-4000-8000-%"]);
+    expect(samplePostingIdLikePatterns()).toEqual(["face3000-0000-4000-8000-%"]);
+  });
+
+  it("match every payer and posting id the seed mints, and no worker, other kind or random id", () => {
+    const payer = prefixOf(samplePayerIdLikePatterns()[0]!);
+    const posting = prefixOf(samplePostingIdLikePatterns()[0]!);
+    for (const i of [0, 1, 34, 139, 0xffff]) {
+      expect(workforceUuid("payer", i).startsWith(payer)).toBe(true);
+      expect(workforceUuid("posting", i).startsWith(posting)).toBe(true);
+    }
+    for (const kind of ["worker", "profile", "consent"] as const) {
+      expect(workforceUuid(kind, 1).startsWith(payer), kind).toBe(false);
+      expect(workforceUuid(kind, 1).startsWith(posting), kind).toBe(false);
+    }
+    for (let i = 0; i < 500; i += 1) {
+      const id = randomUUID();
+      expect(id.startsWith(payer) || id.startsWith(posting)).toBe(false);
     }
   });
 });

@@ -58,6 +58,7 @@ import { payOnJoiningHires } from "./pay-on-joining";
 import { unlockOutcomes } from "./unlock-outcome";
 import { stillLookingChecks } from "./still-looking";
 import { payerPhoneProofs } from "./payer-phone-proof";
+import { numbersRecomputeLog, numbersWeekly } from "./numbers-weekly";
 import { launchTestCohort, launchTestShares } from "./launch-test";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
@@ -190,6 +191,8 @@ export * from "./unlock-outcome";
 export * from "./still-looking";
 // #2754 item 3 — a company proved the phone on its account (one account per proven phone).
 export * from "./payer-phone-proof";
+// #2755 items 4 and 11 — the numbers screen's weekly snapshot and its recompute log.
+export * from "./numbers-weekly";
 // #2755 item 9 — launch test A: the factories, what each was sent, its payment link and result.
 export * from "./launch-test";
 
@@ -519,6 +522,9 @@ export const schema = {
   stillLookingChecks,
   // #2754 item 3 - a company proved its sign-in phone (read only while PAYER_SMS_OTP_ENABLED is on).
   payerPhoneProofs,
+  // #2755 - the numbers screen's weekly snapshot and its recompute log (behind ADMIN_NUMBERS_ENABLED).
+  numbersWeekly,
+  numbersRecomputeLog,
   // #2755 item 9 - launch test A records (read and written only while ADMIN_NUMBERS_ENABLED is on).
   launchTestCohort,
   launchTestShares,

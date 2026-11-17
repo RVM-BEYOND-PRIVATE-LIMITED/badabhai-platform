@@ -16,7 +16,14 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
-import type { CreditLotSource, MessageDirection, MessageType } from "@badabhai/types";
+import type {
+  CreditLotSource,
+  MessageDirection,
+  MessageType,
+  PaymentOrderOrigin,
+  PaymentOrderProductKind,
+  PaymentOrderStatus as TypesPaymentOrderStatus,
+} from "@badabhai/types";
 import { jsonObject } from "./internal/sql-defaults";
 import { workers } from "./worker";
 import { generatedResumes } from "./profile";
@@ -408,7 +415,7 @@ export const payerCredits = pgTable(
 //
 // EXPIRY: an open lot past `expires_at` is closed by the spend path or the `credit-lot-expiry`
 // sweep with ONE `expired` ledger line (idempotency key `credit_lot_expired:<id>`): remaining → 0,
-// `expired_at` stamped. `expires_at` NULL = never expires; nothing in #2749 PR 1 writes a date.
+// `expired_at` stamped. `expires_at` NULL = never expires; a `pack` lot gets `grant time + validityDays` (#2749 PR 3).
 //
 // Billing records: NOT erased with the payer account (no FK to `payers`, like the ledger).
 // NOT PII: opaque ids, integers, a closed source code, a pack code and dates.
@@ -915,8 +922,12 @@ export const planQuotaTopups = pgTable(
 // held since ADR-0010 §D5. Provider ids are OPAQUE external references, not PII.
 // ===========================================================================
 
-/** Payment order lifecycle. `created` at intent → `paid` on a verified provider callback → `failed`. */
-export type PaymentOrderStatus = "created" | "paid" | "failed";
+/**
+ * Payment order lifecycle (`PAYMENT_ORDER_STATUSES`, @badabhai/types): `created` at intent →
+ * `paid` on a verified provider capture → `failed`; `held` (#2749, migration 0176) when the
+ * captured amount is not the order's total — nothing granted, never settleable.
+ */
+export type PaymentOrderStatus = TypesPaymentOrderStatus;
 
 // payment_orders — one row per checkout intent against a payment provider.
 export const paymentOrders = pgTable(
@@ -926,9 +937,19 @@ export const paymentOrders = pgTable(
     // Opaque payer ref — the "faceless-rails" pattern, NO FK (mirrors payer_credits /
     // credit_ledger, which this sits in front of).
     payerId: uuid("payer_id").notNull(),
+    // What the order sells (`PAYMENT_ORDER_PRODUCT_KINDS`, #2749 / migration 0176). Defaulted, so
+    // every pre-0176 row and an old build's insert read `credit_pack`. #2751 widens the CHECK.
+    productKind: text("product_kind")
+      .$type<PaymentOrderProductKind>()
+      .notNull()
+      .default("credit_pack"),
     // Which credit pack was bought (e.g. 'pack_10'); resolved against @badabhai/pricing.
-    packCode: text("pack_code").notNull(),
-    // Whole ₹, never paise (house convention — see credit_ledger.price_inr).
+    // NULLABLE since 0176 so a non-pack product (#2751) can be ordered; a `credit_pack` order still
+    // requires it (`payment_orders_pack_code_chk`).
+    packCode: text("pack_code"),
+    // Whole ₹, never paise (house convention — see credit_ledger.price_inr). Since #2749 PR 3 this
+    // is the whole-rupee TOTAL the buyer pays, GST included (= total_paise / 100); before it, the
+    // list price before GST. The paise columns below are the precise record.
     amountInr: integer("amount_inr").notNull(),
     // How many credits this order buys, RESOLVED FROM THE CATALOG ONCE AT ORDER CREATION
     // and never re-read afterwards.
@@ -946,8 +967,28 @@ export const paymentOrders = pgTable(
     // The provider's own order id. OPAQUE — never parsed, never a PII carrier.
     providerOrderId: text("provider_order_id").notNull(),
     status: text("status").$type<PaymentOrderStatus>().notNull().default("created"),
-    // The provider's payment reference, stamped when the order settles. Opaque.
+    // The provider's payment reference, stamped when the order settles (or is held). Opaque.
     providerPaymentRef: text("provider_payment_ref"),
+    // ── THE MONEY, IN PAISE (#2749 item 7, migration 0176) ─────────────────────
+    // `gstPriceLine(price)` stamped at order creation: taxable + gst + round_off = total, and the
+    // total is a whole rupee. NULL on every pre-0176 order (it carried only `amount_inr`); all
+    // five are written together (`payment_orders_money_set_chk`). The settle path compares the
+    // captured amount with `total_paise` (or `amount_inr` × 100 on an old row).
+    taxablePaise: integer("taxable_paise"),
+    gstPaise: integer("gst_paise"),
+    roundOffPaise: integer("round_off_paise"),
+    totalPaise: integer("total_paise"),
+    // The GST rate applied, in basis points (1800 = 18%).
+    gstRateBps: integer("gst_rate_bps"),
+    // How long the credits last, in days, stamped from the pack at order creation so the settle
+    // never re-reads the catalogue (#2749 hazard 8). NULL = the lot never expires.
+    creditValidityDays: integer("credit_validity_days"),
+    // Where the purchase started (`PAYMENT_ORDER_ORIGINS`), and the job posting it came from —
+    // verified to be the buyer tenant's own at order time, else stored null. Both nullable.
+    origin: text("origin").$type<PaymentOrderOrigin>(),
+    originJobPostingId: uuid("origin_job_posting_id").references(() => jobPostings.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -968,9 +1009,46 @@ export const paymentOrders = pgTable(
     // A zero/negative-amount order is always a bug, never a real purchase.
     check("payment_orders_amount_pos_chk", sql`${t.amountInr} > 0`),
     // Same reasoning for the grant side: an order that buys zero (or negative) credits is
-    // a resolver bug, and a DB constraint is the only place it cannot be forgotten.
-    check("payment_orders_credits_pos_chk", sql`${t.creditsGranted} > 0`),
-    check("payment_orders_status_chk", sql`${t.status} IN ('created', 'paid', 'failed')`),
+    // a resolver bug, and a DB constraint is the only place it cannot be forgotten. Since 0176
+    // it binds a `credit_pack` order only (#2751's products may grant no credits).
+    check(
+      "payment_orders_credits_pos_chk",
+      sql`${t.creditsGranted} > 0 OR ${t.productKind} <> 'credit_pack'`,
+    ),
+    // `PAYMENT_ORDER_STATUSES`, spelled out because a CHECK is static SQL (0176's test pins it).
+    check("payment_orders_status_chk", sql`${t.status} IN ('created', 'paid', 'failed', 'held')`),
+    // ── 0176 (#2749 item 9) ────────────────────────────────────────────────────
+    // `PAYMENT_ORDER_PRODUCT_KINDS`. #2751 widens it.
+    check("payment_orders_product_kind_chk", sql`${t.productKind} IN ('credit_pack')`),
+    // A credit-pack order names its pack.
+    check(
+      "payment_orders_pack_code_chk",
+      sql`${t.productKind} <> 'credit_pack' OR ${t.packCode} IS NOT NULL`,
+    ),
+    // The five money columns are written together or not at all (a pre-0176 row has none).
+    check(
+      "payment_orders_money_set_chk",
+      sql`(${t.taxablePaise} IS NULL AND ${t.gstPaise} IS NULL AND ${t.roundOffPaise} IS NULL AND ${t.totalPaise} IS NULL AND ${t.gstRateBps} IS NULL) OR (${t.taxablePaise} IS NOT NULL AND ${t.gstPaise} IS NOT NULL AND ${t.roundOffPaise} IS NOT NULL AND ${t.totalPaise} IS NOT NULL AND ${t.gstRateBps} IS NOT NULL)`,
+    ),
+    // When set: total = taxable + GST + round-off, a positive whole rupee, equal to the rupee
+    // column; the taxable amount and the tax are non-negative; the rate is 0–100%.
+    check(
+      "payment_orders_money_sum_chk",
+      sql`${t.totalPaise} IS NULL OR (${t.totalPaise} = ${t.taxablePaise} + ${t.gstPaise} + ${t.roundOffPaise} AND ${t.totalPaise} > 0 AND ${t.totalPaise} % 100 = 0 AND ${t.totalPaise} = ${t.amountInr} * 100 AND ${t.taxablePaise} >= 0 AND ${t.gstPaise} >= 0 AND ${t.gstRateBps} BETWEEN 0 AND 10000)`,
+    ),
+    check(
+      "payment_orders_validity_pos_chk",
+      sql`${t.creditValidityDays} IS NULL OR ${t.creditValidityDays} > 0`,
+    ),
+    // `PAYMENT_ORDER_ORIGINS`, spelled out (0176's test pins the copy).
+    check(
+      "payment_orders_origin_chk",
+      sql`${t.origin} IS NULL OR ${t.origin} IN ('credits_page', 'unlock_prompt', 'candidate_search', 'posting_flow', 'dashboard', 'other')`,
+    ),
+    // The FK's referencing side, so a job posting's delete (seeds only today) does not scan.
+    index("payment_orders_origin_job_posting_idx")
+      .on(t.originJobPostingId)
+      .where(sql`${t.originJobPostingId} IS NOT NULL`),
   ],
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0058
 

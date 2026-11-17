@@ -39,7 +39,7 @@
  *
  * NOT PII: opaque ids, integers, closed codes and dates. Nothing here logs.
  */
-import { and, asc, eq, gt, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNotNull, lte, sql, type SQL } from "drizzle-orm";
 import type { CreditLotSource } from "@badabhai/types";
 
 import type { Database } from "./client";
@@ -464,8 +464,16 @@ export interface WalletGrant {
     readonly source: CreditLotSource;
     readonly packCode?: string | null;
     readonly paymentOrderId?: string | null;
-    /** Null or absent = never expires. */
+    /** Null or absent = never expires. Mutually exclusive with `validityDays`. */
     readonly expiresAt?: Date | null;
+    /**
+     * #2749 PR 3 — the lot expires this many whole days after the grant, on the DATABASE clock:
+     * `expires_at = now() + N days`, where `now()` is the transaction's start, the same instant
+     * the lot's `created_at` defaults to and the clock every due-check (`expires_at <= now()`)
+     * reads. Null or absent = never expires. A positive integer; mutually exclusive with
+     * `expiresAt`.
+     */
+    readonly validityDays?: number | null;
     readonly isTest?: boolean;
   };
   readonly ledger: {
@@ -496,6 +504,23 @@ export type WalletGrantResult =
     };
 
 /**
+ * The `expires_at` a grant's lot is written with: a fixed instant (`expiresAt`), `now() + N days`
+ * on the database clock (`validityDays`), or NULL (never expires). Throws a `RangeError` for both
+ * at once or for a validity that is not a positive integer — fail loud before any write.
+ */
+export function lotExpiry(lot: WalletGrant["lot"]): Date | SQL | null {
+  const days = lot.validityDays ?? null;
+  if (days === null) return lot.expiresAt ?? null;
+  if (lot.expiresAt !== undefined && lot.expiresAt !== null) {
+    throw new RangeError("grantCreditsWithinTx: a lot takes expiresAt or validityDays, not both");
+  }
+  if (!Number.isSafeInteger(days) || days <= 0) {
+    throw new RangeError(`grantCreditsWithinTx: validityDays must be a positive integer (${days})`);
+  }
+  return sql`now() + make_interval(days => ${days}::int)`;
+}
+
+/**
  * Grant credits into a wallet: lock the wallet (creating its row) → if the idempotency key is
  * already on the ledger, change nothing (`applied: false`) → align → insert the lot → insert ONE
  * ledger line naming it → balance += credits.
@@ -513,6 +538,7 @@ export async function grantCreditsWithinTx(
       `grantCreditsWithinTx: credits must be a positive integer (${input.credits})`,
     );
   }
+  const expiresAt = lotExpiry(input.lot);
   const balance = await lockWallet(tx, input.payerId, { create: true });
   if (balance === undefined) throw new Error("credit-wallet: the wallet row was not written");
 
@@ -549,7 +575,7 @@ export async function grantCreditsWithinTx(
       paymentOrderId: input.lot.paymentOrderId ?? null,
       creditsGranted: input.credits,
       creditsRemaining: input.credits,
-      expiresAt: input.lot.expiresAt ?? null,
+      expiresAt,
       isTest: input.lot.isTest ?? false,
     })
     .returning({ id: creditLots.id });

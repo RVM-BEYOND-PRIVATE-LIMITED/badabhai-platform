@@ -221,6 +221,13 @@ const MONEY_TYPES = new Set([
   "quota_topup",
 ]);
 
+/**
+ * A gateway order counts as a payment only once it is `paid`. `created` is a checkout that never
+ * completed, `failed` a payment the provider refused, and `held` (#2749) money captured for the
+ * wrong amount with nothing granted, waiting on ops: records, not payments.
+ */
+const NOT_A_PAYMENT_ORDER_STATUSES = new Set(["created", "failed", "held"]);
+
 /** The newest timeline row that was an actual payment, for the list's "Last payment" cell. */
 export function lastPaymentOf(
   items: readonly AdminPaymentHistoryItem[],
@@ -230,8 +237,9 @@ export function lastPaymentOf(
       (item) =>
         MONEY_TYPES.has(item.type) &&
         item.amount_inr !== null &&
-        // A failed gateway order is a record, not a payment.
-        item.status !== "failed",
+        // A failed row is a record, not a payment; so is a gateway order that never got paid.
+        item.status !== "failed" &&
+        !(item.type === "payment_order" && NOT_A_PAYMENT_ORDER_STATUSES.has(item.status)),
     ) ?? null
   );
 }

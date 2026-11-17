@@ -328,7 +328,12 @@ function orderColumns(mock: boolean): GridColumn<OrderRow>[] {
       width: "customer",
       cell: (o) => <CustomerLink payerId={o.payer_id} payerRole={o.payer_role} />,
     },
-    { id: "pack", header: "Pack", cell: (o) => packCodeLabel(o.pack_code), title: (o) => packCodeLabel(o.pack_code) },
+    {
+      id: "pack",
+      header: "Pack",
+      cell: (o) => (o.pack_code === null ? "—" : packCodeLabel(o.pack_code)),
+      title: (o) => (o.pack_code === null ? "no pack" : packCodeLabel(o.pack_code)),
+    },
     {
       id: "amount",
       header: "Amount",
@@ -350,11 +355,20 @@ function orderColumns(mock: boolean): GridColumn<OrderRow>[] {
       /* The pill shows the REAL order status. `created` is toned warn, not neutral: an order stuck
          in checkout is a thing to look at, not a resting state. Toned explicitly rather than by
          borrowing another domain's value, which would have displayed "active" for a paid order and
-         "rejected" for a failed one. */
+         "rejected" for a failed one. `held` (#2749) is toned bad and named for what it is: money
+         captured, nothing granted — never "failed", which reads as "no money moved". */
       cell: (o) => (
         <StatusPill
           value={o.status}
-          label={o.status === "created" ? "unsettled" : o.status === "paid" ? "settled" : "failed"}
+          label={
+            o.status === "created"
+              ? "unsettled"
+              : o.status === "paid"
+                ? "settled"
+                : o.status === "held"
+                  ? "held"
+                  : "failed"
+          }
           tone={o.status === "paid" ? "ok" : o.status === "created" ? "warn" : "bad"}
           title={`order status: ${o.status}`}
         />

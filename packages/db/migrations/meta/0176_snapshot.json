@@ -1,5 +1,5 @@
 {
-  "id": "fcae6950-d64b-4a61-8c6b-9f61599506c0",
+  "id": "7c910991-2168-4bf6-8307-9add09b68516",
   "prevId": "e91af572-7e8f-4da7-a84b-dce3a35e934a",
   "version": "7",
   "dialect": "postgresql",
@@ -10739,11 +10739,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "product_kind": {
+          "name": "product_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'credit_pack'"
+        },
         "pack_code": {
           "name": "pack_code",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "amount_inr": {
           "name": "amount_inr",
@@ -10780,6 +10787,54 @@
         "provider_payment_ref": {
           "name": "provider_payment_ref",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "taxable_paise": {
+          "name": "taxable_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gst_paise": {
+          "name": "gst_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "round_off_paise": {
+          "name": "round_off_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_paise": {
+          "name": "total_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gst_rate_bps": {
+          "name": "gst_rate_bps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "credit_validity_days": {
+          "name": "credit_validity_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "origin_job_posting_id": {
+          "name": "origin_job_posting_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -10861,9 +10916,39 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "payment_orders_origin_job_posting_idx": {
+          "name": "payment_orders_origin_job_posting_idx",
+          "columns": [
+            {
+              "expression": "origin_job_posting_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"payment_orders\".\"origin_job_posting_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "payment_orders_origin_job_posting_id_job_postings_id_fk": {
+          "name": "payment_orders_origin_job_posting_id_job_postings_id_fk",
+          "tableFrom": "payment_orders",
+          "tableTo": "job_postings",
+          "columnsFrom": [
+            "origin_job_posting_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -10874,11 +10959,35 @@
         },
         "payment_orders_credits_pos_chk": {
           "name": "payment_orders_credits_pos_chk",
-          "value": "\"payment_orders\".\"credits_granted\" > 0"
+          "value": "\"payment_orders\".\"credits_granted\" > 0 OR \"payment_orders\".\"product_kind\" <> 'credit_pack'"
         },
         "payment_orders_status_chk": {
           "name": "payment_orders_status_chk",
-          "value": "\"payment_orders\".\"status\" IN ('created', 'paid', 'failed')"
+          "value": "\"payment_orders\".\"status\" IN ('created', 'paid', 'failed', 'held')"
+        },
+        "payment_orders_product_kind_chk": {
+          "name": "payment_orders_product_kind_chk",
+          "value": "\"payment_orders\".\"product_kind\" IN ('credit_pack')"
+        },
+        "payment_orders_pack_code_chk": {
+          "name": "payment_orders_pack_code_chk",
+          "value": "\"payment_orders\".\"product_kind\" <> 'credit_pack' OR \"payment_orders\".\"pack_code\" IS NOT NULL"
+        },
+        "payment_orders_money_set_chk": {
+          "name": "payment_orders_money_set_chk",
+          "value": "(\"payment_orders\".\"taxable_paise\" IS NULL AND \"payment_orders\".\"gst_paise\" IS NULL AND \"payment_orders\".\"round_off_paise\" IS NULL AND \"payment_orders\".\"total_paise\" IS NULL AND \"payment_orders\".\"gst_rate_bps\" IS NULL) OR (\"payment_orders\".\"taxable_paise\" IS NOT NULL AND \"payment_orders\".\"gst_paise\" IS NOT NULL AND \"payment_orders\".\"round_off_paise\" IS NOT NULL AND \"payment_orders\".\"total_paise\" IS NOT NULL AND \"payment_orders\".\"gst_rate_bps\" IS NOT NULL)"
+        },
+        "payment_orders_money_sum_chk": {
+          "name": "payment_orders_money_sum_chk",
+          "value": "\"payment_orders\".\"total_paise\" IS NULL OR (\"payment_orders\".\"total_paise\" = \"payment_orders\".\"taxable_paise\" + \"payment_orders\".\"gst_paise\" + \"payment_orders\".\"round_off_paise\" AND \"payment_orders\".\"total_paise\" > 0 AND \"payment_orders\".\"total_paise\" % 100 = 0 AND \"payment_orders\".\"total_paise\" = \"payment_orders\".\"amount_inr\" * 100 AND \"payment_orders\".\"taxable_paise\" >= 0 AND \"payment_orders\".\"gst_paise\" >= 0 AND \"payment_orders\".\"gst_rate_bps\" BETWEEN 0 AND 10000)"
+        },
+        "payment_orders_validity_pos_chk": {
+          "name": "payment_orders_validity_pos_chk",
+          "value": "\"payment_orders\".\"credit_validity_days\" IS NULL OR \"payment_orders\".\"credit_validity_days\" > 0"
+        },
+        "payment_orders_origin_chk": {
+          "name": "payment_orders_origin_chk",
+          "value": "\"payment_orders\".\"origin\" IS NULL OR \"payment_orders\".\"origin\" IN ('credits_page', 'unlock_prompt', 'candidate_search', 'posting_flow', 'dashboard', 'other')"
         }
       },
       "isRLSEnabled": true
@@ -19582,302 +19691,6 @@
           "value": "\"payer_phone_proofs\".\"method\" IN ('sms_code', 'campus_import')"
         }
       },
-      "isRLSEnabled": true
-    },
-    "public.launch_test_cohort": {
-      "name": "launch_test_cohort",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "factory_name_enc": {
-          "name": "factory_name_enc",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "factory_phone_enc": {
-          "name": "factory_phone_enc",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "factory_phone_hash": {
-          "name": "factory_phone_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "city_group": {
-          "name": "city_group",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "trade_group": {
-          "name": "trade_group",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "payer_id": {
-          "name": "payer_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sent_by_admin_id": {
-          "name": "sent_by_admin_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sent_at": {
-          "name": "sent_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "payment_link_ref": {
-          "name": "payment_link_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "link_created_at": {
-          "name": "link_created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "result": {
-          "name": "result",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "paid_at": {
-          "name": "paid_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "payment_order_id": {
-          "name": "payment_order_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_by_admin_id": {
-          "name": "updated_by_admin_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "launch_test_cohort_phone_hash_uq": {
-          "name": "launch_test_cohort_phone_hash_uq",
-          "columns": [
-            {
-              "expression": "factory_phone_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "launch_test_cohort_payment_order_uq": {
-          "name": "launch_test_cohort_payment_order_uq",
-          "columns": [
-            {
-              "expression": "payment_order_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "launch_test_cohort_payer_id_idx": {
-          "name": "launch_test_cohort_payer_id_idx",
-          "columns": [
-            {
-              "expression": "payer_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "launch_test_cohort_payer_id_payers_id_fk": {
-          "name": "launch_test_cohort_payer_id_payers_id_fk",
-          "tableFrom": "launch_test_cohort",
-          "tableTo": "payers",
-          "columnsFrom": [
-            "payer_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "launch_test_cohort_payment_order_id_payment_orders_id_fk": {
-          "name": "launch_test_cohort_payment_order_id_payment_orders_id_fk",
-          "tableFrom": "launch_test_cohort",
-          "tableTo": "payment_orders",
-          "columnsFrom": [
-            "payment_order_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "launch_test_cohort_result_chk": {
-          "name": "launch_test_cohort_result_chk",
-          "value": "\"launch_test_cohort\".\"result\" IN ('pending', 'paid', 'declined', 'no_response')"
-        },
-        "launch_test_cohort_paid_chk": {
-          "name": "launch_test_cohort_paid_chk",
-          "value": "(\"launch_test_cohort\".\"paid_at\" IS NOT NULL) = (\"launch_test_cohort\".\"result\" = 'paid')"
-        },
-        "launch_test_cohort_link_ref_chk": {
-          "name": "launch_test_cohort_link_ref_chk",
-          "value": "\"launch_test_cohort\".\"payment_link_ref\" IS NULL OR char_length(\"launch_test_cohort\".\"payment_link_ref\") BETWEEN 1 AND 300"
-        },
-        "launch_test_cohort_link_chk": {
-          "name": "launch_test_cohort_link_chk",
-          "value": "\"launch_test_cohort\".\"link_created_at\" IS NULL OR \"launch_test_cohort\".\"payment_link_ref\" IS NOT NULL"
-        },
-        "launch_test_cohort_phone_chk": {
-          "name": "launch_test_cohort_phone_chk",
-          "value": "(\"launch_test_cohort\".\"factory_phone_enc\" IS NULL) = (\"launch_test_cohort\".\"factory_phone_hash\" IS NULL)"
-        }
-      },
-      "isRLSEnabled": true
-    },
-    "public.launch_test_shares": {
-      "name": "launch_test_shares",
-      "schema": "",
-      "columns": {
-        "cohort_id": {
-          "name": "cohort_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "worker_id": {
-          "name": "worker_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "shared_at": {
-          "name": "shared_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "launch_test_shares_worker_id_idx": {
-          "name": "launch_test_shares_worker_id_idx",
-          "columns": [
-            {
-              "expression": "worker_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "launch_test_shares_cohort_id_launch_test_cohort_id_fk": {
-          "name": "launch_test_shares_cohort_id_launch_test_cohort_id_fk",
-          "tableFrom": "launch_test_shares",
-          "tableTo": "launch_test_cohort",
-          "columnsFrom": [
-            "cohort_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "launch_test_shares_worker_id_workers_id_fk": {
-          "name": "launch_test_shares_worker_id_workers_id_fk",
-          "tableFrom": "launch_test_shares",
-          "tableTo": "workers",
-          "columnsFrom": [
-            "worker_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "launch_test_shares_pk": {
-          "name": "launch_test_shares_pk",
-          "columns": [
-            "cohort_id",
-            "worker_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": true
     }
   },
