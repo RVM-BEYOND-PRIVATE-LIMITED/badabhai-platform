@@ -87,6 +87,12 @@ services:
       FAST2SMS_API_KEY: ${FAST2SMS_API_KEY:?required in staging — real Fast2SMS key, worker OTP has no mock path}
       FAST2SMS_SENDER_ID: ${FAST2SMS_SENDER_ID:?required in staging — the DLT-registered sender id}
       FAST2SMS_DLT_TEMPLATE_ID: ${FAST2SMS_DLT_TEMPLATE_ID:?required in staging — the DLT template id}
+      # #2754 — company sign-in by SMS code, off by default. Same Fast2SMS account, the company's
+      # own approved DLT template; the api refuses to boot armed without that template id.
+      # Bridged from the `production` secrets of the same names (ci.yml env + envs).
+      PAYER_SMS_OTP_ENABLED: ${PAYER_SMS_OTP_ENABLED:-false}
+      FAST2SMS_PAYER_DLT_TEMPLATE_ID: ${FAST2SMS_PAYER_DLT_TEMPLATE_ID:-}
+      PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY: ${PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY:-500}
 
       # ---- Payer email OTP (ADR-0019, real-only channel — the ZeptoMail analogue of the
       # Fast2SMS block above) — PASS-THROUGH, NEVER DECLARED HERE UNTIL NOW.

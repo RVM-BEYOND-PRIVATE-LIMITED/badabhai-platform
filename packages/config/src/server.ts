@@ -1321,6 +1321,23 @@ export const serverEnvSchema = z.object({
   FAST2SMS_ENTITY_ID: z.string().min(1).optional(),
   FAST2SMS_ROUTE: z.string().min(1).default("dlt"),
 
+  // #2754 item 1 — a COMPANY signs in with an SMS code to the phone on its account, through the
+  // same Fast2SMS DLT account as workers but its own approved template. Default off: a phone on
+  // `POST /payer/login/request` then gets today's neutral answer and no message. On, a phone that
+  // names exactly one company account gets a code by SMS; an email still goes by email.
+  // `assertPayerAuthConfig` refuses to boot it on without the company template id.
+  PAYER_SMS_OTP_ENABLED: booleanFromString,
+  // The DLT template id approved for the COMPANY sign-in message (#2754 item 2). Separate from
+  // FAST2SMS_DLT_TEMPLATE_ID (the worker message): a DLT template is approved for its own text.
+  // `optionalSecret`: compose passes it as `${…:-}`, and a blank value is unset, never a boot failure.
+  FAST2SMS_PAYER_DLT_TEMPLATE_ID: optionalSecret(z.string().trim().min(1)),
+  // The company SMS path's own platform-wide daily ceiling, the SMS twin of
+  // PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY. Counted on the existence-independent reserve, so a known
+  // and an unknown phone see the same 429. 0 = paused = the company-SMS kill-switch (a
+  // payer.sms_send_cap_exceeded event, no redeploy). Per number, the payer OTP cooldown and
+  // OTP_MAX_SENDS_PER_HOUR still apply first.
+  PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY: z.coerce.number().int().min(0).default(500),
+
   // Self-serve PAYER auth (ADR-0019 Decision B — closes R16/LC-1/TD33). The payer is
   // the THIRD principal (worker/payer/ops). The session mechanism reuses JWT_SECRET +
   // SESSION_TTL_DAYS (PayerSessionService) and the login OTP reuses the OTP_* knobs
@@ -3132,6 +3149,36 @@ export function assertPayerAuthConfig(
 
   if (!isDevEnv(rawNodeEnv) && config.JWT_SECRET === DEV_JWT_SECRET) {
     problems.push("JWT_SECRET must be overridden (the payer session is signed with it)");
+  }
+
+  // #2754 — company SMS codes ride the worker's Fast2SMS account with their OWN approved
+  // template. Armed without one, every company code would go out on the worker template (wrong
+  // text, a DLT rejection) or not at all, so refuse to boot instead.
+  if (config.PAYER_SMS_OTP_ENABLED) {
+    // NOT YET IN PRODUCTION (security review of #2754 items 1-2): the phone on a company account
+    // is stored unproven (signup, PATCH /payer/me) and is not unique, so an SMS code to it would
+    // make an unproven number a sign-in credential. Development, test and staging only until item
+    // 3 (proven, unique phones) lands; staging-deploy.sh refuses the deploy first.
+    const env = (rawNodeEnv ?? "").trim();
+    if (env !== "development" && env !== "test" && env !== "staging") {
+      problems.push(
+        `PAYER_SMS_OTP_ENABLED is true but NODE_ENV is "${env || "unset"}" — company SMS sign-in ` +
+          "stays off in production until #2754 item 3 (proven, unique phones) lands (fail closed)",
+      );
+    }
+    const missing = [
+      ["FAST2SMS_API_KEY", config.FAST2SMS_API_KEY],
+      ["FAST2SMS_SENDER_ID", config.FAST2SMS_SENDER_ID],
+      ["FAST2SMS_PAYER_DLT_TEMPLATE_ID", config.FAST2SMS_PAYER_DLT_TEMPLATE_ID],
+    ]
+      .filter(([, value]) => !value)
+      .map(([key]) => key);
+    if (missing.length > 0) {
+      problems.push(
+        `PAYER_SMS_OTP_ENABLED is true but ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} ` +
+          "not set — company sign-in codes need the Fast2SMS account and their own approved DLT template",
+      );
+    }
   }
 
   // PAYER test-login seam. Same two-part discipline as TEST_LOGIN_ENABLED (TD67):
