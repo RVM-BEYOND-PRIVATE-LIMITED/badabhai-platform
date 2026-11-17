@@ -20,11 +20,10 @@ import { PostingAudienceRepository } from "../../job-postings/posting-audience.r
 import { PostingAudienceService } from "../../job-postings/posting-audience.service";
 import { FeatureRolloutService } from "../../feature-rollout/feature-rollout.service";
 import { FeaturePilotRepository } from "../../feature-rollout/feature-pilot.repository";
-import { FeaturePilotSubjectsRepository } from "../../feature-rollout/feature-pilot-subjects.repository";
 import { CampusPostingsRepository } from "../../campus-link/campus-postings.repository";
 import { PayerTenantScopeService } from "../payer-tenant-scope.service";
 import { PayerOrgsRepository } from "../payer-orgs.repository";
-import { postingIsHeld, type CampusPostingCreator, type JobImportDeps } from "./import-jobs";
+import { postingIsHeld, type JobImportDeps } from "./import-jobs";
 
 /** A collaborator the import must never reach: every property is a function that throws. */
 export function unavailableInImport(name: string): never {
@@ -46,7 +45,9 @@ export function buildJobImportDeps(db: Database, config: ServerConfig, events: E
   const tenancy = new PayerTenantScopeService(config, new PayerOrgsRepository(db));
   const audienceRepo = new PostingAudienceRepository(db);
   const audience = new PostingAudienceService(
-    new FeatureRolloutService(config, new FeaturePilotRepository(db), new FeaturePilotSubjectsRepository(db)),
+    // The worker and admin pilot lists have one reader, the rollout service
+    // inside the API; the audience path reads only the company pilot list, so here it is a stand-in.
+    new FeatureRolloutService(config, new FeaturePilotRepository(db), unavailableInImport("the worker and admin pilot lists")),
     audienceRepo,
     events,
   );
@@ -66,9 +67,14 @@ export function buildJobImportDeps(db: Database, config: ServerConfig, events: E
   const campusPostings = new CampusPostingsRepository(db);
   return {
     db,
-    // #2903 adds the `opts` parameter; until then the extra argument is ignored and the hold check
-    // after each create stops the import.
-    creator: postings as unknown as CampusPostingCreator,
+    // #2903 adds `createForCampus`'s `opts` (the hold origin). Called through Reflect.apply so this
+    // file compiles on either side of #2903 with no type assertion on a tenant scope; once #2903 is
+    // on main this becomes a plain call. Without #2903 the origin is ignored, and the jobs step is
+    // gated on --worker-hold-live and checks every posting's hold.
+    creator: {
+      createForCampus: (scope, dto, targeting, ctx, opts) =>
+        Reflect.apply(postings.createForCampus, postings, [scope, dto, targeting, ctx, opts]),
+    },
     ownerScope: async (companyId) =>
       (await tenancy.resolveReadOnly(companyId)) ?? (await tenancy.resolve(companyId)),
     activeBranchRefs: (refs) => audienceRepo.activeOptionRefs("branch", refs),

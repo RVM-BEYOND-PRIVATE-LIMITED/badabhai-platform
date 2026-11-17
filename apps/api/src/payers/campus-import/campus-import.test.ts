@@ -402,6 +402,7 @@ describe("the CLI arguments", () => {
       testReason: "pilot_test",
       agents: [],
       creditValidityDays: 30,
+      workerHoldLive: false,
     });
   });
 
@@ -411,6 +412,7 @@ describe("the CLI arguments", () => {
     ).toThrow("cannot be combined");
     expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", "--batch", "b"])).toThrow("--batch needs --apply");
     expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", "--test"])).toThrow("need --apply");
+    expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", "--worker-hold-live"])).toThrow("needs --apply");
   });
 
   it("refuses an unknown flag rather than guessing", () => {
