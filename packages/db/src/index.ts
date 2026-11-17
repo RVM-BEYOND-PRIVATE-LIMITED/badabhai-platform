@@ -7,6 +7,11 @@
 export * from "./schema";
 export * from "./client";
 export * from "./credit-packs";
+// #2749 — the wallet as expiring lots: the ONE implementation of every balance move (unlock
+// debit, packs, settle, admin and free-tier grants, the expiry sweep). Exported because the api
+// and the `db:grant:free-tier` script here must both use it; a second copy would let the
+// balance, the lots and the ledger drift apart.
+export * from "./credit-wallet";
 export * from "./crypto";
 // The one ordering that decides which `worker_profiles` row IS a worker's profile. Exported
 // because the readers are spread across apps/api repositories AND the D2 backfill in this

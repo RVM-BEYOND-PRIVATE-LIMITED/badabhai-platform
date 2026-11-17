@@ -270,6 +270,10 @@ const LOCKED_TABLES = [
   // 0173 (#2753 item 5): the monthly "still looking?" check (an opaque worker id, two times and a
   // closed answer). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0173.
   "still_looking_checks",
+  // 0174 (#2749): a company's credits as expiring lots (opaque wallet key, a closed source, a pack
+  // code, integers and dates). Billing records, no FK to payers, never erased. RLS+FORCE+REVOKE in
+  // 0174.
+  "credit_lots",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

@@ -1411,6 +1411,68 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "and what he answered (yes, not now, hired); an open grant lets any PostgREST role read who " +
       "is job hunting, or write an answer that takes a worker out of company search",
   },
+  // 0174 (#2749 items 2-4): expiring credit lots. Unconditional - no flag - because every wallet
+  // writer goes through packages/db/src/credit-wallet.ts, which names `credit_lots` on every
+  // grant, spend and expiry, and Drizzle 0.45 names every model column (so `credit_ledger.lot_id`)
+  // in each ledger insert. APPLY BEFORE DEPLOY, from the PR branch before the merge (header).
+  // (`credit_lots_payment_order_uq` is not an `index` entry: that probe checks 0078's shape.)
+  {
+    id: "0174-credit-lots-table",
+    migration: "0174_credit_lots",
+    kind: "table",
+    table: "credit_lots",
+    requiredBy:
+      "credit-wallet.ts (lockWallet → align → lots → ledger) on every wallet move: " +
+      "UnlocksRepository.tryDebit (every contact open), creditPack (POST /payer/credits and the " +
+      "ops POST /payers/:payerId/credits), claimAndCreditPaymentOrderWithinTx (Razorpay verify + " +
+      "webhook), AdminActionsRepository.grantCredits, FreeTierService.grantForPayer (signup), " +
+      "db:grant:free-tier, the credit-lot-expiry sweep, and the GET /payer/credits lots read",
+    failureMode:
+      "every contact open, pack purchase, Razorpay settle (5xx, so Razorpay redelivers), admin " +
+      "grant and signup free-tier grant fails (relation does not exist), and GET /payer/credits " +
+      "500s. Old builds on a migrated database are fine (they name neither object); new builds " +
+      "on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0174-credit-ledger-lot-id",
+    migration: "0174_credit_lots",
+    kind: "column",
+    table: "credit_ledger",
+    object: "lot_id",
+    requiredBy:
+      "every credit_ledger insert (Drizzle 0.45 lists every model column): the unlock debit " +
+      "(UnlocksRepository.appendLedger), the grant and expiry lines in credit-wallet.ts; and " +
+      "every bare `select()` of credit_ledger",
+    failureMode:
+      "every ledger write fails (column does not exist), so every contact open, purchase, settle " +
+      "and grant rolls back. APPLY-BEFORE-DEPLOY, same reason as the table entry above",
+  },
+  {
+    id: "0174-credit-ledger-lot-fk",
+    migration: "0174_credit_lots",
+    kind: "constraint",
+    table: "credit_ledger",
+    object: "credit_ledger_lot_id_credit_lots_id_fk",
+    requiredBy:
+      "no code path names it - it is the link that keeps a ledger line's lot real, the half of " +
+      "balance = Σ ledger = Σ lots a hand-written statement could otherwise break",
+    failureMode:
+      "SILENT. A ledger line could name a lot that does not exist, and the per-lot audit trail " +
+      "(which lot a credit came from, which lot expired) would stop being checkable",
+  },
+  {
+    id: "0174-credit-lots-rls",
+    migration: "0174_credit_lots",
+    kind: "rls",
+    table: "credit_lots",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table is every company's credit holdings and their expiry dates; an open " +
+      "grant lets any PostgREST role read them, or write a lot that the next spend would honour",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

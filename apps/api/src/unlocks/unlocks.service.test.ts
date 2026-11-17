@@ -103,6 +103,8 @@ interface SetupOpts {
   consentVersion?: string;
   /** #2747: the pilot list could not be read (`stateFor` → unavailable). */
   rolloutUnavailable?: boolean;
+  /** #2749: spendable credits for the F-1 precondition (default: `balance`). */
+  spendable?: number;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -143,7 +145,10 @@ function setup(opts: SetupOpts = {}) {
     // E0 item 1 — the handle-keyed read the relay resolution starts from.
     findRoutingByHandle: vi.fn(async () => opts.routingByHandle),
     appendLedger: vi.fn(async () => undefined),
-    tryDebit: vi.fn(async () => ((opts.debitOk ?? true) ? balance - 1 : undefined)),
+    // #2749 — the debit names the lot the credit came from (the ledger line carries it).
+    tryDebit: vi.fn(async () =>
+      (opts.debitOk ?? true) ? { balanceAfter: balance - 1, lotId: "lot-1" } : undefined,
+    ),
     // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-checks). #2562 adds
     // the durable status so a suspended worker freezes exactly like a pending-deletion one.
     getWorkerDeletionMarker: vi.fn(async () =>
@@ -162,6 +167,9 @@ function setup(opts: SetupOpts = {}) {
   const repo = {
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work(txMethods)),
     getBalance: vi.fn(async () => balance),
+    // #2749 review — the F-1 precondition reads SPENDABLE credits (due lots out). Defaults to the
+    // balance (no lot is past due); a test overrides it to model a wallet of due lots.
+    getSpendableBalance: vi.fn(async () => opts.spendable ?? balance),
     // #1903: a global-pool read, so it lives on the repo only — NOT in txMethods, where a
     // call through the locked `tx` handle would be the pool-vs-lock deadlock shape.
     legacyJobExists: vi.fn(async (_jobId: string) => opts.jobRowExists ?? true),
@@ -177,6 +185,8 @@ function setup(opts: SetupOpts = {}) {
     listByPayerWithStatus: vi.fn(async (): Promise<unknown[]> => []),
     // The wallet's ledger read and the mock pack credit (ADR-0053 tests key-check both).
     listCreditLedgerByPayer: vi.fn(async (): Promise<unknown[]> => []),
+    // #2749 — the wallet's open lots on GET /payer/credits.
+    listOpenLots: vi.fn(async (): Promise<unknown[]> => []),
     creditPack: vi.fn(async (input: { credits: number }) => balance + input.credits),
     // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
     // gate; return a worker_id-bearing projection whenever an unlock exists so that
@@ -535,6 +545,14 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
     expect(txMethods.tryDebit).toHaveBeenCalledTimes(1);
     expect(txMethods.upsertGrant).toHaveBeenCalledTimes(1);
     expect(txMethods.appendLedger).toHaveBeenCalledTimes(1);
+    // #2749 — the debit line names the lot the credit came from (one credit, one lot, one line).
+    expect(txMethods.appendLedger).toHaveBeenCalledWith(expect.anything(), {
+      payerId: PAYER,
+      delta: -1,
+      reason: "unlock_debit",
+      unlockId: "unlock-1",
+      lotId: "lot-1",
+    });
 
     // Every payment.* event carries real_call:false (mock honesty, F-6).
     for (const c of events.emit.mock.calls) {
@@ -860,7 +878,7 @@ describe("UnlockService — #1899 payer-session job reference must be null or th
 
   function expectNothingHappened(t: ReturnType<typeof setup>) {
     expect(t.events.emit).not.toHaveBeenCalled(); // not even unlock.requested
-    expect(t.repo.getBalance).not.toHaveBeenCalled();
+    expect(t.repo.getSpendableBalance).not.toHaveBeenCalled();
     expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
     expect(t.repo.withTransaction).not.toHaveBeenCalled();
     expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
@@ -1527,6 +1545,120 @@ describe("#2562 - a suspended worker is frozen on every unlock surface", () => {
  * before it — which is why these tests drive it through `tryDebit`'s RETURN value
  * instead of stubbing a balance read.
  */
+/**
+ * #2749 — `payer.credits_expired` from the spend path, and the review's F-1/F-3 fix.
+ *
+ * The event is written ON the unlock transaction (`tx`), one per lot the spend expired, so it
+ * commits or rolls back with the expiry. A spend that cannot happen writes nothing (the wallet
+ * helper), and a wallet whose credits are all past due is refused at F-1 on its SPENDABLE
+ * credits, before any worker state is read.
+ */
+describe("UnlockService — #2749 payer.credits_expired and the spendable F-1", () => {
+  const grantFixture = { payerId: PAYER, workerId: WORKER, jobId: null };
+  const lot = (lotId: string, credits: number) => ({
+    lotId,
+    credits,
+    source: "pack" as const,
+    expiresAt: new Date("2026-11-10T00:00:00.000Z"),
+  });
+
+  /** Track the commit: the fake transaction "commits" when its work resolves. */
+  function withCommitTracking(t: ReturnType<typeof setup>) {
+    const state = { committed: false, expiredEmittedInsideTx: 0 };
+    t.repo.withTransaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => {
+      const out = await work(t.txMethods);
+      state.committed = true;
+      return out;
+    });
+    t.events.emit.mockImplementation(async (e: Record<string, unknown>) => {
+      if (e.event_name === "payer.credits_expired" && !state.committed) {
+        state.expiredEmittedInsideTx += 1;
+      }
+      return e;
+    });
+    return state;
+  }
+
+  type Emitted = { event_name: string; payload: Record<string, unknown>; tx?: unknown };
+  function expiredEvents(t: ReturnType<typeof setup>) {
+    return t.events.emit.mock.calls
+      .map((c) => c[0] as Emitted)
+      .filter((e) => e.event_name === "payer.credits_expired");
+  }
+
+  it("emits ONE event per expired lot, ON the unlock transaction (before it commits)", async () => {
+    const t = setup({ balance: 5 });
+    const state = withCommitTracking(t);
+    t.txMethods.tryDebit.mockResolvedValueOnce({
+      ok: true,
+      balanceAfter: 4,
+      lotId: "lot-1",
+      expiredLots: [lot("lot-a", 3), lot("lot-b", 1)],
+    } as never);
+
+    const out = await t.svc.requestUnlock(grantFixture, CTX);
+    expect(out).toMatchObject({ ok: true, status: "granted" });
+
+    const fired = expiredEvents(t);
+    expect(fired).toHaveLength(2);
+    // Inside the transaction, on its handle: the event shares the expiry's commit or rollback.
+    expect(state.expiredEmittedInsideTx).toBe(2);
+    for (const e of fired) expect(e.tx).toBe(t.txMethods);
+    expect(fired[0]).toMatchObject({
+      actor: { actor_type: "payer", actor_id: PAYER },
+      subject: { subject_type: "payer", subject_id: PAYER },
+      payload: {
+        payer_id: PAYER,
+        lot_id: "lot-a",
+        credits: 3,
+        source: "pack",
+        expires_at: "2026-11-10T00:00:00.000Z",
+        trigger: "spend",
+      },
+      idempotencyKey: "payer.credits_expired:lot-a",
+      correlationId: CTX.correlationId,
+    });
+    expect(fired[1]!.payload).toMatchObject({ lot_id: "lot-b", credits: 1 });
+  });
+
+  it("emits NOTHING when nothing expired", async () => {
+    const t = setup({ balance: 5 }); // the default debit expires nothing
+    await t.svc.requestUnlock(grantFixture, CTX);
+    expect(expiredEvents(t)).toHaveLength(0);
+    expect(emitted(t.events)).toContain("unlock.granted");
+  });
+
+  it("a debit that cannot happen (wrote nothing) emits no credits_expired, and the body is neutral", async () => {
+    const t = setup({ balance: 2, debitOk: false });
+    expect(await t.svc.requestUnlock(grantFixture, CTX)).toEqual({ status: "unavailable" });
+    expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
+    expect(t.txMethods.appendLedger).not.toHaveBeenCalled();
+    expect(expiredEvents(t)).toHaveLength(0);
+    expect(emitted(t.events)).toContain("payment.failed");
+  });
+
+  it("F-1 reads SPENDABLE credits: a balance held only in lots past due is refused before any worker read", async () => {
+    // balance 3, all of it in lots past their date → spendable 0.
+    const t = setup({ balance: 3, spendable: 0 });
+    expect(await t.svc.requestUnlock(grantFixture, CTX)).toEqual({ status: "unavailable" });
+    expect(t.repo.getSpendableBalance).toHaveBeenCalledWith(PAYER);
+    // No worker state consulted, nothing locked, nothing debited or expired.
+    expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+    expect(emitted(t.events)).toEqual(["unlock.requested", "payment.failed"]);
+  });
+
+  it("F-1 answers byte-identically whether the worker consented or does not exist (no oracle)", async () => {
+    const consented = setup({ balance: 3, spendable: 0 });
+    const unknown = setup({ balance: 3, spendable: 0, workerExists: false, consentPurposes: null });
+    const a = await consented.svc.requestUnlock(grantFixture, CTX);
+    const b = await unknown.svc.requestUnlock(grantFixture, CTX);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    expect(emitted(consented.events)).toEqual(emitted(unknown.events));
+  });
+});
+
 describe("UnlockService — ADR-0036 §7 credits_exhausted (the conversion signal)", () => {
   const grantFixture = { payerId: PAYER, workerId: WORKER, jobId: null };
 
@@ -1894,7 +2026,7 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
     const payerIdOf = (calls: unknown[][]): unknown[] =>
       calls.map((c) => (c[1] as { payerId: unknown }).payerId);
     return [
-      ...arg(t.repo.getBalance.mock.calls as unknown[][], 0),
+      ...arg(t.repo.getSpendableBalance.mock.calls as unknown[][], 0),
       ...arg(t.txMethods.findByPayerWorker.mock.calls as unknown[][], 1),
       ...arg(t.txMethods.tryDebit.mock.calls as unknown[][], 1),
       ...payerIdOf(t.txMethods.upsertGrant.mock.calls as unknown[][]),
@@ -1959,7 +2091,7 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
     await expect(
       t.svc.requestUnlock({ payerId: MEMBER, workerId: WORKER, jobId: null }, CTX),
     ).rejects.toMatchObject({ status: 403 });
-    expect(t.repo.getBalance).not.toHaveBeenCalled();
+    expect(t.repo.getSpendableBalance).not.toHaveBeenCalled();
     expect(t.repo.withTransaction).not.toHaveBeenCalled();
     expect(t.events.emit).not.toHaveBeenCalled();
   });
@@ -2075,8 +2207,10 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
   it("on: the teammate's balance, ledger and unlock lists are the ORG's; each response echoes the CALLER", async () => {
     const t = setup({ balance: 9, tenancy: on() });
 
-    expect(await t.svc.getCredits(MEMBER)).toEqual({ payer_id: MEMBER, balance: 9 });
+    expect(await t.svc.getCredits(MEMBER)).toEqual({ payer_id: MEMBER, balance: 9, lots: [] });
     expect(t.repo.getBalance).toHaveBeenLastCalledWith(ANCHOR);
+    // #2749 — the lots are the ORG wallet's too, never the teammate's own.
+    expect(t.repo.listOpenLots).toHaveBeenLastCalledWith(ANCHOR);
 
     expect(await t.svc.getCreditLedger(MEMBER, 25)).toEqual({ payer_id: MEMBER, ledger: [] });
     expect(t.repo.listCreditLedgerByPayer).toHaveBeenCalledWith(ANCHOR, 25);
@@ -2095,6 +2229,7 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
     await t.svc.getCreditLedger(OUTSIDER, 10);
     await t.svc.listOwnForPayer(OUTSIDER);
     expect(t.repo.getBalance).toHaveBeenCalledWith(OUTSIDER);
+    expect(t.repo.listOpenLots).toHaveBeenCalledWith(OUTSIDER);
     expect(t.repo.listCreditLedgerByPayer).toHaveBeenCalledWith(OUTSIDER, 10);
     expect(t.repo.listByPayerWithStatus).toHaveBeenCalledWith(OUTSIDER, expect.any(Array));
     for (const fn of [

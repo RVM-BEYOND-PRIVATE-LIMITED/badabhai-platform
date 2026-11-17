@@ -71,6 +71,7 @@ import {
 import { applications, jobPostings, jobs } from "./job";
 import {
   creditLedger,
+  creditLots,
   payerCapacity,
   payerCredits,
   payerFormDrafts,
@@ -247,6 +248,9 @@ export type PayerCredit = typeof payerCredits.$inferSelect;
 export type NewPayerCredit = typeof payerCredits.$inferInsert;
 export type CreditLedger = typeof creditLedger.$inferSelect;
 export type NewCreditLedger = typeof creditLedger.$inferInsert;
+// #2749 — a wallet's balance as expiring lots (migration 0174).
+export type CreditLot = typeof creditLots.$inferSelect;
+export type NewCreditLot = typeof creditLots.$inferInsert;
 export type UnlockRouting = typeof unlockRouting.$inferSelect;
 export type NewUnlockRouting = typeof unlockRouting.$inferInsert;
 // E0 — the payer↔worker in-app relay message store (docs/agent/phases/E0_BUILD.md item 2).
@@ -378,6 +382,8 @@ export const schema = {
   applications,
   unlocks,
   payerCredits,
+  // #2749 — the lots a balance is made of (migration 0174).
+  creditLots,
   creditLedger,
   unlockRouting,
   relayMessages,

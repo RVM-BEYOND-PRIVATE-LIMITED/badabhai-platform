@@ -335,6 +335,22 @@ describe("finance schemas — money never arrives without its provenance", () =>
     expect(s.unsettled_orders.amount_inr).toBe(4000);
   });
 
+  it("#2749 — an `expired` line (a lot's credits removed at its date) parses on every ledger read", () => {
+    const expired = { ...LEDGER_ROW, delta: -3, reason: "expired", unlock_id: null };
+    expect(
+      ledgerPageSchema.safeParse({ items: [expired], nextCursor: null, payments: MOCK_POSTURE })
+        .success,
+    ).toBe(true);
+    const { payer_id: _p, ...companyLine } = expired;
+    expect(
+      creditsViewSchema.safeParse({
+        payer_id: "p1",
+        balance: 0,
+        ledger: { items: [companyLine], nextCursor: null },
+      }).success,
+    ).toBe(true);
+  });
+
   it("an unknown credit reason is rejected rather than rendered as a blank row", () => {
     expect(
       ledgerPageSchema.safeParse({

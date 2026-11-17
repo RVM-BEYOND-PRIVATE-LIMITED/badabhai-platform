@@ -5,6 +5,8 @@ import { getRazorpayCredentials, type ServerConfig } from "@badabhai/config";
 import {
   isSampleWorkerId,
   UNLOCK_WINDOW_DAYS,
+  type Database,
+  type ExpiredCreditLot,
   type UnlockDenyReason,
   type UnlockRouting,
   type RoutingChannel,
@@ -12,6 +14,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { PayerCreditsResponse } from "@badabhai/types";
 import {
   normalizeTradeLevelKey,
   priceTierForTradeRows,
@@ -44,6 +47,7 @@ import {
   type CreditLedgerItem,
 } from "./unlocks.repository";
 import { PaymentGateway, type RealOrderHandoff, type SettleResult } from "./payment-gateway";
+import { creditsExpiredEvent } from "./credits-expired-event";
 import { verifyCheckoutSignature } from "./razorpay-signature";
 import { assertExpectedPrice } from "../pricing/charge-price";
 import {
@@ -186,6 +190,11 @@ function rowOwnerParty(rowPayerId: string): EventParty {
  * event class, NO PII) and STILL return the committed result. This is the accepted
  * trade-off — the alternative (emit-in-tx) reintroduces the pool-vs-lock deadlock.
  *
+ * ONE EXCEPTION (#2749): `payer.credits_expired` is written ON `tx`. `EventsService.emit({ tx })`
+ * builds and validates the event in memory and inserts it on the executor it is handed, so it
+ * takes no second connection and the pool-vs-lock deadlock above cannot arise; in exchange the
+ * event commits or rolls back with the expiry it records, so a committed expiry can never lose it.
+ *
  * ORG TENANCY (ADR-0053, PAY-DB-01). Every public entry point that names a payer resolves the
  * tenant ONCE through {@link PayerTenantScopeService} — the payer-session routes and the ops
  * routes alike (§5.2 rules 1 and 4) — and passes the branded `tenantKey` down. Unlocks, the
@@ -295,7 +304,13 @@ export class UnlockService {
     // distinguish a consented-uncapped worker from a non-consented/unknown one: every
     // branch from here that ends in "no contact" returns the IDENTICAL neutral body.
     // The balance is the TENANT's wallet (the org's in `on`, ADR-0053 W1).
-    const balance = await this.repo.getBalance(tenant);
+    //
+    // #2749 — SPENDABLE credits, not the raw balance: credits in lots past `expires_at` do not
+    // count. Read on the raw balance, a wallet whose credits were all past due would pass this
+    // gate, reach the debit only for a worker who passed the consent / deletion / cap gates, and
+    // (before the review fix) leave an `expired` line only in that case — a worker-state oracle
+    // the company could read back from its own ledger. Refused here, before any worker read.
+    const balance = await this.repo.getSpendableBalance(tenant);
     if (balance < 1) {
       // INSUFFICIENT CREDITS collapses into the neutral response (F-1 option (a)).
       // No worker state was consulted → no oracle. We do NOT record a per-worker deny
@@ -480,10 +495,20 @@ export class UnlockService {
         // wallet's row lock inside this UPDATE, so the team can never overdraw it.
         const debit = await this.payments.debitOneCreditWithinTx(tx, tenant);
         if (!debit.ok) {
-          // Lost a concurrent debit race after the precondition — collapse to neutral
-          // (still no worker-state oracle; consent already passed but the BODY is neutral).
+          // Lost a concurrent debit race after the precondition — or (#2749) a lot fell due
+          // since the precondition read — collapse to neutral (still no worker-state oracle;
+          // consent already passed but the BODY is neutral). The wallet helper wrote NOTHING on
+          // this path: no expiry, no lot, no balance.
           events.push(() => this.emitPaymentFailed(null, party, "insufficient_credits", ctx));
           return { response: neutralUnavailable(), events };
+        }
+        // #2749 — one `payer.credits_expired` per lot this spend expired before it spent, written
+        // on THIS transaction (`tx`), not deferred: the event commits or rolls back with the
+        // expiry, so a committed expiry can never lose its event. Safe under the worker lock
+        // because `EventsService.emit({ tx })` does no global-pool I/O (it validates in memory
+        // and inserts on the executor it is given) — the deadlock rule above is about the pool.
+        for (const lot of debit.expiredLots) {
+          await this.emitCreditsExpired(party, lot, ctx, tx as unknown as Database);
         }
 
         // ---- [4] GRANT (same tx) ----------------------------------------------
@@ -503,12 +528,14 @@ export class UnlockService {
           expiresAt,
         });
         // Ledger debit in the SAME tx, on the SAME key as the wallet it debited (balance +
-        // ledger never drift; F-6 — and `balance = Σ delta` per payer_id holds, ADR-0053 §6).
+        // ledger never drift; F-6 — and `balance = Σ delta` per payer_id holds, ADR-0053 §6),
+        // naming the lot the credit came from (#2749: one line per lot; one credit, one lot).
         await this.repo.appendLedger(tx, {
           payerId: tenant,
           delta: -1,
           reason: "unlock_debit",
           unlockId: granted.id,
+          lotId: debit.lotId,
         });
 
         // Order preserved: payment.authorized → payment.captured → unlock.granted.
@@ -995,10 +1022,19 @@ export class UnlockService {
    * The balance of the wallet `payerId` spends from: the org wallet in mode `on` (the anchor's
    * existing row, O-1), never a member's personal pre-team balance (O-2), and `payerId`'s own
    * wallet in `off`. `payer_id` in the response echoes the CALLER, not the wallet (ADR-0053 §10).
+   *
+   * #2749 — plus the wallet's OPEN lots in spend order (soonest expiry first, never-expiring
+   * last): source, what is left, what it granted, when it ends and its pack. Additive: a reader
+   * that knows only `{ payer_id, balance }` is unaffected. Two non-tx reads, so a purchase landing
+   * between them can show a lot the balance does not include yet (the next read agrees).
    */
-  async getCredits(payerId: string): Promise<{ payer_id: string; balance: number }> {
+  async getCredits(payerId: string): Promise<PayerCreditsResponse> {
     const scope = await this.tenancy.resolve(payerId);
-    return { payer_id: payerId, balance: await this.repo.getBalance(scope.tenantKey) };
+    const [balance, lots] = await Promise.all([
+      this.repo.getBalance(scope.tenantKey),
+      this.repo.listOpenLots(scope.tenantKey),
+    ]);
+    return { payer_id: payerId, balance, lots };
   }
 
   // R21 / LC-7: latency-normalisation helper. Pads the response to
@@ -1866,6 +1902,29 @@ export class UnlockService {
       ...(idempotencyKey ? { idempotencyKey } : {}),
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
+    });
+  }
+
+  /**
+   * #2749 — a lot the spend path expired, on the unlock transaction (`tx`): the event shares the
+   * expiry's fate (see {@link creditsExpiredEvent}).
+   */
+  private async emitCreditsExpired(
+    party: EventParty,
+    lot: ExpiredCreditLot,
+    ctx: RequestContext,
+    tx: Database,
+  ): Promise<void> {
+    await this.events.emit({
+      ...creditsExpiredEvent({
+        walletKey: party.payerId,
+        lot,
+        trigger: "spend",
+        actor: { actor_type: "payer", actor_id: party.actorId },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      }),
+      tx,
     });
   }
 

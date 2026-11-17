@@ -34,7 +34,7 @@ import { PayerSessionService } from "./payer-session.service";
  *      contacts this login ENTERED on the requests that survive (#2746: `created_by`; under org
  *      tenancy `on` a team member's requests belong to the company and outlive the login). A
  *      delete that fails rolls the transaction back before the erasure runs, so a refused deletion
- *      erases nothing; Billing rails (`credit_ledger`,
+ *      erases nothing; Billing rails (`credit_ledger`, `credit_lots` (#2749),
  *      `payment_orders`, plans, `unlocks`, disclosures) are opaque payer_id
  *      rails with NO FK to `payers` — they intentionally SURVIVE (B2: the cost
  *      ledger survives account deletion) as PII-free orphans, exactly like the

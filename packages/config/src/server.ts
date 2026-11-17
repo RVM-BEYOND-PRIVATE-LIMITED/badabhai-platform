@@ -1019,6 +1019,20 @@ export const serverEnvSchema = z.object({
   // unbounded run (same posture as RETENTION_BATCH_LIMIT).
   REACH_WIDEN_EXPIRY_BATCH_LIMIT: z.coerce.number().int().positive().default(100),
 
+  // ── #2749 item 4: the credit-lot EXPIRY sweep (migration 0174) ──
+  // Cadence (minutes) of the tick that closes every open lot past its `expires_at` with one
+  // `expired` ledger line (the spend path also expires a due lot before it spends). The predicate
+  // over `credit_lots` is authoritative, so a missed/duplicated tick only delays an expiry until
+  // the next one (or the wallet's next spend). Fractional minutes allowed for tests.
+  //
+  // NO enable / dry-run gate, deliberately: nothing in #2749 PR 1 writes an `expires_at` (packs
+  // gain their validity with the catalogue in PR 2, and legacy lots their date at the switch-over),
+  // so the sweep has nothing to do until the data says so — the restriction lives in the data.
+  CREDIT_LOT_EXPIRY_SWEEP_INTERVAL_MINUTES: z.coerce.number().positive().default(15),
+  // Per-tick cap on WALLETS processed (each in its own transaction) — a backlog drains across
+  // ticks, never one unbounded run (same posture as REACH_WIDEN_EXPIRY_BATCH_LIMIT).
+  CREDIT_LOT_EXPIRY_BATCH_LIMIT: z.coerce.number().int().positive().default(200),
+
   // ── LEARN label producer (migration 0091): spine events → training labels ──
   // Cadence (hours) of the sweep tick. The cursor + UNIQUE impression key in the store
   // are authoritative — a missed/duplicated tick only delays labeling until the next

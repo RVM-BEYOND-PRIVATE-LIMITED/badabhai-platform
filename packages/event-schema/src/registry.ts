@@ -903,6 +903,13 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerCreditsExhaustedPayload,
   },
+  // #2749 — a credit lot's unspent credits expired: ONE per lot, ever, in the transaction that
+  // writes its `expired` ledger line (a spend that found it due, or the expiry sweep). v1.
+  "payer.credits_expired": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerCreditsExpiredPayload,
+  },
   // MOMENT ④ — `feed.shown` VERSION 2. `feed.shown` above KEEPS its v1 entry,
   // unmodified, as history (invariant #8): `validateEvent` allows exactly one version
   // per NAME, so a bump in place would invalidate every shipped emitter the moment it

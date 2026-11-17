@@ -66,6 +66,8 @@ import {
   HIRE_RECORD_SOURCES,
   UNLOCK_OUTCOMES,
   UNLOCK_OUTCOME_ANSWERERS,
+  CREDIT_LOT_SOURCES,
+  CREDIT_LOT_EXPIRY_TRIGGERS,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -4175,6 +4177,37 @@ export const PayerCreditsExhaustedPayload = z
   })
   .strict();
 export type PayerCreditsExhaustedPayload = z.infer<typeof PayerCreditsExhaustedPayload>;
+
+/**
+ * #2749 — a credit lot passed its `expires_at` and its unspent credits left the wallet.
+ *
+ * ONE EVENT PER LOT, EVER: written in the SAME transaction as the lot's one `expired` ledger line
+ * (idempotency key `payer.credits_expired:<lot id>`, the same identity as the ledger line's
+ * `credit_lot_expired:<lot id>`), so the two commit or roll back together, by whichever closed it
+ * first — a contact open that spent a credit and found the lot past its date (`trigger: spend`)
+ * or the `credit-lot-expiry` sweep (`trigger: sweep`).
+ *
+ * FACELESS: the wallet key (`payer_id`, the tenant key — the same key `payer.credits_exhausted`
+ * carries), the opaque lot id, integers, two closed codes and a date. No pack price, no payment
+ * reference, no name.
+ */
+export const PayerCreditsExpiredPayload = z
+  .object({
+    /** The wallet the credits left (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    /** The expired lot (opaque `credit_lots.id`). */
+    lot_id: uuidSchema,
+    /** The lot's credits that were still unspent and are now gone (the ledger line's −delta). */
+    credits: z.number().int().positive(),
+    /** Where the lot came from (`CREDIT_LOT_SOURCES`). */
+    source: z.enum(CREDIT_LOT_SOURCES),
+    /** The lot's expiry date (ISO 8601). */
+    expires_at: isoDateTimeSchema,
+    /** What closed it (`CREDIT_LOT_EXPIRY_TRIGGERS`). */
+    trigger: z.enum(CREDIT_LOT_EXPIRY_TRIGGERS),
+  })
+  .strict();
+export type PayerCreditsExpiredPayload = z.infer<typeof PayerCreditsExpiredPayload>;
 
 /**
  * MOMENT ④ — `feed.shown`, VERSION 2 (ADR-0036 "feed.shown gets a v2 payload").

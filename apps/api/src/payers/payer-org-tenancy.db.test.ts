@@ -231,7 +231,9 @@ describe.skipIf(!RUN)(
       const ids = [payerA, payerB].filter(Boolean);
       const { sql } = client;
       await sql`DELETE FROM unlocks WHERE payer_id = ANY(${ids}::uuid[])`;
+      // #2749 — ledger lines name lots (credit_ledger.lot_id), so the ledger goes first.
       await sql`DELETE FROM credit_ledger WHERE payer_id = ANY(${ids}::uuid[])`;
+      await sql`DELETE FROM credit_lots WHERE payer_id = ANY(${ids}::uuid[])`;
       await sql`DELETE FROM payer_credits WHERE payer_id = ANY(${ids}::uuid[])`;
       await sql`DELETE FROM job_postings WHERE payer_id = ANY(${ids}::uuid[]) OR created_by = ANY(${ids}::uuid[])`;
       await sql`DELETE FROM events WHERE correlation_id = ${CTX.correlationId}::uuid`;
@@ -1976,7 +1978,11 @@ describe.skipIf(!RUN)(
       expect(Number(row?.ledger), `ledger of ${payerId}`).toBe(Number(row?.balance));
     }
 
-    /** A credited wallet with its ledger line, exactly as an ops grant writes it (reconciled). */
+    /**
+     * A credited wallet with its ledger line, reconciled (Σ ledger = balance) — written by raw SQL
+     * as the pre-#2749 ops grant wrote it: NO credit lot. The next wallet touch (the spend below)
+     * re-aligns the lots with the balance (credit-wallet.ts), so balance = Σ lots holds after it.
+     */
     async function grantCredits(payerId: string, credits: number): Promise<void> {
       await client.sql`
       INSERT INTO payer_credits (payer_id, balance) VALUES (${payerId}::uuid, ${credits})
@@ -2137,8 +2143,11 @@ describe.skipIf(!RUN)(
       const { sql } = client;
       await sql`DELETE FROM resume_disclosures WHERE payer_id = ANY(${payerIds}::uuid[])`;
       await sql`DELETE FROM unlocks WHERE payer_id = ANY(${payerIds}::uuid[])`;
-      await sql`DELETE FROM payment_orders WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      // #2749 — ledger lines name lots and a settled order's lot names the order
+      // (credit_ledger.lot_id, credit_lots.payment_order_id): ledger, then lots, then orders.
       await sql`DELETE FROM credit_ledger WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM credit_lots WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM payment_orders WHERE payer_id = ANY(${payerIds}::uuid[])`;
       await sql`DELETE FROM payer_credits WHERE payer_id = ANY(${payerIds}::uuid[])`;
       await sql`DELETE FROM events WHERE correlation_id = ${W_CTX.correlationId}::uuid`;
       await sql`DELETE FROM workers WHERE id = ANY(${workerIds}::uuid[])`;
@@ -2157,7 +2166,10 @@ describe.skipIf(!RUN)(
     it("O-1/O-2: a teammate reads the ORG wallet, never their personal balance; `off` reads their own", async () => {
       const org = await balanceOf(A);
       expect(org).toBeGreaterThan(0);
-      expect(await on.unlocks.getCredits(B)).toEqual({ payer_id: B, balance: org });
+      const orgCredits = await on.unlocks.getCredits(B);
+      expect(orgCredits).toMatchObject({ payer_id: B, balance: org });
+      // #2749 — the lots shown are the ORG wallet's too, and hold exactly its balance.
+      expect(orgCredits.lots.reduce((sum, l) => sum + l.credits_remaining, 0)).toBe(org);
       expect((await off.unlocks.getCredits(B)).balance).toBe(bPersonal);
       // The outsider sees only their own.
       expect((await on.unlocks.getCredits(C)).balance).toBe(await balanceOf(C));
@@ -2439,7 +2451,10 @@ describe.skipIf(!RUN)(
     it("removal: on the very next call the former teammate is back on their personal wallet and sees none of the org's rows", async () => {
       await members.remove(orgOfA, A, memberIdOfB, W_CTX);
       expect((await on.tenancy.resolve(B)).tenantKey).toBe(B);
-      expect(await on.unlocks.getCredits(B)).toEqual({ payer_id: B, balance: bPersonal });
+      const own = await on.unlocks.getCredits(B);
+      expect(own).toMatchObject({ payer_id: B, balance: bPersonal });
+      // #2749 — and the lots are their own wallet's, holding exactly that balance.
+      expect(own.lots.reduce((sum, l) => sum + l.credits_remaining, 0)).toBe(bPersonal);
       const [orgUnlocks] =
         await client.sql`SELECT count(*)::int AS n FROM unlocks WHERE payer_id = ${A}::uuid`;
       expect(Number(orgUnlocks?.n)).toBeGreaterThan(0);
