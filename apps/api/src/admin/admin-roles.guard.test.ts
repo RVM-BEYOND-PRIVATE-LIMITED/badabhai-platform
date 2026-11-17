@@ -207,6 +207,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     // #2755 - the business numbers screen + its test-company marks. ADR-0025 §3.1 row added with
     // the owner question 1 default; `support`/`analyst` denied.
     read_business_numbers: ["super_admin", "ops_admin"],
+    // #2750 item 12 - the credit rules settings: every company's price and limits. super_admin only.
+    manage_credit_rules: ["super_admin"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -265,6 +267,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "manage_companies",
       // #2561 - candidate-field corrections are a write.
       "edit_candidates",
+      // #2750 - the credit rules settings are a write.
+      "manage_credit_rules",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }
@@ -386,6 +390,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
     for (const role of ["ops_admin", "support", "analyst"] as AdminRole[]) {
       expect(capabilitiesFor(role)).not.toContain("toggle_kill_switch");
       expect(capabilitiesFor(role)).not.toContain("manage_admins");
+      // #2750 - every company's price and limits at once: super_admin only.
+      expect(capabilitiesFor(role)).not.toContain("manage_credit_rules");
     }
   });
 });

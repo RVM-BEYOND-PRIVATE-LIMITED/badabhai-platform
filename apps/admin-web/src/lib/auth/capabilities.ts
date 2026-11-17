@@ -78,6 +78,9 @@ export const ADMIN_CAPABILITIES = [
   // #2755 — the business numbers screen (weekly figures, call list, launch tests) and its
   // test-company marks. Vocabulary only: this file carries no role mapping.
   "read_business_numbers",
+  // #2750 — the credit rules settings (what a contact costs, the limits, welcome credits and the
+  // other credit numbers). Vocabulary only: this file carries no role mapping.
+  "manage_credit_rules",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -125,6 +128,7 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   manage_companies: "Create, edit, archive and restore companies",
   edit_candidates: "Correct candidate profile fields",
   read_business_numbers: "Read the business numbers and mark test companies",
+  manage_credit_rules: "Edit the credit rules (contact cost, limits, welcome credits)",
 };
 
 /** Narrow an unknown string to a known capability (anything else is dropped, not trusted). */

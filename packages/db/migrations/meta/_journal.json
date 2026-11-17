@@ -1248,6 +1248,13 @@
       "when": 1794904862633,
       "tag": "0177_numbers_weekly",
       "breakpoints": true
+    },
+    {
+      "idx": 178,
+      "version": "7",
+      "when": 1794907655152,
+      "tag": "0178_credit_rules_config",
+      "breakpoints": true
     }
   ]
 }

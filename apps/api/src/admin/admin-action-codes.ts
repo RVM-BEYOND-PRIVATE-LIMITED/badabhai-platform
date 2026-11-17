@@ -108,6 +108,11 @@ export const ADMIN_ACTION_CODES = {
   // `admin.payer_test_account_marked`; the spine's `admin.action_performed` carries the CODE only.
   payer_test_account_marked: "payer_test_account_marked",
   payer_test_account_unmarked: "payer_test_account_unmarked",
+  // ── #2750 item 1 — the credit rules' settings ──────────────────────────────────────────
+  // Target = the new revision (`target_type: "credit_rules_config"`). The keys that moved, their
+  // old and new values and the admin's reason live on the `audit_logs` row; the spine carries the
+  // CODE only.
+  credit_rules_changed: "credit_rules_changed",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];
