@@ -1602,6 +1602,7 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     failureMode:
       "SILENT. An order could name a posting that does not exist, and the purchase-origin " +
       "numbers (#2781) would count it",
+  },
   // #2750 item 1: the credit rules' settings. Nothing names `credit_rules_config` while
   // CREDIT_RULES_ROLLOUT is off (the admin routes answer 404, no rule is read), and with it on a
   // 42P01 reads as "no row" (the brief's defaults), so a deploy ahead of the migration breaks no
