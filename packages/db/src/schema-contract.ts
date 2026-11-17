@@ -1745,6 +1745,82 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "grant lets any PostgREST role read which company opened which RVM applicant for free, " +
       "or rewrite the count the placement team reads",
   },
+  // #2887: the bulk student move. Every statement naming these tables asks first whether
+  // `student_visibility` exists (the reach statements key on that alone; search, the open gate and
+  // the admin routes also wait for STUDENT_MOVE_ENABLED), so a deploy ahead of the migration
+  // breaks no request and none is a `table` entry. Listed for their locks (the 0134 rule). APPLY
+  // BEFORE THE SWITCH (migration header). The ids and tag carry the slot number: regenerated
+  // with the migration when the slot moves.
+  {
+    id: "0182-student-import-batches-rls",
+    migration: "0182_student_move",
+    kind: "rls",
+    table: "student_import_batches",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table is the record of every student import run (when, which kind, its " +
+      "counts); an open grant lets any PostgREST role rewrite a run's status, which the " +
+      "rollback reads to decide what it may undo",
+  },
+  {
+    id: "0182-student-import-rows-rls",
+    migration: "0182_student_move",
+    kind: "rls",
+    table: "student_import_rows",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which Campus candidate became which worker in each run and " +
+      "whether the run created him; an open grant lets any PostgREST role read the mapping or " +
+      "flip `worker_created`, which is what `--rollback` deletes by",
+  },
+  {
+    id: "0182-student-import-subjects-rls",
+    migration: "0182_student_move",
+    kind: "rls",
+    table: "student_import_subjects",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table maps each Campus candidate id to his BadaBhai worker; an open grant " +
+      "lets any PostgREST role read the mapping or repoint it, so a later sync writes one " +
+      "student's profile onto another worker",
+  },
+  {
+    id: "0182-worker-field-sources-rls",
+    migration: "0182_student_move",
+    kind: "rls",
+    table: "worker_field_sources",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table is what stops a sync overwriting a field the worker edited himself; an " +
+      "open grant lets any PostgREST role flip a marker back to `campus_import`, and the next " +
+      "sync silently replaces the worker's own words",
+  },
+  {
+    id: "0182-student-visibility-rls",
+    migration: "0182_student_move",
+    kind: "rls",
+    table: "student_visibility",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides whether a moved student is matched and shown to companies; an " +
+      "open grant lets any PostgREST role make every hidden student visible (or hide every " +
+      "visible one) with no admin, reason or audit row",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's
