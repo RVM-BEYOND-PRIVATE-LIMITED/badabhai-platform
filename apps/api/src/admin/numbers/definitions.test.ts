@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  NUMBERS_BASELINE_FROM,
   NUMBERS_DEFINITION_VERSION,
   NUMBERS_METRIC_GROUPS,
+  NUMBERS_METRIC_KINDS,
   NUMBERS_METRIC_UNITS,
+  NUMBERS_REVENUE_PACK_PREFIX,
+  NUMBERS_SNAPSHOT_METRICS,
   NUMBERS_WAITS_ON,
   allNumbersMetrics,
+  isRevenuePackMetricId,
   numbersMetric,
+  revenuePackMetricId,
 } from "./definitions";
+import { isWeekStart } from "./week";
 
 /** #2755 item 1 — the catalogue of the ten metric groups. */
 
@@ -52,13 +59,27 @@ describe("the catalogue", () => {
     }
   });
 
-  it("live today: groups 1, 2, 3, 4, 9 (as charged) and 10; waiting: 5, 6, 7, 8 and the GST split", () => {
+  it("live today: groups 1 (but repeat buying), 2, 3, 4 and 9 (as charged); waiting: 5, 6, 7, 8, 10, the GST split and repeat buying", () => {
     const statusOf = (groupNumber: number) =>
       NUMBERS_METRIC_GROUPS.find((g) => g.number === groupNumber)!.metrics.map(
         (m) => `${m.id}:${m.availability.status}`,
       );
-    for (const n of [1, 2, 3, 4, 10]) {
+    for (const n of [2, 3, 4]) {
       for (const s of statusOf(n)) expect(s).toMatch(/:live$/);
+    }
+    expect(numbersMetric("paying_companies")?.availability.status).toBe("live");
+    expect(numbersMetric("paying_companies_cumulative")?.availability.status).toBe("live");
+    // Part C's figures: the snapshot does not hold them yet, so they are not drawn as zeros.
+    for (const id of [
+      "repeat_purchase_30d",
+      "repeat_purchase_60d",
+      "repeat_purchase_90d",
+      "out_of_credits_companies",
+    ]) {
+      expect(numbersMetric(id)?.availability, id).toMatchObject({
+        status: "not_available",
+        waits_on: "#2755",
+      });
     }
     for (const n of [5, 6, 7, 8]) {
       for (const s of statusOf(n)) expect(s).toMatch(/:not_available$/);
@@ -105,6 +126,58 @@ describe("the catalogue", () => {
   it("the completed-profile rule is the onboarding funnel's profile_confirmed step", () => {
     expect(numbersMetric("completed_profiles")?.source).toMatch(/profile_confirmed/);
     expect(numbersMetric("completed_profiles")?.rule).toMatch(/onboarding funnel/);
+  });
+
+  it("every metric is a headline but the one form-worker gap diagnostic", () => {
+    for (const m of allNumbersMetrics()) expect(NUMBERS_METRIC_KINDS, m.id).toContain(m.kind);
+    expect(
+      allNumbersMetrics()
+        .filter((m) => m.kind === "diagnostic")
+        .map((m) => m.id),
+    ).toEqual(["form_completed_unconfirmed"]);
+    expect(numbersMetric("form_completed_unconfirmed")?.rule).toMatch(/NOT A HEADLINE/);
+    expect(numbersMetric("form_completed_unconfirmed")?.source).toMatch(/profile\.form_completed/);
+  });
+
+  it("the snapshot stores EXACTLY the live metrics: a not_available one is never stored as a zero", () => {
+    const live = allNumbersMetrics()
+      .filter((m) => m.availability.status === "live")
+      .map((m) => m.id)
+      .sort();
+    expect(Object.keys(NUMBERS_SNAPSHOT_METRICS).sort()).toEqual(live);
+  });
+
+  it("worker figures are the worker subject (their small cells are suppressed), the rest companies", () => {
+    const workers = Object.entries(NUMBERS_SNAPSHOT_METRICS)
+      .filter(([, subject]) => subject === "worker")
+      .map(([id]) => id)
+      .sort();
+    expect(workers).toEqual(
+      [
+        "active_workers_30d",
+        "completed_profiles",
+        "completed_profiles_cumulative",
+        "form_completed_unconfirmed",
+      ].sort(),
+    );
+  });
+
+  it("the baseline is a Monday, 2026-06-01", () => {
+    expect(NUMBERS_BASELINE_FROM).toBe("2026-06-01");
+    expect(isWeekStart(NUMBERS_BASELINE_FROM)).toBe(true);
+  });
+
+  it("one pack's revenue id is the prefix and the pack code; a malformed code folds into other", () => {
+    expect(NUMBERS_REVENUE_PACK_PREFIX).toBe("revenue_by_pack:");
+    expect(revenuePackMetricId("pack_50")).toBe("revenue_by_pack:pack_50");
+    expect(revenuePackMetricId("starter")).toBe("revenue_by_pack:starter");
+    for (const bad of ["", "Pack 50", "pack-50", "x".repeat(65), "pack_50;drop"]) {
+      expect(revenuePackMetricId(bad), bad).toBe("revenue_by_pack:other");
+    }
+    expect(isRevenuePackMetricId("revenue_by_pack:pack_50")).toBe(true);
+    expect(isRevenuePackMetricId("revenue_by_pack")).toBe(false);
+    expect(isRevenuePackMetricId("revenue_by_pack:")).toBe(false);
+    expect(isRevenuePackMetricId("paying_companies")).toBe(false);
   });
 
   it("an unknown id is undefined, and the version is the groups' version", () => {

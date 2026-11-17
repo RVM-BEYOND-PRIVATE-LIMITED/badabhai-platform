@@ -1603,6 +1603,40 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. An order could name a posting that does not exist, and the purchase-origin " +
       "numbers (#2781) would count it",
   },
+  // #2755 part B: the numbers screen's weekly snapshot and its recompute log. Nothing names either
+  // table while ADMIN_NUMBERS_ENABLED is off; with it on and the tables missing, the weekly route
+  // answers 503 (42P01) and the sweep logs and writes nothing, so a deploy ahead of the migration
+  // breaks no request and neither is a `table` entry. Listed for their locks (the 0134 rule).
+  // APPLY BEFORE THE SWITCH (migration header). The ids and tag carry the slot number:
+  // regenerated with the migration when the slot moves.
+  {
+    id: "0177-numbers-weekly-rls",
+    migration: "0177_numbers_weekly",
+    kind: "rls",
+    table: "numbers_weekly",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table is the company's weekly commercial figures (paying companies, revenue " +
+      "by pack, hires): an open grant lets any PostgREST role read them, or rewrite a frozen week " +
+      "the CEO screen and the investor numbers are read from",
+  },
+  {
+    id: "0177-numbers-recompute-log-rls",
+    migration: "0177_numbers_weekly",
+    kind: "rls",
+    table: "numbers_recompute_log",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table is the only record of who rewrote a frozen week and why (the operator's " +
+      "own words): an open grant lets any PostgREST role read the reasons, or delete the record " +
+      "of a recompute",
+  },
   // #2750 item 1: the credit rules' settings. Nothing names `credit_rules_config` while
   // CREDIT_RULES_ROLLOUT is off (the admin routes answer 404, no rule is read), and with it on a
   // 42P01 reads as "no row" (the brief's defaults), so a deploy ahead of the migration breaks no
@@ -1610,8 +1644,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
   // BEFORE THE SWITCH (migration header). The id and tag carry the slot number: regenerated with
   // the migration when the slot moves.
   {
-    id: "0177-credit-rules-config-rls",
-    migration: "0177_credit_rules_config",
+    id: "0178-credit-rules-config-rls",
+    migration: "0178_credit_rules_config",
     kind: "rls",
     table: "credit_rules_config",
     requiredBy:

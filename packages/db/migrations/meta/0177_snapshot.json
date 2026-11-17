@@ -1,5 +1,5 @@
 {
-  "id": "f9f60d58-595b-4327-ad4d-c2547b207a14",
+  "id": "aecce2be-6c44-42bb-80e0-799da1ef39d0",
   "prevId": "7c910991-2168-4bf6-8307-9add09b68516",
   "version": "7",
   "dialect": "postgresql",
@@ -19693,8 +19693,8 @@
       },
       "isRLSEnabled": true
     },
-    "public.credit_rules_config": {
-      "name": "credit_rules_config",
+    "public.numbers_recompute_log": {
+      "name": "numbers_recompute_log",
       "schema": "",
       "columns": {
         "id": {
@@ -19704,84 +19704,178 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "rules": {
-          "name": "rules",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "is_active": {
-          "name": "is_active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
+        "run_at": {
+          "name": "run_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        }
-      },
-      "indexes": {
-        "credit_rules_config_active_uq": {
-          "name": "credit_rules_config_active_uq",
-          "columns": [
-            {
-              "expression": "is_active",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"credit_rules_config\".\"is_active\"",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         },
-        "credit_rules_config_revision_uq": {
-          "name": "credit_rules_config_revision_uq",
-          "columns": [
-            {
-              "expression": "revision",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+        "actor": {
+          "name": "actor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "from_week": {
+          "name": "from_week",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_week": {
+          "name": "to_week",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "definition_version": {
+          "name": "definition_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rows_changed": {
+          "name": "rows_changed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
         }
       },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "credit_rules_config_revision_pos_chk": {
-          "name": "credit_rules_config_revision_pos_chk",
-          "value": "\"credit_rules_config\".\"revision\" > 0"
+        "numbers_recompute_log_actor_chk": {
+          "name": "numbers_recompute_log_actor_chk",
+          "value": "\"numbers_recompute_log\".\"actor\" IN ('cli')"
         },
-        "credit_rules_config_rules_object_chk": {
-          "name": "credit_rules_config_rules_object_chk",
-          "value": "jsonb_typeof(\"credit_rules_config\".\"rules\") = 'object'"
+        "numbers_recompute_log_weeks_chk": {
+          "name": "numbers_recompute_log_weeks_chk",
+          "value": "\"numbers_recompute_log\".\"from_week\" <= \"numbers_recompute_log\".\"to_week\""
+        },
+        "numbers_recompute_log_reason_chk": {
+          "name": "numbers_recompute_log_reason_chk",
+          "value": "char_length(\"numbers_recompute_log\".\"reason\") BETWEEN 1 AND 500"
+        },
+        "numbers_recompute_log_rows_changed_chk": {
+          "name": "numbers_recompute_log_rows_changed_chk",
+          "value": "\"numbers_recompute_log\".\"rows_changed\" >= 0"
+        },
+        "numbers_recompute_log_definition_version_chk": {
+          "name": "numbers_recompute_log_definition_version_chk",
+          "value": "\"numbers_recompute_log\".\"definition_version\" >= 1"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.numbers_weekly": {
+      "name": "numbers_weekly",
+      "schema": "",
+      "columns": {
+        "week_start": {
+          "name": "week_start",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metric": {
+          "name": "metric",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "city_group": {
+          "name": "city_group",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trade_group": {
+          "name": "trade_group",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "numerator": {
+          "name": "numerator",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "denominator": {
+          "name": "denominator",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "suppressed": {
+          "name": "suppressed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "definition_version": {
+          "name": "definition_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "computed_at": {
+          "name": "computed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "frozen_at": {
+          "name": "frozen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "numbers_weekly_pkey": {
+          "name": "numbers_weekly_pkey",
+          "columns": [
+            "week_start",
+            "metric",
+            "city_group",
+            "trade_group"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "numbers_weekly_week_start_chk": {
+          "name": "numbers_weekly_week_start_chk",
+          "value": "extract(isodow from \"numbers_weekly\".\"week_start\") = 1"
+        },
+        "numbers_weekly_suppressed_chk": {
+          "name": "numbers_weekly_suppressed_chk",
+          "value": "NOT \"numbers_weekly\".\"suppressed\" OR (\"numbers_weekly\".\"value\" IS NULL AND \"numbers_weekly\".\"numerator\" IS NULL AND \"numbers_weekly\".\"denominator\" IS NULL)"
+        },
+        "numbers_weekly_definition_version_chk": {
+          "name": "numbers_weekly_definition_version_chk",
+          "value": "\"numbers_weekly\".\"definition_version\" >= 1"
         }
       },
       "isRLSEnabled": true

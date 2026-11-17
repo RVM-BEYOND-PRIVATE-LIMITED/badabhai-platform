@@ -25,8 +25,20 @@ import { NUMBERS_DEFINITION_VERSION } from "./groups";
 export const NUMBERS_METRIC_UNITS = ["count", "paise", "share", "ratio"] as const;
 export type NumbersMetricUnit = (typeof NUMBERS_METRIC_UNITS)[number];
 
-/** The issues a not-yet-measured figure waits on. */
-export const NUMBERS_WAITS_ON = ["#2749", "#2750", "#2751"] as const;
+/**
+ * A HEADLINE figure is one of the brief's numbers; a DIAGNOSTIC one is not a headline: it measures
+ * a known gap in a headline's rule so the owner can see its size (today: trade-form workers who
+ * finished the form but whose profile was never confirmed, the gap in "completed profiles").
+ */
+export const NUMBERS_METRIC_KINDS = ["headline", "diagnostic"] as const;
+export type NumbersMetricKind = (typeof NUMBERS_METRIC_KINDS)[number];
+
+/**
+ * The issues a not-yet-measured figure waits on. `#2755` is this screen's own later part (part C:
+ * repeat buying and the out-of-credits call list), whose figures the weekly snapshot does not hold
+ * yet.
+ */
+export const NUMBERS_WAITS_ON = ["#2749", "#2750", "#2751", "#2755"] as const;
 export type NumbersWaitsOn = (typeof NUMBERS_WAITS_ON)[number];
 
 export type NumbersAvailability =
@@ -48,6 +60,8 @@ export interface NumbersMetricDefinition {
    * non-negative quotient of two counts (contacts per hire), not bounded by 1.
    */
   readonly unit: NumbersMetricUnit;
+  /** A headline figure, or a diagnostic of a headline's known gap. */
+  readonly kind: NumbersMetricKind;
   /** Where the figure is read from. */
   readonly source: string;
   /** How it is counted, in words a reviewer can check against a hand-written query. */
@@ -80,14 +94,28 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "paying_companies",
         title: "Companies that paid",
         unit: "count",
+        kind: "headline",
         source:
           "payment_orders with status paid. The mock purchase route writes no order row, so no " +
           "mock purchase can count. Never credit_ledger.price_inr or payment.captured events: the " +
           "mock route writes both with no money taken.",
         rule:
-          "Distinct companies (test companies left out) with at least one paid order settled in " +
-          "the week, counted once each however many orders they paid. The settle time is the " +
-          "order's updated_at at its move to paid.",
+          "Distinct companies (test and sample companies left out) with at least one paid order " +
+          "settled in the week, counted once each however many orders they paid. The settle time " +
+          "is the order's updated_at at its move to paid. Split by the company's city and trade " +
+          "(the city and role_kind of its latest posting).",
+        availability: LIVE,
+      },
+      {
+        id: "paying_companies_cumulative",
+        title: "Companies that have ever paid",
+        unit: "count",
+        kind: "headline",
+        source: "payment_orders with status paid, as above.",
+        rule:
+          "Distinct companies (test and sample companies left out) with at least one paid order " +
+          "settled before the week's end, as of that end. Its all-cities, all-trades value is " +
+          "also what marks a week as before real payments: zero means no real payment yet.",
         availability: LIVE,
       },
       ...([30, 60, 90] as const).map(
@@ -95,12 +123,17 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
           id: `repeat_purchase_${days}d`,
           title: `Paid again within ${days} days`,
           unit: "share",
+          kind: "headline",
           source: "payment_orders with status paid, as above.",
           rule:
             "Cohort: the companies whose FIRST paid order settled in the week. The share of that " +
             `cohort with another paid order settled within ${days} days after the first. A cohort ` +
             `younger than ${days} days is reported as still open, not as a share.`,
-          availability: LIVE,
+          availability: waitsOn(
+            "#2755",
+            "repeat buying is computed in part C of this screen; the weekly snapshot does not " +
+              "hold it yet",
+          ),
         }),
       ),
     ],
@@ -114,11 +147,23 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "companies_posted",
         title: "Companies that posted their first job",
         unit: "count",
+        kind: "headline",
         source: "job_postings.published_at, the first publish per company.",
         rule:
-          "Companies (test companies left out) whose first published posting was published in " +
-          "the week. Owner question 3 default: a company has posted when its job is first " +
-          "published; a test company's postings never count.",
+          "Companies (test and sample companies left out) whose first published posting was " +
+          "published in the week. Owner question 3 default: a company has posted when its job is " +
+          "first published; a test company's postings and the seed's sample postings never count.",
+        availability: LIVE,
+      },
+      {
+        id: "companies_posted_cumulative",
+        title: "Companies that have ever posted a job",
+        unit: "count",
+        kind: "headline",
+        source: "job_postings.published_at, the first publish per company.",
+        rule:
+          "Companies (exclusions as above) whose first published posting was published before " +
+          "the week's end, as of that end.",
         availability: LIVE,
       },
     ],
@@ -132,6 +177,7 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "completed_profiles",
         title: "Completed worker profiles",
         unit: "count",
+        kind: "headline",
         source:
           "worker_profiles: the current row per worker (CURRENT_PROFILE_ORDER), the onboarding " +
           "funnel's profile_confirmed step.",
@@ -141,20 +187,55 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
           "default), so the two admin screens cannot disagree. Test accounts, sample workers and " +
           "linked RVM identities that never signed in are left out. A trade-form worker counts " +
           "only once the app's résumé step has confirmed his profile (see 'Completed profile' " +
-          "in docs/api/admin-numbers-api-reference.md).",
+          "in docs/api/admin-numbers-api-reference.md). Split by the worker's current_city and " +
+          "primary trade (the onboarding funnel's lowest-sort_order occupation). A worker cell " +
+          "under the small-cell floor is suppressed, except the all-cities, all-trades total.",
+        availability: LIVE,
+      },
+      {
+        id: "completed_profiles_cumulative",
+        title: "Completed worker profiles, in total",
+        unit: "count",
+        kind: "headline",
+        source: "worker_profiles, as above.",
+        rule:
+          "Workers (exclusions as above) whose current profile is confirmed with a confirmed_at " +
+          "before the week's end, as of that end. Small cells suppressed as above.",
         availability: LIVE,
       },
       {
         id: "active_workers_30d",
         title: "Workers active in the last 30 days",
         unit: "count",
+        kind: "headline",
         source:
           "worker_activity (#2753, one row per worker per India day) and the device sighting " +
           "lastActiveDayOf merges with it.",
         rule:
-          "Workers (exclusions as above) with an active day in the 30 days ending on the week's " +
-          "Sunday, as of that Sunday. Past weeks can be rebuilt only from worker_activity rows: " +
-          "a device sighting keeps only its newest time.",
+          "Workers (exclusions as above) whose last active day, as of the week's Sunday, falls in " +
+          "the 30 days ending on that Sunday. The last active day is #2753's one definition " +
+          "(lastActiveDayOf: the later of his newest worker_activity day and the India day of his " +
+          "newest device sighting), read as of the Sunday: only worker_activity days up to it, " +
+          "and only device sightings before the week's end. A device keeps only its newest " +
+          "sighting, so a past week rests on worker_activity and on the devices not seen since. " +
+          "Small cells suppressed as above.",
+        availability: LIVE,
+      },
+      {
+        id: "form_completed_unconfirmed",
+        title: "Finished the trade form, profile not confirmed (diagnostic)",
+        unit: "count",
+        kind: "diagnostic",
+        source:
+          "the profile.form_completed events (the trade form's completion, once per worker and " +
+          "pack) and worker_profiles, as above.",
+        rule:
+          "NOT A HEADLINE: the size of the gap in 'completed profiles'. Workers (exclusions as " +
+          "above) whose FIRST profile.form_completed is in the week and whose current profile is " +
+          "not confirmed when the week is computed (the last computation is at its freeze). The " +
+          "numerator is that count; the denominator is every such worker who finished the form " +
+          "in the week, so the share left uncounted is numerator / denominator. Small cells " +
+          "suppressed as above.",
         availability: LIVE,
       },
     ],
@@ -168,23 +249,40 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "confirmed_hires",
         title: "Confirmed hires",
         unit: "count",
+        kind: "headline",
         source: "hires (#2753), status confirmed only.",
         rule:
-          "Hire records with status confirmed whose hired_on falls in the week. A reported or " +
-          "rejected record never counts; test companies' records are left out.",
+          "Hire records with status confirmed whose hired_on (the India day of the first " +
+          "confirming source) falls in the week. A reported or rejected record never counts; the " +
+          "records of test and sample companies, and of test-account and sample workers, are " +
+          "left out. Split by the company's city and trade, as for paying companies.",
+        availability: LIVE,
+      },
+      {
+        id: "confirmed_hires_cumulative",
+        title: "Confirmed hires, in total",
+        unit: "count",
+        kind: "headline",
+        source: "hires (#2753), status confirmed only.",
+        rule:
+          "Confirmed hire records (exclusions as above) whose hired_on is on or before the week's " +
+          "Sunday, as of that Sunday.",
         availability: LIVE,
       },
       {
         id: "contacts_per_hire",
         title: "Contacts opened per hire",
         unit: "ratio",
+        kind: "headline",
         source:
           "granted unlocks, leaving out the opens carried over by the company-move import of " +
           "#2754, over the confirmed hires above.",
         rule:
-          "Granted unlocks in the week divided by confirmed hires in the week, both for the same " +
-          "companies (test companies left out). Reported as not computable when the week has no " +
-          "confirmed hire, never as zero.",
+          "Contacts opened in the week (unlocks granted in it: status granted, revealed or " +
+          "expired) divided by confirmed hires in the week, both for the same companies (test and " +
+          "sample companies, and test-account and sample workers, left out). The numerator and " +
+          "denominator are kept; the value is the quotient in hundredths, rounded half up. Not " +
+          "computable (null) when the week has no confirmed hire, never zero.",
         availability: LIVE,
       },
     ],
@@ -198,6 +296,7 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "posting_choice_free_share",
         title: "Tapped 'Post free (5 contacts)'",
         unit: "share",
+        kind: "headline",
         source: "the posting-button tap record of #2751.",
         rule: "Taps on the free button over all taps on the two buttons in the week.",
         availability: waitsOn("#2751", "the posting-button tap record does not exist yet"),
@@ -206,6 +305,7 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "posting_choice_starter_share",
         title: "Tapped 'Post free + Starter ₹999 (20 contacts)'",
         unit: "share",
+        kind: "headline",
         source: "the posting-button tap record of #2751.",
         rule: "Taps on the Starter button over all taps on the two buttons in the week.",
         availability: waitsOn("#2751", "the posting-button tap record does not exist yet"),
@@ -221,6 +321,7 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "welcome_credits_used_up",
         title: "Used up the 5 welcome credits",
         unit: "count",
+        kind: "headline",
         source: "the welcome credit lot of #2750.",
         rule: "Companies whose welcome lot reached zero in the week.",
         availability: waitsOn("#2750", "the welcome credit lot does not exist yet"),
@@ -229,6 +330,7 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "welcome_then_bought",
         title: "Then bought a pack",
         unit: "count",
+        kind: "headline",
         source: "the welcome lot of #2750 and the pack lots of #2749.",
         rule: "Of those companies, the ones with a paid pack after the welcome lot ran out.",
         availability: waitsOn("#2750", "the welcome credit lot does not exist yet"),
@@ -244,6 +346,7 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "couldnt_reach_claims",
         title: "'Couldn't reach' claims",
         unit: "count",
+        kind: "headline",
         source: "the couldn't-reach claim record of #2750.",
         rule: "Claims made in the week.",
         availability: waitsOn("#2750", "the couldn't-reach claim does not exist yet"),
@@ -252,6 +355,7 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "couldnt_reach_credits_returned",
         title: "Credits returned",
         unit: "count",
+        kind: "headline",
         source: "the credit returns of #2750.",
         rule: "Credits returned on accepted claims in the week.",
         availability: waitsOn("#2750", "the couldn't-reach claim does not exist yet"),
@@ -267,6 +371,7 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "credits_waived",
         title: "Credits waived",
         unit: "count",
+        kind: "headline",
         source: "the waiver ledger rows of #2750.",
         rule: "Credits waived in the week.",
         availability: waitsOn("#2750", "the waiver ledger rows do not exist yet"),
@@ -282,17 +387,22 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "revenue_by_pack",
         title: "Revenue by pack, as charged",
         unit: "paise",
+        kind: "headline",
         source: "payment_orders with status paid: amount_inr (whole rupees today) and pack_code.",
         rule:
-          "The sum of amount_inr × 100 over paid orders settled in the week, by pack_code (test " +
-          "companies left out). Real money only: the payments mode travels with the figure, and " +
-          "a week before real payments is marked, never shown as revenue.",
+          "The sum of amount_inr × 100 over paid orders settled in the week (test and sample " +
+          "companies left out): the total, and one figure per pack_code (revenue_by_pack:<code>, " +
+          "every pack paid for up to the week's end). Real money only: the mock purchase route " +
+          "writes no order row, the payments mode travels with the figure, and a week before " +
+          "real payments is marked, never shown as revenue. Split by the company's city and " +
+          "trade, as for paying companies.",
         availability: LIVE,
       },
       {
         id: "revenue_gst_split",
         title: "Revenue before GST, and the GST",
         unit: "paise",
+        kind: "headline",
         source: "the GST split of #2749 (part 3).",
         rule: "The same orders, split into the price before GST and the GST, in paise.",
         availability: waitsOn("#2749", "orders carry no GST split until #2749 part 3 lands"),
@@ -301,6 +411,7 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "revenue_managed_hiring",
         title: "Managed Hiring revenue",
         unit: "paise",
+        kind: "headline",
         source: "the Managed Hiring orders of #2751 (₹4,000 and ₹8,000).",
         rule: "Paid Managed Hiring orders settled in the week, by price, in paise.",
         availability: waitsOn("#2751", "Managed Hiring has no order record yet"),
@@ -316,6 +427,7 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         id: "out_of_credits_companies",
         title: "Companies whose credits ran out",
         unit: "count",
+        kind: "headline",
         source:
           "the company's usable balance (zero after a spend or an expiry); payer.credits_exhausted " +
           "gives the moment of the last spend.",
@@ -323,7 +435,11 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
           "Companies (test companies left out) whose usable balance reached zero in the week and " +
           "is still zero at its end. The call list itself is GET /admin/numbers/out-of-credits " +
           "(part C), newest first.",
-        availability: LIVE,
+        availability: waitsOn(
+          "#2755",
+          "the out-of-credits figure is computed with the call list in part C of this screen; " +
+            "the weekly snapshot does not hold it yet",
+        ),
       },
     ],
   },
@@ -341,3 +457,61 @@ export function numbersMetric(id: string): NumbersMetricDefinition | undefined {
 
 /** The version every rule above is written under (re-exported for one import). */
 export { NUMBERS_DEFINITION_VERSION };
+
+// ---------------------------------------------------------------------------------------------
+// The weekly snapshot (part B)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * #2755 item 11 — THE BASELINE: the first week the sweep ever computes. Its first run computes
+ * every week from here (or from the week of the earliest source row, whichever is LATER: a week
+ * with no source row anywhere before it is not a measurement of anything) to the current week,
+ * from history, so the first screen already shows a change. 2026-06-01 is a Monday, before the
+ * platform's first company or worker. Under {@link NUMBERS_DEFINITION_VERSION}: moving it is a
+ * version bump and a recompute of the weeks it adds.
+ */
+export const NUMBERS_BASELINE_FROM = "2026-06-01";
+
+/** Whose figure a snapshot metric is: a worker figure's small cells are suppressed. */
+export type NumbersSnapshotSubject = "worker" | "company";
+
+/**
+ * Every metric the nightly sweep writes to `numbers_weekly`, with whose figure it is. The live
+ * catalogue entries above, exactly (a test pins the two lists together); a `not_available` metric
+ * is never stored, so the screen can never draw it as a zero. `revenue_by_pack` is stored as the
+ * all-packs total under its own id AND once per pack under `revenue_by_pack:<pack_code>`.
+ */
+export const NUMBERS_SNAPSHOT_METRICS: Readonly<Record<string, NumbersSnapshotSubject>> = {
+  paying_companies: "company",
+  paying_companies_cumulative: "company",
+  companies_posted: "company",
+  companies_posted_cumulative: "company",
+  completed_profiles: "worker",
+  completed_profiles_cumulative: "worker",
+  active_workers_30d: "worker",
+  form_completed_unconfirmed: "worker",
+  confirmed_hires: "company",
+  confirmed_hires_cumulative: "company",
+  contacts_per_hire: "company",
+  revenue_by_pack: "company",
+};
+
+/** The id prefix of one pack's revenue: `revenue_by_pack:pack_50`. */
+export const NUMBERS_REVENUE_PACK_PREFIX = "revenue_by_pack:";
+
+/** A pack code as stored ids carry it; anything else is folded into `revenue_by_pack:other`. */
+const PACK_CODE = /^[a-z0-9_]{1,64}$/;
+
+/** The snapshot metric id of one pack's revenue (a missing or malformed code folds into `other`). */
+export function revenuePackMetricId(packCode: string | null): string {
+  const code = packCode !== null && PACK_CODE.test(packCode) ? packCode : "other";
+  return `${NUMBERS_REVENUE_PACK_PREFIX}${code}`;
+}
+
+/** Is `id` a stored per-pack revenue id? */
+export function isRevenuePackMetricId(id: string): boolean {
+  return (
+    id.startsWith(NUMBERS_REVENUE_PACK_PREFIX) &&
+    PACK_CODE.test(id.slice(NUMBERS_REVENUE_PACK_PREFIX.length))
+  );
+}

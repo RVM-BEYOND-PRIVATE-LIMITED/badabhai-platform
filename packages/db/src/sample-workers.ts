@@ -89,3 +89,19 @@ export function isSampleWorkerId(workerId: string): boolean {
 export function sampleWorkerIdLikePatterns(): readonly string[] {
   return [workforceIdLikePattern("worker"), payerDemoIdLikePattern("worker")];
 }
+
+/**
+ * #2755 part B — the SQL `LIKE` patterns of the SAMPLE COMPANIES and their SAMPLE POSTINGS: the
+ * synthetic workforce seed's payers (`face10…`) and job postings (`face30…`), written to production
+ * beside the real rows (2026-10-07) so search had employers and jobs. They are not customers, so
+ * no company figure of the numbers screen counts them. The payer-demo cohort (#2651) seeds workers
+ * only, so it has no company namespace.
+ */
+export function samplePayerIdLikePatterns(): readonly string[] {
+  return [workforceIdLikePattern("payer")];
+}
+
+/** The same, for the sample postings. See {@link samplePayerIdLikePatterns}. */
+export function samplePostingIdLikePatterns(): readonly string[] {
+  return [workforceIdLikePattern("posting")];
+}

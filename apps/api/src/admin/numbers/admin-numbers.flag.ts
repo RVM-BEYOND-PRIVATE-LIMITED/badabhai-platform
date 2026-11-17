@@ -30,3 +30,19 @@ export class AdminNumbersEnabledGuard implements CanActivate {
     return true;
   }
 }
+
+/** The owner's "a few days after it ends" (#2755 item 4): a week freezes 3 days after its Sunday. */
+export const DEFAULT_NUMBERS_FREEZE_AFTER_DAYS = 3;
+
+/**
+ * `NUMBERS_FREEZE_AFTER_DAYS` — how many whole days after a week ends the sweep freezes it, or the
+ * default when the config does not carry a valid one (a hand-built config in a test or a CLI).
+ */
+export function numbersFreezeAfterDays(
+  config: Pick<ServerConfig, "NUMBERS_FREEZE_AFTER_DAYS"> | undefined,
+): number {
+  const days = config?.NUMBERS_FREEZE_AFTER_DAYS;
+  return typeof days === "number" && Number.isInteger(days) && days >= 1
+    ? days
+    : DEFAULT_NUMBERS_FREEZE_AFTER_DAYS;
+}
