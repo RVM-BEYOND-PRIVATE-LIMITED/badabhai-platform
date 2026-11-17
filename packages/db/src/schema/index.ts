@@ -60,6 +60,7 @@ import { stillLookingChecks } from "./still-looking";
 import { payerPhoneProofs } from "./payer-phone-proof";
 import { numbersRecomputeLog, numbersWeekly } from "./numbers-weekly";
 import { creditRulesConfig } from "./credit-rules";
+import { launchTestCohort, launchTestShares } from "./launch-test";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -194,6 +195,8 @@ export * from "./payer-phone-proof";
 // #2755 items 4 and 11 — the numbers screen's weekly snapshot and its recompute log.
 export * from "./numbers-weekly";
 export * from "./credit-rules";
+// #2755 item 9 — launch test A: the factories, what each was sent, its payment link and result.
+export * from "./launch-test";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -526,4 +529,7 @@ export const schema = {
   numbersRecomputeLog,
   // #2750 item 1 - the credit rules settings, one row per revision (read only while CREDIT_RULES_ROLLOUT is on).
   creditRulesConfig,
+  // #2755 item 9 - launch test A records (read and written only while ADMIN_NUMBERS_ENABLED is on).
+  launchTestCohort,
+  launchTestShares,
 };

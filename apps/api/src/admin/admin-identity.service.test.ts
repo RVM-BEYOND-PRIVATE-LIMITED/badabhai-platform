@@ -24,6 +24,7 @@ interface Harness {
   workerNames: ReturnType<typeof vi.fn>;
   payerOrgNames: ReturnType<typeof vi.fn>;
   adminNames: ReturnType<typeof vi.fn>;
+  launchTestFactoryNames: ReturnType<typeof vi.fn>;
   /** Every control step, in the order it actually ran. */
   trace: string[];
 }
@@ -49,6 +50,10 @@ function harness(opts: {
     trace.push("fetch");
     return rows;
   });
+  const launchTestFactoryNames = vi.fn(async () => {
+    trace.push("fetch");
+    return rows;
+  });
   const consume = vi.fn(async () => {
     trace.push("cap");
     return opts.cap ?? { ok: true as const };
@@ -65,12 +70,22 @@ function harness(opts: {
   });
 
   const svc = new AdminIdentityService(
-    { workerNames, payerOrgNames, adminNames } as unknown as AdminIdentityRepository,
+    { workerNames, payerOrgNames, adminNames, launchTestFactoryNames } as unknown as AdminIdentityRepository,
     { consume } as unknown as AdminIdentityCapService,
     { decrypt } as unknown as PiiCryptoService,
     { emit } as unknown as EventsService,
   );
-  return { svc, emit, decrypt, consume, workerNames, payerOrgNames, adminNames, trace };
+  return {
+    svc,
+    emit,
+    decrypt,
+    consume,
+    workerNames,
+    payerOrgNames,
+    adminNames,
+    launchTestFactoryNames,
+    trace,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +440,21 @@ describe("surfaces route to exactly one projection each", () => {
     await h3.svc.resolve(admin("super_admin"), "admins", [W1], null, CTX);
     expect(h3.adminNames).toHaveBeenCalledWith([W1]);
     expect(h3.workerNames).not.toHaveBeenCalled();
+  });
+
+  it("#2755 item 9: launch_test_factories → launchTestFactoryNames, audited under that surface", async () => {
+    const h = harness();
+    const names = await h.svc.resolve(admin("ops_admin"), "launch_test_factories", [W1], null, CTX);
+    expect(h.launchTestFactoryNames).toHaveBeenCalledWith([W1]);
+    expect(h.payerOrgNames).not.toHaveBeenCalled();
+    expect(h.workerNames).not.toHaveBeenCalled();
+    expect(names!.get(W1)).toBe("plain(v1.cipher-a)");
+    expect(h.emit.mock.calls[0]![0].payload).toMatchObject({
+      surface: "launch_test_factories",
+      result_count: 1,
+    });
+    // The audit row is committed before the decrypt, as on every surface.
+    expect(h.trace).toEqual(["fetch", "cap", "emit", "decrypt"]);
   });
 });
 

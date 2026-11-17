@@ -23,6 +23,7 @@ import { AdminFunnelController } from "./admin-funnel.controller";
 import { AdminEmptyFeedController } from "./admin-empty-feed.controller";
 import { AdminNumbersController } from "./numbers/admin-numbers.controller";
 import { AdminNumbersEnabledGuard } from "./numbers/admin-numbers.flag";
+import { AdminLaunchTestsController } from "./launch-tests/admin-launch-tests.controller";
 import { AdminModule } from "./admin.module";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
@@ -576,7 +577,10 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     const readers = tsFiles(ADMIN_DIR)
       .filter((f) => {
         const src = readFileSync(f, "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
-        return /workers\.fullName|payers\.orgNameEnc|adminUsers\.nameEnc/.test(src);
+        // #2755 item 9 — launch test A's factory name (`launch_test_cohort.factory_name_enc`).
+        return /workers\.fullName|payers\.orgNameEnc|adminUsers\.nameEnc|launchTestCohort\.factoryNameEnc/.test(
+          src,
+        );
       })
       .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"));
     expect(
@@ -778,8 +782,8 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     // shape is pinned, so a column added here fails whether or not anyone predicted it — a
     // `phoneHash`, a `status`, a `createdAt`, a column that does not exist yet.
     //
-    // It also pins the COUNT of projections at four, one per surface, so a fifth lookup cannot
-    // arrive without this list being edited.
+    // It also pins the COUNT of projections, one per surface (five since #2755 item 9), so another
+    // lookup cannot arrive without this list being edited.
     const src = code(IDENTITY_REPO);
     // Strip the `${...}` interpolation bodies before parsing: the login-ID projection is a
     // `sql` template whose braces would otherwise truncate the key list at the first `}`.
@@ -787,8 +791,9 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     const selects = [...flat.matchAll(/\.select\(\s*\{([^}]*)\}\s*\)/g)].map((m) =>
       [...m[1]!.matchAll(/(\w+)\s*:/g)].map((k) => k[1]!).sort(),
     );
+    // #2755 item 9 made it five: launch test A's factory names (`launchTestFactoryNames`).
     expect(selects, "the identity repository must have exactly one select per surface").toHaveLength(
-      4,
+      5,
     );
     for (const keys of selects) {
       expect(keys, `a select projects ${keys.join(", ")}`).toEqual(["id", "nameCipher"]);
@@ -897,6 +902,9 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
         "admin/admin-payer-logins.service.ts",
         // #2564 — the Companies list (names) and detail (names + contact PII).
         "admin/companies/admin-companies.service.ts",
+        // #2755 item 9 — launch test A's factory list (the factory names). Added below in the same
+        // edit, as this test demands.
+        "admin/launch-tests/admin-launch-tests.service.ts",
       ].sort(),
     );
   });
@@ -919,6 +927,10 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     expect(nameBearingHandlers("companies/admin-companies.service.ts")).toEqual([
       "getCompany",
       "listCompanies",
+    ]);
+    // #2755 item 9 — launch test A's factory list.
+    expect(nameBearingHandlers("launch-tests/admin-launch-tests.service.ts")).toEqual([
+      "listCohort",
     ]);
   });
 
@@ -961,6 +973,12 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
       );
     }
     expect(cacheControlOf(AdminCompaniesController, "createCompany")).toBe("no-store");
+    // #2755 item 9 — launch test A's factory list (names through the identity layer).
+    for (const method of nameBearingHandlers("launch-tests/admin-launch-tests.service.ts")) {
+      expect(cacheControlOf(AdminLaunchTestsController, method), `${method} must be no-store`).toBe(
+        "no-store",
+      );
+    }
   });
 
   it("the FACELESS entity routes are unchanged — no-store is not sprayed across the controller", () => {
@@ -1031,6 +1049,18 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
       .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"))
       .sort();
     expect(callers).toEqual(["admin/admin-payer-logins.service.ts"]);
+  });
+
+  it("#2755 the `launch_test_factories` identity surface is used ONLY by the launch-tests service", () => {
+    // The surface exists for launch test A's factory list. A second caller would silently become
+    // another place the desk's factory names are decrypted, outside that screen.
+    const callers = tsFiles(ADMIN_DIR)
+      .filter((f) => !f.endsWith(".test.ts"))
+      .filter((f) => !f.endsWith("admin-identity.service.ts"))
+      .filter((f) => code(relative(ADMIN_DIR, f)).includes('"launch_test_factories"'))
+      .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"))
+      .sort();
+    expect(callers).toEqual(["admin/launch-tests/admin-launch-tests.service.ts"]);
   });
 
   it("the `candidates` identity surface is used ONLY by the candidates search service", () => {
@@ -2346,6 +2376,123 @@ describe("#2755 numbers routes - guarded, switch before roles, one capability, o
     )) {
       expect(numbersCode(file), file).not.toMatch(/\.from\s*\(\s*events\s*\)/);
       expect(numbersCode(file), file).not.toMatch(/\.(insert|update|delete)\s*\(\s*events\b/);
+    }
+  });
+});
+
+describe("#2755 part D launch-tests routes - guarded, switch before roles, one capability, no ciphertext out", () => {
+  const proto = AdminLaunchTestsController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminLaunchTestsController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+  /** Non-comment source of a file under admin/launch-tests/**. */
+  const launchCode = (file: string): string =>
+    readFileSync(join(ADMIN_DIR, "launch-tests", file), "utf8").replace(
+      /^\s*(\/\/|\*|\/\*).*$/gm,
+      "",
+    );
+  const launchFiles = (): string[] =>
+    readdirSync(join(ADMIN_DIR, "launch-tests")).filter(
+      (f) => f.endsWith(".ts") && !f.endsWith(".test.ts"),
+    );
+
+  it("discovers EXACTLY the cohort read, its two writes and the contacts-per-hire report", () => {
+    expect(routeMethods.sort()).toEqual(
+      ["contactsPerHire", "listCohort", "recordFactory", "updateFactory"].sort(),
+    );
+  });
+
+  it("EVERY route carries AdminAuthGuard, the numbers switch AND AdminRolesGuard, switch first", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminLaunchTestsController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+      expect(guards.indexOf(AdminNumbersEnabledGuard.name), method).toBeGreaterThan(
+        guards.indexOf(AdminAuthGuard.name),
+      );
+      expect(guards.indexOf(AdminNumbersEnabledGuard.name), method).toBeLessThan(
+        guards.indexOf(AdminRolesGuard.name),
+      );
+    }
+  });
+
+  it("EVERY route declares method-level @RequireAdminRole('read_business_numbers'), none on the class", () => {
+    expect(Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminLaunchTestsController)).toBeUndefined();
+    for (const method of routeMethods) {
+      expect(
+        Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[method] as object) as AdminCapability,
+        method,
+      ).toBe("read_business_numbers");
+    }
+  });
+
+  it("two GETs, one POST, one PATCH — and every one is no-store", () => {
+    expect(Reflect.getMetadata("method", proto.listCohort as object) as number).toBe(0);
+    expect(Reflect.getMetadata("method", proto.contactsPerHire as object) as number).toBe(0);
+    expect(Reflect.getMetadata("method", proto.recordFactory as object) as number).toBe(1);
+    expect(Reflect.getMetadata("method", proto.updateFactory as object) as number).toBe(4);
+    for (const method of routeMethods) {
+      const headers = (Reflect.getMetadata("__headers__", proto[method] as object) ?? []) as {
+        name: string;
+        value: string;
+      }[];
+      expect(headers.find((h) => h.name.toLowerCase() === "cache-control")?.value, method).toBe(
+        "no-store",
+      );
+    }
+  });
+
+  it("the factory's name and phone ciphertext are WRITTEN here and never read back", () => {
+    // The name is read ONLY by AdminIdentityRepository.launchTestFactoryNames (the single-reader
+    // scan above); the phone by nothing at all. Here they may appear only as the insert's keys.
+    for (const file of launchFiles()) {
+      const src = launchCode(file);
+      // A COLUMN reference (the table or its alias), never the insert value object's own key.
+      expect(src, file).not.toMatch(/\b(t|launchTestCohort)\.factory(Name|Phone)Enc\b/);
+      expect(src, file).not.toMatch(/factory_(name|phone)_enc/);
+      expect(src, file).not.toMatch(/\.select\(\s*\)/);
+    }
+    const repo = launchCode("admin-launch-tests.repository.ts");
+    const projections = [...repo.matchAll(/\.select\(\{([\s\S]*?)\}\)/g)].map((m) => m[1]!);
+    expect(projections.length).toBeGreaterThan(0);
+    for (const projection of projections) {
+      for (const forbidden of [
+        "factoryNameEnc",
+        "factoryPhoneEnc",
+        "orgNameEnc",
+        "emailEnc",
+        "phoneEnc",
+        "phoneE164",
+        "fullName",
+      ]) {
+        expect(projection, forbidden).not.toContain(forbidden);
+      }
+      // The phone hash is compared in SQL (IS NOT DISTINCT FROM) or filtered on, never projected.
+      expect(projection).not.toMatch(/\w+:\s*(t|payers|launchTestCohort)\.(factoryP|p)honeHash\b/);
+    }
+  });
+
+  it("no file here decrypts: the factory name goes through the identity layer", () => {
+    for (const file of launchFiles()) {
+      expect(launchCode(file), file).not.toMatch(
+        /\.decrypt\s*\(|\bdecryptPii(?:WithKeyring)?\s*\(/,
+      );
+    }
+  });
+
+  it("writes only its own two tables, and reads the spine never", () => {
+    const repo = launchCode("admin-launch-tests.repository.ts");
+    const writes = [...repo.matchAll(/\.(insert|update|delete)\s*\(\s*(\w+)\s*\)/g)].map(
+      (m) => m[2],
+    );
+    expect(new Set(writes)).toEqual(new Set(["t", "launchTestShares"]));
+    expect(repo).toContain("launchTestCohort as t");
+    for (const file of launchFiles()) {
+      expect(launchCode(file), file).not.toMatch(/\.from\s*\(\s*events\s*\)/);
+      expect(launchCode(file), file).not.toMatch(/\.(insert|update|delete)\s*\(\s*events\b/);
     }
   });
 });

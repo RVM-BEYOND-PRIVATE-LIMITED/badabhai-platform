@@ -1255,6 +1255,13 @@
       "when": 1794907655152,
       "tag": "0178_credit_rules_config",
       "breakpoints": true
+    },
+    {
+      "idx": 179,
+      "version": "7",
+      "when": 1794908884774,
+      "tag": "0179_launch_tests",
+      "breakpoints": true
     }
   ]
 }
