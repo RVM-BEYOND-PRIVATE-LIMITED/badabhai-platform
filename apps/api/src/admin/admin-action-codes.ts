@@ -113,6 +113,11 @@ export const ADMIN_ACTION_CODES = {
   // old and new values and the admin's reason live on the `audit_logs` row; the spine carries the
   // CODE only.
   credit_rules_changed: "credit_rules_changed",
+  // ── #2755 item 9 — launch test A: a factory recorded, or its record changed ────────────
+  // Target = the factory row (`target_type: "launch_test_cohort"`). The counts and closed codes
+  // ride `admin.launch_test_factory_recorded|updated`; never the name, phone or link text.
+  launch_test_factory_recorded: "launch_test_factory_recorded",
+  launch_test_factory_updated: "launch_test_factory_updated",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];

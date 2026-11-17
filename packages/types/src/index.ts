@@ -1585,6 +1585,25 @@ export type UnlockCompanyOutcome = (typeof UNLOCK_COMPANY_OUTCOMES)[number];
 export const UNLOCK_OUTCOME_ANSWERERS = Object.freeze(["company", "desk"] as const);
 export type UnlockOutcomeAnswerer = (typeof UNLOCK_OUTCOME_ANSWERERS)[number];
 
+// ---- Launch test A: what each factory did with its payment link (#2755 item 9) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells it into
+// `launch_test_cohort_result_chk`, `packages/event-schema` puts it on the spine
+// (`admin.launch_test_factory_updated`), and `apps/api` writes and lists it.
+
+/**
+ * The result the desk records for one factory of launch test A. `pending` until the desk knows;
+ * `paid` (it paid the link: `paid_at` is set exactly then), `declined` (it said no) or
+ * `no_response` (it never answered).
+ */
+export const LAUNCH_TEST_RESULTS = Object.freeze([
+  "pending",
+  "paid",
+  "declined",
+  "no_response",
+] as const);
+export type LaunchTestResult = (typeof LAUNCH_TEST_RESULTS)[number];
+
 // ---- Credit lots: a company's balance, as expiring lots (#2749, migration 0174) ----
 //
 // HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells the sources into
