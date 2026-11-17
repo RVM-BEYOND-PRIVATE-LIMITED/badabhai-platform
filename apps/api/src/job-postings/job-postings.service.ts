@@ -13,6 +13,7 @@ import { bandForCount } from "@badabhai/validators";
 import {
   audienceReachesBadaBhaiWorkers,
   holdPostingFromWorkers,
+  type JobWorkerVisibilityOrigin,
   type Database,
   type JobPosting,
   type JobPostingAudience,
@@ -519,6 +520,10 @@ export class JobPostingsService {
     dto: PayerCreateJobPostingDto,
     targeting: { rvm_branch_ids: number[]; rvm_course_ids: string[] },
     ctx: RequestContext,
+    // #2891 — how the posting came from Campus: the placement team's post-for-company route
+    // (`campus_posted`, the default) or #2754's import of live Campus jobs (`campus_imported`).
+    // Both take this one path, so an imported job gets exactly the field rules a posted one does.
+    opts: { origin?: JobWorkerVisibilityOrigin } = {},
   ): Promise<JobPostingApi> {
     const audience = await this.audience.resolveForInstitute(targeting);
     const draft = await this.createWithin(scope, dto, ctx, audience);
@@ -526,7 +531,8 @@ export class JobPostingsService {
     // while the posting is still a DRAFT, which no worker path reads, and BEFORE the open below: if
     // this write fails the posting stays a draft and nothing leaks. Its audience is `both`, so the
     // admin's `on` is all it takes; the hold is outside the RVM review hash.
-    await this.repo.withTransaction((tx) => holdPostingFromWorkers(tx, draft.id, "campus_posted"));
+    const origin = opts.origin ?? "campus_posted";
+    await this.repo.withTransaction((tx) => holdPostingFromWorkers(tx, draft.id, origin));
     // OPEN AT ONCE, as Campus puts a staff-posted job live today. Not through the company
     // publish gate: that gate requires one of the 16 trades because publishing MATCHES BadaBhai
     // workers (#2635), and a held posting reaches no worker at all. Reach is built when an admin
