@@ -1575,6 +1575,17 @@ export const serverEnvSchema = z.object({
   // days after it ends"), at least 1. Empty reads as the default. Read only while
   // ADMIN_NUMBERS_ENABLED is on.
   NUMBERS_FREEZE_AFTER_DAYS: positiveIntFromString(3),
+  // THE BULK STUDENT MOVE (#2887, ruling of 17 Nov 2026): RVM students imported into BadaBhai as
+  // workers, out of matching and hidden from companies until an admin turns their visibility on.
+  // On: #2752's company rules lift for visible moved students and hold for hidden ones, the
+  // `/admin/students/*` routes answer to `manage_student_visibility`, and a worker's own edit marks
+  // the field as his. DEFAULT OFF: every `/admin/students/*` route is a neutral 404 and the search,
+  // open-gate and pre-pay statements are byte-identical to before. (`job_reach` is NOT switched:
+  // reach depends on no switch, #2746 M2. It skips a hidden moved student whenever the
+  // `student_visibility` table exists; before the migration, and with no student imported, nothing
+  // changes.) APPLY THE `student_move` MIGRATION BEFORE THE SWITCH (on without it: the routes answer
+  // 503 and the hot reads fall back to their off text).
+  STUDENT_MOVE_ENABLED: booleanFromString,
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable

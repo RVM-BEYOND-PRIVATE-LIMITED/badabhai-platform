@@ -251,6 +251,8 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
         "edit_candidates",
         // #2755 — the business numbers screen (super_admin, ops_admin). Tail-appended.
         "read_business_numbers",
+        // #2887 — the moved students' visibility switch (super_admin, ops_admin).
+        "manage_student_visibility",
       ],
     });
   });

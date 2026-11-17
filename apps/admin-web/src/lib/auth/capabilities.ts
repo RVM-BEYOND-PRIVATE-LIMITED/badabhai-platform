@@ -84,6 +84,9 @@ export const ADMIN_CAPABILITIES = [
   // #2750 — the placement team's waivers (free RVM applicants for one company or one job).
   // Vocabulary only: this file carries no role mapping.
   "manage_waivers",
+  // #2887 — the moved RVM students' visibility switch (one student or in bulk).
+  // Vocabulary only: this file carries no role mapping.
+  "manage_student_visibility",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -133,6 +136,7 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   read_business_numbers: "Read the business numbers and mark test companies",
   manage_credit_rules: "Edit the credit rules (contact cost, limits, welcome credits)",
   manage_waivers: "Set or clear the placement team's waivers for RVM applicants",
+  manage_student_visibility: "Turn moved RVM students' visibility on or off",
 };
 
 /** Narrow an unknown string to a known capability (anything else is dropped, not trusted). */
