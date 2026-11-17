@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   Header,
   HttpCode,
   Inject,
@@ -22,6 +23,7 @@ import { PayerPhoneProofService } from "./payer-phone-proof.service";
 import {
   PayerPhoneProofVerifySchema,
   type PayerPhoneProofCodeResponse,
+  type PayerPhoneProofStatusResponse,
   type PayerPhoneProofVerifiedResponse,
   type PayerPhoneProofVerifyDto,
 } from "./payer-phone-proof.dto";
@@ -32,10 +34,11 @@ import {
  * `PayerAuthGuard`, and the account is the GUARD principal only (no body, path or query id), so no
  * company can prove a phone for another.
  *
- * Both routes 404 while `PAYER_SMS_OTP_ENABLED` is off (the check runs after the guard, so an
- * unauthenticated caller still gets the guard's 401). Both carry the per-IP hourly cap of the
- * public sign-in routes, because both can send an SMS; the per-number and daily SMS bounds live in
- * `PayerOtpService`. `no-store`: the answers describe the caller's own account.
+ * All three routes 404 while `PAYER_SMS_OTP_ENABLED` is off (the check runs after the guard, so an
+ * unauthenticated caller still gets the guard's 401). The two POSTs carry the per-IP hourly cap of
+ * the public sign-in routes, because both can send an SMS; the per-number and daily SMS bounds live
+ * in `PayerOtpService`. The GET is a read and carries none. `no-store`: the answers describe the
+ * caller's own account.
  */
 @Controller("payer")
 @UseGuards(PayerAuthGuard)
@@ -46,6 +49,19 @@ export class PayerPhoneProofController {
     private readonly idempotency: RequestIdempotency,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
+
+  /**
+   * Is the phone on the caller's account proven? `{ proven }`, true only while a proof names the
+   * account's CURRENT phone. A read: no per-IP cap, and a missing proof table is `false`, not 503.
+   */
+  @Get("me/phone-proof")
+  @Header("Cache-Control", "no-store")
+  async proofStatus(
+    @CurrentPayer() payer: AuthenticatedPayer,
+  ): Promise<PayerPhoneProofStatusResponse> {
+    this.assertEnabled();
+    return this.proofs.proofStatus(payer.id);
+  }
 
   /** Send a code by SMS to the phone on the caller's account. */
   @Post("me/phone-proof")

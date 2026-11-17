@@ -24,6 +24,7 @@ import { INDIAN_MOBILE_E164 } from "./payer-auth.service";
 import {
   PHONE_PROOF_CONFLICT_REASONS,
   type PayerPhoneProofCodeResponse,
+  type PayerPhoneProofStatusResponse,
   type PayerPhoneProofVerifiedResponse,
   type PhoneProofConflictReason,
 } from "./payer-phone-proof.dto";
@@ -34,6 +35,7 @@ const UNAVAILABLE = "This is temporarily unavailable; please retry shortly";
  * #2754 item 3 — a SIGNED-IN company proves the phone on its account, so that phone becomes a
  * sign-in credential for SMS codes (one account per proven phone, `payer_phone_proofs`).
  *
+ *   status   — `{ proven }`: whether a proof names the account's CURRENT phone.
  *   request  — a code by SMS to the account's CURRENT stored phone, on the company template, under
  *              the SMS sign-in bounds (per-account cooldown, the per-number hourly cap shared with
  *              sign-in codes, the company-SMS daily ceiling; the controller adds the per-IP cap).
@@ -46,9 +48,9 @@ const UNAVAILABLE = "This is temporarily unavailable; please retry shortly";
  * the request would let any signed-in company type a number into `PATCH /payer/me` and learn
  * whether some other company has proven it.
  *
- * SWITCHED. Both routes 404 while `PAYER_SMS_OTP_ENABLED` is off (there is nothing to prove a phone
- * for). With the table missing (42P01, deploy ahead of the migration) both answer 503 before any
- * SMS goes out. Logs and events carry ids and closed codes only — never the number or the code.
+ * SWITCHED. All three routes 404 while `PAYER_SMS_OTP_ENABLED` is off (there is nothing to prove a
+ * phone for). With the table missing (42P01, deploy ahead of the migration) the two POSTs answer 503
+ * before any SMS goes out, and the status reads `{ proven: false }`. Logs and events carry ids and closed codes only — never the number or the code.
  */
 @Injectable()
 export class PayerPhoneProofService {
@@ -62,6 +64,15 @@ export class PayerPhoneProofService {
     private readonly events: EventsService,
     private readonly pii: PiiCryptoService,
   ) {}
+
+  /**
+   * `GET /payer/me/phone-proof` — is the account's CURRENT phone proven? Never a 503: a missing
+   * table reads as `false` (the repository), so the screen just offers to prove the phone.
+   */
+  async proofStatus(payerId: string): Promise<PayerPhoneProofStatusResponse> {
+    this.assertEnabled();
+    return { proven: await this.proofs.isCurrentPhoneProven(payerId) };
+  }
 
   /** `POST /payer/me/phone-proof` — send a proof code to the account's current phone. */
   async requestProof(payerId: string, ctx: RequestContext): Promise<PayerPhoneProofCodeResponse> {

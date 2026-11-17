@@ -3,11 +3,12 @@ import { z } from "zod";
 /**
  * #2754 item 3 — the wire contract of a company PROVING the phone on its account.
  *
+ *   GET  /payer/me/phone-proof                      → {@link PayerPhoneProofStatusResponse}
  *   POST /payer/me/phone-proof         (no body)    → {@link PayerPhoneProofCodeResponse}
  *   POST /payer/me/phone-proof/verify  `{ code }`   → {@link PayerPhoneProofVerifiedResponse}
  *
  * The code goes by SMS to the account's CURRENT stored phone; nothing on the wire names the
- * number. Both routes are the signed-in company's own (`PayerAuthGuard`), and 404 while
+ * number. All three routes are the signed-in company's own (`PayerAuthGuard`), and 404 while
  * `PAYER_SMS_OTP_ENABLED` is off.
  */
 export const PayerPhoneProofVerifySchema = z
@@ -17,6 +18,15 @@ export const PayerPhoneProofVerifySchema = z
   })
   .strict();
 export type PayerPhoneProofVerifyDto = z.infer<typeof PayerPhoneProofVerifySchema>;
+
+/**
+ * Whether the account's CURRENT phone is proven (it signs this company in by SMS code). `false`
+ * for no phone, a phone not yet proven, a phone changed since its proof, and while the proof
+ * table is not migrated — the screen then offers to prove it.
+ */
+export interface PayerPhoneProofStatusResponse {
+  proven: boolean;
+}
 
 /** A code is on its way to the account's phone. */
 export interface PayerPhoneProofCodeResponse {

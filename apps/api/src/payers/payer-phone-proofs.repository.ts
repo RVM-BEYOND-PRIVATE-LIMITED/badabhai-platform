@@ -134,6 +134,37 @@ export class PayerPhoneProofsRepository {
   }
 
   /**
+   * Is the account's CURRENT phone proven (`GET /payer/me/phone-proof`)? True only when its proof
+   * row still names the account's current `payers.phone_hash` — the same join as
+   * {@link findProvenAccount}, keyed by the account instead of the phone. A stale proof, no proof,
+   * no phone, no account, and a missing table (42P01) are all `false`: the screen then simply
+   * offers to prove the phone, and the proof routes say 503 themselves if the table is missing.
+   */
+  async isCurrentPhoneProven(payerId: string): Promise<boolean> {
+    try {
+      const rows = await this.db
+        .select({ payerId: payerPhoneProofs.payerId })
+        .from(payerPhoneProofs)
+        .innerJoin(
+          payers,
+          and(
+            eq(payers.id, payerPhoneProofs.payerId),
+            eq(payers.phoneHash, payerPhoneProofs.phoneHash),
+          ),
+        )
+        .where(eq(payerPhoneProofs.payerId, payerId))
+        .limit(1);
+      return rows.length > 0;
+    } catch (err) {
+      if (isPhoneProofTableMissing(err)) {
+        this.warnMissingOnce("status read");
+        return false;
+      }
+      throw err;
+    }
+  }
+
+  /**
    * A cheap probe that the table exists (the proof routes answer 503 before sending a code that
    * could not be stored). Throws the driver error, so the caller maps 42P01 itself.
    */

@@ -175,6 +175,31 @@ describe.skipIf(!RUN)("payer_phone_proofs against Postgres (#2754 item 3)", () =
     expect(await proofs.recordSmsProof(b, hash, emitProven(b))).toBe("proven");
   });
 
+  it("GET /payer/me/phone-proof's read: false unproven, true once proven, false after a phone change", async () => {
+    const number = phone();
+    const hash = pii.hashPhone(number);
+    const a = await company(number);
+    expect(await proofs.isCurrentPhoneProven(a)).toBe(false);
+    await proofs.recordSmsProof(a, hash, emitProven(a));
+    expect(await proofs.isCurrentPhoneProven(a)).toBe(true);
+    await payers.updateContact(a, { phone: phone() });
+    expect(await proofs.isCurrentPhoneProven(a)).toBe(false);
+    // A stale row left behind by a writer that skipped the drop reads false too.
+    await proofs.recordSmsProof(
+      a,
+      (
+        await client.sql<{ h: string }[]>`
+      SELECT phone_hash AS h FROM payers WHERE id = ${a}::uuid`
+      )[0]!.h,
+      emitProven(a),
+    );
+    expect(await proofs.isCurrentPhoneProven(a)).toBe(true);
+    await client.sql`UPDATE payers SET phone_hash = ${`stale-status-${TAG}`} WHERE id = ${a}::uuid`;
+    expect(await proofs.isCurrentPhoneProven(a)).toBe(false);
+    // No account at all.
+    expect(await proofs.isCurrentPhoneProven(randomUUID())).toBe(false);
+  });
+
   it("a ROLLED-BACK phone change keeps the proof (the drop is in the change's transaction)", async () => {
     const number = phone();
     const hash = pii.hashPhone(number);

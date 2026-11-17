@@ -180,6 +180,46 @@ describe("PayerPhoneProofsRepository.findProvenAccount — the ONLY way an SMS c
   });
 });
 
+describe("PayerPhoneProofsRepository.isCurrentPhoneProven — GET /payer/me/phone-proof", () => {
+  it("true when the joined proof row names the account's current phone; false when none does", async () => {
+    await expect(
+      new PayerPhoneProofsRepository(
+        fakeDb({ select: () => [{ payerId: PAYER }] }).db,
+      ).isCurrentPhoneProven(PAYER),
+    ).resolves.toBe(true);
+    await expect(
+      new PayerPhoneProofsRepository(fakeDb({ select: () => [] }).db).isCurrentPhoneProven(PAYER),
+    ).resolves.toBe(false);
+  });
+
+  it("42P01 (the table not migrated) reads as false — never a 503 — with one warning", async () => {
+    const f = fakeDb({
+      select: () => {
+        throw missingTable();
+      },
+    });
+    const repo = new PayerPhoneProofsRepository(f.db);
+    const warn = vi.spyOn(
+      (repo as unknown as { logger: { warn: (message: string) => void } }).logger,
+      "warn",
+    );
+    await expect(repo.isCurrentPhoneProven(PAYER)).resolves.toBe(false);
+    await expect(repo.isCurrentPhoneProven(PAYER)).resolves.toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("any other error propagates", async () => {
+    const f = fakeDb({
+      select: () => {
+        throw new Error("connection reset");
+      },
+    });
+    await expect(new PayerPhoneProofsRepository(f.db).isCurrentPhoneProven(PAYER)).rejects.toThrow(
+      "connection reset",
+    );
+  });
+});
+
 describe("PayerPhoneProofsRepository.recordSmsProof — the verify write", () => {
   it("locks the payer row FOR UPDATE, upserts the proof from it, runs the event IN the transaction", async () => {
     const f = fakeDb({ select: () => [{ phoneHash: HASH }], execute: () => [{ payer_id: PAYER }] });

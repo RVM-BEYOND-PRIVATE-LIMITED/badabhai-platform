@@ -9,7 +9,15 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
+import {
+  GUARDS_METADATA,
+  HEADERS_METADATA,
+  METHOD_METADATA,
+  PATH_METADATA,
+} from "@nestjs/common/constants";
+import { RequestMethod } from "@nestjs/common";
 import type { Request } from "express";
+import { PayerAuthGuard } from "../payers/payer-auth.guard";
 import type { ServerConfig } from "@badabhai/config";
 import { validateEvent } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
@@ -52,6 +60,7 @@ function setup(
   const tx = { tag: "tx" };
   const proofs = {
     assertTablePresent: vi.fn(async () => undefined),
+    isCurrentPhoneProven: vi.fn(async (_payerId: string) => false),
     recordSmsProof: vi.fn(
       async (_payerId: string, _hash: string, onProven: (t: unknown) => Promise<void>) => {
         const w = over.write ?? "proven";
@@ -115,6 +124,39 @@ describe("the switch — both routes 404 while PAYER_SMS_OTP_ENABLED is off", ()
     const d = setup({ sms: false });
     await expect(d.svc.requestProof(PAYER, CTX)).rejects.toBeInstanceOf(NotFoundException);
     await expect(d.svc.verifyProof(PAYER, "123456", CTX)).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe("GET /payer/me/phone-proof — is the account's CURRENT phone proven?", () => {
+  it("answers { proven } for the guard principal, straight from the proof read", async () => {
+    const d = setup();
+    await expect(d.controller.proofStatus(SELF)).resolves.toEqual({ proven: false });
+    d.proofs.isCurrentPhoneProven.mockResolvedValueOnce(true);
+    await expect(d.controller.proofStatus(SELF)).resolves.toEqual({ proven: true });
+    expect(d.proofs.isCurrentPhoneProven).toHaveBeenCalledWith(PAYER);
+    // A read: no per-IP cap is spent, no code is sent, nothing else is read.
+    expect(d.ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
+    expect(d.otp.issuePhoneProof).not.toHaveBeenCalled();
+  });
+
+  it("404 while PAYER_SMS_OTP_ENABLED is off, before the proof table is read (service too)", async () => {
+    const d = setup({ sms: false });
+    await expect(d.controller.proofStatus(SELF)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(d.svc.proofStatus(PAYER)).rejects.toBeInstanceOf(NotFoundException);
+    expect(d.proofs.isCurrentPhoneProven).not.toHaveBeenCalled();
+  });
+
+  it("is GET me/phone-proof, Cache-Control: no-store, behind PayerAuthGuard like every /payer/me route", () => {
+    const handler = PayerPhoneProofController.prototype.proofStatus;
+    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe("me/phone-proof");
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(RequestMethod.GET);
+    expect(Reflect.getMetadata(HEADERS_METADATA, handler)).toEqual([
+      { name: "Cache-Control", value: "no-store" },
+    ]);
+    expect(Reflect.getMetadata(PATH_METADATA, PayerPhoneProofController)).toBe("payer");
+    expect(Reflect.getMetadata(GUARDS_METADATA, PayerPhoneProofController)).toEqual([
+      PayerAuthGuard,
+    ]);
   });
 });
 

@@ -241,17 +241,18 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **A new phone starts unproven (#2754 item 3):** changing `phone` drops the account's phone proof in the same write, so the new number cannot sign in by SMS code until the company proves it again (`POST /payer/me/phone-proof`). Saving the same number again keeps the proof. A real change also emails the account's own address the security notice used for password changes ("The phone number on your BadaBhai account was changed"; no number in it); a phone-only account gets none.
 - **Mobile gotchas:** `email`/`role`/`status` are immutable. Empty patch → `400`. `no-store`.
 
-#### `POST /payer/me/phone-proof` · `POST /payer/me/phone-proof/verify` (#2754 item 3)
+#### `GET /payer/me/phone-proof` · `POST /payer/me/phone-proof` · `POST /payer/me/phone-proof/verify` (#2754 item 3)
 
 The signed-in company proves the phone on its account, so that phone signs it in by SMS code. One account per proven phone.
 
-- **Auth:** `PayerAuthGuard` (Bearer), `employer` and `agent` alike. The account is the token's; no id in the path or body. Both routes carry the per-IP cap of the public sign-in routes.
-- **The switch:** both routes are a plain `404` while `PAYER_SMS_OTP_ENABLED` is off.
+- **Auth:** `PayerAuthGuard` (Bearer), `employer` and `agent` alike. The account is the token's; no id in the path or body. The two `POST`s carry the per-IP cap of the public sign-in routes.
+- **The switch:** all three routes are a plain `404` while `PAYER_SMS_OTP_ENABLED` is off.
+- **`GET /payer/me/phone-proof`:** **Response:** `{ proven: boolean }`. `true` only while a proof names the account's CURRENT phone; `false` for no phone, a phone not yet proven, a phone changed since its proof, and while the proof table is not migrated (never a `503`), so the screen simply offers to prove the number. A read: no per-IP cap, no events.
 - **`POST /payer/me/phone-proof`** (no body): sends a code by SMS to the account's CURRENT stored phone (company template). **Response:** `{ status: 'code_sent', resend_in_seconds: number }`. The same bounds as an SMS sign-in code: a resend cooldown, the per-number hourly cap (shared with sign-in codes to that number) and the company-SMS daily ceiling (`429`, plus `payer.sms_send_cap_exceeded`). `409 { reason: 'no_phone_on_account' }`: add a phone with `PATCH /payer/me` first. `409 { reason: 'phone_not_provable' }`: only an Indian mobile (`+91`, 10 digits from 6–9) can be confirmed by SMS. `502`: the SMS could not be sent; retry. `503`: Redis down, or the proof table not migrated yet (no SMS goes out).
 - **`POST /payer/me/phone-proof/verify`:** body `{ code: string (4–8 digits) }`, `.strict()`. **Response:** `{ status: 'proven' }`. `401` wrong or expired code (one message). `429` too many attempts. `409 { reason: 'phone_changed' }`: the phone changed after the code was sent; request a new one. `409 { reason: 'phone_linked_to_another_account' }`: another BadaBhai account already holds this phone's proof; the company contacts support, who move it by hand. `503` Redis or the table. **Send an `Idempotency-Key`**: a retry with the same key replays the first answer (the code is single-use, so a re-run would otherwise answer `401` to a company whose phone was in fact proven). A duplicate while the first is still running is `409 { reason: 'in_flight' }`.
 - **A proof code is not a sign-in code**, and a sign-in code is not a proof code: each fails the other door with the same `401`.
 - **Events:** `payer.phone_proven` v1 (`payer_id`, `method: 'sms_code'`) on a successful verify, in the same transaction as the proof. Never the number, its hash or the code.
-- **Mobile gotchas:** `no-store`. Show "Confirm your number" only while the switch is on (a `404` means off). After `PATCH /payer/me` changes the phone, the company must confirm again.
+- **Mobile gotchas:** `no-store` on all three. Read `GET /payer/me/phone-proof` to decide whether to show "Confirm your number" (a `404` means the switch is off: show nothing). After `PATCH /payer/me` changes the phone, `proven` goes back to `false` and the company must confirm again.
 
 #### `GET /payer/me/display-prefs` · `PATCH /payer/me/display-prefs` (#2819)
 
