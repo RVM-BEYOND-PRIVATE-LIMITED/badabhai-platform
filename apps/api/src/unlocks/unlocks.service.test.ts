@@ -20,7 +20,7 @@ import type { PiiCryptoService } from "../common/pii-crypto.service";
 import { DEFAULT_CATALOG, DEFAULT_CREDIT_RULES } from "@badabhai/pricing";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
 import { workforceUuid } from "@badabhai/db";
-import { UnlockService } from "./unlocks.service";
+import { istDayStart, UnlockService } from "./unlocks.service";
 import type { ContactCostFactsRow, UnlocksRepository } from "./unlocks.repository";
 import type { PricingService } from "../pricing/pricing.service";
 import { PaymentGateway } from "./payment-gateway";
@@ -115,6 +115,14 @@ interface SetupOpts {
   waiver?: { waiverId: string; scope: "company" | "job" } | null;
   /** #2750 item 5: whether the waiver is still active under the open's lock (default: yes). */
   waiverStillActive?: boolean;
+  /** #2750 item 6: the worker's new opens in the rolling 7 days, all companies (default 0). */
+  weeklyOpens?: number;
+  /** #2750 item 6: this company's new opens today (IST) (default 0). */
+  todayOpens?: number;
+  /** #2750 item 6: whether he applied to this company (default no). */
+  appliedToTenant?: boolean;
+  /** #2750 item 6: the company's account role (default employer). */
+  payerRole?: "employer" | "agent";
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -172,6 +180,8 @@ function setup(opts: SetupOpts = {}) {
     // Middle Way P5: the tx-scoped rung read for the price-tier hook. Default: no
     // stated rung, so the hook prices Lower — the ₹40 flat debit is untouched.
     findTradeLevels: vi.fn(async (): Promise<{ skillId: string; tradeLevel: string }[]> => []),
+    // #2750 item 6 — the weekly limit's "a company he applied to" read (appliedToTenantStatement).
+    execute: vi.fn(async () => (opts.appliedToTenant ? [{ member: 1 }] : [])),
     // #2750 — the priced debit (n credits, one take per lot).
     tryDebitCredits: vi.fn(async (_tx: unknown, _tenant: string, credits: number) =>
       (opts.debitOk ?? true)
@@ -221,6 +231,10 @@ function setup(opts: SetupOpts = {}) {
     listCreditLedgerByPayer: vi.fn(async (): Promise<unknown[]> => []),
     // #2749 — the wallet's open lots on GET /payer/credits.
     listOpenLots: vi.fn(async (): Promise<unknown[]> => []),
+    // #2750 item 6 — the opening limits' counts and the agency lock.
+    countOpensSince: vi.fn(async () => opts.weeklyOpens ?? 0),
+    countTenantOpensSince: vi.fn(async () => opts.todayOpens ?? 0),
+    lockTenantOpens: vi.fn(async () => undefined),
     // #2750 — the price facts (global pool, repo-only): the same row for every id asked.
     readContactCostFacts: vi.fn(async (_tenant: string, ids: readonly string[]) => {
       const out = new Map<string, ContactCostFactsRow>();
@@ -329,7 +343,9 @@ function setup(opts: SetupOpts = {}) {
     // suites exercise the UNLOCK path (spending), not a capture, so `active` keeps the
     // alert inert; it is wired rather than stubbed out because the helper is fail-open and
     // an undefined dependency would be silently swallowed by its catch.
-    { findAuthFacts: vi.fn(async () => ({ role: "employer", status: "active" })) } as never,
+    {
+      findAuthFacts: vi.fn(async () => ({ role: opts.payerRole ?? "employer", status: "active" })),
+    } as never,
     opts.tenancy ?? tenancyService("off"),
     instituteGate as never,
     // #2747 — the rollout service only when a test names the switch; absent reads as off.
@@ -2973,5 +2989,91 @@ describe("#2750 item 5 — a waived open", () => {
     expect((await plain.svc.quoteContacts(PAYER, [WORKER])).quotes).toEqual([
       { worker_id: WORKER, credits: 1 },
     ]);
+  });
+});
+
+// ===========================================================================
+// #2750 item 6 — the opening limits (pilot companies): the worker's week, the agency's day
+// ===========================================================================
+describe("#2750 item 6 — the opening limits", () => {
+  const open = (s: ReturnType<typeof setup>) =>
+    s.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+  const limitEvents = (s: ReturnType<typeof setup>) =>
+    s.events.emit.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .filter((e) => e.event_name === "unlock.limit_reached");
+
+  it("a worker opened 5 times this week: the 6th company is told he is not available, nothing debited", async () => {
+    const s = setup({ creditRules: "on", weeklyOpens: 5 });
+    expect(await open(s)).toEqual({ status: "worker_unavailable_this_week" });
+    expect(s.txMethods.tryDebitCredits).not.toHaveBeenCalled();
+    expect(s.txMethods.upsertGrant).not.toHaveBeenCalled();
+    expect(s.txMethods.recordDeny).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ denyReason: "capped" }),
+    );
+    expect(limitEvents(s).map((e) => e.payload)).toEqual([
+      { payer_id: PAYER, worker_id: WORKER, limit: "worker_weekly_opens", max: 5 },
+    ]);
+    expect(emitted(s.events)).toContain("unlock.denied");
+  });
+
+  it("4 opens this week: the 5th still opens", async () => {
+    const s = setup({ creditRules: "on", weeklyOpens: 4 });
+    expect(await open(s)).toMatchObject({ status: "granted" });
+  });
+
+  it("a company he applied to is never blocked by his weekly limit (B7-12)", async () => {
+    const s = setup({ creditRules: "on", weeklyOpens: 9, appliedToTenant: true });
+    expect(await open(s)).toMatchObject({ status: "granted" });
+    expect(limitEvents(s)).toEqual([]);
+  });
+
+  it("under the rules the env caps do not apply; off, the env caps do and the weekly limit does not", async () => {
+    const on = setup({ creditRules: "on" });
+    await open(on);
+    expect(on.txMethods.countRevealsSince).not.toHaveBeenCalled();
+    const off = setup({ creditRules: "off", weeklyOpens: 50 });
+    expect(await open(off)).toMatchObject({ status: "granted" });
+    expect(off.repo.countOpensSince).not.toHaveBeenCalled();
+  });
+
+  it("an agency account at 40 opens today is refused before anything about the worker is read", async () => {
+    const s = setup({ creditRules: "on", payerRole: "agent", todayOpens: 40 });
+    expect(await open(s)).toEqual({ status: "daily_limit_reached", daily_limit: 40 });
+    expect(s.consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(s.repo.withTransaction).not.toHaveBeenCalled();
+    expect(limitEvents(s).map((e) => e.payload)).toEqual([
+      { payer_id: PAYER, worker_id: null, limit: "agency_daily_opens", max: 40 },
+    ]);
+  });
+
+  it("an agency account at 39 opens, re-checked under its lock inside the transaction", async () => {
+    const s = setup({ creditRules: "on", payerRole: "agent", todayOpens: 39 });
+    expect(await open(s)).toMatchObject({ status: "granted" });
+    expect(s.repo.lockTenantOpens).toHaveBeenCalledTimes(1);
+    expect(s.repo.countTenantOpensSince).toHaveBeenCalledTimes(2);
+  });
+
+  it("the in-transaction re-check refuses an agency that reached the line meanwhile", async () => {
+    const s = setup({ creditRules: "on", payerRole: "agent", todayOpens: 39 });
+    s.repo.countTenantOpensSince.mockResolvedValueOnce(39).mockResolvedValueOnce(40);
+    expect(await open(s)).toEqual({ status: "daily_limit_reached", daily_limit: 40 });
+    expect(s.txMethods.upsertGrant).not.toHaveBeenCalled();
+  });
+
+  it("an employer account is never stopped by the agency limit (B4C-18)", async () => {
+    const s = setup({ creditRules: "on", payerRole: "employer", todayOpens: 500 });
+    expect(await open(s)).toMatchObject({ status: "granted" });
+    expect(s.repo.countTenantOpensSince).not.toHaveBeenCalled();
+  });
+
+  it("the IST day starts at 18:30 UTC the evening before", () => {
+    expect(istDayStart(new Date("2026-11-17T18:29:59Z")).toISOString()).toBe(
+      "2026-11-16T18:30:00.000Z",
+    );
+    expect(istDayStart(new Date("2026-11-17T18:30:00Z")).toISOString()).toBe(
+      "2026-11-17T18:30:00.000Z",
+    );
   });
 });

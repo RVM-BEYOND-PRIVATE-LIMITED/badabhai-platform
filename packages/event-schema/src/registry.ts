@@ -419,6 +419,8 @@ export const EVENT_REGISTRY = {
   "unlock.granted": { version: 1, domain: "unlock", payload: p.UnlockGrantedPayload },
   "unlock.denied": { version: 1, domain: "unlock", payload: p.UnlockDeniedPayload },
   "unlock.cap_exceeded": { version: 1, domain: "unlock", payload: p.UnlockCapExceededPayload },
+  // #2750 item 6 — a credit-rules opening limit refused a new open (pilot companies). v1.
+  "unlock.limit_reached": { version: 1, domain: "unlock", payload: p.UnlockLimitReachedPayload },
   "contact.revealed": { version: 1, domain: "contact", payload: p.ContactRevealedPayload },
   "contact.viewed": { version: 1, domain: "contact", payload: p.ContactViewedPayload },
   "unlock.reopened": { version: 1, domain: "unlock", payload: p.UnlockReopenedPayload },
