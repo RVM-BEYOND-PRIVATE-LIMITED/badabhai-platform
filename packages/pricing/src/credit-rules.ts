@@ -6,7 +6,7 @@ import { z } from "zod";
  * Every number the brief's credit rules use lives here, never in code: what one contact costs, the
  * experience line for the higher cost, the welcome grant, the two opening limits, the couldn't-reach
  * windows, returned credits, the two refund rules and the goodwill cap. The values are stored as
- * one versioned row in `credit_rules_config` (migration 0176, owner ruling 2026-11-17: a sibling of
+ * one versioned row in `credit_rules_config` (migration `*_credit_rules_config`, owner ruling 2026-11-17: a sibling of
  * `match_config`, so money rules never share a row with the ranking knobs) and edited on
  * `PUT /admin/credit-rules`, which writes a new revision. Each key's default is the brief's value.
  *

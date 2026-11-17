@@ -1,6 +1,6 @@
 # Admin API: credit rules settings (`GET` / `PUT /admin/credit-rules`)
 
-Issue #2750 item 1 · code: `apps/api/src/credit-rules/*`, `apps/api/src/admin/credit-rules/*` · shape and defaults: `@badabhai/pricing` `CreditRulesSchema` · migration `0176_credit_rules_config` · switch `CREDIT_RULES_ROLLOUT` (default `off`)
+Issue #2750 item 1 · code: `apps/api/src/credit-rules/*`, `apps/api/src/admin/credit-rules/*` · shape and defaults: `@badabhai/pricing` `CreditRulesSchema` · migration `0177_credit_rules_config` · switch `CREDIT_RULES_ROLLOUT` (default `off`)
 
 These are the numbers the brief's credit rules use. They can be changed without a deploy. Each edit writes a new revision; old revisions are kept, never rewritten. While no revision exists, the brief's values apply.
 

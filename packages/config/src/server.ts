@@ -1032,9 +1032,10 @@ export const serverEnvSchema = z.object({
   // over `credit_lots` is authoritative, so a missed/duplicated tick only delays an expiry until
   // the next one (or the wallet's next spend). Fractional minutes allowed for tests.
   //
-  // NO enable / dry-run gate, deliberately: nothing in #2749 PR 1 writes an `expires_at` (packs
-  // gain their validity with the catalogue in PR 2, and legacy lots their date at the switch-over),
-  // so the sweep has nothing to do until the data says so — the restriction lives in the data.
+  // NO enable / dry-run gate, deliberately: only a `pack` lot whose pack sets `validityDays` gets
+  // an `expires_at` (#2749 PR 3; legacy lots get their date at the switch-over), and production's
+  // default packs set none, so the sweep has nothing to do until the data says so — the
+  // restriction lives in the data.
   CREDIT_LOT_EXPIRY_SWEEP_INTERVAL_MINUTES: z.coerce.number().positive().default(15),
   // Per-tick cap on WALLETS processed (each in its own transaction) — a backlog drains across
   // ticks, never one unbounded run (same posture as REACH_WIDEN_EXPIRY_BATCH_LIMIT).

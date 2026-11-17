@@ -1238,8 +1238,15 @@
     {
       "idx": 176,
       "version": "7",
-      "when": 1794901002250,
-      "tag": "0176_credit_rules_config",
+      "when": 1794900885026,
+      "tag": "0176_payment_order_money",
+      "breakpoints": true
+    },
+    {
+      "idx": 177,
+      "version": "7",
+      "when": 1794904802018,
+      "tag": "0177_credit_rules_config",
       "breakpoints": true
     }
   ]
