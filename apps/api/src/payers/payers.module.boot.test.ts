@@ -151,6 +151,9 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
       // UnlockOutcomesModule imports PayersModule, which the next case checks.
       "UnlockOutcomesService",
       "UnlockService",
+      // #2750 item 4: the welcome grant resolves a posting OWNER's tenant key read-only (the wallet
+      // it credits). CreditRulesModule imports PayersModule, which the next case checks.
+      "WelcomeCreditsService",
     ]);
   });
 
