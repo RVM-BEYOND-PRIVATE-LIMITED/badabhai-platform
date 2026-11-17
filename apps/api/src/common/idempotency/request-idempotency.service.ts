@@ -1,4 +1,10 @@
-import { HttpException, HttpStatus, Injectable, Logger } from "@nestjs/common";
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  UnprocessableEntityException,
+} from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { PiiCryptoService } from "../pii-crypto.service";
@@ -27,17 +33,27 @@ interface RedisIdemClient {
  * `message` is still written beside it, so a rollback to the previous build reads every blob
  * this build stores.
  */
-type StoredOutcome =
+type StoredOutcome = (
   | { readonly ok: true; readonly value: unknown }
   | {
       readonly ok: false;
       readonly status: number;
       readonly message: string;
       readonly body?: Record<string, unknown>;
-    };
+    }
+) & {
+  /**
+   * #2749 — the request fingerprint the outcome was produced for ({@link RunOnceOptions.fingerprint}).
+   * Absent for a route that sets none, and on every outcome stored before it existed.
+   */
+  readonly fingerprint?: string;
+};
 
 /** The sentinel written by the winning reservation, before the work has finished. */
 const IN_FLIGHT = "in_flight";
+
+/** The 422 `reason` a reused key carries (#2749): the same key, a different request. */
+export const IDEMPOTENCY_KEY_REUSED_REASON = "idempotency_key_reused" as const;
 
 /** Everything one guarded call needs. Route policy is a parameter; this class owns only the race. */
 export interface RunOnceOptions<T> {
@@ -85,6 +101,16 @@ export interface RunOnceOptions<T> {
   readonly secret?: boolean;
   /** How long one key's outcome is honoured. Defaults to {@link RequestIdempotency.WINDOW_SECONDS}. */
   readonly windowSeconds?: number;
+  /**
+   * #2749 — BIND THE KEY TO THE REQUEST. A digest of the parts of the request that make it this
+   * request (a route's body), stored with the reservation and with the outcome. A later attempt
+   * under the SAME key with a DIFFERENT fingerprint is refused with a 422
+   * (`reason: "idempotency_key_reused"`) — never served the first request's outcome, never run.
+   * A digest, never raw request data: it is stored in plaintext beside the reservation. Optional:
+   * a route that sets none keeps the old rule (the key alone names the request), and so does an
+   * outcome stored without one.
+   */
+  readonly fingerprint?: string;
   /** What to call the subject in logs (`phone_hash`, `payer`). Never the value itself. */
   readonly subjectLabel?: string;
   /** Human name for this seam in logs, e.g. `OTP` / `payer`. */
@@ -176,7 +202,13 @@ export class RequestIdempotency {
     let reserved: string | null;
     try {
       redis = (await this.queue.client) as unknown as RedisIdemClient;
-      reserved = await redis.set(redisKey, IN_FLIGHT, "EX", window, "NX");
+      reserved = await redis.set(
+        redisKey,
+        RequestIdempotency.reservation(opts),
+        "EX",
+        window,
+        "NX",
+      );
     } catch (err) {
       // FAIL OPEN, AND ONLY HERE. Everything a guarded route does downstream already fails
       // CLOSED on a Redis error — the caps, the cooldowns, the balance reads — so a Redis outage
@@ -192,9 +224,19 @@ export class RequestIdempotency {
 
     if (reserved === null) return this.replay(redis, redisKey, opts, handle, label, name);
 
+    const fingerprint = opts.fingerprint === undefined ? {} : { fingerprint: opts.fingerprint };
     try {
       const value = await opts.work();
-      await this.store(redis, redisKey, { ok: true, value }, opts, handle, label, name, window);
+      await this.store(
+        redis,
+        redisKey,
+        { ok: true, value, ...fingerprint },
+        opts,
+        handle,
+        label,
+        name,
+        window,
+      );
       return value;
     } catch (err) {
       // STORED, NOT RELEASED — the property that makes this a mutex rather than a retry helper.
@@ -202,14 +244,16 @@ export class RequestIdempotency {
       // moved, a row written, a provider called), so releasing would let the ladder repeat it.
       // An HttpException replays as itself — its status AND its object body (#2103); anything
       // else is not ours to reinterpret, so it replays as a neutral 503.
-      const outcome: StoredOutcome =
-        err instanceof HttpException
+      const outcome: StoredOutcome = {
+        ...(err instanceof HttpException
           ? RequestIdempotency.failureOf(err)
           : {
-              ok: false,
+              ok: false as const,
               status: HttpStatus.SERVICE_UNAVAILABLE,
               message: "This is temporarily unavailable; please retry shortly",
-            };
+            }),
+        ...fingerprint,
+      };
       await this.store(redis, redisKey, outcome, opts, handle, label, name, window);
       throw err;
     }
@@ -273,7 +317,14 @@ export class RequestIdempotency {
     // Expired between the NX and the GET, which is a genuine race rather than a duplicate: the
     // window has closed, so this attempt is entitled to be a request of its own.
     if (stored === null) return opts.work();
-    if (stored === IN_FLIGHT) return opts.inFlight();
+    if (stored === IN_FLIGHT || stored.startsWith(`${IN_FLIGHT}:`)) {
+      // A reservation names its request's fingerprint after the sentinel (#2749).
+      const reservedFor = stored.startsWith(`${IN_FLIGHT}:`)
+        ? stored.slice(IN_FLIGHT.length + 1)
+        : undefined;
+      RequestIdempotency.assertSameRequest(opts.fingerprint, reservedFor);
+      return opts.inFlight();
+    }
 
     let outcome: StoredOutcome;
     try {
@@ -287,6 +338,8 @@ export class RequestIdempotency {
       return opts.inFlight();
     }
 
+    // The same key for a DIFFERENT request is refused before anything is replayed (#2749).
+    RequestIdempotency.assertSameRequest(opts.fingerprint, outcome.fingerprint);
     if (outcome.ok) return outcome.value as T;
     // The SAME status and the SAME body the first attempt produced. Replaying the RESPONSE
     // rather than the exception CLASS is deliberate: tagged exceptions exist so a service emits
@@ -300,6 +353,31 @@ export class RequestIdempotency {
       throw new HttpException(outcome.body, outcome.status);
     }
     throw new HttpException(outcome.message, outcome.status);
+  }
+
+  /**
+   * The reservation's value: the bare sentinel, or `in_flight:<fingerprint>` when the route binds
+   * its key to the request. A build that predates fingerprints reads the longer form as an
+   * unreadable outcome, which it already treats as in flight — the safe side.
+   */
+  private static reservation(opts: { readonly fingerprint?: string }): string {
+    return opts.fingerprint === undefined ? IN_FLIGHT : `${IN_FLIGHT}:${opts.fingerprint}`;
+  }
+
+  /**
+   * 422 when this attempt's fingerprint and the one stored under its key are BOTH known and differ.
+   * Either side unknown (a route without fingerprints, an outcome stored before them) keeps the old
+   * rule: the key alone names the request.
+   */
+  private static assertSameRequest(mine: string | undefined, stored: string | undefined): void {
+    if (mine === undefined || stored === undefined || mine === stored) return;
+    throw new UnprocessableEntityException({
+      statusCode: 422,
+      error: "Unprocessable Entity",
+      reason: IDEMPOTENCY_KEY_REUSED_REASON,
+      message:
+        "This Idempotency-Key was already used for a different request; send a new key for a new request",
+    });
   }
 
   /**

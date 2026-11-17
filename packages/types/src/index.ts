@@ -1646,6 +1646,76 @@ export interface PayerCreditsResponse {
   readonly lots: readonly PayerCreditLot[];
 }
 
+// ---- Payment orders: checkout (#2749 item 9, migration 0176) ----
+//
+// HERE FOR THE SAME REASON AS THE LOT SOURCES ABOVE: `packages/db` spells these sets into CHECK
+// constraints on `payment_orders`, the api writes and validates them, `packages/event-schema` puts
+// the hold reasons on the spine (`payment.held`), and admin-web parses the statuses. Declared once
+// so none of them can drift. A new value in any of them is a migration widening its CHECK.
+
+/**
+ * What a payment order sells. `credit_pack` is the only kind today; #2751 widens it (a pack code
+ * and a positive credit grant are then required only of a `credit_pack` order).
+ */
+export const PAYMENT_ORDER_PRODUCT_KINDS = Object.freeze(["credit_pack"] as const);
+export type PaymentOrderProductKind = (typeof PAYMENT_ORDER_PRODUCT_KINDS)[number];
+
+/**
+ * A payment order's lifecycle. `created` at intent → `paid` once a verified capture granted it, or
+ * `failed` after a provider failure (a later capture may still settle a `failed` order: Razorpay
+ * lets a buyer retry on the same order). `held` (#2749 hardening 5): the provider captured an
+ * amount that is NOT the order's total, so nothing was granted and the order can never be settled
+ * — ops resolve it (a refund in the Razorpay dashboard until BB-D-05).
+ */
+export const PAYMENT_ORDER_STATUSES = Object.freeze(["created", "paid", "failed", "held"] as const);
+export type PaymentOrderStatus = (typeof PAYMENT_ORDER_STATUSES)[number];
+
+export function isPaymentOrderStatus(value: unknown): value is PaymentOrderStatus {
+  return typeof value === "string" && (PAYMENT_ORDER_STATUSES as readonly string[]).includes(value);
+}
+
+/**
+ * Where a purchase started (the button a company pressed; #2749 item 9, #2781's numbers screen).
+ * `credits_page` = the Credits page itself; `unlock_prompt` = an "out of credits" prompt on a
+ * contact open; `candidate_search` = the candidate search list; `posting_flow` = a job posting's
+ * screens (its applicants, posting a job); `dashboard` = a dashboard tile; `other` = anything else.
+ * Optional on the order: an older client sends none and the order stores null.
+ */
+export const PAYMENT_ORDER_ORIGINS = Object.freeze([
+  "credits_page",
+  "unlock_prompt",
+  "candidate_search",
+  "posting_flow",
+  "dashboard",
+  "other",
+] as const);
+export type PaymentOrderOrigin = (typeof PAYMENT_ORDER_ORIGINS)[number];
+
+export function isPaymentOrderOrigin(value: unknown): value is PaymentOrderOrigin {
+  return typeof value === "string" && (PAYMENT_ORDER_ORIGINS as readonly string[]).includes(value);
+}
+
+/**
+ * Why a captured payment was HELD instead of granted (`payment.held.reason`). `amount_mismatch` =
+ * the captured paise are not the order's total; `amount_missing` = the capture carried no amount;
+ * `currency_mismatch` = the capture was not in INR. FROZEN: the event's v1 enum is taken from this
+ * list, and a shipped payload never changes.
+ */
+export const PAYMENT_HOLD_REASONS = Object.freeze([
+  "amount_mismatch",
+  "amount_missing",
+  "currency_mismatch",
+] as const);
+export type PaymentHoldReason = (typeof PAYMENT_HOLD_REASONS)[number];
+
+/**
+ * The order's status after a mismatched capture (`payment.held.order_status`): `held` = the capture
+ * held the order and granted nothing; `paid` = the order was already paid (the browser verify
+ * settled it first), so nothing changed and the grant stands. FROZEN with the event's v1 enum.
+ */
+export const PAYMENT_HELD_ORDER_STATUSES = Object.freeze(["held", "paid"] as const);
+export type PaymentHeldOrderStatus = (typeof PAYMENT_HELD_ORDER_STATUSES)[number];
+
 // ---- Display preferences: the theme (#2819, migration 0165) ----
 //
 // HERE FOR THE SAME REASON AS THE SKINS ABOVE: `packages/db` spells both sets into CHECK

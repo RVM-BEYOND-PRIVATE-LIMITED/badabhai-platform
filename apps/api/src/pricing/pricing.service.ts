@@ -47,11 +47,11 @@ export interface PayerTierPrice {
 /**
  * A credit pack's price with GST (#2749): integer paise, plus the brief's display line.
  *
- * ⚠️ INFORMATIONAL UNTIL PART 3 OF #2749 — DO NOT SHOW IT TO COMPANIES YET. Orders still charge
- * the tier's `priceInr` BEFORE GST: `createRealOrder`, the mock ledger price and the
- * `expected_price_inr` check all use `priceInr`. So `totalPaise` and `display` ("₹999 plus GST
- * (₹1,179)") are NOT what a purchase takes today. Part 3 makes the order total equal
- * `totalPaise`; only then may a screen show this line.
+ * THIS IS WHAT A PURCHASE CHARGES (#2749 PR 3): `POST /payer/credits/order` creates the Razorpay
+ * order for `totalPaise`, from the same `creditPackSale` line this is built from, so shown ==
+ * charged. `expected_price_inr` is still compared with the tier's `priceInr`, the list price
+ * before GST. (The MOCK `POST /payer/credits`, which takes no money and is retired when real
+ * payments switch on, still stamps `priceInr` on its ledger line, as it always has.)
  */
 export interface PayerPackPrice extends GstPriceLine {
   /** e.g. `₹999 plus GST (₹1,179)` (B4C-06). */
@@ -108,10 +108,8 @@ export interface PayerCatalogView {
 
 /**
  * The payer's view of one sellable credit-pack tier (#2749 whitelist). The GST line was computed
- * once, by `creditPackSale`, and both the paise fields and `display` come from it.
- *
- * ⚠️ `price` is INFORMATIONAL until part 3 of #2749 — see {@link PayerPackPrice}: the order still
- * charges `priceInr` before GST, so `price.totalPaise` / `price.display` must not be shown.
+ * once, by `creditPackSale`, and both the paise fields and `display` come from it. `price.totalPaise`
+ * is what an order for this tier charges (#2749 PR 3; see {@link PayerPackPrice}).
  */
 function toPayerCreditPackTier({ tier, priceLine }: SellablePack): PayerCreditPackTier {
   return {
@@ -179,8 +177,8 @@ export class PricingService {
    * reads this same method with no payer input, so all see the same packs at the same prices
    * (B2-48).
    *
-   * ⚠️ The GST `price` on each pack is INFORMATIONAL until part 3 of #2749: an order still
-   * charges `priceInr` before GST (see {@link PayerPackPrice}). Do not show it to companies yet.
+   * The GST `price` on each pack is what a purchase of it charges (#2749 PR 3; see
+   * {@link PayerPackPrice}): the order total equals `price.totalPaise`.
    *
    * Read-only, emits no event.
    */

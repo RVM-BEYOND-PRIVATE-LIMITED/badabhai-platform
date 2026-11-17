@@ -1,14 +1,21 @@
 import "reflect-metadata";
 import { createHash } from "node:crypto";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from "@nestjs/common";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerRequestUnlockSchema } from "./payer-unlocks.dto";
+import { PAYMENT_ORDER_ORIGINS } from "@badabhai/types";
+import { CreateCreditOrderSchema } from "../unlocks/razorpay-webhook.dto";
 import type { Request } from "express";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { caught, renderedError } from "../common/idempotency/replay-fidelity.test-support";
 import { assertExpectedPrice } from "../pricing/charge-price";
-import { PayerUnlocksController } from "./payer-unlocks.controller";
+import { PayerUnlocksController, creditOrderFingerprint } from "./payer-unlocks.controller";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
 
@@ -44,15 +51,24 @@ function makeCtrl() {
     // Real-payments seam. `realPaymentsLive` is a getter on the service; it is overridden
     // per-test where the LIVE posture is under test.
     realPaymentsLive: false,
+    // #2749 PR 3: the handoff charges the GST-inclusive total (₹2,000 → ₹2,360).
     createCreditOrder: vi.fn(async () => ({
       orderRowId: "11111111-2222-4333-8444-555555555555",
       providerOrderId: "order_TEST1",
       keyId: "rzp_test_keyid",
-      amountInr: 2000,
-      amountPaise: 200000,
+      amountInr: 2360,
+      amountPaise: 236000,
       currency: "INR",
       packCode: "pack_50",
       credits: 50,
+      price: {
+        taxablePaise: 200000,
+        gstPaise: 36000,
+        roundOffPaise: 0,
+        totalPaise: 236000,
+        gstRateBps: 1800,
+      },
+      validityDays: null,
     })),
     verifyCheckoutPayment: vi.fn(async () => ({
       verified: true as const,
@@ -202,7 +218,7 @@ describe("PayerUnlocksController — real-payment routes (order + verify)", () =
   it("createOrder + verifyPayment are a NEUTRAL 404 while PAYMENTS_ENABLE_REAL is off (the default)", async () => {
     // The service is never reached: no provider call, no order row, nothing observable.
     await expect(
-      d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, CTX),
+      d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, NO_KEY, CTX),
     ).rejects.toBeInstanceOf(NotFoundException);
     await expect(
       d.ctrl.verifyPayment(
@@ -221,20 +237,53 @@ describe("PayerUnlocksController — real-payment routes (order + verify)", () =
     });
 
     it("createOrder binds to the SESSION payer and forwards only the pack CODE (XB-A/XT5)", async () => {
-      await d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, CTX);
-      expect(d.unlocks.createCreditOrder).toHaveBeenCalledWith(PAYER_A.id, "pack_50", CTX, undefined);
+      await d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, NO_KEY, CTX);
+      expect(d.unlocks.createCreditOrder).toHaveBeenCalledWith(
+        PAYER_A.id,
+        "pack_50",
+        CTX,
+        undefined,
+        { origin: undefined, jobPostingId: undefined },
+      );
     });
 
-    it("createOrder returns the public key ID + amounts, and NEVER a secret", async () => {
-      const out = await d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, CTX);
+    it("#2749 item 9: createOrder forwards the purchase origin and the posting id to the service", async () => {
+      const POSTING = "eeeeeeee-0000-4000-8000-000000000005";
+      await d.ctrl.createOrder(
+        {
+          pack_code: "pack_50",
+          expected_price_inr: 2000,
+          origin: "unlock_prompt",
+          origin_job_posting_id: POSTING,
+        },
+        PAYER_A,
+        NO_KEY,
+        CTX,
+      );
+      expect(d.unlocks.createCreditOrder).toHaveBeenCalledWith(PAYER_A.id, "pack_50", CTX, 2000, {
+        origin: "unlock_prompt",
+        jobPostingId: POSTING,
+      });
+    });
+
+    it("createOrder returns the public key ID + the GST-inclusive amounts + the price line, and NEVER a secret", async () => {
+      const out = await d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, NO_KEY, CTX);
       expect(out).toEqual({
         order_id: "order_TEST1",
         key_id: "rzp_test_keyid",
-        amount: 200000, // paise, for checkout.js
-        amount_inr: 2000, // ₹, for the UI
+        amount: 236000, // paise, for checkout.js — the total, GST included
+        amount_inr: 2360, // the same total in ₹, for the UI
         currency: "INR",
         pack_code: "pack_50",
         credits: 50,
+        price: {
+          taxable_paise: 200000,
+          gst_paise: 36000,
+          round_off_paise: 0,
+          total_paise: 236000,
+          gst_rate_bps: 1800,
+        },
+        validity_days: null,
       });
       // Nothing in the response resembles a secret, and no internal row id leaks either.
       expect(JSON.stringify(out)).not.toMatch(/secret|whsec|11111111-2222/i);
@@ -243,7 +292,7 @@ describe("PayerUnlocksController — real-payment routes (order + verify)", () =
     it("createOrder on an UNKNOWN pack is a 404 (a public catalog item, not a tenant oracle)", async () => {
       d.unlocks.createCreditOrder.mockResolvedValueOnce(null as never);
       await expect(
-        d.ctrl.createOrder({ pack_code: "nope" }, PAYER_A, CTX),
+        d.ctrl.createOrder({ pack_code: "nope" }, PAYER_A, NO_KEY, CTX),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
@@ -295,6 +344,43 @@ describe("PayerUnlocksController — real-payment routes (order + verify)", () =
   });
 });
 
+/** In-memory Redis covering the three commands the seam uses, with NX semantics. */
+function makeRedis() {
+  const store = new Map<string, string>();
+  return {
+    store,
+    client: {
+      async set(key: string, value: string, _m: string, _s: number, nx?: string) {
+        if (nx === "NX") {
+          if (store.has(key)) return null;
+          store.set(key, value);
+          return "OK";
+        }
+        store.set(key, value);
+        return "OK";
+      },
+      async get(key: string) {
+        return store.get(key) ?? null;
+      },
+    },
+  };
+}
+
+function realSeam() {
+  const redis = makeRedis();
+  const pii = {
+    // A REAL digest, not `hmac_${v}`. An echoing double would make the "never the raw header"
+    // case below pass for the wrong reason — and that case exists precisely because an
+    // unauthenticated-ish header must not land in a Redis key verbatim.
+    hmac: (v: string) => createHash("sha256").update(v).digest("hex"),
+    hashPhone: (v: string) => `phash_${v}`,
+    encrypt: (v: string) => `enc(${v})`,
+    decrypt: (v: string) => v.replace(/^enc\(|\)$/g, ""),
+  };
+  const queue = { client: Promise.resolve(redis.client) };
+  return { seam: new RequestIdempotency(pii as never, queue as never), redis };
+}
+
 describe("#1046 — POST /payer/credits is idempotent on Idempotency-Key", () => {
   // THE BUG, AS REPORTED. The payer app posts `{pack_code}` with no key. On a 15s timeout the
   // server may already have committed the grant, but the app re-enables the Buy button, the
@@ -310,43 +396,6 @@ describe("#1046 — POST /payer/credits is idempotent on Idempotency-Key", () =>
   //
   // These cases drive the REAL seam against an in-memory Redis, so the mutex, the replay and
   // the in-flight branch are exercised rather than described.
-
-  /** In-memory Redis covering the three commands the seam uses, with NX semantics. */
-  function makeRedis() {
-    const store = new Map<string, string>();
-    return {
-      store,
-      client: {
-        async set(key: string, value: string, _m: string, _s: number, nx?: string) {
-          if (nx === "NX") {
-            if (store.has(key)) return null;
-            store.set(key, value);
-            return "OK";
-          }
-          store.set(key, value);
-          return "OK";
-        },
-        async get(key: string) {
-          return store.get(key) ?? null;
-        },
-      },
-    };
-  }
-
-  function realSeam() {
-    const redis = makeRedis();
-    const pii = {
-      // A REAL digest, not `hmac_${v}`. An echoing double would make the "never the raw header"
-      // case below pass for the wrong reason — and that case exists precisely because an
-      // unauthenticated-ish header must not land in a Redis key verbatim.
-      hmac: (v: string) => createHash("sha256").update(v).digest("hex"),
-      hashPhone: (v: string) => `phash_${v}`,
-      encrypt: (v: string) => `enc(${v})`,
-      decrypt: (v: string) => v.replace(/^enc\(|\)$/g, ""),
-    };
-    const queue = { client: Promise.resolve(redis.client) };
-    return { seam: new RequestIdempotency(pii as never, queue as never), redis };
-  }
 
   function ctrlWithRealSeam() {
     const purchaseCredits = vi.fn(async (payerId: string, packCode: string) => ({
@@ -577,5 +626,162 @@ describe("#1899 — a MALFORMED job_id is refused at the boundary (400), never r
       worker_id: WORKER_ID,
       job_id: null,
     });
+  });
+});
+
+describe("#2749 item 9 — POST /payer/credits/order is idempotent on Idempotency-Key", () => {
+  // A retried order call (a double tap, a lost response on a weak link) used to create a SECOND
+  // Razorpay order. Under one key it now runs once: the retry replays the first handoff — the same
+  // provider order — and the service (which calls Razorpay) is never reached a second time.
+  function orderCtrl() {
+    let n = 0;
+    const handoff = () => {
+      n += 1;
+      return {
+        orderRowId: `11111111-2222-4333-8444-00000000000${n}`,
+        providerOrderId: `order_TEST${n}`,
+        keyId: "rzp_test_keyid",
+        amountInr: 1179,
+        amountPaise: 117900,
+        currency: "INR",
+        packCode: "pack_starter",
+        credits: 20,
+        price: {
+          taxablePaise: 99900,
+          gstPaise: 17982,
+          roundOffPaise: 18,
+          totalPaise: 117900,
+          gstRateBps: 1800,
+        },
+        validityDays: 30,
+      };
+    };
+    const createCreditOrder = vi.fn(async () => handoff());
+    const unlocks = { realPaymentsLive: true, createCreditOrder };
+    const { seam, redis } = realSeam();
+    const ctrl = new PayerUnlocksController(
+      unlocks as never,
+      { assertWithinHourlyCap: vi.fn(async () => undefined) } as never,
+      seam,
+    );
+    return { ctrl, unlocks, createCreditOrder, redis, handoff };
+  }
+
+  it("the same key twice creates ONE provider order and replays the same handoff", async () => {
+    const { ctrl, createCreditOrder } = orderCtrl();
+    const req = withKey("order-1");
+    const first = await ctrl.createOrder({ pack_code: "pack_starter" }, PAYER_A, req, CTX);
+    const second = await ctrl.createOrder({ pack_code: "pack_starter" }, PAYER_A, req, CTX);
+    expect(createCreditOrder).toHaveBeenCalledTimes(1);
+    expect(second).toEqual(first);
+    expect(second).toMatchObject({ order_id: "order_TEST1", amount: 117900, validity_days: 30 });
+  });
+
+  it("a duplicate while the first is still running is a 409 in_flight, never a second order", async () => {
+    const { ctrl, createCreditOrder, handoff } = orderCtrl();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    createCreditOrder.mockImplementationOnce(async () => {
+      await gate;
+      return handoff();
+    });
+    const req = withKey("order-2");
+    const inflight = ctrl.createOrder({ pack_code: "pack_starter" }, PAYER_A, req, CTX);
+    const err = await caught(ctrl.createOrder({ pack_code: "pack_starter" }, PAYER_A, req, CTX));
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(renderedError(err as ConflictException)).toMatchObject({ reason: "in_flight" });
+    release();
+    await inflight;
+    expect(createCreditOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it("the same key with a DIFFERENT body is a 422 idempotency_key_reused — never the first order replayed", async () => {
+    const { ctrl, createCreditOrder } = orderCtrl();
+    const req = withKey("order-reused");
+    const first = await ctrl.createOrder({ pack_code: "pack_starter" }, PAYER_A, req, CTX);
+    for (const other of [
+      { pack_code: "pack_big" },
+      { pack_code: "pack_starter", origin: "dashboard" as const },
+      { pack_code: "pack_starter", origin_job_posting_id: "eeeeeeee-0000-4000-8000-000000000005" },
+      { pack_code: "pack_starter", expected_price_inr: 999 },
+    ]) {
+      const err = await caught(ctrl.createOrder(other, PAYER_A, req, CTX));
+      expect((err as UnprocessableEntityException).getStatus(), JSON.stringify(other)).toBe(422);
+      expect(renderedError(err)).toMatchObject({ reason: "idempotency_key_reused" });
+    }
+    expect(createCreditOrder).toHaveBeenCalledTimes(1);
+    // The original body under the key still replays the original order.
+    expect(await ctrl.createOrder({ pack_code: "pack_starter" }, PAYER_A, req, CTX)).toEqual(first);
+  });
+
+  it("the body fingerprint covers every field and nothing else: same body → same digest", () => {
+    const a = creditOrderFingerprint({ pack_code: "pack_starter" });
+    expect(creditOrderFingerprint({ pack_code: "pack_starter" })).toBe(a);
+    expect(a).toMatch(/^[0-9a-f]{64}$/);
+    expect(creditOrderFingerprint({ pack_code: "pack_starter", origin: "other" })).not.toBe(a);
+    expect(creditOrderFingerprint({ pack_code: "pack_starter", expected_price_inr: 999 })).not.toBe(
+      a,
+    );
+  });
+
+  it("NO key keeps the old behaviour (each call is a new order) — the header is optional", async () => {
+    const { ctrl, createCreditOrder } = orderCtrl();
+    const a = await ctrl.createOrder({ pack_code: "pack_starter" }, PAYER_A, NO_KEY, CTX);
+    const b = await ctrl.createOrder({ pack_code: "pack_starter" }, PAYER_A, NO_KEY, CTX);
+    expect(createCreditOrder).toHaveBeenCalledTimes(2);
+    expect(a.order_id).not.toBe(b.order_id);
+  });
+
+  it("keys are scoped per route and per SESSION payer: another payer's key, or the mock route's, never replays", async () => {
+    const { ctrl, createCreditOrder, redis } = orderCtrl();
+    const PAYER_B: AuthenticatedPayer = { ...PAYER_A, id: "bbbbbbbb-0000-4000-8000-000000000002" };
+    await ctrl.createOrder({ pack_code: "pack_starter" }, PAYER_A, withKey("shared"), CTX);
+    await ctrl.createOrder({ pack_code: "pack_starter" }, PAYER_B, withKey("shared"), CTX);
+    expect(createCreditOrder).toHaveBeenCalledTimes(2);
+    const keys = [...redis.store.keys()];
+    expect(keys.every((k) => k.startsWith("payer_idem:credits_order:"))).toBe(true);
+    expect(keys.some((k) => k.includes(PAYER_A.id))).toBe(true);
+    expect(keys.some((k) => k.includes(PAYER_B.id))).toBe(true);
+    expect(keys.join(" ")).not.toContain("shared"); // the raw header never lands in a key
+  });
+
+  it("the launch gate answers BEFORE the seam: no reservation while real payments are off", async () => {
+    const { ctrl, unlocks, createCreditOrder, redis } = orderCtrl();
+    unlocks.realPaymentsLive = false;
+    await expect(
+      ctrl.createOrder({ pack_code: "pack_starter" }, PAYER_A, withKey("order-off"), CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(createCreditOrder).not.toHaveBeenCalled();
+    expect(redis.store.size).toBe(0);
+  });
+});
+
+describe("#2749 item 9 — the order body's origin fields are validated at the boundary", () => {
+  const pipe = new ZodValidationPipe(CreateCreditOrderSchema);
+  const POSTING = "eeeeeeee-0000-4000-8000-000000000005";
+
+  it("accepts every PAYMENT_ORDER_ORIGINS value and a uuid posting id; both stay optional", () => {
+    for (const origin of PAYMENT_ORDER_ORIGINS) {
+      expect(pipe.transform({ pack_code: "pack_starter", origin })).toMatchObject({
+        origin,
+      });
+    }
+    expect(
+      pipe.transform({ pack_code: "pack_starter", origin_job_posting_id: POSTING }),
+    ).toMatchObject({ origin_job_posting_id: POSTING });
+    expect(pipe.transform({ pack_code: "pack_starter" })).toEqual({
+      pack_code: "pack_starter",
+    });
+  });
+
+  it("refuses an origin outside the set, and a posting id that is not a uuid (400)", () => {
+    for (const body of [
+      { pack_code: "pack_starter", origin: "homepage" },
+      { pack_code: "pack_starter", origin: "" },
+      { pack_code: "pack_starter", origin_job_posting_id: "not-a-uuid" },
+      { pack_code: "pack_starter", origin_job_posting_id: 42 },
+    ]) {
+      expect(() => pipe.transform(body), JSON.stringify(body)).toThrow(BadRequestException);
+    }
   });
 });

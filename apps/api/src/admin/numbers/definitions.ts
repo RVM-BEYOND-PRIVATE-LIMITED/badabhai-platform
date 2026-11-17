@@ -502,9 +502,10 @@ export const NUMBERS_REVENUE_PACK_PREFIX = "revenue_by_pack:";
 /** A pack code as stored ids carry it; anything else is folded into `revenue_by_pack:other`. */
 const PACK_CODE = /^[a-z0-9_]{1,64}$/;
 
-/** The snapshot metric id of one pack's revenue (a malformed code folds into `other`). */
-export function revenuePackMetricId(packCode: string): string {
-  return `${NUMBERS_REVENUE_PACK_PREFIX}${PACK_CODE.test(packCode) ? packCode : "other"}`;
+/** The snapshot metric id of one pack's revenue (a missing or malformed code folds into `other`). */
+export function revenuePackMetricId(packCode: string | null): string {
+  const code = packCode !== null && PACK_CODE.test(packCode) ? packCode : "other";
+  return `${NUMBERS_REVENUE_PACK_PREFIX}${code}`;
 }
 
 /** Is `id` a stored per-pack revenue id? */
