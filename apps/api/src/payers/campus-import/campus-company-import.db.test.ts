@@ -16,6 +16,7 @@ import { importBalances } from "./import-balances";
 import { importJobs, UnheldPostingError, type JobImportDeps } from "./import-jobs";
 import { buildJobImportDeps } from "./job-import-wiring";
 import { writeRow } from "./import-ledger.repository";
+import { importApplications } from "./import-applications";
 import { CampusImportRefusal, importLedgerExists, openBatch, type OpenBatch } from "./import-ledger.repository";
 import { readCampusBundle } from "./read-bundle";
 import { buildSyntheticBundle } from "./synthetic-bundle";
@@ -39,7 +40,11 @@ import { buildSyntheticBundle } from "./synthetic-bundle";
  *    approved for RVM students by the batch; a rerun adds nothing; a posting that comes out without
  *    #2891's worker hold is closed and the step stops; an interrupted creation is never repeated.
  *    The hold itself is #2891's table, absent on main until its migration lands, so these tests
- *    inject the hold check (`isHeld`); the wiring reads the table.
+ *    inject the hold check (`isHeld`); the wiring reads the table;
+ *  - (items 8, 9) an application moves only for a linked or moved RVM student or an outside
+ *    candidate who already has a consenting BadaBhai account: with its Campus date, its stage, the
+ *    Campus record for a student, and a contact the company had opened carried over for good and
+ *    free; everyone else is held with no personal detail; a rerun adds nothing.
  */
 const RUN = process.env.RUN_DB_TESTS === "1";
 const DATABASE_URL =
@@ -71,6 +76,7 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
   let deps!: CompanyImportDeps;
   const batchKeys: string[] = [];
   const extraPayers: string[] = [];
+  const extraWorkers: string[] = [];
 
   beforeAll(async () => {
     client = createDbClient(DATABASE_URL, { max: 4 });
@@ -105,6 +111,8 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
       await sql`
         DELETE FROM events
          WHERE event_name = 'admin.payer_test_account_marked' AND payload->>'payer_id' = ANY(${ids}::text[])`;
+      await sql`DELETE FROM unlocks WHERE payer_id = ANY(${ids}::uuid[])`;
+      await sql`DELETE FROM workers WHERE id = ANY(${extraWorkers}::uuid[])`;
       await sql`DELETE FROM job_postings WHERE payer_id = ANY(${ids}::uuid[])`;
       await sql`DELETE FROM credit_ledger WHERE payer_id = ANY(${ids}::uuid[])`;
       await sql`DELETE FROM credit_lots WHERE payer_id = ANY(${ids}::uuid[])`;
@@ -298,6 +306,84 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
     const count = (await client.sql<{ n: number }[]>`
       SELECT count(*)::int AS n FROM job_postings WHERE payer_id = ANY(${[...placed.values()]}::uuid[])`)[0]!.n;
     expect(count).toBe(0);
+  });
+
+  /** A BadaBhai worker on this 10-digit phone, consenting to employer sharing unless told not to. */
+  async function seedWorker(phone10: string, consents = true): Promise<string> {
+    const id = randomUUID();
+    extraWorkers.push(id);
+    await client.sql`
+      INSERT INTO workers (id, phone_e164, phone_hash, status)
+      VALUES (${id}::uuid, ${`enc:campus-import-${TAG}-${id}`}, ${pii.hashPhone(`+91${phone10}`)}, 'active')`;
+    if (consents) {
+      await client.sql`
+        INSERT INTO worker_consents (worker_id, consent_version, purposes, accepted_at)
+        VALUES (${id}::uuid, 'test', ${JSON.stringify(["employer_sharing"])}::jsonb, now() - interval '1 day')`;
+    }
+    return id;
+  }
+
+  it("moves a consenting outside candidate and a linked student, with date, stage and carried access; a rerun adds nothing", async () => {
+    const bundle = bundleOf(`apps-${TAG}`, 1);
+    const external = bundle.applications.find((a) => a.candidate.kind === "external")!;
+    const student = bundle.applications.find((a) => a.candidate.kind === "rvm_student")!;
+    const externalWorker = await seedWorker((external.candidate as { phone: string }).phone);
+    const studentWorker = await seedWorker("6000000000".slice(0, 2) + TAG.replace(/[^0-9]/g, "1").padEnd(8, "1").slice(0, 8));
+    await client.sql`
+      INSERT INTO worker_institute_links (worker_id, institute_code, student_ref, status, synced_at)
+      VALUES (${studentWorker}::uuid, 'rvm', ${(student.candidate as { student_ref: string }).student_ref.toLowerCase()}, 'active', now())`;
+
+    const batch = await open("apps", bundle);
+    const companies = (await importCompanies(deps, batch, bundle, opts)).placed;
+    const jobs = (await importJobs(jobDeps(true), batch, bundle, companies, ctx)).placed;
+    const first = await importApplications(client.db, pii, batch, bundle, companies, jobs);
+    expect(first).toMatchObject({ moved: 2, alreadyDone: 0, held: {}, skipped: {}, stages: { shortlist: 1, new: 1 }, carriedAccess: 1 });
+
+    const { sql } = client;
+    const companyId = companies.get(external.company_source_id)!;
+    const postingId = jobs.get(external.job_source_id)!;
+    const apps = await sql<{ worker_id: string; created_at: Date }[]>`
+      SELECT worker_id, created_at FROM applications WHERE job_posting_id = ${postingId} AND action = 'applied'`;
+    expect(apps.map((a) => a.worker_id).sort()).toEqual([externalWorker, studentWorker].sort());
+    for (const a of apps) expect(new Date(a.created_at).toISOString()).toBe(new Date(external.applied_at).toISOString());
+    const stage = await sql<{ stage: string; actor: string }[]>`
+      SELECT stage, actor_payer_id AS actor FROM payer_applicant_stages WHERE posting_id = ${postingId}`;
+    expect(stage).toEqual([{ stage: "shortlist", actor: companyId }]);
+    const opened = await sql<{ status: string; expires: Date; worker_id: string }[]>`
+      SELECT status, expires_at AS expires, worker_id FROM unlocks WHERE payer_id = ${companyId}`;
+    expect(opened).toHaveLength(1);
+    expect(opened[0]).toMatchObject({ status: "granted", worker_id: externalWorker });
+    expect(new Date(opened[0]!.expires).getUTCFullYear()).toBe(2099);
+    const credits = (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM credit_ledger WHERE payer_id = ${companyId} AND reason <> 'campus_conversion'`)[0]!.n;
+    expect(credits).toBe(0);
+    const record = await sql<{ ref: string; owns: boolean }[]>`
+      SELECT external_ref AS ref, owns_application AS owns FROM institute_applications WHERE worker_id = ${studentWorker}`;
+    expect(record).toEqual([{ ref: student.source_id, owns: true }]);
+
+    const again = await importApplications(client.db, pii, batch, bundle, companies, jobs);
+    expect(again).toMatchObject({ moved: 0, alreadyDone: 2, carriedAccess: 0 });
+    const count = (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM applications WHERE job_posting_id = ${postingId}`)[0]!.n;
+    expect(count).toBe(2);
+  });
+
+  it("holds an applicant with no BadaBhai account, or no consent, and stores nothing personal about him", async () => {
+    const bundle = bundleOf(`held-${TAG}`, 1);
+    const external = bundle.applications.find((a) => a.candidate.kind === "external")!;
+    const batch = await open("held", bundle);
+    const companies = (await importCompanies(deps, batch, bundle, opts)).placed;
+    const jobs = (await importJobs(jobDeps(true), batch, bundle, companies, ctx)).placed;
+    const first = await importApplications(client.db, pii, batch, bundle, companies, jobs);
+    expect(first).toMatchObject({ moved: 0, held: { no_badabhai_account: 1, rvm_student_not_moved: 1 } });
+    const rows = await client.sql<{ detail: Record<string, unknown> }[]>`
+      SELECT detail FROM company_import_rows WHERE batch_id = ${batch.id} AND kind = 'application'`;
+    const printed = JSON.stringify(rows);
+    expect(printed).not.toContain((external.candidate as { phone: string }).phone);
+    expect(printed).not.toContain((external.candidate as { name: string }).name);
+
+    // He joins BadaBhai without consenting to employer sharing: still held, for that reason.
+    await seedWorker((external.candidate as { phone: string }).phone, false);
+    const again = await importApplications(client.db, pii, batch, bundle, companies, jobs);
+    expect(again.held).toMatchObject({ no_badabhai_consent: 1, rvm_student_not_moved: 1 });
   });
 
   it("a new batch over the same phones matches the accounts instead of creating new ones", async () => {

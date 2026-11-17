@@ -38,7 +38,13 @@
  * build sha from the production /health and run
  * `git merge-base --is-ancestor <#2903 merge sha> <build sha>`. Without the flag the jobs step
  * prints that it is waiting and imports no job. A created posting that is not held is closed and
- * the step stops. Applications are a later part; the batch stays `applying`.
+ * the step stops.
+ *
+ * Then, only when the jobs step ran, each open application of a moved job moves onto its posting
+ * with its stage (#2754 item 8): a moved or linked RVM student, or an outside candidate who already
+ * has a consenting BadaBhai account on that phone; everyone else is held with no personal detail.
+ * A contact the company had opened on Campus is carried over, opened for good and free (item 9).
+ * The batch stays `applying` until the report and the rollback land.
  *
  * NOT YET BUILT (each refuses with a message, never a partial run):
  *   --report --batch <key>      the per-company verification report (item 11)
@@ -85,6 +91,10 @@ import {
   type JobImportSummary,
 } from "./campus-import/import-jobs";
 import { buildJobImportDeps } from "./campus-import/job-import-wiring";
+import {
+  importApplications,
+  type ApplicationImportSummary,
+} from "./campus-import/import-applications";
 
 export const IMPORT_CAMPUS_COMPANIES_SCRIPT = "import-campus-companies";
 
@@ -266,6 +276,14 @@ export function formatJobSummary(s: JobImportSummary): string[] {
   ];
 }
 
+export function formatApplicationSummary(s: ApplicationImportSummary): string[] {
+  return [
+    `applications: moved=${s.moved} (reused an existing apply=${s.reusedApplication}) already_done=${s.alreadyDone} ` +
+      `held: ${fmt(s.held)} skipped: ${fmt(s.skipped)}`,
+    `  stages: ${fmt(s.stages)}; contacts carried over as opened: ${s.carriedAccess}`,
+  ];
+}
+
 export function formatBalanceSummary(s: BalanceImportSummary): string {
   return (
     `balances: converted=${s.converted} credits=${s.credits} already_done=${s.alreadyDone} ` +
@@ -341,8 +359,10 @@ async function apply(
         correlationId: batch.id,
       });
       for (const line of formatJobSummary(jobs)) log(line);
+      const apps = await importApplications(db, pii, batch, bundle, summary.placed, jobs.placed);
+      for (const line of formatApplicationSummary(apps)) log(line);
     }
-    log("applications: not built yet (#2754, a later part); the batch stays open");
+    log("the batch stays open until the verification report and the rollback land (#2754 items 11, 14)");
     return 0;
   } finally {
     await client.sql.end({ timeout: 5 });
