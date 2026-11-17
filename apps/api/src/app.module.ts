@@ -51,6 +51,7 @@ import { AdminPostingsModule } from "./admin-postings/admin-postings.module";
 import { AdminHiresModule } from "./hires/admin-hires.module";
 import { PayOnJoiningModule } from "./pay-on-joining/pay-on-joining.module";
 import { AdminNumbersModule } from "./admin/numbers/admin-numbers.module";
+import { AdminLaunchTestsModule } from "./admin/launch-tests/admin-launch-tests.module";
 import { UnlockOutcomesModule } from "./unlock-outcomes/unlock-outcomes.module";
 import { EmailNotificationModule } from "./notifications/email-notification.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
@@ -184,6 +185,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // #2755 — the numbers screen (/admin/numbers/*): the definitions catalogue and the test-company
     // marks. A leaf above AdminModule. INERT until ADMIN_NUMBERS_ENABLED is on: every route is a 404.
     AdminNumbersModule,
+    // #2755 part D — the two pre-launch tests' records (/admin/launch-tests/*). A leaf above
+    // AdminModule. INERT until ADMIN_NUMBERS_ENABLED is on: every route is a 404.
+    AdminLaunchTestsModule,
     // #2753 item 10 — the company follow-up: GET /payer/unlock-outcomes/due and
     // POST /payer/unlocks/:unlockId/outcome. A leaf onto PayersModule and HiresModule; a 404 while
     // UNLOCK_FOLLOWUP_ENABLED is off.

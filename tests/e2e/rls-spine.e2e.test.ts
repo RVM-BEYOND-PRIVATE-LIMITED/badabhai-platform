@@ -287,6 +287,12 @@ const LOCKED_TABLES = [
   // id, times). No worker or company data. RLS+FORCE+REVOKE in the hand-written tail of
   // `*_credit_rules_config`.
   "credit_rules_config",
+  // #2755 item 9: launch test A's records - one row per factory (its encrypted name and phone, the
+  // phone's keyed hash, opaque payer / order / admin ids, closed codes and dates) and one per
+  // worker sent to it (opaque ids and a time). Worker FK cascade as the erasure coverage.
+  // RLS+FORCE+REVOKE in the hand-written tail of `*_launch_tests`.
+  "launch_test_cohort",
+  "launch_test_shares",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.
