@@ -278,6 +278,12 @@ const LOCKED_TABLES = [
   // hash, a closed method and a time). Payer FK cascade as the erasure coverage. RLS+FORCE+REVOKE
   // in the hand-written tail of `*_payer_phone_proofs`.
   "payer_phone_proofs",
+  // #2755 item 9: launch test A's records - one row per factory (its encrypted name and phone, the
+  // phone's keyed hash, opaque payer / order / admin ids, closed codes and dates) and one per
+  // worker sent to it (opaque ids and a time). Worker FK cascade as the erasure coverage.
+  // RLS+FORCE+REVOKE in the hand-written tail of `*_launch_tests`.
+  "launch_test_cohort",
+  "launch_test_shares",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

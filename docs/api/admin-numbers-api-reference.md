@@ -2,7 +2,7 @@
 
 Issue #2755 (part A) · code: `apps/api/src/admin/numbers/*` · switch `ADMIN_NUMBERS_ENABLED` (default off) · capability `read_business_numbers` · no migration of its own
 
-The CEO's weekly numbers screen. Part A ships the foundations: the definitions catalogue and the test-company marks. The weekly figures (`GET /admin/numbers/weekly`, part B), the out-of-credits call list (part C) and the launch-test records (part D) build on the same module.
+The CEO's weekly numbers screen. Part A ships the foundations: the definitions catalogue and the test-company marks. The weekly figures (`GET /admin/numbers/weekly`, part B), the out-of-credits call list (part C) and the launch-test records (part D, `/admin/launch-tests/*`, documented at the end of this file) build on the same module.
 
 ## Access (every route)
 
@@ -102,3 +102,139 @@ The rule is the onboarding funnel's `profile_confirmed` step: the worker's curre
 ### Linked RVM identities
 
 A `workers` row the Campus link (#2752) created has `status = 'pending'` and a `worker_origins` row with `kind = 'institute'` (`awaitingFirstSignIn`, `admin-worker-scope.ts`). It is left out of every worker figure until his first worker-app sign-in makes him active. A student who already used BadaBhai keeps his own row and is counted.
+
+## The launch-test records (`/admin/launch-tests/*`, part D)
+
+Issue #2755 items 9 and 10 · code: `apps/api/src/admin/launch-tests/*` · the same switch (`ADMIN_NUMBERS_ENABLED`), capability (`read_business_numbers`), guard order and `Cache-Control: no-store` as every route above · migration `*_launch_tests` (two tables, `launch_test_cohort` and `launch_test_shares`; apply before the switch: with the switch on and the tables missing, the three cohort routes answer `503`).
+
+The records the two pre-launch tests need (brief section 11). Test A's are written by hand by the desk; test B's report is read-only.
+
+### `GET /admin/launch-tests/cohort`
+
+Launch test A's factories, newest first, a keyset page. Query (strict): `cursor` (the last page's `next_cursor`), `limit` 1–50 (default 50: the identity layer's per-response bound, so a named page is always whole).
+
+```ts
+{
+  rows: {
+    id: string;
+    factory_name?: string | null; // PRESENT only with read_identity (see below); ABSENT otherwise
+    has_phone: boolean; // the phone itself is never returned, on any route
+    city_group: "ncr" | "pune" | "ahmedabad" | "other";
+    trade_group: "cnc_operator" | "cnc_cam_programmer" | "sheet_metal" | "cad_3d_designer" | "other";
+    payer_id: string | null; // its BadaBhai account, when it has one
+    sent_by_admin_id: string;
+    sent_at: string;
+    payment_link_ref: string | null;
+    link_created_at: string | null;
+    result: "pending" | "paid" | "declined" | "no_response";
+    paid_at: string | null; // set exactly when result is "paid"
+    payment_order_id: string | null;
+    share_count: number; // 1..5
+    worker_ids: string[]; // the workers sent, oldest share first
+    created_at: string;
+    updated_at: string;
+    updated_by_admin_id: string;
+  }[];
+  next_cursor: string | null;
+}
+```
+
+**The factory name** is stored as AES ciphertext and decrypted only through `AdminIdentityService`, on the new surface `launch_test_factories`: the admin must hold `read_identity` (super_admin, ops_admin and support, so both roles of this route), the name budget (the entity egress cap) is charged per name, and `admin.identity_viewed { surface: "launch_test_factories", subject_id: null, result_count }` is committed BEFORE the decrypt. Without `read_identity`, over the budget or over the bound, the field is simply absent (the house contract: absent with the capability held means capped; absent without it means not entitled; present and null means no name recorded).
+
+### `POST /admin/launch-tests/cohort`
+
+Record one factory with the profiles sent to it. Nothing is sent, linked or charged.
+
+- **Body (strict):** `factory_name` (1–200 characters, plain text, never a phone, email or other hard identifier), `factory_phone?` (E.164), `city_group`, `trade_group`, `sent_at` (ISO-8601 with an offset), `worker_ids` (1–5 distinct uuids), `payer_id?`, `payment_link_ref?` (1–300 printable ASCII, no spaces), `link_created_at?` (needs the ref).
+- **Idempotency-Key:** REQUIRED (part A's header). The row's id is derived from the admin and the key, so a retry returns the stored row with `created: false`, and the same key for a different factory is `409 idempotency_key_reused`.
+- **Sender:** the admin making the request (`sent_by_admin_id`).
+
+Response `201`: `{ factory: <a row as above, without factory_name>; created: boolean }`. A real create commits the row, its shares, `admin.launch_test_factory_recorded { cohort_id, admin_id, share_count, has_phone, payer_id }` and `admin.action_performed` (`launch_test_factory_recorded`, target type `launch_test_cohort`) in one transaction.
+
+| Status | `reason`                   | When                                                                                                                       |
+| ------ | -------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 400    | `workers_not_eligible`     | a worker may not be sent; `workers: [{ worker_id, reason }]` names EACH, in request order (see below). Nothing is written. |
+| 409    | `campus_company`           | a company holding the factory's phone, or the account named, is one Campus created (`institute_companies`)                 |
+| 409    | `portal_import`            | the #2754 import ledger holds the phone (the hook answers no until that ledger exists)                                     |
+| 409    | `factory_already_recorded` | a factory with this phone is already recorded (`launch_test_cohort_phone_hash_uq`)                                         |
+| 409    | `share_limit_exceeded`     | the factory would pass five shares (counted under a lock on its row)                                                       |
+| 400    | `payer_not_found`          | the named account does not exist                                                                                           |
+| 400    | `link_created_without_ref` | a link time with no link                                                                                                   |
+
+**Who may be sent.** A worker must be in company search with his own consent: the search's own membership statement (`CandidateSearchRepository.findCardRow`, with no company named, so a named-company grant never lets an RVM student in; a worker who left search is out while `SEARCH_EXIT_ENABLED` is on). Never a sample worker, a test account or a linked RVM identity (part A's `exclusions.ts`). Each refused worker carries the FIRST rule he breaks, in this order: `not_found`, `sample_worker`, `test_worker`, `linked_rvm_identity`, `not_in_search_pool`.
+
+**The account link.** With `payer_id` named, that account (it must exist and must not be a Campus company). With none named and a phone given, the ONE ordinary account holding that phone; none when several do (production may hold duplicate phones), and the desk links it with the PATCH.
+
+### `PATCH /admin/launch-tests/cohort/:id`
+
+Any of `payment_link_ref`, `link_created_at`, `result`, `paid_at`, `payer_id`, `payment_order_id` (strict, at least one; `null` clears every field but `result`). Idempotency-Key REQUIRED. The rules are checked on the MERGED row, so a pair may be set together or one side at a time.
+
+| Status | `reason`                          | Rule                                                                                     |
+| ------ | --------------------------------- | ---------------------------------------------------------------------------------------- |
+| 400    | `paid_at_mismatch`                | `paid_at` is set exactly when `result` is `paid` (mirrors the DB CHECK)                  |
+| 400    | `link_created_without_ref`        | a link time needs the link (mirrors the DB CHECK)                                        |
+| 400    | `payment_order_without_payer`     | an order needs the factory's account                                                     |
+| 400    | `payment_order_needs_paid_result` | an order is linked only once the factory has paid                                        |
+| 409    | `payment_order_not_found`         | no such order                                                                            |
+| 409    | `payment_order_not_real`          | not a provider order: only `razorpay` rows are real (the mock route writes no order row) |
+| 409    | `payment_order_not_paid`          | the order's status is not `paid`                                                         |
+| 409    | `payment_order_other_payer`       | the order is not the factory's own account's (`payment_orders.payer_id`, the wallet key) |
+| 409    | `payment_order_already_linked`    | another factory links it (`launch_test_cohort_payment_order_uq`)                         |
+| 409    | `campus_company`                  | the account named is a Campus company                                                    |
+| 404    |                                   | no such factory                                                                          |
+
+Response `200`: `{ factory; changed: boolean }`. `changed: false` writes and emits nothing. A change emits `admin.launch_test_factory_updated { cohort_id, admin_id, changed: ("payment_link" | "result" | "payer" | "payment_order")[], result, payer_id, payment_order_id }` and `admin.action_performed` (`launch_test_factory_updated`). The name, the phone and the link's text never ride the spine.
+
+### `GET /admin/launch-tests/contacts-per-hire`
+
+Launch test B: for the first 50 CONFIRMED hires in BadaBhai, the contacts each company opened for that job before the hire, and what became of each. Read-only, ids only.
+
+```ts
+{
+  limit: 50;
+  hires: {
+    hire_id: string;
+    payer_id: string; // hires.tenant_payer_id, the company's tenant key
+    posting_kind: "company_posting" | "agency_job";
+    job_posting_id: string | null; // null for an agency job
+    worker_id: string;
+    confirmed_at: string; // microsecond ISO-8601, UTC
+    contacts:
+      | {
+          unlock_id: string;
+          worker_id: string | null; // null when the worker was erased (the open still counts)
+          granted_at: string; // microsecond ISO-8601, UTC
+          outcome: {
+            outcome: "hired" | "not_hired" | "still_talking" | "not_reached";
+            answered_by: "company" | "desk";
+            answered_at: string;
+          } | null;
+        }[]
+      | null;
+    contacts_reason: "agency_job" | "posting_deleted" | null; // why contacts is null
+  }[];
+  totals: {
+    hires_listed: number;
+    hires_counted: number; // hires with contacts: the mean's denominator
+    contacts_opened: number; // the mean's numerator
+    contacts_per_hire: { numerator: number; denominator: number }; // never divided; 0/0 = no hire yet
+  };
+}
+```
+
+- **Which hires.** `hires.status = 'confirmed'`, ordered by the confirmation time, then the hire id. The confirmation time is the FIRST confirming source, `LEAST(company_marked_at, company_answered_at, desk_confirmed_at)` (`hire-state.ts`: a worker's own answer never confirms). Test companies (`payers.is_test_account`), test accounts and sample workers are left out (part A's `excludeTestPayers`, `excludeTestWorkers`, `excludeSampleWorkers`). A linked RVM student who was hired is counted: he is a real hire.
+- **Which contacts.** The company's `unlocks` (the tenant key, `unlocks.payer_id`) for that posting (`unlocks.job_posting_id = posting_id`), OPENED (`granted`, `revealed` or `expired` with a grant time: the follow-up's own rule) and granted AT OR BEFORE the confirmation, at microsecond precision. A contact on a test account or sample worker is left out. The #2754 import-ledger hook (opens carried over by the company move) leaves nothing out until that ledger exists. Each contact's answer is its `unlock_outcomes` row (#2753 part L), or null.
+- **No count.** An agency job (`agency_job`: a company unlock never names a legacy `jobs` row) or a posting whose row is gone (`posting_deleted`: its unlocks lost the link when it was deleted) is listed with `contacts: null`.
+- `503` while `hires` or `unlock_outcomes` (#2753's migrations) is missing.
+
+### Owner notes: test A (brief 11.1)
+
+- Apply `*_launch_tests` before arming `ADMIN_NUMBERS_ENABLED`, in one hand-applied transaction with a `lock_timeout` (the migration header and `MIGRATIONS.md`).
+- The ₹1,179 payment link is created BY THE DESK, BY HAND (a Razorpay payment link, or a hosted checkout for a prepared order, as decided with #2749), then recorded with `PATCH … { payment_link_ref, link_created_at }`. A paid factory is recorded as `result: "paid"` with `paid_at`; its order is linked only when it paid as a real (Razorpay) order from its own BadaBhai account, so real payments must be on for that link.
+- "Outside the portal" is checked against the Campus company list today. The #2754 import ledger plugs into `AdminLaunchTestsRepository.importedFromPortal` once it exists.
+- Thirty factories fit one page. The factory name needs `read_identity`; the phone is never shown, so the desk keeps its call sheet elsewhere.
+
+### Owner notes: test B (brief 11.2)
+
+- The report needs `HIRE_RECORDS_ENABLED` (hires written) and `UNLOCK_FOLLOWUP_ENABLED` (outcomes written) on from day one: an early hire with no outcome rows cannot be repaired later. Neither switch is read here; the report reads whatever rows exist.
+- The mean is returned as a fraction (`numerator / denominator`); the screen divides.

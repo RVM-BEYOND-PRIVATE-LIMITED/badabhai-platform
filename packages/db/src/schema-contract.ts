@@ -1520,6 +1520,40 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "PostgREST role write a proof for its own account against a victim's phone hash and so " +
       "take over that company's SMS sign-in, or read which accounts hold a proven phone",
   },
+  // #2755 item 9: launch test A's records. THE API names `launch_test_cohort` and
+  // `launch_test_shares` only while ADMIN_NUMBERS_ENABLED is on (every `/admin/launch-tests/*`
+  // route is a 404 before a query while it is off; with it on and the tables missing the cohort
+  // routes answer 503), so a deploy ahead of the migration breaks no request and neither is a
+  // `table` entry. Listed for their locks (the 0134 rule). APPLY BEFORE THE SWITCH (migration
+  // header). The ids and tag carry the slot number: regenerated with the migration when it moves.
+  {
+    id: "0176-launch-test-cohort-rls",
+    migration: "0176_launch_tests",
+    kind: "rls",
+    table: "launch_test_cohort",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table holds each launch-test factory's encrypted name and phone, the phone's " +
+      "keyed hash, its payment link and whether it paid; an open grant lets any PostgREST role " +
+      "read the pre-launch sales list and its results, or write a `paid` the test counts",
+  },
+  {
+    id: "0176-launch-test-shares-rls",
+    migration: "0176_launch_tests",
+    kind: "rls",
+    table: "launch_test_shares",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which workers' profiles were sent to which factory, keyed by " +
+      "worker id; an open grant lets any PostgREST role read whose profile went where, or add " +
+      "a share past the five-per-factory limit the service enforces",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

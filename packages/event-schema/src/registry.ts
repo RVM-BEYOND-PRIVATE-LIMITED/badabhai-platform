@@ -1867,6 +1867,19 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminPayerTestAccountUnmarkedPayload,
   },
+  // #2755 item 9 — launch test A: a factory recorded by the desk with the profiles sent to it, or
+  // its record changed (link, result, account, paid order). IDS, COUNTS AND CLOSED CODES ONLY,
+  // strict: never the factory's name or phone, the link's text or a worker id. v1.
+  "admin.launch_test_factory_recorded": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminLaunchTestFactoryRecordedPayload,
+  },
+  "admin.launch_test_factory_updated": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminLaunchTestFactoryUpdatedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

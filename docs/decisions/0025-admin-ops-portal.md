@@ -349,7 +349,11 @@ buying, the out-of-credits call list), so they are NOT on the `read_entities` fl
 only on the owner's word. The test-company mark (`PUT|DELETE /admin/numbers/test-accounts/:payerId`)
 rides the same row: it exists only to decide what these figures count. The routes also sit behind
 the default-off `ADMIN_NUMBERS_ENABLED` switch, a guard ordered AHEAD of `AdminRolesGuard`, so with
-it off every role gets the same neutral 404.
+it off every role gets the same neutral 404. The launch-test records (`/admin/launch-tests/*`,
+#2755 items 9 and 10) ride the same capability and switch. Their factory names are decrypted only
+through `AdminIdentityService` on the `launch_test_factories` surface (`read_identity`, the entity
+name budget, `admin.identity_viewed` committed before the decrypt); a factory's phone is never
+returned by any route.
 
 **`read_ai_traces` IS a gate on the route, and on BOTH legs of it.** Unlike `read_identity`
 above, this capability does not decide whether a field appears — it decides whether

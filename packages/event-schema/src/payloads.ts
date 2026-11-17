@@ -68,6 +68,7 @@ import {
   UNLOCK_OUTCOME_ANSWERERS,
   CREDIT_LOT_SOURCES,
   CREDIT_LOT_EXPIRY_TRIGGERS,
+  LAUNCH_TEST_RESULTS,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -3397,6 +3398,10 @@ export type AdminPiiRevealCapExceededPayload = z.infer<typeof AdminPiiRevealCapE
 // #2564 — `company_profiles` (ADDITIVE member): the company record's contact PII (GSTIN, address,
 // company phone/email, contact person) on GET /admin/companies/:id. `result_count` counts the
 // non-empty FIELDS disclosed for the one company, never their values.
+// #2755 item 9 — `launch_test_factories` (ADDITIVE member): launch test A's factory names on
+// GET /admin/launch-tests/cohort → `launch_test_cohort.factory_name_enc`. A separate surface because
+// a launch-test factory is not (yet) a BadaBhai company: its name is the desk's record, not a
+// `payers` row's. The factory's phone is never disclosed on any surface.
 export const ADMIN_IDENTITY_SURFACES = [
   "workers",
   "payers",
@@ -3404,6 +3409,7 @@ export const ADMIN_IDENTITY_SURFACES = [
   "payer_logins",
   "candidates",
   "company_profiles",
+  "launch_test_factories",
 ] as const;
 export const AdminIdentitySurface = z.enum(ADMIN_IDENTITY_SURFACES);
 export type AdminIdentitySurface = z.infer<typeof AdminIdentitySurface>;
@@ -7017,4 +7023,70 @@ export const AdminPayerTestAccountUnmarkedPayload = z
   .strict();
 export type AdminPayerTestAccountUnmarkedPayload = z.infer<
   typeof AdminPayerTestAccountUnmarkedPayload
+>;
+
+// ---------------------------------------------------------------------------
+// #2755 item 9 — LAUNCH TEST A: a factory recorded by the desk, or its record changed
+// (`POST` / `PATCH /admin/launch-tests/cohort`). The desk sends five worker profiles and a payment
+// link to each factory by hand and records what it did and what the factory did back; nothing on
+// the server sends, links or charges.
+//
+// IDS, COUNTS AND CLOSED CODES ONLY, strict. Never the factory's name or phone (both are ciphertext
+// on the row), never the payment link's text, never a worker id (the shares are on the row, where
+// a worker's erasure removes them; the spine is append-only).
+// ---------------------------------------------------------------------------
+
+/** The parts of a factory's record a change can touch (`admin.launch_test_factory_updated`). */
+export const LAUNCH_TEST_FACTORY_FIELDS = [
+  // The payment link's ref and its creation time.
+  "payment_link",
+  // The result, and when it paid.
+  "result",
+  // The factory's BadaBhai account.
+  "payer",
+  // The real paid order it paid with.
+  "payment_order",
+] as const;
+export const LaunchTestFactoryField = z.enum(LAUNCH_TEST_FACTORY_FIELDS);
+export type LaunchTestFactoryField = z.infer<typeof LaunchTestFactoryField>;
+
+/** A factory recorded, with the profiles sent to it. */
+export const AdminLaunchTestFactoryRecordedPayload = z
+  .object({
+    cohort_id: uuidSchema,
+    /** The admin who recorded it (and sent the profiles). */
+    admin_id: uuidSchema,
+    /** How many worker profiles were sent: 1 to 5. */
+    share_count: z.number().int().min(1).max(5),
+    /** Whether a phone was recorded (the number itself never rides the spine). */
+    has_phone: z.boolean(),
+    /** The factory's BadaBhai account, when it has one. */
+    payer_id: uuidSchema.nullable(),
+  })
+  .strict();
+export type AdminLaunchTestFactoryRecordedPayload = z.infer<
+  typeof AdminLaunchTestFactoryRecordedPayload
+>;
+
+/** A factory's record changed: which parts, and where they stand now. One per real change. */
+export const AdminLaunchTestFactoryUpdatedPayload = z
+  .object({
+    cohort_id: uuidSchema,
+    admin_id: uuidSchema,
+    /** The parts that changed, each once. */
+    changed: z
+      .array(LaunchTestFactoryField)
+      .min(1)
+      .max(LAUNCH_TEST_FACTORY_FIELDS.length)
+      .refine((fields) => new Set(fields).size === fields.length, {
+        message: "each changed field is listed once",
+      }),
+    /** The result after the change. */
+    result: z.enum(LAUNCH_TEST_RESULTS),
+    payer_id: uuidSchema.nullable(),
+    payment_order_id: uuidSchema.nullable(),
+  })
+  .strict();
+export type AdminLaunchTestFactoryUpdatedPayload = z.infer<
+  typeof AdminLaunchTestFactoryUpdatedPayload
 >;
