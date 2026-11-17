@@ -54,7 +54,10 @@ function uuid(n: number): string {
   return `00000000-0000-4000-8000-${n.toString(16).padStart(12, "0")}`;
 }
 
-/** No `workers` / `payers` / `admin_users` rows: the table has no FK, and the guards are not run. */
+/**
+ * Each login below gets its own `workers` / `payers` / `admin_users` row: a PATCH locks it first
+ * (#2837), and the table still has no FK. The guards are not run. `RULES_ID` has no login row.
+ */
 const WORKER = uuid(0x2819b0001);
 const OTHER_WORKER = uuid(0x2819b0002);
 const PAYER = uuid(0x2819b0010);
@@ -109,9 +112,35 @@ describe.skipIf(!RUN)("#2819 — display_prefs and its routes' service (Postgres
        WHERE event_name = 'display_prefs.changed' AND payload->>'subject_id' = ANY(${IDS}::text[])`;
   }
 
+  /** The logins' own rows, which a PATCH locks before it writes (#2837). PII-free fixtures. */
+  const WORKER_LOGINS = [WORKER, OTHER_WORKER, RACE_WORKER];
+  async function insertLogins(): Promise<void> {
+    for (const id of WORKER_LOGINS) {
+      await client.sql`
+        INSERT INTO workers (id, phone_e164, phone_hash, status)
+        VALUES (${id}::uuid, 'v1.t2819-display-prefs-db', ${`t2819-display-prefs-db-${id}`}, 'active')
+        ON CONFLICT (id) DO NOTHING`;
+    }
+    await client.sql`
+      INSERT INTO payers (id, role, org_name_enc, status)
+      VALUES (${PAYER}::uuid, 'agent', 'v1.t2819-display-prefs-db', 'active')
+      ON CONFLICT (id) DO NOTHING`;
+    await client.sql`
+      INSERT INTO admin_users (id, email_enc, email_hash, role, status)
+      VALUES (${ADMIN}::uuid, 'v1.t2819-display-prefs-db', ${`t2819-display-prefs-db-${ADMIN}`},
+              'support', 'active')
+      ON CONFLICT (id) DO NOTHING`;
+  }
+  async function deleteLogins(): Promise<void> {
+    await client.sql`DELETE FROM workers WHERE id = ANY(${WORKER_LOGINS}::uuid[])`;
+    await client.sql`DELETE FROM payers WHERE id = ${PAYER}::uuid`;
+    await client.sql`DELETE FROM admin_users WHERE id = ${ADMIN}::uuid`;
+  }
+
   beforeAll(async () => {
     client = createDbClient(DATABASE_URL, { max: 3 });
     await cleanup();
+    await insertLogins();
   }, 30_000);
 
   beforeEach(async () => {
@@ -124,6 +153,7 @@ describe.skipIf(!RUN)("#2819 — display_prefs and its routes' service (Postgres
     if (!client) return;
     try {
       await cleanup();
+      await deleteLogins();
     } finally {
       await client.sql.end({ timeout: 5 });
     }
