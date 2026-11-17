@@ -3,13 +3,23 @@ import type { Request } from "express";
 import { z } from "zod";
 import { PAYER_TEST_ACCOUNT_REASONS } from "@badabhai/event-schema";
 import type { PaymentsPosture } from "../admin-finance.dto";
-import type { NumbersMetricGroupDefinition } from "./definitions";
-import type { NumbersCityGroupLabel, NumbersTradeGroupLabel } from "./groups";
+import type {
+  NumbersMetricGroupDefinition,
+  NumbersMetricKind,
+  NumbersMetricUnit,
+} from "./definitions";
+import {
+  NUMBERS_ALL_GROUP,
+  NUMBERS_CITY_GROUP_LABELS,
+  NUMBERS_TRADE_GROUP_LABELS,
+  type NumbersCityGroupLabel,
+  type NumbersTradeGroupLabel,
+} from "./groups";
 
 /**
- * #2755 — the wire contract of `/admin/numbers/*` (part A: the definitions catalogue and the
- * test-company marks). Later parts add the weekly figures, the call list and the launch-test
- * records beside these.
+ * #2755 — the wire contract of `/admin/numbers/*`: the definitions catalogue and the test-company
+ * marks (part A) and the weekly figures (part B). Later parts add the call list and the
+ * launch-test records beside these.
  */
 
 // -----------------------------------------------------------------------------------------------
@@ -110,3 +120,100 @@ export const NumbersIdempotencyKey = createParamDecorator(
     return parsed.data;
   },
 );
+
+// -----------------------------------------------------------------------------------------------
+// GET /admin/numbers/weekly (part B)
+// -----------------------------------------------------------------------------------------------
+
+/** How many weeks the series holds by default, and at most. */
+export const NUMBERS_WEEKLY_DEFAULT_WEEKS = 12;
+export const NUMBERS_WEEKLY_MAX_WEEKS = 26;
+
+/**
+ * The query: one city group and one trade group (each `all` by default; a label `groups.ts` does
+ * not know is a 400), and how many weeks of series (1..26, default 12). STRICT: an unknown key is
+ * a 400, never ignored.
+ */
+export const AdminNumbersWeeklyQuerySchema = z
+  .object({
+    city: z.enum(NUMBERS_CITY_GROUP_LABELS).optional().default(NUMBERS_ALL_GROUP),
+    trade: z.enum(NUMBERS_TRADE_GROUP_LABELS).optional().default(NUMBERS_ALL_GROUP),
+    weeks: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(NUMBERS_WEEKLY_MAX_WEEKS)
+      .optional()
+      .default(NUMBERS_WEEKLY_DEFAULT_WEEKS),
+  })
+  .strict();
+export type AdminNumbersWeeklyQueryDto = z.infer<typeof AdminNumbersWeeklyQuerySchema>;
+
+/** One week of one metric, as the snapshot stored it for the filter's cell. */
+export interface AdminNumbersWeeklyPoint {
+  week_start: string;
+  /**
+   * The figure: a count, paise, or (unit `ratio`) the quotient with two decimals. Null when the
+   * cell is suppressed, the ratio not computable (no hire), or the week not computed yet.
+   */
+  value: number | null;
+  /** A ratio's or a share's two terms; null for counts and money, and when suppressed. */
+  numerator: number | null;
+  denominator: number | null;
+  /** A worker cell under the small-cell floor: no number is shown. */
+  suppressed: boolean;
+  /** The week ends before the first real paid order: a zero here is not "nobody paid". */
+  before_real_payments: boolean;
+  /** The week is final: the sweep will not recompute it (only a logged recompute can). */
+  frozen: boolean;
+  /** The definition version the week was computed under; null when it has not been computed. */
+  definition_version: number | null;
+}
+
+/** This week against last week. */
+export interface AdminNumbersWeeklyChange {
+  /** This week minus last week, in the metric's unit. */
+  absolute: number;
+  /** The change as a percentage of last week, one decimal; null when last week is 0. */
+  percent: number | null;
+}
+
+export interface AdminNumbersWeeklyMetric {
+  /** The catalogue id; one pack's revenue is `revenue_by_pack:<pack_code>`. */
+  id: string;
+  /** The catalogue group (1..10's id). */
+  group: string;
+  title: string;
+  unit: NumbersMetricUnit;
+  kind: NumbersMetricKind;
+  availability: "live" | "not_available";
+  /** Why it is not available, and the issue it waits on (not_available only). */
+  reason?: string;
+  waits_on?: string;
+  /** The pack of a `revenue_by_pack:<code>` figure. */
+  pack?: string;
+  /** The current week's value (the week in progress), and the week before. */
+  this_week: number | null;
+  last_week: number | null;
+  /**
+   * Null when either week has no value (suppressed, not computable, not computed) or the two were
+   * computed under different definition versions (they would not be comparable).
+   */
+  change: AdminNumbersWeeklyChange | null;
+  /** Oldest first, one point per `weeks` entry; empty when not available. */
+  series: AdminNumbersWeeklyPoint[];
+}
+
+export interface AdminNumbersWeekly {
+  /** The version the code's rules are written under now. */
+  definition_version: number;
+  /** Whether money is real; every money figure is read with it. */
+  payments_posture: PaymentsPosture;
+  city: NumbersCityGroupLabel;
+  trade: NumbersTradeGroupLabel;
+  /** The series' weeks, oldest first; the last is the current week (in progress). */
+  weeks: string[];
+  /** When the newest row read was computed; null when none was. */
+  computed_at: string | null;
+  metrics: AdminNumbersWeeklyMetric[];
+}

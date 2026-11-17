@@ -1520,6 +1520,40 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "PostgREST role write a proof for its own account against a victim's phone hash and so " +
       "take over that company's SMS sign-in, or read which accounts hold a proven phone",
   },
+  // #2755 part B: the numbers screen's weekly snapshot and its recompute log. Nothing names either
+  // table while ADMIN_NUMBERS_ENABLED is off; with it on and the tables missing, the weekly route
+  // answers 503 (42P01) and the sweep logs and writes nothing, so a deploy ahead of the migration
+  // breaks no request and neither is a `table` entry. Listed for their locks (the 0134 rule).
+  // APPLY BEFORE THE SWITCH (migration header). The ids and tag carry the slot number:
+  // regenerated with the migration when the slot moves.
+  {
+    id: "0176-numbers-weekly-rls",
+    migration: "0176_numbers_weekly",
+    kind: "rls",
+    table: "numbers_weekly",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table is the company's weekly commercial figures (paying companies, revenue " +
+      "by pack, hires): an open grant lets any PostgREST role read them, or rewrite a frozen week " +
+      "the CEO screen and the investor numbers are read from",
+  },
+  {
+    id: "0176-numbers-recompute-log-rls",
+    migration: "0176_numbers_weekly",
+    kind: "rls",
+    table: "numbers_recompute_log",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table is the only record of who rewrote a frozen week and why (the operator's " +
+      "own words): an open grant lets any PostgREST role read the reasons, or delete the record " +
+      "of a recompute",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's
