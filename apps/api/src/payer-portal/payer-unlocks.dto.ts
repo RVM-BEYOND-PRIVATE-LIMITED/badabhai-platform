@@ -16,6 +16,24 @@ export const PayerRequestUnlockSchema = z.object({
 });
 export type PayerRequestUnlockDto = z.infer<typeof PayerRequestUnlockSchema>;
 
+/** #2750 item 3 — the most workers one quote prices: a page of search results or applicants. */
+export const CONTACT_QUOTE_MAX_WORKERS = 50;
+
+/**
+ * POST /payer/unlocks/quotes body — the workers on the page. No payer id (the session's tenant is
+ * priced); duplicates are refused so a quote is one row per worker.
+ */
+export const PayerContactQuotesSchema = z
+  .object({
+    worker_ids: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(CONTACT_QUOTE_MAX_WORKERS)
+      .refine((ids) => new Set(ids).size === ids.length, "worker_ids must not repeat"),
+  })
+  .strict();
+export type PayerContactQuotesDto = z.infer<typeof PayerContactQuotesSchema>;
+
 /**
  * POST /payer/credits body — buy a credit pack. Same XB-A discipline as above: the
  * payer is the AUTHENTICATED session payer (`req.payer.id`), so this body carries NO

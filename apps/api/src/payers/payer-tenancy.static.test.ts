@@ -107,6 +107,8 @@ const WALLET_HELPERS: ReadonlySet<string> = new Set([
   "expireDueLots",
   "grantCreditsWithinTx",
   "spendOneCreditWithinTx",
+  // #2750 item 2 — a multi-credit open (the higher cost) spends across lots.
+  "spendCreditsWithinTx",
   "expireWalletWithinTx",
   "findWalletsWithDueLots",
 ]);
