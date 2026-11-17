@@ -526,6 +526,14 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     ProfileSkillsRepository,
     WorkerEmploymentRepository,
   ],
-  exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
+  // #2755 part D — AdminIdentityService is exported for the launch-test cohort list's factory names
+  // (the ONE audited name path; `AdminLaunchTestsModule` sits above this module, not inside it).
+  exports: [
+    AdminAuthGuard,
+    AdminRolesGuard,
+    AdminSessionService,
+    AdminRepository,
+    AdminIdentityService,
+  ],
 })
 export class AdminModule {}
