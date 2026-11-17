@@ -365,10 +365,11 @@ esac
 #   * PAYMENTS_ENABLE_REAL=1. The api reads 1 as on, but payer-web reads only a literal true, so
 #     the api would close the free packs and open the real checkout while the portal kept calling
 #     the mock top-up. (Any other typo is already refused by the loop above.)
-#   * a PAYMENTS_PROVIDER_KEY that is not rzp_test_ or rzp_live_ followed by the id, with no
-#     whitespace: most likely the key SECRET pasted into the key-id slot. Checked whenever the key
-#     is set, flag on or off, so a wrong paste is caught by the first deploy that carries it,
-#     before the flag is ever flipped.
+#   * PAYMENTS_ENABLE_REAL=true with a PAYMENTS_PROVIDER_KEY that is not rzp_test_ or rzp_live_
+#     followed by the id, with no whitespace: most likely the key SECRET pasted into the key-id
+#     slot. With the flag NOT true the same key only WARNS (name only) and the deploy goes on: a
+#     bad paste of a secret nothing reads yet must not block every unrelated deploy, but it must
+#     block arming. The warning is on the first deploy that carries it, before the flag is flipped.
 # Armed with a rzp_test_ key the job prints a warning (no value): expected only for the test-key
 # rehearsal in docs/runbooks/2749-switch-on.md. Production takes real money only on rzp_live_.
 _payments_key="${PAYMENTS_PROVIDER_KEY-}"
@@ -412,8 +413,12 @@ if [ -n "${_payments_key//[[:space:]]/}" ]; then
     *) _payments_key_ok=0 ;;
   esac
   if [ "${_payments_key_ok}" -ne 1 ]; then
-    echo "::error::PAYMENTS_PROVIDER_KEY must be the Razorpay key ID: rzp_test_ or rzp_live_ followed by the id, with no spaces. The key secret belongs in PAYMENTS_PROVIDER_SECRET. Fix the production secret (gh secret set PAYMENTS_PROVIDER_KEY --env production, the value entered at the prompt) and re-run. Nothing was deployed."
-    _bad_flags=1
+    if [ "${PAYMENTS_ENABLE_REAL-}" = "true" ]; then
+      echo "::error::PAYMENTS_PROVIDER_KEY must be the Razorpay key ID: rzp_test_ or rzp_live_ followed by the id, with no spaces. The key secret belongs in PAYMENTS_PROVIDER_SECRET. Fix the production secret (gh secret set PAYMENTS_PROVIDER_KEY --env production, the value entered at the prompt) and re-run. Nothing was deployed."
+      _bad_flags=1
+    else
+      echo "::warning::PAYMENTS_PROVIDER_KEY is not a Razorpay key ID (rzp_test_ or rzp_live_ followed by the id, with no spaces); the key secret belongs in PAYMENTS_PROVIDER_SECRET. Real payments are off, so this deploy goes on, but arming them will be refused until the production secret is fixed (gh secret set PAYMENTS_PROVIDER_KEY --env production, the value entered at the prompt)."
+    fi
   fi
 fi
 _payments_key=""

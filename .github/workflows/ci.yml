@@ -2491,9 +2491,9 @@ jobs:
           # api AND payer-web; the three feed the api only. A box-level export no longer survives a
           # deploy. The preflight in staging-deploy.sh refuses, before a container moves: the flag
           # true with any of the three empty (by NAME), the flag true while
-          # RETIRED_PRODUCTS_OFF_SALE is not (hardening 7), a key not starting rzp_test_/rzp_live_,
-          # and the flag as `1` (payer-web reads only `true`). Values are masked by Actions and
-          # never echoed. Set with `gh secret set NAME --env production`; runbook 2749-switch-on.md.
+          # RETIRED_PRODUCTS_OFF_SALE is not (hardening 7), the flag true with a key not starting
+          # rzp_test_/rzp_live_ (flag off: a warning only), and the flag as `1` (payer-web reads
+          # only `true`). Values are masked by Actions and never echoed. Set with `gh secret set NAME --env production`; runbook 2749-switch-on.md.
           PAYMENTS_ENABLE_REAL: ${{ secrets.PAYMENTS_ENABLE_REAL }}
           PAYMENTS_PROVIDER_KEY: ${{ secrets.PAYMENTS_PROVIDER_KEY }}
           PAYMENTS_PROVIDER_SECRET: ${{ secrets.PAYMENTS_PROVIDER_SECRET }}

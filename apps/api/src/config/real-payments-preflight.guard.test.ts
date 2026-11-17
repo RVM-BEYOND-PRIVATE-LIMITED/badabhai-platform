@@ -250,21 +250,62 @@ describe("real payments — the deploy preflight (#2749 part 5b)", () => {
       for (const v of FAKE_VALUES) expect(out.stdout).not.toContain(v);
     });
 
-    it.each([
+    const MALFORMED_KEYS = [
       ["the key secret pasted into the key slot", KEY_SECRET],
       ["a bare prefix", "rzp_live_"],
       ["a capitalised prefix", "RZP_LIVE_FAKEKEYID000"],
       ["a leading space", ` ${LIVE_KEY}`],
       ["a trailing newline", `${LIVE_KEY}\n`],
       ["an inner space", "rzp_live_FAKE KEYID000"],
-    ])("a malformed key id (%s) → refused, flag on or off, value never printed", (_label, key) => {
-      for (const flag of ["true", "false", ""]) {
-        const out = run({ PAYMENTS_ENABLE_REAL: flag, ...ALL_LIVE, PAYMENTS_PROVIDER_KEY: key });
-        expect(out.bad, `flag=${flag}`).toBe(true);
-        expect(out.stdout).toContain("::error::PAYMENTS_PROVIDER_KEY must be the Razorpay key ID");
+    ] as const;
+
+    it.each(MALFORMED_KEYS)(
+      "a malformed key id (%s) with the flag true → refused, value never printed",
+      (_label, key) => {
+        const out = run({ PAYMENTS_ENABLE_REAL: "true", ...ALL_LIVE, PAYMENTS_PROVIDER_KEY: key });
+        expect(out.bad).toBe(true);
+        const errors = out.stdout.split("\n").filter((l) => l.startsWith("::error::"));
+        expect(errors, out.stdout).toHaveLength(1);
+        expect(errors[0]).toContain("::error::PAYMENTS_PROVIDER_KEY must be the Razorpay key ID");
+        expect(errors[0]).toContain("Nothing was deployed.");
+        expect(out.stdout).not.toContain("::warning::PAYMENTS_PROVIDER_KEY");
         for (const v of [...FAKE_VALUES, KEY_SECRET]) expect(out.stdout).not.toContain(v);
         expect(out.stdout).not.toContain("FAKE KEYID000");
-      }
+      },
+    );
+
+    it.each(MALFORMED_KEYS)(
+      "a malformed key id (%s) with the flag NOT true → a warning naming it, and the deploy goes on",
+      (_label, key) => {
+        // Nothing reads the key while real payments are off, so a bad paste must not block every
+        // unrelated deploy; it is named once, so it is fixed before anyone arms the flag.
+        for (const flag of ["false", "0", "", undefined]) {
+          const out = run({ PAYMENTS_ENABLE_REAL: flag, ...ALL_LIVE, PAYMENTS_PROVIDER_KEY: key });
+          expect(out.bad, `flag=${String(flag)}`).toBe(false);
+          expect(out.stdout).not.toContain("::error::");
+          const warnings = out.stdout
+            .split("\n")
+            .filter((l) => l.startsWith("::warning::PAYMENTS_PROVIDER_KEY"));
+          expect(warnings, out.stdout).toHaveLength(1);
+          expect(warnings[0]).toContain("is not a Razorpay key ID");
+          for (const v of [...FAKE_VALUES, KEY_SECRET]) expect(out.stdout).not.toContain(v);
+          expect(out.stdout).not.toContain("FAKE KEYID000");
+        }
+      },
+    );
+
+    it("a malformed key id with the flag 1 → refused (for the flag), the key only warned", () => {
+      const out = run({
+        PAYMENTS_ENABLE_REAL: "1",
+        ...ALL_LIVE,
+        PAYMENTS_PROVIDER_KEY: KEY_SECRET,
+      });
+      expect(out.bad).toBe(true);
+      expect(out.stdout).toContain(
+        "::error::PAYMENTS_ENABLE_REAL must be exactly true, false or empty",
+      );
+      expect(out.stdout).toContain("::warning::PAYMENTS_PROVIDER_KEY is not a Razorpay key ID");
+      expect(out.stdout).not.toContain(KEY_SECRET);
     });
   });
 });

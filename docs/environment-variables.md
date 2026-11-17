@@ -289,7 +289,9 @@ NestJS boot assertion).
     (ADR-0065 hardening 7: the dropped products have no real-payments path, so they go off sale no
     later than real money).
   - `PAYMENTS_PROVIDER_KEY` set but not `rzp_test_` or `rzp_live_` followed by the id, with no
-    whitespace (most likely the key secret pasted into the key slot): refused, flag on or off.
+    whitespace (most likely the key secret pasted into the key slot): refused when
+    `PAYMENTS_ENABLE_REAL` is `true`; otherwise a `::warning::` naming the variable, and the deploy
+    goes on (nothing reads the key yet, but arming will be refused until it is fixed).
   - Armed with a `rzp_test_` key: a `::warning::`, no refusal. `rzp_live_` is what production
     expects; `rzp_test_` is for the test-key rehearsal only.
 

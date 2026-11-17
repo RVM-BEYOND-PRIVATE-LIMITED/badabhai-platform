@@ -715,8 +715,8 @@ services:
       # the parse. INERT while PAYMENTS_ENABLE_REAL is false: the api reads them only through
       # `getRazorpayCredentials`, which answers null. With the flag true, all three must be
       # non-empty or `assertPaymentsConfig` refuses to boot; staging-deploy.sh refuses that pair
-      # (and a key not starting rzp_test_/rzp_live_) before a container moves. API ONLY: payer-web
-      # gets the rzp_ key id on the order response and never holds any of the three.
+      # (and, armed, a key not starting rzp_test_/rzp_live_) before a container moves. API ONLY:
+      # payer-web gets the rzp_ key id on the order response and never holds any of the three.
       PAYMENTS_PROVIDER_KEY: ${PAYMENTS_PROVIDER_KEY:-}
       PAYMENTS_PROVIDER_SECRET: ${PAYMENTS_PROVIDER_SECRET:-}
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}

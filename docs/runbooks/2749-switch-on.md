@@ -84,8 +84,11 @@ deployed", when:
 
 - `PAYMENTS_ENABLE_REAL` is `true` and any of the three Razorpay secrets is empty or blank;
 - `PAYMENTS_ENABLE_REAL` is `true` and `RETIRED_PRODUCTS_OFF_SALE` is not `true` (hardening 7);
-- `PAYMENTS_PROVIDER_KEY` is set but is not `rzp_test_…` or `rzp_live_…` with no spaces (most
-  likely the key secret pasted into the key slot) — checked even while the flag is off;
+- `PAYMENTS_ENABLE_REAL` is `true` and `PAYMENTS_PROVIDER_KEY` is not `rzp_test_…` or
+  `rzp_live_…` with no spaces (most likely the key secret pasted into the key slot). With the flag
+  not `true` the same key only prints a `::warning::` naming `PAYMENTS_PROVIDER_KEY` and the deploy
+  goes on, so a bad paste never blocks unrelated deploys, but it does block arming: fix it as soon
+  as the warning appears;
 - `PAYMENTS_ENABLE_REAL` is `1` (the api reads it as on, payer-web only reads `true`): use `true`.
 
 A refused deploy leaves production exactly as it was, but every later deploy is refused too until
@@ -159,7 +162,8 @@ gh secret set PAYMENTS_PROVIDER_SECRET --env production    # the test key secret
 gh secret set RAZORPAY_WEBHOOK_SECRET --env production     # the test webhook secret, at the prompt
 ```
 
-then redeploy. The deploy must pass (a refusal here is a malformed key: fix it now). Nothing changes
+then redeploy. The deploy passes; read its log for a `::warning::` naming `PAYMENTS_PROVIDER_KEY`
+(a malformed key: fix it now, or step 5's deploy is refused). Nothing changes
 for anyone: with the flag off the three are inert, and `GET /admin/finance/summary` (admin-web's
 finance page) still reports `payments.mode: "mock"` with
 `blocked_reason: "PAYMENTS_ENABLE_REAL is false"`.
