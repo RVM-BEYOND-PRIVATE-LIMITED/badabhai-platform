@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import { ACTION_ICON } from "@badabhai/icons";
-import type { FacelessApplicant } from "../../../../../lib/contracts";
+import type { FacelessApplicant, UnlockQuotes } from "../../../../../lib/contracts";
 import { NEUTRAL_UNLOCK_MESSAGE, mapUnlockResult } from "../../../../../lib/unlock-view";
 import type { GrantedUnlock } from "../../../../../lib/unlock-history";
 import { Badge, Button } from "../../../../../components/ds";
@@ -67,6 +67,8 @@ vi.mock("react", async () => {
   return {
     ...actual,
     useState: (initial: unknown) => useState(initial),
+    // The quote layer's effect: the quotes these suites pass are already the frame's.
+    useEffect: () => {},
     // The live balance (components/live-balance.ts, #2585) is read, never published, here: the
     // store's snapshot is all a render needs (its subscription is pinned in applicant-feed.test.tsx).
     useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
@@ -191,6 +193,8 @@ function render(opts: {
   balance?: number;
   /** The page's LIVE grants for this feed (omitted → the component's own default). */
   unlocked?: Record<string, GrantedUnlock>;
+  /** #2750 — the page's pre-read quotes. */
+  unlockQuotes?: UnlockQuotes | null;
 }) {
   // Source order of useState: rows, confirmedUnlock, stages, activeStage, confirmWorker.
   stateQueue = [
@@ -210,6 +214,7 @@ function render(opts: {
     balanceAsOf: 0,
     // No viewer/role input: every member can open Credits (owner ruling 2026-10-07).
     ...(opts.unlocked ? { unlocked: opts.unlocked } : {}),
+    ...(opts.unlockQuotes !== undefined ? { unlockQuotes: opts.unlockQuotes } : {}),
   }) as ReactElement;
 }
 
@@ -1374,5 +1379,25 @@ describe("ApplicantActions — the privacy note is ONE compact line (F20)", () =
     expect(textOf(body[0]!.props.children as ReactNode)).toBe(
       "Applicants are faceless until unlocked.",
     );
+  });
+});
+
+describe("#2750 — the applicant list shows the quoted contact cost", () => {
+  const quotes: UnlockQuotes = { quotes: { [WORKER]: 2 }, creditsAvailable: 1 };
+
+  it("puts 'Open for 2 credits' on the card and disables it when short, with the Starter pack", () => {
+    const tree = render({ unlockQuotes: quotes });
+    const open = collect(tree).buttons.find((b) => b.text === "Open for 2 credits");
+    expect(open).toBeDefined();
+    expect(open!.disabled).toBe(true);
+    expect(gatherText(tree)).toContain("You need 2 credits, you have 1.");
+    expect(gatherText(tree)).toContain("Starter pack");
+  });
+
+  it("0 credits reads as 'Open (free)'", () => {
+    const tree = render({ unlockQuotes: { quotes: { [WORKER]: 0 }, creditsAvailable: 0 } });
+    const open = collect(tree).buttons.find((b) => b.text === "Open (free)");
+    expect(open).toBeDefined();
+    expect(open!.disabled).toBe(false);
   });
 });

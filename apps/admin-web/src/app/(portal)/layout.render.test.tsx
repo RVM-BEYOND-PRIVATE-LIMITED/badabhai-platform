@@ -72,7 +72,7 @@ describe("the sidebar it hands the shell", () => {
     ]);
   });
 
-  it("a super admin's capabilities open every item — at most 15", async () => {
+  it("a super admin's capabilities open every item — at most 16", async () => {
     stub.capabilities = [
       "read_events",
       "read_entities",
@@ -81,11 +81,13 @@ describe("the sidebar it hands the shell", () => {
       "read_ai_traces",
       "manage_agency_match_skills",
       "manage_admins",
+      "manage_credit_rules",
     ];
     await render();
     expect(labels()).toContain("AI calls");
     expect(labels()).toContain("Admin users");
-    expect(labels().length).toBeLessThanOrEqual(15);
+    expect(labels()).toContain("Credit rules");
+    expect(labels().length).toBeLessThanOrEqual(16);
   });
 
   it("a group with nothing left in it is dropped, not drawn empty", async () => {

@@ -229,6 +229,7 @@ beforeEach(() => {
     listAgencyJobs: async () => [AGENCY_JOB],
     getAgencyJob: async (id: unknown) => (id === JOB ? AGENCY_JOB : null),
     getAgencyKyc: async () => null,
+    getPhoneProofStatus: async () => null,
     getUnlocks: async () => [],
     // The Candidates inbox: one row on the persona's own kind of posting, so the list renders.
     getCandidateInbox: async () => ({

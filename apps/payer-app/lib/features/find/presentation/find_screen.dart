@@ -64,9 +64,13 @@ class FindScreen extends StatefulWidget {
     this.applicantsEpoch = 0,
     this.initialSearch = const CandidateSearchQuery(),
     this.searchEpoch = 0,
+    this.onOpenCredits,
   });
 
   final ValueChanged<RevealArgs> onReveal;
+
+  /// #2750 — where the Starter pack offer leads (the Credits tab).
+  final VoidCallback? onOpenCredits;
 
   /// The view the tab opens on. The shell passes [FindView.applicants] when a
   /// Jobs card's "Applicants" button opened Find.
@@ -185,7 +189,10 @@ class _FindScreenState extends State<FindScreen>
                     onRefresh: (BuildContext context) =>
                         CandidateSearchView.refreshQuietly(context,
                             keepPages: true),
-                    child: CandidateSearchView(onReveal: widget.onReveal),
+                    child: CandidateSearchView(
+                      onReveal: widget.onReveal,
+                      onOpenCredits: widget.onOpenCredits,
+                    ),
                   ),
                 )
               else
@@ -200,7 +207,10 @@ class _FindScreenState extends State<FindScreen>
                   child: BbTabRefreshListener(
                     enabled: _view == FindView.applicants,
                     onRefresh: _FindView.refreshQuietly,
-                    child: _FindView(onReveal: widget.onReveal),
+                    child: _FindView(
+                      onReveal: widget.onReveal,
+                      onOpenCredits: widget.onOpenCredits,
+                    ),
                   ),
                 )
               else
@@ -221,9 +231,10 @@ class _FindScreenState extends State<FindScreen>
 enum _ApplicantsView { list, card }
 
 class _FindView extends StatefulWidget {
-  const _FindView({required this.onReveal});
+  const _FindView({required this.onReveal, this.onOpenCredits});
 
   final ValueChanged<RevealArgs> onReveal;
+  final VoidCallback? onOpenCredits;
 
   /// #2592 — the quiet re-read behind pull-to-refresh and a return to the
   /// tab: the rows stay on screen, and a failure says why in a toast.
@@ -294,10 +305,18 @@ class _FindViewState extends State<_FindView> {
   }) async {
     final FindCubit cubit = context.read<FindCubit>();
     final CreditsCubit credits = locator<CreditsCubit>();
+    final int? quoted = cubit.state.quotedCreditsFor(applicant.workerId);
+    final int? known = credits.state.error ? null : credits.state.balance;
+    final int? after = quoted == null
+        ? _creditsAfter(credits.state)
+        : known == null
+            ? null
+            : (known - quoted).clamp(0, known).toInt();
     final bool? confirmed = await showUnlockDialog(
       context,
       shownName: applicant.maskedLabel,
-      creditsAfter: _creditsAfter(credits.state),
+      creditsAfter: after,
+      credits: quoted ?? 1,
     );
     if (confirmed != true || !context.mounted) return UnlockOutcome.cancelled;
 
@@ -324,6 +343,18 @@ class _FindViewState extends State<_FindView> {
       return UnlockOutcome.failed;
     }
 
+    if (result.insufficient) {
+      // #2750 — the honest answer, with the Starter pack; never the generic deny toast.
+      if (context.mounted) {
+        final bool offer = await showInsufficientCreditsDialog(
+          context,
+          creditsNeeded: result.creditsNeeded!,
+          creditsAvailable: result.creditsAvailable!,
+        );
+        if (offer && context.mounted) widget.onOpenCredits?.call();
+      }
+      return UnlockOutcome.insufficient;
+    }
     if (!result.granted) {
       // Neutral deny — no credit / already / capped. Never a fabricated reason.
       if (context.mounted) {
@@ -492,6 +523,9 @@ class _FindViewState extends State<_FindView> {
           child: _ApplicantCard(
             applicant: a,
             unlocking: state.isUnlocking(a.workerId),
+            credits: state.quotedCreditsFor(a.workerId),
+            affordable: !state.quoteUnaffordableFor(a.workerId),
+            onOpenCredits: widget.onOpenCredits,
             onUnlock: () =>
                 _unlockApplicant(context, a, jobId: state.selectedJob?.id),
             onView: () => widget.onReveal(RevealArgs.real(
@@ -716,6 +750,9 @@ class _ApplicantCard extends StatelessWidget {
     required this.unlocking,
     required this.onUnlock,
     required this.onView,
+    this.credits,
+    this.affordable = true,
+    this.onOpenCredits,
   });
 
   final Applicant applicant;
@@ -724,6 +761,11 @@ class _ApplicantCard extends StatelessWidget {
   final bool unlocking;
   final Future<UnlockOutcome> Function() onUnlock;
   final VoidCallback onView;
+
+  /// #2750 — this applicant's quote and the Starter pack destination.
+  final int? credits;
+  final bool affordable;
+  final VoidCallback? onOpenCredits;
 
   @override
   Widget build(BuildContext context) {
@@ -759,6 +801,9 @@ class _ApplicantCard extends StatelessWidget {
             CandidateCardAction(
               unlocked: !masked,
               busy: unlocking,
+              credits: credits,
+              affordable: affordable,
+              onOpenCredits: onOpenCredits,
               onUnlock: onUnlock,
               onView: onView,
             ),

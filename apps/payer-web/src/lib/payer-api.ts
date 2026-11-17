@@ -49,12 +49,16 @@ import {
   inboxPostingRefWireSchema,
   payerCapacityWireSchema,
   payerMeWireSchema,
+  payerPhoneProofCodeWireSchema,
+  payerPhoneProofStatusWireSchema,
+  payerPhoneProofVerifiedWireSchema,
   postingSummarySchema,
   reachApplicantListWireSchema,
   toJobPostingChatSessions,
   toJobPostingChatTranscript,
   toJobPostingChatTurn,
   topUpResultSchema,
+  unlockQuotesWireSchema,
   unlockResultSchema,
   unlockResultWireSchema,
   unlocksListWireSchema,
@@ -102,6 +106,7 @@ import {
   type RevealResult,
   type TopUpResult,
   type UnlockHistoryItem,
+  type UnlockQuotes,
   type UnlockResult,
   type UpdatePostingInput,
 } from "./contracts";
@@ -151,6 +156,53 @@ import { findQuotaTopUpTier } from "./pricing-config";
 export async function getAgencyAccount(): Promise<AgencyAccount> {
   const me = await payerFetch("/payer/me", { schema: payerMeWireSchema });
   return { role: me.role, status: me.status, displayLabel: orgDisplayLabel(me) };
+}
+
+/**
+ * `GET /payer/me/phone-proof` (#2754 item 3) — is the account's CURRENT phone proven? `null`
+ * when the route does not exist (`404`: `PAYER_SMS_OTP_ENABLED` is off) or the read fails, so
+ * the account page renders exactly as it does today and never offers a flow it cannot complete.
+ * The backend reads a missing proof table as `false`; this read never 503s for that reason.
+ */
+export async function getPhoneProofStatus(): Promise<{ proven: boolean } | null> {
+  try {
+    const wire = await payerFetch("/payer/me/phone-proof", {
+      schema: payerPhoneProofStatusWireSchema,
+    });
+    return { proven: wire.proven };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `POST /payer/me/phone-proof` — send a proof code by SMS to the account's CURRENT stored phone.
+ * The action maps the API's 409 reasons / 429 / 502 / 503 to the payer's own copy.
+ */
+export async function requestPhoneProof(): Promise<{ resendInSeconds: number }> {
+  const wire = await payerFetch("/payer/me/phone-proof", {
+    method: "POST",
+    schema: payerPhoneProofCodeWireSchema,
+  });
+  return { resendInSeconds: wire.resend_in_seconds };
+}
+
+/**
+ * `POST /payer/me/phone-proof/verify` — prove the CURRENT phone with the SMS code. The
+ * `Idempotency-Key` is minted once per attempt by the caller and reused on a retry of that
+ * attempt, so a lost success response replays `proven` instead of answering the single-use code
+ * with `401`.
+ */
+export async function verifyPhoneProof(input: {
+  code: string;
+  idempotencyKey: string;
+}): Promise<void> {
+  await payerFetch("/payer/me/phone-proof/verify", {
+    method: "POST",
+    body: { code: input.code },
+    idempotencyKey: input.idempotencyKey,
+    schema: payerPhoneProofVerifiedWireSchema,
+  });
 }
 
 /**
@@ -546,6 +598,35 @@ export async function setApplicantStage(input: {
 }
 
 /**
+ * POST /payer/unlocks/quotes — the price of opening each worker on one page (#2750).
+ *
+ * `workerIds` are the opaque ids from the cards on screen (1–50 distinct UUIDs).
+ * A company outside the credit rules answers 404: `null`, so the screens keep today's
+ * button and today's 1-credit behaviour. Every other failure is thrown for the caller to
+ * treat as a soft quote failure (never a broken list).
+ */
+export async function getUnlockQuotes(
+  workerIds: readonly string[],
+): Promise<UnlockQuotes | null> {
+  if (workerIds.length === 0) return null;
+  let wire;
+  try {
+    wire = await payerFetch("/payer/unlocks/quotes", {
+      method: "POST",
+      body: { worker_ids: workerIds },
+      schema: unlockQuotesWireSchema,
+    });
+  } catch (e) {
+    if (isPayerStatus(e, 404)) return null;
+    throw e;
+  }
+  return {
+    quotes: Object.fromEntries(wire.quotes.map((q) => [q.worker_id, q.credits])),
+    creditsAvailable: wire.credits_available,
+  };
+}
+
+/**
  * POST /payer/unlocks — spend a credit to unlock a candidate (LIVE). The body carries
  * ONLY `worker_id` + `job_id`; the payer is the session token (XB-A — there
  * is nowhere to put a payer_id). Every deny cause (no credits / no consent / capped /
@@ -571,6 +652,16 @@ export async function requestUnlock(input: {
       unlockId: wire.unlock_id,
       status: "granted",
       expiresAt: wire.expires_at,
+      ...(wire.credits_charged === undefined
+        ? {}
+        : { creditsCharged: wire.credits_charged }),
+    });
+  }
+  if (wire.status === "insufficient_credits") {
+    return unlockResultSchema.parse({
+      status: "insufficient_credits",
+      creditsNeeded: wire.credits_needed,
+      creditsAvailable: wire.credits_available,
     });
   }
   return unlockResultSchema.parse({ status: "unavailable" });
