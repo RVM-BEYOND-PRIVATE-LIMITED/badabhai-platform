@@ -3,6 +3,8 @@
  *
  *   pnpm --filter @badabhai/api build
  *   node apps/api/dist/payers/import-campus-companies.cli.js --bundle <folder> [--plan-quota <file>]
+ *   node apps/api/dist/payers/import-campus-companies.cli.js --bundle <folder> --apply \
+ *        --batch <key> --run-by <label> [--test | --rehearsal] [--agents <file>]
  *   node apps/api/dist/payers/import-campus-companies.cli.js --write-synthetic <empty folder> \
  *        --companies 3 --seed pilot-1 [--phones <file>]
  *
@@ -14,31 +16,67 @@
  * DRY RUN BY DEFAULT: it prints what an import would do, as counts and reason codes per company
  * keyed by the Campus source id. It never prints a name, phone, email or GSTIN.
  *
- * NOT YET BUILT in this part (each refuses with a message, never a partial run):
- *   --apply --batch <key> --run-by <label> [--test]   write a batch (#2754 items 6 to 10)
- *   --report --batch <key>                            the per-company verification report (item 11)
- *   --rollback --batch <key>                          reverse a batch (item 14)
+ * APPLY (#2754 item 6 so far: company accounts). Opens (or resumes) the named batch and places
+ * every company on a BadaBhai account, one transaction per company, matching an existing account
+ * by phone, then e-mail, then GSTIN before creating one. A second run of the same batch over the
+ * same bundle adds nothing. `--test` marks every placed company a test account with reason
+ * `pilot_test` (our own dummy companies, ruling 17 Nov 2026), `--rehearsal` with reason
+ * `rehearsal`. `--agents` is a JSON array of Campus company source ids the placement team named
+ * as agencies or contractors (created as `agent`). It refuses until migration `company_import` is
+ * applied. Jobs, applications and balances are later parts; the batch stays `applying` until then.
+ *
+ * NOT YET BUILT (each refuses with a message, never a partial run):
+ *   --report --batch <key>      the per-company verification report (item 11)
+ *   --rollback --batch <key>    reverse a batch (item 14)
+ *
+ * TARGET SAFETY: `--apply` goes through the shared ops guard — a write to a production-like
+ * database needs `--i-am-authorised-to-write-to-production` AND
+ * `OPS_ALLOW_PRODUCTION=import-campus-companies`. Under D15 Prakash runs it in production.
  *
  * `--write-synthetic` writes a bundle of dummy companies in the same format, for the pilot of our
- * own dummy companies (ruling 17 Nov 2026) and for rehearsals. `--phones` is a JSON array of
- * 10-digit numbers for the owners, so a pilot can receive real SMS codes on our own team's phones.
+ * own dummy companies and for rehearsals. `--phones` is a JSON array of 10-digit numbers for the
+ * owners, so a pilot can receive real SMS codes on our own team's phones.
  *
  * `--plan-quota` is a JSON object of Campus plan code to CV-view quota, used only for
  * `paid_plan_never_posted` lines; a plan code missing from it is an exception, never a guess.
  */
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
+import { loadServerConfig, type ServerConfig } from "@badabhai/config";
+import { PRODUCTION_WRITE_FLAG, createDbClient, enforceOpsGuard } from "@badabhai/db";
+import { PiiCryptoService } from "../common/pii-crypto.service";
+import { NameTokenService } from "../admin/candidate-index/name-token.service";
+import { EventsRepository } from "../events/events.repository";
+import { EventsService } from "../events/events.service";
+import { PayersRepository } from "./payers.repository";
+import { PayerPhoneProofsRepository } from "./payer-phone-proofs.repository";
 import { readCampusBundle } from "./campus-import/read-bundle";
 import { buildImportPlan, type ImportPlan } from "./campus-import/plan";
 import { writeSyntheticBundle } from "./campus-import/synthetic-bundle";
+import { importCompanies, type CompanyImportSummary } from "./campus-import/import-companies";
+import {
+  CampusImportRefusal,
+  importLedgerExists,
+  openBatch,
+} from "./campus-import/import-ledger.repository";
 
 export const IMPORT_CAMPUS_COMPANIES_SCRIPT = "import-campus-companies";
 
 export type ImportCampusCompaniesArgs =
   | { mode: "plan"; bundle: string; planQuota: Record<string, number> }
+  | {
+      mode: "apply";
+      bundle: string;
+      planQuota: Record<string, number>;
+      batch: string;
+      runBy: string;
+      testReason: "pilot_test" | "rehearsal" | null;
+      agents: string[];
+    }
   | { mode: "synthetic"; out: string; companies: number; seed: string; phones: string[] };
 
-const NOT_YET = ["apply", "report", "rollback"] as const;
+const NOT_YET = ["report", "rollback"] as const;
+const BATCH_KEY = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 function readJson(path: string, what: string): unknown {
   try {
@@ -61,21 +99,25 @@ export function parseImportCampusCompaniesArgs(argv: readonly string[]): ImportC
       batch: { type: "string" },
       "run-by": { type: "string" },
       test: { type: "boolean", default: false },
+      rehearsal: { type: "boolean", default: false },
+      agents: { type: "string" },
       "write-synthetic": { type: "string" },
       companies: { type: "string" },
       seed: { type: "string" },
       phones: { type: "string" },
+      [PRODUCTION_WRITE_FLAG.replace(/^--/, "")]: { type: "boolean", default: false },
     },
     strict: true,
     allowPositionals: false,
   });
   for (const flag of NOT_YET) {
     if (values[flag]) {
-      throw new Error(`--${flag} is not built yet (#2754, a later part); only the dry run is available`);
+      throw new Error(`--${flag} is not built yet (#2754, a later part)`);
     }
   }
   if (values["write-synthetic"] !== undefined) {
     if (values.bundle !== undefined) throw new Error("--write-synthetic and --bundle cannot be combined");
+    if (values.apply) throw new Error("--write-synthetic and --apply cannot be combined");
     const companies = Number(values.companies ?? "3");
     if (!Number.isInteger(companies) || companies < 1 || companies > 20) {
       throw new Error("--companies must be an integer from 1 to 20");
@@ -105,7 +147,38 @@ export function parseImportCampusCompaniesArgs(argv: readonly string[]): ImportC
     }
     planQuota = raw as Record<string, number>;
   }
-  return { mode: "plan", bundle: values.bundle, planQuota };
+  if (!values.apply) {
+    for (const flag of ["batch", "run-by", "agents"] as const) {
+      if (values[flag] !== undefined) throw new Error(`--${flag} needs --apply`);
+    }
+    if (values.test || values.rehearsal) throw new Error("--test and --rehearsal need --apply");
+    return { mode: "plan", bundle: values.bundle, planQuota };
+  }
+  if (!values.batch || !BATCH_KEY.test(values.batch)) {
+    throw new Error("--apply needs --batch <key>: lower-case letters, digits and dashes, up to 64");
+  }
+  const runBy = values["run-by"]?.trim() ?? "";
+  if (runBy.length < 1 || runBy.length > 128) {
+    throw new Error("--apply needs --run-by <who is running it>");
+  }
+  if (values.test && values.rehearsal) throw new Error("--test and --rehearsal cannot be combined");
+  let agents: string[] = [];
+  if (values.agents !== undefined) {
+    const raw = readJson(values.agents, "--agents");
+    if (!Array.isArray(raw) || !raw.every((v) => typeof v === "string" && v.length > 0)) {
+      throw new Error("--agents must be a JSON array of Campus company source ids");
+    }
+    agents = raw as string[];
+  }
+  return {
+    mode: "apply",
+    bundle: values.bundle,
+    planQuota,
+    batch: values.batch,
+    runBy,
+    testReason: values.test ? "pilot_test" : values.rehearsal ? "rehearsal" : null,
+    agents,
+  };
 }
 
 const fmt = (tally: Record<string, number>): string => {
@@ -141,15 +214,83 @@ export function formatImportPlan(plan: ImportPlan): string[] {
   return lines;
 }
 
-export function run(argv: readonly string[], log: (line: string) => void = console.log): number {
+/** The `--apply` printout: counts and reason codes only. */
+export function formatCompanySummary(s: CompanyImportSummary): string[] {
+  return [
+    `companies: created=${s.created} matched=${s.matched} already_done=${s.alreadyDone} exceptions: ${fmt(s.exceptions)}`,
+    `  phone proof not recorded: ${fmt(s.proofNotRecorded)}`,
+  ];
+}
+
+async function apply(
+  args: Extract<ImportCampusCompaniesArgs, { mode: "apply" }>,
+  log: (line: string) => void,
+): Promise<number> {
+  const bundle = readCampusBundle(args.bundle);
+  const { connectionString } = enforceOpsGuard({
+    script: IMPORT_CAMPUS_COMPANIES_SCRIPT,
+    connectionString: process.env.DATABASE_URL,
+    mutating: true,
+  });
+  const config: ServerConfig = loadServerConfig();
+  const client = createDbClient(connectionString, { max: 2 });
+  try {
+    const db = client.db;
+    if (!(await importLedgerExists(db))) {
+      throw new CampusImportRefusal("migration company_import is not applied on this database");
+    }
+    const pii = new PiiCryptoService(config);
+    const events = new EventsService(new EventsRepository(db), config);
+    const batch = await openBatch(db, {
+      batchKey: args.batch,
+      bundleFormat: bundle.manifest.format,
+      bundleVersion: bundle.manifest.version,
+      bundleGeneratedAt: new Date(bundle.manifest.generated_at),
+      manifestSha256: bundle.manifestSha256,
+      isTest: args.testReason !== null,
+      runBy: args.runBy,
+      manifestCounts: bundle.manifest.counts,
+    });
+    log(
+      `[${IMPORT_CAMPUS_COMPANIES_SCRIPT}] APPLY batch ${batch.batchKey} ` +
+        `(${batch.resumed ? "resumed" : "new"}${batch.isTest ? ", test" : ""})`,
+    );
+    const summary = await importCompanies(
+      {
+        db,
+        pii,
+        payers: new PayersRepository(db, pii, new NameTokenService(config)),
+        phoneProofs: new PayerPhoneProofsRepository(db),
+        events,
+      },
+      batch,
+      bundle,
+      { agentSourceIds: new Set(args.agents), testReason: args.testReason },
+    );
+    for (const line of formatCompanySummary(summary)) log(line);
+    log("jobs, applications and balances: not built yet (#2754, later parts); the batch stays open");
+    return 0;
+  } finally {
+    await client.sql.end({ timeout: 5 });
+  }
+}
+
+export async function run(
+  argv: readonly string[],
+  log: (line: string) => void = console.log,
+): Promise<number> {
   const args = parseImportCampusCompaniesArgs(argv);
+  if (args.mode === "apply") return apply(args, log);
   if (args.mode === "synthetic") {
     writeSyntheticBundle(args.out, {
       companies: args.companies,
       seed: args.seed,
       phones: args.phones,
     });
-    log(`[${IMPORT_CAMPUS_COMPANIES_SCRIPT}] wrote a synthetic bundle of ${args.companies} dummy companies (seed ${args.seed})`);
+    log(
+      `[${IMPORT_CAMPUS_COMPANIES_SCRIPT}] wrote a synthetic bundle of ${args.companies} dummy ` +
+        `companies (seed ${args.seed})`,
+    );
     return 0;
   }
   const bundle = readCampusBundle(args.bundle);
@@ -162,10 +303,14 @@ export function run(argv: readonly string[], log: (line: string) => void = conso
 }
 
 if (require.main === module) {
-  try {
-    process.exitCode = run(process.argv.slice(2));
-  } catch (err) {
-    console.error(`[${IMPORT_CAMPUS_COMPANIES_SCRIPT}] FAILED: ${err instanceof Error ? err.message : String(err)}`);
-    process.exitCode = 1;
-  }
+  run(process.argv.slice(2))
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((err: unknown) => {
+      console.error(
+        `[${IMPORT_CAMPUS_COMPANIES_SCRIPT}] FAILED: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exitCode = 1;
+    });
 }
