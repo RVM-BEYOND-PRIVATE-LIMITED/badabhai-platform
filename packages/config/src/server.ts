@@ -1552,6 +1552,14 @@ export const serverEnvSchema = z.object({
     // `.default()` on the INNER schema, for the reason written out on `positiveIntFromString`.
     z.coerce.number().int().min(7).default(30),
   ),
+  // THE NUMBERS SCREEN (#2755) — `/admin/numbers/*`: the definitions catalogue and the test-company
+  // marks today, the weekly figures and the call list in later parts. Readable only with the
+  // `read_business_numbers` capability (super_admin, ops_admin).
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: every `/admin/numbers/*` route is a neutral 404 before
+  // any query. It needs no migration of its own (the company test marker is `payers.is_test_account`,
+  // migration 0162); it stays off until the weekly figures ship.
+  ADMIN_NUMBERS_ENABLED: booleanFromString,
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable

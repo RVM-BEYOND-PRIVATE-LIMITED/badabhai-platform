@@ -21,6 +21,8 @@ import { AdminCandidatesController } from "./admin-candidates.controller";
 import { AdminAiAlertsController } from "./admin-ai-alerts.controller";
 import { AdminFunnelController } from "./admin-funnel.controller";
 import { AdminEmptyFeedController } from "./admin-empty-feed.controller";
+import { AdminNumbersController } from "./numbers/admin-numbers.controller";
+import { AdminNumbersEnabledGuard } from "./numbers/admin-numbers.flag";
 import { AdminModule } from "./admin.module";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
@@ -699,6 +701,13 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
         "admin/admin-identity.service.ts",
         "admin/admin-mfa.store.ts",
         "admin/admin-pii-reveal.service.ts",
+        // #2755 item 2 — the OFFLINE synthetic-sign-in backfill (no route reaches it): it decrypts
+        // each unmarked company's sign-in email in process ONLY to test it against the reserved
+        // `.invalid` domain, writes one boolean, and prints ids and counts. The CLI builds the
+        // decrypter; the core calls it through an injected `decrypt`. Neither prints an email
+        // (`mark-synthetic-test-payers.test.ts` pins that).
+        "admin/numbers/mark-synthetic-test-payers.cli.ts",
+        "admin/numbers/mark-synthetic-test-payers.ts",
       ].sort(),
     );
   });
@@ -2235,5 +2244,79 @@ describe("#2559 candidates search route — guarded, POST-by-rule, audited looku
     // The DTO enum IS the clamp (zod rejects anything else pre-service).
     expect(ADMIN_CANDIDATES_IDENTITY_MAX_SUBJECTS).toBe(100);
     expect(Math.max(...ADMIN_CANDIDATES_PAGE_SIZES)).toBe(ADMIN_CANDIDATES_IDENTITY_MAX_SUBJECTS);
+  });
+});
+
+describe("#2755 numbers routes - guarded, switch before roles, one capability, one column written", () => {
+  const proto = AdminNumbersController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminNumbersController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+  /** Non-comment source of a file under admin/numbers/**. */
+  const numbersCode = (file: string): string =>
+    readFileSync(join(ADMIN_DIR, "numbers", file), "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+
+  it("discovers EXACTLY the definitions read and the two test-company marks", () => {
+    expect(routeMethods.sort()).toEqual(["definitions", "markTestAccount", "unmarkTestAccount"].sort());
+  });
+
+  it("EVERY route carries AdminAuthGuard, the numbers switch AND AdminRolesGuard, switch first", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminNumbersController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+      // Position is the property: off must be the same 404 for every role, never a 403.
+      expect(guards.indexOf(AdminNumbersEnabledGuard.name), method).toBeGreaterThan(
+        guards.indexOf(AdminAuthGuard.name),
+      );
+      expect(guards.indexOf(AdminNumbersEnabledGuard.name), method).toBeLessThan(
+        guards.indexOf(AdminRolesGuard.name),
+      );
+    }
+  });
+
+  it("EVERY route declares method-level @RequireAdminRole('read_business_numbers'), none on the class", () => {
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminNumbersController) as
+      | AdminCapability
+      | undefined;
+    expect(onClass, "AdminNumbersController must NOT declare a class-level capability").toBeUndefined();
+    for (const method of routeMethods) {
+      const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[method] as object) as
+        | AdminCapability
+        | undefined;
+      expect(onMethod, `${method} must declare read_business_numbers`).toBe("read_business_numbers");
+    }
+  });
+
+  it("the definitions read is a GET; the only writes are the PUT and DELETE marks", () => {
+    expect(Reflect.getMetadata("method", proto.definitions as object) as number).toBe(0);
+    expect(Reflect.getMetadata("method", proto.markTestAccount as object) as number).toBe(2);
+    expect(Reflect.getMetadata("method", proto.unmarkTestAccount as object) as number).toBe(3);
+  });
+
+  it("the repository writes ONE column of ONE table: payers.is_test_account (and its updated_at)", () => {
+    const repo = numbersCode("admin-numbers.repository.ts");
+    expect(repo).not.toMatch(/\.(insert|delete)\s*\(/);
+    const updates = [...repo.matchAll(/\.update\s*\(\s*(\w+)\s*\)/g)].map((m) => m[1]);
+    expect(updates).toEqual(["payers"]);
+    const set = repo.slice(repo.indexOf(".set("), repo.indexOf(")", repo.indexOf(".set(")));
+    expect(set).toContain("isTestAccount");
+    for (const forbidden of ["status", "orgNameEnc", "emailHash", "phoneEnc", "passwordHash"]) {
+      expect(set, `the mark must not write ${forbidden}`).not.toContain(forbidden);
+    }
+    // The backfill page projects the id and the email CIPHERTEXT only, never a decrypted value.
+    expect(repo).not.toMatch(/decrypt/i);
+  });
+
+  it("no numbers file reads or writes the event spine directly (EventsService only)", () => {
+    for (const file of readdirSync(join(ADMIN_DIR, "numbers")).filter(
+      (f) => f.endsWith(".ts") && !f.endsWith(".test.ts"),
+    )) {
+      expect(numbersCode(file), file).not.toMatch(/\.from\s*\(\s*events\s*\)/);
+      expect(numbersCode(file), file).not.toMatch(/\.(insert|update|delete)\s*\(\s*events\b/);
+    }
   });
 });
