@@ -1,4 +1,5 @@
 import type { MaskedResumeResult, RevealResult, UnlockResult } from "./contracts";
+import { insufficientCreditsMessage } from "./unlock-quotes";
 
 /**
  * PURE response → view-state mapping for the unlock + masked-reveal UI (mirrors
@@ -49,7 +50,13 @@ export function mapContactResult(result: RevealResult): ContactView {
 }
 
 export type UnlockView =
-  | { kind: "granted"; unlockId: string; expiresAt: string }
+  | { kind: "granted"; unlockId: string; expiresAt: string; creditsCharged?: number }
+  | {
+      kind: "insufficient";
+      creditsNeeded: number;
+      creditsAvailable: number;
+      message: string;
+    }
   | { kind: "unavailable"; message: string };
 
 export type RevealView =
@@ -71,7 +78,22 @@ export type RevealView =
 /** Granted → granted view; EVERY neutral response → the SAME unavailable view. */
 export function mapUnlockResult(result: UnlockResult): UnlockView {
   if ("ok" in result && result.ok === true) {
-    return { kind: "granted", unlockId: result.unlockId, expiresAt: result.expiresAt };
+    return {
+      kind: "granted",
+      unlockId: result.unlockId,
+      expiresAt: result.expiresAt,
+      ...(result.creditsCharged === undefined
+        ? {}
+        : { creditsCharged: result.creditsCharged }),
+    };
+  }
+  if (result.status === "insufficient_credits") {
+    return {
+      kind: "insufficient",
+      creditsNeeded: result.creditsNeeded,
+      creditsAvailable: result.creditsAvailable,
+      message: insufficientCreditsMessage(result.creditsNeeded, result.creditsAvailable),
+    };
   }
   return { kind: "unavailable", message: NEUTRAL_UNLOCK_MESSAGE };
 }

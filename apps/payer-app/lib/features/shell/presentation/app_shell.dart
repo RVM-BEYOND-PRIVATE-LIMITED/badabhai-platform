@@ -414,6 +414,8 @@ class _AppShellState extends State<AppShell> {
           applicantsEpoch: _applicantsEpoch,
           initialSearch: _findSearch,
           searchEpoch: _findSearchEpoch,
+          // #2750 — the Starter pack offer beside an unaffordable open.
+          onOpenCredits: () => _selectTab('credits'),
         ),
       'jobs' => JobsScreen(
           onPost: () => _openSub('post'),

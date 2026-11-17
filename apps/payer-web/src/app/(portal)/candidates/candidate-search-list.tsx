@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
-import type { CandidateSearchRow } from "../../../lib/contracts";
+import type { CandidateSearchRow, UnlockQuotes } from "../../../lib/contracts";
 import type { GrantedUnlock } from "../../../lib/unlock-history";
 import { bandLabel, monthsLabel, workerHandle } from "../../../lib/masking";
 import { candidatesErrorMessage } from "../../../lib/candidates-messages";
@@ -24,6 +24,8 @@ import {
   type UnlockResultKind,
   type UnlockRowState,
 } from "../../../components/unlock";
+import { useUnlockQuotes } from "../../../components/unlock/use-unlock-quotes";
+import { quotedCredits } from "../../../lib/unlock-quotes";
 import {
   candidateUnlockAction,
   maskedResumeAction,
@@ -91,6 +93,8 @@ export interface CandidateSearchListProps {
   balanceAsOf: number;
   /** The payer's LIVE grants for this page's workers, keyed by worker id (see liveUnlocksFor). */
   unlocked?: Record<string, GrantedUnlock>;
+  /** #2750 — pre-read quotes (tests / an SSR seed); the hook refreshes them after mount. */
+  unlockQuotes?: UnlockQuotes | null;
 }
 
 export function CandidateSearchList({
@@ -101,6 +105,7 @@ export function CandidateSearchList({
   balance,
   balanceAsOf,
   unlocked = {},
+  unlockQuotes = null,
 }: CandidateSearchListProps) {
   // One card per worker (the server's order is total over worker ids), so every per-card state
   // below is keyed by the worker id.
@@ -115,6 +120,11 @@ export function CandidateSearchList({
   // every zero-balance check below reads.
   const liveBalance = useLiveBalance(balance, balanceAsOf);
   const toast = useToast();
+  // #2750 — the page's contact-cost quotes, read after the cards mount and re-read on return.
+  const { quotes, updateAvailable } = useUnlockQuotes(
+    candidates.map((c) => c.workerId),
+    unlockQuotes,
+  );
 
   // A card before anything happened to it this session: granted when the payer already holds a
   // live grant on this worker, else locked. Derived from props, so session changes layer over it.
@@ -145,12 +155,18 @@ export function CandidateSearchList({
     }
     if (res.ok) {
       patch(workerId, { busy: false, unlock: res.view, fresh: res.view.kind === "granted" });
-      // The server's balance after the grant (null: nothing granted, or the read failed).
-      if (res.readBack) publishBalance(res.readBack);
-      // A grant is the portal's one success toast (#2583); only the neutral failure stays here.
+      // The server's balance after the grant, or the refusal's own figure (null: unread).
+      if (res.readBack) {
+        publishBalance(res.readBack);
+        updateAvailable(res.readBack.balance);
+      }
+      // A grant is the portal's one success toast (#2583); the honest not-enough-credits
+      // answer is shown on the card itself (never a generic failure toast).
       if (res.view.kind === "granted") {
         setResult(null);
         toast.show(UNLOCK_GRANTED_TOAST);
+      } else if (res.view.kind === "insufficient") {
+        setResult(null);
       } else {
         setResult("unavailable");
       }
@@ -332,6 +348,8 @@ export function CandidateSearchList({
                   row,
                   unlockError: row.unlockError,
                   balance: liveBalance,
+                  quoteCredits: quotedCredits(quotes, c.workerId),
+                  creditsAvailable: quotes?.creditsAvailable ?? null,
                   unlockHintId: `candidate-${i}-unlock-hint`,
                   viewOnly: false,
                   onUnlock: () => onUnlock(c.workerId),
@@ -358,6 +376,7 @@ export function CandidateSearchList({
         open={confirmWorker !== null}
         onCancel={() => setConfirmWorker(null)}
         onConfirm={onConfirmUnlock}
+        credits={quotedCredits(quotes, confirmWorker ?? "") ?? 1}
       />
 
       {result ? (

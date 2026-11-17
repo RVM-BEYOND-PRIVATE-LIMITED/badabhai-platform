@@ -475,6 +475,12 @@ abstract class PayerApiClient {
   /// `{status:"unavailable"}`) comes back as `unavailable`, never an exception.
   Future<UnlockResult> unlock({required String workerId, String? jobId});
 
+  /// #2750 — the contact cost for a page of cards (`POST /payer/unlocks/quotes`,
+  /// 1–50 distinct worker ids). Returns null when the company is outside the credit
+  /// rules (the route's 404) or when the read fails, so every caller keeps today's
+  /// button. It opens nothing and describes no worker.
+  Future<UnlockQuotes?> fetchUnlockQuotes(List<String> workerIds);
+
   /// REAL reveal — exchange a granted [unlockId] for an in-app relay handle
   /// (`POST /payer/unlocks/:unlockId/reveal`). Returns a relay handle + channel,
   /// or the neutral `unavailable`. Never a raw phone.

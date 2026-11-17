@@ -85,6 +85,8 @@ vi.mock("react", async () => {
   return {
     ...actual,
     useState: (init: unknown) => useState(init),
+    // The quote layer's effect: the quotes these suites pass are already the frame's.
+    useEffect: () => {},
     // The live balance (components/live-balance.ts, #2585) is read, never published, here: the
     // store's snapshot is all a render needs (its subscription is pinned in applicant-feed.test.tsx).
     useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),

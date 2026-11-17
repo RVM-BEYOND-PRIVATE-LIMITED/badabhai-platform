@@ -12,6 +12,7 @@ import {
   type CompanyStatus,
 } from "../../../lib/company-vocabulary";
 import { archiveCompanyAction, restoreCompanyAction } from "./actions";
+import { TestCompanyActions } from "./test-company-actions";
 
 /**
  * A company row's Archive (T3) and Restore actions (A9, #2579).
@@ -24,18 +25,21 @@ export function CompanyRowActions({
   company,
   mayManage,
   mayReadEvents,
+  mayTestCompany,
   timelineHref,
 }: {
   company: { id: string; name: string | null; status: CompanyStatus };
   mayManage: boolean;
   mayReadEvents: boolean;
+  /** `read_business_numbers`: mark/unmark this company as a test company (#2884). */
+  mayTestCompany: boolean;
   timelineHref: string | null;
 }) {
   const router = useRouter();
   const [dialog, setDialog] = useState<"archive" | "restore" | null>(null);
   const [outcome, setOutcome] = useState<AdminActionOutcome | null>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
-  if (!mayManage) return null;
+  if (!mayManage && !mayTestCompany) return null;
 
   const subject = company.name?.trim() || shortId(company.id);
   const eventsLink = mayReadEvents && timelineHref
@@ -49,7 +53,7 @@ export function CompanyRowActions({
 
   return (
     <div className="row-actions" ref={triggerRef}>
-      {company.status === "archived" ? (
+      {mayManage ? (company.status === "archived" ? (
         <button
           className="btn btn--ghost btn--sm"
           type="button"
@@ -67,7 +71,11 @@ export function CompanyRowActions({
           <Icon name={ACTION_ICON.delete} />
           <span>Archive</span>
         </button>
-      )}
+      )) : null}
+
+      {mayTestCompany ? (
+        <TestCompanyActions companyId={company.id} subject={subject} />
+      ) : null}
 
       {outcome && !outcome.ok ? (
         <AdminActionResultBanner outcome={outcome} eventsLink={eventsLink} />
