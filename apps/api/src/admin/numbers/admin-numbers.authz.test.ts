@@ -29,7 +29,14 @@ import { AdminNumbersEnabledGuard, adminNumbersEnabled } from "./admin-numbers.f
  * strict inputs on the marks.
  */
 
-const ROUTES = ["definitions", "markTestAccount", "unmarkTestAccount", "weekly"] as const;
+const ROUTES = [
+  "definitions",
+  "markTestAccount",
+  "unmarkTestAccount",
+  "weekly",
+  "outOfCredits",
+  "logCreditCall",
+] as const;
 const ROLES: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
 const proto = AdminNumbersController.prototype as unknown as Record<string, object>;
 const admin = (role: AdminRole): AuthenticatedAdmin => ({ id: "a", role, sid: "s" });
@@ -55,7 +62,7 @@ function ctxFor(method: string, who: AuthenticatedAdmin | undefined): ExecutionC
 const PAYER = "11111111-1111-4111-8111-111111111111";
 
 describe("#2755 numbers routes — guards and capability", () => {
-  it("exposes exactly the definitions read, the two marks and the weekly read", () => {
+  it("exposes exactly the definitions read, the two marks, the weekly read, the call list and the call log", () => {
     const methods = Object.getOwnPropertyNames(AdminNumbersController.prototype).filter(
       (m) => m !== "constructor",
     );
@@ -118,13 +125,17 @@ describe("#2755 numbers routes — guards and capability", () => {
     expect(adminNumbersEnabled({ ADMIN_NUMBERS_ENABLED: true })).toBe(true);
   });
 
-  it("the routes are a GET, a PUT, a DELETE and a GET, all no-store", () => {
+  it("the routes are a GET, a PUT, a DELETE, a GET, a GET and a POST, all no-store", () => {
     const verbOf = (m: string) => Reflect.getMetadata("method", proto[m]!) as number;
-    // Nest's RequestMethod: GET 0, PUT 2, DELETE 3.
+    // Nest's RequestMethod: GET 0, POST 1, PUT 2, DELETE 3.
     expect(verbOf("definitions")).toBe(0);
     expect(verbOf("markTestAccount")).toBe(2);
     expect(verbOf("unmarkTestAccount")).toBe(3);
     expect(verbOf("weekly")).toBe(0);
+    expect(verbOf("outOfCredits")).toBe(0);
+    expect(verbOf("logCreditCall")).toBe(1);
+    expect(Reflect.getMetadata("path", proto.outOfCredits!)).toBe("out-of-credits");
+    expect(Reflect.getMetadata("path", proto.logCreditCall!)).toBe("out-of-credits/:payerId/calls");
     expect(Reflect.getMetadata("path", proto.weekly!)).toBe("weekly");
     expect(Reflect.getMetadata("path", proto.definitions!)).toBe("definitions");
     expect(Reflect.getMetadata("path", proto.markTestAccount!)).toBe("test-accounts/:payerId");
@@ -151,6 +162,10 @@ describe("#2755 numbers routes — guards and capability", () => {
     expect(argsOf("definitions")).toEqual([]);
     // The weekly read takes its query only: no admin, no context, no key — it writes nothing.
     expect(custom("weekly")).toEqual([]);
+    // The call log POST carries the key; the call list GET does not (admin + context only, for
+    // the audited name read).
+    expect(custom("logCreditCall").length).toBe(custom("outOfCredits").length + 1);
+    expect(custom("outOfCredits").length).toBe(2);
   });
 });
 

@@ -290,6 +290,14 @@ describe("computeNumbersWeek", () => {
         calls.push("paidOrders");
         return [{ payerId: "a", packCode: "pack_50", amountInr: 2000, settledAt: MONDAY_START }];
       },
+      cohortOrders: async () => {
+        calls.push("cohortOrders");
+        // "a" first paid in the week; "c" paid before it (not in the cohort).
+        return [
+          { payerId: "a", packCode: "pack_50", amountInr: 2000, settledAt: MONDAY_START },
+          { payerId: "c", packCode: "pack_50", amountInr: 2000, settledAt: BEFORE },
+        ];
+      },
       firstPublications: async () => {
         calls.push("firstPublications");
         return [{ payerId: "b", firstPublishedAt: MONDAY_START }];
@@ -323,7 +331,8 @@ describe("computeNumbersWeek", () => {
         return new Map([["w1", NCR_CAD]]);
       },
     };
-    const out = await computeNumbersWeek(sources, WEEK);
+    const out = await computeNumbersWeek(sources, WEEK, NEXT_MONDAY);
+    // The cohort's company ("a") is placed; "c" (first paid before the week) is not.
     expect(calls).toContain("companyDims:a,b");
     expect(calls).toContain("workerDims:w1,w2,w3");
     expect(out.map((m) => m.metric)).toEqual([
@@ -340,8 +349,17 @@ describe("computeNumbersWeek", () => {
       "contacts_per_hire",
       "revenue_by_pack",
       "revenue_by_pack:pack_50",
+      "repeat_purchase_30d",
+      "repeat_purchase_60d",
+      "repeat_purchase_90d",
     ]);
     for (const m of out) expect(m.cells).toHaveLength(42);
+    // As of the week's end every window is still open: the cohort of one is pending.
+    expect(at(byId(out, "repeat_purchase_30d"), "all", "all")).toMatchObject({
+      value: null,
+      numerator: null,
+      denominator: 1,
+    });
     expect(total(byId(out, "contacts_per_hire"))).toBe(100);
     expect(at(byId(out, "companies_posted"), "unknown", "unknown").value).toBe(1);
   });

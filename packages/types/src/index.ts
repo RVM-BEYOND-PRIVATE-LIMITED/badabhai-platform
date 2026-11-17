@@ -1665,6 +1665,29 @@ export interface PayerCreditsResponse {
   readonly lots: readonly PayerCreditLot[];
 }
 
+// ---- The out-of-credits call log (#2755 item 8, the telecaller list) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells the results into
+// `credit_call_log_result_chk`, `packages/event-schema` puts one on the spine
+// (`admin.credit_call_logged`), and the api parses the route body with them. Declared once so the
+// CHECK, the event and the route cannot drift.
+
+/**
+ * What a call to a company whose credits ran out came to. CLOSED CODES ONLY, never free text:
+ * `reached_will_buy` = reached, says it will buy; `reached_not_now` = reached, not now;
+ * `reached_declined` = reached, does not want to buy; `no_answer` = nobody picked up;
+ * `wrong_number` = the number is not the company's. FROZEN: the event's v1 enum is taken from this
+ * list; a new value is a migration widening the CHECK and a new event version.
+ */
+export const CREDIT_CALL_RESULTS = Object.freeze([
+  "reached_will_buy",
+  "reached_not_now",
+  "reached_declined",
+  "no_answer",
+  "wrong_number",
+] as const);
+export type CreditCallResult = (typeof CREDIT_CALL_RESULTS)[number];
+
 // ---- Payment orders: checkout (#2749 item 9, migration 0176) ----
 //
 // HERE FOR THE SAME REASON AS THE LOT SOURCES ABOVE: `packages/db` spells these sets into CHECK

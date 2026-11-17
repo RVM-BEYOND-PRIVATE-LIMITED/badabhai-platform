@@ -6,6 +6,7 @@ import { confirmedHires } from "./confirmed-hires";
 import { contactsPerHire } from "./contacts-per-hire";
 import { formCompletedUnconfirmed } from "./form-completed-unconfirmed";
 import { payingCompanies } from "./paying-companies";
+import { cohortOf, repeatPurchase } from "./repeat-purchase";
 import { revenueByPack } from "./revenue-by-pack";
 import {
   weekWindow,
@@ -27,6 +28,11 @@ import {
  */
 export interface NumbersWeekSources {
   paidOrders(window: NumbersWeekWindow): Promise<NumbersPaidOrderRow[]>;
+  /**
+   * Every paid order of a countable company settled before the week's end PLUS the longest
+   * repeat-buying window (part C): each cohort company's first and second order are in it.
+   */
+  cohortOrders(window: NumbersWeekWindow): Promise<NumbersPaidOrderRow[]>;
   firstPublications(window: NumbersWeekWindow): Promise<NumbersFirstPublicationRow[]>;
   currentProfiles(window: NumbersWeekWindow): Promise<NumbersCurrentProfileRow[]>;
   activity(window: NumbersWeekWindow): Promise<NumbersActivityRow[]>;
@@ -45,14 +51,17 @@ function lookup(map: ReadonlyMap<string, NumbersDims>): NumbersDimsLookup {
  * EVERY SNAPSHOT METRIC OF ONE WEEK: read the sources (in sequence: they share the week's one
  * connection), place every company and worker they name, and run each metric function. The
  * result is every stored metric × its 42 cells, in a stable order. No clock and no write: the
- * sweep and the recompute tool decide what to do with it.
+ * sweep and the recompute tool decide what to do with it. `asOf` is the computation's instant
+ * (the caller's clock), which decides whether a repeat-buying window is still pending.
  */
 export async function computeNumbersWeek(
   sources: NumbersWeekSources,
   week: string,
+  asOf: Date,
 ): Promise<NumbersMetricCells[]> {
   const w = weekWindow(week);
   const orders = await sources.paidOrders(w);
+  const cohortOrders = await sources.cohortOrders(w);
   const publications = await sources.firstPublications(w);
   const hires = await sources.confirmedHires(w);
   const opened = await sources.openedContacts(w);
@@ -66,6 +75,7 @@ export async function computeNumbersWeek(
       ...publications.map((p) => p.payerId),
       ...hires.map((h) => h.payerId),
       ...opened.map((o) => o.payerId),
+      ...cohortOf(w, cohortOrders).map((c) => c.payerId),
     ]),
   );
   const workers = lookup(
@@ -85,5 +95,24 @@ export async function computeNumbersWeek(
     ...confirmedHires(w, hires, companies),
     ...contactsPerHire(w, opened, hires, companies),
     ...revenueByPack(w, orders, companies),
+    ...repeatPurchase(w, cohortOrders, companies, asOf),
   ];
+}
+
+/**
+ * ONLY THE COHORT METRICS of one week (the repeat-buying windows): what the sweep recomputes for a
+ * week whose other rows are already frozen while its cohort rows are still open (part C's freeze
+ * keyed on the longest window). Reads only the cohort orders and their companies' cells.
+ */
+export async function computeCohortWeek(
+  sources: NumbersWeekSources,
+  week: string,
+  asOf: Date,
+): Promise<NumbersMetricCells[]> {
+  const w = weekWindow(week);
+  const cohortOrders = await sources.cohortOrders(w);
+  const companies = lookup(
+    await sources.companyDims(cohortOf(w, cohortOrders).map((c) => c.payerId)),
+  );
+  return repeatPurchase(w, cohortOrders, companies, asOf);
 }

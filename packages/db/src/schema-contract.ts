@@ -1691,6 +1691,26 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "worker id; an open grant lets any PostgREST role read whose profile went where, or add " +
       "a share past the five-per-factory limit the service enforces",
   },
+  // #2755 part C: the out-of-credits call log. Nothing names the table while
+  // ADMIN_NUMBERS_ENABLED is off; with it on and the table missing, the call list still answers
+  // (`last_call: null`) and the POST answers 503 (42P01), so a deploy ahead of the migration breaks
+  // no request and it is not a `table` entry. Listed for its lock (the 0134 rule). APPLY BEFORE
+  // THE SWITCH (migration header). The id and tag carry the slot number: regenerated with the
+  // migration when the slot moves.
+  {
+    id: "0180-credit-call-log-rls",
+    migration: "0180_credit_call_log",
+    kind: "rls",
+    table: "credit_call_log",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which companies ran out of credits, who on the team called each " +
+      "one and what the call came to: an open grant lets any PostgREST role read the sales " +
+      "pipeline, or write a call result the telecaller then trusts",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's
