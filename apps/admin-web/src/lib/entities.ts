@@ -178,6 +178,8 @@ export const creditLedgerItemSchema = z.object({
     "waived",
     // #2754 item 9 — a moved company's unused Campus balance.
     "campus_conversion",
+    // #2754 item 14 — a batch rollback took that balance back unspent.
+    "campus_conversion_reversed",
   ]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),
@@ -399,6 +401,8 @@ export const reasonBucketSchema = z.object({
     "waived",
     // #2754 item 9 — a moved company's unused Campus balance.
     "campus_conversion",
+    // #2754 item 14 — a batch rollback took that balance back unspent.
+    "campus_conversion_reversed",
   ]),
   movements: z.number(),
   credits_delta: z.number(),
@@ -451,6 +455,8 @@ export const ledgerRowSchema = z.object({
     "waived",
     // #2754 item 9 — a moved company's unused Campus balance.
     "campus_conversion",
+    // #2754 item 14 — a batch rollback took that balance back unspent.
+    "campus_conversion_reversed",
   ]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),

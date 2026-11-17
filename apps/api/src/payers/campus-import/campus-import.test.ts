@@ -377,8 +377,23 @@ describe("the CLI arguments", () => {
     expect(parseImportCampusCompaniesArgs(["--bundle", "x"])).toEqual({ mode: "plan", bundle: "x", planQuota: {} });
   });
 
-  it("refuses --rollback until its part is built", () => {
-    expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", "--rollback"])).toThrow("is not built yet");
+  it("--rollback needs a batch key and who runs it, and nothing else", () => {
+    expect(parseImportCampusCompaniesArgs(["--rollback", "--batch", "pilot-1", "--run-by", "divyanshu"])).toEqual({
+      mode: "rollback",
+      batch: "pilot-1",
+      runBy: "divyanshu",
+    });
+    expect(() => parseImportCampusCompaniesArgs(["--rollback", "--run-by", "x"])).toThrow("--rollback needs --batch");
+    expect(() => parseImportCampusCompaniesArgs(["--rollback", "--batch", "pilot-1"])).toThrow("--rollback needs --run-by");
+    expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", "--rollback", "--batch", "p", "--run-by", "x"])).toThrow(
+      "not a bundle",
+    );
+    expect(() => parseImportCampusCompaniesArgs(["--rollback", "--apply", "--batch", "p", "--run-by", "x"])).toThrow(
+      "cannot be combined",
+    );
+    expect(() => parseImportCampusCompaniesArgs(["--rollback", "--test", "--batch", "p", "--run-by", "x"])).toThrow(
+      "cannot be used with --rollback",
+    );
   });
 
   it("--apply needs a batch key and who is running it", () => {

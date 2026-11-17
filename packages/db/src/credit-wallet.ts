@@ -612,6 +612,74 @@ export async function grantCreditsWithinTx(
   };
 }
 
+export interface LotReversal {
+  /** The wallet key that owns the lot. */
+  readonly payerId: string;
+  readonly lotId: string;
+  /** The compensating line's reason (`campus_conversion_reversed` for #2754's rollback). */
+  readonly reason: CreditReason;
+  /** One reversal per lot, ever: a second call with the same key writes nothing. */
+  readonly idempotencyKey: string;
+}
+
+export type LotReversalResult =
+  | {
+      readonly applied: true;
+      /** The unspent credits taken back (the line's -delta; 0 writes no line). */
+      readonly credits: number;
+      /** What the company had already spent from the lot: kept, never clawed back. */
+      readonly spent: number;
+    }
+  | { readonly applied: false; readonly reason: "already_reversed" | "no_wallet" | "no_lot" };
+
+/**
+ * Reverse ONE lot (#2754 item 14, a batch rollback): take back what it still holds with ONE
+ * compensating ledger line, close the lot (`credits_remaining = 0`, `expired_at` stamped so it is
+ * never read as open again) and lower the balance — the same lock order as every wallet write
+ * (wallet row → lots → ledger). Credits already spent from the lot stay spent: an open the company
+ * made with them happened. The lot must belong to `payerId`. Idempotent on the key.
+ */
+export async function reverseLotWithinTx(tx: WalletTx, input: LotReversal): Promise<LotReversalResult> {
+  const balance = await lockWallet(tx, input.payerId);
+  if (balance === undefined) return { applied: false, reason: "no_wallet" };
+  const [existing] = await tx
+    .select({ id: creditLedger.id })
+    .from(creditLedger)
+    .where(eq(creditLedger.idempotencyKey, input.idempotencyKey))
+    .limit(1);
+  if (existing) return { applied: false, reason: "already_reversed" };
+
+  await alignLoaded(tx, input.payerId, balance, await readOpenLots(tx, input.payerId));
+  const [lot] = await tx
+    .select({ granted: creditLots.creditsGranted, remaining: creditLots.creditsRemaining })
+    .from(creditLots)
+    .where(and(eq(creditLots.id, input.lotId), eq(creditLots.payerId, input.payerId)))
+    .for("update");
+  if (!lot) return { applied: false, reason: "no_lot" };
+  const credits = lot.remaining;
+  if (credits > 0) {
+    await tx.insert(creditLedger).values({
+      payerId: input.payerId,
+      delta: -credits,
+      reason: input.reason,
+      lotId: input.lotId,
+      idempotencyKey: input.idempotencyKey,
+    });
+    await tx
+      .update(creditLots)
+      .set({ creditsRemaining: 0, expiredAt: sql`now()`, updatedAt: sql`now()` })
+      .where(eq(creditLots.id, input.lotId));
+    const [wallet] = await tx
+      .update(payerCredits)
+      .set({ balance: sql`${payerCredits.balance} - ${credits}`, updatedAt: sql`now()` })
+      .where(and(eq(payerCredits.payerId, input.payerId), gte(payerCredits.balance, credits)))
+      .returning({ balance: payerCredits.balance });
+    // Alignment ran first, so the balance holds every open lot's credits.
+    if (!wallet) throw new Error("credit-wallet: the reversed credits exceed the balance");
+  }
+  return { applied: true, credits, spent: lot.granted - credits };
+}
+
 export type WalletSpendResult =
   | {
       readonly ok: true;
