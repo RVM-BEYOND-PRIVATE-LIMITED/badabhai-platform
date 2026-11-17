@@ -144,6 +144,9 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
       // PAY-DB-01 P2c: plans, boosts, capacity and coupons, and the payer posting seam.
       "PayerPostingPlansService",
       "PostingPlansService",
+      // #2750 item 7: the company's couldn't-reach report resolves its tenant (the case's wallet).
+      // ReachDeskModule imports PayersModule, which the next case checks.
+      "ReachDeskService",
       // P2b (ORG_TENANCY_PLAN §3.2): the money + disclosure + relay services resolve the tenant.
       "RelayService",
       "ResumeDisclosureService",

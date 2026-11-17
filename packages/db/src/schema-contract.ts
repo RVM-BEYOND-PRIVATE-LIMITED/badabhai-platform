@@ -1853,10 +1853,27 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     failureMode:
       "SILENT. The table maps every moved Campus company, job, application and balance to its BadaBhai row; an open grant lets any PostgREST role read which companies moved and rewrite the map that --rollback uses to archive accounts, close postings and reverse converted credits",
   },
-  // #2891: a Campus-origin posting held from BadaBhai workers until an admin opens it. This entry
-  // is the lock only; the `table` entry arrives with the PR that reads the table from
-  // reachesBadaBhaiWorkers() (APPLY BEFORE THAT DEPLOY, migration header). The id and tag carry
-  // the slot number: regenerated with the migration when the slot moves.
+  // #2891: a Campus-origin posting held from BadaBhai workers until an admin opens it. The worker
+  // fragment reads the table unconditionally (no switch, by the #2746 rule), so it is a `table`
+  // entry: APPLY BEFORE DEPLOY (migration header). Plus its lock. The ids and tag carry the slot
+  // number: regenerated with the migration when the slot moves.
+  {
+    id: "0184-job-posting-worker-visibility",
+    migration: "0184_job_posting_worker_visibility",
+    kind: "table",
+    table: "job_posting_worker_visibility",
+    requiredBy:
+      "reachesBadaBhaiWorkers() (job-visibility.ts), applied UNCONDITIONALLY by every BadaBhai " +
+      "worker read (feed, search, job detail, apply) and inside the reach core " +
+      "(materializeJobReachWithin, D5, the worker reconcile, the agency-twin sync, " +
+      "db:verify:match-v1); the Campus post-for-company route (holdPostingFromWorkers) and the " +
+      "admin worker-visibility routes",
+    failureMode:
+      "every worker feed, search, job detail and apply 500s (relation does not exist), every " +
+      "reach write fails, and Campus post-for-company 500s after creating a draft. Old builds on " +
+      "a migrated database are fine (a superset); new builds on an unmigrated one are not, which " +
+      "is why this is APPLY-BEFORE-DEPLOY",
+  },
   {
     id: "0184-job-posting-worker-visibility-rls",
     migration: "0184_job_posting_worker_visibility",
@@ -1870,6 +1887,39 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. The table decides which Campus-origin postings reach BadaBhai workers; an open " +
       "grant lets any PostgREST role turn a posting's worker visibility on (bypassing the " +
       "admin decision and its audit row) or read which Campus jobs are held",
+  },
+  // #2750 item 7: the couldn't-reach cases and the desk's call attempts. Nothing names either
+  // table while CREDIT_RULES_ROLLOUT is off (the payer and desk routes answer 404, the deadline
+  // sweep does nothing), and with it on a 42P01 is a 503 on the routes and a logged wait in the
+  // sweep, so a deploy ahead of the migration breaks no request and neither is a `table` entry.
+  // Listed for their locks (the 0134 rule). APPLY BEFORE THE SWITCH (migration header). The ids
+  // and tag carry the slot number: regenerated with the migration when the slot moves.
+  {
+    id: "0185-contact-reach-cases-rls",
+    migration: "0185_contact_reach_cases",
+    kind: "rls",
+    table: "contact_reach_cases",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides whose credits come back: an open grant lets any PostgREST role " +
+      "insert or close a case as not reached (credits returned for a contact that was reached) " +
+      "or read which company could not reach which worker",
+  },
+  {
+    id: "0185-contact-reach-attempts-rls",
+    migration: "0185_contact_reach_cases",
+    kind: "rls",
+    table: "contact_reach_attempts",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which admin called which case when and what happened; an open " +
+      "grant lets any PostgREST role read the desk's work or forge attempts on a case",
   },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks

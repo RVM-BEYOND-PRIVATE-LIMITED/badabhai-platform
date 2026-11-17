@@ -571,6 +571,13 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Off** (`CREDIT_RULES_ROLLOUT` off for your company): `404`.
 - **Mobile gotchas:** Show "Open for N credit(s)" from `credits`, and the Starter pack when `credits > credits_available`. Re-quote after a purchase. The open charges the price at the tap; if the worker's card changed in between, that price can differ from the quote.
 
+#### `POST /payer/unlocks/:unlockId/couldnt-reach` and `GET` the same (#2750: the working-number guarantee)
+
+- **Auth:** `PayerAuthGuard` (Bearer). For a company under the credit rules only (`CREDIT_RULES_ROLLOUT`); off, both are `404`.
+- **POST (report):** empty body. Accepted up to day 7 after the open (IST calendar days; day 7 accepted, day 8 refused with `409 { code: "REPORT_WINDOW_CLOSED" }`). The open must be yours and a contact (`404` otherwise). Opens one case per open; a second report answers the same case (idempotent).
+- **Response (both):** `200 { case_id, unlock_id, status, reported_at, deadline_at, resolved_at, credits_returned }`. `status` is `open` until the worker desk closes it: `reached_interested`, `reached_declined`, or `not_reached`. Not reached gives back every credit the open took (`credits_returned`), as new credits that keep the spent credits' expiry while it is ahead, else 30 days. A case still open at `deadline_at` (48 hours) closes as `not_reached` on its own. **GET** is `404` when you never reported that open.
+- **Mobile gotchas:** Show "Couldn't reach?" on an opened contact for 7 days. After a report, show the case's status and, when `not_reached`, the credits returned. Your ledger shows a `returned` line naming the open.
+
 #### `POST /payer/unlocks/:unlockId/reveal`
 
 - **Auth:** `PayerAuthGuard` (Bearer). Shares the disclosure cap.

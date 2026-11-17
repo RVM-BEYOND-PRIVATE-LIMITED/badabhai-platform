@@ -113,6 +113,8 @@ import { AdminCreditRulesController } from "./credit-rules/admin-credit-rules.co
 import { CreditRulesModule } from "../credit-rules/credit-rules.module";
 import { AdminWaiversController } from "./waivers/admin-waivers.controller";
 import { RvmWaiversModule } from "../rvm-waivers/rvm-waivers.module";
+import { AdminReachDeskController } from "./reach-desk/admin-reach-desk.controller";
+import { ReachDeskModule } from "../reach-desk/reach-desk.module";
 import { AdminStudentsController } from "./students/admin-students.controller";
 import { StudentMoveModule } from "../student-move/student-move.module";
 import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
@@ -236,6 +238,9 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // #2750 items 5 and 12 - the placement team's waivers (`/admin/waivers`). RvmWaiversModule
     // does not import AdminModule, so no cycle.
     RvmWaiversModule,
+    // #2750 items 7 and 12 - the worker desk (`/admin/desk/reach-cases`). ReachDeskModule does not
+    // import AdminModule, so no cycle.
+    ReachDeskModule,
     // #2887 - the moved students' visibility switch (`/admin/students/*`). StudentMoveModule does
     // not import AdminModule, so no cycle.
     StudentMoveModule,
@@ -290,6 +295,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminCompaniesController,
     AdminCreditRulesController,
     AdminWaiversController,
+    AdminReachDeskController,
     AdminStudentsController,
     // #2561 — admin corrections of candidate fields (ADR-0062).
     AdminCorrectionsController,

@@ -36,7 +36,7 @@
  * through the deployed API even though its `off` row is written. So the operator passes
  * `--worker-hold-live` only after checking that the production build contains #2903: read the
  * build sha from the production /health and run
- * `git merge-base --is-ancestor <#2903 merge sha> <build sha>`. Without the flag the jobs step
+ * `git merge-base --is-ancestor fdabdc17b4167deaaf26f3c297fb1ffba797ec78 <build sha>` (#2903). Without the flag the jobs step
  * prints that it is waiting and imports no job. A created posting that is not held is closed and
  * the step stops.
  *
@@ -345,7 +345,7 @@ async function apply(
     if (!args.workerHoldLive) {
       log(
         "jobs: NOT IMPORTED — pass --worker-hold-live only after the production build contains " +
-          "#2903 (git merge-base --is-ancestor <#2903 merge sha> <the /health build sha>). Before " +
+          "#2903 (git merge-base --is-ancestor fdabdc17b4167deaaf26f3c297fb1ffba797ec78 <the /health build sha>). Before " +
           "then a moved job could reach BadaBhai workers.",
       );
     } else if (!(await workerVisibilityTableExists(db))) {

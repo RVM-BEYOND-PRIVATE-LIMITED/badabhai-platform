@@ -46,6 +46,18 @@ export interface OutcomeOrigin {
   readonly requestId?: string;
 }
 
+/**
+ * #2750 item 7 — who gave the desk's answer: a desk admin, or `system` (no id) when the
+ * couldn't-reach deadline sweep closes a case nobody closed in time.
+ */
+export interface DeskOutcomeOrigin {
+  readonly actor:
+    | OutcomeOrigin["actor"]
+    | { readonly actor_type: "system"; readonly actor_id: null };
+  readonly correlationId: string;
+  readonly requestId?: string;
+}
+
 /** What one answer did to the stored row. */
 export interface UnlockOutcomeWrite {
   readonly unlockId: string;
@@ -199,13 +211,15 @@ export class UnlockOutcomesService {
     unlockId: string,
     outcome: "not_reached",
     tx: Database,
-    by: OutcomeOrigin,
+    by: DeskOutcomeOrigin,
     at: Date = new Date(),
   ): Promise<UnlockOutcomeWrite | null> {
     if (!this.enabled) return null;
     const unlock = await this.repo.findOpened(unlockId, tx);
     if (unlock === null) return null;
-    return this.write(unlock, outcome, "desk", at, tx, by);
+    // `not_reached` never reaches the hire link (only a company's `hired` does), so the only use of
+    // `by` here is the event envelope, which takes a `system` actor as it is.
+    return this.write(unlock, outcome, "desk", at, tx, by as OutcomeOrigin);
   }
 
   /**
