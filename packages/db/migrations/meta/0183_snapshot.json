@@ -1,5 +1,5 @@
 {
-  "id": "816055d8-20c5-4dba-a5a3-dda5e629be73",
+  "id": "7d333001-4fb7-4cf0-a440-379126fcfc40",
   "prevId": "ec3f4cf6-7816-433e-9319-8eb3a665ed96",
   "version": "7",
   "dialect": "postgresql",
@@ -20366,272 +20366,6 @@
       "checkConstraints": {},
       "isRLSEnabled": true
     },
-    "public.contact_reach_attempts": {
-      "name": "contact_reach_attempts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "case_id": {
-          "name": "case_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "admin_id": {
-          "name": "admin_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "result": {
-          "name": "result",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "attempted_at": {
-          "name": "attempted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "contact_reach_attempts_case_idx": {
-          "name": "contact_reach_attempts_case_idx",
-          "columns": [
-            {
-              "expression": "case_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "contact_reach_attempts_case_id_contact_reach_cases_id_fk": {
-          "name": "contact_reach_attempts_case_id_contact_reach_cases_id_fk",
-          "tableFrom": "contact_reach_attempts",
-          "tableTo": "contact_reach_cases",
-          "columnsFrom": [
-            "case_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "contact_reach_attempts_result_chk": {
-          "name": "contact_reach_attempts_result_chk",
-          "value": "\"contact_reach_attempts\".\"result\" IN ('no_answer', 'busy', 'switched_off', 'wrong_number', 'other')"
-        }
-      },
-      "isRLSEnabled": true
-    },
-    "public.contact_reach_cases": {
-      "name": "contact_reach_cases",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "unlock_id": {
-          "name": "unlock_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "payer_id": {
-          "name": "payer_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "worker_id": {
-          "name": "worker_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reported_by": {
-          "name": "reported_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reported_at": {
-          "name": "reported_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "deadline_at": {
-          "name": "deadline_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'open'"
-        },
-        "credits_returned": {
-          "name": "credits_returned",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "resolved_at": {
-          "name": "resolved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "resolved_by": {
-          "name": "resolved_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "resolved_by_admin_id": {
-          "name": "resolved_by_admin_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "contact_reach_cases_unlock_uq": {
-          "name": "contact_reach_cases_unlock_uq",
-          "columns": [
-            {
-              "expression": "unlock_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "contact_reach_cases_open_deadline_idx": {
-          "name": "contact_reach_cases_open_deadline_idx",
-          "columns": [
-            {
-              "expression": "deadline_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"contact_reach_cases\".\"status\" = 'open'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "contact_reach_cases_payer_idx": {
-          "name": "contact_reach_cases_payer_idx",
-          "columns": [
-            {
-              "expression": "payer_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "reported_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "contact_reach_cases_unlock_id_unlocks_id_fk": {
-          "name": "contact_reach_cases_unlock_id_unlocks_id_fk",
-          "tableFrom": "contact_reach_cases",
-          "tableTo": "unlocks",
-          "columnsFrom": [
-            "unlock_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "contact_reach_cases_worker_id_workers_id_fk": {
-          "name": "contact_reach_cases_worker_id_workers_id_fk",
-          "tableFrom": "contact_reach_cases",
-          "tableTo": "workers",
-          "columnsFrom": [
-            "worker_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "contact_reach_cases_status_chk": {
-          "name": "contact_reach_cases_status_chk",
-          "value": "\"contact_reach_cases\".\"status\" IN ('open', 'reached_interested', 'reached_declined', 'not_reached')"
-        },
-        "contact_reach_cases_credits_chk": {
-          "name": "contact_reach_cases_credits_chk",
-          "value": "\"contact_reach_cases\".\"credits_returned\" >= 0"
-        },
-        "contact_reach_cases_resolved_by_chk": {
-          "name": "contact_reach_cases_resolved_by_chk",
-          "value": "\"contact_reach_cases\".\"resolved_by\" IS NULL OR \"contact_reach_cases\".\"resolved_by\" IN ('desk', 'deadline')"
-        },
-        "contact_reach_cases_resolution_chk": {
-          "name": "contact_reach_cases_resolution_chk",
-          "value": "(\"contact_reach_cases\".\"status\" = 'open') = (\"contact_reach_cases\".\"resolved_at\" IS NULL) AND (\"contact_reach_cases\".\"resolved_at\" IS NULL) = (\"contact_reach_cases\".\"resolved_by\" IS NULL) AND (\"contact_reach_cases\".\"resolved_by_admin_id\" IS NULL OR \"contact_reach_cases\".\"resolved_by\" = 'desk')"
-        }
-      },
-      "isRLSEnabled": true
-    },
     "public.student_import_batches": {
       "name": "student_import_batches",
       "schema": "",
@@ -21524,6 +21258,359 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "public.company_import_batches": {
+      "name": "company_import_batches",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "batch_key": {
+          "name": "batch_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_system": {
+          "name": "source_system",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bundle_format": {
+          "name": "bundle_format",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bundle_version": {
+          "name": "bundle_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bundle_generated_at": {
+          "name": "bundle_generated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "manifest_sha256": {
+          "name": "manifest_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_test": {
+          "name": "is_test",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'applying'"
+        },
+        "run_by": {
+          "name": "run_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "manifest_counts": {
+          "name": "manifest_counts",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "applied_at": {
+          "name": "applied_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rolled_back_at": {
+          "name": "rolled_back_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rolled_back_by": {
+          "name": "rolled_back_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "company_import_batches_batch_key_uq": {
+          "name": "company_import_batches_batch_key_uq",
+          "columns": [
+            {
+              "expression": "batch_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "company_import_batches_source_chk": {
+          "name": "company_import_batches_source_chk",
+          "value": "\"company_import_batches\".\"source_system\" IN ('campus')"
+        },
+        "company_import_batches_state_chk": {
+          "name": "company_import_batches_state_chk",
+          "value": "\"company_import_batches\".\"state\" IN ('applying', 'applied', 'rolled_back')"
+        },
+        "company_import_batches_text_chk": {
+          "name": "company_import_batches_text_chk",
+          "value": "char_length(\"company_import_batches\".\"batch_key\") BETWEEN 1 AND 64 AND char_length(\"company_import_batches\".\"run_by\") BETWEEN 1 AND 128 AND char_length(\"company_import_batches\".\"manifest_sha256\") = 64 AND (\"company_import_batches\".\"rolled_back_by\" IS NULL OR char_length(\"company_import_batches\".\"rolled_back_by\") BETWEEN 1 AND 128)"
+        },
+        "company_import_batches_rollback_chk": {
+          "name": "company_import_batches_rollback_chk",
+          "value": "(\"company_import_batches\".\"state\" = 'rolled_back') = (\"company_import_batches\".\"rolled_back_at\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.company_import_rows": {
+      "name": "company_import_rows",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "batch_id": {
+          "name": "batch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_system": {
+          "name": "source_system",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "company_source_id": {
+          "name": "company_source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target_id": {
+          "name": "target_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "detail": {
+          "name": "detail",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "company_import_rows_source_uq": {
+          "name": "company_import_rows_source_uq",
+          "columns": [
+            {
+              "expression": "source_system",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "company_import_rows_batch_idx": {
+          "name": "company_import_rows_batch_idx",
+          "columns": [
+            {
+              "expression": "batch_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "state",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "company_import_rows_company_idx": {
+          "name": "company_import_rows_company_idx",
+          "columns": [
+            {
+              "expression": "company_source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "company_import_rows_target_idx": {
+          "name": "company_import_rows_target_idx",
+          "columns": [
+            {
+              "expression": "target_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "company_import_rows_batch_id_company_import_batches_id_fk": {
+          "name": "company_import_rows_batch_id_company_import_batches_id_fk",
+          "tableFrom": "company_import_rows",
+          "tableTo": "company_import_batches",
+          "columnsFrom": [
+            "batch_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "company_import_rows_source_chk": {
+          "name": "company_import_rows_source_chk",
+          "value": "\"company_import_rows\".\"source_system\" IN ('campus')"
+        },
+        "company_import_rows_kind_chk": {
+          "name": "company_import_rows_kind_chk",
+          "value": "\"company_import_rows\".\"kind\" IN ('company', 'job', 'application', 'balance', 'access')"
+        },
+        "company_import_rows_state_chk": {
+          "name": "company_import_rows_state_chk",
+          "value": "\"company_import_rows\".\"state\" IN ('created', 'matched', 'held', 'skipped', 'exception', 'rolled_back')"
+        },
+        "company_import_rows_target_chk": {
+          "name": "company_import_rows_target_chk",
+          "value": "(\"company_import_rows\".\"state\" IN ('created', 'matched', 'rolled_back')) = (\"company_import_rows\".\"target_id\" IS NOT NULL)"
+        },
+        "company_import_rows_reason_chk": {
+          "name": "company_import_rows_reason_chk",
+          "value": "(\"company_import_rows\".\"state\" IN ('held', 'skipped', 'exception')) <= (\"company_import_rows\".\"reason\" IS NOT NULL) AND (\"company_import_rows\".\"reason\" IS NULL OR char_length(\"company_import_rows\".\"reason\") BETWEEN 1 AND 64)"
+        },
+        "company_import_rows_text_chk": {
+          "name": "company_import_rows_text_chk",
+          "value": "char_length(\"company_import_rows\".\"source_id\") BETWEEN 1 AND 200 AND (\"company_import_rows\".\"company_source_id\" IS NULL OR char_length(\"company_import_rows\".\"company_source_id\") BETWEEN 1 AND 200)"
+        }
+      },
       "isRLSEnabled": true
     }
   },

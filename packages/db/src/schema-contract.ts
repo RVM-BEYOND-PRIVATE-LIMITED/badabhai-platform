@@ -1821,6 +1821,56 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "open grant lets any PostgREST role make every hidden student visible (or hide every " +
       "visible one) with no admin, reason or audit row",
   },
+  // #2754 item 4: the Campus company import ledger. Only the import CLI names it (no route, sweep or
+  // read path), so a deploy ahead of the migration breaks nothing and it is not a `table` entry.
+  // Listed for its locks (the 0134 rule). The ids and tag carry the slot number: regenerated with
+  // the migration when the slot moves.
+  {
+    id: "0183-company-import-batches-rls",
+    migration: "0183_company_import",
+    kind: "rls",
+    table: "company_import_batches",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table names every import batch, whether it was a test, who ran it and the manifest counts of each Campus export; an open grant lets any PostgREST role read the move's history or mark a batch rolled back, which the CLI then trusts",
+  },
+  // #2754 item 4: the Campus company import ledger. Only the import CLI names it (no route, sweep or
+  // read path), so a deploy ahead of the migration breaks nothing and it is not a `table` entry.
+  // Listed for its locks (the 0134 rule). The ids and tag carry the slot number: regenerated with
+  // the migration when the slot moves.
+  {
+    id: "0183-company-import-rows-rls",
+    migration: "0183_company_import",
+    kind: "rls",
+    table: "company_import_rows",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table maps every moved Campus company, job, application and balance to its BadaBhai row; an open grant lets any PostgREST role read which companies moved and rewrite the map that --rollback uses to archive accounts, close postings and reverse converted credits",
+  },
+  // #2891: a Campus-origin posting held from BadaBhai workers until an admin opens it. This entry
+  // is the lock only; the `table` entry arrives with the PR that reads the table from
+  // reachesBadaBhaiWorkers() (APPLY BEFORE THAT DEPLOY, migration header). The id and tag carry
+  // the slot number: regenerated with the migration when the slot moves.
+  {
+    id: "0184-job-posting-worker-visibility-rls",
+    migration: "0184_job_posting_worker_visibility",
+    kind: "rls",
+    table: "job_posting_worker_visibility",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides which Campus-origin postings reach BadaBhai workers; an open " +
+      "grant lets any PostgREST role turn a posting's worker visibility on (bypassing the " +
+      "admin decision and its audit row) or read which Campus jobs are held",
+  },
   // #2750 item 7: the couldn't-reach cases and the desk's call attempts. Nothing names either
   // table while CREDIT_RULES_ROLLOUT is off (the payer and desk routes answer 404, the deadline
   // sweep does nothing), and with it on a 42P01 is a 503 on the routes and a logged wait in the
@@ -1828,8 +1878,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
   // Listed for their locks (the 0134 rule). APPLY BEFORE THE SWITCH (migration header). The ids
   // and tag carry the slot number: regenerated with the migration when the slot moves.
   {
-    id: "0183-contact-reach-cases-rls",
-    migration: "0183_contact_reach_cases",
+    id: "0185-contact-reach-cases-rls",
+    migration: "0185_contact_reach_cases",
     kind: "rls",
     table: "contact_reach_cases",
     requiredBy:
@@ -1842,8 +1892,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "or read which company could not reach which worker",
   },
   {
-    id: "0183-contact-reach-attempts-rls",
-    migration: "0183_contact_reach_cases",
+    id: "0185-contact-reach-attempts-rls",
+    migration: "0185_contact_reach_cases",
     kind: "rls",
     table: "contact_reach_attempts",
     requiredBy:
