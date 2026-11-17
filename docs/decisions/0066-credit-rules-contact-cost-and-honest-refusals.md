@@ -89,6 +89,13 @@ For a company under the credit rules the brief's two limits **replace** the env 
 - **An agency's day** (`agencyDailyOpenLimit`, 40): an `agent` account opens at most 40 new contacts per IST calendar day; an employer account is never stopped by it (B4C-18).
   - The company is told `200 { status: "daily_limit_reached", daily_limit }`. This depends only on the company's own count and is decided **before** anything about the worker is read, then re-checked under a per-company lock inside the transaction (lock order: worker, company, wallet), so two opens at once cannot both pass the line.
 
+### 2.8 The working-number guarantee and the worker desk (part E)
+
+- **The report.** A company under the credit rules reports "couldn't reach" on a contact it opened, up to day `couldntReachWindowDays` (7) after the open, counted in IST calendar days (B7-13: day 7 accepted, day 8 refused). One case per open (`contact_reach_cases`), due `deskWindowHours` (48) later. A second report answers the first case.
+- **The desk** (capability `work_reach_desk`: super_admin, ops_admin and support, owner ruling 2026-11-17) calls the worker through the existing reason-gated reveal (`reveal_pii`, the case id as the reason), logs each attempt as a closed result code, and closes the case: reached and interested, reached and declined (no credit back), or not reached.
+- **Not reached** gives back every credit the open took: one new `returned` lot and ledger line per spent lot, naming the open, keeping the spent lot's expiry while it is ahead, else `returnedLotValidityDays` (30) from the close. A free (waived) open returns nothing. The company's follow-up answer for the open becomes `not_reached` (#2753).
+- **The deadline.** A case still open at its deadline closes as not reached, attempted or not (owner ruling 2026-11-17), by a sweep every 15 minutes. The company never waits on the desk.
+
 ## 3. Consequences
 
 - The number on the button equals the credits debited, unless the worker's card changes between the quote and the tap. In that case the open charges the price at the tap; the price is always from the card he shows then.
@@ -100,19 +107,22 @@ For a company under the credit rules the brief's two limits **replace** the env 
 
 - A pilot company's apps must handle two more answers: `worker_unavailable_this_week` and `daily_limit_reached`. An old client sees an unknown body; keep pilot companies on updated clients.
 
-## 4. Security review (parts A1, A2, C and D)
+- A `returned` ledger line has `unlock_id` set and adds a `returned` lot; `Σ delta` per wallet still equals the balance (DB test). A couldn't-reach return and a returned-with-a-pack credit (part F) are told apart by `unlock_id` (private notes item 12).
+
+## 4. Security review (parts A1, A2, C, D and E)
 
 - **Oracle:** the price and the honest refusal depend only on card facts and the company's own balance; both are decided before any worker-state read. Pinned by unit tests: no consent or institute read on the refusal path, and an identical answer for a consented worker and an unknown id.
 - **Tenancy:** the price facts read this company's grant by tenant key. The wallet helper is tenant-keyed and on the static tenancy scan's helper list.
 - **Money:** an n-credit spend is all-or-nothing under the wallet row lock. Concurrent spends cannot overdraw (DB test). A past-due-only wallet is refused byte-for-byte unchanged (DB test).
 - **Waivers:** whether a waiver frees a worker reads only his applications to this company's jobs (already on the company's applicant list) and the company's own waivers: no consent, limit or deletion state, so the 0 on the button is no oracle. Setting one is super_admin only on BadaBhai's side, or the Campus credential; an unknown or barred company and another company's job are the same neutral 404. Staff names are encrypted at rest and appear in no event.
 - **Limits:** the weekly answer is the one deliberate new signal (he is in demand), given only after the consent, deletion and search-exit gates passed, so it is never an answer about a worker the company could not open anyway. The agency answer reads only the company's own count, before any worker read. Both counts are taken under locks, so they cannot be raced past.
+- **The desk:** a report needs the company's own open (the tenant key) within the window; the desk's routes never return a number (the reveal stays `reveal_pii`, reason-gated and audited). A close returns credits only through the wallet helper, once per spent lot (idempotency key), in one transaction with the close, the audit row and the event; a closed case refuses a second close (409). Attempts and closes carry no free text but the admin's reason, which refuses hard identifiers.
 - **Settings:** super_admin only; the reason text refuses hard identifiers; one audited transaction; 409 on a stale or racing edit.
 
 ## 5. Arming and rollback
 
 - **Arm:**
-  1. Apply the `credit_rules_config` migration, then the `rvm_applicant_waivers` one.
+  1. Apply the `credit_rules_config` migration, then the `rvm_applicant_waivers` and `contact_reach_cases` ones.
   2. Optionally publish rules different from the defaults.
   3. Set `CREDIT_RULES_ROLLOUT=pilot` and list pilot companies in `feature_pilot_payers` (feature `credit_rules`).
 - **Roll back:** set the switch to `off`. Every company is back to one credit per open on the next request. Stored revisions stay.

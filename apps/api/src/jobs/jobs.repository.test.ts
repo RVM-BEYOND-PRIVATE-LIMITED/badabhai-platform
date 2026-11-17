@@ -390,8 +390,16 @@ describe("ADR-0044 — `publishedAfter`, the companion's \"new in the last N day
     const published = text.search(/"published_at" > \$\d+/);
     expect(status).toBeGreaterThanOrEqual(0);
     expect(published).toBeGreaterThan(status);
-    // Nothing else between them: the next clause after status is the window.
-    expect(text.slice(status, published)).not.toMatch(/reach_skill_ids|not exists|ilike/i);
+    // Nothing else between them: the next clause after status is the window. The shared visibility
+    // fragment (hidden, audience, and the #2891 Campus hold's own NOT EXISTS) is not a filter
+    // clause of this search, so it is set aside first.
+    const between = text
+      .slice(status, published)
+      .replace(
+        / AND NOT EXISTS \(SELECT 1 FROM job_posting_worker_visibility jpwv WHERE jpwv\.job_posting_id = [^)]+ AND jpwv\.state <> 'on'\)/,
+        "",
+      );
+    expect(between).not.toMatch(/reach_skill_ids|not exists|ilike/i);
   });
 
   it("composes with the #1240 profile fallback and keeps the applied/skipped exclusion", async () => {
