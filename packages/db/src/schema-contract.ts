@@ -1745,6 +1745,38 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "grant lets any PostgREST role read which company opened which RVM applicant for free, " +
       "or rewrite the count the placement team reads",
   },
+  // #2754 item 4: the Campus company import ledger. Only the import CLI names it (no route, sweep or
+  // read path), so a deploy ahead of the migration breaks nothing and it is not a `table` entry.
+  // Listed for its locks (the 0134 rule). The ids and tag carry the slot number: regenerated with
+  // the migration when the slot moves.
+  {
+    id: "0182-company-import-batches-rls",
+    migration: "0182_company_import",
+    kind: "rls",
+    table: "company_import_batches",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table names every import batch, whether it was a test, who ran it and the manifest counts of each Campus export; an open grant lets any PostgREST role read the move's history or mark a batch rolled back, which the CLI then trusts",
+  },
+  // #2754 item 4: the Campus company import ledger. Only the import CLI names it (no route, sweep or
+  // read path), so a deploy ahead of the migration breaks nothing and it is not a `table` entry.
+  // Listed for its locks (the 0134 rule). The ids and tag carry the slot number: regenerated with
+  // the migration when the slot moves.
+  {
+    id: "0182-company-import-rows-rls",
+    migration: "0182_company_import",
+    kind: "rls",
+    table: "company_import_rows",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table maps every moved Campus company, job, application and balance to its BadaBhai row; an open grant lets any PostgREST role read which companies moved and rewrite the map that --rollback uses to archive accounts, close postings and reverse converted credits",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

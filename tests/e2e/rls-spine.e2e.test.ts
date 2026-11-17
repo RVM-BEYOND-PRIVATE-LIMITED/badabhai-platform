@@ -302,6 +302,10 @@ const LOCKED_TABLES = [
   // time). RLS+FORCE+REVOKE in the hand-written tail of `*_rvm_applicant_waivers`.
   "rvm_applicant_waivers",
   "rvm_waiver_uses",
+  // #2754 item 4: the Campus company import ledger (batch names, counts, Campus ids mapped to
+  // BadaBhai ids, reason codes). RLS+FORCE+REVOKE in the hand-written tail of `*_company_import`.
+  "company_import_batches",
+  "company_import_rows",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.
