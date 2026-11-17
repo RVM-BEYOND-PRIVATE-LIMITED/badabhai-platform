@@ -355,6 +355,29 @@ class _FindViewState extends State<_FindView> {
       }
       return UnlockOutcome.insufficient;
     }
+    if (result.weekLimitReached) {
+      if (context.mounted) {
+        showBbToast(
+          context,
+          title: 'Not available this week',
+          message: "This worker isn't available this week. Try again in a few days.",
+          icon: Icons.info_rounded,
+        );
+      }
+      return UnlockOutcome.denied;
+    }
+    if (result.dailyLimitReached) {
+      if (context.mounted) {
+        showBbToast(
+          context,
+          title: 'Daily opening limit',
+          message:
+              "You've opened ${result.dailyLimit} contacts today. You can open more tomorrow.",
+          icon: Icons.info_rounded,
+        );
+      }
+      return UnlockOutcome.denied;
+    }
     if (!result.granted) {
       // Neutral deny — no credit / already / capped. Never a fabricated reason.
       if (context.mounted) {

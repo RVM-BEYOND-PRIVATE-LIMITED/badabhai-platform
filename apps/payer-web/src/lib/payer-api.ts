@@ -668,6 +668,15 @@ export async function requestUnlock(input: {
       creditsAvailable: wire.credits_available,
     });
   }
+  if (wire.status === "worker_unavailable_this_week") {
+    return unlockResultSchema.parse({ status: "worker_unavailable_this_week" });
+  }
+  if (wire.status === "daily_limit_reached") {
+    return unlockResultSchema.parse({
+      status: "daily_limit_reached",
+      dailyLimit: wire.daily_limit,
+    });
+  }
   return unlockResultSchema.parse({ status: "unavailable" });
 }
 
