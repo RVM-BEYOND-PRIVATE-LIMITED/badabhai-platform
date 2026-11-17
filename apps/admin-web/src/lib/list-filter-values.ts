@@ -27,8 +27,11 @@ export const LEDGER_REASONS = [
   "expired",
 ] as const;
 
-/** `AdminOrdersQuerySchema.status` — the Payment orders status chips, in the chips' order. */
-export const ORDER_STATUSES = ["created", "paid", "failed"] as const;
+/**
+ * `AdminOrdersQuerySchema.status` — the Payment orders status chips, in the chips' order.
+ * `held` (#2749): a capture of the wrong amount, nothing granted, waiting on ops.
+ */
+export const ORDER_STATUSES = ["created", "paid", "failed", "held"] as const;
 
 /** `AdminAiTracesQuerySchema.success`, as the address carries it. */
 export const AI_CALL_OUTCOMES = ["true", "false"] as const;
@@ -82,4 +85,6 @@ export const EVENT_SUBJECT_TYPES = [
   "referral_bonus",
   "referral_link",
   "skill_candidate",
+  // #2750 — a revision of the credit rules settings (the target of `credit_rules_changed`).
+  "credit_rules_config",
 ] as const;

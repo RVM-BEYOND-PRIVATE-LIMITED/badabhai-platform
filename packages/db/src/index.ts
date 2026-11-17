@@ -224,6 +224,8 @@ export {
 export {
   isSampleWorkerId,
   sampleWorkerIdLikePatterns,
+  samplePayerIdLikePatterns,
+  samplePostingIdLikePatterns,
   WORKFORCE_ID_PREFIX,
   workforceUuid,
 } from "./sample-workers";

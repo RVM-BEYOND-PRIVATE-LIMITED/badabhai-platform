@@ -3,6 +3,8 @@
  * warning line. What needs a real Postgres (the row locks, the CHECKs, the unique keys, the
  * concurrency) is proven by `apps/api/src/unlocks/credit-lots.db.test.ts`.
  */
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -13,6 +15,7 @@ import {
   freeTierIdempotencyKey,
   grantCreditsWithinTx,
   lotAlignmentWarning,
+  lotExpiry,
   planLotAlignment,
   sumOpenCredits,
   type OpenCreditLot,
@@ -186,5 +189,50 @@ describe("grantCreditsWithinTx — input guard", () => {
     }
     expect(tx.insert).not.toHaveBeenCalled();
     expect(tx.select).not.toHaveBeenCalled();
+  });
+});
+
+describe("lotExpiry — a lot's validity, on the database clock (#2749 PR 3)", () => {
+  /** The SQL text and params a Drizzle `sql` fragment renders to (the pg dialect). */
+  const render = (value: unknown) => new PgDialect().sqlToQuery(value as SQL);
+
+  it("no validity and no date → never expires; a fixed date passes through", () => {
+    expect(lotExpiry({ source: "pack" })).toBeNull();
+    expect(lotExpiry({ source: "pack", validityDays: null, expiresAt: null })).toBeNull();
+    expect(lotExpiry({ source: "pack", expiresAt: day(30) })).toEqual(day(30));
+  });
+
+  it("validityDays → now() + N days, computed by Postgres (the clock created_at and every due-check read)", () => {
+    const expiry = lotExpiry({ source: "pack", validityDays: 30 });
+    expect(expiry).not.toBeNull();
+    expect(expiry).not.toBeInstanceOf(Date);
+    const q = render(expiry);
+    expect(q.sql).toBe("now() + make_interval(days => $1::int)");
+    expect(q.params).toEqual([30]);
+  });
+
+  it("refuses a validity that is not a positive integer, or both a validity and a date", () => {
+    for (const validityDays of [0, -1, 1.5, Number.NaN]) {
+      expect(() => lotExpiry({ source: "pack", validityDays }), String(validityDays)).toThrow(
+        RangeError,
+      );
+    }
+    expect(() => lotExpiry({ source: "pack", validityDays: 30, expiresAt: day(2) })).toThrow(
+      RangeError,
+    );
+  });
+
+  it("the grant refuses a bad validity BEFORE touching the database", async () => {
+    const tx = { select: vi.fn(), insert: vi.fn(), update: vi.fn() } as unknown as WalletTx;
+    await expect(
+      grantCreditsWithinTx(tx, {
+        payerId: "p-1",
+        credits: 5,
+        lot: { source: "pack", validityDays: 0 },
+        ledger: { reason: "pack_purchase" },
+      }),
+    ).rejects.toThrow(RangeError);
+    expect(tx.select).not.toHaveBeenCalled();
+    expect(tx.insert).not.toHaveBeenCalled();
   });
 });

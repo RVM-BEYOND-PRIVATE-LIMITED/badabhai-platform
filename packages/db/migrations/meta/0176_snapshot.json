@@ -1,5 +1,5 @@
 {
-  "id": "3be74584-73bb-44a6-bd44-32d0decfdf94",
+  "id": "7c910991-2168-4bf6-8307-9add09b68516",
   "prevId": "e91af572-7e8f-4da7-a84b-dce3a35e934a",
   "version": "7",
   "dialect": "postgresql",
@@ -10739,11 +10739,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "product_kind": {
+          "name": "product_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'credit_pack'"
+        },
         "pack_code": {
           "name": "pack_code",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "amount_inr": {
           "name": "amount_inr",
@@ -10780,6 +10787,54 @@
         "provider_payment_ref": {
           "name": "provider_payment_ref",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "taxable_paise": {
+          "name": "taxable_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gst_paise": {
+          "name": "gst_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "round_off_paise": {
+          "name": "round_off_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_paise": {
+          "name": "total_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gst_rate_bps": {
+          "name": "gst_rate_bps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "credit_validity_days": {
+          "name": "credit_validity_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "origin_job_posting_id": {
+          "name": "origin_job_posting_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -10861,9 +10916,39 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "payment_orders_origin_job_posting_idx": {
+          "name": "payment_orders_origin_job_posting_idx",
+          "columns": [
+            {
+              "expression": "origin_job_posting_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"payment_orders\".\"origin_job_posting_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "payment_orders_origin_job_posting_id_job_postings_id_fk": {
+          "name": "payment_orders_origin_job_posting_id_job_postings_id_fk",
+          "tableFrom": "payment_orders",
+          "tableTo": "job_postings",
+          "columnsFrom": [
+            "origin_job_posting_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -10874,11 +10959,35 @@
         },
         "payment_orders_credits_pos_chk": {
           "name": "payment_orders_credits_pos_chk",
-          "value": "\"payment_orders\".\"credits_granted\" > 0"
+          "value": "\"payment_orders\".\"credits_granted\" > 0 OR \"payment_orders\".\"product_kind\" <> 'credit_pack'"
         },
         "payment_orders_status_chk": {
           "name": "payment_orders_status_chk",
-          "value": "\"payment_orders\".\"status\" IN ('created', 'paid', 'failed')"
+          "value": "\"payment_orders\".\"status\" IN ('created', 'paid', 'failed', 'held')"
+        },
+        "payment_orders_product_kind_chk": {
+          "name": "payment_orders_product_kind_chk",
+          "value": "\"payment_orders\".\"product_kind\" IN ('credit_pack')"
+        },
+        "payment_orders_pack_code_chk": {
+          "name": "payment_orders_pack_code_chk",
+          "value": "\"payment_orders\".\"product_kind\" <> 'credit_pack' OR \"payment_orders\".\"pack_code\" IS NOT NULL"
+        },
+        "payment_orders_money_set_chk": {
+          "name": "payment_orders_money_set_chk",
+          "value": "(\"payment_orders\".\"taxable_paise\" IS NULL AND \"payment_orders\".\"gst_paise\" IS NULL AND \"payment_orders\".\"round_off_paise\" IS NULL AND \"payment_orders\".\"total_paise\" IS NULL AND \"payment_orders\".\"gst_rate_bps\" IS NULL) OR (\"payment_orders\".\"taxable_paise\" IS NOT NULL AND \"payment_orders\".\"gst_paise\" IS NOT NULL AND \"payment_orders\".\"round_off_paise\" IS NOT NULL AND \"payment_orders\".\"total_paise\" IS NOT NULL AND \"payment_orders\".\"gst_rate_bps\" IS NOT NULL)"
+        },
+        "payment_orders_money_sum_chk": {
+          "name": "payment_orders_money_sum_chk",
+          "value": "\"payment_orders\".\"total_paise\" IS NULL OR (\"payment_orders\".\"total_paise\" = \"payment_orders\".\"taxable_paise\" + \"payment_orders\".\"gst_paise\" + \"payment_orders\".\"round_off_paise\" AND \"payment_orders\".\"total_paise\" > 0 AND \"payment_orders\".\"total_paise\" % 100 = 0 AND \"payment_orders\".\"total_paise\" = \"payment_orders\".\"amount_inr\" * 100 AND \"payment_orders\".\"taxable_paise\" >= 0 AND \"payment_orders\".\"gst_paise\" >= 0 AND \"payment_orders\".\"gst_rate_bps\" BETWEEN 0 AND 10000)"
+        },
+        "payment_orders_validity_pos_chk": {
+          "name": "payment_orders_validity_pos_chk",
+          "value": "\"payment_orders\".\"credit_validity_days\" IS NULL OR \"payment_orders\".\"credit_validity_days\" > 0"
+        },
+        "payment_orders_origin_chk": {
+          "name": "payment_orders_origin_chk",
+          "value": "\"payment_orders\".\"origin\" IS NULL OR \"payment_orders\".\"origin\" IN ('credits_page', 'unlock_prompt', 'candidate_search', 'posting_flow', 'dashboard', 'other')"
         }
       },
       "isRLSEnabled": true
@@ -19580,99 +19689,6 @@
         "payer_phone_proofs_method_chk": {
           "name": "payer_phone_proofs_method_chk",
           "value": "\"payer_phone_proofs\".\"method\" IN ('sms_code', 'campus_import')"
-        }
-      },
-      "isRLSEnabled": true
-    },
-    "public.credit_rules_config": {
-      "name": "credit_rules_config",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "rules": {
-          "name": "rules",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "is_active": {
-          "name": "is_active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "credit_rules_config_active_uq": {
-          "name": "credit_rules_config_active_uq",
-          "columns": [
-            {
-              "expression": "is_active",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"credit_rules_config\".\"is_active\"",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "credit_rules_config_revision_uq": {
-          "name": "credit_rules_config_revision_uq",
-          "columns": [
-            {
-              "expression": "revision",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "credit_rules_config_revision_pos_chk": {
-          "name": "credit_rules_config_revision_pos_chk",
-          "value": "\"credit_rules_config\".\"revision\" > 0"
-        },
-        "credit_rules_config_rules_object_chk": {
-          "name": "credit_rules_config_rules_object_chk",
-          "value": "jsonb_typeof(\"credit_rules_config\".\"rules\") = 'object'"
         }
       },
       "isRLSEnabled": true

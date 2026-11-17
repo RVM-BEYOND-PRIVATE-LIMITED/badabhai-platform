@@ -50,10 +50,11 @@ export interface CreditLotExpirySweepResult {
  * whose wallet row is gone can never be expired, so it would otherwise take a slot on every tick;
  * those are counted and logged once per tick instead.
  *
- * ARMED, WITH NO DRY RUN AND NO FLAG, deliberately: nothing in #2749 PR 1 writes an `expires_at`
- * (packs gain their validity with the catalogue in PR 2, legacy lots their date at the
- * switch-over), so until the data carries a date every tick finds nothing. The restriction lives
- * in the data, not in a switch someone must remember to flip.
+ * ARMED, WITH NO DRY RUN AND NO FLAG, deliberately: only a `pack` lot whose pack sets
+ * `validityDays` carries an `expires_at` (#2749 PR 3, stamped at the grant; legacy lots get their
+ * date at the switch-over), and production's default packs set none, so until the data carries a
+ * date every tick finds nothing. The restriction lives in the data, not in a switch someone must
+ * remember to flip.
  *
  * EVENTS: one `payer.credits_expired` (trigger `sweep`, actor `system`) per lot, written INSIDE
  * that wallet's transaction (`EventsService.emit({ tx })`), so the expiry and its event commit

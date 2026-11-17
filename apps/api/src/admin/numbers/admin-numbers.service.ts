@@ -1,9 +1,5 @@
 import { Inject, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
-import {
-  areRealPaymentsEnabled,
-  realPaymentsBlockedReason,
-  type ServerConfig,
-} from "@badabhai/config";
+import type { ServerConfig } from "@badabhai/config";
 import type { Database } from "@badabhai/db";
 import type { PayerTestAccountReason, PayloadInputOf } from "@badabhai/event-schema";
 import { ADMIN_ACTION_CODES, type AdminActionCode } from "../admin-action-codes";
@@ -34,6 +30,7 @@ import {
   type NumbersLaunchCityGroup,
   type NumbersLaunchTradeGroup,
 } from "./groups";
+import { numbersPaymentsPosture } from "./payments-posture";
 import { NUMBERS_WEEK_RULE } from "./week";
 
 /** SQLSTATEs that mean the database is older than this build: fail CLOSED with a 503. */
@@ -68,10 +65,7 @@ export class AdminNumbersService {
    * helpers the kill-switch surface uses, so the two screens can never disagree.
    */
   private posture(): PaymentsPosture {
-    return {
-      mode: areRealPaymentsEnabled(this.config) ? "real" : "mock",
-      blocked_reason: realPaymentsBlockedReason(this.config),
-    };
+    return numbersPaymentsPosture(this.config);
   }
 
   /** `GET /admin/numbers/definitions` — the catalogue, as code holds it. Reads no table. */

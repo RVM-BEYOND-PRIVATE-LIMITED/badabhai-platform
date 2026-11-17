@@ -278,6 +278,11 @@ const LOCKED_TABLES = [
   // hash, a closed method and a time). Payer FK cascade as the erasure coverage. RLS+FORCE+REVOKE
   // in the hand-written tail of `*_payer_phone_proofs`.
   "payer_phone_proofs",
+  // #2755 part B: the numbers screen's weekly snapshot (aggregates only: counts, paise, ratio terms)
+  // and its recompute log (weeks, a version, a count and the operator's reason). No FK, never erased
+  // per person (no person in them). RLS+FORCE+REVOKE in the hand-written tail of `*_numbers_weekly`.
+  "numbers_weekly",
+  "numbers_recompute_log",
   // #2750 item 1: the credit rules' settings, one row per revision (integers in jsonb, an admin
   // id, times). No worker or company data. RLS+FORCE+REVOKE in the hand-written tail of
   // `*_credit_rules_config`.

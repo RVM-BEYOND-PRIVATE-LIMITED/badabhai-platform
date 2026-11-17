@@ -17,6 +17,7 @@ import { AdminNumbersController } from "./admin-numbers.controller";
 import {
   AdminNumbersMarkTestAccountSchema,
   AdminNumbersPayerParamsSchema,
+  AdminNumbersWeeklyQuerySchema,
   NumbersIdempotencyKeySchema,
 } from "./admin-numbers.dto";
 import { AdminNumbersEnabledGuard, adminNumbersEnabled } from "./admin-numbers.flag";
@@ -28,7 +29,7 @@ import { AdminNumbersEnabledGuard, adminNumbersEnabled } from "./admin-numbers.f
  * strict inputs on the marks.
  */
 
-const ROUTES = ["definitions", "markTestAccount", "unmarkTestAccount"] as const;
+const ROUTES = ["definitions", "markTestAccount", "unmarkTestAccount", "weekly"] as const;
 const ROLES: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
 const proto = AdminNumbersController.prototype as unknown as Record<string, object>;
 const admin = (role: AdminRole): AuthenticatedAdmin => ({ id: "a", role, sid: "s" });
@@ -54,7 +55,7 @@ function ctxFor(method: string, who: AuthenticatedAdmin | undefined): ExecutionC
 const PAYER = "11111111-1111-4111-8111-111111111111";
 
 describe("#2755 numbers routes — guards and capability", () => {
-  it("exposes exactly the definitions read and the two marks", () => {
+  it("exposes exactly the definitions read, the two marks and the weekly read", () => {
     const methods = Object.getOwnPropertyNames(AdminNumbersController.prototype).filter(
       (m) => m !== "constructor",
     );
@@ -117,12 +118,14 @@ describe("#2755 numbers routes — guards and capability", () => {
     expect(adminNumbersEnabled({ ADMIN_NUMBERS_ENABLED: true })).toBe(true);
   });
 
-  it("the routes are a GET, a PUT and a DELETE, all no-store", () => {
+  it("the routes are a GET, a PUT, a DELETE and a GET, all no-store", () => {
     const verbOf = (m: string) => Reflect.getMetadata("method", proto[m]!) as number;
     // Nest's RequestMethod: GET 0, PUT 2, DELETE 3.
     expect(verbOf("definitions")).toBe(0);
     expect(verbOf("markTestAccount")).toBe(2);
     expect(verbOf("unmarkTestAccount")).toBe(3);
+    expect(verbOf("weekly")).toBe(0);
+    expect(Reflect.getMetadata("path", proto.weekly!)).toBe("weekly");
     expect(Reflect.getMetadata("path", proto.definitions!)).toBe("definitions");
     expect(Reflect.getMetadata("path", proto.markTestAccount!)).toBe("test-accounts/:payerId");
     expect(Reflect.getMetadata("path", proto.unmarkTestAccount!)).toBe("test-accounts/:payerId");
@@ -146,6 +149,8 @@ describe("#2755 numbers routes — guards and capability", () => {
     // @CurrentAdmin, @Ctx and the key are custom decorators: the PUT carries one more.
     expect(custom("markTestAccount").length).toBe(custom("unmarkTestAccount").length + 1);
     expect(argsOf("definitions")).toEqual([]);
+    // The weekly read takes its query only: no admin, no context, no key — it writes nothing.
+    expect(custom("weekly")).toEqual([]);
   });
 });
 
@@ -178,5 +183,52 @@ describe("#2755 numbers routes — strict inputs", () => {
     }
     // The decorator's refusal is the house 400 shape.
     expect(new BadRequestException({ reason: "idempotency_key_required" }).getStatus()).toBe(400);
+  });
+});
+
+describe("#2755 GET /admin/numbers/weekly — strict query (400 on anything else)", () => {
+  const parse = (q: Record<string, unknown>) => AdminNumbersWeeklyQuerySchema.safeParse(q);
+
+  it("defaults to all cities, all trades and 12 weeks", () => {
+    expect(parse({})).toMatchObject({
+      success: true,
+      data: { city: "all", trade: "all", weeks: 12 },
+    });
+  });
+
+  it("takes every group label of groups.ts, and the weeks 1..26 as a query string", () => {
+    for (const city of ["all", "ncr", "pune", "ahmedabad", "other", "unknown"]) {
+      expect(parse({ city }).success, city).toBe(true);
+    }
+    for (const trade of [
+      "all",
+      "cnc_operator",
+      "cnc_cam_programmer",
+      "sheet_metal",
+      "cad_3d_designer",
+      "other",
+      "unknown",
+    ]) {
+      expect(parse({ trade }).success, trade).toBe(true);
+    }
+    expect(parse({ weeks: "1" })).toMatchObject({ success: true, data: { weeks: 1 } });
+    expect(parse({ weeks: "26" })).toMatchObject({ success: true, data: { weeks: 26 } });
+  });
+
+  it("refuses an unknown group, a raw city, a week count out of range and an unknown key", () => {
+    for (const bad of [
+      { city: "mumbai" },
+      { city: "Pune" },
+      { city: "delhi" },
+      { trade: "welder" },
+      { trade: "cnc_turner" },
+      { weeks: "0" },
+      { weeks: "27" },
+      { weeks: "2.5" },
+      { weeks: "twelve" },
+      { city: "all", sort: "desc" },
+    ]) {
+      expect(parse(bad).success, JSON.stringify(bad)).toBe(false);
+    }
   });
 });

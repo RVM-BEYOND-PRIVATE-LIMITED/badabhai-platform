@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import {
   type Database,
   type Unlock,
@@ -43,7 +43,7 @@ import { DATABASE } from "../database/database.module";
 import { findOwnedJobRef, type OwnedJobRef } from "../payers/owned-job-ref";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { OPS_LIST_CAP } from "../common/pagination";
-import type { CreditLotSource } from "@badabhai/types";
+import type { CreditLotSource, PaymentOrderOrigin } from "@badabhai/types";
 
 /**
  * The one payment provider this stream supports, and the value that must match
@@ -91,7 +91,7 @@ export interface WalletCredit {
   /**
    * The amount CHARGED, whole ₹ (D-6). Stamped onto the row so History renders what this
    * purchase ACTUALLY cost, immune to any later ops price edit. Null for ops grants /
-   * movements with no amount.
+   * movements with no amount. Since #2749 PR 3 a pack's charge is its GST-inclusive TOTAL.
    */
   priceInr?: number | null;
   /**
@@ -100,7 +100,45 @@ export interface WalletCredit {
    * never collide (NULLS DISTINCT). The real-payment path passes a key derived from the order row.
    */
   idempotencyKey?: string | null;
+  /**
+   * #2749 PR 3 — how long the pack lot's credits last, in days: the lot expires that many days
+   * after the grant, on the database clock (`now()` of the granting transaction). Null or absent =
+   * never expires.
+   */
+  validityDays?: number | null;
 }
+
+/**
+ * The money a payment order is stamped with at creation (#2749, migration 0176): the pack's GST
+ * price line, in integer paise (`gstPriceLine`). taxable + gst + roundOff = total, a whole rupee.
+ */
+export interface PaymentOrderMoney {
+  taxablePaise: number;
+  gstPaise: number;
+  roundOffPaise: number;
+  totalPaise: number;
+  gstRateBps: number;
+}
+
+/**
+ * What a held capture recorded (#2749 hardening 5): the provider's payment id, stamped on the row so
+ * ops can find the payment in the Razorpay dashboard to refund it. Opaque.
+ */
+export interface HoldPaymentOrderInput {
+  providerOrderId: string;
+  providerPaymentRef: string;
+  provider?: string;
+}
+
+/**
+ * The statuses a capture may move an order out of — to `paid` (the settle claim) or to `held`.
+ * `failed` is included on purpose: Razorpay lets a buyer retry a failed payment on the SAME order,
+ * and that later capture must still settle it. `paid` and `held` are terminal for a capture.
+ */
+const CAPTURABLE_ORDER_STATUSES = [
+  "created",
+  "failed",
+] as const satisfies readonly PaymentOrderStatus[];
 
 /**
  * One OPEN lot of the tenant's wallet as `GET /payer/credits` returns it (#2749): what is left,
@@ -874,8 +912,9 @@ export class UnlocksRepository {
 
   /**
    * Credit a pack purchase / ops grant (NON-tx convenience for the mock top-up
-   * endpoint): one `pack` lot (no expiry in #2749 PR 1), one ledger line naming it and the
-   * balance, in ONE transaction. Returns the new balance.
+   * endpoint): one `pack` lot (expiring `validityDays` after the grant when the pack sets one,
+   * #2749 PR 3; else never), one ledger line naming it and the balance, in ONE transaction.
+   * Returns the new balance.
    *
    * ⚠️ Inserts `price_inr` (D-6, migration 0043) and `lot_id` (#2749, migration 0174)
    * EXPLICITLY ⇒ APPLY BEFORE DEPLOY: against an unmigrated DB EVERY pack purchase fails.
@@ -918,8 +957,9 @@ export class UnlocksRepository {
         source: "pack",
         packCode: credit.packCode,
         paymentOrderId: typeof wallet === "string" ? null : wallet.id,
-        // #2749 PR 1 writes no validity; packs gain theirs with the catalogue (item 5).
-        expiresAt: null,
+        // #2749 PR 3: `grant time + validityDays` on the DB clock (the mock pack's live tier, or
+        // the order's stamped `credit_validity_days`); null = never expires.
+        validityDays: credit.validityDays ?? null,
       },
       ledger: {
         reason: credit.reason,
@@ -1001,25 +1041,50 @@ export class UnlocksRepository {
    * The WALLET is stamped here too (ADR-0053 §6): `payer_id` is the tenant key at intent, and
    * settlement credits that wallet and never re-resolves — an order created before the flip
    * settles into the wallet it was created for.
+   *
+   * #2749 (migration 0176): the GST price line in paise (`money`; `amountInr` is then its
+   * whole-rupee total — the CHECKs refuse anything else), the pack's credit validity, and the
+   * purchase origin are stamped in the same insert. All optional here so a caller that has none
+   * (a test fixture) writes what a pre-0176 order held; the gateway always passes them.
+   * `originJobPostingId` must already be proven the tenant's own (the service does it).
    */
   async createPaymentOrder(input: {
+    /**
+     * The row id, when the caller minted it first (the gateway does, so the provider order's
+     * receipt and notes carry the SAME id as this row). Absent = the DB default.
+     */
+    id?: string;
     payerId: TenantKey;
     packCode: string;
     amountInr: number;
     creditsGranted: number;
     providerOrderId: string;
     provider?: string;
+    money?: PaymentOrderMoney | null;
+    creditValidityDays?: number | null;
+    origin?: PaymentOrderOrigin | null;
+    originJobPostingId?: string | null;
   }): Promise<PaymentOrder> {
     const rows = await this.db
       .insert(paymentOrders)
       .values({
+        ...(input.id !== undefined ? { id: input.id } : {}),
         payerId: input.payerId,
+        productKind: "credit_pack",
         packCode: input.packCode,
         amountInr: input.amountInr,
         creditsGranted: input.creditsGranted,
         provider: input.provider ?? RAZORPAY_PROVIDER,
         providerOrderId: input.providerOrderId,
         status: "created",
+        taxablePaise: input.money?.taxablePaise ?? null,
+        gstPaise: input.money?.gstPaise ?? null,
+        roundOffPaise: input.money?.roundOffPaise ?? null,
+        totalPaise: input.money?.totalPaise ?? null,
+        gstRateBps: input.money?.gstRateBps ?? null,
+        creditValidityDays: input.creditValidityDays ?? null,
+        origin: input.origin ?? null,
+        originJobPostingId: input.originJobPostingId ?? null,
       })
       .returning();
     const row = rows[0];
@@ -1075,6 +1140,9 @@ export class UnlocksRepository {
       paymentRef: input.providerPaymentRef,
       priceInr: claimed.amountInr,
       idempotencyKey: `payment_order:${claimed.id}`,
+      // #2749 PR 3: the validity STAMPED at order time (hazard 8: the catalogue is not re-read),
+      // counted from this settle on the DB clock. Null (every pre-0176 order) = never expires.
+      validityDays: claimed.creditValidityDays,
     });
     // Already credited under this order's key: nothing was granted now (the caller re-reads).
     if (!grant.applied) return undefined;
@@ -1082,11 +1150,15 @@ export class UnlocksRepository {
   }
 
   /**
-   * THE RACE CLOSURE — an atomic compare-and-set from any non-paid state to 'paid'.
+   * THE RACE CLOSURE — an atomic compare-and-set from `created` or `failed` to 'paid'.
    *
    * Returns the claimed row to EXACTLY ONE caller and `undefined` to every other, whether
    * the loser is a Razorpay webhook retry, a second webhook delivery, the browser verify
    * call, or all three arriving concurrently.
+   *
+   * #2749 hardening 5: a `held` order (a capture of the wrong amount) matches nothing here, so
+   * neither a webhook replay nor a verify can ever grant it. (Before 0176 this matched any status
+   * but `paid`; the two it now matches are the same two that existed then.)
    *
    * WHY THIS IS SAFE UNDER CONCURRENCY (READ COMMITTED, the Postgres default): two
    * transactions issue this UPDATE against the same row. The first takes the row lock and
@@ -1114,8 +1186,9 @@ export class UnlocksRepository {
         and(
           eq(paymentOrders.provider, input.provider ?? RAZORPAY_PROVIDER),
           eq(paymentOrders.providerOrderId, input.providerOrderId),
-          // The compare half of the compare-and-set. A row already 'paid' matches nothing.
-          ne(paymentOrders.status, "paid"),
+          // The compare half of the compare-and-set. A row already 'paid' — or 'held' — matches
+          // nothing.
+          inArray(paymentOrders.status, [...CAPTURABLE_ORDER_STATUSES]),
         ),
       )
       .returning();
@@ -1123,10 +1196,49 @@ export class UnlocksRepository {
   }
 
   /**
-   * Mark an order failed — but ONLY from a non-terminal state. `status <> 'paid'` is the
-   * same compare-and-set discipline as the grant: a late/out-of-order `payment.failed`
-   * delivery must never be able to walk back an order whose capture already granted
-   * credits (Razorpay does not guarantee webhook ordering).
+   * #2749 hardening 5 — HOLD an order whose capture carried the wrong amount: the same single-
+   * statement compare-and-set as the claim, from `created` or `failed` to `held`, stamping the
+   * provider payment id (opaque — what ops need to refund it in the Razorpay dashboard). Nothing is
+   * granted, here or ever: the claim never matches `held`. Returns the held row to exactly ONE
+   * caller; `undefined` when the order is unknown, already paid, already held, or a concurrent
+   * settle won (a matching capture on the same order), so a replayed mismatch emits nothing new.
+   *
+   * `withinTx` (the `payment.held` event) runs on the SAME transaction, only for the call that
+   * held the row, so the hold and its event commit together: an event that cannot be written rolls
+   * the hold back, the webhook answers 5xx, and Razorpay's redelivery tries both again.
+   */
+  async holdPaymentOrder(
+    input: HoldPaymentOrderInput,
+    withinTx?: (tx: Tx, held: PaymentOrder) => Promise<void>,
+  ): Promise<PaymentOrder | undefined> {
+    return this.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(paymentOrders)
+        .set({
+          status: "held",
+          providerPaymentRef: input.providerPaymentRef,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(paymentOrders.provider, input.provider ?? RAZORPAY_PROVIDER),
+            eq(paymentOrders.providerOrderId, input.providerOrderId),
+            inArray(paymentOrders.status, [...CAPTURABLE_ORDER_STATUSES]),
+          ),
+        )
+        .returning();
+      const held = rows[0];
+      if (held && withinTx) await withinTx(tx, held);
+      return held;
+    });
+  }
+
+  /**
+   * Mark an order failed — but ONLY from a non-terminal state (`created`, or an earlier
+   * `failed`). The same compare-and-set discipline as the grant: a late/out-of-order
+   * `payment.failed` delivery must never be able to walk back an order whose capture already
+   * granted credits (Razorpay does not guarantee webhook ordering), nor turn a `held` order —
+   * money captured, awaiting ops — into a `failed` one that reads as "no money moved".
    */
   async markPaymentOrderFailed(
     providerOrderId: string,
@@ -1139,7 +1251,7 @@ export class UnlocksRepository {
         and(
           eq(paymentOrders.provider, provider),
           eq(paymentOrders.providerOrderId, providerOrderId),
-          ne(paymentOrders.status, "paid"),
+          inArray(paymentOrders.status, [...CAPTURABLE_ORDER_STATUSES]),
         ),
       )
       .returning();

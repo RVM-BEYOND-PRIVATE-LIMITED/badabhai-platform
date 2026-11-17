@@ -1032,9 +1032,10 @@ export const serverEnvSchema = z.object({
   // over `credit_lots` is authoritative, so a missed/duplicated tick only delays an expiry until
   // the next one (or the wallet's next spend). Fractional minutes allowed for tests.
   //
-  // NO enable / dry-run gate, deliberately: nothing in #2749 PR 1 writes an `expires_at` (packs
-  // gain their validity with the catalogue in PR 2, and legacy lots their date at the switch-over),
-  // so the sweep has nothing to do until the data says so — the restriction lives in the data.
+  // NO enable / dry-run gate, deliberately: only a `pack` lot whose pack sets `validityDays` gets
+  // an `expires_at` (#2749 PR 3; legacy lots get their date at the switch-over), and production's
+  // default packs set none, so the sweep has nothing to do until the data says so — the
+  // restriction lives in the data.
   CREDIT_LOT_EXPIRY_SWEEP_INTERVAL_MINUTES: z.coerce.number().positive().default(15),
   // Per-tick cap on WALLETS processed (each in its own transaction) — a backlog drains across
   // ticks, never one unbounded run (same posture as REACH_WIDEN_EXPIRY_BATCH_LIMIT).
@@ -1558,14 +1559,22 @@ export const serverEnvSchema = z.object({
     // `.default()` on the INNER schema, for the reason written out on `positiveIntFromString`.
     z.coerce.number().int().min(7).default(30),
   ),
-  // THE NUMBERS SCREEN (#2755) — `/admin/numbers/*`: the definitions catalogue and the test-company
-  // marks today, the weekly figures and the call list in later parts. Readable only with the
+  // THE NUMBERS SCREEN (#2755) — `/admin/numbers/*`: the definitions catalogue, the test-company
+  // marks and the weekly figures (`GET /admin/numbers/weekly`, read from the `numbers_weekly`
+  // snapshot a nightly sweep keeps), the call list in a later part. Readable only with the
   // `read_business_numbers` capability (super_admin, ops_admin).
   //
   // DEFAULT OFF, AND OFF IS TODAY EXACTLY: every `/admin/numbers/*` route is a neutral 404 before
-  // any query. It needs no migration of its own (the company test marker is `payers.is_test_account`,
-  // migration 0162); it stays off until the weekly figures ship.
+  // any query, and the sweep returns at once. The company test marker is `payers.is_test_account`
+  // (migration 0162); the snapshot needs the `numbers_weekly` migration, APPLY BEFORE THE SWITCH
+  // (on without it, the weekly route answers 503 and the sweep logs and skips).
   ADMIN_NUMBERS_ENABLED: booleanFromString,
+  // How many whole days after a week ends (Sunday 23:59:59 India time) the nightly numbers sweep
+  // FREEZES it (#2755 part B): from then on the sweep never recomputes that week, and only the
+  // logged recompute tool (`recompute-numbers.cli.ts`) can change it. Default 3 (the issue's "a few
+  // days after it ends"), at least 1. Empty reads as the default. Read only while
+  // ADMIN_NUMBERS_ENABLED is on.
+  NUMBERS_FREEZE_AFTER_DAYS: positiveIntFromString(3),
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable

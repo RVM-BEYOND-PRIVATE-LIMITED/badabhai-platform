@@ -7,6 +7,7 @@ import {
   UNLOCK_WINDOW_DAYS,
   type Database,
   type ExpiredCreditLot,
+  type PaymentOrder,
   type UnlockDenyReason,
   type UnlockRouting,
   type RoutingChannel,
@@ -14,7 +15,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { PayloadInputOf } from "@badabhai/event-schema";
-import type { PayerCreditsResponse } from "@badabhai/types";
+import type { PayerCreditsResponse, PaymentOrderOrigin } from "@badabhai/types";
 import {
   normalizeTradeLevelKey,
   priceTierForTradeRows,
@@ -48,6 +49,7 @@ import {
 } from "./unlocks.repository";
 import { PaymentGateway, type RealOrderHandoff, type SettleResult } from "./payment-gateway";
 import { creditsExpiredEvent } from "./credits-expired-event";
+import type { CapturedAmount, CaptureMismatch } from "./capture-amount";
 import { verifyCheckoutSignature } from "./razorpay-signature";
 import { assertExpectedPrice } from "../pricing/charge-price";
 import {
@@ -1186,8 +1188,11 @@ export class UnlockService {
     // portal DISPLAYED. #2749: only a pack the catalogue lists AND has on sale resolves.
     const pack = await this.payments.resolvePack(packCode);
     if (!pack) return null; // unknown or off-sale pack → 404 (NOT the unlock no-oracle path)
-    // #2085: the ₹ the payer confirmed must be the ₹ charged — refused (409) BEFORE the
-    // ledger write, so a mismatch grants and records nothing.
+    // #2085: the ₹ the payer confirmed must be the pack's price — refused (409) BEFORE the
+    // ledger write, so a mismatch grants and records nothing. It is the LIST price before GST
+    // (the catalogue's `priceInr`). This MOCK route also stamps that list price on the ledger and
+    // its two events (#2749 PR 3 leaves it unchanged; see `purchasePackMock`), while a real order
+    // charges the GST-inclusive total.
     assertExpectedPrice(expectedPriceInr, pack.priceInr);
 
     const result = await this.payments.purchasePackMock(scope.tenantKey, pack);
@@ -1230,12 +1235,21 @@ export class UnlockService {
    * EVENT (§1): exactly one `payment.authorized`, keyed on our order row so a retried
    * request that produced a second provider order still produces one event per order.
    * `real_call` is the honest `true` here — this event means money is genuinely in flight.
+   *
+   * #2749 PR 3 — the order charges the pack's GST-inclusive total (`createRealOrder`), while
+   * `expectedPriceInr` is still compared with the LIST price before GST. The purchase ORIGIN
+   * (item 9): `origin` is stored as given (the DTO closed the set); `jobPostingId` only when it is
+   * a job posting the caller's TENANT owns — any other id (unknown, another company's, an agency
+   * `jobs` row) is dropped SILENTLY and the order proceeds, so this route never answers whether a
+   * posting id exists. The read runs after the pack and price checks, so a refused request reads
+   * nothing; a read error propagates (fail closed: no provider order, no row).
    */
   async createCreditOrder(
     payerId: string,
     packCode: string,
     ctx: RequestContext,
     expectedPriceInr?: number,
+    origin: { origin?: PaymentOrderOrigin; jobPostingId?: string } = {},
   ): Promise<RealOrderHandoff | null> {
     // ADR-0053 §6 — the order is STAMPED with the tenant's wallet at intent; settlement credits
     // that wallet and never re-resolves.
@@ -1245,7 +1259,10 @@ export class UnlockService {
     // #2085: refused BEFORE the provider order and the payment_orders row exist.
     assertExpectedPrice(expectedPriceInr, pack.priceInr);
 
-    const order = await this.payments.createRealOrder(scope.tenantKey, pack);
+    const order = await this.payments.createRealOrder(scope.tenantKey, pack, {
+      origin: origin.origin ?? null,
+      jobPostingId: await this.ownedOriginPosting(origin.jobPostingId, scope.tenantKey),
+    });
 
     await this.emitPaymentAuthorized(null, partyOf(scope), ctx, {
       packCode: order.packCode,
@@ -1256,6 +1273,21 @@ export class UnlockService {
       idempotencyKey: `payment.authorized:order:${order.orderRowId}`,
     });
     return order;
+  }
+
+  /**
+   * #2749 item 9 — the origin job posting an order may store: `jobPostingId` when it is a
+   * `job_postings` row the tenant owns (`findOwnedJobRef`, the #1899 ownership read), else null.
+   * An agency's `jobs` row is not a posting (the column's FK names `job_postings`), so it is null
+   * too. Unknown and foreign ids are the same null: the caller cannot tell them apart.
+   */
+  private async ownedOriginPosting(
+    jobPostingId: string | undefined,
+    tenant: TenantKey,
+  ): Promise<string | null> {
+    if (jobPostingId === undefined) return null;
+    const owned = await this.repo.findOwnedJobRef(jobPostingId, tenant);
+    return owned?.kind === "posting" ? owned.id : null;
   }
 
   /**
@@ -1275,13 +1307,28 @@ export class UnlockService {
    *
    * NO-ORACLE: an invalid signature, an unknown order, and another tenant's order all
    * return the same `{ verified: false }` shape — the caller learns nothing about which.
+   *
+   * THE AMOUNT CHECK (#2749 hardening 5). After the signature, the payment is READ BACK from
+   * Razorpay (`GET /payments/:id`) and its amount and currency go through the SAME check the
+   * webhook runs: a payment of the wrong amount HOLDS the order (one `payment.held`, nothing
+   * granted) and answers `{ verified: false }`. If the payment cannot be read (network, a
+   * provider 5xx) nothing is settled and the answer is the same neutral `{ verified: false }`:
+   * the client may retry, and the webhook remains the other channel. A HELD order is
+   * `{ verified: false }` too — no verify can settle it.
    */
   async verifyCheckoutPayment(
     payerId: string,
     input: { orderId: string; paymentId: string; signature: string },
     ctx: RequestContext,
   ): Promise<
-    | { verified: true; payer_id: string; balance: number; credits: number; pack_code: string }
+    | {
+        verified: true;
+        payer_id: string;
+        balance: number;
+        credits: number;
+        /** Always set for a credit-pack order (`payment_orders_pack_code_chk`); typed as the column. */
+        pack_code: string | null;
+      }
     | { verified: false }
   > {
     const creds = getRazorpayCredentials(this.config);
@@ -1295,6 +1342,9 @@ export class UnlockService {
 
     // ADR-0053 — resolved after the two pure checks above (no DB read before them), once.
     const scope = await this.tenancy.resolve(payerId);
+    // #2749 hardening 5 — what Razorpay says this payment is for. Unreadable → settle nothing.
+    const captured = await this.payments.fetchCapturedAmount(input.paymentId, input.orderId);
+    if (captured === null) return { verified: false };
     const result = await this.settleAndEmit(
       {
         providerOrderId: input.orderId,
@@ -1302,6 +1352,7 @@ export class UnlockService {
         // Ownership is enforced INSIDE settle: a mismatch is indistinguishable from
         // "no such order", so this endpoint is not an order-id oracle for other tenants.
         expectedTenantKey: scope.tenantKey,
+        captured,
       },
       ctx,
       scope.actorPayerId,
@@ -1330,6 +1381,11 @@ export class UnlockService {
           pack_code: result.order.packCode,
         };
       }
+      case "held":
+      case "on_hold":
+        // Held for ops: nothing granted, nothing to report as verified (the same neutral refusal).
+        this.logger.warn(`checkout verify refused: the order is held order_row=${result.order.id}`);
+        return { verified: false };
       case "unknown_order":
         return { verified: false };
     }
@@ -1355,7 +1411,7 @@ export class UnlockService {
   async handleRazorpayEvent(
     event: RazorpayPaymentEvent,
     ctx: RequestContext,
-  ): Promise<{ result: "granted" | "failed_recorded" | "no_op" }> {
+  ): Promise<{ result: "granted" | "failed_recorded" | "held" | "no_op" }> {
     const isCapture = (RAZORPAY_CAPTURE_EVENTS as readonly string[]).includes(event.eventName);
     const isFailure = (RAZORPAY_FAILURE_EVENTS as readonly string[]).includes(event.eventName);
     if (!isCapture && !isFailure) return { result: "no_op" }; // unknown type → 200 no-op
@@ -1379,6 +1435,9 @@ export class UnlockService {
         providerPaymentRef: event.paymentId ?? event.orderId,
         // NO expectedTenantKey: the webhook is Razorpay speaking, not a tenant — the order
         // row itself names the wallet to credit (stamped at intent, ADR-0053 §6).
+        // #2749 hardening 5: what was captured, checked against the order's total before any
+        // grant (a mismatch, or no amount at all, holds the order instead).
+        captured: { amountPaise: event.amountPaise, currency: event.currency },
       },
       ctx,
     );
@@ -1386,11 +1445,15 @@ export class UnlockService {
     switch (settled.outcome) {
       case "granted":
         return { result: "granted" };
+      case "held":
+        // 200: the hold (and its `payment.held`) committed; a redelivery reads `on_hold`.
+        return { result: "held" };
       case "already_settled":
+      case "on_hold":
       case "unknown_order":
-        // Replay of a delivery we already processed, or an order we never created (a
-        // payment made against a different environment's account). Both are 200 no-ops:
-        // there is nothing to do and retrying will not change that.
+        // Replay of a delivery we already processed, an order already held for ops, or an
+        // order we never created (a payment made against a different environment's account).
+        // All are 200 no-ops: there is nothing to do and retrying will not change that.
         return { result: "no_op" };
     }
   }
@@ -1405,15 +1468,27 @@ export class UnlockService {
    * `actorPayerId` — the member who verified — or, on the webhook (no login acted), the wallet.
    */
   private async settleAndEmit(
-    input: { providerOrderId: string; providerPaymentRef: string; expectedTenantKey?: TenantKey },
+    input: {
+      providerOrderId: string;
+      providerPaymentRef: string;
+      expectedTenantKey?: TenantKey;
+      captured?: CapturedAmount;
+    },
     ctx: RequestContext,
     actorPayerId?: string,
   ): Promise<SettleResult> {
-    const result = await this.payments.settleOrder(input);
+    const result = await this.payments.settleOrder(input, {
+      // #2749 hardening 5 — `payment.held`, on the hold's own transaction (one per order)…
+      onHeld: (tx, held, mismatch) => this.emitPaymentHeld(held, mismatch, "held", ctx, tx),
+      // …or, for a mismatch reported AFTER the order was paid, the same event with
+      // `order_status: "paid"` (nothing changed; under the same per-order key).
+      onPaidMismatch: (paid, mismatch) =>
+        this.emitPaymentHeld(paid, mismatch, "paid", ctx, undefined),
+    });
     if (result.outcome === "granted") {
       const wallet = result.order.payerId;
       await this.emitPaymentCaptured(null, { actorId: actorPayerId ?? wallet, payerId: wallet }, ctx, {
-        packCode: result.order.packCode,
+        packCode: result.order.packCode ?? undefined,
         amountInr: result.priceInr,
         amountCredits: result.credits,
         // Keyed on the ORDER ROW: even if both channels somehow reached the emit, the
@@ -2102,6 +2177,42 @@ export class UnlockService {
       ...(idempotencyKey ? { idempotencyKey } : {}),
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
+    });
+  }
+
+  /**
+   * #2749 hardening 5 — a capture whose amount is not the order total. `held`: written on the
+   * hold's transaction (`tx`) so the two commit together. `paid`: a late mismatch on an order
+   * already paid, nothing changed, written on its own. The provider is speaking, not a login: the
+   * actor is `system` and the subject is the wallet the order was stamped with. Keyed on the order
+   * row: one per order (a held order is never paid, and a paid one never held).
+   */
+  private async emitPaymentHeld(
+    order: PaymentOrder,
+    mismatch: CaptureMismatch,
+    orderStatus: "held" | "paid",
+    ctx: RequestContext,
+    tx: Tx | undefined,
+  ): Promise<void> {
+    const payload: PayloadInputOf<"payment.held"> = {
+      payment_order_id: order.id,
+      payer_id: order.payerId,
+      pack_code: order.packCode,
+      expected_paise: mismatch.expectedPaise,
+      captured_paise: mismatch.capturedPaise,
+      reason: mismatch.reason,
+      order_status: orderStatus,
+      real_call: this.payments.realCall,
+    };
+    await this.events.emit({
+      event_name: "payment.held",
+      actor: { actor_type: "system", actor_id: null },
+      subject: { subject_type: "payer", subject_id: order.payerId },
+      payload,
+      idempotencyKey: `payment.held:order:${order.id}`,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+      ...(tx ? { tx: tx as unknown as Database } : {}),
     });
   }
 

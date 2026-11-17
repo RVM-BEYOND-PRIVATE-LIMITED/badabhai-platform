@@ -2259,8 +2259,37 @@ describe("#2755 numbers routes - guarded, switch before roles, one capability, o
   const numbersCode = (file: string): string =>
     readFileSync(join(ADMIN_DIR, "numbers", file), "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
 
-  it("discovers EXACTLY the definitions read and the two test-company marks", () => {
-    expect(routeMethods.sort()).toEqual(["definitions", "markTestAccount", "unmarkTestAccount"].sort());
+  it("discovers EXACTLY the definitions read, the two test-company marks and the weekly read", () => {
+    expect(routeMethods.sort()).toEqual(
+      ["definitions", "markTestAccount", "unmarkTestAccount", "weekly"].sort(),
+    );
+  });
+
+  it("the weekly read is a GET that reads only the snapshot (no live table, no write)", () => {
+    expect(Reflect.getMetadata("method", proto.weekly as object) as number).toBe(0);
+    const svc = numbersCode("admin-numbers-weekly.service.ts");
+    expect(svc).not.toMatch(/\.(insert|update|delete)\s*\(/);
+    expect(svc).not.toMatch(/\.execute\s*\(/);
+    // Its two repository calls, both over numbers_weekly.
+    const calls = [...svc.matchAll(/this\.repo\.(\w+)\(/g)].map((m) => m[1]).sort();
+    expect(calls).toEqual(["firstPaidWeek", "readCells"]);
+    const repo = numbersCode("numbers-weekly.repository.ts");
+    for (const method of ["async readCells(", "async firstPaidWeek("]) {
+      const start = repo.indexOf(method);
+      expect(start, method).toBeGreaterThan(-1);
+      const body = repo.slice(start, repo.indexOf("\n  }\n", start));
+      expect(body, method).toContain(".from(numbersWeekly)");
+      expect(body, method).not.toMatch(/\.from\((?!numbersWeekly)/);
+    }
+  });
+
+  it("the snapshot repository writes only numbers_weekly and numbers_recompute_log", () => {
+    const repo = numbersCode("numbers-weekly.repository.ts");
+    const targets = [...repo.matchAll(/\.(insert|update|delete)\s*\(\s*(\w+)\s*\)/g)].map(
+      (m) => m[2],
+    );
+    expect(new Set(targets)).toEqual(new Set(["numbersWeekly", "numbersRecomputeLog"]));
+    expect(repo).not.toMatch(/\.update\s*\(/);
   });
 
   it("EVERY route carries AdminAuthGuard, the numbers switch AND AdminRolesGuard, switch first", () => {

@@ -231,4 +231,34 @@ describe("the list metrics", () => {
     ).toBe("c");
     expect(lastPaymentOf([{ ...base, type: "payment_order", amount_inr: null }])).toBeNull();
   });
+
+  it("#2749 — a gateway order is a payment only once PAID: created, failed and held orders are skipped", () => {
+    const base = {
+      date: "2026-11-17T00:00:00.000Z",
+      item: "pack_starter",
+      credits: 20,
+      amount_inr: 1179,
+      provider_reference: "razorpay:order_x",
+      simulated: false,
+      type: "payment_order" as const,
+    };
+    expect(
+      lastPaymentOf([
+        { ...base, id: "held", status: "held" },
+        { ...base, id: "created", status: "created" },
+        { ...base, id: "failed", status: "failed" },
+        { ...base, id: "paid", status: "paid" },
+      ])?.id,
+    ).toBe("paid");
+    expect(
+      lastPaymentOf([
+        { ...base, id: "held", status: "held" },
+        { ...base, id: "created", status: "created" },
+      ]),
+    ).toBeNull();
+    // Other money rows keep their own statuses (a plan's `active`, a purchase's reason).
+    expect(
+      lastPaymentOf([{ ...base, id: "plan", type: "posting_plan", status: "active" }])?.id,
+    ).toBe("plan");
+  });
 });

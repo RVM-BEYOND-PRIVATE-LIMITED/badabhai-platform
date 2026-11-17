@@ -1,24 +1,59 @@
 import { randomUUID } from "node:crypto";
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { areRealPaymentsEnabled } from "@badabhai/config";
 import type { CreditPack, ExpiredCreditLot, PaymentOrder } from "@badabhai/db";
+import type { GstPriceLine } from "@badabhai/pricing";
+import type { PaymentOrderOrigin } from "@badabhai/types";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PricingService } from "../pricing/pricing.service";
 import { creditPackSale, findCreditPackTier } from "../pricing/credit-pack-sale";
 import { UnlocksRepository, type Tx } from "./unlocks.repository";
-import { RazorpayClient } from "./razorpay.client";
+import { RAZORPAY_CURRENCY, RazorpayClient } from "./razorpay.client";
+import {
+  captureMismatch,
+  expectedOrderPaise,
+  type CapturedAmount,
+  type CaptureMismatch,
+} from "./capture-amount";
 
 /**
  * A credit pack a purchase may charge for (#2749): a `contact_unlock` tier that `creditPackSale`
  * calls sellable now — the same answer the payer catalogue shows packs on — priced through
  * `chargeQuote`.
+ *
+ * `priceInr` stays the LIST price before GST (the catalogue contract, and what
+ * `expected_price_inr` is compared with). What a purchase CHARGES is `priceLine.totalPaise`, the
+ * GST-inclusive total (#2749 PR 3) — the same line the payer catalogue shows as `price`.
  */
 export interface ResolvedPack extends CreditPack {
   /** How long the pack's credits last, in days, or null when the catalogue sets none. */
   readonly validityDays: number | null;
+  /** The list price taxed, in paise — computed once by `creditPackSale`. */
+  readonly priceLine: GstPriceLine;
 }
+
+/** The whole-rupee total a pack charges (`priceLine.totalPaise` is always a whole rupee). */
+export function chargedInr(pack: Pick<ResolvedPack, "priceLine">): number {
+  const inr = pack.priceLine.totalPaise / 100;
+  if (!Number.isSafeInteger(inr) || inr <= 0) {
+    // Unreachable: gstPriceLine rounds the total to the rupee. A hard stop rather than a guess.
+    throw new Error("credit pack total is not a positive whole rupee");
+  }
+  return inr;
+}
+
+/**
+ * Where a purchase started (#2749 item 9): the button, and the job posting when it is PROVEN the
+ * buyer tenant's own (the service checks; this seam stores what it is given).
+ */
+export interface OrderOrigin {
+  readonly origin: PaymentOrderOrigin | null;
+  readonly jobPostingId: string | null;
+}
+
+export const NO_ORDER_ORIGIN: OrderOrigin = Object.freeze({ origin: null, jobPostingId: null });
 
 /**
  * The PaymentGateway / CreditService seam (ADR-0010 §D5 / Phase-0 F-6) — the single
@@ -55,13 +90,20 @@ export interface RealOrderHandoff {
   providerOrderId: string;
   /** The `rzp_*` KEY ID — public by design; the key SECRET never appears in this shape. */
   keyId: string;
-  /** ₹ charged, whole rupees — resolved from the pricing catalog, never from the client. */
+  /**
+   * ₹ charged, whole rupees — resolved from the pricing catalog, never from the client. Since
+   * #2749 PR 3 the GST-inclusive TOTAL (`price.totalPaise / 100`), not the list price.
+   */
   amountInr: number;
-  /** The same amount in paise (what checkout.js expects). */
+  /** The same amount in paise (what checkout.js expects) — `price.totalPaise`. */
   amountPaise: number;
   currency: string;
   packCode: string;
   credits: number;
+  /** The price line the order was stamped with: taxable, GST, round-off and total, in paise. */
+  price: GstPriceLine;
+  /** How long the credits last once granted, in days; null = they never expire. */
+  validityDays: number | null;
 }
 
 /**
@@ -79,6 +121,14 @@ export type SettleResult =
       priceInr: number;
     }
   | { outcome: "already_settled"; order: PaymentOrder }
+  /**
+   * #2749 hardening 5 — THIS call held the order: the capture's amount is not the order total, so
+   * nothing was granted and the order is now `held`. Only a webhook capture (which carries an
+   * amount) can produce it; the caller's `onHeld` ran on the hold's transaction.
+   */
+  | { outcome: "held"; order: PaymentOrder; mismatch: CaptureMismatch }
+  /** The order was already `held`: nothing granted, nothing changed (a replay, or a verify). */
+  | { outcome: "on_hold"; order: PaymentOrder }
   /** No such order for this provider (or, on the verify path, not the caller's order). */
   | { outcome: "unknown_order" };
 //
@@ -210,8 +260,10 @@ export class PaymentGateway {
       priceInr: sale.pack.quote.finalInr,
       // The grant, not just the price, follows the live tier.
       credits: sale.pack.credits,
-      // Unused for now: PR 3 of #2749 stamps it on the order and the lot.
+      // #2749 PR 3: stamped on the order (real path) and counted from the grant on the lot.
       validityDays: tier.validityDays ?? null,
+      // What the purchase charges: the GST-inclusive total of this line (#2749 PR 3).
+      priceLine: sale.pack.priceLine,
     };
   }
 
@@ -224,22 +276,31 @@ export class PaymentGateway {
    * The `pack` is whatever {@link resolvePack} returned (an on-sale live catalog tier), so
    * credits GRANTED and ₹ STAMPED are both that one resolved tier — never a second,
    * possibly-drifted lookup.
+   *
+   * #2749 PR 3 — THE ₹ STAMPED STAYS THE LIST PRICE (`pack.priceInr`, before GST), deliberately
+   * NOT the GST total a real order charges. This route is live in production, grants packs with
+   * no money taken, and is retired when real payments switch on (hardening 1); restamping it at
+   * the total now would only mix two conventions into the company's payment history for credits
+   * nobody paid for. The pack lot DOES expire `validityDays` after this grant when the pack sets
+   * one (database clock), else never; production's default packs set no validity.
    */
   async purchasePackMock(
     tenant: TenantKey,
-    pack: CreditPack,
+    pack: ResolvedPack,
   ): Promise<{ balanceAfter: number; credits: number; priceInr: number; realCall: false }> {
+    const priceInr = pack.priceInr; // the list price: see the header
     const balanceAfter = await this.repo.creditPack({
       payerId: tenant,
       credits: pack.credits,
       reason: "pack_purchase",
       packCode: pack.code,
       paymentRef: null, // no external order id in the mock path
-      // D-6: stamp the amount CHARGED onto the ledger row so History shows what this
-      // purchase actually cost, immune to any later ops price edit.
-      priceInr: pack.priceInr,
+      // D-6: stamp the pack's price onto the ledger row so History shows what this purchase
+      // was sold at, immune to any later ops price edit.
+      priceInr,
+      validityDays: pack.validityDays,
     });
-    return { balanceAfter, credits: pack.credits, priceInr: pack.priceInr, realCall: false };
+    return { balanceAfter, credits: pack.credits, priceInr, realCall: false };
   }
 
   // ===========================================================================
@@ -260,33 +321,67 @@ export class PaymentGateway {
    * therefore leaves no row (nothing to reconcile); a persist failure after a successful
    * provider call leaves an unpaid provider order the payer never sees a checkout for,
    * which expires harmlessly. The reverse order would risk a paid order we cannot match.
+   *
+   * #2749 PR 3 — THE GST-INCLUSIVE TOTAL. The provider order is created for
+   * `pack.priceLine.totalPaise` (₹999 → 1,17,900 paise), and the row stamps the whole line
+   * (taxable, GST, round-off, total, rate) beside `amount_inr` = the whole-rupee total, plus the
+   * pack's credit validity (so the settle never re-reads the catalogue) and the purchase origin.
    */
-  async createRealOrder(tenant: TenantKey, pack: CreditPack): Promise<RealOrderHandoff> {
+  async createRealOrder(
+    tenant: TenantKey,
+    pack: ResolvedPack,
+    origin: OrderOrigin = NO_ORDER_ORIGIN,
+  ): Promise<RealOrderHandoff> {
     const keyId = this.razorpay.keyId;
     if (!this.razorpay.isLive || keyId === null) {
       // Unreachable through the gated controller; a hard stop keeps it unreachable if a
       // future caller forgets the gate. Real money never runs on a partial config.
       throw new Error("real payments are not enabled");
     }
+    const line = pack.priceLine;
+    const totalInr = chargedInr(pack);
 
     // Reserve our own row id first so the provider receipt + notes can carry it, giving a
-    // two-way link (our row ⇄ provider order) for reconciliation without any PII.
+    // two-way link (our row ⇄ provider order) for reconciliation without any PII. The row is
+    // written WITH this id (before #2749 PR 3 it took a fresh default, breaking the link).
     const orderRowId = randomUUID();
     const created = await this.razorpay.createOrder({
-      amountInr: pack.priceInr,
+      amountInr: totalInr,
       receipt: orderRowId,
       notes: { pack_code: pack.code, payment_order_id: orderRowId },
     });
+    // RAZORPAY'S echo (the amount and currency its response names), not the number we sent: if
+    // the provider's order is not for exactly the total we are about to stamp, in INR, persist
+    // NOTHING — the unpaid provider order expires harmlessly and no checkout is handed out.
+    if (created.amountPaise !== line.totalPaise || created.currency !== RAZORPAY_CURRENCY) {
+      this.logger.error(
+        `provider order does not match the pack total; refusing the order pack=${pack.code} expected_paise=${line.totalPaise} provider_paise=${created.amountPaise} provider_currency_ok=${created.currency === RAZORPAY_CURRENCY}`,
+      );
+      throw new ServiceUnavailableException(
+        "Checkout is unavailable right now; nothing was charged. Please try again.",
+      );
+    }
 
     const row = await this.repo.createPaymentOrder({
+      id: orderRowId,
       // The wallet this order will credit, stamped at INTENT (ADR-0053 §6).
       payerId: tenant,
       packCode: pack.code,
       // BOTH sides of the transaction are stamped, from ONE catalog read, at this instant.
       // The settle path reads them back off the row and never re-resolves the pack.
-      amountInr: pack.priceInr,
+      amountInr: totalInr,
       creditsGranted: pack.credits,
       providerOrderId: created.orderId,
+      money: {
+        taxablePaise: line.taxablePaise,
+        gstPaise: line.gstPaise,
+        roundOffPaise: line.roundOffPaise,
+        totalPaise: line.totalPaise,
+        gstRateBps: line.gstRateBps,
+      },
+      creditValidityDays: pack.validityDays,
+      origin: origin.origin,
+      originJobPostingId: origin.jobPostingId,
     });
 
     return {
@@ -296,8 +391,11 @@ export class PaymentGateway {
       amountInr: row.amountInr,
       amountPaise: created.amountPaise,
       currency: created.currency,
-      packCode: row.packCode,
+      packCode: pack.code, // = the row's pack_code (a credit-pack order always has one)
       credits: row.creditsGranted, // echo the STAMPED value, not the local `pack`
+      // The line the row was just written from (its five money columns hold exactly these).
+      price: line,
+      validityDays: row.creditValidityDays,
     };
   }
 
@@ -326,19 +424,63 @@ export class PaymentGateway {
    *        org may verify the org's order (ADR-0053 §6). A mismatch returns the SAME
    *        `unknown_order` as a non-existent order — a payer cannot use this endpoint to probe
    *        another tenant's order ids (no-oracle). Settlement never re-resolves the tenant.
+   *
+   * THE AMOUNT CHECK (#2749 hardening 5). `captured` is what a WEBHOOK capture reported. When it
+   * does not match the order ({@link captureMismatch}: other paise, no amount, not INR) NOTHING is
+   * granted: the order moves `created`/`failed` → `held` in one compare-and-set, `onHeld` runs on
+   * that transaction (the service's `payment.held` event), and the outcome is `held`. A held order
+   * can never be settled afterwards — every later call (a replay, a verify) reads `on_hold` — so
+   * ops resolve it by hand. BOTH channels pass `captured`: the webhook from the delivery's payment
+   * entity, the browser VERIFY from the payment it fetched back from Razorpay
+   * ({@link fetchCapturedAmount}) — so neither can grant on a payment of the wrong amount.
+   * (`createRealOrder` also refused, up front, any provider order whose echoed amount was not the
+   * stamped total.) A mismatched capture reported for an order ALREADY paid changes nothing — the
+   * grant stands — but is logged at ERROR and handed to `onPaidMismatch` (the service records a
+   * `payment.held` with `order_status: "paid"`).
    */
-  async settleOrder(input: {
-    providerOrderId: string;
-    providerPaymentRef: string;
-    expectedTenantKey?: TenantKey;
-  }): Promise<SettleResult> {
+  async settleOrder(
+    input: {
+      providerOrderId: string;
+      providerPaymentRef: string;
+      expectedTenantKey?: TenantKey;
+      captured?: CapturedAmount;
+    },
+    hooks: {
+      onHeld?: (tx: Tx, held: PaymentOrder, mismatch: CaptureMismatch) => Promise<void>;
+      /** A mismatched capture for an order already PAID (nothing changes; the caller records it). */
+      onPaidMismatch?: (paid: PaymentOrder, mismatch: CaptureMismatch) => Promise<void>;
+    } = {},
+  ): Promise<SettleResult> {
     const existing = await this.repo.findPaymentOrder(input.providerOrderId);
     if (!existing) return { outcome: "unknown_order" };
     if (input.expectedTenantKey !== undefined && existing.payerId !== input.expectedTenantKey) {
       return { outcome: "unknown_order" }; // byte-identical to "no such order" (no-oracle)
     }
+    // A held order grants nothing, ever — whichever channel asks.
+    if (existing.status === "held") return { outcome: "on_hold", order: existing };
+    const mismatch = input.captured ? captureMismatch(existing, input.captured) : null;
     // Fast path: already settled by the other channel. Skips the write entirely.
-    if (existing.status === "paid") return { outcome: "already_settled", order: existing };
+    if (existing.status === "paid") {
+      if (mismatch) {
+        this.logMismatch("capture reported for a SETTLED order", existing, mismatch);
+        if (hooks.onPaidMismatch) await hooks.onPaidMismatch(existing, mismatch);
+      }
+      return { outcome: "already_settled", order: existing };
+    }
+
+    if (mismatch) {
+      const onHeld = hooks.onHeld;
+      const held = await this.repo.holdPaymentOrder(
+        { providerOrderId: input.providerOrderId, providerPaymentRef: input.providerPaymentRef },
+        onHeld ? (tx, row) => onHeld(tx, row, mismatch) : undefined,
+      );
+      if (held) {
+        this.logMismatch("capture HELD, nothing granted", held, mismatch);
+        return { outcome: "held", order: held, mismatch };
+      }
+      // Lost the compare-and-set: another delivery paid or held it first. Report that state.
+      return this.terminalState(input.providerOrderId);
+    }
 
     // THE CATALOG IS NOT CONSULTED HERE. Both the ₹ charged and the credits bought were
     // resolved once, at order creation, and stamped on this immutable row. Re-resolving
@@ -360,12 +502,9 @@ export class PaymentGateway {
     );
 
     if (!settled) {
-      // Someone else claimed it inside the race window. Re-read for the caller's response
-      // so both channels report the same, correct terminal state.
-      const current = await this.repo.findPaymentOrder(input.providerOrderId);
-      return current
-        ? { outcome: "already_settled", order: current }
-        : { outcome: "unknown_order" };
+      // Someone else claimed (or held) it inside the race window. Re-read for the caller's
+      // response so both channels report the same, correct terminal state.
+      return this.terminalState(input.providerOrderId);
     }
 
     return {
@@ -375,6 +514,51 @@ export class PaymentGateway {
       credits: settled.order.creditsGranted,
       priceInr: settled.order.amountInr,
     };
+  }
+
+  /**
+   * #2749 hardening 5 — what Razorpay says was paid on `paymentId`, for the browser VERIFY path:
+   * the payment fetched back from the provider (`GET /payments/:id`), reduced to the amount and
+   * currency the settle checks. Null — and the caller settles NOTHING — when the fetch fails
+   * (network, a provider 5xx) or the payment does not belong to `providerOrderId`; the webhook
+   * remains the other channel. Never logs the payment entity.
+   */
+  async fetchCapturedAmount(
+    paymentId: string,
+    providerOrderId: string,
+  ): Promise<CapturedAmount | null> {
+    try {
+      const payment = await this.razorpay.fetchPayment(paymentId);
+      if (payment.orderId !== providerOrderId) {
+        this.logger.warn("verify: the fetched payment names another order; not settling");
+        return null;
+      }
+      return { amountPaise: payment.amountPaise, currency: payment.currency };
+    } catch {
+      // The client already logged the error class. Not settling is the safe answer.
+      this.logger.warn(
+        "verify: the payment could not be read back from the provider; not settling",
+      );
+      return null;
+    }
+  }
+
+  /** The state a settle that lost a race reports: held stays held, anything else is settled. */
+  private async terminalState(providerOrderId: string): Promise<SettleResult> {
+    const current = await this.repo.findPaymentOrder(providerOrderId);
+    if (!current) return { outcome: "unknown_order" };
+    if (current.status === "held") return { outcome: "on_hold", order: current };
+    return { outcome: "already_settled", order: current };
+  }
+
+  /**
+   * ERROR, for ops: a capture that does not match its order. Ids and integers only — our order row,
+   * the pack, the reason and both amounts in paise. Never a provider payment id, contact or secret.
+   */
+  private logMismatch(what: string, order: PaymentOrder, mismatch: CaptureMismatch): void {
+    this.logger.error(
+      `${what} order_row=${order.id} pack=${order.packCode ?? "none"} reason=${mismatch.reason} expected_paise=${mismatch.expectedPaise} captured_paise=${mismatch.capturedPaise ?? "none"}`,
+    );
   }
 
   /**
@@ -394,6 +578,8 @@ export class PaymentGateway {
    * PII-free: opaque row id, catalog code, integer ₹/counts.
    */
   private async warnOnCatalogDrift(order: PaymentOrder): Promise<void> {
+    // A non-pack order (#2751) has no pack to compare with.
+    if (order.packCode === null) return;
     try {
       const pack = await this.resolvePack(order.packCode);
       if (!pack) {
@@ -402,9 +588,13 @@ export class PaymentGateway {
         );
         return;
       }
-      if (pack.priceInr !== order.amountInr || pack.credits !== order.creditsGranted) {
+      // #2749 PR 3: compared on the CHARGED total (paise). An order from before the paise columns
+      // was charged its list price, so it reads as drifted here — informational, as always.
+      const stampedPaise = expectedOrderPaise(order);
+      const catalogPaise = pack.priceLine.totalPaise;
+      if (catalogPaise !== stampedPaise || pack.credits !== order.creditsGranted) {
         this.logger.warn(
-          `catalog drifted between order and capture (grant unaffected — stamped on the order) order_row=${order.id} pack=${order.packCode} stamped_inr=${order.amountInr} catalog_inr=${pack.priceInr} stamped_credits=${order.creditsGranted} catalog_credits=${pack.credits}`,
+          `catalog drifted between order and capture (grant unaffected — stamped on the order) order_row=${order.id} pack=${order.packCode} stamped_paise=${stampedPaise} catalog_paise=${catalogPaise} stamped_credits=${order.creditsGranted} catalog_credits=${pack.credits}`,
         );
       }
     } catch {

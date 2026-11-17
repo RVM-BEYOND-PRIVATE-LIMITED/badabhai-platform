@@ -39,8 +39,15 @@ describe("RazorpayWebhookController — status codes are retry control signals",
 
   it("a handled capture returns 200 with a fixed, information-free body", async () => {
     await expect(d.ctrl.webhook(req(CAPTURE), CTX)).resolves.toEqual({ received: true });
+    // #2749 hardening 5: the captured amount (paise) and currency ride along for the amount check.
     expect(d.unlocks.handleRazorpayEvent).toHaveBeenCalledWith(
-      { eventName: "payment.captured", paymentId: "pay_1", orderId: "order_1" },
+      {
+        eventName: "payment.captured",
+        paymentId: "pay_1",
+        orderId: "order_1",
+        amountPaise: 200000,
+        currency: null,
+      },
       CTX,
     );
   });
@@ -121,7 +128,13 @@ describe("RazorpayWebhookController — status codes are retry control signals",
     const forwarded = JSON.stringify(d.unlocks.handleRazorpayEvent.mock.calls[0]?.[0]);
     expect(forwarded).not.toMatch(/buyer@example\.com|9876543210|1111|A Buyer|buyer@upi/);
     expect(forwarded).toBe(
-      JSON.stringify({ eventName: "payment.captured", paymentId: "pay_1", orderId: "order_1" }),
+      JSON.stringify({
+        eventName: "payment.captured",
+        paymentId: "pay_1",
+        orderId: "order_1",
+        amountPaise: null,
+        currency: null,
+      }),
     );
   });
 });
