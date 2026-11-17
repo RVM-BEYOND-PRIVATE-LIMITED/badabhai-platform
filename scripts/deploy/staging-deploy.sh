@@ -308,6 +308,7 @@ BRIDGED_BOOLEAN_FLAGS=(
   LEVEL_NEEDED_SORT_ENABLED
   PAYER_APPLICANT_STAGES_ENABLED
   PAYER_SMS_OTP_ENABLED
+  PAYMENTS_ENABLE_REAL
   PAY_ON_JOINING_RECORDS_ENABLED
   PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED
   PROFILING_TIERS_ENABLED
@@ -353,6 +354,69 @@ case "${PAYER_SMS_OTP_ENABLED-}" in
     fi
     ;;
 esac
+# #2749 part 5b — REAL PAYMENTS (Razorpay). The api refuses to boot with PAYMENTS_ENABLE_REAL on
+# and any of the three Razorpay values unset (assertPaymentsConfig), and a refused boot is an
+# outage the deploy gate does not roll back, so that combination is refused here, before a
+# container moves. Blank or whitespace-only counts as unset, as it does in the api. Only NAMES are
+# ever printed, never a value. Three more refusals, also before anything moves:
+#   * PAYMENTS_ENABLE_REAL=true while RETIRED_PRODUCTS_OFF_SALE is not on (true or 1, as the api
+#     reads it). Hardening 7 (ADR-0065): posting plans, boosts, capacity and top-ups have no
+#     real-payments path, so they must be off sale no later than the moment packs cost money.
+#   * PAYMENTS_ENABLE_REAL=1. The api reads 1 as on, but payer-web reads only a literal true, so
+#     the api would close the free packs and open the real checkout while the portal kept calling
+#     the mock top-up. (Any other typo is already refused by the loop above.)
+#   * a PAYMENTS_PROVIDER_KEY that is not rzp_test_ or rzp_live_ followed by the id, with no
+#     whitespace: most likely the key SECRET pasted into the key-id slot. Checked whenever the key
+#     is set, flag on or off, so a wrong paste is caught by the first deploy that carries it,
+#     before the flag is ever flipped.
+# Armed with a rzp_test_ key the job prints a warning (no value): expected only for the test-key
+# rehearsal in docs/runbooks/2749-switch-on.md. Production takes real money only on rzp_live_.
+_payments_key="${PAYMENTS_PROVIDER_KEY-}"
+case "${PAYMENTS_ENABLE_REAL-}" in
+  true)
+    _missing_list=""
+    for _name in PAYMENTS_PROVIDER_KEY PAYMENTS_PROVIDER_SECRET RAZORPAY_WEBHOOK_SECRET; do
+      _value="${!_name-}"
+      if [ -z "${_value//[[:space:]]/}" ]; then
+        _missing_list="${_missing_list:+${_missing_list},}${_name}"
+      fi
+    done
+    _value=""
+    case "${RETIRED_PRODUCTS_OFF_SALE-}" in
+      true | 1) ;;
+      *)
+        echo "::error::PAYMENTS_ENABLE_REAL is true but RETIRED_PRODUCTS_OFF_SALE is not: the dropped products (plans, boosts, capacity, top-ups) have no real-payments path and must be off sale no later than real money (ADR-0065 hardening 7). Set RETIRED_PRODUCTS_OFF_SALE to true first (gh secret set RETIRED_PRODUCTS_OFF_SALE --env production --body true), or set PAYMENTS_ENABLE_REAL to false, and re-run. Nothing was deployed."
+        _bad_flags=1
+        ;;
+    esac
+    if [ -n "${_missing_list}" ]; then
+      echo "::error::PAYMENTS_ENABLE_REAL is true but these production secrets are empty: ${_missing_list}. The api would refuse to boot. Set them (gh secret set NAME --env production, the value entered at the prompt) or set PAYMENTS_ENABLE_REAL to false, and re-run. Nothing was deployed."
+      _bad_flags=1
+    else
+      case "${_payments_key}" in
+        rzp_test_*)
+          echo "::warning::Real payments are armed with a Razorpay TEST key (rzp_test_): no real money moves. Expected only during the test-key rehearsal; switch all three secrets to the live set before taking payments."
+          ;;
+      esac
+    fi
+    ;;
+  1)
+    echo "::error::PAYMENTS_ENABLE_REAL must be exactly true, false or empty: the api reads 1 as on but payer-web reads only true, so the two would disagree. Set the production secret to a literal (gh secret set PAYMENTS_ENABLE_REAL --env production --body false) and re-run. Nothing was deployed."
+    _bad_flags=1
+    ;;
+esac
+if [ -n "${_payments_key//[[:space:]]/}" ]; then
+  case "${_payments_key}" in
+    *[[:space:]]*) _payments_key_ok=0 ;;
+    rzp_test_?* | rzp_live_?*) _payments_key_ok=1 ;;
+    *) _payments_key_ok=0 ;;
+  esac
+  if [ "${_payments_key_ok}" -ne 1 ]; then
+    echo "::error::PAYMENTS_PROVIDER_KEY must be the Razorpay key ID: rzp_test_ or rzp_live_ followed by the id, with no spaces. The key secret belongs in PAYMENTS_PROVIDER_SECRET. Fix the production secret (gh secret set PAYMENTS_PROVIDER_KEY --env production, the value entered at the prompt) and re-run. Nothing was deployed."
+    _bad_flags=1
+  fi
+fi
+_payments_key=""
 # Every bad flag is reported above before this exits, so one run names them all.
 if [ "$_bad_flags" -ne 0 ]; then
   exit 1

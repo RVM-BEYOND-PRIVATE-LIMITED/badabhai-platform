@@ -490,6 +490,14 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /RETIRED_PRODUCTS_OFF_SALE:\s*\$\{\{\s*secrets\.RETIRED_PRODUCTS_OFF_SALE\s*\}\}/,
       /envs:[^\n]*\bRETIRED_PRODUCTS_OFF_SALE\b/,
     ],
+    // #2749 part 5b — real payments' master gate. Before this it reached the container only from
+    // the box shell; now the environment secret is its one arming path (api AND payer-web), and
+    // the deploy preflight refuses it true without the three Razorpay secrets below.
+    [
+      "PAYMENTS_ENABLE_REAL",
+      /PAYMENTS_ENABLE_REAL:\s*\$\{\{\s*secrets\.PAYMENTS_ENABLE_REAL\s*\}\}/,
+      /envs:[^\n]*\bPAYMENTS_ENABLE_REAL\b/,
+    ],
     // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
     // secret in the confidentiality sense, but bridged through `secrets.*` like the other
     // numbers so a deploy does not depend on the box's shell state; absent, compose holds
@@ -628,6 +636,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["CREDIT_CHECKOUT_ROLLOUT", "off"],
     // #2749 item 11 — false keeps plans, boosts, capacity, top-ups, offers and coupons on sale.
     ["RETIRED_PRODUCTS_OFF_SALE", "false"],
+    // #2749 part 5b — false is today's mock credits: the real checkout 404s, the free packs open.
+    ["PAYMENTS_ENABLE_REAL", "false"],
     // #2509 — the zod default: 20/hour/IP until the secret (or a box export) says otherwise.
     ["PAYER_AUTH_MAX_PER_IP_PER_HOUR", "20"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
@@ -764,6 +774,63 @@ describe("the FORK-B-1 skill seam — bridged, and inert until a secret exists",
       /throw new UnauthorizedException\("skills internal auth is not configured"\)/,
     );
     expect(guard).not.toMatch(/config\.INTERNAL_SERVICE_TOKEN/);
+  });
+});
+
+describe("#2749 part 5b — the Razorpay secrets: bridged, and inert until real payments are armed", () => {
+  // The same #858 recipe as the FORK-B-1 seam above, applied to money: the schema became
+  // `optionalSecret()` FIRST, so the `${VAR:-}` pass-through of an unset secret reads as unset
+  // instead of failing the parse, and only then were the secrets bridged. PAYMENTS_ENABLE_REAL
+  // (in the flag table above) stays the master gate; these three are inert while it is false.
+  const SERVER = readFileSync(join(ROOT, "packages", "config", "src", "server.ts"), "utf8");
+
+  it.each([
+    [
+      "PAYMENTS_PROVIDER_KEY",
+      /PAYMENTS_PROVIDER_KEY:\s*\$\{\{\s*secrets\.PAYMENTS_PROVIDER_KEY\s*\}\}/,
+      /envs:[^\n]*\bPAYMENTS_PROVIDER_KEY\b/,
+      /PAYMENTS_PROVIDER_KEY:\s*optionalSecret\(/,
+    ],
+    [
+      "PAYMENTS_PROVIDER_SECRET",
+      /PAYMENTS_PROVIDER_SECRET:\s*\$\{\{\s*secrets\.PAYMENTS_PROVIDER_SECRET\s*\}\}/,
+      /envs:[^\n]*\bPAYMENTS_PROVIDER_SECRET\b/,
+      /PAYMENTS_PROVIDER_SECRET:\s*optionalSecret\(/,
+    ],
+    [
+      "RAZORPAY_WEBHOOK_SECRET",
+      /RAZORPAY_WEBHOOK_SECRET:\s*\$\{\{\s*secrets\.RAZORPAY_WEBHOOK_SECRET\s*\}\}/,
+      /envs:[^\n]*\bRAZORPAY_WEBHOOK_SECRET\b/,
+      /RAZORPAY_WEBHOOK_SECRET:\s*optionalSecret\(/,
+    ],
+  ])(
+    "%s is bridged through BOTH hops, to the api only, empty-tolerant",
+    (name, fromSecrets, inEnvs, schema) => {
+      // Both hops: a job-level `env:` entry drone-ssh does not export never reaches the box (#798).
+      const bridged = uncommented(DEPLOY);
+      expect(bridged).toMatch(fromSecrets);
+      expect(bridged).toMatch(inEnvs);
+      // Declared on the api, falling back to EMPTY (never a committed credential, never `:?`).
+      expect(envKeysOf("api")).toContain(name);
+      expect(STAGING_COMPOSE).toContain(`${name}: \${${name}:-}`);
+      expect(STAGING_COMPOSE).not.toContain(`\${${name}:?`);
+      // ...which only boots because the schema reads "" as unset.
+      expect(SERVER).toMatch(schema);
+      // The api's alone: payer-web takes the key id from the order response.
+      for (const service of ["ai-service", "payer-web", "admin-web"]) {
+        expect(envKeysOf(service), `${name} on ${service}`).not.toContain(name);
+      }
+    },
+  );
+
+  it("the deploy preflights the set before anything moves", () => {
+    // Pinned in detail (and executed) by real-payments-preflight.guard.test.ts; here only that the
+    // deploy half of this guard can see it.
+    const script = uncommented(DEPLOY);
+    expect(script).toContain('case "${PAYMENTS_ENABLE_REAL-}" in');
+    expect(script).toMatch(
+      /for _name in PAYMENTS_PROVIDER_KEY PAYMENTS_PROVIDER_SECRET RAZORPAY_WEBHOOK_SECRET; do/,
+    );
   });
 });
 
