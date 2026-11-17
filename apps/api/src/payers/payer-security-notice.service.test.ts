@@ -116,4 +116,33 @@ describe("EmailPayerSecurityNoticeMailer copy (#2563)", () => {
       expect(message.subject).not.toContain("owner@example.com");
     }
   });
+
+  it("#2754 item 3 — renders phone_changed as a PHONE notice: no password claim, no number", async () => {
+    const email = { send: vi.fn(async (_message: unknown) => undefined) };
+    const mailer = new EmailPayerSecurityNoticeMailer(email as never);
+    await mailer.send({
+      email: "owner@example.com",
+      kind: "phone_changed",
+      at: new Date("2026-11-17T09:15:00.000Z"),
+    });
+    const message = email.send.mock.calls.at(-1)![0] as {
+      text: string;
+      html: string;
+      subject: string;
+      purpose: string;
+      principal: string;
+    };
+    expect(message.subject).toBe("The phone number on your BadaBhai account was changed");
+    expect(message.text).toContain("was changed on");
+    expect(message.text).toContain("IST");
+    expect(message.text).toContain(
+      "must be confirmed with a code before it can be used to sign in",
+    );
+    expect(message.text).toContain("If this wasn't you, contact BadaBhai support.");
+    // It is not a password notice, and it names no number (old or new).
+    expect(`${message.subject} ${message.text} ${message.html}`).not.toMatch(/password/i);
+    expect(`${message.text} ${message.html}`).not.toMatch(/\+?\d{10,}/);
+    expect(message.purpose).toBe("security_notice");
+    expect(message.principal).toBe("payer");
+  });
 });

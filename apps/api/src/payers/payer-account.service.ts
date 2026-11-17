@@ -1,8 +1,14 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+  Optional,
+} from "@nestjs/common";
 import type { Payer } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { PayersRepository } from "./payers.repository";
+import { PayerSecurityNoticeService } from "./payer-security-notice.service";
 import { PayerTenantScopeService, type PayerSelfTenancy } from "./payer-tenant-scope.service";
 import { PayerMeSchema, type PayerMeDto, type PayerUpdateDto } from "./payer-account.dto";
 import type { TenantKey } from "./payer-tenant-scope";
@@ -29,6 +35,10 @@ export class PayerAccountService {
     private readonly payers: PayersRepository,
     private readonly events: EventsService,
     private readonly tenancy: PayerTenantScopeService,
+    // #2754 item 3 — the credential-change notice (best-effort, after commit) for a PHONE change:
+    // the phone is a sign-in credential once proven. Provided by PayersModule beside this service;
+    // optional only so the unit tests that never change a phone keep their three-argument form.
+    @Optional() private readonly notice?: PayerSecurityNoticeService,
   ) {}
 
   /**
@@ -68,12 +78,16 @@ export class PayerAccountService {
     if (patch.orgName !== undefined) changedFields.push("org_name");
     if (patch.phone !== undefined) changedFields.push("phone");
 
-    const updated = await this.payers.update(authPayerId, {
+    // #2754 item 3 — a phone in the patch drops the account's phone PROOF in the same transaction
+    // (PayersRepository.updateContact): the new number cannot sign anyone in by SMS code until the
+    // company proves it again (POST /payer/me/phone-proof). The same number saved again keeps it.
+    const result = await this.payers.updateContact(authPayerId, {
       orgName: patch.orgName,
       phone: patch.phone,
     });
     // The principal's row is gone (or the id matched nothing) → neutral 404 (no oracle).
-    if (!updated) throw new NotFoundException("Payer account not found");
+    if (!result) throw new NotFoundException("Payer account not found");
+    const updated = result.row;
 
     // Event-first (invariant #1): emitted AFTER the successful write. PII-free (invariant #2):
     // the opaque `payer_id` + the changed field KEYS ONLY — never the new org-name/phone VALUES.
@@ -85,6 +99,12 @@ export class PayerAccountService {
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
+
+    // #2754 item 3 — tell the account holder their sign-in phone changed (the #2563 credential
+    // notice, to the email on file). After the commit and best-effort by contract: the service
+    // logs and swallows a mail failure, so the response never depends on it. Only a REAL change
+    // (the keyed hash moved), never the same number saved again.
+    if (result.phoneChanged) await this.notice?.notify(authPayerId, "phone_changed");
 
     return this.toMaskedDto(updated, await this.tenancy.resolveSelfView(authPayerId));
   }

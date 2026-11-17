@@ -287,6 +287,7 @@ BRIDGED_BOOLEAN_FLAGS=(
   HIRE_RECORDS_ENABLED
   LEVEL_NEEDED_SORT_ENABLED
   PAYER_APPLICANT_STAGES_ENABLED
+  PAYER_SMS_OTP_ENABLED
   PAY_ON_JOINING_RECORDS_ENABLED
   PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED
   PROFILING_TIERS_ENABLED
@@ -315,6 +316,22 @@ for _flag in "${BRIDGED_BOOLEAN_FLAGS[@]}"; do
       ;;
   esac
 done
+# #2754 — company sign-in by SMS code, armed: the company's own DLT template id must be set. The
+# api refuses to boot armed without FAST2SMS_PAYER_DLT_TEMPLATE_ID (assertPayerAuthConfig), and a
+# refused boot is an outage the deploy gate does not roll back, so stop here, before a container
+# moves. (#2754 item 3 replaced the blanket refusal that stood here: an SMS code now signs in only
+# the one account that PROVED the phone, so arming no longer makes an unproven number a credential.
+# Apply the payer_phone_proofs migration before arming; until then every SMS sign-in fails closed.)
+# The value is never echoed — only the names.
+case "${PAYER_SMS_OTP_ENABLED-}" in
+  true | 1)
+    _payer_sms_template="${FAST2SMS_PAYER_DLT_TEMPLATE_ID-}"
+    if [ -z "${_payer_sms_template//[[:space:]]/}" ]; then
+      echo "::error::PAYER_SMS_OTP_ENABLED is armed but FAST2SMS_PAYER_DLT_TEMPLATE_ID is not set (the company sign-in template's DLT id); the api would refuse to boot. Set the production secret (gh secret set FAST2SMS_PAYER_DLT_TEMPLATE_ID --env production) or set PAYER_SMS_OTP_ENABLED to false, and re-run. Nothing was deployed."
+      _bad_flags=1
+    fi
+    ;;
+esac
 # Every bad flag is reported above before this exits, so one run names them all.
 if [ "$_bad_flags" -ne 0 ]; then
   exit 1

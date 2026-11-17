@@ -57,6 +57,7 @@ import { hires } from "./hire";
 import { payOnJoiningHires } from "./pay-on-joining";
 import { unlockOutcomes } from "./unlock-outcome";
 import { stillLookingChecks } from "./still-looking";
+import { payerPhoneProofs } from "./payer-phone-proof";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -186,6 +187,8 @@ export * from "./pay-on-joining";
 export * from "./unlock-outcome";
 // #2753 item 5 — the monthly "still looking?" check (one row per prompt).
 export * from "./still-looking";
+// #2754 item 3 — a company proved the phone on its account (one account per proven phone).
+export * from "./payer-phone-proof";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -511,4 +514,6 @@ export const schema = {
   unlockOutcomes,
   // #2753 item 5 - the monthly "still looking?" check (behind STILL_LOOKING_CHECK_ENABLED).
   stillLookingChecks,
+  // #2754 item 3 - a company proved its sign-in phone (read only while PAYER_SMS_OTP_ENABLED is on).
+  payerPhoneProofs,
 };

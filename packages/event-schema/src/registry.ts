@@ -501,6 +501,21 @@ export const EVENT_REGISTRY = {
   "payer.created": { version: 1, domain: "payer", payload: p.PayerCreatedPayload },
   "payer.login_requested": { version: 1, domain: "payer", payload: p.PayerLoginRequestedPayload },
   "payer.session_started": { version: 1, domain: "payer", payload: p.PayerSessionStartedPayload },
+  // #2754 item 1 — a company signed in with an SMS code. v2 of the two login events above, with
+  // `sms_otp` in the method set; every other method keeps emitting v1.
+  "payer.login_requested_v2": {
+    version: 2,
+    domain: "payer",
+    payload: p.PayerLoginRequestedV2Payload,
+  },
+  "payer.session_started_v2": {
+    version: 2,
+    domain: "payer",
+    payload: p.PayerSessionStartedV2Payload,
+  },
+  // #2754 item 3 — a company proved the phone on its account (it now signs in by SMS code).
+  // FACELESS: payer_id and the closed method only.
+  "payer.phone_proven": { version: 1, domain: "payer", payload: p.PayerPhoneProvenPayload },
   // The test-login seam mints a session WITHOUT an OTP verification — a distinct event so a
   // synthetic session is never indistinguishable from a real login on the spine (Phase 2.1).
   "payer.test_login": { version: 1, domain: "payer", payload: p.PayerTestLoginPayload },
@@ -572,6 +587,12 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "payer",
     payload: p.PayerOtpSendCapExceededPayload,
+  },
+  // #2754 item 2 — the company sign-in SMS daily ceiling tripped. Same aggregate shape, no channel.
+  "payer.sms_send_cap_exceeded": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerSmsSendCapExceededPayload,
   },
 
   // The `jobs` ENTITY lifecycle (ADR-0022 Agency Supply Portal) — DISTINCT from
