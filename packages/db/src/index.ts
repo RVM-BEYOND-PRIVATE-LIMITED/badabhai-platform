@@ -221,7 +221,12 @@ export {
 // R74 (owner ruling 2026-11-04) — the synthetic-workforce seed's id namespace. Exported so the api
 // can badge a seeded worker as a SAMPLE candidate and refuse to unlock one, from the same
 // definition the seed writes with. Pure; no IO.
-export { isSampleWorkerId, WORKFORCE_ID_PREFIX, workforceUuid } from "./sample-workers";
+export {
+  isSampleWorkerId,
+  sampleWorkerIdLikePatterns,
+  WORKFORCE_ID_PREFIX,
+  workforceUuid,
+} from "./sample-workers";
 
 // B2 (#2555) — the cost-ledger backfill planner. Exported so the api's CI DB gate can run
 // it against seeded completions (idempotency + re-tag counts). Side-effect free at import

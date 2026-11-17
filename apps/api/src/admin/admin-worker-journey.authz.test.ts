@@ -185,6 +185,9 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
         // stays on `read_entities` and returns no profile values.
         "read_candidates",
         "read_ai_traces",
+        // #2755 — the business numbers screen (super_admin, ops_admin). Not the journey's: it reads
+        // aggregates across the base, never one worker's funnel.
+        "read_business_numbers",
         "read_entities",
         "read_events",
         "read_identity",

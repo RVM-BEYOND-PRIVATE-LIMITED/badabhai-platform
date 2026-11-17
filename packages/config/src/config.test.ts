@@ -951,6 +951,17 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ HIRE_RECORDS_ENABLED: "yes" })).toThrow();
   });
 
+  it("ADMIN_NUMBERS_ENABLED (#2755) is OFF by default and for the empty string", () => {
+    // Off: every /admin/numbers/* route is a neutral 404 before any query.
+    expect(loadServerConfig({}).ADMIN_NUMBERS_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_NUMBERS_ENABLED: "" }).ADMIN_NUMBERS_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_NUMBERS_ENABLED: "0" }).ADMIN_NUMBERS_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_NUMBERS_ENABLED: "false" }).ADMIN_NUMBERS_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_NUMBERS_ENABLED: "true" }).ADMIN_NUMBERS_ENABLED).toBe(true);
+    expect(loadServerConfig({ ADMIN_NUMBERS_ENABLED: "1" }).ADMIN_NUMBERS_ENABLED).toBe(true);
+    expect(() => loadServerConfig({ ADMIN_NUMBERS_ENABLED: "yes" })).toThrow();
+  });
+
   it("PAY_ON_JOINING_RECORDS_ENABLED (#2753 item 11) is OFF by default and for the empty string", () => {
     // Off is today exactly: every pay-on-joining route is a 404 and nothing touches the table.
     expect(loadServerConfig({}).PAY_ON_JOINING_RECORDS_ENABLED).toBe(false);

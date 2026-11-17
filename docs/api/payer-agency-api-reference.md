@@ -829,6 +829,10 @@ So a screen can draw the Selected and Hired controls only when a move would be a
 - **Response:** `{ skills: [{ skill_id, label, industry_id, related_skill_ids }], max_skills_per_posting }`. `skills` is the same closed vocabulary `GET /payer/match/skills` serves, sorted by `skill_id`. `max_skills_per_posting` is the live `match_config` cap that the PUT enforces, read on every call.
 - **Events:** none. It is a read-only route, and the PUT records the decision taken with it.
 
+#### The numbers screen — **Admin Portal** (#2755)
+
+- `GET /admin/numbers/definitions` (the catalogue of the weekly figures) and `PUT|DELETE /admin/numbers/test-accounts/:payerId` (mark or unmark a test company, `payers.is_test_account`). Capability `read_business_numbers` (super_admin, ops_admin), NOT the `read_entities` floor that `GET /admin/finance/summary` uses; a neutral 404 while `ADMIN_NUMBERS_ENABLED` is off. Contract: [admin-numbers-api-reference.md](./admin-numbers-api-reference.md).
+
 ### 4.7 Admin posting detail (NOT a payer/mobile route — for reference)
 
 #### `GET /admin/job-postings/:id`

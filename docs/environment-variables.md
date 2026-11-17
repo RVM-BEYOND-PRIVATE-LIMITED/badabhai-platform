@@ -554,6 +554,16 @@ NestJS boot assertion).
     `${STILL_LOOKING_EVERY_DAYS:-30}`, `ci.yml` `env:` + `envs:`); the deploy preflight refuses
     anything but empty or a whole number 7..999 before a container moves, because a bad value would
     stop the api booting.
+- **The numbers screen (#2755)** — `ADMIN_NUMBERS_ENABLED`, api only (`booleanFromString`, default
+  off). Off is today exactly: every `/admin/numbers/*` route (`GET definitions`, `PUT|DELETE
+  test-accounts/:payerId` today; the weekly figures, the call list and the launch-test records in
+  later parts) is a neutral 404 for every role, before any pipe or query. On, the routes answer to
+  `read_business_numbers` (super_admin, ops_admin). No migration of its own: the company test marker
+  is `payers.is_test_account` (migration 0162). Keep it off until the weekly figures ship. Bridged
+  through the GitHub `production` environment secret of the same name (compose
+  `${ADMIN_NUMBERS_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only
+  (contract: `docs/api/admin-numbers-api-reference.md`).
 - **The Campus link (#2752)** — api only, four variables, all read by `CampusServiceGuard` on
   `/internal/campus/v1` (contract: `docs/api/campus-link-v1-api-reference.md`).
   - `CAMPUS_LINK_ENABLED` (`booleanFromString`, default off): off, every Campus route is a neutral

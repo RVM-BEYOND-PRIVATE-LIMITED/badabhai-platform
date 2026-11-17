@@ -103,6 +103,11 @@ export const ADMIN_ACTION_CODES = {
   // state ride `pay_on_joining.recorded`; the note lives on the row alone.
   pay_on_joining_hire_created: "pay_on_joining_hire_created",
   pay_on_joining_hire_updated: "pay_on_joining_hire_updated",
+  // ── #2755 item 2 — a test company marked or unmarked ───────────────────────────────────
+  // Target = the payer (`target_type: "payer"`). The reason code rides
+  // `admin.payer_test_account_marked`; the spine's `admin.action_performed` carries the CODE only.
+  payer_test_account_marked: "payer_test_account_marked",
+  payer_test_account_unmarked: "payer_test_account_unmarked",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];
