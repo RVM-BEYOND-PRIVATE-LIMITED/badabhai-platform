@@ -1711,6 +1711,40 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "one and what the call came to: an open grant lets any PostgREST role read the sales " +
       "pipeline, or write a call result the telecaller then trusts",
   },
+  // #2750 item 5: the placement team's waivers and the opens they paid for. Nothing names either
+  // table while CREDIT_RULES_ROLLOUT is off (the waiver routes answer 404 and no open reads a
+  // waiver), and with it on a 42P01 reads as "no waiver" on the open (the routes answer 503), so a
+  // deploy ahead of the migration breaks no request and neither is a `table` entry. Listed for
+  // their locks (the 0134 rule). APPLY BEFORE THE SWITCH (migration header). The ids and tag
+  // carry the slot number: regenerated with the migration when the slot moves.
+  {
+    id: "0181-rvm-applicant-waivers-rls",
+    migration: "0181_rvm_applicant_waivers",
+    kind: "rls",
+    table: "rvm_applicant_waivers",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides which companies open RVM applicants for no credit, and holds " +
+      "the encrypted names of the staff who set each waiver; an open grant lets any PostgREST " +
+      "role write an active waiver (free opens for any company) or read who waived what",
+  },
+  {
+    id: "0181-rvm-waiver-uses-rls",
+    migration: "0181_rvm_applicant_waivers",
+    kind: "rls",
+    table: "rvm_waiver_uses",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which open each waiver paid for, keyed by unlock id; an open " +
+      "grant lets any PostgREST role read which company opened which RVM applicant for free, " +
+      "or rewrite the count the placement team reads",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

@@ -1269,6 +1269,13 @@
       "when": 1794911600894,
       "tag": "0180_credit_call_log",
       "breakpoints": true
+    },
+    {
+      "idx": 181,
+      "version": "7",
+      "when": 1794914716805,
+      "tag": "0181_rvm_applicant_waivers",
+      "breakpoints": true
     }
   ]
 }
