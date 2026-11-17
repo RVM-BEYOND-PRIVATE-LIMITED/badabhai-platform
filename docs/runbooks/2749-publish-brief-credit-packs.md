@@ -22,11 +22,13 @@ Since #2749 (PR 2):
 A pack is off sale when its catalogue entry has `offered: false`, or before 00:00 IST on its
 `onSaleFrom` date (`YYYY-MM-DD`).
 
-> ⚠️ **The GST price line is not yet what a company pays.** The catalogue shows each pack's
-> `price.totalPaise` and `price.display` (`₹999 plus GST (₹1,179)`), but an order still charges
-> `priceInr`, **before GST** (₹999), until part 3 of #2749 ships. Until then the price line is
-> informational and must not be shown to companies, and real payments must not be switched on for
-> these packs (see [Switch-on checks](#switch-on-checks)).
+> **The GST price line is what a company pays (since #2749 part 3).** The catalogue shows each
+> pack's `price.totalPaise` and `price.display` (`₹999 plus GST (₹1,179)`); an order is created for
+> `price.totalPaise` (₹1,179), and the mock route stamps the same total on the ledger.
+> `expected_price_inr` is still the list price before GST (₹999). Note what this changes for the
+> **default** packs production serves today: `pack_50` / `pack_200` / `pack_1000` now charge
+> ₹2,360 / ₹9,440 / ₹37,760 (₹2,000 / ₹8,000 / ₹32,000 plus GST) on the real route and stamp those
+> totals on the mock route's ledger lines.
 
 ## This is a go-live decision
 
@@ -43,9 +45,12 @@ Check these first:
   The codes below (`pack_starter`, `pack_standard`, `pack_big`, `pack_annual`) are a proposal; rename
   them before the first publish if you want different ones. Codes are lowercase letters, digits and
   `_`.
-- **Validity.** `validityDays` is how long credits from a pack last. Nothing applies it to a
-  purchase until PR 3 of #2749 (it stamps the value on the order and the lot). `windowDays: 14` is
-  the old contact-access window. Every pack keeps it because older readers still require it.
+- **Validity.** `validityDays` is how long credits from a pack last. Since PR 3 of #2749 a purchase
+  applies it: the mock route's lot expires `validityDays` days after the grant, and a real order
+  stamps it at creation (`payment_orders.credit_validity_days`) and its lot expires that many days
+  after the settle — both counted by the database clock. So publishing this row is what starts credit
+  expiry (the default packs set no validity). `windowDays: 14` is the old contact-access window.
+  Every pack keeps it because older readers still require it.
 - **The ops console** (`apps/web` → Pricing → credits top-up) lists every credit-pack entry in the
   catalogue, including Annual. Before 1 April 2027 a top-up of Annual returns `404`.
 - **Owner question — Annual's validity: 365 days, or a calendar year?** The brief says "12 months";
@@ -187,8 +192,8 @@ it returns `404`. From then on it is listed and sells, with no further publish.
    - `pack_standard`: `₹1,599 plus GST (₹1,887)`
    - `pack_big`: `₹2,999 plus GST (₹3,539)`
 
-   No `pack_annual` appears, and neither does any `onSaleFrom` or `offered` key. (These lines are
-   informational until part 3 — see the warning at the top.)
+   No `pack_annual` appears, and neither does any `onSaleFrom` or `offered` key. Each `price` is
+   what an order for that pack charges, and each pack shows its `validityDays` (30 / 60 / 90).
 
 4. `POST /payer/credits` with `{ "pack_code": "pack_50" }` → `404`.
 
@@ -211,9 +216,15 @@ Before real payments (`PAYMENTS_ENABLE_REAL`) are switched on for these packs, f
 the pilot:
 
 - **The order amount equals `price.totalPaise` for every pack on sale.** For each pack the catalogue
-  lists, create an order on test keys (`POST /payer/credits/order`) and compare its `amount` (paise)
-  with that pack's `price.totalPaise` (₹999 → `117900`). This **fails until part 3 of #2749 ships**:
-  today the order charges `priceInr` before GST (`99900`). Do not switch on while it fails.
+  lists, create an order on test keys (`POST /payer/credits/order`, with an `Idempotency-Key`) and
+  compare its `amount` (paise) with that pack's `price.totalPaise` (₹999 → `117900`). Since part 3
+  of #2749 they match by construction (`apps/api/src/unlocks/razorpay-payments.test.ts` pins it for
+  every pack on sale); do not switch on if any differs.
+- **A wrong capture is held, not granted.** A webhook whose captured `amount` is not the order total
+  (or carries none, or is not INR) moves the order to `held` and grants nothing, with one
+  `payment.held` event; no replay or verify can settle it. Until a refund path exists (BB-D-05), each
+  held order is a refund in the Razorpay dashboard: watch `payment.held` (or
+  `SELECT id FROM payment_orders WHERE status = 'held'`) from the first pilot payment.
 - The rest of the issue's switch-on list (hardening items, pilot gating) still applies.
 
 ## The same go-live change: make `DEFAULT_CATALOG` the brief's three packs
