@@ -302,6 +302,14 @@ const LOCKED_TABLES = [
   // time). RLS+FORCE+REVOKE in the hand-written tail of `*_rvm_applicant_waivers`.
   "rvm_applicant_waivers",
   "rvm_waiver_uses",
+  // #2887: the bulk student move - the import ledger (runs, per-candidate rows, the candidate ->
+  // worker map), the per-field source markers and the visibility switch. Ids, closed codes,
+  // counts, hashes and times. RLS+FORCE+REVOKE in the hand-written tail of `*_student_move`.
+  "student_import_batches",
+  "student_import_rows",
+  "student_import_subjects",
+  "worker_field_sources",
+  "student_visibility",
   // #2754 item 4: the Campus company import ledger (batch names, counts, Campus ids mapped to
   // BadaBhai ids, reason codes). RLS+FORCE+REVOKE in the hand-written tail of `*_company_import`.
   "company_import_batches",

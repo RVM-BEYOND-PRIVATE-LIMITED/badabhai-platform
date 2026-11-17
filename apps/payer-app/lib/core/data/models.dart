@@ -513,7 +513,9 @@ class UnlockResult extends Equatable {
     this.creditsCharged,
   })  : available = true,
         creditsNeeded = null,
-        creditsAvailable = null;
+        creditsAvailable = null,
+        limit = null,
+        dailyLimit = null;
 
   /// #2750 — the honest refusal for a company under the credit rules. Nothing was
   /// opened, debited or read about the worker; it says only what the payer cannot afford.
@@ -523,7 +525,30 @@ class UnlockResult extends Equatable {
   })  : available = false,
         unlockId = null,
         expiresAt = null,
-        creditsCharged = null;
+        creditsCharged = null,
+        limit = null,
+        dailyLimit = null;
+
+  /// #2750 part D — the worker hit his weekly opening limit; nothing was charged.
+  const UnlockResult.weekLimit()
+      : available = false,
+        unlockId = null,
+        expiresAt = null,
+        creditsCharged = null,
+        creditsNeeded = null,
+        creditsAvailable = null,
+        limit = 'week',
+        dailyLimit = null;
+
+  /// #2750 part D — an agency hit its IST-day opening limit; nothing was charged.
+  const UnlockResult.dailyLimitReached(this.dailyLimit)
+      : available = false,
+        unlockId = null,
+        expiresAt = null,
+        creditsCharged = null,
+        creditsNeeded = null,
+        creditsAvailable = null,
+        limit = 'day';
 
   const UnlockResult.unavailable()
       : available = false,
@@ -531,7 +556,9 @@ class UnlockResult extends Equatable {
         expiresAt = null,
         creditsCharged = null,
         creditsNeeded = null,
-        creditsAvailable = null;
+        creditsAvailable = null,
+        limit = null,
+        dailyLimit = null;
 
   final bool available;
   final String? unlockId;
@@ -544,6 +571,13 @@ class UnlockResult extends Equatable {
   final int? creditsNeeded;
   final int? creditsAvailable;
 
+  /// #2750 part D — 'week' / 'day' when an opening limit refused it; null otherwise.
+  final String? limit;
+  final int? dailyLimit;
+
+  bool get weekLimitReached => limit == 'week';
+  bool get dailyLimitReached => limit == 'day';
+
   /// True only when the server granted a real unlock (carried an [unlockId]).
   bool get granted => available;
 
@@ -553,7 +587,16 @@ class UnlockResult extends Equatable {
 
   @override
   List<Object?> get props =>
-      <Object?>[available, unlockId, expiresAt, creditsCharged, creditsNeeded, creditsAvailable];
+      <Object?>[
+        available,
+        unlockId,
+        expiresAt,
+        creditsCharged,
+        creditsNeeded,
+        creditsAvailable,
+        limit,
+        dailyLimit,
+      ];
 }
 
 /// #2750 — the contact price for one page of cards (`POST /payer/unlocks/quotes`).

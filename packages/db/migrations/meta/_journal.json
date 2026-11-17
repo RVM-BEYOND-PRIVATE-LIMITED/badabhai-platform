@@ -1280,8 +1280,15 @@
     {
       "idx": 182,
       "version": "7",
-      "when": 1794918705299,
-      "tag": "0182_company_import",
+      "when": 1794919317502,
+      "tag": "0182_student_move",
+      "breakpoints": true
+    },
+    {
+      "idx": 183,
+      "version": "7",
+      "when": 1794923033770,
+      "tag": "0183_company_import",
       "breakpoints": true
     }
   ]

@@ -113,6 +113,8 @@ import { AdminCreditRulesController } from "./credit-rules/admin-credit-rules.co
 import { CreditRulesModule } from "../credit-rules/credit-rules.module";
 import { AdminWaiversController } from "./waivers/admin-waivers.controller";
 import { RvmWaiversModule } from "../rvm-waivers/rvm-waivers.module";
+import { AdminStudentsController } from "./students/admin-students.controller";
+import { StudentMoveModule } from "../student-move/student-move.module";
 import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerPreferencesService } from "../profiles/worker-preferences.service";
@@ -234,6 +236,9 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // #2750 items 5 and 12 - the placement team's waivers (`/admin/waivers`). RvmWaiversModule
     // does not import AdminModule, so no cycle.
     RvmWaiversModule,
+    // #2887 - the moved students' visibility switch (`/admin/students/*`). StudentMoveModule does
+    // not import AdminModule, so no cycle.
+    StudentMoveModule,
     // The Engine view's demo-worker gate resolves demo phones to worker ids through the workers
     // domain (`WorkersRepository.findLiveIdsByPhoneHashes`), so nothing under admin/** names a
     // phone column. WorkersModule does not import AdminModule.
@@ -285,6 +290,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminCompaniesController,
     AdminCreditRulesController,
     AdminWaiversController,
+    AdminStudentsController,
     // #2561 — admin corrections of candidate fields (ADR-0062).
     AdminCorrectionsController,
   ],

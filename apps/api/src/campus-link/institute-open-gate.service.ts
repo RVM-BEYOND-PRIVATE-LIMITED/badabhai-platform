@@ -1,6 +1,8 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
 import type { TenantKey } from "../payers/payer-tenant-scope";
+import { SERVER_CONFIG } from "../config/config.module";
+import { studentMoveEnabled, type StudentMoveConfig } from "../student-move/student-move.flag";
 import { InstituteLinkRepository } from "./institute-link.repository";
 import { InstituteLinkService } from "./institute-link.service";
 
@@ -40,10 +42,18 @@ export type InstituteOpener = { readonly tenant: TenantKey } | { readonly unlock
 export class InstituteOpenGate {
   private readonly logger = new Logger(InstituteOpenGate.name);
 
+  /** #2887 — STUDENT_MOVE_ENABLED, read once. Off (or no config at all) is today. */
+  private readonly studentMove: boolean;
+
   constructor(
     private readonly repo: InstituteLinkRepository,
     private readonly links: InstituteLinkService,
-  ) {}
+    // Optional only so the hand-built instances keep compiling; absent reads as off. Nest always
+    // injects it (AppConfigModule is @Global).
+    @Optional() @Inject(SERVER_CONFIG) config?: StudentMoveConfig,
+  ) {
+    this.studentMove = studentMoveEnabled(config);
+  }
 
   async decide(
     workerId: string,
@@ -51,8 +61,20 @@ export class InstituteOpenGate {
     ctx: RequestContext,
   ): Promise<InstituteOpenVerdict> {
     try {
+      // #2887 — a moved student an admin made visible is an ordinary worker: #2752's rule lifts.
+      // A hidden one is gated even with no link row: only a company he applied to opens him (no
+      // RVM call: there is no link to re-confirm).
+      const moved = this.studentMove ? await this.repo.studentVisibilityOf(workerId) : null;
+      if (moved === "visible") return "not_linked";
       const link = await this.repo.findActiveByWorker(workerId);
-      if (!link) return "not_linked";
+      if (!link) {
+        if (moved !== "hidden") return "not_linked";
+        const applied =
+          "tenant" in opener
+            ? await this.repo.hasAppliedToTenant(workerId, opener.tenant)
+            : await this.repo.hasAppliedToUnlockHolder(workerId, opener.unlockId);
+        return applied ? "open" : "closed";
+      }
       // Cheap and local first: a company he never applied to is refused without asking RVM.
       // "A company he applied to, or that holds his grant" (#2752 items 9 and 10).
       const entitled =
