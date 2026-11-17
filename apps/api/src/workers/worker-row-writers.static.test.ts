@@ -50,6 +50,10 @@ const ALLOWED_CALLERS: Record<RepoWriter, Record<string, string>> = {
     "campus-link/institute-link.service.ts InstituteLinkService.linkInTransaction":
       "the Campus link (#2752): a `pending` row for an RVM student, behind CAMPUS_LINK_ENABLED; " +
       "only his own OTP sign-in activates it",
+    "student-import/import-campus-students.ts createStudent":
+      "the bulk student move (#2887, ADR-0067): a `pending` row for an RVM student from Campus's " +
+      "export, written by the ops CLI with STUDENT_MOVE_ENABLED on; only his own OTP sign-in " +
+      "activates it, and a phone that is already a BadaBhai worker is held, never taken",
   },
   create: {},
 };
