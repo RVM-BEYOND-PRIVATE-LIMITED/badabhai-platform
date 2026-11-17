@@ -70,6 +70,7 @@ import {
   workerFieldSources,
 } from "./student-move";
 import { launchTestCohort, launchTestShares } from "./launch-test";
+import { companyImportBatches, companyImportRows } from "./company-import";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -212,6 +213,8 @@ export * from "./rvm-waivers";
 export * from "./student-move";
 // #2755 item 9 — launch test A: the factories, what each was sent, its payment link and result.
 export * from "./launch-test";
+// #2754 item 4 — the Campus company import: one row per batch, one row per source record moved.
+export * from "./company-import";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -558,4 +561,7 @@ export const schema = {
   // #2755 item 9 - launch test A records (read and written only while ADMIN_NUMBERS_ENABLED is on).
   launchTestCohort,
   launchTestShares,
+  // #2754 item 4 - the Campus company import ledger (written only by import-campus-companies.cli).
+  companyImportBatches,
+  companyImportRows,
 };
