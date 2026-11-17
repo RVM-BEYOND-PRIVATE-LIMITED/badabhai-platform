@@ -741,6 +741,14 @@ services:
       THEME_ROLLOUT: ${THEME_ROLLOUT:-off}
       OUTCOME_STAGES_ROLLOUT: ${OUTCOME_STAGES_ROLLOUT:-off}
       OUTBOUND_SIGNALS_ROLLOUT: ${OUTBOUND_SIGNALS_ROLLOUT:-off}
+      # #2749 item 10 (ADR-0065) — the new money rules, company by company. Off is today's credit
+      # routes exactly (free mock packs, the ops grant; the real checkout also needs
+      # PAYMENTS_ENABLE_REAL). Same `:-off` grammar and preflight as the switches above.
+      CREDIT_CHECKOUT_ROLLOUT: ${CREDIT_CHECKOUT_ROLLOUT:-off}
+      # #2749 item 11 (ADR-0065) — plans, boosts, capacity, top-ups, offers and coupons off sale.
+      # `:-false` so an unset or empty secret keeps them on sale, today's catalogue. Must be true
+      # no later than PAYMENTS_ENABLE_REAL (hardening 7). Bridged from the `production` secret.
+      RETIRED_PRODUCTS_OFF_SALE: ${RETIRED_PRODUCTS_OFF_SALE:-false}
       CAPACITY_ENFORCEMENT_ENABLED: ${CAPACITY_ENFORCEMENT_ENABLED:-false}
       PACE_ENABLED: ${PACE_ENABLED:-false}
       TEST_LOGIN_ENABLED: ${TEST_LOGIN_ENABLED:-false}

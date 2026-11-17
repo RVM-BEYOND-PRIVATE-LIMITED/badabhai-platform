@@ -709,6 +709,12 @@ export const serverEnvSchema = z.object({
   //     RVM once (POST /internal/campus/selection-events). Off for the company, the mark is saved
   //     and nothing is queued; off everywhere, the sender idles and queued rows wait. Needs
   //     migration 0167 and the RVM_STUDENT_API_* settings.
+  //   CREDIT_CHECKOUT_ROLLOUT (#2749 item 10) — the new money rules apply to the company: the
+  //     real checkout (POST /payer/credits/order, /verify) opens for it while PAYMENTS_ENABLE_REAL
+  //     is live, its free mock packs (POST /payer/credits) close, and the ops grant
+  //     (POST /payers/:payerId/credits) refuses it with a 409. Off, every route behaves as before
+  //     the switch existed. Orders, lots and the webhook are never gated: an order created while it
+  //     was on still settles after it goes back to off.
   // Off, the new payer fields are ignored and the new routes answer 404. Campus's own routes
   // additionally need CAMPUS_LINK_ENABLED. A switch gates CAPABILITIES only: stored state (the
   // worker-path audience filter, the RVM review gate) is honoured whatever it says, so switching
@@ -726,6 +732,7 @@ export const serverEnvSchema = z.object({
   THEME_ROLLOUT: featureRolloutMode,
   OUTCOME_STAGES_ROLLOUT: featureRolloutMode,
   OUTBOUND_SIGNALS_ROLLOUT: featureRolloutMode,
+  CREDIT_CHECKOUT_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER
@@ -1890,6 +1897,14 @@ export const serverEnvSchema = z.object({
   // webhook bytes. Deliberately distinct so rotating the webhook secret never invalidates
   // the API credential (and vice versa). Same never-leaves-the-server rule.
   RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),
+  // #2749 item 11 (ADR-0065) — the paid products the brief drops: posting plans, boosts (the
+  // retired `all_candidates` tier included), hiring capacity, quota top-ups, and with them every
+  // offer and coupon. True takes them all off sale: they leave GET /payer/pricing/catalog and every
+  // purchase route for them answers 404. Plans, boosts and capacity already bought stay readable
+  // and run to their end date. Credit packs are unaffected. Default false (still on sale): ready to
+  // retire, the owner switches it. It must be true no later than PAYMENTS_ENABLE_REAL (hardening 7):
+  // these products have no real-payments path, so they would stay free once packs cost money.
+  RETIRED_PRODUCTS_OFF_SALE: booleanFromString,
 
   // Worker push notifications (ADR-0034 — FCM). SECURITY ALERTS ONLY in this phase
   // (new-device login + logged-out-everywhere); resume/profile/voice pushes are

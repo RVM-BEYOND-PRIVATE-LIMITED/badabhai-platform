@@ -8,6 +8,9 @@ import type { ServerConfig } from "@badabhai/config";
  *
  * `theme` (#2820): may this login use a theme other than the app's default? Asked only through
  * `FeatureRolloutService.isThemeOpenFor`, for a worker, a company or an admin.
+ *
+ * `credit_checkout` (#2749 item 10): do the new money rules apply to this company? Asked only by
+ * `UnlockService`'s credit-purchase gates, through `FeatureRolloutService.stateForPayer`.
  */
 export const FEATURE_ROLLOUT_KEYS = [
   "job_audience",
@@ -17,6 +20,7 @@ export const FEATURE_ROLLOUT_KEYS = [
   "theme",
   "outcome_stages",
   "outbound_signals",
+  "credit_checkout",
 ] as const;
 export type FeatureRolloutKey = (typeof FEATURE_ROLLOUT_KEYS)[number];
 
@@ -32,4 +36,5 @@ export const FEATURE_ROLLOUT_CONFIG = {
   theme: "THEME_ROLLOUT",
   outcome_stages: "OUTCOME_STAGES_ROLLOUT",
   outbound_signals: "OUTBOUND_SIGNALS_ROLLOUT",
+  credit_checkout: "CREDIT_CHECKOUT_ROLLOUT",
 } as const satisfies Record<FeatureRolloutKey, keyof ServerConfig>;
