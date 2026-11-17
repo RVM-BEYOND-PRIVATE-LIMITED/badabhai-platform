@@ -76,6 +76,27 @@ export class FeatureRolloutService {
   }
 
   /**
+   * {@link stateFor} for a company login, with the tenancy resolution LAZY (#2749, the #2819 M1
+   * shape): `off` and `on` answer WITHOUT calling `resolveScope`, so a closed or fully open switch
+   * costs no membership read and no shadow-evidence line; only `pilot` resolves the tenant key and
+   * reads `feature_pilot_payers`. A list read that fails is `unavailable`, as in {@link stateFor}.
+   *
+   * A resolver that THROWS is not caught: the caller's route answers what that resolution always
+   * answered (the tenancy 403 under `PAYER_ORG_TENANCY_MODE=on`). `resolveScope` is
+   * `() => this.<tenancy>.resolve(<the payer id the route acts for>)`, never a raw id as a key.
+   * Not for the theme: that question has its own methods (pinned by a static test).
+   */
+  async stateForPayer(
+    feature: FeatureRolloutKey,
+    resolveScope: () => Promise<Pick<PayerTenantScope, "tenantKey">>,
+  ): Promise<"on" | "off" | "unavailable"> {
+    const mode = this.mode(feature);
+    if (mode !== "pilot") return mode === "on" ? "on" : "off";
+    const { tenantKey } = await resolveScope();
+    return this.stateFor(feature, tenantKey);
+  }
+
+  /**
    * #2820 — may this login use a theme other than the app's default? THE theme question for every
    * app; the switch is `THEME_ROLLOUT`. `off` no, `on` yes (neither reads a list), `pilot` only
    * when listed: a company in `feature_pilot_payers` by its tenant key, a worker or an admin in

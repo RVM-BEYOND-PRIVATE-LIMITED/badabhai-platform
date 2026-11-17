@@ -51,6 +51,15 @@ function makeCtrl() {
     // Real-payments seam. `realPaymentsLive` is a getter on the service; it is overridden
     // per-test where the LIVE posture is under test.
     realPaymentsLive: false,
+    // #2749 item 10 — the route gates the controller asks. These doubles model a company the
+    // `credit_checkout` rollout applies to whenever real payments are live (the posture every
+    // pre-#2749 case here assumed); the full matrix is `credit-checkout-gates.test.ts`.
+    isMockPackPurchaseOpen: vi.fn(
+      async (_payerId: string): Promise<boolean> => !unlocks.realPaymentsLive,
+    ),
+    isRealCheckoutOpen: vi.fn(
+      async (_payerId: string): Promise<boolean> => unlocks.realPaymentsLive,
+    ),
     // #2749 PR 3: the handoff charges the GST-inclusive total (₹2,000 → ₹2,360).
     createCreditOrder: vi.fn(async () => ({
       orderRowId: "11111111-2222-4333-8444-555555555555",
@@ -404,7 +413,12 @@ describe("#1046 — POST /payer/credits is idempotent on Idempotency-Key", () =>
       credits: 50,
       pack_code: packCode,
     }));
-    const unlocks = { realPaymentsLive: false, purchaseCredits };
+    const unlocks = {
+      realPaymentsLive: false,
+      purchaseCredits,
+      // #2749 item 10 — the mock route's gate, modelled from the deployment half alone.
+      isMockPackPurchaseOpen: async (): Promise<boolean> => !unlocks.realPaymentsLive,
+    };
     const { seam, redis } = realSeam();
     const ctrl = new PayerUnlocksController(
       unlocks as never,
@@ -657,7 +671,12 @@ describe("#2749 item 9 — POST /payer/credits/order is idempotent on Idempotenc
       };
     };
     const createCreditOrder = vi.fn(async () => handoff());
-    const unlocks = { realPaymentsLive: true, createCreditOrder };
+    const unlocks = {
+      realPaymentsLive: true,
+      createCreditOrder,
+      // #2749 item 10 — a company in the rollout: open exactly while real payments are live.
+      isRealCheckoutOpen: async (): Promise<boolean> => unlocks.realPaymentsLive,
+    };
     const { seam, redis } = realSeam();
     const ctrl = new PayerUnlocksController(
       unlocks as never,
@@ -783,5 +802,56 @@ describe("#2749 item 9 — the order body's origin fields are validated at the b
     ]) {
       expect(() => pipe.transform(body), JSON.stringify(body)).toThrow(BadRequestException);
     }
+  });
+});
+
+/**
+ * #2749 item 10 (ADR-0065) — the controller asks the service's company gates with the SESSION
+ * payer id (XB-A: never a body value) and answers the route's neutral 404 when closed, before the
+ * idempotency seam and without touching the purchase. The gates' own table (rollout × real
+ * payments) is credit-checkout-gates.test.ts.
+ */
+describe("PayerUnlocksController — the credit_checkout gates (#2749 item 10)", () => {
+  let d: ReturnType<typeof makeCtrl>;
+  beforeEach(() => {
+    d = makeCtrl();
+  });
+  const VERIFY = {
+    razorpay_order_id: "order_1",
+    razorpay_payment_id: "pay_1",
+    razorpay_signature: "sig",
+  };
+
+  it("each route asks its gate with the SESSION payer id", async () => {
+    await d.ctrl.buyPack({ pack_code: "pack_50" }, PAYER_A, NO_KEY, CTX);
+    expect(d.unlocks.isMockPackPurchaseOpen).toHaveBeenCalledWith(PAYER_A.id);
+
+    d.unlocks.realPaymentsLive = true;
+    await d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, NO_KEY, CTX);
+    await d.ctrl.verifyPayment(VERIFY, PAYER_A, CTX);
+    expect(d.unlocks.isRealCheckoutOpen.mock.calls).toEqual([[PAYER_A.id], [PAYER_A.id]]);
+  });
+
+  it("a company the rules apply to: the free pack is the neutral 404 and nothing is granted", async () => {
+    d.unlocks.isMockPackPurchaseOpen.mockResolvedValueOnce(false);
+    await expect(
+      d.ctrl.buyPack({ pack_code: "pack_50" }, PAYER_A, NO_KEY, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(d.unlocks.purchaseCredits).not.toHaveBeenCalled();
+    expect(d.idempotency.runOnce).not.toHaveBeenCalled(); // decided before the seam
+  });
+
+  it("a company the rules do not apply to yet: order and verify are the neutral 404, no provider call", async () => {
+    d.unlocks.realPaymentsLive = true;
+    d.unlocks.isRealCheckoutOpen.mockResolvedValue(false);
+    await expect(
+      d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, NO_KEY, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(d.ctrl.verifyPayment(VERIFY, PAYER_A, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(d.unlocks.createCreditOrder).not.toHaveBeenCalled();
+    expect(d.unlocks.verifyCheckoutPayment).not.toHaveBeenCalled();
+    expect(d.idempotency.runOnce).not.toHaveBeenCalled();
   });
 });

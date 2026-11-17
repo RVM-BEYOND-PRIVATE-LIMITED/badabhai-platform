@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import { ConflictException, NotFoundException } from "@nestjs/common";
+import { CREDIT_GRANT_ROLLOUT_REASON, creditGrantRefused } from "./credit-grant-refused";
 import { UnlocksController } from "./unlocks.controller";
 import type { UnlockService } from "./unlocks.service";
 import type { RequestContext } from "../common/request-context";
@@ -18,7 +19,8 @@ function make() {
     listByPayer: vi.fn(async () => ({ unlocks: [] })),
     getOne: vi.fn(async () => undefined as Record<string, unknown> | undefined),
     getCredits: vi.fn(async () => ({ balance: 5 })),
-    purchaseCredits: vi.fn(async () => null as Record<string, unknown> | null),
+    // #2749 hardening 2 — the ops grant goes through the rollout-gated service method.
+    grantPackForOps: vi.fn(async () => null as Record<string, unknown> | null),
   };
   return { controller: new UnlocksController(unlocks as unknown as UnlockService), unlocks };
 }
@@ -72,9 +74,26 @@ describe("UnlocksController (internal) — delegation + 404 ops paths", () => {
 
   it("purchaseCredits returns the result for a known pack", async () => {
     const { controller, unlocks } = make();
-    unlocks.purchaseCredits.mockResolvedValueOnce({ balance: 15 });
+    unlocks.grantPackForOps.mockResolvedValueOnce({ balance: 15 });
     const res = await controller.purchaseCredits(PAYER, { pack_code: "pack_10" } as never, CTX);
-    expect(unlocks.purchaseCredits).toHaveBeenCalledWith(PAYER, "pack_10", CTX);
+    expect(unlocks.grantPackForOps).toHaveBeenCalledWith(PAYER, "pack_10", CTX);
     expect(res).toEqual({ balance: 15 });
+  });
+
+  it("#2749 hardening 2: a company in the new rules gets the service's 409 as-is (reason + message)", async () => {
+    const { controller, unlocks } = make();
+    unlocks.grantPackForOps.mockRejectedValueOnce(creditGrantRefused());
+    const err = await controller
+      .purchaseCredits(PAYER, { pack_code: "pack_50" } as never, CTX)
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({
+      statusCode: 409,
+      reason: CREDIT_GRANT_ROLLOUT_REASON,
+      message: expect.stringContaining("goodwill path (#2750)"),
+    });
   });
 });

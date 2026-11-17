@@ -73,6 +73,7 @@ import {
   openUntilOf,
 } from "./open-grant";
 import { onBriefNotice } from "./brief-notice";
+import { creditGrantPilotListUnavailable, creditGrantRefused } from "./credit-grant-refused";
 import { searchExitRefuses } from "../search-exit/search-exit-gate";
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
@@ -251,6 +252,63 @@ export class UnlockService {
 
   private async contactRulesOn(tenant: TenantKey): Promise<boolean> {
     return (await this.contactRulesState(tenant)) === "on";
+  }
+
+  // ===========================================================================
+  // #2749 item 10 — WHICH CREDIT-PURCHASE ROUTE IS OPEN FOR A COMPANY (ADR-0065)
+  // ===========================================================================
+
+  /**
+   * Do the new money rules (`credit_checkout`) apply to the company `payerId` acts for? LAZY:
+   * `off` and `on` answer without resolving the tenant (no membership read, no shadow line), so
+   * with the switch `off` every credit route reads exactly what it read before it existed. Only
+   * `pilot` resolves the tenant key (the same resolver the purchase then uses) and reads the list.
+   * An absent rollout service (a hand-built unit instance) reads as off.
+   */
+  private creditCheckoutState(payerId: string): Promise<"on" | "off" | "unavailable"> {
+    if (this.rollout === undefined) return Promise.resolve("off");
+    return this.rollout.stateForPayer("credit_checkout", () => this.tenancy.resolve(payerId));
+  }
+
+  /**
+   * `POST /payer/credits`, the free mock packs (hardening 1): open only while real payments are
+   * off AND the new rules do not apply to the company, so a company's free packs stop the moment
+   * the rules start for it, not only when the global switch flips. A pilot list that cannot be
+   * read closes it too: the company might be a pilot one.
+   */
+  async isMockPackPurchaseOpen(payerId: string): Promise<boolean> {
+    if (this.realPaymentsLive) return false;
+    return (await this.creditCheckoutState(payerId)) === "off";
+  }
+
+  /**
+   * `POST /payer/credits/order` and `/verify`, the real checkout: open only while real payments
+   * are live AND the new rules apply to the company. A pilot list that cannot be read closes it
+   * (no order, no money). The webhook is NOT gated: it settles only orders that exist, and every
+   * one was created through this gate; an order created before a rollback still settles.
+   */
+  async isRealCheckoutOpen(payerId: string): Promise<boolean> {
+    if (!this.realPaymentsLive) return false;
+    return (await this.creditCheckoutState(payerId)) === "on";
+  }
+
+  /**
+   * The ops grant `POST /payers/:payerId/credits` (InternalServiceGuard, hardening 2): the same
+   * mock pack grant as before for every company the new rules do not apply to. A company they do
+   * apply to is refused with a 409 (`reason: credit_checkout_rollout`): its credits come from a
+   * real purchase or, from #2750, the capped goodwill path. A pilot list that cannot be read is a
+   * 503 and grants nothing. No real-payments gate here, deliberately (today's behaviour): with the
+   * switch `on` every company is refused, which retires the route.
+   */
+  async grantPackForOps(
+    payerId: string,
+    packCode: string,
+    ctx: RequestContext,
+  ): Promise<{ payer_id: string; balance: number; credits: number; pack_code: string } | null> {
+    const state = await this.creditCheckoutState(payerId);
+    if (state === "on") throw creditGrantRefused();
+    if (state === "unavailable") throw creditGrantPilotListUnavailable();
+    return this.purchaseCredits(payerId, packCode, ctx);
   }
 
   // ===========================================================================
@@ -1111,7 +1169,11 @@ export class UnlockService {
   // of truth and the browser verify is a convergent fallback.
   // ===========================================================================
 
-  /** True when a REAL gateway is fully wired. The controller gates the real routes on this. */
+  /**
+   * True when a REAL gateway is fully wired. The deployment half of the credit-route gates
+   * ({@link isMockPackPurchaseOpen}, {@link isRealCheckoutOpen}); the company half is the
+   * `credit_checkout` rollout (#2749 item 10).
+   */
   get realPaymentsLive(): boolean {
     return this.payments.realCall;
   }

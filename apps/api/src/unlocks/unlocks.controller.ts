@@ -113,6 +113,10 @@ export class UnlocksController {
    * credits, appends the ledger, emits payment.authorized + payment.captured with
    * real_call:false. A real Razorpay purchase is a LATER human-gated stream (§D5).
    * 404 on an unknown pack_code (this is NOT the unlock no-oracle path).
+   *
+   * #2749 hardening 2 (ADR-0065): a payer whose company the new money rules apply to
+   * (`CREDIT_CHECKOUT_ROLLOUT`) is refused with a 409 `reason: credit_checkout_rollout` and
+   * nothing is granted; a 503 when the pilot list cannot be read. Everyone else: as before.
    */
   @Post("payers/:payerId/credits")
   @HttpCode(200)
@@ -121,7 +125,7 @@ export class UnlocksController {
     @Body(new ZodValidationPipe(PurchaseCreditsSchema)) dto: PurchaseCreditsDto,
     @Ctx() ctx: RequestContext,
   ) {
-    const result = await this.unlocks.purchaseCredits(payerId, dto.pack_code, ctx);
+    const result = await this.unlocks.grantPackForOps(payerId, dto.pack_code, ctx);
     if (!result) throw new NotFoundException(`Unknown credit pack ${dto.pack_code}`);
     return result;
   }
