@@ -698,6 +698,8 @@ export type UnlockResult = z.infer<typeof unlockResultSchema>;
 export interface UnlockQuotes {
   quotes: Record<string, number>;
   creditsAvailable: number;
+  /** #2750 part C — workers whose open is free because of an RVM waiver. */
+  waived?: Record<string, true>;
 }
 
 /* ── Reveal → ROUTED contact handle (LIVE: POST /payer/unlocks/:id/reveal) ─────── */
@@ -1047,6 +1049,8 @@ export const unlockResultWireSchema = z.union([
 export const unlockQuoteWireSchema = z.object({
   worker_id: z.string().uuid(),
   credits: z.number().int().nonnegative(),
+  /** Present only when true: the RVM placement team waived this open. */
+  waived: z.literal(true).optional(),
 });
 export const unlockQuotesWireSchema = z.object({
   quotes: z.array(unlockQuoteWireSchema),

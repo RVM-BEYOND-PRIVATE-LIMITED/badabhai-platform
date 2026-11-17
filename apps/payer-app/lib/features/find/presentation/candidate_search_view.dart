@@ -205,6 +205,7 @@ class CandidateSearchView extends StatelessWidget {
         relatedToLabel: state.pickedRoleLabel,
         credits: state.quotedCreditsFor(r.workerId),
         affordable: !state.quoteUnaffordableFor(r.workerId),
+        waived: state.quotedWaivedFor(r.workerId),
         onOpenCredits: onOpenCredits,
         onUnlock: () => _unlock(context, r),
         onView: () => onReveal(revealArgsFor(r, unlockId!)),

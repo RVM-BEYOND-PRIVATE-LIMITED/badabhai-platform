@@ -525,6 +525,7 @@ class _FindViewState extends State<_FindView> {
             unlocking: state.isUnlocking(a.workerId),
             credits: state.quotedCreditsFor(a.workerId),
             affordable: !state.quoteUnaffordableFor(a.workerId),
+            waived: state.quotedWaivedFor(a.workerId),
             onOpenCredits: widget.onOpenCredits,
             onUnlock: () =>
                 _unlockApplicant(context, a, jobId: state.selectedJob?.id),
@@ -752,6 +753,7 @@ class _ApplicantCard extends StatelessWidget {
     required this.onView,
     this.credits,
     this.affordable = true,
+    this.waived = false,
     this.onOpenCredits,
   });
 
@@ -765,6 +767,7 @@ class _ApplicantCard extends StatelessWidget {
   /// #2750 — this applicant's quote and the Starter pack destination.
   final int? credits;
   final bool affordable;
+  final bool waived;
   final VoidCallback? onOpenCredits;
 
   @override
@@ -803,6 +806,7 @@ class _ApplicantCard extends StatelessWidget {
               busy: unlocking,
               credits: credits,
               affordable: affordable,
+              waived: waived,
               onOpenCredits: onOpenCredits,
               onUnlock: onUnlock,
               onView: onView,

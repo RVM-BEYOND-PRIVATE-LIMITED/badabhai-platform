@@ -77,9 +77,7 @@ const SESSION_ONLY_ROUTES = ["admin/me", "admin/me/display-prefs"];
  * ONLY when no route is found, and the page is still required to gate on the capability the route
  * will carry — so when part C lands this file needs no edit and the real check resumes.
  */
-const PENDING_API_ROUTES: ReadonlyMap<string, AdminCapability> = new Map([
-  ["/admin/numbers/out-of-credits", "read_business_numbers"],
-]);
+const PENDING_API_ROUTES: ReadonlyMap<string, AdminCapability> = new Map();
 
 interface ApiRoute {
   segments: string[];
@@ -372,9 +370,11 @@ describe("every page is gated on every capability its reads need (or degrades th
         if (!route) {
           const pendingCap = PENDING_API_ROUTES.get(r.path);
           if (pendingCap) {
+            const degraded = branchesOn(read(r.file), pendingCap);
             expect(
-              a.gates.has(pendingCap),
-              `${name} reads ${r.path}, whose API half is pending, but does not gate on ${pendingCap}`,
+              a.gates.has(pendingCap) || degraded,
+              `${name} reads ${r.path}, whose API half is pending, but neither gates on ` +
+                `${pendingCap} nor checks can(…, "${pendingCap}")`,
             ).toBe(true);
             continue;
           }
