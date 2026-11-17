@@ -5,7 +5,7 @@ import { ConflictException, NotFoundException } from "@nestjs/common";
 import { loadServerConfig, type ServerConfig } from "@badabhai/config";
 import { CREDIT_PACKS, createDbClient, type DbClient } from "@badabhai/db";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
-import { DEFAULT_CATALOG, parseCatalog } from "@badabhai/pricing";
+import { DEFAULT_CATALOG, gstPriceLine, parseCatalog } from "@badabhai/pricing";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsRepository } from "../events/events.repository";
@@ -104,7 +104,13 @@ const EMAIL_B = `tenancy-b-${TAG}@e2e.badabhai.invalid`;
 /** One worker for the anchor's control unlock, a different one for B's (no idempotent replay). */
 const WORKER_FOR_A = randomUUID();
 const WORKER_FOR_B = randomUUID();
-const PACK = CREDIT_PACKS["pack_10"]!;
+// A mock grant of the constant pack, shaped as the gateway resolves one (#2749 PR 3: its GST line
+// and no validity, so the lot never expires).
+const PACK = {
+  ...CREDIT_PACKS["pack_10"]!,
+  validityDays: null,
+  priceLine: gstPriceLine(CREDIT_PACKS["pack_10"]!.priceInr),
+};
 
 describe.skipIf(!RUN)(
   "ADR-0053 T0 — A invites B; B sees A's postings + credits (Postgres, mode on)",
@@ -2333,6 +2339,9 @@ describe.skipIf(!RUN)(
             eventName: "payment.captured",
             paymentId: `pay_${W_TAG}1`,
             orderId: order1!.providerOrderId,
+            // #2749 hardening 5: the capture carries the order total (₹2,000 + GST = ₹2,360).
+            amountPaise: order1!.amountPaise,
+            currency: "INR",
           },
           W_CTX,
         ),
@@ -2370,6 +2379,8 @@ describe.skipIf(!RUN)(
             eventName: "payment.captured",
             paymentId: `pay_${W_TAG}3`,
             orderId: preFlip!.providerOrderId,
+            amountPaise: preFlip!.amountPaise,
+            currency: "INR",
           },
           W_CTX,
         ),

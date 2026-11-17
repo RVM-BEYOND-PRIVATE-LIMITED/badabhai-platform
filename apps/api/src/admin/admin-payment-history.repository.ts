@@ -93,6 +93,7 @@ export class AdminPaymentHistoryRepository {
       this.db
         .select({
           id: paymentOrders.id,
+          productKind: paymentOrders.productKind,
           packCode: paymentOrders.packCode,
           amountInr: paymentOrders.amountInr,
           creditsGranted: paymentOrders.creditsGranted,
@@ -179,7 +180,8 @@ export class AdminPaymentHistoryRepository {
         id: `payment_order:${o.id}`,
         date: o.createdAt,
         type: "payment_order",
-        item: o.packCode,
+        // A credit-pack order always names its pack; a non-pack order (#2751) its product kind.
+        item: o.packCode ?? o.productKind,
         credits: o.creditsGranted,
         amount_inr: o.amountInr,
         status: o.status,

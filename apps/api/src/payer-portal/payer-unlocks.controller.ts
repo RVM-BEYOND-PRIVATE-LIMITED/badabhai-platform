@@ -245,27 +245,78 @@ export class PayerUnlocksController {
    *
    * The response carries the `rzp_*` KEY ID, which is public by design (checkout.js needs
    * it in the browser). The key SECRET and the webhook secret never appear in any response.
+   *
+   * #2749 PR 3 — THE AMOUNT IS THE GST-INCLUSIVE TOTAL: `amount` (paise) = the pack's
+   * `price.totalPaise` on `GET /payer/pricing/catalog`, `amount_inr` its whole rupees. `price`
+   * (additive) is the stamped line in paise and `validity_days` how long the credits last.
+   * `expected_price_inr` stays the LIST price before GST. Optional `origin` /
+   * `origin_job_posting_id` record where the purchase started (a posting not the caller's own is
+   * dropped silently).
+   *
+   * IDEMPOTENCY (#2749 item 9): an `Idempotency-Key` header is honoured exactly as on
+   * `POST /payer/credits` — the same seam, namespace `payer_idem`, scoped to this route and the
+   * SESSION payer. A retry under the same key replays the first handoff (the same `order_id`) and
+   * creates NO second Razorpay order; a duplicate while the first is still running is a 409
+   * `in_flight`. Optional for backward compatibility; clients SHOULD send one per confirmed
+   * purchase. Without it every call creates a new provider order (the old behaviour).
    */
   @Post("credits/order")
   @HttpCode(201)
   async createOrder(
     @Body(new ZodValidationPipe(CreateCreditOrderSchema)) dto: CreateCreditOrderDto,
     @CurrentPayer() payer: AuthenticatedPayer,
+    @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ) {
+    // OUTSIDE THE GUARD, for the same reason as `POST /payer/credits`: a deployment-mode 404 must
+    // never be pinned under a key for the window.
     if (!this.unlocks.realPaymentsLive) throw new NotFoundException();
-    const order = await this.unlocks.createCreditOrder(payer.id, dto.pack_code, ctx, dto.expected_price_inr);
-    // Unknown pack → a real 404 (a public catalog item, not a per-tenant resource).
-    if (!order) throw new NotFoundException(`Unknown credit pack: ${dto.pack_code}`);
-    return {
-      order_id: order.providerOrderId,
-      key_id: order.keyId,
-      amount: order.amountPaise, // paise — what checkout.js expects
-      amount_inr: order.amountInr, // whole ₹ — what the UI displays
-      currency: order.currency,
-      pack_code: order.packCode,
-      credits: order.credits,
-    };
+
+    return this.idempotency.runOnce({
+      namespace: "payer_idem",
+      scope: "credits_order",
+      // The SESSION payer, never a body value (XB-A): one payer cannot replay another's handoff.
+      subject: payer.id,
+      subjectLabel: "payer",
+      logLabel: "payer",
+      idempotencyKey: req.header("idempotency-key"),
+      // 409, never a guessed handoff: the first attempt has not created its provider order yet.
+      inFlight: (): never => {
+        throw inFlightConflict(
+          "This checkout is already being prepared; wait a moment before trying again",
+        );
+      },
+      work: async () => {
+        const order = await this.unlocks.createCreditOrder(
+          payer.id,
+          dto.pack_code,
+          ctx,
+          dto.expected_price_inr,
+          { origin: dto.origin, jobPostingId: dto.origin_job_posting_id },
+        );
+        // Unknown pack → a real 404 (a public catalog item, not a per-tenant resource). Inside
+        // the guard: a retry under the same key replays it.
+        if (!order) throw new NotFoundException(`Unknown credit pack: ${dto.pack_code}`);
+        return {
+          order_id: order.providerOrderId,
+          key_id: order.keyId,
+          amount: order.amountPaise, // paise — what checkout.js expects (the GST-inclusive total)
+          amount_inr: order.amountInr, // whole ₹ — the same total, what the UI displays
+          currency: order.currency,
+          pack_code: order.packCode,
+          credits: order.credits,
+          // #2749 PR 3, additive: the stamped price line (paise) and the credit validity.
+          price: {
+            taxable_paise: order.price.taxablePaise,
+            gst_paise: order.price.gstPaise,
+            round_off_paise: order.price.roundOffPaise,
+            total_paise: order.price.totalPaise,
+            gst_rate_bps: order.price.gstRateBps,
+          },
+          validity_days: order.validityDays,
+        };
+      },
+    });
   }
 
   /**

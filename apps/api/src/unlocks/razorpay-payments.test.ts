@@ -1,5 +1,6 @@
 import "reflect-metadata";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { DEFAULT_CATALOG } from "@badabhai/pricing";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
@@ -8,7 +9,7 @@ import type { EventsService } from "../events/events.service";
 import type { ConsentRepository } from "../consent/consent.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
-import type { PricingService } from "../pricing/pricing.service";
+import { PricingService } from "../pricing/pricing.service";
 import { UnlockService } from "./unlocks.service";
 import type { UnlocksRepository, Tx } from "./unlocks.repository";
 import { PaymentGateway } from "./payment-gateway";
@@ -37,7 +38,8 @@ import type {
  * the production code leans on, so a change that quietly drops one of them fails here.
  *  - UNIQUE (provider, provider_order_id) on payment_orders;
  *  - `credits_granted` NOT NULL, stamped at creation and read back at settle;
- *  - the conditional `status <> 'paid' → 'paid'` UPDATE as an ATOMIC compare-and-set;
+ *  - the conditional `status IN ('created','failed') → 'paid'` UPDATE as an ATOMIC compare-and-set
+ *    (and the same CAS to 'held', #2749 hardening 5);
  *  - the partial UNIQUE index on credit_ledger.idempotency_key;
  *  - one transaction wrapping the claim + the grant.
  */
@@ -90,6 +92,8 @@ interface LedgerRow {
   paymentRef: string | null;
   priceInr: number | null;
   idempotencyKey: string | null;
+  /** #2749 PR 3 — the lot's validity, in days (null = never expires). */
+  validityDays: number | null;
 }
 
 /**
@@ -105,11 +109,19 @@ function makeFakeRepo() {
 
   const key = (provider: string, providerOrderId: string): string =>
     `${provider}:${providerOrderId}`;
+  /** The statuses a capture may move an order out of (the repository's CAPTURABLE set). */
+  const capturable = (row: PaymentOrder): boolean =>
+    row.status === "created" || row.status === "failed";
+  /** `${tenant}:${refId}` → what the tenant owns, for the order-origin ownership read. */
+  const owned = new Map<string, { kind: "job" | "posting"; id: string }>();
 
   const seedOrder = (over: Partial<PaymentOrder> = {}): PaymentOrder => {
+    // By default an order shaped like a pre-0175 row (no paise columns): it expects
+    // amount_inr × 100 = 200000 paise, which is what `captureEvent()` reports.
     const row: PaymentOrder = {
       id: ORDER_ROW,
       payerId: PAYER,
+      productKind: "credit_pack",
       packCode: "pack_50",
       amountInr: 2000,
       creditsGranted: 50, // stamped at creation — the settle path reads THIS, not the catalog
@@ -117,6 +129,14 @@ function makeFakeRepo() {
       providerOrderId: PROVIDER_ORDER,
       status: "created" as PaymentOrderStatus,
       providerPaymentRef: null,
+      taxablePaise: null,
+      gstPaise: null,
+      roundOffPaise: null,
+      totalPaise: null,
+      gstRateBps: null,
+      creditValidityDays: null,
+      origin: null,
+      originJobPostingId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       ...over,
@@ -135,6 +155,7 @@ function makeFakeRepo() {
       paymentRef: string | null;
       priceInr?: number | null;
       idempotencyKey?: string | null;
+      validityDays?: number | null;
     },
   ): Promise<number> {
     const k = input.idempotencyKey ?? null;
@@ -150,6 +171,7 @@ function makeFakeRepo() {
       paymentRef: input.paymentRef,
       priceInr: input.priceInr ?? null,
       idempotencyKey: k,
+      validityDays: input.validityDays ?? null,
     });
     const next = (balances.get(input.payerId) ?? 0) + input.credits;
     balances.set(input.payerId, next);
@@ -162,12 +184,23 @@ function makeFakeRepo() {
 
     createPaymentOrder: vi.fn(
       async (input: {
+        id?: string;
         payerId: string;
         packCode: string;
         amountInr: number;
         creditsGranted: number;
         providerOrderId: string;
         provider?: string;
+        money?: {
+          taxablePaise: number;
+          gstPaise: number;
+          roundOffPaise: number;
+          totalPaise: number;
+          gstRateBps: number;
+        } | null;
+        creditValidityDays?: number | null;
+        origin?: PaymentOrder["origin"];
+        originJobPostingId?: string | null;
       }): Promise<PaymentOrder> => {
         const provider = input.provider ?? "razorpay";
         // UNIQUE (provider, provider_order_id) — the payment idempotency key.
@@ -179,9 +212,14 @@ function makeFakeRepo() {
         if (!Number.isInteger(input.creditsGranted) || input.creditsGranted <= 0) {
           throw new Error('new row violates check constraint "payment_orders_credits_pos_chk"');
         }
+        // payment_orders_money_sum_chk: the rupee column is the paise total, a whole rupee.
+        if (input.money && input.money.totalPaise !== input.amountInr * 100) {
+          throw new Error('new row violates check constraint "payment_orders_money_sum_chk"');
+        }
         const row: PaymentOrder = {
-          id: ORDER_ROW,
+          id: input.id ?? ORDER_ROW,
           payerId: input.payerId,
+          productKind: "credit_pack",
           packCode: input.packCode,
           amountInr: input.amountInr,
           creditsGranted: input.creditsGranted,
@@ -189,6 +227,14 @@ function makeFakeRepo() {
           providerOrderId: input.providerOrderId,
           status: "created",
           providerPaymentRef: null,
+          taxablePaise: input.money?.taxablePaise ?? null,
+          gstPaise: input.money?.gstPaise ?? null,
+          roundOffPaise: input.money?.roundOffPaise ?? null,
+          totalPaise: input.money?.totalPaise ?? null,
+          gstRateBps: input.money?.gstRateBps ?? null,
+          creditValidityDays: input.creditValidityDays ?? null,
+          origin: input.origin ?? null,
+          originJobPostingId: input.originJobPostingId ?? null,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -211,7 +257,8 @@ function makeFakeRepo() {
         input: { providerOrderId: string; providerPaymentRef: string; provider?: string },
       ) => {
         const row = orders.get(key(input.provider ?? "razorpay", input.providerOrderId));
-        if (!row || row.status === "paid") return undefined; // `status <> 'paid'` matched nothing
+        // `status IN ('created','failed')`: a paid or HELD row matches nothing.
+        if (!row || !capturable(row)) return undefined;
         const claimed: PaymentOrder = {
           ...row,
           status: "paid",
@@ -226,14 +273,47 @@ function makeFakeRepo() {
           paymentRef: input.providerPaymentRef,
           priceInr: claimed.amountInr,
           idempotencyKey: `payment_order:${claimed.id}`,
+          validityDays: claimed.creditValidityDays,
         });
         return { order: claimed, balanceAfter };
       },
     ),
 
+    // #2749 hardening 5 — the same synchronous CAS, to 'held'; the hook runs "in" its transaction.
+    holdPaymentOrder: vi.fn(
+      async (
+        input: { providerOrderId: string; providerPaymentRef: string; provider?: string },
+        withinTx?: (tx: Tx, held: PaymentOrder) => Promise<void>,
+      ) => {
+        const row = orders.get(key(input.provider ?? "razorpay", input.providerOrderId));
+        if (!row || !capturable(row)) return undefined;
+        const held: PaymentOrder = {
+          ...row,
+          status: "held",
+          providerPaymentRef: input.providerPaymentRef,
+          updatedAt: new Date(),
+        };
+        orders.set(key(held.provider, held.providerOrderId), held);
+        if (withinTx) {
+          try {
+            await withinTx({} as Tx, held);
+          } catch (err) {
+            orders.set(key(row.provider, row.providerOrderId), row); // the rollback
+            throw err;
+          }
+        }
+        return held;
+      },
+    ),
+
+    // #1899 ownership read behind the order origin: `owned` maps a ref id to what the tenant owns.
+    findOwnedJobRef: vi.fn(
+      async (refId: string, tenant: string) => owned.get(`${tenant}:${refId}`) ?? null,
+    ),
+
     markPaymentOrderFailed: vi.fn(async (providerOrderId: string, provider = "razorpay") => {
       const row = orders.get(key(provider, providerOrderId));
-      if (!row || row.status === "paid") return undefined; // never walk back a capture
+      if (!row || !capturable(row)) return undefined; // never walk back a capture or a hold
       const next: PaymentOrder = { ...row, status: "failed", updatedAt: new Date() };
       orders.set(key(provider, providerOrderId), next);
       return next;
@@ -243,7 +323,7 @@ function makeFakeRepo() {
     getBalance: vi.fn(async (payerId: string) => balances.get(payerId) ?? 0),
   };
 
-  return { repo, orders, ledger, balances, seedOrder, key };
+  return { repo, orders, ledger, balances, seedOrder, key, owned };
 }
 
 function makeService(
@@ -271,9 +351,10 @@ function makeService(
   const razorpay = {
     isLive: true,
     keyId: "rzp_test_keyid",
-    createOrder: vi.fn(async () => ({
+    // Echoes the amount it was asked for in paise, exactly as RazorpayClient computes it.
+    createOrder: vi.fn(async ({ amountInr }: { amountInr: number }) => ({
       orderId: PROVIDER_ORDER,
-      amountPaise: 200000,
+      amountPaise: amountInr * 100,
       currency: "INR",
     })),
   };
@@ -315,11 +396,18 @@ function emitted(events: { emit: { mock: { calls: unknown[][] } } }): string[] {
   return events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
 }
 
-const captureEvent = (orderId: string = PROVIDER_ORDER, paymentId: string = PAYMENT_ID) =>
+/** A verified capture. 200000 paise = the default seeded (pre-0175) order's ₹2,000. */
+const captureEvent = (
+  orderId: string = PROVIDER_ORDER,
+  paymentId: string = PAYMENT_ID,
+  amount: number = 200000,
+) =>
   toPaymentEvent(
     RazorpayWebhookSchema.parse({
       event: "payment.captured",
-      payload: { payment: { entity: { id: paymentId, order_id: orderId, amount: 200000 } } },
+      payload: {
+        payment: { entity: { id: paymentId, order_id: orderId, amount, currency: "INR" } },
+      },
     }),
   );
 
@@ -342,21 +430,29 @@ function catalogWithPack50(extra: { offered?: boolean; onSaleFrom?: string }) {
   } as typeof DEFAULT_CATALOG;
 }
 
-describe("POST /payer/credits/order — the charged amount is the CATALOG price", () => {
+describe("POST /payer/credits/order — the charged amount is the CATALOG price, GST included", () => {
   let d: ReturnType<typeof makeService>;
   beforeEach(() => {
     d = makeService();
   });
 
-  it("charges the pack's catalog price and stamps it on the order row", async () => {
+  it("charges the pack's catalog price WITH GST and stamps the whole line on the order row", async () => {
     const order = await d.svc.createCreditOrder(PAYER, "pack_50", CTX);
-    // DEFAULT_CATALOG's pack_50 is ₹2,000 / 50 credits. Both come from resolvePack.
+    // DEFAULT_CATALOG's pack_50 is ₹2,000 / 50 credits; with 18% GST the total is ₹2,360.
     expect(order).not.toBeNull();
-    expect(order?.amountInr).toBe(2000);
+    expect(order?.amountInr).toBe(2360);
+    expect(order?.amountPaise).toBe(236000);
     expect(order?.credits).toBe(50);
-    // The provider was asked for exactly that amount…
+    expect(order?.price).toEqual({
+      taxablePaise: 200000,
+      gstPaise: 36000,
+      roundOffPaise: 0,
+      totalPaise: 236000,
+      gstRateBps: 1800,
+    });
+    // The provider was asked for exactly that total…
     expect(d.razorpay.createOrder).toHaveBeenCalledWith(
-      expect.objectContaining({ amountInr: 2000 }),
+      expect.objectContaining({ amountInr: 2360 }),
     );
     // …and the persisted receipt carries BOTH SIDES of the transaction — the ₹ AND the
     // credits — from that one catalog read. A receipt with only the amount is the gap that
@@ -365,11 +461,31 @@ describe("POST /payer/credits/order — the charged amount is the CATALOG price"
       expect.objectContaining({
         payerId: PAYER,
         packCode: "pack_50",
-        amountInr: 2000,
+        amountInr: 2360,
         creditsGranted: 50,
+        money: {
+          taxablePaise: 200000,
+          gstPaise: 36000,
+          roundOffPaise: 0,
+          totalPaise: 236000,
+          gstRateBps: 1800,
+        },
+        creditValidityDays: null, // DEFAULT_CATALOG's packs set no validity
+        origin: null,
+        originJobPostingId: null,
       }),
     );
-    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.creditsGranted).toBe(50);
+    const row = d.orders.get(`razorpay:${PROVIDER_ORDER}`);
+    expect(row?.creditsGranted).toBe(50);
+    expect(row?.totalPaise).toBe(236000);
+    // The row id IS the receipt and the notes' id (the two-way reconciliation link).
+    const asked = d.razorpay.createOrder.mock.calls[0]?.[0] as unknown as {
+      receipt: string;
+      notes: { payment_order_id: string };
+    };
+    expect(row?.id).toBe(asked.receipt);
+    expect(asked.notes.payment_order_id).toBe(asked.receipt);
+    expect(order?.orderRowId).toBe(asked.receipt);
   });
 
   it("follows an OPS PRICE EDIT — advertised and charged stay the same lookup (D-6)", async () => {
@@ -386,14 +502,15 @@ describe("POST /payer/credits/order — the charged amount is the CATALOG price"
       source: "db" as const,
     });
     const order = await d.svc.createCreditOrder(PAYER, "pack_50", CTX);
-    expect(order?.amountInr).toBe(1500);
+    // ₹1,500 + 18% = ₹1,770.
+    expect(order?.amountInr).toBe(1770);
     expect(order?.credits).toBe(60);
     expect(d.razorpay.createOrder).toHaveBeenCalledWith(
-      expect.objectContaining({ amountInr: 1500 }),
+      expect.objectContaining({ amountInr: 1770 }),
     );
     // Both edited values are stamped together, so the order is self-describing from here on.
     expect(d.repo.createPaymentOrder).toHaveBeenCalledWith(
-      expect.objectContaining({ amountInr: 1500, creditsGranted: 60 }),
+      expect.objectContaining({ amountInr: 1770, creditsGranted: 60 }),
     );
   });
 
@@ -480,7 +597,7 @@ describe("POST /payer/credits/order — the charged amount is the CATALOG price"
     expect(payload).toMatchObject({
       payer_id: PAYER,
       pack_code: "pack_50",
-      amount_inr: 2000,
+      amount_inr: 2360, // the total charged, GST included
       amount_credits: 50,
       real_call: true, // honest: money is genuinely in flight
     });
@@ -503,9 +620,9 @@ describe("POST /payer/credits/order — the charged amount is the CATALOG price"
     expect(emitted(d.events)).toEqual([]); // no authorization for money that never moved
   });
 
-  it("#2085: a matching expected_price_inr creates the order exactly as before", async () => {
+  it("#2085: a matching expected_price_inr (the LIST price, before GST) creates the order", async () => {
     const order = await d.svc.createCreditOrder(PAYER, "pack_50", CTX, 2000);
-    expect(order?.amountInr).toBe(2000);
+    expect(order?.amountInr).toBe(2360);
     expect(d.razorpay.createOrder).toHaveBeenCalledOnce();
   });
 
@@ -535,6 +652,15 @@ describe("POST /payer/credits/order — the charged amount is the CATALOG price"
 // ---------------------------------------------------------------------------
 // Webhook capture + replay
 // ---------------------------------------------------------------------------
+
+/** A provider failure delivery (it carries an amount, which the failure path ignores). */
+const failedEvent = {
+  eventName: "payment.failed",
+  paymentId: PAYMENT_ID,
+  orderId: PROVIDER_ORDER,
+  amountPaise: 200000,
+  currency: "INR",
+};
 
 describe("webhook capture — grants once, replays are no-ops", () => {
   let d: ReturnType<typeof makeService>;
@@ -581,7 +707,13 @@ describe("webhook capture — grants once, replays are no-ops", () => {
 
   it("an UNKNOWN event type is a 200 no-op (Razorpay adds event types over time)", async () => {
     const out = await d.svc.handleRazorpayEvent(
-      { eventName: "subscription.charged", paymentId: PAYMENT_ID, orderId: PROVIDER_ORDER },
+      {
+        eventName: "subscription.charged",
+        paymentId: PAYMENT_ID,
+        orderId: PROVIDER_ORDER,
+        amountPaise: null,
+        currency: null,
+      },
       CTX,
     );
     expect(out).toEqual({ result: "no_op" });
@@ -597,10 +729,7 @@ describe("webhook capture — grants once, replays are no-ops", () => {
   });
 
   it("a payment.failed marks the order failed and emits payment.failed (no grant)", async () => {
-    const out = await d.svc.handleRazorpayEvent(
-      { eventName: "payment.failed", paymentId: PAYMENT_ID, orderId: PROVIDER_ORDER },
-      CTX,
-    );
+    const out = await d.svc.handleRazorpayEvent({ ...failedEvent }, CTX);
     expect(out).toEqual({ result: "failed_recorded" });
     expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("failed");
     expect(d.ledger).toHaveLength(0);
@@ -609,10 +738,7 @@ describe("webhook capture — grants once, replays are no-ops", () => {
 
   it("a LATE payment.failed can never walk back a completed capture (webhooks are unordered)", async () => {
     await d.svc.handleRazorpayEvent(captureEvent(), CTX);
-    const late = await d.svc.handleRazorpayEvent(
-      { eventName: "payment.failed", paymentId: PAYMENT_ID, orderId: PROVIDER_ORDER },
-      CTX,
-    );
+    const late = await d.svc.handleRazorpayEvent({ ...failedEvent }, CTX);
     expect(late).toEqual({ result: "no_op" });
     expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("paid"); // still paid
     expect(d.balances.get(PAYER)).toBe(50); // credits intact
@@ -656,11 +782,11 @@ describe("webhook capture — grants once, replays are no-ops", () => {
     const ORDER_ID = "order_on_sale_then_off";
     d.razorpay.createOrder.mockResolvedValueOnce({
       orderId: ORDER_ID,
-      amountPaise: 200000,
+      amountPaise: 236000,
       currency: "INR",
     });
     const order = await d.svc.createCreditOrder(PAYER, "pack_50", CTX);
-    expect(order).toMatchObject({ providerOrderId: ORDER_ID, amountInr: 2000, credits: 50 });
+    expect(order).toMatchObject({ providerOrderId: ORDER_ID, amountInr: 2360, credits: 50 });
     // Ops takes the pack off sale while the buyer is on Razorpay's page.
     d.pricing.getActiveCatalog.mockResolvedValue({
       catalog: catalogWithPack50({ offered: false }),
@@ -671,13 +797,13 @@ describe("webhook capture — grants once, replays are no-ops", () => {
     expect(await d.svc.createCreditOrder(PAYER, "pack_50", CTX)).toBeNull();
     // …but the payment already in flight settles, with the stamped grant.
     const out = await d.svc.handleRazorpayEvent(
-      captureEvent(ORDER_ID, "pay_on_sale_then_off"),
+      captureEvent(ORDER_ID, "pay_on_sale_then_off", 236000),
       CTX,
     );
     expect(out).toEqual({ result: "granted" });
     expect(d.balances.get(PAYER)).toBe(50);
     expect(d.ledger).toHaveLength(1);
-    expect(d.ledger[0]).toMatchObject({ delta: 50, priceInr: 2000 });
+    expect(d.ledger[0]).toMatchObject({ delta: 50, priceInr: 2360 });
     expect(d.orders.get(`razorpay:${ORDER_ID}`)?.status).toBe("paid");
   });
 
@@ -711,7 +837,7 @@ describe("webhook capture — grants once, replays are no-ops", () => {
     // asserting the grant is unmoved (above), and here by pinning that a settle with the
     // catalog stubbed to a wildly different pack still produces the stamped numbers.
     d.seedOrder({ creditsGranted: 7, amountInr: 999 });
-    await d.svc.handleRazorpayEvent(captureEvent(), CTX);
+    await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 99900), CTX);
     expect(d.ledger[0]).toMatchObject({ delta: 7, priceInr: 999 });
     expect(d.balances.get(PAYER)).toBe(7);
   });
@@ -1106,7 +1232,7 @@ describe("ADR-0053 — real orders are stamped with the org wallet at intent; se
     const d = makeService({ tenancy: on() });
     await d.svc.createCreditOrder(MEMBER, "pack_50", CTX);
     expect(d.repo.createPaymentOrder).toHaveBeenCalledWith(
-      expect.objectContaining({ payerId: ANCHOR, creditsGranted: 50, amountInr: 2000 }),
+      expect.objectContaining({ payerId: ANCHOR, creditsGranted: 50, amountInr: 2360 }),
     );
     const [authorized] = sent(d);
     expect(authorized?.event_name).toBe("payment.authorized");
@@ -1202,5 +1328,433 @@ describe("ADR-0053 — real orders are stamped with the org wallet at intent; se
     expect(emitted(d.events)).toEqual(["payment.captured"]);
     expect(["granted", "no_op"]).toContain(webhook.result);
     expect(verify).toMatchObject({ verified: true, payer_id: MEMBER, balance: 50 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2749 PR 3 — the charged amount IS the catalogue's GST total
+// ---------------------------------------------------------------------------
+
+/** The brief's three packs (and a hidden Annual), as the go-live catalogue row would hold them. */
+const BRIEF_CATALOG = {
+  ...DEFAULT_CATALOG,
+  products: DEFAULT_CATALOG.products.map((p) =>
+    p.kind === "credit_pack" && p.code === "contact_unlock"
+      ? {
+          ...p,
+          tiers: [
+            { code: "pack_starter", priceInr: 999, credits: 20, windowDays: 14, validityDays: 30 },
+            {
+              code: "pack_standard",
+              priceInr: 1599,
+              credits: 40,
+              windowDays: 14,
+              validityDays: 60,
+            },
+            { code: "pack_big", priceInr: 2999, credits: 100, windowDays: 14, validityDays: 90 },
+            {
+              code: "pack_annual",
+              priceInr: 9999,
+              credits: 360,
+              windowDays: 14,
+              validityDays: 365,
+              onSaleFrom: "2999-01-01",
+            },
+          ],
+        }
+      : p,
+  ),
+} as typeof DEFAULT_CATALOG;
+
+/** The REAL pricing service over a fake row read: `catalog` null = no stored row (production). */
+function realPricing(catalog: typeof DEFAULT_CATALOG | null): PricingService {
+  return new PricingService(
+    { getActive: vi.fn(async () => (catalog ? { catalog, revision: 7 } : null)) } as never,
+    {} as never,
+  );
+}
+
+describe("#2749 PR 3 — an order's amount equals the catalogue's price.totalPaise, for every pack on sale", () => {
+  for (const [name, catalog] of [
+    ["DEFAULT_CATALOG (production today: no stored row)", null],
+    ["the brief's catalogue row", BRIEF_CATALOG],
+  ] as const) {
+    it(`${name}: shown == charged, pack by pack`, async () => {
+      const pricing = realPricing(catalog);
+      const view = await pricing.getPayerCatalog();
+      const product = view.products.find((p) => p.kind === "credit_pack");
+      const tiers = product?.kind === "credit_pack" ? product.tiers : [];
+      expect(tiers.length).toBeGreaterThan(0);
+
+      for (const tier of tiers) {
+        const fake = makeFakeRepo();
+        const razorpay = {
+          isLive: true,
+          keyId: "rzp_test_keyid",
+          createOrder: vi.fn(async ({ amountInr }: { amountInr: number }) => ({
+            orderId: `order_${tier.code}`,
+            amountPaise: amountInr * 100,
+            currency: "INR",
+          })),
+        };
+        const gateway = new PaymentGateway(
+          fake.repo as unknown as UnlocksRepository,
+          LIVE_CONFIG,
+          pricing,
+          razorpay as unknown as RazorpayClient,
+        );
+        const pack = await gateway.resolvePack(tier.code);
+        expect(pack, tier.code).not.toBeNull();
+        const order = await gateway.createRealOrder(PAYER as never, pack!);
+        // What checkout.js is handed, what Razorpay was asked for, and what the row stamps.
+        expect(order.amountPaise, tier.code).toBe(tier.price.totalPaise);
+        expect(order.amountInr * 100, tier.code).toBe(tier.price.totalPaise);
+        expect(razorpay.createOrder).toHaveBeenCalledWith(
+          expect.objectContaining({ amountInr: tier.price.totalPaise / 100 }),
+        );
+        expect(fake.orders.get(`razorpay:order_${tier.code}`)).toMatchObject({
+          amountInr: tier.price.totalPaise / 100,
+          taxablePaise: tier.price.taxablePaise,
+          gstPaise: tier.price.gstPaise,
+          roundOffPaise: tier.price.roundOffPaise,
+          totalPaise: tier.price.totalPaise,
+          gstRateBps: tier.price.gstRateBps,
+          creditValidityDays: tier.validityDays,
+          creditsGranted: tier.credits,
+        });
+      }
+    });
+  }
+
+  it("the default packs: ₹2,000 / ₹8,000 / ₹32,000 charge ₹2,360 / ₹9,440 / ₹37,760", async () => {
+    const view = await realPricing(null).getPayerCatalog();
+    const product = view.products.find((p) => p.kind === "credit_pack");
+    const tiers = product?.kind === "credit_pack" ? product.tiers : [];
+    expect(tiers.map((t) => [t.code, t.priceInr, t.price.totalPaise, t.validityDays])).toEqual([
+      ["pack_50", 2000, 236000, null],
+      ["pack_200", 8000, 944000, null],
+      ["pack_1000", 32000, 3776000, null],
+    ]);
+  });
+
+  it("the brief's packs charge ₹1,179 / ₹1,887 / ₹3,539, and Annual is not orderable before its date", async () => {
+    const pricing = realPricing(BRIEF_CATALOG);
+    const fake = makeFakeRepo();
+    const gateway = new PaymentGateway(
+      fake.repo as unknown as UnlocksRepository,
+      LIVE_CONFIG,
+      pricing,
+      {} as never,
+    );
+    const totals = [];
+    for (const code of ["pack_starter", "pack_standard", "pack_big"]) {
+      const pack = await gateway.resolvePack(code);
+      totals.push([code, pack?.priceLine.totalPaise, pack?.validityDays]);
+    }
+    expect(totals).toEqual([
+      ["pack_starter", 117900, 30],
+      ["pack_standard", 188700, 60],
+      ["pack_big", 353900, 90],
+    ]);
+    expect(await gateway.resolvePack("pack_annual")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2749 item 9 — the purchase origin, and the posting it came from
+// ---------------------------------------------------------------------------
+
+describe("#2749 item 9 — the purchase origin is stored; a posting only when it is the tenant's own", () => {
+  const POSTING = "eeeeeeee-0000-4000-8000-000000000005";
+  let d: ReturnType<typeof makeService>;
+  beforeEach(() => {
+    d = makeService();
+  });
+
+  it("stamps the origin and the caller tenant's OWN posting", async () => {
+    d.owned.set(`${PAYER}:${POSTING}`, { kind: "posting", id: POSTING });
+    await d.svc.createCreditOrder(PAYER, "pack_50", CTX, undefined, {
+      origin: "posting_flow",
+      jobPostingId: POSTING,
+    });
+    expect(d.repo.findOwnedJobRef).toHaveBeenCalledWith(POSTING, PAYER);
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)).toMatchObject({
+      origin: "posting_flow",
+      originJobPostingId: POSTING,
+    });
+  });
+
+  it("DROPS another company's (or an unknown) posting silently — the order is still created", async () => {
+    d.owned.set(`${OTHER_PAYER}:${POSTING}`, { kind: "posting", id: POSTING }); // not PAYER's
+    const order = await d.svc.createCreditOrder(PAYER, "pack_50", CTX, undefined, {
+      origin: "unlock_prompt",
+      jobPostingId: POSTING,
+    });
+    expect(order).not.toBeNull(); // never a 404 — no posting-id oracle
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)).toMatchObject({
+      origin: "unlock_prompt",
+      originJobPostingId: null,
+    });
+  });
+
+  it("an agency's own `jobs` row is not a job posting: dropped (the column names job_postings)", async () => {
+    d.owned.set(`${PAYER}:${POSTING}`, { kind: "job", id: POSTING });
+    await d.svc.createCreditOrder(PAYER, "pack_50", CTX, undefined, { jobPostingId: POSTING });
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)).toMatchObject({
+      origin: null,
+      originJobPostingId: null,
+    });
+  });
+
+  it("no posting id → no ownership read; a refused pack → no read either", async () => {
+    await d.svc.createCreditOrder(PAYER, "pack_50", CTX, undefined, { origin: "credits_page" });
+    expect(d.repo.findOwnedJobRef).not.toHaveBeenCalled();
+    expect(
+      await d.svc.createCreditOrder(PAYER, "pack_ghost", CTX, undefined, { jobPostingId: POSTING }),
+    ).toBeNull();
+    expect(d.repo.findOwnedJobRef).not.toHaveBeenCalled();
+  });
+
+  it("a failed ownership read fails CLOSED: no provider order, no row", async () => {
+    d.repo.findOwnedJobRef.mockRejectedValueOnce(new Error("db down"));
+    await expect(
+      d.svc.createCreditOrder(PAYER, "pack_50", CTX, undefined, { jobPostingId: POSTING }),
+    ).rejects.toThrow("db down");
+    expect(d.razorpay.createOrder).not.toHaveBeenCalled();
+    expect(d.repo.createPaymentOrder).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2749 hardening 5 — the captured amount is checked before any grant
+// ---------------------------------------------------------------------------
+
+describe("#2749 hardening 5 — a capture of the wrong amount HOLDS the order and grants nothing", () => {
+  /** A post-0175 order: ₹2,000 + GST, stamped total 236000 paise. */
+  const STAMPED = {
+    amountInr: 2360,
+    taxablePaise: 200000,
+    gstPaise: 36000,
+    roundOffPaise: 0,
+    totalPaise: 236000,
+    gstRateBps: 1800,
+  };
+  const signature = signCheckoutForTest(PROVIDER_ORDER, PAYMENT_ID, KEY_SECRET);
+  let d: ReturnType<typeof makeService>;
+  beforeEach(() => {
+    d = makeService();
+    d.seedOrder(STAMPED);
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const heldPayload = () =>
+    d.events.emit.mock.calls.find(
+      (c) => (c[0] as { event_name: string }).event_name === "payment.held",
+    )?.[0] as Record<string, unknown> | undefined;
+
+  it("a MISMATCH holds the order, grants nothing and emits ONE payment.held on the hold's transaction", async () => {
+    // The capture reports the LIST price (the pre-PR-3 amount), not the GST total.
+    const out = await d.svc.handleRazorpayEvent(
+      captureEvent(PROVIDER_ORDER, PAYMENT_ID, 200000),
+      CTX,
+    );
+    expect(out).toEqual({ result: "held" });
+    const row = d.orders.get(`razorpay:${PROVIDER_ORDER}`);
+    expect(row?.status).toBe("held");
+    expect(row?.providerPaymentRef).toBe(PAYMENT_ID); // so ops can find it to refund
+    expect(d.ledger).toHaveLength(0);
+    expect(d.balances.get(PAYER)).toBeUndefined();
+    expect(emitted(d.events)).toEqual(["payment.held"]);
+    const event = heldPayload();
+    expect(event).toMatchObject({
+      actor: { actor_type: "system", actor_id: null },
+      subject: { subject_type: "payer", subject_id: PAYER },
+      idempotencyKey: `payment.held:order:${ORDER_ROW}`,
+      payload: {
+        payment_order_id: ORDER_ROW,
+        payer_id: PAYER,
+        pack_code: "pack_50",
+        expected_paise: 236000,
+        captured_paise: 200000,
+        reason: "amount_mismatch",
+        real_call: true,
+      },
+    });
+    expect(event).toHaveProperty("tx"); // written on the hold's own transaction
+    // Ids and numbers only: no provider payment id, no signature, no secret.
+    expect(JSON.stringify(event?.payload)).not.toContain(PAYMENT_ID);
+    expect(JSON.stringify(event?.payload)).not.toContain(KEY_SECRET);
+    // Logged for ops with both amounts (numbers only).
+    expect(Logger.prototype.error).toHaveBeenCalledWith(
+      expect.stringMatching(/HELD.*order_row=.*expected_paise=236000 captured_paise=200000/),
+    );
+  });
+
+  it("a REPLAYED mismatch, and then a matching capture, both no-op: a held order is never granted", async () => {
+    await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 200000), CTX);
+    expect(
+      await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 200000), CTX),
+    ).toEqual({ result: "no_op" });
+    expect(
+      await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 236000), CTX),
+    ).toEqual({ result: "no_op" });
+    expect(d.ledger).toHaveLength(0);
+    expect(emitted(d.events)).toEqual(["payment.held"]); // exactly one
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("held");
+  });
+
+  it("a VERIFY after the hold grants nothing — the same neutral refusal as an unknown order", async () => {
+    await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 200000), CTX);
+    const verify = await d.svc.verifyCheckoutPayment(
+      PAYER,
+      { orderId: PROVIDER_ORDER, paymentId: PAYMENT_ID, signature },
+      CTX,
+    );
+    expect(verify).toEqual({ verified: false });
+    expect(d.ledger).toHaveLength(0);
+    expect(emitted(d.events)).toEqual(["payment.held"]);
+  });
+
+  it("a late payment.failed cannot turn a held order (money captured) into a failed one", async () => {
+    await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 200000), CTX);
+    expect(await d.svc.handleRazorpayEvent({ ...failedEvent }, CTX)).toEqual({ result: "no_op" });
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("held");
+    expect(emitted(d.events)).toEqual(["payment.held"]);
+  });
+
+  it("a capture WITHOUT an amount is held (fail closed), and so is one in another currency", async () => {
+    const noAmount = toPaymentEvent(
+      RazorpayWebhookSchema.parse({
+        event: "payment.captured",
+        payload: { payment: { entity: { id: PAYMENT_ID, order_id: PROVIDER_ORDER } } },
+      }),
+    );
+    expect(await d.svc.handleRazorpayEvent(noAmount, CTX)).toEqual({ result: "held" });
+    expect(heldPayload()).toMatchObject({
+      payload: { reason: "amount_missing", expected_paise: 236000, captured_paise: null },
+    });
+
+    const other = makeService();
+    other.seedOrder(STAMPED);
+    const usd = { ...captureEvent(PROVIDER_ORDER, PAYMENT_ID, 236000), currency: "USD" };
+    expect(await other.svc.handleRazorpayEvent(usd, CTX)).toEqual({ result: "held" });
+    expect(other.ledger).toHaveLength(0);
+  });
+
+  it("a MATCHING capture settles exactly once, with the stamped total on the ledger", async () => {
+    expect(
+      await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 236000), CTX),
+    ).toEqual({ result: "granted" });
+    expect(
+      await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 236000), CTX),
+    ).toEqual({ result: "no_op" });
+    expect(d.ledger).toHaveLength(1);
+    expect(d.ledger[0]).toMatchObject({ delta: 50, priceInr: 2360 });
+    expect(emitted(d.events)).toEqual(["payment.captured"]);
+  });
+
+  it("a pre-0175 order (no paise columns) is checked against amount_inr × 100", async () => {
+    const old = makeService();
+    old.seedOrder(); // ₹2,000, no total_paise
+    expect(
+      await old.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 236000), CTX),
+    ).toEqual({ result: "held" });
+    const ok = makeService();
+    ok.seedOrder();
+    expect(
+      await ok.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 200000), CTX),
+    ).toEqual({ result: "granted" });
+  });
+
+  it("a mismatch reported for an order ALREADY PAID changes nothing (logged for ops)", async () => {
+    await d.svc.verifyCheckoutPayment(
+      PAYER,
+      { orderId: PROVIDER_ORDER, paymentId: PAYMENT_ID, signature },
+      CTX,
+    );
+    expect(d.balances.get(PAYER)).toBe(50);
+    expect(
+      await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 1), CTX),
+    ).toEqual({ result: "no_op" });
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("paid");
+    expect(d.balances.get(PAYER)).toBe(50);
+    expect(emitted(d.events)).toEqual(["payment.captured"]);
+    expect(Logger.prototype.error).toHaveBeenCalledWith(
+      expect.stringMatching(/SETTLED order.*captured_paise=1/),
+    );
+  });
+
+  it("an event that cannot be written ROLLS BACK the hold (5xx), and the redelivery holds it then", async () => {
+    d.events.emit.mockRejectedValueOnce(new Error("events table down"));
+    await expect(
+      d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 200000), CTX),
+    ).rejects.toThrow("events table down");
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("created");
+    expect(
+      await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 200000), CTX),
+    ).toEqual({ result: "held" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2749 PR 3 — a lot's validity follows the pack (mock) or the order's stamp (settle)
+// ---------------------------------------------------------------------------
+
+describe("#2749 PR 3 — the credits' validity: the mock pack's live tier, the order's stamp at settle", () => {
+  it("a settle grants with the order's STAMPED credit_validity_days (the catalogue is not re-read)", async () => {
+    const d = makeService();
+    d.seedOrder({ creditValidityDays: 30 });
+    d.pricing.getActiveCatalog.mockResolvedValue({
+      catalog: BRIEF_CATALOG, // pack_50 is gone; nothing to re-read even if it tried
+      revision: 9,
+      source: "db" as const,
+    });
+    expect(await d.svc.handleRazorpayEvent(captureEvent(), CTX)).toEqual({ result: "granted" });
+    expect(d.ledger[0]).toMatchObject({ delta: 50, validityDays: 30 });
+  });
+
+  it("a pre-0175 order (no validity) grants a lot that never expires", async () => {
+    const d = makeService();
+    d.seedOrder();
+    await d.svc.handleRazorpayEvent(captureEvent(), CTX);
+    expect(d.ledger[0]).toMatchObject({ validityDays: null });
+  });
+
+  it("the MOCK purchase stamps the GST total on the ledger and passes the pack's validity to its lot", async () => {
+    const d = makeService();
+    d.repo.creditPack = vi.fn(async () => 20);
+    d.pricing.getActiveCatalog.mockResolvedValue({
+      catalog: BRIEF_CATALOG,
+      revision: 9,
+      source: "db" as const,
+    });
+    // expected_price_inr is the LIST price (₹999), not the ₹1,179 total.
+    await d.svc.purchaseCredits(PAYER, "pack_starter", CTX, 999);
+    expect(d.repo.creditPack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payerId: PAYER,
+        credits: 20,
+        packCode: "pack_starter",
+        priceInr: 1179,
+        validityDays: 30,
+      }),
+    );
+    const amounts = d.events.emit.mock.calls.map(
+      (c) => (c[0] as { payload: { amount_inr: number } }).payload.amount_inr,
+    );
+    expect(amounts).toEqual([1179, 1179]); // payment.authorized + payment.captured
+  });
+
+  it("the MOCK purchase of a default pack (no validity) stamps ₹2,360 and no expiry", async () => {
+    const d = makeService();
+    d.repo.creditPack = vi.fn(async () => 50);
+    await d.svc.purchaseCredits(PAYER, "pack_50", CTX, 2000);
+    expect(d.repo.creditPack).toHaveBeenCalledWith(
+      expect.objectContaining({ priceInr: 2360, validityDays: null }),
+    );
   });
 });
