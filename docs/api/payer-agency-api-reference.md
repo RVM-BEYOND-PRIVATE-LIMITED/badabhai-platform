@@ -541,6 +541,19 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **A worker who left company search (#2753 item 6, behind `SEARCH_EXIT_ENABLED`, default off) can be opened only by a company he applied to** (an `applied` decision on one of your postings or agency jobs that he has not taken back), or by a company that already holds an open contact of him (a re-open or a reveal of it). Any other company — one holding his `worker_id` from a search page it loaded before he left, say — gets the same neutral `{ status: 'unavailable' }`, with no credit spent and no row written. Off, nothing changes.
 - **Events:** on success `unlock.requested` + `unlock.granted` + `payment.authorized` + `payment.captured`; on deny `unlock.denied` (plus `unlock.cap_exceeded` if a per-worker cap is hit, or `payment.failed` if no credit). The deny **reason is internal-only**, never echoed in the response. #2749: the no-credit check counts only SPENDABLE credits (a balance held in lots past their date does not count, and nothing is written then). When an open that does spend finds a lot past its date, it expires the lot first and writes one `payer.credits_expired` (`trigger: "spend"`) per expired lot in the same transaction.
 - **Mobile gotchas:** Spends 1 credit on grant. All denials (no credit / capped / no consent / protected) return the **same** neutral `unavailable` — never infer why. Fail-closed ordering (credit precondition → consent → cap → grant). Branch on the `ok` field, not the HTTP status.
+- **Credit rules (#2750, ADR-0066, behind `CREDIT_RULES_ROLLOUT`, which is off / pilot / on, default off):** for a company under the rules, an open costs what `POST /payer/unlocks/quotes` quoted: 1 or 2 credits by the worker's rung and experience, 1 for an RVM student, 0 for a contact you already hold.
+  - A success adds `credits_charged` (the credits taken; `0` on a re-open).
+  - When you cannot afford the contact, the answer is `200 { status: 'insufficient_credits', credits_needed, credits_available }` instead of the neutral body. Nothing is debited or opened; offer a pack. This is decided before anything about the worker is read, so it says nothing about him.
+  - Every other refusal is still the neutral `unavailable`.
+  - Off, nothing changes: one credit, no `credits_charged`, and no-credit is the neutral body.
+
+#### `POST /payer/unlocks/quotes` (#2750: the number on the open button)
+
+- **Auth:** `PayerAuthGuard` (Bearer). Not on the disclosure cap: it opens nothing.
+- **Body:** `{ worker_ids: UUID[] }`, 1 to 50 ids, no repeats, strict.
+- **Response:** `200 { quotes: [{ worker_id, credits }], credits_available }`. Each worker is priced by the same rule as the open, from facts on his card only. A contact you hold open quotes `0`. An unknown id is priced like a worker who stated nothing, so the answer never tells you whether an id exists. `credits_available` is your spendable balance.
+- **Off** (`CREDIT_RULES_ROLLOUT` off for your company): `404`.
+- **Mobile gotchas:** Show "Open for N credit(s)" from `credits`, and the Starter pack when `credits > credits_available`. Re-quote after a purchase. The open charges the price at the tap; if the worker's card changed in between, that price can differ from the quote.
 
 #### `POST /payer/unlocks/:unlockId/reveal`
 

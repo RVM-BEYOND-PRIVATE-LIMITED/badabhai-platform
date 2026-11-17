@@ -22,6 +22,8 @@ import {
   lotAlignmentWarning,
   readSpendableCredits,
   spendOneCreditWithinTx,
+  spendCreditsWithinTx,
+  type WalletSpendTake,
   unlocks,
   unlockRouting,
   payerCredits,
@@ -33,6 +35,9 @@ import {
   jobPostings,
   workerProfiles,
   workerProfileSkills,
+  workerSkills,
+  workerInstituteLinks,
+  RVM_INSTITUTE_CODE,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { findOwnedJobRef, type OwnedJobRef } from "../payers/owned-job-ref";
@@ -116,6 +121,37 @@ export interface OpenLotProjection {
  * no credit to spend, and since the #2749 review it also means NOTHING was written. `ok` is
  * optional so callers' fakes that return `{ balanceAfter, lotId }` keep their meaning.
  */
+/**
+ * #2750 item 2 — one worker's price facts, as {@link UnlocksRepository.readContactCostFacts} reads
+ * them. The cost rule (`contact-cost-facts.ts`) turns these into `ContactCostFacts`.
+ */
+export interface ContactCostFactsRow {
+  /** His latest stated rung per trade, with his bucketed months in that trade (null = no row). */
+  rungs: { skillId: string; tradeLevel: string; months: number | null }[];
+  /** `experience.total_years` on his latest profile, or null. */
+  totalYears: number | null;
+  /** An ACTIVE RVM institute link. */
+  rvmStudent: boolean;
+  /** This company's unlock row for him (one per company and worker), or null. */
+  grant: { status: UnlockStatus; expiresAt: Date | null } | null;
+}
+
+/** `experience` JSONB → `total_years`, or null for anything missing or unparseable. */
+function totalYearsOf(experience: unknown): number | null {
+  if (typeof experience !== "object" || experience === null || Array.isArray(experience)) {
+    return null;
+  }
+  const years = (experience as Record<string, unknown>).total_years;
+  return typeof years === "number" && Number.isFinite(years) && years >= 0 ? years : null;
+}
+
+/** #2750 item 2 — what {@link UnlocksRepository.tryDebitCredits} spent: one take per lot. */
+export interface TryDebitCreditsResult {
+  balanceAfter: number;
+  takes: readonly WalletSpendTake[];
+  expiredLots: readonly ExpiredCreditLot[];
+}
+
 export interface TryDebitResult {
   ok?: true;
   balanceAfter: number;
@@ -213,6 +249,109 @@ export class UnlocksRepository {
     return rows.flatMap((r) =>
       r.tradeLevel === null ? [] : [{ skillId: r.skillId, tradeLevel: r.tradeLevel }],
     );
+  }
+
+  /**
+   * #2750 item 2 — the facts the cost of opening each worker is priced from, for a page of
+   * workers at once (the quote) or one (the open). FACTS ALREADY ON THE CARD ONLY: his stated
+   * rungs, his experience, whether he is an actively linked RVM student, and whether THIS company
+   * already holds a contact for him. Nothing here reads consent, a limit or deletion state, so the
+   * price can never be a probe of those (#2750 private notes item 5). A worker id with no rows gets
+   * empty facts (the standard cost), exactly like a worker who stated nothing: the price says
+   * nothing about whether an id exists.
+   *
+   * Global-pool reads (never inside the advisory-locked transaction: the deadlock rule in
+   * UnlockService). Ids, closed rung keys and integers only.
+   */
+  async readContactCostFacts(
+    tenant: TenantKey,
+    workerIds: readonly string[],
+  ): Promise<Map<string, ContactCostFactsRow>> {
+    const out = new Map<string, ContactCostFactsRow>();
+    for (const id of workerIds) {
+      out.set(id, { rungs: [], totalYears: null, rvmStudent: false, grant: null });
+    }
+    const ids = [...out.keys()];
+    if (ids.length === 0) return out;
+
+    // Latest stated rung per (worker, trade), with his bucketed months in that trade.
+    const rungs = await this.db
+      .selectDistinctOn([workerProfiles.workerId, workerProfileSkills.skillId], {
+        workerId: workerProfiles.workerId,
+        skillId: workerProfileSkills.skillId,
+        tradeLevel: workerProfileSkills.tradeLevel,
+      })
+      .from(workerProfiles)
+      .innerJoin(workerProfileSkills, eq(workerProfileSkills.workerProfileId, workerProfiles.id))
+      .where(and(inArray(workerProfiles.workerId, ids), isNotNull(workerProfileSkills.tradeLevel)))
+      .orderBy(
+        workerProfiles.workerId,
+        workerProfileSkills.skillId,
+        desc(workerProfiles.createdAt),
+      );
+    const months = await this.db
+      .select({
+        workerId: workerSkills.workerId,
+        skillId: workerSkills.skillId,
+        months: workerSkills.monthsBucketed,
+      })
+      .from(workerSkills)
+      .where(inArray(workerSkills.workerId, ids));
+    const monthsOf = new Map(months.map((m) => [`${m.workerId}|${m.skillId}`, m.months]));
+    for (const r of rungs) {
+      if (r.tradeLevel === null) continue;
+      out.get(r.workerId)?.rungs.push({
+        skillId: r.skillId,
+        tradeLevel: r.tradeLevel,
+        months: monthsOf.get(`${r.workerId}|${r.skillId}`) ?? null,
+      });
+    }
+
+    // His total experience from the latest profile (the card's "x yrs" band comes from it).
+    const profiles = await this.db
+      .selectDistinctOn([workerProfiles.workerId], {
+        workerId: workerProfiles.workerId,
+        experience: workerProfiles.experience,
+      })
+      .from(workerProfiles)
+      .where(inArray(workerProfiles.workerId, ids))
+      .orderBy(workerProfiles.workerId, desc(workerProfiles.createdAt));
+    for (const p of profiles) {
+      const row = out.get(p.workerId);
+      if (row) row.totalYears = totalYearsOf(p.experience);
+    }
+
+    // The card's "RVM student" label (#2747 item 1): an ACTIVE RVM link.
+    const links = await this.db
+      .select({ workerId: workerInstituteLinks.workerId })
+      .from(workerInstituteLinks)
+      .where(
+        and(
+          inArray(workerInstituteLinks.workerId, ids),
+          eq(workerInstituteLinks.status, "active"),
+          eq(workerInstituteLinks.instituteCode, RVM_INSTITUTE_CODE),
+        ),
+      );
+    for (const l of links) {
+      const row = out.get(l.workerId);
+      if (row) row.rvmStudent = true;
+    }
+
+    // What this company already holds for him (the card shows an opened contact as opened).
+    const grants = await this.db
+      .select({
+        workerId: unlocks.workerId,
+        status: unlocks.status,
+        expiresAt: unlocks.expiresAt,
+      })
+      .from(unlocks)
+      .where(and(eq(unlocks.payerId, tenant), inArray(unlocks.workerId, ids)));
+    for (const g of grants) {
+      if (g.workerId === null) continue;
+      const row = out.get(g.workerId);
+      if (row) row.grant = { status: g.status, expiresAt: g.expiresAt };
+    }
+    return out;
   }
 
   /**
@@ -685,6 +824,23 @@ export class UnlocksRepository {
       lotId: spent.lotId,
       expiredLots: spent.expiredLots,
     };
+  }
+
+  /**
+   * #2750 item 2 — debit `credits` at once (the higher cost of a contact), across lots if need be.
+   * The same contract as {@link tryDebit}: tenant-keyed, under the wallet row lock, and
+   * `undefined` with NOTHING written when fewer than `credits` are spendable (never a partial
+   * spend). The caller writes ONE `unlock_debit` line per take, each naming its lot.
+   */
+  async tryDebitCredits(
+    tx: Tx,
+    tenant: TenantKey,
+    credits: number,
+  ): Promise<TryDebitCreditsResult | undefined> {
+    const spent = await spendCreditsWithinTx(tx, tenant, credits);
+    if (!spent.ok) return undefined;
+    this.reportRealigned(tenant, spent.alignment);
+    return { balanceAfter: spent.balanceAfter, takes: spent.takes, expiredLots: spent.expiredLots };
   }
 
   /**

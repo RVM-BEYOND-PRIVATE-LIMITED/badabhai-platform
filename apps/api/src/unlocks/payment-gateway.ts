@@ -125,6 +125,28 @@ export class PaymentGateway {
    * locked transaction — so a retried request converges on the existing grant and never
    * debits twice. The unique (payer_id, worker_id) is the natural idempotency key.
    */
+  /**
+   * #2750 item 2 — debit `credits` (the cost the credit rules priced) in the unlock transaction.
+   * One take per lot; the caller writes one ledger line per take. `ok: false` wrote nothing.
+   */
+  async debitCreditsWithinTx(
+    tx: Tx,
+    tenant: TenantKey,
+    credits: number,
+  ): Promise<
+    | {
+        ok: true;
+        balanceAfter: number;
+        takes: readonly { lotId: string; credits: number }[];
+        expiredLots: readonly ExpiredCreditLot[];
+      }
+    | { ok: false }
+  > {
+    const debited = await this.repo.tryDebitCredits(tx, tenant, credits);
+    if (debited === undefined) return { ok: false };
+    return { ok: true, ...debited };
+  }
+
   async debitOneCreditWithinTx(
     tx: Tx,
     tenant: TenantKey,

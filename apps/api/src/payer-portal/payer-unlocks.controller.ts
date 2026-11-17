@@ -31,6 +31,8 @@ import {
   type PayerBuyPackDto,
   PayerRequestUnlockSchema,
   type PayerRequestUnlockDto,
+  PayerContactQuotesSchema,
+  type PayerContactQuotesDto,
   PayerLedgerQuerySchema,
   type PayerLedgerQueryDto,
 } from "./payer-unlocks.dto";
@@ -90,6 +92,20 @@ export class PayerUnlocksController {
       ctx,
       "payer_owned", // #1899: job_id must be null or the session payer's own job / posting
     );
+  }
+
+  /**
+   * #2750 item 3 — what opening each worker on a page costs the caller's company (the number on
+   * the button). 404 unless the company is under the credit rules. Priced from facts on the card
+   * only (never consent or a limit), and it opens nothing, so it is NOT on the disclosure cap.
+   */
+  @Post("unlocks/quotes")
+  @HttpCode(200)
+  quoteContacts(
+    @Body(new ZodValidationPipe(PayerContactQuotesSchema)) dto: PayerContactQuotesDto,
+    @CurrentPayer() payer: AuthenticatedPayer,
+  ) {
+    return this.unlocks.quoteContacts(payer.id, dto.worker_ids);
   }
 
   /**

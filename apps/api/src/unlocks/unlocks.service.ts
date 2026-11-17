@@ -62,6 +62,8 @@ import {
   type UnlockGrantedResponse,
   type ContactRevealedResponse,
   type ContactReadResponse,
+  type InsufficientCreditsResponse,
+  type ContactQuotesResponse,
 } from "./unlock-response";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import {
@@ -70,6 +72,9 @@ import {
   OPEN_FOR_GOOD_UNTIL,
   openUntilOf,
 } from "./open-grant";
+import { contactCost } from "@badabhai/pricing";
+import { CreditRulesService } from "../credit-rules/credit-rules.service";
+import { contactCostFactsOf } from "./contact-cost-facts";
 import { onBriefNotice } from "./brief-notice";
 import { searchExitRefuses } from "../search-exit/search-exit-gate";
 
@@ -83,7 +88,11 @@ const EMPLOYER_SHARING = "employer_sharing";
 const EMPLOYER_MESSAGING = "employer_messaging";
 
 /** Either the one distinguishable success, or the byte-identical neutral body (F-3). */
-type UnlockOutcome = UnlockGrantedResponse | NeutralUnavailableResponse;
+type UnlockOutcome =
+  | UnlockGrantedResponse
+  | NeutralUnavailableResponse
+  // #2750 (ADR-0066) — only for a company under the credit rules.
+  | InsufficientCreditsResponse;
 type RevealOutcome = ContactRevealedResponse | NeutralUnavailableResponse;
 
 /**
@@ -234,6 +243,9 @@ export class UnlockService {
     // #2747 — the `contact_rules` switch (open for good, the contact read). Optional only so the
     // hand-built unit instances keep compiling; absent reads as off. Nest always injects it.
     @Optional() private readonly rollout?: FeatureRolloutService,
+    // #2750 — the credit rules' numbers (what a contact costs). Optional for the same reason as
+    // `rollout`; absent, no company is under the credit rules. Nest always injects it.
+    @Optional() private readonly creditRules?: CreditRulesService,
   ) {}
 
   /**
@@ -249,6 +261,35 @@ export class UnlockService {
 
   private async contactRulesOn(tenant: TenantKey): Promise<boolean> {
     return (await this.contactRulesState(tenant)) === "on";
+  }
+
+  /**
+   * #2750 — is this company under the credit rules (the `credit_rules` switch)? Off when either
+   * service is absent. A pilot list that cannot be read is `unavailable`: the open REFUSES (one
+   * neutral body, nothing written) rather than guess between one credit and the rules' price.
+   */
+  private async creditRulesState(tenant: TenantKey): Promise<"on" | "off" | "unavailable"> {
+    if (this.rollout === undefined || this.creditRules === undefined) return "off";
+    return this.rollout.stateFor("credit_rules", tenant);
+  }
+
+  /**
+   * #2750 item 2 — what opening this worker costs THIS company under the credit rules: the one
+   * cost rule (`contactCost`) on the facts on his card. The same function prices the quote, so the
+   * number on the button is the number debited. A NEW grant is priced (`forOpen`): a contact the
+   * company already holds is answered free inside the transaction, before any debit.
+   *
+   * A global-pool read, so it runs BEFORE the advisory-locked transaction (the deadlock rule).
+   */
+  private async priceOpen(tenant: TenantKey, workerId: string): Promise<number> {
+    const rules = await this.creditRules!.get();
+    const facts = await this.repo.readContactCostFacts(tenant, [workerId]);
+    const row = facts.get(workerId)!;
+    const cost = contactCost(rules, contactCostFactsOf(row, { forOpen: true }));
+    this.logger.log(
+      `unlock price worker=${workerId} credits=${cost.credits} basis=${cost.basis} tenant=${tenant}`,
+    );
+    return cost.credits;
   }
 
   // ===========================================================================
@@ -279,6 +320,14 @@ export class UnlockService {
     // as if off, EXCEPT that a re-grant over a contact the company already holds is refused (below)
     // — reading a pilot company as "off" there would debit it again. First opens are unaffected.
     const contactRules = await this.contactRulesState(tenant);
+    // #2750 — the credit rules, read ONCE per request. `unavailable` (a pilot list that cannot be
+    // read) refuses: charging one credit or the rules' price on a guess are both wrong. The
+    // refusal depends only on the caller's own pilot place, never on the worker.
+    const creditRules = await this.creditRulesState(tenant);
+    if (creditRules === "unavailable") {
+      this.logger.warn(`unlock refused: credit_rules pilot list unreadable for tenant=${tenant}`);
+      return neutralUnavailable();
+    }
 
     // #1903 — normalise the caller's job context ONCE, before anything is written or
     // emitted: every row and event below carries `jobContext`, never the raw input. It is
@@ -310,15 +359,28 @@ export class UnlockService {
     // gate, reach the debit only for a worker who passed the consent / deletion / cap gates, and
     // (before the review fix) leave an `expired` line only in that case — a worker-state oracle
     // the company could read back from its own ledger. Refused here, before any worker read.
+    //
+    // #2750 item 2 (ADR-0066) — under the credit rules the price is the cost rule's, from facts on
+    // his card only (rungs, experience, the RVM label): never consent, a limit or deletion state.
+    // Off, it is one credit, exactly as before.
+    const price = creditRules === "on" ? await this.priceOpen(tenant, workerId) : 1;
     const balance = await this.repo.getSpendableBalance(tenant);
-    if (balance < 1) {
+    if (balance < price) {
       // INSUFFICIENT CREDITS collapses into the neutral response (F-1 option (a)).
       // No worker state was consulted → no oracle. We do NOT record a per-worker deny
       // row (that would itself be a probe signal); we emit an internal payment.failed
       // for ops audit only.
       await this.emitPaymentFailed(null, party, "insufficient_credits", ctx);
+      // #2750 item 3 (ADR-0066) — under the credit rules the company is told plainly: the cost was
+      // on the button and the balance is its own, so the answer adds nothing it could not see.
+      if (creditRules === "on") {
+        return { status: "insufficient_credits", credits_needed: price, credits_available: balance };
+      }
       return neutralUnavailable();
     }
+    // #2750 — `credits_charged` rides a grant ONLY under the credit rules (off: the body as today).
+    const charged = (credits: number): number | undefined =>
+      creditRules === "on" ? credits : undefined;
 
     // ---- [1] employer_sharing CONSENT gate — read BEFORE the advisory lock ----
       // These are tx-EXTERNAL reads (ConsentRepository / WorkersRepository use the global
@@ -385,12 +447,17 @@ export class UnlockService {
             const reopenedId = existing.id;
             events.push(() => this.emitReopened(reopenedId, party, workerId, ctx));
             return {
-              response: this.grantedResponse(existing.id, OPEN_FOR_GOOD_UNTIL, true),
+              response: this.grantedResponse(existing.id, OPEN_FOR_GOOD_UNTIL, true, charged(0)),
               events,
             };
           }
           return {
-            response: this.grantedResponse(existing.id, existing.expiresAt!, openForGood),
+            response: this.grantedResponse(
+              existing.id,
+              existing.expiresAt!,
+              openForGood,
+              charged(0),
+            ),
             events,
           };
         }
@@ -493,7 +560,14 @@ export class UnlockService {
         );
         // The TENANT's wallet row: in `on`, two members spending at once serialize on the org
         // wallet's row lock inside this UPDATE, so the team can never overdraw it.
-        const debit = await this.payments.debitOneCreditWithinTx(tx, tenant);
+        // #2750 — under the credit rules the debit is the price (possibly from several lots: one
+        // take per lot); off, one credit from one lot, as before.
+        const debit =
+          creditRules === "on"
+            ? await this.payments.debitCreditsWithinTx(tx, tenant, price)
+            : await this.payments
+                .debitOneCreditWithinTx(tx, tenant)
+                .then((d) => (d.ok ? { ...d, takes: [{ lotId: d.lotId, credits: 1 }] } : d));
         if (!debit.ok) {
           // Lost a concurrent debit race after the precondition — or (#2749) a lot fell due
           // since the precondition read — collapse to neutral (still no worker-state oracle;
@@ -530,17 +604,22 @@ export class UnlockService {
         // Ledger debit in the SAME tx, on the SAME key as the wallet it debited (balance +
         // ledger never drift; F-6 — and `balance = Σ delta` per payer_id holds, ADR-0053 §6),
         // naming the lot the credit came from (#2749: one line per lot; one credit, one lot).
-        await this.repo.appendLedger(tx, {
-          payerId: tenant,
-          delta: -1,
-          reason: "unlock_debit",
-          unlockId: granted.id,
-          lotId: debit.lotId,
-        });
+        // #2750 — a priced open that took from two lots writes two lines, each naming its lot.
+        for (const take of debit.takes) {
+          await this.repo.appendLedger(tx, {
+            payerId: tenant,
+            delta: -take.credits,
+            reason: "unlock_debit",
+            unlockId: granted.id,
+            lotId: take.lotId,
+          });
+        }
 
         // Order preserved: payment.authorized → payment.captured → unlock.granted.
-        events.push(() => this.emitPaymentAuthorized(granted.id, party, ctx));
-        events.push(() => this.emitPaymentCaptured(granted.id, party, ctx));
+        // #2750 — the credits this open took (one, unless the credit rules priced it).
+        const amount = creditRules === "on" ? { amountCredits: price } : undefined;
+        events.push(() => this.emitPaymentAuthorized(granted.id, party, ctx, amount));
+        events.push(() => this.emitPaymentCaptured(granted.id, party, ctx, amount));
         events.push(() =>
           this.emitGranted(granted.id, party, workerId, jobContext, expiresAt, ctx),
         );
@@ -572,7 +651,10 @@ export class UnlockService {
           events.push(() => this.emitCreditsExhausted(party, granted.id, ctx));
         }
 
-        return { response: this.grantedResponse(granted.id, expiresAt, openForGood), events };
+        return {
+          response: this.grantedResponse(granted.id, expiresAt, openForGood, charged(price)),
+          events,
+        };
       },
     );
 
@@ -999,6 +1081,30 @@ export class UnlockService {
    * {@link toPayerUnlocks}. In mode `on` a team member sees the org's unlocks (ADR-0053 §3.3).
    * Read-only: no event.
    */
+  /**
+   * #2750 item 3 — `POST /payer/unlocks/quotes`: the cost of opening each worker on a page, for
+   * THIS company (its tenant). 404 unless the company is under the credit rules. Priced by the same
+   * cost rule as the open, from facts on the card only, so it is no probe of consent, a limit or
+   * whether an id exists: an unknown id is priced like a worker who stated nothing. Writes and emits
+   * nothing.
+   */
+  async quoteContacts(
+    payerId: string,
+    workerIds: readonly string[],
+  ): Promise<ContactQuotesResponse> {
+    const scope = await this.tenancy.resolve(payerId);
+    const tenant = scope.tenantKey;
+    if ((await this.creditRulesState(tenant)) !== "on") throw new NotFoundException();
+    const rules = await this.creditRules!.get();
+    const facts = await this.repo.readContactCostFacts(tenant, workerIds);
+    const now = new Date();
+    const quotes = [...facts.entries()].map(([workerId, row]) => ({
+      worker_id: workerId,
+      credits: contactCost(rules, contactCostFactsOf(row, { forOpen: false, now })).credits,
+    }));
+    return { quotes, credits_available: await this.repo.getSpendableBalance(tenant) };
+  }
+
   async listOwnForPayer(
     payerId: string,
     now: Date = new Date(),
@@ -1665,6 +1771,7 @@ export class UnlockService {
     unlockId: string,
     expiresAt: Date,
     openForGood: boolean,
+    creditsCharged?: number,
   ): UnlockGrantedResponse {
     return {
       ok: true,
@@ -1672,6 +1779,7 @@ export class UnlockService {
       status: "granted",
       expires_at: expiresAt.toISOString(),
       open_until: openUntilOf(openForGood, expiresAt),
+      ...(creditsCharged === undefined ? {} : { credits_charged: creditsCharged }),
     };
   }
 
