@@ -317,6 +317,10 @@ export type UnlockDenyReason = "no_consent" | "capped" | "payment_required" | "u
  * #2750 item 5 — `waived`: an open the placement team's waiver paid for. `delta` 0 and no lot
  * (nothing moved), `unlock_id` set, keyed `waived:<unlock id>`; the waiver it used is on
  * `rvm_waiver_uses`. The numbers screen counts these as "credits waived by the placement team".
+ *
+ * #2754 item 9 — `campus_conversion`: a company's unused Campus balance moved in with it, as a
+ * `migrated` lot, keyed `campus_conversion:<bundle line key>` (once per source balance). A free grant:
+ * never credits used, never a payment.
  */
 export type CreditReason =
   | "pack_purchase"
@@ -325,7 +329,8 @@ export type CreditReason =
   | "grant"
   | "expired"
   | "welcome"
-  | "waived";
+  | "waived"
+  | "campus_conversion";
 
 /**
  * Routed-channel kind (ADR-0010 §D2). Alpha ships `in_app_relay` ONLY — it

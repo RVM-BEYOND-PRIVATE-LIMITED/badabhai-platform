@@ -67,7 +67,7 @@ export const AdminLedgerQuerySchema = z
     // #2750 item 4 adds `welcome` (a verified company's welcome credits, once); item 5 adds
     // `waived` (an open the placement team's waiver paid for: a zero-credit line).
     reason: z
-      .enum(["pack_purchase", "unlock_debit", "refund", "grant", "expired", "welcome", "waived"])
+      .enum(["pack_purchase", "unlock_debit", "refund", "grant", "expired", "welcome", "waived", "campus_conversion"])
       .optional(),
   })
   .strict();

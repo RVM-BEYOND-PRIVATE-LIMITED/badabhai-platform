@@ -400,6 +400,7 @@ describe("the CLI arguments", () => {
       runBy: "prakash",
       testReason: "pilot_test",
       agents: [],
+      creditValidityDays: 30,
     });
   });
 

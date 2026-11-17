@@ -16,14 +16,18 @@
  * DRY RUN BY DEFAULT: it prints what an import would do, as counts and reason codes per company
  * keyed by the Campus source id. It never prints a name, phone, email or GSTIN.
  *
- * APPLY (#2754 item 6 so far: company accounts). Opens (or resumes) the named batch and places
+ * APPLY (#2754 items 6 and 9 so far: company accounts, then balances). Opens (or resumes) the
+ * named batch and places
  * every company on a BadaBhai account, one transaction per company, matching an existing account
  * by phone, then e-mail, then GSTIN before creating one. A second run of the same batch over the
  * same bundle adds nothing. `--test` marks every placed company a test account with reason
  * `pilot_test` (our own dummy companies, ruling 17 Nov 2026), `--rehearsal` with reason
  * `rehearsal`. `--agents` is a JSON array of Campus company source ids the placement team named
  * as agencies or contractors (created as `agent`). It refuses until migration `company_import` is
- * applied. Jobs, applications and balances are later parts; the batch stays `applying` until then.
+ * applied. Then each company's unused Campus balance becomes ONE `migrated` credit lot per bundle
+ * line (`campus_conversion:<line key>`, once ever), valid `--credit-validity-days` (default and
+ * floor 30; bundle v1 carries no plan expiry). Jobs and applications are a later part; the batch
+ * stays `applying` until then.
  *
  * NOT YET BUILT (each refuses with a message, never a partial run):
  *   --report --batch <key>      the per-company verification report (item 11)
@@ -55,6 +59,11 @@ import { buildImportPlan, type ImportPlan } from "./campus-import/plan";
 import { writeSyntheticBundle } from "./campus-import/synthetic-bundle";
 import { importCompanies, type CompanyImportSummary } from "./campus-import/import-companies";
 import {
+  importBalances,
+  MIN_CONVERTED_VALIDITY_DAYS,
+  type BalanceImportSummary,
+} from "./campus-import/import-balances";
+import {
   CampusImportRefusal,
   importLedgerExists,
   openBatch,
@@ -72,6 +81,7 @@ export type ImportCampusCompaniesArgs =
       runBy: string;
       testReason: "pilot_test" | "rehearsal" | null;
       agents: string[];
+      creditValidityDays: number;
     }
   | { mode: "synthetic"; out: string; companies: number; seed: string; phones: string[] };
 
@@ -101,6 +111,7 @@ export function parseImportCampusCompaniesArgs(argv: readonly string[]): ImportC
       test: { type: "boolean", default: false },
       rehearsal: { type: "boolean", default: false },
       agents: { type: "string" },
+      "credit-validity-days": { type: "string" },
       "write-synthetic": { type: "string" },
       companies: { type: "string" },
       seed: { type: "string" },
@@ -148,7 +159,7 @@ export function parseImportCampusCompaniesArgs(argv: readonly string[]): ImportC
     planQuota = raw as Record<string, number>;
   }
   if (!values.apply) {
-    for (const flag of ["batch", "run-by", "agents"] as const) {
+    for (const flag of ["batch", "run-by", "agents", "credit-validity-days"] as const) {
       if (values[flag] !== undefined) throw new Error(`--${flag} needs --apply`);
     }
     if (values.test || values.rehearsal) throw new Error("--test and --rehearsal need --apply");
@@ -170,6 +181,10 @@ export function parseImportCampusCompaniesArgs(argv: readonly string[]): ImportC
     }
     agents = raw as string[];
   }
+  const creditValidityDays = Number(values["credit-validity-days"] ?? String(MIN_CONVERTED_VALIDITY_DAYS));
+  if (!Number.isInteger(creditValidityDays) || creditValidityDays < MIN_CONVERTED_VALIDITY_DAYS || creditValidityDays > 365) {
+    throw new Error(`--credit-validity-days must be a whole number from ${MIN_CONVERTED_VALIDITY_DAYS} to 365`);
+  }
   return {
     mode: "apply",
     bundle: values.bundle,
@@ -178,6 +193,7 @@ export function parseImportCampusCompaniesArgs(argv: readonly string[]): ImportC
     runBy,
     testReason: values.test ? "pilot_test" : values.rehearsal ? "rehearsal" : null,
     agents,
+    creditValidityDays,
   };
 }
 
@@ -220,6 +236,13 @@ export function formatCompanySummary(s: CompanyImportSummary): string[] {
     `companies: created=${s.created} matched=${s.matched} already_done=${s.alreadyDone} exceptions: ${fmt(s.exceptions)}`,
     `  phone proof not recorded: ${fmt(s.proofNotRecorded)}`,
   ];
+}
+
+export function formatBalanceSummary(s: BalanceImportSummary): string {
+  return (
+    `balances: converted=${s.converted} credits=${s.credits} already_done=${s.alreadyDone} ` +
+    `not converted: ${fmt(s.notConverted)}`
+  );
 }
 
 async function apply(
@@ -268,7 +291,12 @@ async function apply(
       { agentSourceIds: new Set(args.agents), testReason: args.testReason },
     );
     for (const line of formatCompanySummary(summary)) log(line);
-    log("jobs, applications and balances: not built yet (#2754, later parts); the batch stays open");
+    const balances = await importBalances(db, batch, bundle, summary.placed, {
+      planQuota: args.planQuota,
+      validityDays: args.creditValidityDays,
+    });
+    log(formatBalanceSummary(balances));
+    log("jobs and applications: not built yet (#2754, a later part); the batch stays open");
     return 0;
   } finally {
     await client.sql.end({ timeout: 5 });

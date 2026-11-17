@@ -12,6 +12,7 @@ import { PayersRepository } from "../payers.repository";
 import { PayerPhoneProofsRepository } from "../payer-phone-proofs.repository";
 import type { CampusBundle } from "./bundle.schema";
 import { importCompanies, type CompanyImportDeps } from "./import-companies";
+import { importBalances } from "./import-balances";
 import { CampusImportRefusal, importLedgerExists, openBatch, type OpenBatch } from "./import-ledger.repository";
 import { readCampusBundle } from "./read-bundle";
 import { buildSyntheticBundle } from "./synthetic-bundle";
@@ -28,7 +29,9 @@ import { buildSyntheticBundle } from "./synthetic-bundle";
  *    accounts (by phone, by e-mail, by GSTIN) instead of creating a second one;
  *  - a phone two BadaBhai accounts already share, or a matched archived account, is an exception
  *    with no account written;
- *  - a batch key is bound to its bundle and its test flag, and a rolled-back key is spent.
+ *  - a batch key is bound to its bundle and its test flag, and a rolled-back key is spent;
+ *  - (item 9) unused Campus CV views become ONE `migrated` lot and ONE `campus_conversion` ledger
+ *    line per bundle line, valid 30 days, the free tier not converted, and a rerun grants nothing.
  */
 const RUN = process.env.RUN_DB_TESTS === "1";
 const DATABASE_URL =
@@ -94,6 +97,9 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
       await sql`
         DELETE FROM events
          WHERE event_name = 'admin.payer_test_account_marked' AND payload->>'payer_id' = ANY(${ids}::text[])`;
+      await sql`DELETE FROM credit_ledger WHERE payer_id = ANY(${ids}::uuid[])`;
+      await sql`DELETE FROM credit_lots WHERE payer_id = ANY(${ids}::uuid[])`;
+      await sql`DELETE FROM payer_credits WHERE payer_id = ANY(${ids}::uuid[])`;
       await sql`DELETE FROM employer_profiles WHERE payer_id = ANY(${ids}::uuid[])`;
       await sql`DELETE FROM payers WHERE id = ANY(${ids}::uuid[])`;
     } finally {
@@ -165,6 +171,48 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
     const summary = await importCompanies(deps, batch, bundle, opts);
     expect(summary).toMatchObject({ created: 0, matched: 0, alreadyDone: 3 });
     expect(summary.placed.size).toBe(3);
+  });
+
+  it("converts unused CV views into one migrated lot per line, once, and not the free tier", async () => {
+    const bundle = bundleOf(`create-${TAG}`, 3);
+    const batch = await open("create", bundle);
+    const placed = (await importCompanies(deps, batch, bundle, opts)).placed;
+    const first = await importBalances(client.db, batch, bundle, placed, { planQuota: {}, validityDays: 30 });
+    expect(first).toEqual({
+      converted: 3,
+      credits: 54,
+      alreadyDone: 0,
+      notConverted: { free_tier_not_converted: 3 },
+    });
+    const ids = [...placed.values()];
+    const { sql } = client;
+    const lots = await sql<{ source: string; credits_granted: number; is_test: boolean; days: number; reason: string; key: string }[]>`
+      SELECT l.source, l.credits_granted, l.is_test,
+             round(extract(epoch FROM (l.expires_at - l.created_at)) / 86400)::int AS days,
+             g.reason, g.idempotency_key AS key
+        FROM credit_lots l JOIN credit_ledger g ON g.lot_id = l.id
+       WHERE l.payer_id = ANY(${ids}::uuid[])`;
+    expect(lots).toHaveLength(3);
+    for (const lot of lots) {
+      expect(lot).toMatchObject({ source: "migrated", credits_granted: 18, is_test: true, days: 30, reason: "campus_conversion" });
+      expect(lot.key).toMatch(/^campus_conversion:campus:cv_views_left_on_plan_jobs:/);
+    }
+    const balances = await sql<{ balance: number }[]>`
+      SELECT balance FROM payer_credits WHERE payer_id = ANY(${ids}::uuid[])`;
+    expect(balances.map((b) => b.balance)).toEqual([18, 18, 18]);
+
+    const again = await importBalances(client.db, batch, bundle, placed, { planQuota: {}, validityDays: 30 });
+    expect(again).toMatchObject({ converted: 0, credits: 0, alreadyDone: 3 });
+    const lotCount = (await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM credit_lots WHERE payer_id = ANY(${ids}::uuid[])`)[0]!.n;
+    expect(lotCount).toBe(3);
+  });
+
+  it("a line of a company the import did not place converts nothing", async () => {
+    const bundle = bundleOf(`unplaced-${TAG}`, 1);
+    const batch = await open("unplaced", bundle);
+    const summary = await importBalances(client.db, batch, bundle, new Map(), { planQuota: {}, validityDays: 30 });
+    expect(summary).toMatchObject({ converted: 0, notConverted: { company_not_placed: 1, free_tier_not_converted: 1 } });
   });
 
   it("a new batch over the same phones matches the accounts instead of creating new ones", async () => {
