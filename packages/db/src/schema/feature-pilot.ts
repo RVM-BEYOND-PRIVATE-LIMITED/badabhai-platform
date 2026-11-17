@@ -48,9 +48,11 @@ export type FeaturePilotSubjectKind = (typeof FEATURE_PILOT_SUBJECT_KINDS)[numbe
  * never listed here.
  *
  * NO FOREIGN KEY, on purpose. One column names a row in one of two tables, so no single FK fits,
- * and a pilot row must never block or delay deleting a worker (a DPDP erasure) or an admin. A row
- * whose login is gone matches nobody: ids are never reused. `reason` therefore never names the
- * person (it outlives the login); say why the login is piloted, not who it is.
+ * and a pilot row must never block or delay deleting a worker (a DPDP erasure) or an admin. So no
+ * cascade erases it: every worker deletion path deletes his rows itself, on its own transaction
+ * (`eraseLoginKeyedRows` in the api, #2837, risk R87). No admin deletion exists. `reason` still
+ * never names the person (an owner may type it, and it is read beside the id); say why the login
+ * is piloted, not who it is.
  *
  * Same rules as the company list: `added_by` and `reason` on every row, written by the owner
  * (SQL) or a later admin route, never by the login itself, and a read error means "not listed".
