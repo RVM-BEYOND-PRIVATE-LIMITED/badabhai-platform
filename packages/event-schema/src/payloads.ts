@@ -4317,6 +4317,40 @@ export const PayerCreditsExpiredPayload = z
   .strict();
 export type PayerCreditsExpiredPayload = z.infer<typeof PayerCreditsExpiredPayload>;
 
+/** #2750 item 4 — what made a company's welcome credits due (`payer.welcome_credits_granted`). */
+export const WELCOME_CREDITS_TRIGGERS = [
+  /** An admin or ops approval of a posting (or an agency job) made the company eligible. */
+  "posting_approved",
+  /** An admin edit of the company record (approval, GSTIN) made it eligible. */
+  "company_updated",
+  /** The Campus company move (#2754) brought an already-eligible company across. */
+  "company_import",
+] as const;
+
+/**
+ * #2750 item 4 (brief 4C.6, B2-20, B4C-11) — a verified company received its welcome credits, ONCE
+ * per company, ever: written in the SAME transaction as the `welcome` lot and its ledger line
+ * (idempotency key `payer.welcome_credits_granted:<payer id>`, the ledger line's own key
+ * `welcome_credits:<payer id>`), so the two commit or roll back together.
+ *
+ * FACELESS: the wallet key (the tenant key), the opaque lot id, a positive count, the lot's expiry
+ * and the closed trigger. No company name, no GSTIN, no phone.
+ */
+export const PayerWelcomeCreditsGrantedPayload = z
+  .object({
+    /** The wallet credited (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    /** The `welcome` lot (opaque `credit_lots.id`). */
+    lot_id: uuidSchema,
+    /** Credits granted (`welcomeCredits` in the credit rules at the time). */
+    credits: z.number().int().positive(),
+    /** When the lot expires (ISO 8601): `welcomeValidityDays` after the grant. */
+    expires_at: isoDateTimeSchema,
+    trigger: z.enum(WELCOME_CREDITS_TRIGGERS),
+  })
+  .strict();
+export type PayerWelcomeCreditsGrantedPayload = z.infer<typeof PayerWelcomeCreditsGrantedPayload>;
+
 /**
  * MOMENT ④ — `feed.shown`, VERSION 2 (ADR-0036 "feed.shown gets a v2 payload").
  *

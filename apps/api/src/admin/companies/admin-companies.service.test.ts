@@ -565,3 +565,36 @@ describe("#2564 company records — list and search", () => {
     expect(page.items[0]).not.toHaveProperty("org_name");
   });
 });
+
+describe("#2750 welcome credits after a company edit", () => {
+  function withWelcome(h: ReturnType<typeof harness>) {
+    const welcome = { afterCompanyUpdated: vi.fn(async () => "granted") };
+    (h.service as unknown as { welcome: unknown }).welcome = welcome;
+    return welcome;
+  }
+  const admin = { id: ADMIN, role: "ops_admin", sid: "s" } as never;
+
+  it("an approval change asks for the company's welcome credits", async () => {
+    const h = harness();
+    const welcome = withWelcome(h);
+    await h.service.updateCompany(
+      admin,
+      COMPANY,
+      { ...REASON, changes: { verification_status: "verified" } } as never,
+      CTX,
+    );
+    expect(welcome.afterCompanyUpdated).toHaveBeenCalledWith(COMPANY, CTX);
+  });
+
+  it("a rename does not", async () => {
+    const h = harness();
+    const welcome = withWelcome(h);
+    await h.service.updateCompany(
+      admin,
+      COMPANY,
+      { ...REASON, changes: { org_name: "Acme Precision Works" } },
+      CTX,
+    );
+    expect(welcome.afterCompanyUpdated).not.toHaveBeenCalled();
+  });
+});

@@ -1,3 +1,4 @@
+import { CreditRulesModule } from "../credit-rules/credit-rules.module";
 import { Module } from "@nestjs/common";
 import { AdminModule } from "../admin/admin.module";
 import { AgencyModule } from "../agency/agency.module";
@@ -19,7 +20,15 @@ import { AdminPostingsService } from "./admin-postings.service";
  * ADR-0050 twin sync for an agency job's synced copy.
  */
 @Module({
-  imports: [AdminModule, EventsModule, JobPostingsModule, AgencyModule, AgencyTwinModule],
+  imports: [
+    AdminModule,
+    EventsModule,
+    JobPostingsModule,
+    AgencyModule,
+    AgencyTwinModule,
+    // #2750 item 4 — welcome credits after an approval. No dependency back.
+    CreditRulesModule,
+  ],
   controllers: [AdminPostingsController],
   providers: [AdminPostingsRepository, AdminPostingsService],
 })

@@ -17,7 +17,8 @@ export const PAYER_STATUSES = ["pending", "active", "suspended", "archived"] as 
 
 /**
  * `AdminLedgerQuerySchema.reason` — the credit ledger's reason chips, in the chips' order.
- * `expired` (#2749): a lot's unspent credits removed at its date.
+ * `expired` (#2749): a lot's unspent credits removed at its date. `welcome` (#2750): a verified
+ * company's welcome credits, once.
  */
 export const LEDGER_REASONS = [
   "pack_purchase",
@@ -25,6 +26,7 @@ export const LEDGER_REASONS = [
   "unlock_debit",
   "refund",
   "expired",
+  "welcome",
 ] as const;
 
 /**
