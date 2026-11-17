@@ -248,6 +248,30 @@ export const ADMIN_CAPABILITIES = [
    */
   "edit_candidates",
   /**
+   * #2755 — READ the BUSINESS NUMBERS: the weekly numbers screen (`/admin/numbers/*` — paying
+   * companies, revenue by pack, repeat buying, hires, the out-of-credits call list), and MARK or
+   * UNMARK a test company so it stays out of every company figure. `super_admin` + `ops_admin`
+   * ONLY (owner question 1 default: "super admin and ops admin only, through a new capability;
+   * support and analyst are added only on his word").
+   *
+   * ── WHY NOT `read_entities`, WHERE `GET /admin/finance/summary` SITS ──────────────────────
+   * Because `read_entities` is the floor all four roles hold, and these figures are the company's
+   * own commercial performance — the numbers shown to investors, revenue week on week, which
+   * companies stopped buying. The finance summary already exposes revenue to every role; widening
+   * that pattern to the whole screen would hand the analytics and support roles the business plan
+   * as a side effect of a read floor. If telecallers sign in as `support`, the owner adds `support`
+   * here; `analyst` only on his word.
+   *
+   * ── WHY THE TEST-COMPANY MARK RIDES THE SAME ROW ────────────────────────────────────────
+   * The mark exists only to decide what these figures count. A separate write capability would be
+   * a second allow-set to keep equal to this one; a role that cannot read the numbers has no
+   * reason to change what they include. It is still a WRITE, so it is audited (an
+   * `admin.payer_test_account_*` event plus `admin.action_performed` per change).
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "read_business_numbers",
+  /**
    * #2750 item 12 — READ and EDIT the credit rules' settings (`GET` / `PUT /admin/credit-rules`):
    * what a contact costs, the experience line, welcome credits, the opening limits, the
    * couldn't-reach windows, returned credits, the refund rules and the goodwill cap.
@@ -335,6 +359,9 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   manage_companies: ["super_admin", "ops_admin"],
   // #2561 / ADR-0062 §3.8 — candidate-field corrections. `analyst` denied.
   edit_candidates: ["super_admin", "ops_admin", "support"],
+  // #2755 — the business numbers screen and its test-company marks (owner question 1 default).
+  // `support` and `analyst` denied until the owner says otherwise.
+  read_business_numbers: ["super_admin", "ops_admin"],
   // #2750 item 12 — the credit rules' settings: every company's price and limits at once.
   // `super_admin` only (see the capability's docstring).
   manage_credit_rules: ["super_admin"],

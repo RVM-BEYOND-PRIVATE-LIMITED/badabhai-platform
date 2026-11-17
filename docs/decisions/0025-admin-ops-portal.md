@@ -330,6 +330,7 @@ guard's fail-closed `role: null`).
 | Toggle a feature flag / kill-switch | ✅ | ❌ | ❌ | ❌ |
 | **Reveal worker PII (reason-gated, single-subject)** | ✅ | ❌ | ✅ | ❌ |
 | **Read AI call traces (the prompt + completion of one AI call, and the list of them)** — `read_ai_traces`, migration 0083, owner ruling 2026-08-20 | ✅ | ❌ | ❌ | ❌ |
+| **Read business numbers (the weekly numbers screen and its call list) and mark or unmark a test company** — `read_business_numbers`, #2755, owner question 1 default (pending Akshit's word to add `support` or `analyst`) | ✅ | ✅ | ❌ | ❌ |
 | Manage admin users (invite / change role / suspend) | ✅ | ❌ | ❌ | ❌ |
 
 ✅ = allow, ❌ = deny. **Every cell not marked ✅ is denied.** (Export-for-`support` is denied so
@@ -340,6 +341,16 @@ is the payer's email, else phone. `super_admin`, `ops_admin` and `support` may s
 the User accounts surface (`payer_logins`), through `AdminIdentityService` (capability check, name
 budget charged, `admin.identity_viewed` committed before decrypt). No entity list, payer detail,
 directory response or event carries it.
+
+**`read_business_numbers` (#2755) is a gate on every `/admin/numbers/*` route.** The weekly
+numbers are the company's own commercial performance (paying companies, revenue by pack, repeat
+buying, the out-of-credits call list), so they are NOT on the `read_entities` floor even though
+`GET /admin/finance/summary` already shows revenue to all four roles. Default (owner question 1):
+`super_admin` and `ops_admin` only; `support` is added if telecallers sign in as support, `analyst`
+only on the owner's word. The test-company mark (`PUT|DELETE /admin/numbers/test-accounts/:payerId`)
+rides the same row: it exists only to decide what these figures count. The routes also sit behind
+the default-off `ADMIN_NUMBERS_ENABLED` switch, a guard ordered AHEAD of `AdminRolesGuard`, so with
+it off every role gets the same neutral 404.
 
 **`read_ai_traces` IS a gate on the route, and on BOTH legs of it.** Unlike `read_identity`
 above, this capability does not decide whether a field appears — it decides whether

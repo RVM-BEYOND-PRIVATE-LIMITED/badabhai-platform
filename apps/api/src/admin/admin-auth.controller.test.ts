@@ -249,6 +249,8 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
         "manage_companies",
         // #2561 — candidate-field corrections (super_admin, ops_admin, support). Tail-appended.
         "edit_candidates",
+        // #2755 — the business numbers screen (super_admin, ops_admin). Tail-appended.
+        "read_business_numbers",
       ],
     });
   });

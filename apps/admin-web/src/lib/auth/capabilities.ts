@@ -75,6 +75,9 @@ export const ADMIN_CAPABILITIES = [
   "manage_companies",
   // #2561 — edit a candidate's profile facts (correction layer with revert).
   "edit_candidates",
+  // #2755 — the business numbers screen (weekly figures, call list, launch tests) and its
+  // test-company marks. Vocabulary only: this file carries no role mapping.
+  "read_business_numbers",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -121,6 +124,7 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   manage_postings: "Edit, pause, close, hide and verify postings",
   manage_companies: "Create, edit, archive and restore companies",
   edit_candidates: "Correct candidate profile fields",
+  read_business_numbers: "Read the business numbers and mark test companies",
 };
 
 /** Narrow an unknown string to a known capability (anything else is dropped, not trusted). */
