@@ -79,3 +79,13 @@ const PAYER_DEMO_WORKER_ID = new RegExp(
 export function isSampleWorkerId(workerId: string): boolean {
   return WORKFORCE_WORKER_ID.test(workerId) || PAYER_DEMO_WORKER_ID.test(workerId);
 }
+
+/**
+ * #2755 — the SQL twin of {@link isSampleWorkerId}: the `LIKE` patterns of BOTH seeded worker
+ * cohorts, so an aggregate can leave sample workers out in the query (`id::text NOT LIKE …` for
+ * each) instead of loading every id to test it. Same namespaces as the predicate, from the same
+ * tags; Postgres prints a uuid in lower case, which is how the patterns are spelled.
+ */
+export function sampleWorkerIdLikePatterns(): readonly string[] {
+  return [workforceIdLikePattern("worker"), payerDemoIdLikePattern("worker")];
+}

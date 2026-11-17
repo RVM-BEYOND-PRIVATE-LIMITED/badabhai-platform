@@ -1834,6 +1834,18 @@ export const EVENT_REGISTRY = {
     domain: "pay_on_joining",
     payload: p.PayOnJoiningRecordedPayload,
   },
+  // #2755 item 2 — a company marked as a test company, or the mark removed (`payers.is_test_account`).
+  // One per real change. IDS AND ONE CLOSED REASON CODE ONLY, strict. v1.
+  "admin.payer_test_account_marked": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminPayerTestAccountMarkedPayload,
+  },
+  "admin.payer_test_account_unmarked": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminPayerTestAccountUnmarkedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

@@ -6911,3 +6911,50 @@ export const PayOnJoiningRecordedPayload = z
     { message: "partner_share_paise must be floor(fee_paise * partner_share_percent / 100)" },
   );
 export type PayOnJoiningRecordedPayload = z.infer<typeof PayOnJoiningRecordedPayload>;
+
+// ---------------------------------------------------------------------------
+// #2755 item 2 — A TEST COMPANY, MARKED OR UNMARKED. `payers.is_test_account` (migration 0162) is
+// the one company test marker: every company figure of the numbers screen leaves a marked company
+// out, and the rows it creates copy the mark. Set by `PUT /admin/numbers/test-accounts/:payerId`
+// (an admin) or by the `mark-synthetic-test-payers` backfill (no admin: `admin_id` null), cleared
+// by `DELETE` on the same path. One event per REAL change: a re-mark or a second unmark writes
+// nothing and emits nothing.
+//
+// IDS AND ONE CLOSED CODE ONLY, strict. The reason is a code, never text; no email, name or phone
+// of the company ever rides along (the backfill reads the sign-in email in process and keeps it
+// there).
+// ---------------------------------------------------------------------------
+
+/** Why a company is a test company. */
+export const PAYER_TEST_ACCOUNT_REASONS = [
+  // Its sign-in email is in the reserved synthetic domain (`isSyntheticPayerEmail`).
+  "synthetic_sign_in",
+  // A company the team runs for itself.
+  "staff",
+  // A rehearsal account of the company move (#2754).
+  "rehearsal",
+  // A pilot test account (#2754, the launch tests).
+  "pilot_test",
+] as const;
+export const PayerTestAccountReason = z.enum(PAYER_TEST_ACCOUNT_REASONS);
+export type PayerTestAccountReason = z.infer<typeof PayerTestAccountReason>;
+
+export const AdminPayerTestAccountMarkedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    reason: PayerTestAccountReason,
+    /** The admin who marked it; null when the backfill marked it. */
+    admin_id: uuidSchema.nullable(),
+  })
+  .strict();
+export type AdminPayerTestAccountMarkedPayload = z.infer<typeof AdminPayerTestAccountMarkedPayload>;
+
+export const AdminPayerTestAccountUnmarkedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    admin_id: uuidSchema,
+  })
+  .strict();
+export type AdminPayerTestAccountUnmarkedPayload = z.infer<
+  typeof AdminPayerTestAccountUnmarkedPayload
+>;

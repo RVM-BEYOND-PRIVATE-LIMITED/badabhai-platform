@@ -204,6 +204,9 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     manage_companies: ["super_admin", "ops_admin"],
     // #2561 / ADR-0062 §3.8 - candidate-field corrections. `analyst` denied.
     edit_candidates: ["super_admin", "ops_admin", "support"],
+    // #2755 - the business numbers screen + its test-company marks. ADR-0025 §3.1 row added with
+    // the owner question 1 default; `support`/`analyst` denied.
+    read_business_numbers: ["super_admin", "ops_admin"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -372,6 +375,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "manage_companies",
       // #2561 — candidate-field corrections.
       "edit_candidates",
+      // #2755 — the business numbers screen.
+      "read_business_numbers",
     ]);
     // super_admin holds everything — the one role for which the list is the whole vocabulary.
     expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);

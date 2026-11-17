@@ -16,6 +16,7 @@
     "backfill:company-name-tokens": "node dist/payers/backfill-company-name-tokens.cli.js",
     "backfill:candidate-index": "node dist/admin/candidate-index/candidate-index-backfill.cli.js",
     "campus:mock": "node dist/campus-link/mock/campus-link-mock.cli.js",
+    "backfill:synthetic-test-payers": "node dist/admin/numbers/mark-synthetic-test-payers.cli.js",
     "clean": "rimraf --glob dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
