@@ -1110,7 +1110,7 @@ describe("UnlocksRepository.holdPaymentOrder — #2749 hardening 5: the same CAS
   it("sets status='held' + the payment ref, guarded on status IN (created, failed), and runs the hook on the SAME tx", async () => {
     const heldRow = { id: "order-1", status: "held" };
     const { db, captured } = makeDb({ rows: [heldRow] });
-    const hook = vi.fn(async () => undefined);
+    const hook = vi.fn(async (_tx: unknown, _held: unknown) => undefined);
     const out = await new UnlocksRepository(db).holdPaymentOrder(
       { providerOrderId: "rzp_order_1", providerPaymentRef: "pay_1" },
       hook,
