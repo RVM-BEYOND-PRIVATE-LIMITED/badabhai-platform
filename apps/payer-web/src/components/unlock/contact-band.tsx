@@ -214,6 +214,16 @@ export function contactBand({
             </PortalLink>
           </div>
         </div>
+      ) : row.unlock?.kind === "week_limit" ? (
+        <div className="applicant__engaged">
+          <Badge tone="warning">Not available this week</Badge>
+          <p className="applicant__neutral">{row.unlock.message}</p>
+        </div>
+      ) : row.unlock?.kind === "daily_limit" ? (
+        <div className="applicant__engaged">
+          <Badge tone="warning">Daily opening limit</Badge>
+          <p className="applicant__neutral">{row.unlock.message}</p>
+        </div>
       ) : row.unlock?.kind === "unavailable" ? (
         // CURRENTLY ENGAGED / UNAVAILABLE (no-oracle): one neutral state, IDENTICAL
         // copy for capped vs unknown vs no-consent vs already-unlocked. The badge is

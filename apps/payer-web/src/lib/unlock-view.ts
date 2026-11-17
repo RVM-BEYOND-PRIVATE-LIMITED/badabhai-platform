@@ -57,6 +57,8 @@ export type UnlockView =
       creditsAvailable: number;
       message: string;
     }
+  | { kind: "week_limit"; message: string }
+  | { kind: "daily_limit"; dailyLimit: number; message: string }
   | { kind: "unavailable"; message: string };
 
 export type RevealView =
@@ -93,6 +95,19 @@ export function mapUnlockResult(result: UnlockResult): UnlockView {
       creditsNeeded: result.creditsNeeded,
       creditsAvailable: result.creditsAvailable,
       message: insufficientCreditsMessage(result.creditsNeeded, result.creditsAvailable),
+    };
+  }
+  if (result.status === "worker_unavailable_this_week") {
+    return {
+      kind: "week_limit",
+      message: "This worker isn't available this week. Try again in a few days.",
+    };
+  }
+  if (result.status === "daily_limit_reached") {
+    return {
+      kind: "daily_limit",
+      dailyLimit: result.dailyLimit,
+      message: `You've opened ${result.dailyLimit} contacts today. You can open more tomorrow.`,
     };
   }
   return { kind: "unavailable", message: NEUTRAL_UNLOCK_MESSAGE };
