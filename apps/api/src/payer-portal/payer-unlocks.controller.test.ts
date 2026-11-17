@@ -1,7 +1,12 @@
 import "reflect-metadata";
 import { createHash } from "node:crypto";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from "@nestjs/common";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerRequestUnlockSchema } from "./payer-unlocks.dto";
 import { PAYMENT_ORDER_ORIGINS } from "@badabhai/types";
@@ -10,7 +15,7 @@ import type { Request } from "express";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { caught, renderedError } from "../common/idempotency/replay-fidelity.test-support";
 import { assertExpectedPrice } from "../pricing/charge-price";
-import { PayerUnlocksController } from "./payer-unlocks.controller";
+import { PayerUnlocksController, creditOrderFingerprint } from "./payer-unlocks.controller";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
 
@@ -688,6 +693,35 @@ describe("#2749 item 9 — POST /payer/credits/order is idempotent on Idempotenc
     release();
     await inflight;
     expect(createCreditOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it("the same key with a DIFFERENT body is a 422 idempotency_key_reused — never the first order replayed", async () => {
+    const { ctrl, createCreditOrder } = orderCtrl();
+    const req = withKey("order-reused");
+    const first = await ctrl.createOrder({ pack_code: "pack_starter" }, PAYER_A, req, CTX);
+    for (const other of [
+      { pack_code: "pack_big" },
+      { pack_code: "pack_starter", origin: "dashboard" as const },
+      { pack_code: "pack_starter", origin_job_posting_id: "eeeeeeee-0000-4000-8000-000000000005" },
+      { pack_code: "pack_starter", expected_price_inr: 999 },
+    ]) {
+      const err = await caught(ctrl.createOrder(other, PAYER_A, req, CTX));
+      expect((err as UnprocessableEntityException).getStatus(), JSON.stringify(other)).toBe(422);
+      expect(renderedError(err)).toMatchObject({ reason: "idempotency_key_reused" });
+    }
+    expect(createCreditOrder).toHaveBeenCalledTimes(1);
+    // The original body under the key still replays the original order.
+    expect(await ctrl.createOrder({ pack_code: "pack_starter" }, PAYER_A, req, CTX)).toEqual(first);
+  });
+
+  it("the body fingerprint covers every field and nothing else: same body → same digest", () => {
+    const a = creditOrderFingerprint({ pack_code: "pack_starter" });
+    expect(creditOrderFingerprint({ pack_code: "pack_starter" })).toBe(a);
+    expect(a).toMatch(/^[0-9a-f]{64}$/);
+    expect(creditOrderFingerprint({ pack_code: "pack_starter", origin: "other" })).not.toBe(a);
+    expect(creditOrderFingerprint({ pack_code: "pack_starter", expected_price_inr: 999 })).not.toBe(
+      a,
+    );
   });
 
   it("NO key keeps the old behaviour (each call is a new order) — the header is optional", async () => {

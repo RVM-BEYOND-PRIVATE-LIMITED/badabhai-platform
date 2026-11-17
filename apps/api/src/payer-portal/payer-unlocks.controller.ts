@@ -12,6 +12,7 @@ import {
   Req,
   UseGuards,
 } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import type { Request } from "express";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
@@ -257,8 +258,11 @@ export class PayerUnlocksController {
    * `POST /payer/credits` — the same seam, namespace `payer_idem`, scoped to this route and the
    * SESSION payer. A retry under the same key replays the first handoff (the same `order_id`) and
    * creates NO second Razorpay order; a duplicate while the first is still running is a 409
-   * `in_flight`. Optional for backward compatibility; clients SHOULD send one per confirmed
-   * purchase. Without it every call creates a new provider order (the old behaviour).
+   * `in_flight`. The key is BOUND TO THE BODY ({@link creditOrderFingerprint}): the same key with a
+   * different pack, price confirmation or origin is a 422 `idempotency_key_reused`, never a replay
+   * of the first order. A failure is replayed for the key's whole window too, so after a 5xx the
+   * client sends a FRESH key. Optional for backward compatibility; clients SHOULD send one per
+   * confirmed purchase. Without it every call creates a new provider order (the old behaviour).
    */
   @Post("credits/order")
   @HttpCode(201)
@@ -280,6 +284,8 @@ export class PayerUnlocksController {
       subjectLabel: "payer",
       logLabel: "payer",
       idempotencyKey: req.header("idempotency-key"),
+      // The key names THIS checkout: another body under it is a 422, not the first order replayed.
+      fingerprint: creditOrderFingerprint(dto),
       // 409, never a guessed handoff: the first attempt has not created its provider order yet.
       inFlight: (): never => {
         throw inFlightConflict(
@@ -358,4 +364,22 @@ export class PayerUnlocksController {
       pack_code: result.pack_code,
     };
   }
+}
+
+/**
+ * #2749 item 9 — the digest an order's `Idempotency-Key` is bound to: every field of the body
+ * (pack, price confirmation, origin, origin posting), in a fixed order, absent fields as null.
+ * A sha256 hex digest of ids and codes only — no PII is in the body, and none is stored.
+ */
+export function creditOrderFingerprint(dto: CreateCreditOrderDto): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        dto.pack_code,
+        dto.expected_price_inr ?? null,
+        dto.origin ?? null,
+        dto.origin_job_posting_id ?? null,
+      ]),
+    )
+    .digest("hex");
 }
