@@ -73,6 +73,8 @@ export interface ContactBandInput {
   quoteCredits?: number | null;
   /** #2750 — the quote response's spendable balance. */
   creditsAvailable?: number | null;
+  /** #2750 part C — this open is free because RVM's placement team waived it. */
+  quoteWaived?: boolean;
   /** The id of the visible "why Unlock is disabled" line — position-keyed, never a worker id. */
   unlockHintId: string;
   /** The card's posting offers this session no unlock (an inbox card's view-only posting). */
@@ -90,6 +92,7 @@ export function contactBand({
   balance,
   quoteCredits = null,
   creditsAvailable = null,
+  quoteWaived = false,
   unlockHintId,
   viewOnly,
   onUnlock,
@@ -211,6 +214,16 @@ export function contactBand({
             </PortalLink>
           </div>
         </div>
+      ) : row.unlock?.kind === "week_limit" ? (
+        <div className="applicant__engaged">
+          <Badge tone="warning">Not available this week</Badge>
+          <p className="applicant__neutral">{row.unlock.message}</p>
+        </div>
+      ) : row.unlock?.kind === "daily_limit" ? (
+        <div className="applicant__engaged">
+          <Badge tone="warning">Daily opening limit</Badge>
+          <p className="applicant__neutral">{row.unlock.message}</p>
+        </div>
       ) : row.unlock?.kind === "unavailable" ? (
         // CURRENTLY ENGAGED / UNAVAILABLE (no-oracle): one neutral state, IDENTICAL
         // copy for capped vs unknown vs no-consent vs already-unlocked. The badge is
@@ -238,8 +251,8 @@ export function contactBand({
               {row.busy
                 ? "Unlocking…"
                 : unlockError
-                  ? retryOpenButtonLabel(quoteCredits)
-                  : openButtonLabel(quoteCredits)}
+                  ? retryOpenButtonLabel(quoteCredits, quoteWaived)
+                  : openButtonLabel(quoteCredits, quoteWaived)}
             </Button>
             {/* A REAL zero balance only — an unread balance arrives here as 1 (the
                 page's affordance default), so Unlock stays enabled and this never
@@ -258,7 +271,9 @@ export function contactBand({
               stop on every card). */}
           {showOffer ? (
             <p className="applicant__hint" id={unlockHintId}>
-              {quoted && quoteCredits !== null && creditsAvailable !== null
+              {quoteWaived
+                ? "This RVM applicant was waived by the placement team. Opening costs 0 credits. "
+                : quoted && quoteCredits !== null && creditsAvailable !== null
                 ? `You need ${creditsLabel(quoteCredits)}, you have ${creditsAvailable}. ` +
                   "The Starter pack has more credits. Guidance only — this is your own " +
                   "balance, never a signal about this applicant."

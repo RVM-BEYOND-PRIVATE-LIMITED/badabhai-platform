@@ -683,9 +683,22 @@ export const unlockInsufficientSchema = z.object({
   creditsAvailable: z.number().int().nonnegative(),
 });
 
+/** #2750 part D — the worker reached his weekly opening limit; nothing was charged. */
+export const unlockWorkerWeekSchema = z.object({
+  status: z.literal("worker_unavailable_this_week"),
+});
+
+/** #2750 part D — an agency reached its IST-day opening limit; nothing was charged. */
+export const unlockDailyLimitSchema = z.object({
+  status: z.literal("daily_limit_reached"),
+  dailyLimit: z.number().int().positive(),
+});
+
 export const unlockResultSchema = z.union([
   unlockGrantedSchema,
   unlockInsufficientSchema,
+  unlockWorkerWeekSchema,
+  unlockDailyLimitSchema,
   unlockNeutralSchema,
 ]);
 export type UnlockResult = z.infer<typeof unlockResultSchema>;
@@ -698,6 +711,8 @@ export type UnlockResult = z.infer<typeof unlockResultSchema>;
 export interface UnlockQuotes {
   quotes: Record<string, number>;
   creditsAvailable: number;
+  /** #2750 part C — workers whose open is free because of an RVM waiver. */
+  waived?: Record<string, true>;
 }
 
 /* ── Reveal → ROUTED contact handle (LIVE: POST /payer/unlocks/:id/reveal) ─────── */
@@ -1037,9 +1052,18 @@ export const unlockInsufficientWireSchema = z.object({
   credits_needed: z.number().int().nonnegative(),
   credits_available: z.number().int().nonnegative(),
 });
+export const unlockWorkerWeekWireSchema = z.object({
+  status: z.literal("worker_unavailable_this_week"),
+});
+export const unlockDailyLimitWireSchema = z.object({
+  status: z.literal("daily_limit_reached"),
+  daily_limit: z.number().int().positive(),
+});
 export const unlockResultWireSchema = z.union([
   unlockGrantedWireSchema,
   unlockInsufficientWireSchema,
+  unlockWorkerWeekWireSchema,
+  unlockDailyLimitWireSchema,
   neutralWireSchema,
 ]);
 
@@ -1047,6 +1071,8 @@ export const unlockResultWireSchema = z.union([
 export const unlockQuoteWireSchema = z.object({
   worker_id: z.string().uuid(),
   credits: z.number().int().nonnegative(),
+  /** Present only when true: the RVM placement team waived this open. */
+  waived: z.literal(true).optional(),
 });
 export const unlockQuotesWireSchema = z.object({
   quotes: z.array(unlockQuoteWireSchema),

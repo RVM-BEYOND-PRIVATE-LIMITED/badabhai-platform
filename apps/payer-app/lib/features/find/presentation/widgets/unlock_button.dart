@@ -13,7 +13,8 @@ const String kUnlockLabel = 'Unlock';
 const String kViewLabel = 'View';
 
 /// #2750 — the open CTA at the price the quote returned. No quote keeps today's label.
-String unlockCtaLabel(int? credits) {
+String unlockCtaLabel(int? credits, {bool waived = false}) {
+  if (waived) return 'Free: RVM placement team';
   if (credits == null) return kUnlockLabel;
   if (credits == 0) return 'Open (free)';
   return 'Open for $credits ${credits == 1 ? 'credit' : 'credits'}';
@@ -62,6 +63,7 @@ class UnlockButton extends StatefulWidget {
     this.busy = false,
     this.credits,
     this.affordable = true,
+    this.waived = false,
   });
 
   /// One attempt: the confirm dialog, then the request.
@@ -75,6 +77,9 @@ class UnlockButton extends StatefulWidget {
 
   /// False when the quote is beyond the payer's spendable balance.
   final bool affordable;
+
+  /// #2750 part C — the open is free because RVM's placement team waived it.
+  final bool waived;
 
   @override
   State<UnlockButton> createState() => _UnlockButtonState();
@@ -105,7 +110,7 @@ class _UnlockButtonState extends State<UnlockButton> {
     return IgnorePointer(
       ignoring: _running,
       child: BbButton(
-        label: unlockCtaLabel(widget.credits),
+        label: unlockCtaLabel(widget.credits, waived: widget.waived),
         iconLeft: Icons.lock_rounded,
         // md (44px), the paid CTA's floor (#1082).
         size: BbButtonSize.md,
@@ -132,6 +137,7 @@ class CandidateCardAction extends StatelessWidget {
     this.viewIcon = Icons.chat_bubble_rounded,
     this.credits,
     this.affordable = true,
+    this.waived = false,
     this.onOpenCredits,
   });
 
@@ -150,6 +156,7 @@ class CandidateCardAction extends StatelessWidget {
   /// #2750 — this card's quoted credits / affordability.
   final int? credits;
   final bool affordable;
+  final bool waived;
 
   /// #2750 — the Starter pack offer's destination (the Credits tab).
   final VoidCallback? onOpenCredits;
@@ -161,6 +168,7 @@ class CandidateCardAction extends StatelessWidget {
         busy: busy,
         credits: credits,
         affordable: affordable,
+        waived: waived,
         onUnlock: onUnlock,
       );
       if (affordable || onOpenCredits == null) return unlock;

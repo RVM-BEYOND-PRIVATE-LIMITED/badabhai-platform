@@ -1923,6 +1923,18 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminLaunchTestFactoryUpdatedPayload,
   },
+  // #2887 — a moved student's visibility turned on or off by an admin: one student, or a bulk call
+  // (one import run, branch or course). In the transaction that changes the rows. v1.
+  "admin.student_visibility_changed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminStudentVisibilityChangedPayload,
+  },
+  "admin.student_visibility_bulk_changed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminStudentVisibilityBulkChangedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

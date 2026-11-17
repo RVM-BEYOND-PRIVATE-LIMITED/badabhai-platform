@@ -513,7 +513,9 @@ class UnlockResult extends Equatable {
     this.creditsCharged,
   })  : available = true,
         creditsNeeded = null,
-        creditsAvailable = null;
+        creditsAvailable = null,
+        limit = null,
+        dailyLimit = null;
 
   /// #2750 — the honest refusal for a company under the credit rules. Nothing was
   /// opened, debited or read about the worker; it says only what the payer cannot afford.
@@ -523,7 +525,30 @@ class UnlockResult extends Equatable {
   })  : available = false,
         unlockId = null,
         expiresAt = null,
-        creditsCharged = null;
+        creditsCharged = null,
+        limit = null,
+        dailyLimit = null;
+
+  /// #2750 part D — the worker hit his weekly opening limit; nothing was charged.
+  const UnlockResult.weekLimit()
+      : available = false,
+        unlockId = null,
+        expiresAt = null,
+        creditsCharged = null,
+        creditsNeeded = null,
+        creditsAvailable = null,
+        limit = 'week',
+        dailyLimit = null;
+
+  /// #2750 part D — an agency hit its IST-day opening limit; nothing was charged.
+  const UnlockResult.dailyLimitReached(this.dailyLimit)
+      : available = false,
+        unlockId = null,
+        expiresAt = null,
+        creditsCharged = null,
+        creditsNeeded = null,
+        creditsAvailable = null,
+        limit = 'day';
 
   const UnlockResult.unavailable()
       : available = false,
@@ -531,7 +556,9 @@ class UnlockResult extends Equatable {
         expiresAt = null,
         creditsCharged = null,
         creditsNeeded = null,
-        creditsAvailable = null;
+        creditsAvailable = null,
+        limit = null,
+        dailyLimit = null;
 
   final bool available;
   final String? unlockId;
@@ -544,6 +571,13 @@ class UnlockResult extends Equatable {
   final int? creditsNeeded;
   final int? creditsAvailable;
 
+  /// #2750 part D — 'week' / 'day' when an opening limit refused it; null otherwise.
+  final String? limit;
+  final int? dailyLimit;
+
+  bool get weekLimitReached => limit == 'week';
+  bool get dailyLimitReached => limit == 'day';
+
   /// True only when the server granted a real unlock (carried an [unlockId]).
   bool get granted => available;
 
@@ -553,7 +587,16 @@ class UnlockResult extends Equatable {
 
   @override
   List<Object?> get props =>
-      <Object?>[available, unlockId, expiresAt, creditsCharged, creditsNeeded, creditsAvailable];
+      <Object?>[
+        available,
+        unlockId,
+        expiresAt,
+        creditsCharged,
+        creditsNeeded,
+        creditsAvailable,
+        limit,
+        dailyLimit,
+      ];
 }
 
 /// #2750 — the contact price for one page of cards (`POST /payer/unlocks/quotes`).
@@ -563,10 +606,16 @@ class UnlockQuotes extends Equatable {
   const UnlockQuotes({
     required this.creditsByWorker,
     required this.creditsAvailable,
+    this.waivedWorkers = const <String>{},
   });
 
   final Map<String, int> creditsByWorker;
   final int creditsAvailable;
+
+  /// #2750 part C — workers whose open is free because RVM's placement team waived it.
+  final Set<String> waivedWorkers;
+
+  bool waivedFor(String workerId) => waivedWorkers.contains(workerId);
 
   /// The quoted credits for [workerId], or null when there is no quote for him.
   int? creditsFor(String workerId) => creditsByWorker[workerId];
@@ -584,12 +633,14 @@ class UnlockQuotes extends Equatable {
         creditsByWorker: <String, int>{...creditsByWorker, workerId: 0},
         creditsAvailable:
             (creditsAvailable - (result.creditsCharged ?? 1)).clamp(0, creditsAvailable).toInt(),
+        waivedWorkers: waivedWorkers,
       );
     }
     if (result.insufficient) {
       return UnlockQuotes(
         creditsByWorker: creditsByWorker,
         creditsAvailable: result.creditsAvailable!,
+        waivedWorkers: waivedWorkers,
       );
     }
     return this;
@@ -604,6 +655,7 @@ class UnlockQuotes extends Equatable {
       return null;
     }
     final Map<String, int> byWorker = <String, int>{};
+    final Set<String> waived = <String>{};
     for (final Object? row in rows) {
       if (row is! Map<String, dynamic>) return null;
       final Object? id = row['worker_id'];
@@ -616,17 +668,19 @@ class UnlockQuotes extends Equatable {
         return null;
       }
       byWorker[id] = credits.toInt();
+      if (row['waived'] == true) waived.add(id);
     }
     final int spendable = available.toInt();
     if (spendable < 0) return null;
     return UnlockQuotes(
       creditsByWorker: Map<String, int>.unmodifiable(byWorker),
       creditsAvailable: spendable,
+      waivedWorkers: Set<String>.unmodifiable(waived),
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[creditsByWorker, creditsAvailable];
+  List<Object?> get props => <Object?>[creditsByWorker, creditsAvailable, waivedWorkers];
 }
 
 /// One row of `GET /payer/unlocks` — the caller's OWN unlocks (#2033 payer

@@ -133,6 +133,12 @@ export const ADMIN_ACTION_CODES = {
   // `payer.contact_reach_resolved` (actor = the admin), ids and codes only.
   reach_case_attempt_logged: "reach_case_attempt_logged",
   reach_case_resolved: "reach_case_resolved",
+  // ── #2887 — a moved RVM student's visibility turned on or off ──────────────────────────
+  // One student: target the worker (`entity_type: "worker"`); a bulk call (one import run, branch
+  // or course): its own operation id (`entity_type: "student_visibility_bulk"`). The reason and
+  // the selector live on the `audit_logs` row; the spine records `admin.student_visibility_*`.
+  student_visibility_changed: "student_visibility_changed",
+  student_visibility_bulk_changed: "student_visibility_bulk_changed",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];

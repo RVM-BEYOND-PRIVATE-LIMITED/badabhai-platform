@@ -498,6 +498,11 @@ services:
       # NUMBERS_FREEZE_AFTER_DAYS (`:-3`), bridged from the `production` secret of the same name.
       ADMIN_NUMBERS_ENABLED: ${ADMIN_NUMBERS_ENABLED:-false}
       NUMBERS_FREEZE_AFTER_DAYS: ${NUMBERS_FREEZE_AFTER_DAYS:-3}
+      # THE BULK STUDENT MOVE (#2887). Off is today exactly: nothing names the student-move tables
+      # and every /admin/students/* route is a 404. Apply the `student_move` migration before
+      # switching it on (on without it: the routes answer 503, the hot reads fall back). `:-false`
+      # because this bool rejects "".
+      STUDENT_MOVE_ENABLED: ${STUDENT_MOVE_ENABLED:-false}
       # THE CAMPUS LINK (#2752). Off: every /internal/campus/v1 route is a neutral 404 and nothing
       # else runs. `:-false` because this bool rejects "". The two lists are empty when unset, and
       # empty refuses every caller (fail closed): token HASHES (sha256 hex, two during a rotation)

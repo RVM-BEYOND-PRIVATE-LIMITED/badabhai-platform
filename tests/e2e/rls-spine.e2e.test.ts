@@ -307,6 +307,14 @@ const LOCKED_TABLES = [
   // code, a time). RLS+FORCE+REVOKE in the hand-written tail of `*_contact_reach_cases`.
   "contact_reach_cases",
   "contact_reach_attempts",
+  // #2887: the bulk student move - the import ledger (runs, per-candidate rows, the candidate ->
+  // worker map), the per-field source markers and the visibility switch. Ids, closed codes,
+  // counts, hashes and times. RLS+FORCE+REVOKE in the hand-written tail of `*_student_move`.
+  "student_import_batches",
+  "student_import_rows",
+  "student_import_subjects",
+  "worker_field_sources",
+  "student_visibility",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

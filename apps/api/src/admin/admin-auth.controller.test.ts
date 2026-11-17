@@ -253,6 +253,8 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
         "read_business_numbers",
         // #2750 — the worker desk (super_admin, ops_admin, support). Tail-appended.
         "work_reach_desk",
+        // #2887 — the moved students' visibility switch (super_admin, ops_admin).
+        "manage_student_visibility",
       ],
     });
   });

@@ -297,6 +297,16 @@ export const ADMIN_CAPABILITIES = [
    */
   "manage_waivers",
   /**
+   * #2887 — turn a moved RVM student's visibility on or off, one student or in bulk (one import
+   * run, branch or course), and list the moved students (`/admin/students/*`). On, the student is an
+   * ordinary BadaBhai worker: matched to jobs and shown to companies. That is an access decision
+   * about a person, so it sits with the roles that already run the platform's operations
+   * (`super_admin`, `ops_admin`), not with `support` or the read-only `analyst`.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "manage_student_visibility",
+  /**
    * #2750 items 7 and 12 — work the worker desk (`/admin/desk/reach-cases`): read the couldn't-reach
    * queue, log call attempts, and close a case as reached or not reached (not reached returns the
    * company's credits). Owner ruling 2026-11-17: super_admin, ops_admin and support. Calling the
@@ -387,6 +397,9 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   // #2750 items 5 and 12 — the placement team's waivers (free RVM applicants for one company or
   // job). `super_admin` only, the issue's default (see the capability's docstring).
   manage_waivers: ["super_admin"],
+  // #2887 — the moved students' visibility switch. `super_admin` and `ops_admin` (see the
+  // capability's docstring); `support` and `analyst` denied.
+  manage_student_visibility: ["super_admin", "ops_admin"],
   // #2750 items 7 and 12 — the worker desk. Owner ruling 2026-11-17: super_admin, ops_admin and
   // support. `analyst` denied (a close returns credits: a write).
   work_reach_desk: ["super_admin", "ops_admin", "support"],

@@ -20,6 +20,7 @@ import { CompanyPaymentHistoryTab } from "./company-payment-history-tab";
 import { CompanyCreditsTab } from "./company-credits-tab";
 import { CompanyUsersTab } from "./company-users-tab";
 import { CompanyTimelineTab } from "./company-timeline-tab";
+import { WaiverSwitch } from "../app/(portal)/waivers/waiver-switch";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export type CompanyTab = "overview" | "postings" | "payments" | "credits" | "users" | "timeline";
@@ -44,6 +45,9 @@ export interface CompanyDetailViewProps {
   mayReadIdentity: boolean;
   /** Whether User accounts (and its filtered view) is open to this role. */
   mayOpenAccounts: boolean;
+  /** #2750 part C: undefined = waiver read off/failed; null = read but none. */
+  companyWaiver?: { active: boolean; setBy: string | null } | null;
+  mayManageWaivers?: boolean;
   cursors: { ledger?: string; payments?: string; events?: string };
 }
 
@@ -81,6 +85,8 @@ export function CompanyDetailView(props: CompanyDetailViewProps) {
     mayGrantCredits,
     mayReadIdentity,
     mayOpenAccounts,
+    companyWaiver,
+    mayManageWaivers,
     cursors,
   } = props;
 
@@ -177,6 +183,15 @@ export function CompanyDetailView(props: CompanyDetailViewProps) {
           <strong>{company.previous_status ?? "its previous state"}</strong>.
         </section>
       )}
+
+      {mayManageWaivers && companyWaiver !== undefined ? (
+        <WaiverSwitch
+          scope="company"
+          companyId={company.id}
+          active={companyWaiver?.active ?? false}
+          setBy={companyWaiver?.setBy ?? null}
+        />
+      ) : null}
 
       <CompanyTabs tabs={TABS} active={activeTab} basePath={basePath} />
 

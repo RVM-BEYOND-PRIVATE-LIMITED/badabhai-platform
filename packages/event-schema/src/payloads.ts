@@ -7306,3 +7306,49 @@ export const AdminLaunchTestFactoryUpdatedPayload = z
 export type AdminLaunchTestFactoryUpdatedPayload = z.infer<
   typeof AdminLaunchTestFactoryUpdatedPayload
 >;
+
+/**
+ * #2887 — an admin turned ONE moved student's visibility on or off (`PUT
+ * /admin/students/:workerId/visibility`). Written in the same transaction as the
+ * `student_visibility` row change. On: he is an ordinary BadaBhai worker (matched, searchable);
+ * off: out of matching and kept from companies by #2752's rules.
+ *
+ * FACELESS: the worker id and the new state. The admin is the event's actor; the reason lives on
+ * the `audit_logs` row of the same transaction.
+ */
+export const AdminStudentVisibilityChangedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    visible: z.boolean(),
+  })
+  .strict();
+export type AdminStudentVisibilityChangedPayload = z.infer<
+  typeof AdminStudentVisibilityChangedPayload
+>;
+
+/** #2887 — how a bulk visibility change chose its students. */
+export const STUDENT_VISIBILITY_SELECTORS = ["batch", "branch", "course"] as const;
+
+/**
+ * #2887 — an admin turned visibility on or off for MANY moved students at once (`POST
+ * /admin/students/visibility`): one import run, one branch or one course. One event per call, in
+ * the same transaction as the row changes.
+ *
+ * FACELESS: the selector kind, the import run's id (for `batch`, else null), the new state and how
+ * many students changed. The branch or course name itself lives on the `audit_logs` row.
+ */
+export const AdminStudentVisibilityBulkChangedPayload = z
+  .object({
+    selector: z.enum(STUDENT_VISIBILITY_SELECTORS),
+    batch_id: uuidSchema.nullable(),
+    visible: z.boolean(),
+    changed: z.number().int().min(0),
+  })
+  .strict()
+  .refine((p) => (p.selector === "batch") === (p.batch_id !== null), {
+    message: "batch_id is set exactly for the batch selector",
+    path: ["batch_id"],
+  });
+export type AdminStudentVisibilityBulkChangedPayload = z.infer<
+  typeof AdminStudentVisibilityBulkChangedPayload
+>;

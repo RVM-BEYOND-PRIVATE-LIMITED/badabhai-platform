@@ -355,6 +355,29 @@ class _FindViewState extends State<_FindView> {
       }
       return UnlockOutcome.insufficient;
     }
+    if (result.weekLimitReached) {
+      if (context.mounted) {
+        showBbToast(
+          context,
+          title: 'Not available this week',
+          message: "This worker isn't available this week. Try again in a few days.",
+          icon: Icons.info_rounded,
+        );
+      }
+      return UnlockOutcome.denied;
+    }
+    if (result.dailyLimitReached) {
+      if (context.mounted) {
+        showBbToast(
+          context,
+          title: 'Daily opening limit',
+          message:
+              "You've opened ${result.dailyLimit} contacts today. You can open more tomorrow.",
+          icon: Icons.info_rounded,
+        );
+      }
+      return UnlockOutcome.denied;
+    }
     if (!result.granted) {
       // Neutral deny — no credit / already / capped. Never a fabricated reason.
       if (context.mounted) {
@@ -525,6 +548,7 @@ class _FindViewState extends State<_FindView> {
             unlocking: state.isUnlocking(a.workerId),
             credits: state.quotedCreditsFor(a.workerId),
             affordable: !state.quoteUnaffordableFor(a.workerId),
+            waived: state.quotedWaivedFor(a.workerId),
             onOpenCredits: widget.onOpenCredits,
             onUnlock: () =>
                 _unlockApplicant(context, a, jobId: state.selectedJob?.id),
@@ -752,6 +776,7 @@ class _ApplicantCard extends StatelessWidget {
     required this.onView,
     this.credits,
     this.affordable = true,
+    this.waived = false,
     this.onOpenCredits,
   });
 
@@ -765,6 +790,7 @@ class _ApplicantCard extends StatelessWidget {
   /// #2750 — this applicant's quote and the Starter pack destination.
   final int? credits;
   final bool affordable;
+  final bool waived;
   final VoidCallback? onOpenCredits;
 
   @override
@@ -803,6 +829,7 @@ class _ApplicantCard extends StatelessWidget {
               busy: unlocking,
               credits: credits,
               affordable: affordable,
+              waived: waived,
               onOpenCredits: onOpenCredits,
               onUnlock: onUnlock,
               onView: onView,

@@ -620,9 +620,13 @@ export async function getUnlockQuotes(
     if (isPayerStatus(e, 404)) return null;
     throw e;
   }
+  const waived = Object.fromEntries(
+    wire.quotes.filter((q) => q.waived === true).map((q) => [q.worker_id, true as const]),
+  );
   return {
     quotes: Object.fromEntries(wire.quotes.map((q) => [q.worker_id, q.credits])),
     creditsAvailable: wire.credits_available,
+    ...(Object.keys(waived).length > 0 ? { waived } : {}),
   };
 }
 
@@ -662,6 +666,15 @@ export async function requestUnlock(input: {
       status: "insufficient_credits",
       creditsNeeded: wire.credits_needed,
       creditsAvailable: wire.credits_available,
+    });
+  }
+  if (wire.status === "worker_unavailable_this_week") {
+    return unlockResultSchema.parse({ status: "worker_unavailable_this_week" });
+  }
+  if (wire.status === "daily_limit_reached") {
+    return unlockResultSchema.parse({
+      status: "daily_limit_reached",
+      dailyLimit: wire.daily_limit,
     });
   }
   return unlockResultSchema.parse({ status: "unavailable" });

@@ -395,6 +395,9 @@ class FindState extends Equatable {
   /// The quoted credits for [workerId], or null when there is no quote.
   int? quotedCreditsFor(String workerId) => quotes?.creditsFor(workerId);
 
+  /// #2750 part C — this open is free because RVM's placement team waived it.
+  bool quotedWaivedFor(String workerId) => quotes?.waivedFor(workerId) ?? false;
+
   bool quoteUnaffordableFor(String workerId) =>
       quotes?.unaffordableFor(workerId) ?? false;
 

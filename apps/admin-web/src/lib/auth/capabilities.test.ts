@@ -123,6 +123,7 @@ describe("labels stay in lockstep with the vocabulary", () => {
     // `read_business_numbers` (#2755 — the business numbers screen), and `manage_credit_rules`
     // (#2750 — the credit rules settings), and `manage_waivers` (#2750 — the placement team's
     // waivers), and `work_reach_desk` (#2750 — the couldn't-reach desk).
+    // waivers), and `manage_student_visibility` (#2887 — the moved students' visibility).
     expect([...ADMIN_CAPABILITIES].sort()).toEqual(
       [
         "export",
@@ -136,6 +137,7 @@ describe("labels stay in lockstep with the vocabulary", () => {
         "manage_credit_rules",
         "manage_payer_credentials",
         "manage_postings",
+        "manage_student_visibility",
         "manage_waivers",
         "manage_worker_account",
         "read_ai_traces",

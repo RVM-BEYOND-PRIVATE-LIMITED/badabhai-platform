@@ -140,6 +140,9 @@ function makeDb(
     },
     execute: (stmt: unknown) => {
       const q = compile(stmt);
+      // #2887 — the student-move presence probe (`to_regclass`) is answered "no table" and kept out
+      // of the record, so the statements and their order below are exactly the reach statements.
+      if (q.sql.includes("to_regclass")) return Promise.resolve([{ present: false }]);
       captured.statements.push({ on, sql: q.sql, params: q.params });
       captured.ops.push(`execute:${on}`);
       return Promise.resolve(execQueue.shift() ?? []);
