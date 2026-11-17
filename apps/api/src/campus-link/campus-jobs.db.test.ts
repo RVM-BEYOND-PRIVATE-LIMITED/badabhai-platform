@@ -7,6 +7,7 @@ import {
   instituteApplications,
   instituteCompanies,
   jobPostingInstituteReviews,
+  jobPostingWorkerVisibility,
   jobPostings,
   payers,
   type DbClient,
@@ -22,6 +23,7 @@ import { EventsService } from "../events/events.service";
 import type { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import { JobPostingsRepository } from "../job-postings/job-postings.repository";
 import { JobPostingsService } from "../job-postings/job-postings.service";
+import { JobsRepository } from "../jobs/jobs.repository";
 import { postingAudienceOver } from "../job-postings/posting-audience.test-support";
 import { MatchCandidatesService } from "../match/match-candidates.service";
 import { MatchFeedRepository } from "../match/match-feed.repository";
@@ -535,7 +537,20 @@ describe.skipIf(!RUN)("#2752 part E — Campus jobs and applications against Pos
       );
     expect(review).toMatchObject({ state: "approved", reviewerRef: STAFF });
     const page = await campusPostings.feed({ limit: 200, review_state: "approved" });
-    expect(page.postings.find((p) => p.id === out.posting_id)?.audience).toBe("rvm_students");
+    // #2891 — for RVM students AND BadaBhai workers, held from the workers until an admin opens it.
+    expect(page.postings.find((p) => p.id === out.posting_id)?.audience).toBe("both");
+    const [hold] = await client.db
+      .select()
+      .from(jobPostingWorkerVisibility)
+      .where(eq(jobPostingWorkerVisibility.jobPostingId, out.posting_id));
+    expect(hold).toMatchObject({
+      state: "off",
+      origin: "campus_posted",
+      decidedAt: null,
+      decidedByAdminId: null,
+    });
+    const workerJobs = new JobsRepository(client.db);
+    expect(await workerJobs.findWorkerVisibleJobById(out.posting_id)).toBeUndefined();
 
     expect(await campusPostings.findCompany(phone)).toMatchObject({
       id: out.company_id,
@@ -557,16 +572,20 @@ describe.skipIf(!RUN)("#2752 part E — Campus jobs and applications against Pos
     );
     expect(second).toMatchObject({ company_id: out.company_id, company_created: false });
 
-    // The posting opened without the company publish gate (it reaches no worker). The company may
-    // not later widen it to BadaBhai workers without a trade: that is a publish to them.
-    await expect(
-      companyForm.updateForPayer(out.posting_id, out.company_id, { audience: "both" }, CTX),
-    ).rejects.toMatchObject({ status: 400 });
+    // The posting opened without the company publish gate: held, it reaches no worker. Nothing the
+    // company does to its audience lifts the hold; only an admin's `on` does (#2891).
+    await companyForm.updateForPayer(
+      out.posting_id,
+      out.company_id,
+      { audience: "badabhai_workers" },
+      CTX,
+    );
     const [kept] = await client.db
       .select({ audience: jobPostings.audience })
       .from(jobPostings)
       .where(eq(jobPostings.id, out.posting_id));
-    expect(kept?.audience).toBe("rvm_students");
+    expect(kept?.audience).toBe("badabhai_workers");
+    expect(await workerJobs.findWorkerVisibleJobById(out.posting_id)).toBeUndefined();
   });
 
   it("refuses to post for a company Campus did not create, and never finds it", async () => {
