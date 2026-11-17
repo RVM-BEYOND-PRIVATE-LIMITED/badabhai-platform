@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   NUMBERS_BASELINE_FROM,
+  NUMBERS_COHORT_METRICS,
+  NUMBERS_FREEZE_CLASSES,
+  NUMBERS_REPEAT_LONGEST_WINDOW_DAYS,
+  NUMBERS_REPEAT_WINDOWS_DAYS,
   NUMBERS_DEFINITION_VERSION,
   NUMBERS_METRIC_GROUPS,
   NUMBERS_METRIC_KINDS,
@@ -10,7 +14,10 @@ import {
   NUMBERS_WAITS_ON,
   allNumbersMetrics,
   isRevenuePackMetricId,
+  numbersFreezeClassOf,
+  numbersFreezeWindowDays,
   numbersMetric,
+  repeatPurchaseMetricId,
   revenuePackMetricId,
 } from "./definitions";
 import { isWeekStart } from "./week";
@@ -59,7 +66,7 @@ describe("the catalogue", () => {
     }
   });
 
-  it("live today: groups 1 (but repeat buying), 2, 3, 4 and 9 (as charged); waiting: 5, 6, 7, 8, 10, the GST split and repeat buying", () => {
+  it("live today: groups 1, 2, 3, 4, 9 (as charged) and 10 (a list); waiting: 5, 6, 7, 8, the GST split and Managed Hiring", () => {
     const statusOf = (groupNumber: number) =>
       NUMBERS_METRIC_GROUPS.find((g) => g.number === groupNumber)!.metrics.map(
         (m) => `${m.id}:${m.availability.status}`,
@@ -69,18 +76,18 @@ describe("the catalogue", () => {
     }
     expect(numbersMetric("paying_companies")?.availability.status).toBe("live");
     expect(numbersMetric("paying_companies_cumulative")?.availability.status).toBe("live");
-    // Part C's figures: the snapshot does not hold them yet, so they are not drawn as zeros.
-    for (const id of [
-      "repeat_purchase_30d",
-      "repeat_purchase_60d",
-      "repeat_purchase_90d",
-      "out_of_credits_companies",
-    ]) {
-      expect(numbersMetric(id)?.availability, id).toMatchObject({
-        status: "not_available",
-        waits_on: "#2755",
-      });
+    // Part C's figures: repeat buying is live in the snapshot, the call list live as a LIST.
+    for (const n of [1, 10]) {
+      for (const s of statusOf(n)) expect(s).toMatch(/:live$/);
     }
+    for (const id of ["repeat_purchase_30d", "repeat_purchase_60d", "repeat_purchase_90d"]) {
+      expect(numbersMetric(id)?.list_route, id).toBeUndefined();
+    }
+    expect(numbersMetric("out_of_credits_companies")?.list_route).toBe(
+      "GET /admin/numbers/out-of-credits",
+    );
+    // Nothing waits on this screen's own parts any more.
+    expect([...NUMBERS_WAITS_ON]).toEqual(["#2749", "#2750", "#2751"]);
     for (const n of [5, 6, 7, 8]) {
       for (const s of statusOf(n)) expect(s).toMatch(/:not_available$/);
     }
@@ -108,11 +115,43 @@ describe("the catalogue", () => {
   });
 
   it("the repeat-purchase windows are 30, 60 and 90 days, as shares of a first-payment cohort", () => {
-    for (const d of [30, 60, 90]) {
-      const m = numbersMetric(`repeat_purchase_${d}d`);
+    expect([...NUMBERS_REPEAT_WINDOWS_DAYS]).toEqual([30, 60, 90]);
+    expect(NUMBERS_REPEAT_LONGEST_WINDOW_DAYS).toBe(Math.max(...NUMBERS_REPEAT_WINDOWS_DAYS));
+    for (const d of NUMBERS_REPEAT_WINDOWS_DAYS) {
+      const m = numbersMetric(repeatPurchaseMetricId(d));
+      expect(m?.id).toBe(`repeat_purchase_${d}d`);
       expect(m?.unit).toBe("share");
       expect(m?.rule).toMatch(/FIRST paid order/);
+      // The pending rule and the freeze exception are written in the rule itself.
+      expect(m?.rule).toMatch(/PENDING/);
+      expect(m?.rule).toMatch(/never a partial share/);
+      expect(m?.rule).toMatch(/FREEZE IS KEYED ON THE LONGEST WINDOW/);
+      expect(m?.source).toMatch(/payment_orders with status paid/);
     }
+  });
+
+  it("the cohort rows freeze on the longest window's end; every other row on its week's end", () => {
+    expect([...NUMBERS_COHORT_METRICS]).toEqual([
+      "repeat_purchase_30d",
+      "repeat_purchase_60d",
+      "repeat_purchase_90d",
+    ]);
+    expect([...NUMBERS_FREEZE_CLASSES]).toEqual(["week", "cohort"]);
+    for (const id of NUMBERS_COHORT_METRICS) expect(numbersFreezeClassOf(id)).toBe("cohort");
+    for (const id of ["paying_companies", "revenue_by_pack", "revenue_by_pack:pack_50"]) {
+      expect(numbersFreezeClassOf(id), id).toBe("week");
+    }
+    expect(numbersFreezeWindowDays("week")).toBe(0);
+    expect(numbersFreezeWindowDays("cohort")).toBe(90);
+  });
+
+  it("the call list's rule: usable balance zero, ran out, names only through the identity read, no phone", () => {
+    const m = numbersMetric("out_of_credits_companies")!;
+    expect(m.source).toMatch(/readSpendableCredits/);
+    expect(m.rule).toMatch(/payer.credits_exhausted/);
+    expect(m.rule).toMatch(/expires_at/);
+    expect(m.rule).toMatch(/AdminIdentityService/);
+    expect(m.rule).toMatch(/never the phone/);
   });
 
   it("money figures are paise; the paying-company source refuses the mock route's rows", () => {
@@ -139,9 +178,9 @@ describe("the catalogue", () => {
     expect(numbersMetric("form_completed_unconfirmed")?.source).toMatch(/profile\.form_completed/);
   });
 
-  it("the snapshot stores EXACTLY the live metrics: a not_available one is never stored as a zero", () => {
+  it("the snapshot stores EXACTLY the live weekly metrics: a not_available one is never stored as a zero, a list never", () => {
     const live = allNumbersMetrics()
-      .filter((m) => m.availability.status === "live")
+      .filter((m) => m.availability.status === "live" && m.list_route === undefined)
       .map((m) => m.id)
       .sort();
     expect(Object.keys(NUMBERS_SNAPSHOT_METRICS).sort()).toEqual(live);

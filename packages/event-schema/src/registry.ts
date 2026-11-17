@@ -1877,6 +1877,13 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminPayerTestAccountUnmarkedPayload,
   },
+  // #2755 item 8 — a call to a company whose credits ran out, logged by an admin from the call list
+  // (`credit_call_log`). IDS AND ONE CLOSED RESULT CODE ONLY, strict. v1.
+  "admin.credit_call_logged": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminCreditCallLoggedPayload,
+  },
   // #2755 item 9 — launch test A: a factory recorded by the desk with the profiles sent to it, or
   // its record changed (link, result, account, paid order). IDS, COUNTS AND CLOSED CODES ONLY,
   // strict: never the factory's name or phone, the link's text or a worker id. v1.

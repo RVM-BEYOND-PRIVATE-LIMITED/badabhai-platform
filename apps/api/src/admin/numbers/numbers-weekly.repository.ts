@@ -1,5 +1,19 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, gte, inArray, isNotNull, lt, lte, min, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  lt,
+  lte,
+  min,
+  notInArray,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import {
   CURRENT_PROFILE_ORDER,
   hires,
@@ -24,6 +38,12 @@ import {
   excludeSamplePostings,
   excludeTestAndSampleWorkerRefs,
 } from "./exclusions";
+import {
+  NUMBERS_COHORT_METRICS,
+  NUMBERS_REPEAT_LONGEST_WINDOW_DAYS,
+  numbersFreezeClassOf,
+  type NumbersFreezeClass,
+} from "./definitions";
 import { cityGroupOf, tradeGroupOf } from "./groups";
 import type { NumbersDims } from "./metrics/cells";
 import { CONFIRMED_PROFILE_STATUS } from "./metrics/completed-profiles";
@@ -165,14 +185,18 @@ export class NumbersWeeklyRepository {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
   }
 
-  /** Has the week been frozen (any of its rows carries `frozen_at`)? */
-  async isWeekFrozen(tx: Database, week: string): Promise<boolean> {
+  /**
+   * Which of the week's two FREEZE CLASSES are frozen (part C): `week` when any row of a metric
+   * other than the cohort ones carries `frozen_at`, `cohort` when any repeat-buying row does. A
+   * class is frozen whole (its rows are written in one statement with one `frozen_at`), so one
+   * frozen row stands for all of them.
+   */
+  async frozenClasses(tx: Database, week: string): Promise<Set<NumbersFreezeClass>> {
     const rows = await tx
-      .select({ week: numbersWeekly.weekStart })
+      .selectDistinct({ metric: numbersWeekly.metric })
       .from(numbersWeekly)
-      .where(and(eq(numbersWeekly.weekStart, week), isNotNull(numbersWeekly.frozenAt)))
-      .limit(1);
-    return rows.length > 0;
+      .where(and(eq(numbersWeekly.weekStart, week), isNotNull(numbersWeekly.frozenAt)));
+    return new Set(rows.map((r) => numbersFreezeClassOf(r.metric)));
   }
 
   /** The week's stored cells, for a recompute's diff. */
@@ -194,23 +218,40 @@ export class NumbersWeeklyRepository {
   }
 
   /**
-   * Replace the week's rows: delete them all, insert `rows`, every one stamped with `computedAt`
-   * and `frozenAt` (null: the sweep comes back tomorrow). The caller holds {@link lockWeek}.
+   * Replace the rows of ONE FREEZE CLASS of the week: delete that class's rows, insert `rows`
+   * (every one of that class), each stamped with `computedAt` and `frozenAt` (null: the sweep
+   * comes back tomorrow). The other class's rows are not touched, so a frozen `week` class stays
+   * byte for byte while the open `cohort` rows of the same week are rewritten (part C). The caller
+   * holds {@link lockWeek}.
    */
   async replaceWeek(
     tx: Database,
     week: string,
+    cls: NumbersFreezeClass,
     rows: readonly NumbersSnapshotCellRow[],
     computedAt: Date,
     frozenAt: Date | null,
   ): Promise<void> {
-    await tx.delete(numbersWeekly).where(eq(numbersWeekly.weekStart, week));
+    const cohort = [...NUMBERS_COHORT_METRICS];
+    await tx
+      .delete(numbersWeekly)
+      .where(
+        and(
+          eq(numbersWeekly.weekStart, week),
+          cls === "cohort"
+            ? inArray(numbersWeekly.metric, cohort)
+            : notInArray(numbersWeekly.metric, cohort),
+        ),
+      );
     for (let i = 0; i < rows.length; i += INSERT_BATCH_MAX) {
       const chunk = rows.slice(i, i + INSERT_BATCH_MAX);
       if (chunk.length === 0) continue;
       await tx.insert(numbersWeekly).values(
         chunk.map((r) => {
           if (r.weekStart !== week) throw new Error(`a ${r.weekStart} row in week ${week}`);
+          if (numbersFreezeClassOf(r.metric) !== cls) {
+            throw new Error(`a ${r.metric} row is not of the ${cls} freeze class`);
+          }
           return { ...r, computedAt, frozenAt };
         }),
       );
@@ -260,6 +301,44 @@ export class NumbersWeeklyRepository {
         ),
       )
       .orderBy(asc(numbersWeekly.weekStart), asc(numbersWeekly.metric));
+  }
+
+  /**
+   * The newest COMPLETE stored cell of each cohort metric (part C) for one filter, among the weeks
+   * up to `toWeek`: a cohort row whose window has closed stores its numerator (pending stores none),
+   * so the newest row with a numerator is the newest closed cohort. One row per metric at most; a
+   * snapshot read like the others.
+   */
+  async readLatestCompleteCohorts(
+    toWeek: string,
+    cityGroup: string,
+    tradeGroup: string,
+  ): Promise<NumbersStoredCellRow[]> {
+    return this.db
+      .selectDistinctOn([numbersWeekly.metric], {
+        weekStart: numbersWeekly.weekStart,
+        metric: numbersWeekly.metric,
+        cityGroup: numbersWeekly.cityGroup,
+        tradeGroup: numbersWeekly.tradeGroup,
+        value: numbersWeekly.value,
+        numerator: numbersWeekly.numerator,
+        denominator: numbersWeekly.denominator,
+        suppressed: numbersWeekly.suppressed,
+        definitionVersion: numbersWeekly.definitionVersion,
+        computedAt: numbersWeekly.computedAt,
+        frozenAt: numbersWeekly.frozenAt,
+      })
+      .from(numbersWeekly)
+      .where(
+        and(
+          inArray(numbersWeekly.metric, [...NUMBERS_COHORT_METRICS]),
+          lte(numbersWeekly.weekStart, toWeek),
+          eq(numbersWeekly.cityGroup, cityGroup),
+          eq(numbersWeekly.tradeGroup, tradeGroup),
+          isNotNull(numbersWeekly.numerator),
+        ),
+      )
+      .orderBy(asc(numbersWeekly.metric), desc(numbersWeekly.weekStart));
   }
 
   /**
@@ -324,6 +403,7 @@ export class NumbersWeeklyRepository {
   sourcesFor(tx: Database, hasActivityTable: boolean): NumbersWeekSources {
     return {
       paidOrders: (w) => this.paidOrders(tx, w),
+      cohortOrders: (w) => this.cohortOrders(tx, w),
       firstPublications: () => this.firstPublications(tx),
       currentProfiles: () => this.currentProfiles(tx),
       activity: (w) => this.activity(tx, w, hasActivityTable),
@@ -349,6 +429,32 @@ export class NumbersWeeklyRepository {
         and(
           eq(paymentOrders.status, "paid"),
           lt(paymentOrders.updatedAt, w.toUtcExclusive),
+          countablePayer(sql.raw(`"payment_orders"."payer_id"`)),
+        ),
+      );
+  }
+
+  /**
+   * Paid orders of countable companies settled before the week's end plus the longest repeat
+   * window (part C): the same paid, real-money rule as {@link paidOrders}, read far enough for
+   * each cohort company's first AND second order to be in it.
+   */
+  private async cohortOrders(tx: Database, w: NumbersWeekWindow): Promise<NumbersPaidOrderRow[]> {
+    const until = new Date(
+      w.toUtcExclusive.getTime() + NUMBERS_REPEAT_LONGEST_WINDOW_DAYS * DAY_MS,
+    );
+    return tx
+      .select({
+        payerId: paymentOrders.payerId,
+        packCode: paymentOrders.packCode,
+        amountInr: paymentOrders.amountInr,
+        settledAt: paymentOrders.updatedAt,
+      })
+      .from(paymentOrders)
+      .where(
+        and(
+          eq(paymentOrders.status, "paid"),
+          lt(paymentOrders.updatedAt, until),
           countablePayer(sql.raw(`"payment_orders"."payer_id"`)),
         ),
       );

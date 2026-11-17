@@ -108,6 +108,10 @@ export const ADMIN_ACTION_CODES = {
   // `admin.payer_test_account_marked`; the spine's `admin.action_performed` carries the CODE only.
   payer_test_account_marked: "payer_test_account_marked",
   payer_test_account_unmarked: "payer_test_account_unmarked",
+  // ── #2755 item 8 — a call to a company whose credits ran out, logged ─────────────────────
+  // Target = the payer (`target_type: "payer"`). The closed result code rides
+  // `admin.credit_call_logged`; the spine's `admin.action_performed` carries the CODE only.
+  credit_call_logged: "credit_call_logged",
   // ── #2750 item 1 — the credit rules' settings ──────────────────────────────────────────
   // Target = the new revision (`target_type: "credit_rules_config"`). The keys that moved, their
   // old and new values and the admin's reason live on the `audit_logs` row; the spine carries the

@@ -615,7 +615,9 @@ describe.skipIf(!RUN)("#2755 part B against Postgres (the weekly snapshot)", () 
 
   it("a company marked as test changes no company figure; a linked identity no worker total", async () => {
     const total = async (metric: string, week: string) => {
-      const rows = await repo.withTransaction((tx) => snapshot.computeWeekRows(tx, week, true));
+      const rows = await repo.withTransaction((tx) =>
+        snapshot.computeWeekRows(tx, week, true, NOW),
+      );
       return rows.find(
         (r) => r.metric === metric && r.cityGroup === "all" && r.tradeGroup === "all",
       )!.value;
@@ -674,9 +676,19 @@ describe.skipIf(!RUN)("#2755 part B against Postgres (the weekly snapshot)", () 
                                   provider_order_id, status, created_at, updated_at)
       VALUES (${late}::uuid, 'pack_50', 2000, 10, 'razorpay', ${`order_nw_${TAG}_late`}, 'paid',
               '2026-09-11T08:00:00Z', '2026-09-11T08:00:00Z')`;
+    const cohortBefore = await stored(WA, "repeat_purchase_30d");
     const out = await snapshot.sweep(NOW, [WA, WB]);
-    expect(out).toEqual({ armed: true, computed: 1, frozen: 0, skipped: 1 });
+    // Part C: WA's repeat-buying (cohort) rows stay open until 90 days after the week, so the
+    // sweep recomputes them (WA counts as computed, not skipped); its frozen rows never move.
+    expect(out).toEqual({ armed: true, computed: 2, frozen: 0, skipped: 0 });
     expect(await stored(WA, "paying_companies")).toEqual(frozenBefore);
+    expect(cohortBefore?.frozen).toBe(false);
+    expect(await stored(WA, "repeat_purchase_30d")).toMatchObject({
+      value: null,
+      numerator: null,
+      denominator: (cohortBefore?.denominator ?? 0) + 1,
+      frozen: false,
+    });
     expect((await stored(WB, "paying_companies_cumulative"))?.value).toBe(
       (cumulativeBefore?.value ?? 0) + 1,
     );
