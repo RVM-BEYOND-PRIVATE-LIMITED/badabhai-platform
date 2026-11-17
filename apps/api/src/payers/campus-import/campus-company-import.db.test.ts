@@ -20,6 +20,7 @@ import { importApplications } from "./import-applications";
 import { CampusImportRefusal, importLedgerExists, openBatch, type OpenBatch } from "./import-ledger.repository";
 import { readCampusBundle } from "./read-bundle";
 import { buildSyntheticBundle } from "./synthetic-bundle";
+import { compareSides, readBadaBhaiFacts } from "./verify-report";
 
 /**
  * #2754 item 6 — placing Campus companies on BadaBhai accounts, against a REAL Postgres (the
@@ -384,6 +385,37 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
     await seedWorker((external.candidate as { phone: string }).phone, false);
     const again = await importApplications(client.db, pii, batch, bundle, companies, jobs);
     expect(again.held).toMatchObject({ no_badabhai_consent: 1, rvm_student_not_moved: 1 });
+  });
+
+  it("the verification report reads both sides from the database, and catches a posting closed since", async () => {
+    const bundle = bundleOf(`report-${TAG}`, 1);
+    const batch = await open("report", bundle);
+    const companies = (await importCompanies(deps, batch, bundle, opts)).placed;
+    await importBalances(client.db, batch, bundle, companies, { planQuota: {}, validityDays: 30 });
+    const jobs = (await importJobs(jobDeps(true), batch, bundle, companies, ctx)).placed;
+    await importApplications(client.db, pii, batch, bundle, companies, jobs);
+
+    const clean = compareSides(bundle, {}, await readBadaBhaiFacts(client.db, bundle));
+    expect(clean.totals).toMatchObject({
+      companies: 1,
+      companiesOnBadaBhai: 1,
+      campusLiveJobs: 1,
+      badabhaiOpenPostings: 1,
+      campusApplicants: 2,
+      badabhaiApplicantsMoved: 0,
+      badabhaiApplicantsHeld: 2,
+      campusCredits: 18,
+      badabhaiCredits: 18,
+      unexplained: 0,
+    });
+    expect(clean.differences.map((d) => d.code).sort()).toEqual(["no_badabhai_account", "rvm_student_not_moved"]);
+
+    const postingId = [...jobs.values()][0]!;
+    await client.sql`UPDATE job_postings SET status = 'closed', closed_at = now() WHERE id = ${postingId}::uuid`;
+    const after = compareSides(bundle, {}, await readBadaBhaiFacts(client.db, bundle));
+    expect(after.differences.filter((d) => !d.explained)).toEqual([
+      expect.objectContaining({ scope: "job", code: "posting_closed", badabhai: `posting:${postingId}` }),
+    ]);
   });
 
   it("a new batch over the same phones matches the accounts instead of creating new ones", async () => {
