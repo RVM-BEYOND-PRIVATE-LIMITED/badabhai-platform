@@ -350,3 +350,12 @@ export const OUTBOUND_SIGNALS_SWEEP_SCHEDULER_ID = "outbound-signals-sweep";
  */
 export const STILL_LOOKING_SWEEP_QUEUE = "still-looking-sweep";
 export const STILL_LOOKING_SWEEP_SCHEDULER_ID = "still-looking-sweep";
+
+/**
+ * #2755 part B — the numbers screen's nightly snapshot sweep (`numbers_weekly`). One repeatable
+ * DAILY tick with NO payload: the not-yet-frozen weeks from the baseline to the current one are the
+ * work list, each recomputed whole under its own advisory lock, so a lost or duplicated Redis job
+ * is harmless: the next tick recomputes the same weeks, and two ticks racing leave one set of rows.
+ */
+export const NUMBERS_WEEKLY_SWEEP_QUEUE = "numbers-weekly-sweep";
+export const NUMBERS_WEEKLY_SWEEP_SCHEDULER_ID = "numbers-weekly-sweep";

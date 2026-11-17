@@ -492,10 +492,12 @@ services:
       STILL_LOOKING_PUSH_ENABLED: ${STILL_LOOKING_PUSH_ENABLED:-false}
       STILL_LOOKING_EVERY_DAYS: ${STILL_LOOKING_EVERY_DAYS:-30}
       # THE NUMBERS SCREEN (#2755). Off is today exactly: every /admin/numbers/* route is a neutral
-      # 404 before any query. It needs no migration of its own (the company test marker is
-      # payers.is_test_account, 0162); it stays off until the weekly figures ship. `:-false`
-      # because this bool rejects "".
+      # 404 before any query and the nightly numbers sweep writes nothing. Apply the
+      # `numbers_weekly` migration before switching it on (on without it: the weekly route answers
+      # 503 and the sweep skips). `:-false` because this bool rejects "". The freeze wait is
+      # NUMBERS_FREEZE_AFTER_DAYS (`:-3`), bridged from the `production` secret of the same name.
       ADMIN_NUMBERS_ENABLED: ${ADMIN_NUMBERS_ENABLED:-false}
+      NUMBERS_FREEZE_AFTER_DAYS: ${NUMBERS_FREEZE_AFTER_DAYS:-3}
       # THE CAMPUS LINK (#2752). Off: every /internal/campus/v1 route is a neutral 404 and nothing
       # else runs. `:-false` because this bool rejects "". The two lists are empty when unset, and
       # empty refuses every caller (fail closed): token HASHES (sha256 hex, two during a rotation)

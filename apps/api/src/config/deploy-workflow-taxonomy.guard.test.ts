@@ -413,6 +413,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /ADMIN_NUMBERS_ENABLED:\s*\$\{\{\s*secrets\.ADMIN_NUMBERS_ENABLED\s*\}\}/,
       /envs:[^\n]*\bADMIN_NUMBERS_ENABLED\b/,
     ],
+    // #2755 part B — how many days after a week ends the numbers sweep freezes it, a tuning number
+    // like the follow-up wait above; absent, compose holds it at 3.
+    [
+      "NUMBERS_FREEZE_AFTER_DAYS",
+      /NUMBERS_FREEZE_AFTER_DAYS:\s*\$\{\{\s*secrets\.NUMBERS_FREEZE_AFTER_DAYS\s*\}\}/,
+      /envs:[^\n]*\bNUMBERS_FREEZE_AFTER_DAYS\b/,
+    ],
     // ADR-0053 (PAY-DB-01) — payer org tenancy (off | shadow | on), api only. The environment
     // secret is its one arming path (owner decision O-8); absent, the bridge holds it off.
     [
@@ -588,6 +595,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["STILL_LOOKING_EVERY_DAYS", "30"],
     // #2755 — off is no numbers route at all: a neutral 404 before any query.
     ["ADMIN_NUMBERS_ENABLED", "false"],
+    // #2755 part B — the zod default: a week freezes 3 days after it ends.
+    ["NUMBERS_FREEZE_AFTER_DAYS", "3"],
     // #2752 — off is no Campus route at all: a neutral 404 before any token, address or audit.
     ["CAMPUS_LINK_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.
