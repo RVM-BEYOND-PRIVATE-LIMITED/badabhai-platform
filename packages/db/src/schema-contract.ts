@@ -1853,6 +1853,24 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     failureMode:
       "SILENT. The table maps every moved Campus company, job, application and balance to its BadaBhai row; an open grant lets any PostgREST role read which companies moved and rewrite the map that --rollback uses to archive accounts, close postings and reverse converted credits",
   },
+  // #2891: a Campus-origin posting held from BadaBhai workers until an admin opens it. This entry
+  // is the lock only; the `table` entry arrives with the PR that reads the table from
+  // reachesBadaBhaiWorkers() (APPLY BEFORE THAT DEPLOY, migration header). The id and tag carry
+  // the slot number: regenerated with the migration when the slot moves.
+  {
+    id: "0184-job-posting-worker-visibility-rls",
+    migration: "0184_job_posting_worker_visibility",
+    kind: "rls",
+    table: "job_posting_worker_visibility",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides which Campus-origin postings reach BadaBhai workers; an open " +
+      "grant lets any PostgREST role turn a posting's worker visibility on (bypassing the " +
+      "admin decision and its audit row) or read which Campus jobs are held",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

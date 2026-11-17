@@ -67,8 +67,11 @@ import {
   studentImportRows,
   studentImportSubjects,
   studentVisibility,
+  // #2891 - a Campus-origin posting held from BadaBhai workers until an admin opens it (read by reachesBadaBhaiWorkers).
+  jobPostingWorkerVisibility,
   workerFieldSources,
 } from "./student-move";
+import { jobPostingWorkerVisibility } from "./job-worker-visibility";
 import { launchTestCohort, launchTestShares } from "./launch-test";
 import { companyImportBatches, companyImportRows } from "./company-import";
 import { companionConversationSummaries, companionMessages } from "./companion";
@@ -211,6 +214,8 @@ export * from "./credit-rules";
 export * from "./rvm-waivers";
 // #2887 - moving RVM students into BadaBhai: the import ledger, field sources and visibility.
 export * from "./student-move";
+// #2891 - BadaBhai worker visibility of a Campus-origin posting (off until an admin opens it).
+export * from "./job-worker-visibility";
 // #2755 item 9 — launch test A: the factories, what each was sent, its payment link and result.
 export * from "./launch-test";
 // #2754 item 4 — the Campus company import: one row per batch, one row per source record moved.
