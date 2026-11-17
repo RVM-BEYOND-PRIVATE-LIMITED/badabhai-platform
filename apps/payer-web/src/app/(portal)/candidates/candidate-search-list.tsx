@@ -25,7 +25,7 @@ import {
   type UnlockRowState,
 } from "../../../components/unlock";
 import { useUnlockQuotes } from "../../../components/unlock/use-unlock-quotes";
-import { quotedCredits } from "../../../lib/unlock-quotes";
+import { quotedCredits, quotedWaived } from "../../../lib/unlock-quotes";
 import {
   candidateUnlockAction,
   maskedResumeAction,
@@ -350,6 +350,7 @@ export function CandidateSearchList({
                   balance: liveBalance,
                   quoteCredits: quotedCredits(quotes, c.workerId),
                   creditsAvailable: quotes?.creditsAvailable ?? null,
+                  quoteWaived: quotedWaived(quotes, c.workerId),
                   unlockHintId: `candidate-${i}-unlock-hint`,
                   viewOnly: false,
                   onUnlock: () => onUnlock(c.workerId),

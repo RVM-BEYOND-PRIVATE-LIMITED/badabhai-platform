@@ -620,9 +620,13 @@ export async function getUnlockQuotes(
     if (isPayerStatus(e, 404)) return null;
     throw e;
   }
+  const waived = Object.fromEntries(
+    wire.quotes.filter((q) => q.waived === true).map((q) => [q.worker_id, true as const]),
+  );
   return {
     quotes: Object.fromEntries(wire.quotes.map((q) => [q.worker_id, q.credits])),
     creditsAvailable: wire.credits_available,
+    ...(Object.keys(waived).length > 0 ? { waived } : {}),
   };
 }
 

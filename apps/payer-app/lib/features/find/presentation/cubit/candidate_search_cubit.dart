@@ -337,10 +337,15 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
         ...?state.quotes?.creditsByWorker,
         ...quotes.creditsByWorker,
       };
+      final Set<String> mergedWaived = <String>{
+        ...?state.quotes?.waivedWorkers,
+        ...quotes.waivedWorkers,
+      };
       emit(state.copyWith(
         quotes: UnlockQuotes(
           creditsByWorker: Map<String, int>.unmodifiable(merged),
           creditsAvailable: quotes.creditsAvailable,
+          waivedWorkers: Set<String>.unmodifiable(mergedWaived),
         ),
       ));
     } catch (_) {
@@ -506,6 +511,9 @@ class CandidateSearchState extends Equatable {
 
   /// The quoted credits for [workerId], or null when there is no quote.
   int? quotedCreditsFor(String workerId) => quotes?.creditsFor(workerId);
+
+  /// #2750 part C — this open is free because RVM's placement team waived it.
+  bool quotedWaivedFor(String workerId) => quotes?.waivedFor(workerId) ?? false;
 
   bool quoteUnaffordableFor(String workerId) =>
       quotes?.unaffordableFor(workerId) ?? false;

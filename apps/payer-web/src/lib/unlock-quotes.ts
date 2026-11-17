@@ -23,6 +23,14 @@ export function quotedCredits(
   return typeof credits === "number" ? credits : null;
 }
 
+/** #2750 part C — is this open free because RVM's placement team waived it? */
+export function quotedWaived(
+  quotes: UnlockQuotes | null | undefined,
+  workerId: string,
+): boolean {
+  return quotes?.waived?.[workerId] === true;
+}
+
 /** True only when a quote and the balance are both known and the price is beyond it. */
 export function unaffordable(
   credits: number | null,
@@ -42,14 +50,16 @@ export function creditsLabel(credits: number): string {
  * The open button's copy. Without a quote it is EXACTLY today's button; with one, the
  * brief's wording ("Open for 1 credit" / "Open for 2 credits"), and free at 0.
  */
-export function openButtonLabel(credits: number | null): string {
+export function openButtonLabel(credits: number | null, waived = false): string {
+  if (waived) return "Free: RVM placement team";
   if (credits === null) return "Unlock contact (1 credit)";
   if (credits === 0) return "Open (free)";
   return `Open for ${creditsLabel(credits)}`;
 }
 
 /** A failed attempt keeps its retry affordance, at the price the server will charge. */
-export function retryOpenButtonLabel(credits: number | null): string {
+export function retryOpenButtonLabel(credits: number | null, waived = false): string {
+  if (waived) return "Free: RVM placement team — retry";
   if (credits === null) return "Retry unlock (1 credit)";
   if (credits === 0) return "Retry — open (free)";
   return `Retry — open for ${creditsLabel(credits)}`;

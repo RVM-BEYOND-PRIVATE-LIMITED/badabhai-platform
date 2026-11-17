@@ -32,7 +32,7 @@ import {
   type UnlockResultKind,
 } from "../../../../../components/unlock";
 import { useUnlockQuotes } from "../../../../../components/unlock/use-unlock-quotes";
-import { quotedCredits } from "../../../../../lib/unlock-quotes";
+import { quotedCredits, quotedWaived } from "../../../../../lib/unlock-quotes";
 import {
   maskedResumeAction,
   revealContactAction,
@@ -923,6 +923,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                   balance: liveBalance,
                   quoteCredits: quotedCredits(quotes, a.workerId),
                   creditsAvailable: quotes?.creditsAvailable ?? null,
+                  quoteWaived: quotedWaived(quotes, a.workerId),
                   unlockHintId,
                   viewOnly: r.posting?.viewOnly === true,
                   onUnlock: () => onUnlock(r),

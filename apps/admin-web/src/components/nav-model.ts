@@ -35,7 +35,7 @@ export interface NavSection {
 }
 
 /**
- * THE SIDEBAR (A6, #2576) — five groups, at most 17 items, so the whole nav fits a 1080p screen
+ * THE SIDEBAR (A6, #2576) — five groups, at most 18 items, so the whole nav fits a 1080p screen
  * with no scrolling (it was 19, which pushed Account and Sign out below the fold; those two now
  * live in the topbar's avatar menu). Workers is Candidates; Companies holds Agencies (a Kind
  * filter); Agency match skills is a tab on the agency posting, under Postings. Routes, API paths
@@ -99,6 +99,13 @@ export const NAV: NavSection[] = [
         label: "Credit rules",
         icon: "gear",
         capability: "manage_credit_rules",
+      },
+      // #2750 part C — RVM placement-team waivers of the contact cost.
+      {
+        href: "/waivers",
+        label: "Waivers",
+        icon: "seal-check",
+        capability: "manage_waivers",
       },
       // #2755 / #2884 — the weekly business numbers and the two pre-launch test records.
       // `read_business_numbers` mirrors every route under `/admin/numbers` and
@@ -181,7 +188,7 @@ export const NAV: NavSection[] = [
 ];
 
 /** The most items the sidebar may list (A6 acceptance: it fits 1920×1080 with no scrolling). */
-export const NAV_ITEM_LIMIT = 17;
+export const NAV_ITEM_LIMIT = 18;
 
 /**
  * Does `pathname` sit at or below `href`? Exact for the dashboard, prefix elsewhere — but on a
