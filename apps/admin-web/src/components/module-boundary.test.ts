@@ -107,6 +107,8 @@ const CLIENT_COMPONENTS = [
   "../app/(portal)/admins/admin-row-actions.tsx",
   "../app/(portal)/skills/discovery/filter-bar.tsx",
   "../app/(portal)/skills/discovery/[id]/decision-panel.tsx",
+  // #2878 — the credit rules editor.
+  "../app/(portal)/credit-rules/credit-rules-form.tsx",
   // A4 (#2574) — the data grid's client half and its view controls.
   "data-grid-view.tsx",
   "grid-view-controls.tsx",

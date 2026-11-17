@@ -167,6 +167,12 @@ interface RequestOptions<T> {
   /** Next.js cache behaviour. Admin data is operational: never cache by default. */
   revalidate?: number;
   /**
+   * Extra request headers, for a route that requires one (the numbers writes' REQUIRED
+   * `Idempotency-Key`). They are applied BEFORE the content type and the session's token, so a
+   * caller can neither replace the bearer token nor send a body whose type disagrees with it.
+   */
+  headers?: Record<string, string>;
+  /**
    * The caller's own cancellation: a route handler passes its incoming request's signal, so a
    * browser that stopped waiting (the candidate drawer moved on) cancels the API call with it.
    * Combined with the timeout — whichever fires first. It cancels only a call the API has not
@@ -212,7 +218,7 @@ export async function adminFetch<T>(path: string, opts: RequestOptions<T> = {}):
   // Before the cookie is read, before anything is sent: not even a request to the wrong route.
   if (!isSentAsWritten(path)) throw new AdminRequestError(400, PATH_REFUSED_MESSAGE);
   const { apiBaseUrl } = adminServerConfig();
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...opts.headers };
   if (opts.body !== undefined) headers["content-type"] = "application/json";
 
   if (!opts.public) {

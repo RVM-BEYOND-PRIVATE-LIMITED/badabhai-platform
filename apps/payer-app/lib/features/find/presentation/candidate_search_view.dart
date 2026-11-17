@@ -60,9 +60,16 @@ const String kStrictNoteWithUnrecorded = 'Only matches are shown, plus anyone '
 /// ([FindPinnedList]); the page title lives once, on [FindScreen], above the
 /// view switch.
 class CandidateSearchView extends StatelessWidget {
-  const CandidateSearchView({super.key, required this.onReveal});
+  const CandidateSearchView({
+    super.key,
+    required this.onReveal,
+    this.onOpenCredits,
+  });
 
   final ValueChanged<RevealArgs> onReveal;
+
+  /// #2750 — where the Starter pack offer leads (the Credits tab).
+  final VoidCallback? onOpenCredits;
 
   /// The reveal for a search row: no Applicant and no job — a search unlock
   /// has no posting context, so the masked résumé goes out with no posting id.
@@ -196,6 +203,9 @@ class CandidateSearchView extends StatelessWidget {
         unlocked: unlockId != null,
         unlocking: state.isUnlocking(r.workerId),
         relatedToLabel: state.pickedRoleLabel,
+        credits: state.quotedCreditsFor(r.workerId),
+        affordable: !state.quoteUnaffordableFor(r.workerId),
+        onOpenCredits: onOpenCredits,
         onUnlock: () => _unlock(context, r),
         onView: () => onReveal(revealArgsFor(r, unlockId!)),
       ),
@@ -214,10 +224,18 @@ class CandidateSearchView extends StatelessWidget {
   ) async {
     final CandidateSearchCubit cubit = context.read<CandidateSearchCubit>();
     final CreditsCubit credits = locator<CreditsCubit>();
+    final int? quoted = cubit.state.quotedCreditsFor(row.workerId);
+    final int? known = credits.state.error ? null : credits.state.balance;
+    final int? after = quoted == null
+        ? credits.state.afterOneUnlock
+        : known == null
+            ? null
+            : (known - quoted).clamp(0, known).toInt();
     final bool? confirmed = await showUnlockDialog(
       context,
       shownName: row.maskedLabel,
-      creditsAfter: credits.state.afterOneUnlock,
+      creditsAfter: after,
+      credits: quoted ?? 1,
     );
     if (confirmed != true || !context.mounted) return UnlockOutcome.cancelled;
 
@@ -234,6 +252,17 @@ class CandidateSearchView extends StatelessWidget {
         );
       }
       return UnlockOutcome.failed;
+    }
+    if (result.insufficient) {
+      if (context.mounted) {
+        final bool offer = await showInsufficientCreditsDialog(
+          context,
+          creditsNeeded: result.creditsNeeded!,
+          creditsAvailable: result.creditsAvailable!,
+        );
+        if (offer && context.mounted) onOpenCredits?.call();
+      }
+      return UnlockOutcome.insufficient;
     }
     if (!result.granted) {
       if (context.mounted) {

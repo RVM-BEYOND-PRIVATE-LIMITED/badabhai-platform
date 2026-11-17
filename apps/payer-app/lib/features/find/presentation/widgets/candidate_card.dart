@@ -65,6 +65,9 @@ class CandidateCard extends StatelessWidget {
     required this.relatedToLabel,
     required this.onUnlock,
     required this.onView,
+    this.credits,
+    this.affordable = true,
+    this.onOpenCredits,
   });
 
   final CandidateSearchRow row;
@@ -81,6 +84,11 @@ class CandidateCard extends StatelessWidget {
   /// One unlock attempt (the confirm dialog, then the spend).
   final Future<UnlockOutcome> Function() onUnlock;
   final VoidCallback onView;
+
+  /// #2750 — this card's quoted credits, affordability and the Starter pack destination.
+  final int? credits;
+  final bool affordable;
+  final VoidCallback? onOpenCredits;
 
   /// The most other roles a card names.
   static const int maxOtherRoles = 4;
@@ -131,6 +139,9 @@ class CandidateCard extends StatelessWidget {
               CandidateCardAction(
                 unlocked: showUnlocked,
                 busy: unlocking,
+                credits: credits,
+                affordable: affordable,
+                onOpenCredits: onOpenCredits,
                 onUnlock: onUnlock,
                 onView: onView,
               ),
