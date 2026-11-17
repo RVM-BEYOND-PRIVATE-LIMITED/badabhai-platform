@@ -1,3 +1,4 @@
+import { CreditRulesModule } from "../credit-rules/credit-rules.module";
 import { Module } from "@nestjs/common";
 import { AdminModule } from "../admin/admin.module";
 import { FeatureRolloutModule } from "../feature-rollout/feature-rollout.module";
@@ -25,7 +26,14 @@ import { PostingAudienceService } from "./posting-audience.service";
  * reads per company. It imports nothing (DATABASE and SERVER_CONFIG are global).
  */
 @Module({
-  imports: [AdminModule, FeatureRolloutModule, PayersModule, PostingTradesModule],
+  imports: [
+    AdminModule,
+    FeatureRolloutModule,
+    PayersModule,
+    PostingTradesModule,
+    // #2750 item 4 — welcome credits after an ops approval. No dependency back.
+    CreditRulesModule,
+  ],
   controllers: [JobPostingsController],
   providers: [
     JobPostingsService,

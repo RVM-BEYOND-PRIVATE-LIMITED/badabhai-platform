@@ -195,10 +195,11 @@ export class AdminPaymentHistoryRepository {
     for (const l of ledger) {
       // #2749 — `expired` (a lot's unspent credits removed at its date) is its own kind, so it
       // is never counted as credits USED (the totals sum only `credit_spend`).
+      // #2750 item 4 — `welcome` is a free grant too: it is never credits USED.
       const type =
         l.reason === "pack_purchase"
           ? "credit_purchase"
-          : l.reason === "grant"
+          : l.reason === "grant" || l.reason === "welcome"
             ? "credit_grant"
             : l.reason === "refund"
               ? "credit_refund"

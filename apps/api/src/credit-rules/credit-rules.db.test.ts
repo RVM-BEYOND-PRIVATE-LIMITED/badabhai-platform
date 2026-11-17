@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
 import { auditLogs, createDbClient, creditRulesConfig, type DbClient } from "@badabhai/db";
 import { DEFAULT_CREDIT_RULES } from "@badabhai/pricing";
 import { isUniqueViolation } from "../common/db-error";
 import { CreditRulesRepository } from "./credit-rules.repository";
+import { WelcomeCreditsRepository } from "./welcome-credits.repository";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /**
  * #2750 item 1 — the credit rules' revisions against real Postgres.
@@ -143,5 +146,147 @@ describe.skipIf(!RUN)("credit rules revisions — against real Postgres", () => 
     }
     const active = await activeRows();
     expect(active).toEqual([{ id: published[0]!.id, revision: expected + 1 }]);
+  });
+});
+
+/**
+ * #2750 item 4 — the welcome grant against real Postgres: the eligibility read (approval, GSTIN,
+ * an approved posting) and the grant itself — ONE `welcome` lot expiring at its date and ONE
+ * `welcome` ledger line, whatever the number of triggers, concurrent ones included.
+ */
+describe.skipIf(!RUN)("welcome credits — against real Postgres", () => {
+  let client: DbClient;
+  let repo: WelcomeCreditsRepository;
+  const T = randomUUID().slice(0, 8);
+  const COMPANY = randomUUID();
+  const RACE = randomUUID();
+  const companies = [COMPANY, RACE];
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL);
+    repo = new WelcomeCreditsRepository(client.db);
+    const { sql } = client;
+    for (const id of companies) {
+      await sql`
+        INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+        VALUES (${id}::uuid, 'employer', ${`enc:2750w-${T}-${id}`}, ${`hash:2750w-${T}-${id}`},
+                ${`enc:co-${T}`}, 'active')`;
+    }
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      const { sql } = client;
+      for (const id of companies) {
+        await sql`DELETE FROM credit_ledger WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM credit_lots WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM payer_credits WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM job_postings WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM employer_profiles WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM payers WHERE id = ${id}::uuid`;
+      }
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  const tenant = (id: string) => id as TenantKey;
+
+  it("eligibility: each condition is read from its own record", async () => {
+    const { sql } = client;
+    expect(await repo.eligibility(tenant(COMPANY))).toEqual({
+      role: "employer",
+      status: "active",
+      verificationStatus: null,
+      hasGstNumber: false,
+      phoneProven: false,
+      hasApprovedPosting: false,
+    });
+    await sql`
+      INSERT INTO employer_profiles (payer_id, verification_status, gst_number_enc)
+      VALUES (${COMPANY}::uuid, 'verified', ${`enc:gst-${T}`})`;
+    await sql`
+      INSERT INTO job_postings
+        (id, created_by, payer_id, org_label, role_title, vacancy_band, status, verification_status)
+      VALUES (${randomUUID()}::uuid, ${COMPANY}::uuid, ${COMPANY}::uuid, 'Welcome Co',
+              'CNC Operator', '1', 'open', 'verified')`;
+    expect(await repo.eligibility(tenant(COMPANY))).toEqual({
+      role: "employer",
+      status: "active",
+      verificationStatus: "verified",
+      hasGstNumber: true,
+      phoneProven: false,
+      hasApprovedPosting: true,
+    });
+  });
+
+  it("grants ONE welcome lot with its expiry and ONE ledger line, and a second call adds nothing", async () => {
+    const expiresAt = new Date(Date.now() + 30 * 86_400_000);
+    const lots: string[] = [];
+    const first = await repo.grantOnce(
+      tenant(COMPANY),
+      { credits: 5, expiresAt },
+      async (_tx, lot) => {
+        lots.push(lot);
+      },
+    );
+    const second = await repo.grantOnce(
+      tenant(COMPANY),
+      { credits: 5, expiresAt },
+      async (_tx, lot) => {
+        lots.push(lot);
+      },
+    );
+    expect(first.applied).toBe(true);
+    expect(second.applied).toBe(false);
+    expect(lots).toHaveLength(1);
+
+    const { sql } = client;
+    const lotRows = await sql<{ source: string; credits_remaining: number; expires_at: Date }[]>`
+      SELECT source, credits_remaining, expires_at FROM credit_lots WHERE payer_id = ${COMPANY}::uuid`;
+    expect(lotRows).toHaveLength(1);
+    expect(lotRows[0]).toMatchObject({ source: "welcome", credits_remaining: 5 });
+    expect(Math.abs(new Date(lotRows[0]!.expires_at).getTime() - expiresAt.getTime())).toBeLessThan(
+      1000,
+    );
+    const lines = await sql<{ reason: string; delta: number; idempotency_key: string }[]>`
+      SELECT reason, delta, idempotency_key FROM credit_ledger WHERE payer_id = ${COMPANY}::uuid`;
+    expect(lines.map((l) => [l.reason, Number(l.delta), l.idempotency_key])).toEqual([
+      ["welcome", 5, `welcome_credits:${COMPANY}`],
+    ]);
+    const [wallet] = await sql<{ balance: number }[]>`
+      SELECT balance FROM payer_credits WHERE payer_id = ${COMPANY}::uuid`;
+    expect(Number(wallet!.balance)).toBe(5);
+  });
+
+  it("an afterGrant that throws rolls the lot and the line back", async () => {
+    const { sql } = client;
+    await expect(
+      repo.grantOnce(
+        tenant(RACE),
+        { credits: 5, expiresAt: new Date(Date.now() + 1e9) },
+        async () => {
+          throw new Error("event failed");
+        },
+      ),
+    ).rejects.toThrow("event failed");
+    const [n] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM credit_lots WHERE payer_id = ${RACE}::uuid`;
+    expect(Number(n!.n)).toBe(0);
+  });
+
+  it("concurrent triggers on one company: exactly one grant", async () => {
+    const expiresAt = new Date(Date.now() + 30 * 86_400_000);
+    const results = await Promise.all(
+      [1, 2, 3, 4].map(() =>
+        repo.grantOnce(tenant(RACE), { credits: 5, expiresAt }, async () => {}),
+      ),
+    );
+    expect(results.filter((r) => r.applied)).toHaveLength(1);
+    const { sql } = client;
+    const [n] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM credit_ledger WHERE payer_id = ${RACE}::uuid AND reason = 'welcome'`;
+    expect(Number(n!.n)).toBe(1);
   });
 });

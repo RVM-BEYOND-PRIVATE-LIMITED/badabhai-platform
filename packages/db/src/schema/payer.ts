@@ -310,8 +310,17 @@ export type UnlockDenyReason = "no_consent" | "capped" | "payment_required" | "u
  * with a closed set of its own (the admin finance filter, the payment-history mapping, the
  * admin-web parsers) must learn it in the same change. `returned` / `waived` / `welcome` /
  * `goodwill` arrive with #2750.
+ *
+ * #2750 item 4 — `welcome`: a verified company's welcome credits, once (`credit_lots.source =
+ * 'welcome'`, keyed `welcome_credits:<payer id>`). The numbers screen (#2755) counts it apart.
  */
-export type CreditReason = "pack_purchase" | "unlock_debit" | "refund" | "grant" | "expired";
+export type CreditReason =
+  | "pack_purchase"
+  | "unlock_debit"
+  | "refund"
+  | "grant"
+  | "expired"
+  | "welcome";
 
 /**
  * Routed-channel kind (ADR-0010 §D2). Alpha ships `in_app_relay` ONLY — it
