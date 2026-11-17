@@ -554,6 +554,18 @@ NestJS boot assertion).
     `${STILL_LOOKING_EVERY_DAYS:-30}`, `ci.yml` `env:` + `envs:`); the deploy preflight refuses
     anything but empty or a whole number 7..999 before a container moves, because a bad value would
     stop the api booting.
+- **The bulk student move (#2887)** — api only.
+  - `STUDENT_MOVE_ENABLED` (`booleanFromString`, default off). Off: the company-search, open-gate
+    and pre-pay statements are byte-identical to before, a worker's own edit writes no field
+    marker, and every `/admin/students/*` route is a neutral 404. On: a moved student whose
+    visibility is off is kept from companies by #2752's rules; once an admin turns it on he is an
+    ordinary worker. (`job_reach` is not switched — reach depends on no switch, #2746 M2: a hidden
+    moved student is out of reach whenever the `student_visibility` table exists) (contract: `docs/api/admin-student-move-api-reference.md`). Needs the
+    `student_move` migration, APPLY BEFORE THE SWITCH (on without it: the routes answer 503 and
+    the hot reads fall back to their off text). Bridged through the GitHub `production`
+    environment secret of the same name (compose `${STUDENT_MOVE_ENABLED:-false}` on `api`,
+    `ci.yml` `env:` + `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`); values
+    lowercase `true`/`false`/`1`/`0`/empty only.
 - **The numbers screen (#2755)** — api only, two variables (contract:
   `docs/api/admin-numbers-api-reference.md`).
   - `ADMIN_NUMBERS_ENABLED` (`booleanFromString`, default off). Off is today exactly: every
