@@ -17,11 +17,11 @@ import type { EventsService } from "../events/events.service";
 import type { ConsentRepository } from "../consent/consent.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
-import { DEFAULT_CATALOG } from "@badabhai/pricing";
+import { DEFAULT_CATALOG, DEFAULT_CREDIT_RULES } from "@badabhai/pricing";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
 import { workforceUuid } from "@badabhai/db";
 import { UnlockService } from "./unlocks.service";
-import type { UnlocksRepository } from "./unlocks.repository";
+import type { ContactCostFactsRow, UnlocksRepository } from "./unlocks.repository";
 import type { PricingService } from "../pricing/pricing.service";
 import { PaymentGateway } from "./payment-gateway";
 import type { RazorpayClient } from "./razorpay.client";
@@ -105,6 +105,12 @@ interface SetupOpts {
   rolloutUnavailable?: boolean;
   /** #2749: spendable credits for the F-1 precondition (default: `balance`). */
   spendable?: number;
+  /** #2750: the `credit_rules` switch for the company (default: no credit rules service = off). */
+  creditRules?: "on" | "off" | "unavailable";
+  /** #2750: the worker's price facts (default: stated nothing). */
+  costFacts?: Partial<ContactCostFactsRow>;
+  /** #2750: the multi-credit debit's takes (default: all from one lot). */
+  debitTakes?: { lotId: string; credits: number }[];
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -162,6 +168,16 @@ function setup(opts: SetupOpts = {}) {
     // Middle Way P5: the tx-scoped rung read for the price-tier hook. Default: no
     // stated rung, so the hook prices Lower — the ₹40 flat debit is untouched.
     findTradeLevels: vi.fn(async (): Promise<{ skillId: string; tradeLevel: string }[]> => []),
+    // #2750 — the priced debit (n credits, one take per lot).
+    tryDebitCredits: vi.fn(async (_tx: unknown, _tenant: string, credits: number) =>
+      (opts.debitOk ?? true)
+        ? {
+            balanceAfter: balance - credits,
+            takes: opts.debitTakes ?? [{ lotId: "lot-1", credits }],
+            expiredLots: [],
+          }
+        : undefined,
+    ),
   };
 
   const repo = {
@@ -187,6 +203,20 @@ function setup(opts: SetupOpts = {}) {
     listCreditLedgerByPayer: vi.fn(async (): Promise<unknown[]> => []),
     // #2749 — the wallet's open lots on GET /payer/credits.
     listOpenLots: vi.fn(async (): Promise<unknown[]> => []),
+    // #2750 — the price facts (global pool, repo-only): the same row for every id asked.
+    readContactCostFacts: vi.fn(async (_tenant: string, ids: readonly string[]) => {
+      const out = new Map<string, ContactCostFactsRow>();
+      for (const id of ids) {
+        out.set(id, {
+          rungs: [],
+          totalYears: null,
+          rvmStudent: false,
+          grant: null,
+          ...opts.costFacts,
+        });
+      }
+      return out;
+    }),
     creditPack: vi.fn(async (input: { credits: number }) => balance + input.credits),
     // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
     // gate; return a worker_id-bearing projection whenever an unlock exists so that
@@ -285,14 +315,24 @@ function setup(opts: SetupOpts = {}) {
     opts.tenancy ?? tenancyService("off"),
     instituteGate as never,
     // #2747 — the rollout service only when a test names the switch; absent reads as off.
-    opts.contactRules === undefined && !opts.rolloutUnavailable
+    opts.contactRules === undefined && !opts.rolloutUnavailable && opts.creditRules === undefined
       ? undefined
       : ({
           isEnabledFor: vi.fn(async () => opts.contactRules === true),
-          stateFor: vi.fn(async () =>
-            opts.rolloutUnavailable ? "unavailable" : opts.contactRules ? "on" : "off",
+          stateFor: vi.fn(async (feature: string) =>
+            feature === "credit_rules"
+              ? (opts.creditRules ?? "off")
+              : opts.rolloutUnavailable
+                ? "unavailable"
+                : opts.contactRules
+                  ? "on"
+                  : "off",
           ),
         } as never),
+    // #2750 — the credit rules service only when a test names the switch.
+    opts.creditRules === undefined
+      ? undefined
+      : ({ get: vi.fn(async () => DEFAULT_CREDIT_RULES) } as never),
   );
   return {
     svc,
@@ -2650,5 +2690,186 @@ describe("UnlockService — #2747 the contact read: the notice, sample workers, 
     }) as never);
     expect(await t.svc.readContact("unlock-1", PAYER, CTX)).toEqual(neutralUnavailable());
     expect(t.pii.decrypt).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// #2750 item 2 / item 3 (ADR-0066) — the credit rules on the open, and the quote
+// ===========================================================================
+describe("#2750 credit rules — the priced open", () => {
+  const SETTER_4Y = {
+    rungs: [{ skillId: "mskill_cnc_turner", tradeLevel: "setter", months: 48 }],
+  };
+  const open = (s: ReturnType<typeof setup>) =>
+    s.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+  const eventsNamed = (s: ReturnType<typeof setup>, name: string) =>
+    s.events.emit.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .filter((e) => e.event_name === name);
+
+  it("off: one credit, the body exactly as today (no credits_charged), the price never read", async () => {
+    const s = setup({ creditRules: "off", costFacts: SETTER_4Y });
+    const out = await open(s);
+    expect(out).toMatchObject({ ok: true, status: "granted" });
+    expect(out).not.toHaveProperty("credits_charged");
+    expect(s.repo.readContactCostFacts).not.toHaveBeenCalled();
+    expect(s.txMethods.tryDebit).toHaveBeenCalledTimes(1);
+    expect(s.txMethods.tryDebitCredits).not.toHaveBeenCalled();
+  });
+
+  it("on: a 4-year setter costs 2, debited at once; the ledger line and the events say 2", async () => {
+    const s = setup({ creditRules: "on", costFacts: SETTER_4Y });
+    const out = await open(s);
+    expect(out).toMatchObject({ ok: true, status: "granted", credits_charged: 2 });
+    expect(s.txMethods.tryDebitCredits).toHaveBeenCalledWith(expect.anything(), PAYER, 2);
+    expect(s.txMethods.tryDebit).not.toHaveBeenCalled();
+    expect(s.txMethods.appendLedger).toHaveBeenCalledWith(expect.anything(), {
+      payerId: PAYER,
+      delta: -2,
+      reason: "unlock_debit",
+      unlockId: "unlock-1",
+      lotId: "lot-1",
+    });
+    for (const name of ["payment.authorized", "payment.captured"]) {
+      expect(eventsNamed(s, name)[0]?.payload).toMatchObject({ amount_credits: 2 });
+    }
+  });
+
+  it("on: credits taken from two lots write one ledger line per lot", async () => {
+    const s = setup({
+      creditRules: "on",
+      costFacts: SETTER_4Y,
+      debitTakes: [
+        { lotId: "lot-soon", credits: 1 },
+        { lotId: "lot-later", credits: 1 },
+      ],
+    });
+    await open(s);
+    const lines = s.txMethods.appendLedger.mock.calls.map((c) => (c as unknown[])[1]);
+    expect(lines).toEqual([
+      expect.objectContaining({ delta: -1, lotId: "lot-soon", reason: "unlock_debit" }),
+      expect.objectContaining({ delta: -1, lotId: "lot-later", reason: "unlock_debit" }),
+    ]);
+  });
+
+  it("on: a worker who stated nothing costs the standard 1", async () => {
+    const s = setup({ creditRules: "on" });
+    expect(await open(s)).toMatchObject({ credits_charged: 1 });
+    expect(s.txMethods.tryDebitCredits).toHaveBeenCalledWith(expect.anything(), PAYER, 1);
+  });
+
+  it("on: 1 credit and a 2-credit worker: the honest answer, nothing debited or opened (B7-11)", async () => {
+    const s = setup({ creditRules: "on", costFacts: SETTER_4Y, balance: 1 });
+    expect(await open(s)).toEqual({
+      status: "insufficient_credits",
+      credits_needed: 2,
+      credits_available: 1,
+    });
+    expect(s.txMethods.tryDebitCredits).not.toHaveBeenCalled();
+    expect(s.txMethods.upsertGrant).not.toHaveBeenCalled();
+    expect(s.txMethods.recordDeny).not.toHaveBeenCalled();
+    // Decided BEFORE any worker-state read: no consent or institute read happened.
+    expect(s.consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(s.instituteGate.decide).not.toHaveBeenCalled();
+    expect(eventsNamed(s, "payment.failed")).toHaveLength(1);
+  });
+
+  it("on: the answer is the same whether or not he consented or exists (no oracle)", async () => {
+    const a = setup({ creditRules: "on", costFacts: SETTER_4Y, balance: 1 });
+    const b = setup({
+      creditRules: "on",
+      costFacts: SETTER_4Y,
+      balance: 1,
+      consentPurposes: null,
+      workerExists: false,
+    });
+    expect(await open(a)).toEqual(await open(b));
+  });
+
+  it("on: SPENDABLE credits decide (credits in past-due lots do not count)", async () => {
+    const s = setup({ creditRules: "on", costFacts: SETTER_4Y, balance: 5, spendable: 1 });
+    expect(await open(s)).toMatchObject({ status: "insufficient_credits", credits_available: 1 });
+  });
+
+  it("on: a refused consent is still the ONE neutral body, never a reason", async () => {
+    const s = setup({ creditRules: "on", consentPurposes: null });
+    expect(await open(s)).toEqual(neutralUnavailable());
+    expect(s.txMethods.tryDebitCredits).not.toHaveBeenCalled();
+  });
+
+  it("on: a contact already held is free and says so (credits_charged 0, no debit)", async () => {
+    const s = setup({
+      creditRules: "on",
+      costFacts: SETTER_4Y,
+      existingUnlock: {
+        id: "unlock-held",
+        status: "granted",
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+    expect(await open(s)).toMatchObject({ unlock_id: "unlock-held", credits_charged: 0 });
+    expect(s.txMethods.tryDebitCredits).not.toHaveBeenCalled();
+  });
+
+  it("on: losing the debit race after the precondition is the neutral body, nothing written", async () => {
+    const s = setup({ creditRules: "on", debitOk: false });
+    expect(await open(s)).toEqual(neutralUnavailable());
+    expect(s.txMethods.upsertGrant).not.toHaveBeenCalled();
+    expect(s.txMethods.appendLedger).not.toHaveBeenCalled();
+  });
+
+  it("an unreadable pilot list refuses: neutral body, nothing read about the worker or written", async () => {
+    const s = setup({ creditRules: "unavailable", costFacts: SETTER_4Y });
+    expect(await open(s)).toEqual(neutralUnavailable());
+    expect(s.repo.getSpendableBalance).not.toHaveBeenCalled();
+    expect(s.repo.readContactCostFacts).not.toHaveBeenCalled();
+    expect(s.txMethods.upsertGrant).not.toHaveBeenCalled();
+  });
+});
+
+describe("#2750 item 3 — the quote", () => {
+  const OTHER = "33333333-3333-3333-3333-333333333333";
+
+  it("404 unless the company is under the credit rules", async () => {
+    for (const creditRules of ["off", "unavailable"] as const) {
+      const s = setup({ creditRules });
+      await expect(s.svc.quoteContacts(PAYER, [WORKER])).rejects.toBeInstanceOf(NotFoundException);
+      expect(s.repo.readContactCostFacts).not.toHaveBeenCalled();
+    }
+  });
+
+  it("prices each worker with the same rule as the open, and returns the spendable balance", async () => {
+    const s = setup({
+      creditRules: "on",
+      balance: 7,
+      costFacts: {
+        rungs: [{ skillId: "mskill_cam_programmer", tradeLevel: "programmer", months: 36 }],
+      },
+    });
+    expect(await s.svc.quoteContacts(PAYER, [WORKER, OTHER])).toEqual({
+      quotes: [
+        { worker_id: WORKER, credits: 2 },
+        { worker_id: OTHER, credits: 2 },
+      ],
+      credits_available: 7,
+    });
+    expect(s.repo.readContactCostFacts).toHaveBeenCalledWith(PAYER, [WORKER, OTHER]);
+  });
+
+  it("a contact the company holds open quotes 0", async () => {
+    const s = setup({
+      creditRules: "on",
+      costFacts: { grant: { status: "revealed", expiresAt: new Date(Date.now() + 86_400_000) } },
+    });
+    expect((await s.svc.quoteContacts(PAYER, [WORKER])).quotes[0]?.credits).toBe(0);
+  });
+
+  it("reads no consent, writes nothing and emits nothing", async () => {
+    const s = setup({ creditRules: "on" });
+    await s.svc.quoteContacts(PAYER, [WORKER]);
+    expect(s.consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(s.instituteGate.decide).not.toHaveBeenCalled();
+    expect(s.events.emit).not.toHaveBeenCalled();
+    expect(s.repo.withTransaction).not.toHaveBeenCalled();
   });
 });
