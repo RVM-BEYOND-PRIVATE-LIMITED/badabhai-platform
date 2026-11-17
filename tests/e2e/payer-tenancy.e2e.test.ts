@@ -739,11 +739,13 @@ describe.skipIf(!RUN)("Payer ORG tenancy P2b — one org wallet over HTTP (e2e, 
     expect(Array.isArray(credits.json.lots)).toBe(true);
     for (const lot of credits.json.lots) expect(lot).not.toHaveProperty("id");
     expect(await walletRow(B.payerId)).toBe(SEED_PACK.credits); // still there, still B's (O-2)
-    // The outsider reads only their own (empty) wallet: no balance and no lots.
+    // The outsider reads only their own (empty) wallet: no balance and no lots. `checkout` is
+    // "free" here: real payments and the credit_checkout rollout are both off in e2e (#2749 5a).
     expect((await req("GET", "/payer/credits", { token: C.token })).json).toEqual({
       payer_id: C.payerId,
       balance: 0,
       lots: [],
+      checkout: "free",
     });
   });
 
