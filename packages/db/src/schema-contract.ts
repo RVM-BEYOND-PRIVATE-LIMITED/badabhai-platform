@@ -1853,10 +1853,27 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     failureMode:
       "SILENT. The table maps every moved Campus company, job, application and balance to its BadaBhai row; an open grant lets any PostgREST role read which companies moved and rewrite the map that --rollback uses to archive accounts, close postings and reverse converted credits",
   },
-  // #2891: a Campus-origin posting held from BadaBhai workers until an admin opens it. This entry
-  // is the lock only; the `table` entry arrives with the PR that reads the table from
-  // reachesBadaBhaiWorkers() (APPLY BEFORE THAT DEPLOY, migration header). The id and tag carry
-  // the slot number: regenerated with the migration when the slot moves.
+  // #2891: a Campus-origin posting held from BadaBhai workers until an admin opens it. The worker
+  // fragment reads the table unconditionally (no switch, by the #2746 rule), so it is a `table`
+  // entry: APPLY BEFORE DEPLOY (migration header). Plus its lock. The ids and tag carry the slot
+  // number: regenerated with the migration when the slot moves.
+  {
+    id: "0184-job-posting-worker-visibility",
+    migration: "0184_job_posting_worker_visibility",
+    kind: "table",
+    table: "job_posting_worker_visibility",
+    requiredBy:
+      "reachesBadaBhaiWorkers() (job-visibility.ts), applied UNCONDITIONALLY by every BadaBhai " +
+      "worker read (feed, search, job detail, apply) and inside the reach core " +
+      "(materializeJobReachWithin, D5, the worker reconcile, the agency-twin sync, " +
+      "db:verify:match-v1); the Campus post-for-company route (holdPostingFromWorkers) and the " +
+      "admin worker-visibility routes",
+    failureMode:
+      "every worker feed, search, job detail and apply 500s (relation does not exist), every " +
+      "reach write fails, and Campus post-for-company 500s after creating a draft. Old builds on " +
+      "a migrated database are fine (a superset); new builds on an unmigrated one are not, which " +
+      "is why this is APPLY-BEFORE-DEPLOY",
+  },
   {
     id: "0184-job-posting-worker-visibility-rls",
     migration: "0184_job_posting_worker_visibility",

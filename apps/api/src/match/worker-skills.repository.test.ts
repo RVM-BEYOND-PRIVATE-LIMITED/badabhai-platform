@@ -36,6 +36,9 @@ import { WorkerSkillsRepository } from "./worker-skills.repository";
 
 const dialect = new PgDialect();
 const compile = (cond: unknown) => dialect.sqlToQuery(cond as SQL);
+/** #2746 + #2891 — the shared worker fragment as a raw statement over `jp` renders it. */
+const JP_FRAGMENT =
+  "(jp.audience IN ('badabhai_workers', 'both') AND NOT EXISTS (SELECT 1 FROM job_posting_worker_visibility jpwv WHERE jpwv.job_posting_id = jp.id AND jpwv.state <> 'on'))";
 const text = (cond: unknown) => compile(cond).sql;
 const params = (cond: unknown) => compile(cond).params;
 
@@ -542,7 +545,7 @@ describe("reconcileReachForWorker — the per-worker job_reach rebuild", () => {
     await repo.reconcileReachForWorker(WORKER, SKILLS);
     // The worker side of reach applies the same rule as the publish side.
     expect(captured.statements[1]!.sql).toContain(
-      `AND jp.audience IN ('badabhai_workers', 'both')`,
+      `AND ${JP_FRAGMENT}`,
     );
     // The clear is NOT audience-scoped: a row he holds on an RVM-only posting goes with the rest.
     expect(captured.statements[0]!.sql).not.toContain("audience");
@@ -859,7 +862,7 @@ describe("materializeReachForPosting — publish-time reach set", () => {
     // it a reach set for an RVM-only posting and get rows back.
     expect(insert).toContain("SELECT 1 FROM job_postings jp");
     expect(insert).toContain("WHERE jp.id = $5::uuid");
-    expect(insert).toContain(`AND jp.audience IN ('badabhai_workers', 'both')`);
+    expect(insert).toContain(`AND ${JP_FRAGMENT}`);
   });
 
   it("#2746 — the purge deletes every row of a posting no BadaBhai worker may see, by an UNCORRELATED probe", async () => {
@@ -870,7 +873,7 @@ describe("materializeReachForPosting — publish-time reach set", () => {
     // The audience leg names the posting by its bound id ($2), never `jr.job_posting_id`: a
     // correlated probe planned as a hashed subquery over every BadaBhai posting per call.
     expect(purge.sql).toMatch(
-      /NOT EXISTS \(\s*SELECT 1 FROM job_postings jp\s+WHERE jp\.id = \$2::uuid\s+AND jp\.audience IN \('badabhai_workers', 'both'\)\s*\)\s*OR NOT EXISTS/,
+      /NOT EXISTS \(\s*SELECT 1 FROM job_postings jp\s+WHERE jp\.id = \$2::uuid\s+AND \(jp\.audience IN \('badabhai_workers', 'both'\) AND NOT EXISTS \(SELECT 1 FROM job_posting_worker_visibility jpwv WHERE jpwv\.job_posting_id = jp\.id AND jpwv\.state <> 'on'\)\)\s*\)\s*OR NOT EXISTS/,
     );
     expect(purge.sql).not.toContain("jp.id = jr.job_posting_id");
     expect(purge.params).toEqual([POSTING, POSTING, REACH]);
@@ -1053,7 +1056,7 @@ describe("findReachRow — the apply gate", () => {
   });
 
   it("#2746 — applies the V1 FEED's audience test too: an RVM-only posting is the same 404", async () => {
-    const audience = `jp.audience IN ('badabhai_workers', 'both')`;
+    const audience = JP_FRAGMENT;
     const feedStatements: string[] = [];
     const feed = new MatchFeedRepository({
       execute: (stmt: unknown) => {

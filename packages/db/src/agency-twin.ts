@@ -600,7 +600,7 @@ export async function materializeJobReachWithin(
           AND EXISTS (
             SELECT 1 FROM job_postings jp
             WHERE jp.id = ${jobPostingId}::uuid
-              AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
+              AND ${reachesBadaBhaiWorkers("jp")}
           )
         GROUP BY ws.worker_id
         ON CONFLICT (job_posting_id, worker_id) DO UPDATE
@@ -628,7 +628,7 @@ export async function materializeJobReachWithin(
             NOT EXISTS (
               SELECT 1 FROM job_postings jp
               WHERE jp.id = ${jobPostingId}::uuid
-                AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
+                AND ${reachesBadaBhaiWorkers("jp")}
             )
             OR NOT EXISTS (
               SELECT 1 FROM worker_skill ws

@@ -84,6 +84,11 @@ export const ADMIN_ACTION_CODES = {
   posting_unhidden: "posting_unhidden",
   posting_verified: "posting_verified",
   posting_rejected: "posting_rejected",
+  // ── #2891 — BadaBhai worker visibility of a Campus-origin posting ──────────────────────
+  // Target = the posting (`target_type: "job_posting"`). The reason, the state before and after,
+  // and whether it was the first decision live on the `audit_logs` row; the spine carries the CODE.
+  posting_worker_visibility_on: "posting_worker_visibility_on",
+  posting_worker_visibility_off: "posting_worker_visibility_off",
   // ── #2564 — company records ─────────────────────────────────────────────────────────────
   // Target = the org's ROOT payer (`target_type: "payer"`). The reason, the edited values and
   // the archived member logins live on `audit_logs` and the lifecycle events; the spine's
