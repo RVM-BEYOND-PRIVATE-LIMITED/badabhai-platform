@@ -376,10 +376,39 @@ describe("the CLI arguments", () => {
     expect(parseImportCampusCompaniesArgs(["--bundle", "x"])).toEqual({ mode: "plan", bundle: "x", planQuota: {} });
   });
 
-  it("refuses --apply, --report and --rollback until their parts are built", () => {
-    for (const flag of ["--apply", "--report", "--rollback"]) {
+  it("refuses --report and --rollback until their parts are built", () => {
+    for (const flag of ["--report", "--rollback"]) {
       expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", flag])).toThrow("is not built yet");
     }
+  });
+
+  it("--apply needs a batch key and who is running it", () => {
+    expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", "--apply"])).toThrow("--batch <key>");
+    expect(() =>
+      parseImportCampusCompaniesArgs(["--bundle", "x", "--apply", "--batch", "Bad Key"]),
+    ).toThrow("--batch <key>");
+    expect(() =>
+      parseImportCampusCompaniesArgs(["--bundle", "x", "--apply", "--batch", "pilot-1"]),
+    ).toThrow("--run-by");
+    expect(
+      parseImportCampusCompaniesArgs(["--bundle", "x", "--apply", "--batch", "pilot-1", "--run-by", "prakash", "--test"]),
+    ).toEqual({
+      mode: "apply",
+      bundle: "x",
+      planQuota: {},
+      batch: "pilot-1",
+      runBy: "prakash",
+      testReason: "pilot_test",
+      agents: [],
+    });
+  });
+
+  it("--test and --rehearsal are exclusive, and batch flags need --apply", () => {
+    expect(() =>
+      parseImportCampusCompaniesArgs(["--bundle", "x", "--apply", "--batch", "b", "--run-by", "p", "--test", "--rehearsal"]),
+    ).toThrow("cannot be combined");
+    expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", "--batch", "b"])).toThrow("--batch needs --apply");
+    expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", "--test"])).toThrow("need --apply");
   });
 
   it("refuses an unknown flag rather than guessing", () => {
