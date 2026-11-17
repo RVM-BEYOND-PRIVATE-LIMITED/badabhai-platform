@@ -4,9 +4,21 @@ import { HttpStatus } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
-import { OtpSendCapExceededException } from "../common/otp-send-cap";
+import {
+  OtpSendCapExceededException,
+  PayerSmsSendCapExceededException,
+} from "../common/otp-send-cap";
 import { PayerOtpService } from "./payer-otp.service";
-import type { PayerLoginChannel } from "./payer-login-channel";
+import type { PayerLoginChannel, SmsLoginChannel } from "./payer-login-channel";
+
+/** #2754 — the SMS channel a phone route delivers through; a stub that records its calls. */
+function smsStub(): SmsLoginChannel {
+  return {
+    method: "sms_otp",
+    mock: false,
+    deliver: vi.fn().mockResolvedValue(undefined),
+  } as unknown as SmsLoginChannel;
+}
 
 const EMAIL_HASH = "ehash_abc";
 const EMAIL = "boss@acme.com";
@@ -92,8 +104,9 @@ function setup(opts: { throwOn?: string; deliverThrows?: boolean; mock?: boolean
       ? vi.fn().mockRejectedValue(new Error("delivery down"))
       : vi.fn().mockResolvedValue(undefined),
   };
-  const svc = new PayerOtpService(config, pii, channel, queue);
-  return { svc, redis, channel };
+  const sms = smsStub();
+  const svc = new PayerOtpService(config, pii, channel, queue, sms);
+  return { svc, redis, channel, sms };
 }
 
 const issueInput = { emailHash: EMAIL_HASH, email: EMAIL, phone: null, payerId: "p1" };
@@ -188,6 +201,7 @@ describe("PayerOtpService global daily send circuit-breaker (OTP-5 spend ceiling
       pii,
       channel,
       queue,
+      smsStub(),
     );
     return { svc, redis, channel };
   }
@@ -235,7 +249,7 @@ describe("PayerOtpService global daily send circuit-breaker (OTP-5 spend ceiling
       mock: false,
       deliver: vi.fn().mockResolvedValue(undefined),
     };
-    const svc = new PayerOtpService(realConfig, pii, channel, queue);
+    const svc = new PayerOtpService(realConfig, pii, channel, queue, smsStub());
     await expect(svc.issueAndSend(issueInput)).rejects.toMatchObject({
       status: HttpStatus.SERVICE_UNAVAILABLE,
     });
@@ -283,5 +297,118 @@ describe("PayerOtpService.verify", () => {
     await expect(svc.verify(EMAIL_HASH, "123456")).rejects.toMatchObject({
       status: HttpStatus.SERVICE_UNAVAILABLE,
     });
+  });
+});
+
+describe("#2754 — a company phone's code goes by SMS, under its own daily ceiling", () => {
+  const PHONE_HASH = "f".repeat(64);
+  const phoneInput = { emailHash: PHONE_HASH, email: "", phone: "+919876543210", payerId: "p2" };
+  const today = (): string => new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const smsKey = (): string => `payer_otp:global_sms_sendcount:${today()}`;
+  const emailKey = (): string => `payer_otp:global_sendcount:${today()}`;
+
+  function smsSetup(over: Partial<ServerConfig> = {}) {
+    const redis = makeRedis();
+    const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
+    const channel: PayerLoginChannel = {
+      method: "email_otp",
+      mock: false,
+      deliver: vi.fn().mockResolvedValue(undefined),
+    };
+    const sms = smsStub();
+    const svc = new PayerOtpService(
+      { ...config, PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY: 500, ...over } as ServerConfig,
+      pii,
+      channel,
+      queue,
+      sms,
+    );
+    return { svc, redis, channel, sms };
+  }
+
+  it("delivers the code through the SMS channel, never the email one, and counts only the SMS ceiling", async () => {
+    const { svc, redis, channel, sms } = smsSetup();
+    await svc.issueAndSend({ ...phoneInput, route: "sms" });
+    expect(sms.deliver).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sms.deliver).mock.calls[0]![0]).toMatchObject({
+      phone: "+919876543210",
+      payerId: "p2",
+    });
+    expect(channel.deliver).not.toHaveBeenCalled();
+    expect(redis.store.get(smsKey())).toBe("1");
+    expect(redis.store.has(emailKey())).toBe(false);
+    // The code is stored under the phone's keyed hash, so verify reads the same key.
+    expect(redis.store.has(`payer_otp:code:${PHONE_HASH}`)).toBe(true);
+  });
+
+  it("the default route is unchanged: the configured channel and the email ceiling", async () => {
+    const { svc, redis, channel, sms } = smsSetup();
+    await svc.issueAndSend(issueInput);
+    expect(channel.deliver).toHaveBeenCalledTimes(1);
+    expect(sms.deliver).not.toHaveBeenCalled();
+    expect(redis.store.get(emailKey())).toBe("1");
+    expect(redis.store.has(smsKey())).toBe(false);
+  });
+
+  it("an unknown phone (issueWithoutDelivery on the SMS route) counts the same SMS ceiling, sending nothing", async () => {
+    const { svc, redis, sms } = smsSetup();
+    await svc.issueWithoutDelivery(PHONE_HASH, "sms");
+    expect(sms.deliver).not.toHaveBeenCalled();
+    expect(redis.store.get(smsKey())).toBe("1");
+    expect(redis.store.has(emailKey())).toBe(false);
+  });
+
+  it("at the ceiling it refuses with the neutral 429, as its own exception, and leaves no code behind", async () => {
+    const { svc, redis, sms } = smsSetup({ PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY: 2 });
+    await svc.issueAndSend({ ...phoneInput, route: "sms" });
+    redis.store.delete(`payer_otp:cooldown:${PHONE_HASH}`);
+    const err = await svc.issueAndSend({ ...phoneInput, route: "sms" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PayerSmsSendCapExceededException);
+    expect(err).not.toBeInstanceOf(OtpSendCapExceededException);
+    expect(err).toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+    expect((err as PayerSmsSendCapExceededException).breach).toEqual({ limit: 2, window: today() });
+    expect(sms.deliver).toHaveBeenCalledTimes(1);
+    expect(redis.store.has(`payer_otp:code:${PHONE_HASH}`)).toBe(false);
+  });
+
+  it("a ceiling of 0 pauses company SMS at once (the kill-switch), unknown phones included", async () => {
+    const { svc, sms } = smsSetup({ PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY: 0 });
+    await expect(svc.issueAndSend({ ...phoneInput, route: "sms" })).rejects.toBeInstanceOf(
+      PayerSmsSendCapExceededException,
+    );
+    await expect(svc.issueWithoutDelivery("e".repeat(64), "sms")).rejects.toBeInstanceOf(
+      PayerSmsSendCapExceededException,
+    );
+    expect(sms.deliver).not.toHaveBeenCalled();
+  });
+});
+
+describe("#2754 — the SMS ceiling fails closed", () => {
+  it("a Redis error on the company-SMS counter is a 503 and sends nothing (never uncaps)", async () => {
+    const redis = makeRedis();
+    // Fail ONLY the company-SMS daily counter, so the per-number checks before it all pass.
+    const incr = redis.client.incr.bind(redis.client);
+    redis.client.incr = async (key: string) => {
+      if (key.startsWith("payer_otp:global_sms_sendcount:")) throw new Error("redis down");
+      return incr(key);
+    };
+    const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
+    const channel: PayerLoginChannel = {
+      method: "email_otp",
+      mock: false,
+      deliver: vi.fn().mockResolvedValue(undefined),
+    };
+    const sms = smsStub();
+    const svc = new PayerOtpService(config, pii, channel, queue, sms);
+    await expect(
+      svc.issueAndSend({
+        emailHash: "f".repeat(64),
+        email: "",
+        phone: "+919876543210",
+        payerId: "p2",
+        route: "sms",
+      }),
+    ).rejects.toMatchObject({ status: HttpStatus.SERVICE_UNAVAILABLE });
+    expect(sms.deliver).not.toHaveBeenCalled();
   });
 });

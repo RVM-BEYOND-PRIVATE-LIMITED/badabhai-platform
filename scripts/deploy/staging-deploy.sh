@@ -287,6 +287,7 @@ BRIDGED_BOOLEAN_FLAGS=(
   HIRE_RECORDS_ENABLED
   LEVEL_NEEDED_SORT_ENABLED
   PAYER_APPLICANT_STAGES_ENABLED
+  PAYER_SMS_OTP_ENABLED
   PAY_ON_JOINING_RECORDS_ENABLED
   PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED
   PROFILING_TIERS_ENABLED
@@ -315,6 +316,17 @@ for _flag in "${BRIDGED_BOOLEAN_FLAGS[@]}"; do
       ;;
   esac
 done
+# #2754 — company sign-in by SMS code may NOT be armed yet. Until #2754 item 3 lands, the phone on
+# a company account is not proven (PATCH /payer/me and signup store it unverified) and not unique,
+# so arming it would make an unproven number a sign-in credential. The api refuses to boot armed
+# in production too, and a refused boot is an outage the deploy gate does not roll back, so stop
+# here, before a container moves. Item 3 replaces this with the template-id cross-check.
+case "${PAYER_SMS_OTP_ENABLED-}" in
+  true | 1)
+    echo "::error::PAYER_SMS_OTP_ENABLED must stay false until #2754 item 3 lands (company phones must be proven and unique before an SMS code can sign anyone in). Set the production secret to false and re-run. Nothing was deployed."
+    _bad_flags=1
+    ;;
+esac
 # Every bad flag is reported above before this exits, so one run names them all.
 if [ "$_bad_flags" -ne 0 ]; then
   exit 1
