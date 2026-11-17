@@ -955,6 +955,18 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerRvmWaiverChangedPayload,
   },
+  // #2750 item 7 — a couldn't-reach report opened a desk case, and the case closed: ONE each per
+  // case, in the transaction that writes the case change (and any returned credits). v1.
+  "payer.contact_reach_reported": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerContactReachReportedPayload,
+  },
+  "payer.contact_reach_resolved": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerContactReachResolvedPayload,
+  },
   // MOMENT ④ — `feed.shown` VERSION 2. `feed.shown` above KEEPS its v1 entry,
   // unmodified, as history (invariant #8): `validateEvent` allows exactly one version
   // per NAME, so a bump in place would invalidate every shipped emitter the moment it

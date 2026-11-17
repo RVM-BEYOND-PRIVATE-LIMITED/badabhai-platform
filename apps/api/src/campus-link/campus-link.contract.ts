@@ -455,7 +455,12 @@ export const CampusPostForCompanyBodySchema = z.strictObject({
   staff_ref: StaffRefSchema,
 });
 
-/** The posting goes live for RVM students at once, its review recorded as approved by `staff_ref`. */
+/**
+ * The posting goes live for RVM students at once, its review recorded as approved by `staff_ref`.
+ * Its audience is `both` (#2891, ruling of 17 Nov 2026): it reaches BadaBhai workers too, but only
+ * after a BadaBhai admin turns its worker visibility on. Until then no BadaBhai worker sees it, and
+ * that decision never changes its review state.
+ */
 export const CampusPostForCompanyResponseSchema = z.object({
   posting_id: Id,
   company_id: Id,

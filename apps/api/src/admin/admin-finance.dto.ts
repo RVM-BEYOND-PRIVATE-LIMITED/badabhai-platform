@@ -65,9 +65,20 @@ export const AdminLedgerQuerySchema = z
     payerId: z.string().uuid().optional(),
     // #2749 adds `expired` (a lot's credits removed at its date) — the ledger's own reason set.
     // #2750 item 4 adds `welcome` (a verified company's welcome credits, once); item 5 adds
-    // `waived` (an open the placement team's waiver paid for: a zero-credit line).
+    // `waived` (an open the placement team's waiver paid for: a zero-credit line); item 7 adds
+    // `returned` (credits a couldn't-reach case gave back).
     reason: z
-      .enum(["pack_purchase", "unlock_debit", "refund", "grant", "expired", "welcome", "waived", "campus_conversion"])
+      .enum([
+        "pack_purchase",
+        "unlock_debit",
+        "refund",
+        "grant",
+        "expired",
+        "welcome",
+        "waived",
+        "returned",
+        "campus_conversion",
+      ])
       .optional(),
   })
   .strict();

@@ -84,6 +84,11 @@ export const ADMIN_ACTION_CODES = {
   posting_unhidden: "posting_unhidden",
   posting_verified: "posting_verified",
   posting_rejected: "posting_rejected",
+  // ── #2891 — BadaBhai worker visibility of a Campus-origin posting ──────────────────────
+  // Target = the posting (`target_type: "job_posting"`). The reason, the state before and after,
+  // and whether it was the first decision live on the `audit_logs` row; the spine carries the CODE.
+  posting_worker_visibility_on: "posting_worker_visibility_on",
+  posting_worker_visibility_off: "posting_worker_visibility_off",
   // ── #2564 — company records ─────────────────────────────────────────────────────────────
   // Target = the org's ROOT payer (`target_type: "payer"`). The reason, the edited values and
   // the archived member logins live on `audit_logs` and the lifecycle events; the spine's
@@ -127,6 +132,12 @@ export const ADMIN_ACTION_CODES = {
   // admin's reason; the spine records it as `payer.rvm_waiver_set|cleared` (actor = the admin),
   // ids and codes only.
   rvm_waiver_changed: "rvm_waiver_changed",
+  // ── #2750 item 7 — the worker desk: a call attempt logged, a couldn't-reach case closed ─
+  // The `audit_logs` row (entity `contact_reach_case`) carries the attempt's result code, or the
+  // outcome, the credits returned and the admin's reason; the spine records the close as
+  // `payer.contact_reach_resolved` (actor = the admin), ids and codes only.
+  reach_case_attempt_logged: "reach_case_attempt_logged",
+  reach_case_resolved: "reach_case_resolved",
   // ── #2887 — a moved RVM student's visibility turned on or off ──────────────────────────
   // One student: target the worker (`entity_type: "worker"`); a bulk call (one import run, branch
   // or course): its own operation id (`entity_type: "student_visibility_bulk"`). The reason and

@@ -321,6 +321,10 @@ export type UnlockDenyReason = "no_consent" | "capped" | "payment_required" | "u
  * #2754 item 9 — `campus_conversion`: a company's unused Campus balance moved in with it, as a
  * `migrated` lot, keyed `campus_conversion:<bundle line key>` (once per source balance). A free grant:
  * never credits used, never a payment.
+ * #2750 item 7 — `returned`: credits a couldn't-reach case gave back (the worker was not reached).
+ * `unlock_id` names the open; the line adds a new `returned` lot (`lot_id`), keyed
+ * `reach_returned:<unlock id>:<spent lot id>`. Returned credits from a pack (#2750 item 9) will name
+ * the new pack's lot instead (private notes item 12).
  */
 export type CreditReason =
   | "pack_purchase"
@@ -330,6 +334,7 @@ export type CreditReason =
   | "expired"
   | "welcome"
   | "waived"
+  | "returned"
   | "campus_conversion";
 
 /**
