@@ -783,6 +783,9 @@ describe("#2749 item 9 — the order body's origin fields are validated at the b
     ]) {
       expect(() => pipe.transform(body), JSON.stringify(body)).toThrow(BadRequestException);
     }
+  });
+});
+
 /**
  * #2750 item 3 — the quote route: priced for the SESSION payer's company, never a body payer;
  * opens nothing, so it is off the disclosure cap; and the body is a bounded, unique id list.
