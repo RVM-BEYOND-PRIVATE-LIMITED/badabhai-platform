@@ -343,9 +343,10 @@ export class PayerUnlocksController {
    * unknown order, and another tenant's order all return the SAME neutral 404 — this route
    * is not an order-id oracle. HTTP 200 only on a genuinely verified payment.
    *
-   * Gated exactly like `/credits/order` (#2749 item 10): real payments live AND the company in
-   * the `credit_checkout` rollout. A company taken out of the pilot after paying still gets its
-   * credits: the webhook settles the order whatever the switch says.
+   * Gated on real payments being live ONLY, not on the `credit_checkout` rollout (#2749 review):
+   * a verify creates no order, and the signature plus the order's stamped tenant already bind it
+   * to the buyer. So a company taken out of the pilot (or a rollout set back to `off`) after
+   * paying is still settled here, not only by the webhook. New orders stay rollout-gated.
    */
   @Post("credits/verify")
   @HttpCode(200)
@@ -354,7 +355,7 @@ export class PayerUnlocksController {
     @CurrentPayer() payer: AuthenticatedPayer,
     @Ctx() ctx: RequestContext,
   ) {
-    if (!(await this.unlocks.isRealCheckoutOpen(payer.id))) throw new NotFoundException();
+    if (!this.unlocks.realPaymentsLive) throw new NotFoundException();
     const result = await this.unlocks.verifyCheckoutPayment(
       payer.id,
       {

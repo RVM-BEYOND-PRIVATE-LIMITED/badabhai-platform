@@ -2207,7 +2207,13 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
   it("on: the teammate's balance, ledger and unlock lists are the ORG's; each response echoes the CALLER", async () => {
     const t = setup({ balance: 9, tenancy: on() });
 
-    expect(await t.svc.getCredits(MEMBER)).toEqual({ payer_id: MEMBER, balance: 9, lots: [] });
+    // #2749 — `checkout: "free"`: real payments off and no rollout service (the mock packs).
+    expect(await t.svc.getCredits(MEMBER)).toEqual({
+      payer_id: MEMBER,
+      balance: 9,
+      lots: [],
+      checkout: "free",
+    });
     expect(t.repo.getBalance).toHaveBeenLastCalledWith(ANCHOR);
     // #2749 — the lots are the ORG wallet's too, never the teammate's own.
     expect(t.repo.listOpenLots).toHaveBeenLastCalledWith(ANCHOR);

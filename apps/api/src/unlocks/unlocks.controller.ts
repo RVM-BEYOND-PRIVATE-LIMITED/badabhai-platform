@@ -114,9 +114,10 @@ export class UnlocksController {
    * real_call:false. A real Razorpay purchase is a LATER human-gated stream (§D5).
    * 404 on an unknown pack_code (this is NOT the unlock no-oracle path).
    *
-   * #2749 hardening 2 (ADR-0065): a payer whose company the new money rules apply to
-   * (`CREDIT_CHECKOUT_ROLLOUT`) is refused with a 409 `reason: credit_checkout_rollout` and
-   * nothing is granted; a 503 when the pilot list cannot be read. Everyone else: as before.
+   * #2749 hardening 2 (ADR-0065): while real payments are live, EVERY payer is refused with a
+   * 409 `reason: real_payments_live`; otherwise a payer whose company the new money rules apply to
+   * (`CREDIT_CHECKOUT_ROLLOUT`) gets a 409 `reason: credit_checkout_rollout`. Nothing is granted
+   * either way; a 503 when the pilot list cannot be read. Everyone else: as before.
    */
   @Post("payers/:payerId/credits")
   @HttpCode(200)
