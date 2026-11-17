@@ -64,7 +64,9 @@ import {
   type UnlockGrantedResponse,
   type ContactRevealedResponse,
   type ContactReadResponse,
+  type DailyLimitReachedResponse,
   type InsufficientCreditsResponse,
+  type WorkerUnavailableThisWeekResponse,
   type ContactQuotesResponse,
 } from "./unlock-response";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
@@ -79,7 +81,8 @@ import { CreditRulesService } from "../credit-rules/credit-rules.service";
 import { contactCostFactsOf } from "./contact-cost-facts";
 import { RvmWaiversRepository, type WaiverMatch } from "../rvm-waivers/rvm-waivers.repository";
 import { onBriefNotice } from "./brief-notice";
-import { searchExitRefuses } from "../search-exit/search-exit-gate";
+import { appliedToTenantStatement, searchExitRefuses } from "../search-exit/search-exit-gate";
+import type { CreditRules } from "@badabhai/pricing";
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
 const EMPLOYER_SHARING = "employer_sharing";
@@ -95,7 +98,9 @@ type UnlockOutcome =
   | UnlockGrantedResponse
   | NeutralUnavailableResponse
   // #2750 (ADR-0066) — only for a company under the credit rules.
-  | InsufficientCreditsResponse;
+  | InsufficientCreditsResponse
+  | WorkerUnavailableThisWeekResponse
+  | DailyLimitReachedResponse;
 type RevealOutcome = ContactRevealedResponse | NeutralUnavailableResponse;
 
 /**
@@ -115,6 +120,15 @@ export interface RelayResolution {
  * transaction commits — see {@link UnlockService} class doc (deadlock fix).
  */
 type DeferredEmit = () => Promise<void>;
+
+/** India has no daylight saving: IST is UTC+05:30 all year. */
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** #2750 item 6 — the start of `now`'s IST calendar day, as an instant (the agency limit's day). */
+export function istDayStart(now: Date): Date {
+  return new Date(Math.floor((now.getTime() + IST_OFFSET_MS) / DAY_MS) * DAY_MS - IST_OFFSET_MS);
+}
 
 /**
  * #2750 — what the open's debit did: the lots it took from, and the balance after. A waived open
@@ -304,8 +318,8 @@ export class UnlockService {
   private async priceOpen(
     tenant: TenantKey,
     workerId: string,
+    rules: CreditRules,
   ): Promise<{ credits: number; waiverId: string | null }> {
-    const rules = await this.creditRules!.get();
     const facts = await this.repo.readContactCostFacts(tenant, [workerId]);
     const waiver = (await this.waiversFor(tenant, [workerId])).get(workerId) ?? null;
     const row = facts.get(workerId)!;
@@ -402,9 +416,11 @@ export class UnlockService {
     //
     // #2750 item 5 — a placement-team waiver can make the price 0 (an RVM student who applied to a
     // waived job or company): no credit is needed, so a company with none still opens him.
+    // #2750 — the rules' numbers, read once (cached 30 s); null while the company is off.
+    const rules = creditRules === "on" ? await this.creditRules!.get() : null;
     const priced =
-      creditRules === "on"
-        ? await this.priceOpen(tenant, workerId)
+      rules !== null
+        ? await this.priceOpen(tenant, workerId, rules)
         : { credits: 1, waiverId: null };
     const price = priced.credits;
     const balance = await this.repo.getSpendableBalance(tenant);
@@ -421,6 +437,20 @@ export class UnlockService {
       }
       return neutralUnavailable();
     }
+    // #2750 item 6 (brief 4C.8, B4C-18) — an AGENCY account under the credit rules opens at most
+    // `agencyDailyOpenLimit` new contacts per IST calendar day; an employer account is never
+    // stopped by it. Decided from the company's own count, before anything about the worker is
+    // read (no oracle), and re-checked under a per-company lock inside the transaction, so two
+    // opens at once cannot both pass the line.
+    const agencyDailyLimit = rules !== null ? await this.agencyDailyLimitOf(tenant, rules) : null;
+    if (
+      agencyDailyLimit !== null &&
+      (await this.repo.countTenantOpensSince(tenant, istDayStart(new Date()))) >= agencyDailyLimit
+    ) {
+      await this.emitLimitReached(party, null, "agency_daily_opens", agencyDailyLimit, ctx);
+      return { status: "daily_limit_reached", daily_limit: agencyDailyLimit };
+    }
+
     // #2750 — `credits_charged` rides a grant ONLY under the credit rules (off: the body as today).
     const charged = (credits: number): number | undefined =>
       creditRules === "on" ? credits : undefined;
@@ -515,6 +545,25 @@ export class UnlockService {
         }
         // else: none, or lapsed with the rule off — fall through to a (paid) grant below.
 
+        // #2750 item 6 — the agency daily limit, re-checked under the company's lock (taken after
+        // the worker lock: worker → company → wallet). Still before the consent gate, so the
+        // answer never depends on the worker.
+        if (agencyDailyLimit !== null) {
+          await this.repo.lockTenantOpens(tx, tenant);
+          if (
+            (await this.repo.countTenantOpensSince(tenant, istDayStart(new Date()), tx)) >=
+            agencyDailyLimit
+          ) {
+            events.push(() =>
+              this.emitLimitReached(party, null, "agency_daily_opens", agencyDailyLimit, ctx),
+            );
+            return {
+              response: { status: "daily_limit_reached", daily_limit: agencyDailyLimit },
+              events,
+            };
+          }
+        }
+
         // ---- [1] employer_sharing CONSENT gate (fail closed) ------------------
         // `consented`/`workerPresent` were resolved BEFORE the lock (deadlock fix above).
         if (!consented) {
@@ -565,8 +614,30 @@ export class UnlockService {
         }
 
         // ---- [2] worker CAPS (atomic, before payment) -------------------------
+        // #2750 item 6 (brief 4C.8, B4C-17, B7-12) — under the credit rules the brief's weekly
+        // limit REPLACES the env caps for this company: a worker opened `workerWeeklyOpenLimit`
+        // times in the rolling 7 days (by every company, pilot or not) is not opened again this
+        // week, except by a company he applied to. The company is told he is not available this
+        // week (ADR-0066 §2.7): it learns he is in demand, nothing else. Nothing is debited.
+        if (rules !== null) {
+          if (await this.weeklyLimitRefuses(tx, workerId, tenant, rules.workerWeeklyOpenLimit)) {
+            const row = await this.repo.recordDeny(tx, {
+              payerId: tenant,
+              workerId,
+              jobId: jobContext,
+              jobPostingId,
+              denyReason: "capped",
+            });
+            const max = rules.workerWeeklyOpenLimit;
+            events.push(() =>
+              this.emitLimitReached(party, workerId, "worker_weekly_opens", max, ctx),
+            );
+            events.push(() => this.emitDenied(row.id, party, workerId, jobContext, "capped", ctx));
+            return { response: { status: "worker_unavailable_this_week" }, events };
+          }
+        }
         // Counted over `unlocks.payer_id`, the tenant key: distinct ORGS in `on` (O-3).
-        const cap = await this.checkCaps(tx, workerId);
+        const cap = rules !== null ? null : await this.checkCaps(tx, workerId);
         if (cap) {
           const row = await this.repo.recordDeny(tx, {
             payerId: tenant,
@@ -1880,6 +1951,55 @@ export class UnlockService {
    * the check-and-write is atomic (F-2). Counts are derived from `unlocks`/grants, not
    * a side counter (no drift).
    */
+  /**
+   * #2750 item 6 — does the worker's weekly limit refuse this company? He was opened `max` times
+   * in the rolling 7 days by any company, and this company is not one he applied to (B7-12). Under
+   * the worker lock (`tx`), so concurrent opens of one worker count each other.
+   */
+  private async weeklyLimitRefuses(
+    tx: Tx,
+    workerId: string,
+    tenant: TenantKey,
+    max: number,
+  ): Promise<boolean> {
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    if ((await this.repo.countOpensSince(tx, workerId, weekAgo)) < max) return false;
+    const applied = await tx.execute(appliedToTenantStatement(workerId, tenant));
+    return (applied as unknown as unknown[]).length === 0;
+  }
+
+  /** #2750 item 6 — the agency daily limit for this company, or null (an employer: no limit). */
+  private async agencyDailyLimitOf(tenant: TenantKey, rules: CreditRules): Promise<number | null> {
+    const facts = await this.payers.findAuthFacts(tenant);
+    return facts?.role === "agent" ? rules.agencyDailyOpenLimit : null;
+  }
+
+  private async emitLimitReached(
+    party: EventParty,
+    workerId: string | null,
+    limit: "worker_weekly_opens" | "agency_daily_opens",
+    max: number,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const payload: PayloadInputOf<"unlock.limit_reached"> = {
+      payer_id: party.payerId,
+      worker_id: workerId,
+      limit,
+      max,
+    };
+    await this.events.emit({
+      event_name: "unlock.limit_reached",
+      actor: { actor_type: "payer", actor_id: party.actorId },
+      subject:
+        workerId === null
+          ? { subject_type: "payer", subject_id: party.payerId }
+          : { subject_type: "worker", subject_id: workerId },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
+
   private async checkCaps(
     tx: Tx,
     workerId: string,

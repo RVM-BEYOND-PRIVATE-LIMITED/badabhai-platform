@@ -559,6 +559,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   - A success adds `credits_charged` (the credits taken; `0` on a re-open).
   - **Placement-team waivers (#2750 item 5):** an RVM student who applied to a job of yours that RVM's placement team waived (that job, or your whole company) opens for `0` (`credits_charged: 0`), even with no credits. No payment events are written for it; your ledger gets a zero-credit `waived` line. If the waiver is cleared between the quote and the tap, that one open is refused (the neutral body); quote again.
   - When you cannot afford the contact, the answer is `200 { status: 'insufficient_credits', credits_needed, credits_available }` instead of the neutral body. Nothing is debited or opened; offer a pack. This is decided before anything about the worker is read, so it says nothing about him.
+  - **Opening limits (#2750 item 6):** a worker opened 5 times in the last 7 days (by any company) answers `200 { status: 'worker_unavailable_this_week' }`, unless he applied to one of your jobs. An agency account that opened 40 new contacts today (IST) answers `200 { status: 'daily_limit_reached', daily_limit }`; employer accounts have no daily limit. Nothing is debited or opened. The numbers are the credit rules' settings. Under the rules these replace the old per-worker caps.
   - Every other refusal is still the neutral `unavailable`.
   - Off, nothing changes: one credit, no `credits_charged`, and no-credit is the neutral body.
 

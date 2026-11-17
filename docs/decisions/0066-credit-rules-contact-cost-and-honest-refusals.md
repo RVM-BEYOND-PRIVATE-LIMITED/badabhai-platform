@@ -80,6 +80,15 @@ RVM's placement team can make RVM applicants free to open: for **one company** (
 - A waived open debits nothing and needs no balance. In the open's transaction it writes one zero-credit `waived` ledger line naming the unlock (no lot) and a use row naming the waiver. It emits no payment events.
 - The waiver is re-read under a share lock inside the open's transaction: one cleared since the price was read refuses the open (neutral, nothing written), and a clear racing the open waits for it.
 
+### 2.7 The opening limits, and the third honest answer (part D; amends ADR-0010 Decision 4 again)
+
+For a company under the credit rules the brief's two limits **replace** the env caps (`UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK`, `UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY`), which every other company keeps:
+
+- **A worker's week** (`workerWeeklyOpenLimit`, 5): a worker opened 5 times in the rolling 7 days, by any company (pilot or not, every new open counts, a free one included), is not opened again this week, **except by a company he applied to** (B7-12). A re-open of a contact the company holds is not a new open. Checked under the worker lock, after the consent, deletion and search-exit gates.
+  - The company is told `200 { status: "worker_unavailable_this_week" }` (#2750 question 2's default). It says he is in demand, which the neutral body hid. It is answered only for a worker every earlier gate let through, so it says no more about consent than an applicant card already does. Nothing is debited; the deny row reads `capped` and `unlock.limit_reached` records it.
+- **An agency's day** (`agencyDailyOpenLimit`, 40): an `agent` account opens at most 40 new contacts per IST calendar day; an employer account is never stopped by it (B4C-18).
+  - The company is told `200 { status: "daily_limit_reached", daily_limit }`. This depends only on the company's own count and is decided **before** anything about the worker is read, then re-checked under a per-company lock inside the transaction (lock order: worker, company, wallet), so two opens at once cannot both pass the line.
+
 ## 3. Consequences
 
 - The number on the button equals the credits debited, unless the worker's card changes between the quote and the tap. In that case the open charges the price at the tap; the price is always from the card he shows then.
@@ -89,12 +98,15 @@ RVM's placement team can make RVM applicants free to open: for **one company** (
 
 - A `waived` line has `delta = 0` and no lot, so `Σ delta` per wallet and per lot is unchanged by it. Payment history leaves it out.
 
-## 4. Security review (parts A1, A2 and C)
+- A pilot company's apps must handle two more answers: `worker_unavailable_this_week` and `daily_limit_reached`. An old client sees an unknown body; keep pilot companies on updated clients.
+
+## 4. Security review (parts A1, A2, C and D)
 
 - **Oracle:** the price and the honest refusal depend only on card facts and the company's own balance; both are decided before any worker-state read. Pinned by unit tests: no consent or institute read on the refusal path, and an identical answer for a consented worker and an unknown id.
 - **Tenancy:** the price facts read this company's grant by tenant key. The wallet helper is tenant-keyed and on the static tenancy scan's helper list.
 - **Money:** an n-credit spend is all-or-nothing under the wallet row lock. Concurrent spends cannot overdraw (DB test). A past-due-only wallet is refused byte-for-byte unchanged (DB test).
 - **Waivers:** whether a waiver frees a worker reads only his applications to this company's jobs (already on the company's applicant list) and the company's own waivers: no consent, limit or deletion state, so the 0 on the button is no oracle. Setting one is super_admin only on BadaBhai's side, or the Campus credential; an unknown or barred company and another company's job are the same neutral 404. Staff names are encrypted at rest and appear in no event.
+- **Limits:** the weekly answer is the one deliberate new signal (he is in demand), given only after the consent, deletion and search-exit gates passed, so it is never an answer about a worker the company could not open anyway. The agency answer reads only the company's own count, before any worker read. Both counts are taken under locks, so they cannot be raced past.
 - **Settings:** super_admin only; the reason text refuses hard identifiers; one audited transaction; 409 on a stale or racing edit.
 
 ## 5. Arming and rollback

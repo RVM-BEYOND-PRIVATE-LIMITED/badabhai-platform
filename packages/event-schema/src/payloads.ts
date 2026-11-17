@@ -1932,6 +1932,36 @@ export const UnlockCapExceededPayload = z.object({
 });
 
 /**
+ * #2750 item 6 (brief 4C.8, B4C-17, B4C-18) — which credit-rules opening limit refused a NEW open:
+ * `worker_weekly_opens` (the worker was opened `max` times in the rolling 7 days, across all
+ * companies) or `agency_daily_opens` (this agency account opened `max` contacts this IST day).
+ */
+export const UNLOCK_LIMIT_KINDS = ["worker_weekly_opens", "agency_daily_opens"] as const;
+
+/**
+ * #2750 item 6 — an open refused by a credit-rules limit, for a company under the credit rules.
+ * A NEW name beside `unlock.cap_exceeded` (whose cap enum stays as shipped, invariant #8): those
+ * are the env caps every company outside the pilot keeps.
+ *
+ * FACELESS: the tenant key, the worker (null for the agency limit, which is decided before the
+ * worker is read), the closed limit kind and the limit in force. Nothing else.
+ */
+export const UnlockLimitReachedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    worker_id: uuidSchema.nullable(),
+    limit: z.enum(UNLOCK_LIMIT_KINDS),
+    /** The limit in force (`workerWeeklyOpenLimit` / `agencyDailyOpenLimit` at the time). */
+    max: z.number().int().positive(),
+  })
+  .strict()
+  .refine((p) => (p.limit === "agency_daily_opens") === (p.worker_id === null), {
+    message: "worker_id is null exactly for the agency limit",
+    path: ["worker_id"],
+  });
+export type UnlockLimitReachedPayload = z.infer<typeof UnlockLimitReachedPayload>;
+
+/**
  * A routed contact was revealed — channel KIND + counts ONLY. The number / handle /
  * relay destination / routing token NEVER appears here (F-5, non-tradeable #2).
  */

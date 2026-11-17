@@ -514,3 +514,78 @@ describe.skipIf(!RUN)("rvm applicant waivers — against real Postgres", () => {
     expect(all.filter((w) => w.scope === "company").map((w) => w.active)).toEqual([true, false]);
   });
 });
+
+/**
+ * #2750 item 6 — the opening limits' counts against real Postgres: a worker's NEW opens in the
+ * window by every company (granted, revealed and lapsed rows count; a denied row and an open from
+ * before the window do not), and one company's new opens since a given instant.
+ */
+describe.skipIf(!RUN)("opening-limit counts — against real Postgres", () => {
+  let client: DbClient;
+  let repo: UnlocksRepository;
+  const T = randomUUID().slice(0, 8);
+  const WORKER = randomUUID();
+  const OTHER_WORKER = randomUUID();
+  const companies = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL);
+    repo = new UnlocksRepository(client.db);
+    const { sql } = client;
+    for (const id of companies) {
+      await sql`
+        INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+        VALUES (${id}::uuid, 'agent', ${`enc:2750d-${T}-${id}`}, ${`hash:2750d-${T}-${id}`},
+                ${`enc:co-${T}`}, 'active')`;
+    }
+    for (const id of [WORKER, OTHER_WORKER]) {
+      await sql`
+        INSERT INTO workers (id, phone_e164, phone_hash, status)
+        VALUES (${id}::uuid, ${`enc:2750d-${T}-${id}`}, ${`hash:2750d-${T}-${id}`}, 'active')`;
+    }
+    const grant = (payer: string, worker: string, status: string, ago: string) => sql`
+      INSERT INTO unlocks (payer_id, worker_id, status, granted_at, expires_at, routing_token_ref)
+      VALUES (${payer}::uuid, ${worker}::uuid, ${status}, now() - ${ago}::interval,
+              now() + interval '10 days', ${randomUUID()}::uuid)`;
+    // WORKER: granted, revealed and lapsed this week (3 opens), a denied row (no open) and an open
+    // 8 days ago (outside the window).
+    await grant(companies[0]!, WORKER, "granted", "1 hour");
+    await grant(companies[1]!, WORKER, "revealed", "2 days");
+    await grant(companies[2]!, WORKER, "expired", "6 days");
+    await grant(companies[3]!, WORKER, "denied", "1 hour");
+    await grant(companies[4]!, WORKER, "granted", "8 days");
+    // companies[0] opened OTHER_WORKER too, earlier today.
+    await grant(companies[0]!, OTHER_WORKER, "granted", "2 hours");
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      const { sql } = client;
+      for (const id of companies) await sql`DELETE FROM unlocks WHERE payer_id = ${id}::uuid`;
+      await sql`DELETE FROM workers WHERE phone_hash LIKE ${`hash:2750d-${T}-%`}`;
+      for (const id of companies) await sql`DELETE FROM payers WHERE id = ${id}::uuid`;
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  it("a worker's opens in the rolling week: every company, contacts only, inside the window", async () => {
+    const weekAgo = new Date(Date.now() - 7 * 86_400_000);
+    const n = await client.db.transaction((tx) =>
+      repo.countOpensSince(tx as never, WORKER, weekAgo),
+    );
+    expect(n).toBe(3);
+  });
+
+  it("one company's opens since an instant, on the pool and under its own lock", async () => {
+    const threeHoursAgo = new Date(Date.now() - 3 * 3_600_000);
+    expect(await repo.countTenantOpensSince(companies[0]! as TenantKey, threeHoursAgo)).toBe(2);
+    expect(await repo.countTenantOpensSince(companies[3]! as TenantKey, threeHoursAgo)).toBe(0);
+    const underLock = await client.db.transaction(async (tx) => {
+      await repo.lockTenantOpens(tx as never, companies[0]! as TenantKey);
+      return repo.countTenantOpensSince(companies[0]! as TenantKey, threeHoursAgo, tx as never);
+    });
+    expect(underLock).toBe(2);
+  });
+});

@@ -529,6 +529,56 @@ export class UnlocksRepository {
   }
 
   /**
+   * #2750 item 6 — the worker's NEW opens in the window, by EVERY company (pilot or not, B7-12):
+   * unlock rows granted since `since` that became a contact (granted, revealed, or since lapsed).
+   * A re-open of a held contact writes no new grant, so it is not counted; a denied row is not a
+   * contact. Tx-scoped, under the worker lock, so concurrent opens of one worker count each other.
+   */
+  async countOpensSince(tx: Tx, workerId: string, since: Date): Promise<number> {
+    const rows = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(unlocks)
+      .where(
+        and(
+          eq(unlocks.workerId, workerId),
+          gte(unlocks.grantedAt, since),
+          sql`${unlocks.status} in ('granted','revealed','expired')`,
+        ),
+      );
+    return rows[0]?.count ?? 0;
+  }
+
+  /**
+   * #2750 item 6 — the NEW opens this company (its tenant key) made since `since` (the IST day's
+   * start for the agency limit). Same row rule as {@link countOpensSince}. On the global pool for
+   * the pre-check, or on `tx` for the re-check under {@link lockTenantOpens}.
+   */
+  async countTenantOpensSince(tenant: TenantKey, since: Date, tx?: Tx): Promise<number> {
+    const rows = await (tx ?? this.db)
+      .select({ count: sql<number>`count(*)::int` })
+      .from(unlocks)
+      .where(
+        and(
+          eq(unlocks.payerId, tenant),
+          gte(unlocks.grantedAt, since),
+          sql`${unlocks.status} in ('granted','revealed','expired')`,
+        ),
+      );
+    return rows[0]?.count ?? 0;
+  }
+
+  /**
+   * #2750 item 6 — serialise one agency's new opens for the rest of the transaction, so two opens
+   * at once cannot both pass the daily limit. Taken AFTER the worker lock (lock order: worker →
+   * this → the wallet row the debit locks), never before it.
+   */
+  async lockTenantOpens(tx: Tx, tenant: TenantKey): Promise<void> {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`tenant_opens:${tenant}`}, 0))`,
+    );
+  }
+
+  /**
    * Upsert the GRANTED unlock for (tenant, worker) — idempotent on the unique
    * (payer_id, worker_id), which is one unlock per (org, worker) in mode `on`. Tx-scoped. Sets
    * status=granted, the routing token ref, granted_at, expires_at, clears any prior deny_reason.
