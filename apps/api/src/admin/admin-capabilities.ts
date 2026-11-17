@@ -247,6 +247,21 @@ export const ADMIN_CAPABILITIES = [
    * `manage_worker_account` (sessions/PIN/suspension) and from `flag_worker` (standing).
    */
   "edit_candidates",
+  /**
+   * #2750 item 12 — READ and EDIT the credit rules' settings (`GET` / `PUT /admin/credit-rules`):
+   * what a contact costs, the experience line, welcome credits, the opening limits, the
+   * couldn't-reach windows, returned credits, the refund rules and the goodwill cap.
+   * `super_admin` ONLY.
+   *
+   * ── WHY ITS OWN ROW, AND WHY SO NARROW ────────────────────────────────────────────────
+   * `grant_credits` moves one company's balance by a stated amount. This row changes the PRICE
+   * and the limits for EVERY company at once, with no deploy, which is the pricing catalogue's
+   * reach rather than a grant's. Folding it into `grant_credits` would hand `ops_admin` the
+   * power to make every contact free or every limit vanish. Widening it is an owner decision.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "manage_credit_rules",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -320,6 +335,9 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   manage_companies: ["super_admin", "ops_admin"],
   // #2561 / ADR-0062 §3.8 — candidate-field corrections. `analyst` denied.
   edit_candidates: ["super_admin", "ops_admin", "support"],
+  // #2750 item 12 — the credit rules' settings: every company's price and limits at once.
+  // `super_admin` only (see the capability's docstring).
+  manage_credit_rules: ["super_admin"],
 } as const;
 
 /**

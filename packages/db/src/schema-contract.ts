@@ -1520,6 +1520,26 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "PostgREST role write a proof for its own account against a victim's phone hash and so " +
       "take over that company's SMS sign-in, or read which accounts hold a proven phone",
   },
+  // #2750 item 1: the credit rules' settings. Nothing names `credit_rules_config` while
+  // CREDIT_RULES_ROLLOUT is off (the admin routes answer 404, no rule is read), and with it on a
+  // 42P01 reads as "no row" (the brief's defaults), so a deploy ahead of the migration breaks no
+  // request and the table is NOT a `table` entry. Listed for its lock (the 0134 rule). APPLY
+  // BEFORE THE SWITCH (migration header). The id and tag carry the slot number: regenerated with
+  // the migration when the slot moves.
+  {
+    id: "0176-credit-rules-config-rls",
+    migration: "0176_credit_rules_config",
+    kind: "rls",
+    table: "credit_rules_config",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table sets what every contact costs and every credit limit; an open grant " +
+      "lets any PostgREST role write an active revision (contacts at the lowest cost, no weekly " +
+      "limit, an uncapped goodwill grant) that the next read would honour",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

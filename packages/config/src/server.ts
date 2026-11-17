@@ -709,6 +709,12 @@ export const serverEnvSchema = z.object({
   //     RVM once (POST /internal/campus/selection-events). Off for the company, the mark is saved
   //     and nothing is queued; off everywhere, the sender idles and queued rows wait. Needs
   //     migration 0167 and the RVM_STUDENT_API_* settings.
+  //   CREDIT_RULES_ROLLOUT (#2750) — the brief's credit rules for a company: the settings in
+  //     `credit_rules_config` (edited on PUT /admin/credit-rules) and, as later parts land, the
+  //     cost per contact, welcome credits, waivers, limits and the couldn't-reach guarantee.
+  //     Off everywhere, the admin settings routes answer 404 and nothing reads the table; off for
+  //     a company, it keeps one credit per open and the env caps. Needs the credit_rules_config
+  //     migration applied first.
   // Off, the new payer fields are ignored and the new routes answer 404. Campus's own routes
   // additionally need CAMPUS_LINK_ENABLED. A switch gates CAPABILITIES only: stored state (the
   // worker-path audience filter, the RVM review gate) is honoured whatever it says, so switching
@@ -726,6 +732,7 @@ export const serverEnvSchema = z.object({
   THEME_ROLLOUT: featureRolloutMode,
   OUTCOME_STAGES_ROLLOUT: featureRolloutMode,
   OUTBOUND_SIGNALS_ROLLOUT: featureRolloutMode,
+  CREDIT_RULES_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER

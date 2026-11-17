@@ -58,6 +58,7 @@ import { payOnJoiningHires } from "./pay-on-joining";
 import { unlockOutcomes } from "./unlock-outcome";
 import { stillLookingChecks } from "./still-looking";
 import { payerPhoneProofs } from "./payer-phone-proof";
+import { creditRulesConfig } from "./credit-rules";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -189,6 +190,7 @@ export * from "./unlock-outcome";
 export * from "./still-looking";
 // #2754 item 3 — a company proved the phone on its account (one account per proven phone).
 export * from "./payer-phone-proof";
+export * from "./credit-rules";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -516,4 +518,6 @@ export const schema = {
   stillLookingChecks,
   // #2754 item 3 - a company proved its sign-in phone (read only while PAYER_SMS_OTP_ENABLED is on).
   payerPhoneProofs,
+  // #2750 item 1 - the credit rules settings, one row per revision (read only while CREDIT_RULES_ROLLOUT is on).
+  creditRulesConfig,
 };
