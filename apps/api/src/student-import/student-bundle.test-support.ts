@@ -13,7 +13,7 @@ export const TEST_PASSPHRASE = "correct horse battery staple";
 
 export function encryptBundleText(text: string, key: Buffer): Buffer {
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: 16 });
   const body = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
   return Buffer.concat([Buffer.from("BBX1", "ascii"), iv, body, cipher.getAuthTag()]);
 }

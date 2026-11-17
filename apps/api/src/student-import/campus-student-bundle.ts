@@ -223,7 +223,8 @@ export function decryptBundleFile(file: Buffer, key: Buffer, name: string): stri
   const tag = file.subarray(file.length - TAG_BYTES);
   const body = file.subarray(4 + IV_BYTES, file.length - TAG_BYTES);
   try {
-    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    // The tag length is pinned: GCM would otherwise accept a truncated (forgeable) tag.
+    const decipher = createDecipheriv("aes-256-gcm", key, iv, { authTagLength: TAG_BYTES });
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(body), decipher.final()]).toString("utf8");
   } catch {
