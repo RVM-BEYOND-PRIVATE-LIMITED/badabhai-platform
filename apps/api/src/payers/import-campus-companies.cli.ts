@@ -26,8 +26,11 @@
  * as agencies or contractors (created as `agent`). It refuses until migration `company_import` is
  * applied. Then each company's unused Campus balance becomes ONE `migrated` credit lot per bundle
  * line (`campus_conversion:<line key>`, once ever), valid `--credit-validity-days` (default and
- * floor 30; bundle v1 carries no plan expiry). Jobs and applications are a later part; the batch
- * stays `applying` until then.
+ * floor 30; bundle v1 carries no plan expiry). Then each live Campus job becomes a posting through
+ * Campus's own creator (`createForCampus`, origin `campus_imported`), held from BadaBhai workers
+ * until an admin opens it (#2891), with the RVM approval recorded. The jobs step RUNS ONLY when
+ * #2891's `job_posting_worker_visibility` table exists, and stops (closing the posting) if a
+ * created posting is not held. Applications are a later part; the batch stays `applying`.
  *
  * NOT YET BUILT (each refuses with a message, never a partial run):
  *   --report --batch <key>      the per-company verification report (item 11)
@@ -68,6 +71,12 @@ import {
   importLedgerExists,
   openBatch,
 } from "./campus-import/import-ledger.repository";
+import {
+  importJobs,
+  workerVisibilityTableExists,
+  type JobImportSummary,
+} from "./campus-import/import-jobs";
+import { buildJobImportDeps } from "./campus-import/job-import-wiring";
 
 export const IMPORT_CAMPUS_COMPANIES_SCRIPT = "import-campus-companies";
 
@@ -238,6 +247,13 @@ export function formatCompanySummary(s: CompanyImportSummary): string[] {
   ];
 }
 
+export function formatJobSummary(s: JobImportSummary): string[] {
+  return [
+    `jobs: created=${s.created} already_done=${s.alreadyDone} not moved: ${fmt(s.notMoved)}`,
+    `  fields dropped by the company form: ${fmt(s.droppedFields)}; inactive branch ids dropped: ${s.droppedBranchIds}`,
+  ];
+}
+
 export function formatBalanceSummary(s: BalanceImportSummary): string {
   return (
     `balances: converted=${s.converted} credits=${s.credits} already_done=${s.alreadyDone} ` +
@@ -296,7 +312,19 @@ async function apply(
       validityDays: args.creditValidityDays,
     });
     log(formatBalanceSummary(balances));
-    log("jobs and applications: not built yet (#2754, a later part); the batch stays open");
+    if (!(await workerVisibilityTableExists(db))) {
+      log(
+        "jobs: NOT IMPORTED — waiting for #2891 (migration job_posting_worker_visibility and its " +
+          "gate, #2903). A posting imported before then could reach BadaBhai workers.",
+      );
+    } else {
+      const jobs = await importJobs(buildJobImportDeps(db, config, events), batch, bundle, summary.placed, {
+        requestId: `campus-import:${batch.batchKey}`,
+        correlationId: batch.id,
+      });
+      for (const line of formatJobSummary(jobs)) log(line);
+    }
+    log("applications: not built yet (#2754, a later part); the batch stays open");
     return 0;
   } finally {
     await client.sql.end({ timeout: 5 });

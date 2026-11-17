@@ -13,6 +13,9 @@ import { PayerPhoneProofsRepository } from "../payer-phone-proofs.repository";
 import type { CampusBundle } from "./bundle.schema";
 import { importCompanies, type CompanyImportDeps } from "./import-companies";
 import { importBalances } from "./import-balances";
+import { importJobs, UnheldPostingError, type JobImportDeps } from "./import-jobs";
+import { buildJobImportDeps } from "./job-import-wiring";
+import { writeRow } from "./import-ledger.repository";
 import { CampusImportRefusal, importLedgerExists, openBatch, type OpenBatch } from "./import-ledger.repository";
 import { readCampusBundle } from "./read-bundle";
 import { buildSyntheticBundle } from "./synthetic-bundle";
@@ -31,7 +34,12 @@ import { buildSyntheticBundle } from "./synthetic-bundle";
  *    with no account written;
  *  - a batch key is bound to its bundle and its test flag, and a rolled-back key is spent;
  *  - (item 9) unused Campus CV views become ONE `migrated` lot and ONE `campus_conversion` ledger
- *    line per bundle line, valid 30 days, the free tier not converted, and a rerun grants nothing.
+ *    line per bundle line, valid 30 days, the free tier not converted, and a rerun grants nothing;
+ *  - (item 7) each live job becomes ONE open posting of its company through Campus's own creator,
+ *    approved for RVM students by the batch; a rerun adds nothing; a posting that comes out without
+ *    #2891's worker hold is closed and the step stops; an interrupted creation is never repeated.
+ *    The hold itself is #2891's table, absent on main until its migration lands, so these tests
+ *    inject the hold check (`isHeld`); the wiring reads the table.
  */
 const RUN = process.env.RUN_DB_TESTS === "1";
 const DATABASE_URL =
@@ -97,6 +105,7 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
       await sql`
         DELETE FROM events
          WHERE event_name = 'admin.payer_test_account_marked' AND payload->>'payer_id' = ANY(${ids}::text[])`;
+      await sql`DELETE FROM job_postings WHERE payer_id = ANY(${ids}::uuid[])`;
       await sql`DELETE FROM credit_ledger WHERE payer_id = ANY(${ids}::uuid[])`;
       await sql`DELETE FROM credit_lots WHERE payer_id = ANY(${ids}::uuid[])`;
       await sql`DELETE FROM payer_credits WHERE payer_id = ANY(${ids}::uuid[])`;
@@ -213,6 +222,82 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
     const batch = await open("unplaced", bundle);
     const summary = await importBalances(client.db, batch, bundle, new Map(), { planQuota: {}, validityDays: 30 });
     expect(summary).toMatchObject({ converted: 0, notConverted: { company_not_placed: 1, free_tier_not_converted: 1 } });
+  });
+
+  // Event envelopes need a uuid correlation id (the CLI passes the batch id).
+  const ctx = { requestId: `campus-import-db-${TAG}`, correlationId: randomUUID() };
+  function jobDeps(held: boolean): JobImportDeps {
+    return { ...buildJobImportDeps(client.db, config, deps.events), isHeld: async () => held };
+  }
+
+  it("imports each live job once as an open, RVM-approved posting of its company; a rerun adds nothing", async () => {
+    const bundle = bundleOf(`jobs-${TAG}`, 2);
+    const batch = await open("jobs", bundle);
+    const placed = (await importCompanies(deps, batch, bundle, opts)).placed;
+    const first = await importJobs(jobDeps(true), batch, bundle, placed, ctx);
+    expect(first).toMatchObject({
+      created: 2,
+      alreadyDone: 0,
+      notMoved: { job_paused: 2, job_past_expiry: 2 },
+    });
+    const postingIds = [...first.placed.values()];
+    const { sql } = client;
+    const rows = await sql<{ status: string; payer_id: string; review: string; reviewer: string }[]>`
+      SELECT jp.status, jp.payer_id, r.state AS review, r.reviewer_ref AS reviewer
+        FROM job_postings jp
+        JOIN job_posting_institute_reviews r ON r.job_posting_id = jp.id
+       WHERE jp.id = ANY(${postingIds}::uuid[])`;
+    expect(rows).toHaveLength(2);
+    for (const r of rows) {
+      expect(r).toMatchObject({ status: "open", review: "approved", reviewer: batch.id });
+      expect([...placed.values()]).toContain(r.payer_id);
+    }
+    const again = await importJobs(jobDeps(true), batch, bundle, placed, ctx);
+    expect(again).toMatchObject({ created: 0, alreadyDone: 2 });
+    const count = (await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM job_postings WHERE payer_id = ANY(${[...placed.values()]}::uuid[])`)[0]!.n;
+    expect(count).toBe(2);
+  });
+
+  it("a posting that comes out without the worker hold is closed, and the jobs step stops", async () => {
+    const bundle = bundleOf(`unheld-${TAG}`, 1);
+    const batch = await open("unheld", bundle);
+    const placed = (await importCompanies(deps, batch, bundle, opts)).placed;
+    await expect(importJobs(jobDeps(false), batch, bundle, placed, ctx)).rejects.toThrow(UnheldPostingError);
+    const { sql } = client;
+    const [row] = await sql<{ state: string; reason: string; posting: string }[]>`
+      SELECT state, reason, detail->>'posting_id' AS posting FROM company_import_rows
+       WHERE batch_id = ${batch.id} AND kind = 'job' AND reason = 'posting_not_held_closed'`;
+    expect(row).toMatchObject({ state: "exception" });
+    const status = (await sql<{ status: string }[]>`SELECT status FROM job_postings WHERE id = ${row!.posting}`)[0]!.status;
+    expect(status).toBe("closed");
+  });
+
+  it("an interrupted creation is never repeated: it waits for a person", async () => {
+    const bundle = bundleOf(`interrupted-${TAG}`, 1);
+    const batch = await open("interrupted", bundle);
+    const placed = (await importCompanies(deps, batch, bundle, opts)).placed;
+    const live = bundle.jobs.find((j) => j.status === "active" && !j.past_expiry)!;
+    await client.db.transaction((tx) =>
+      writeRow(tx as never, {
+        batchId: batch.id,
+        kind: "job",
+        sourceId: live.source_id,
+        companySourceId: live.company_source_id,
+        state: "held",
+        targetId: null,
+        reason: "creating",
+        detail: {},
+      }),
+    );
+    for (let run = 0; run < 2; run += 1) {
+      const summary = await importJobs(jobDeps(true), batch, bundle, placed, ctx);
+      expect(summary.created).toBe(0);
+      expect(summary.notMoved.interrupted_creation).toBe(1);
+    }
+    const count = (await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM job_postings WHERE payer_id = ANY(${[...placed.values()]}::uuid[])`)[0]!.n;
+    expect(count).toBe(0);
   });
 
   it("a new batch over the same phones matches the accounts instead of creating new ones", async () => {
