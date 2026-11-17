@@ -680,6 +680,94 @@ export async function spendOneCreditWithinTx(
   };
 }
 
+/** One lot a multi-credit spend took from, and how many credits. */
+export interface WalletSpendTake {
+  readonly lotId: string;
+  readonly credits: number;
+}
+
+export type WalletMultiSpendResult =
+  | {
+      readonly ok: true;
+      readonly balanceAfter: number;
+      /**
+       * The lots the credits came from, in spend order (soonest-expiring first). The CALLER writes
+       * ONE ledger line per take, naming its lot, so `Σ delta` per lot still matches each lot.
+       */
+      readonly takes: readonly WalletSpendTake[];
+      readonly creditsExpired: number;
+      readonly expiredLots: readonly ExpiredCreditLot[];
+      readonly alignment: LotAlignment;
+    }
+  | {
+      /** Fewer than `credits` spendable (due lots do not count). NOTHING was written. */
+      readonly ok: false;
+      readonly balanceAfter: number;
+    };
+
+/**
+ * #2750 item 2 — spend `credits` (a positive integer) at once: the same steps as
+ * {@link spendOneCreditWithinTx}, but the credits may come from several lots. Lock the wallet → read
+ * its lots → if fewer than `credits` are spendable once due lots are counted out, `ok: false` and
+ * NOTHING is written (never a partial spend) → align → expire the due lots → take from the open,
+ * unexpired lots in spend order until `credits` are taken → balance −= credits.
+ *
+ * A one-credit call takes exactly what {@link spendOneCreditWithinTx} would (same lot, same order).
+ */
+export async function spendCreditsWithinTx(
+  tx: WalletTx,
+  payerId: string,
+  credits: number,
+): Promise<WalletMultiSpendResult> {
+  if (!Number.isInteger(credits) || credits <= 0) {
+    throw new RangeError(`spendCreditsWithinTx: credits must be a positive integer (${credits})`);
+  }
+  const balance = await lockWallet(tx, payerId);
+  if (balance === undefined) return { ok: false, balanceAfter: 0 };
+  const lots = await readOpenLots(tx, payerId);
+  if (balance - dueCreditsAfterAlignment(lots, planLotAlignment(lots, balance)) < credits) {
+    return { ok: false, balanceAfter: balance };
+  }
+  const aligned = await alignLoaded(tx, payerId, balance, lots);
+  const expired = await expireLoaded(tx, payerId, aligned.openLots);
+
+  const takes: WalletSpendTake[] = [];
+  let needed = credits;
+  for (const lot of expired.openLots) {
+    if (needed === 0) break;
+    if (lot.due || lot.creditsRemaining <= 0) continue;
+    const take = Math.min(lot.creditsRemaining, needed);
+    const [taken] = await tx
+      .update(creditLots)
+      .set({
+        creditsRemaining: sql`${creditLots.creditsRemaining} - ${take}`,
+        updatedAt: sql`now()`,
+      })
+      .where(and(eq(creditLots.id, lot.id), gte(creditLots.creditsRemaining, take)))
+      .returning({ id: creditLots.id });
+    if (!taken) throw new Error("credit-wallet: a lot could not be debited");
+    takes.push({ lotId: lot.id, credits: take });
+    needed -= take;
+  }
+  // Σ open = balance − expired ≥ credits after the alignment and the expiry, so the lots cover it.
+  if (needed !== 0) throw new Error("credit-wallet: the open lots do not hold the balance");
+  const [wallet] = await tx
+    .update(payerCredits)
+    .set({ balance: sql`${payerCredits.balance} - ${credits}`, updatedAt: sql`now()` })
+    .where(and(eq(payerCredits.payerId, payerId), gte(payerCredits.balance, credits)))
+    .returning({ balance: payerCredits.balance });
+  if (!wallet) throw new Error("credit-wallet: the balance could not be debited");
+
+  return {
+    ok: true,
+    balanceAfter: wallet.balance,
+    takes,
+    creditsExpired: expired.credits,
+    expiredLots: expired.expiredLots,
+    alignment: aligned.alignment,
+  };
+}
+
 /** What one wallet's expiry pass did (the sweep's per-wallet transaction). */
 export interface WalletExpiryResult {
   /** False when the wallet has no `payer_credits` row: nothing was touched. */

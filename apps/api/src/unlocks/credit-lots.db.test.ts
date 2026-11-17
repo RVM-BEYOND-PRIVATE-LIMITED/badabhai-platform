@@ -834,4 +834,103 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
     expect(await balanceOf(w)).toBe(4);
     await expectInvariant(w, { ledger: true });
   });
+
+  // -------------------------------------------------------------------------------------------
+  // #2750 item 2 — a priced open spends n credits at once (the higher cost)
+  // -------------------------------------------------------------------------------------------
+
+  /** A priced open's money half, exactly as UnlockService runs it: debit n, one line per take. */
+  async function spendCredits(w: TenantKey, credits: number) {
+    return repo.withTransaction(async (tx) => {
+      const debit = await repo.tryDebitCredits(tx, w, credits);
+      if (debit !== undefined) {
+        for (const take of debit.takes) {
+          await repo.appendLedger(tx, {
+            payerId: w,
+            delta: -take.credits,
+            reason: "unlock_debit",
+            lotId: take.lotId,
+          });
+        }
+      }
+      return debit;
+    });
+  }
+
+  it("#2750: a 2-credit spend across two lots takes the soonest-expiring first, one line per lot", async () => {
+    const w = wallet();
+    const later = await pack(w, 3);
+    const soon = await pack(w, 1);
+    await setExpiry(later, "50 days");
+    await setExpiry(soon, "10 days");
+
+    const debit = await spendCredits(w, 2);
+    expect(debit).toMatchObject({
+      balanceAfter: 2,
+      takes: [
+        { lotId: soon, credits: 1 },
+        { lotId: later, credits: 1 },
+      ],
+    });
+    const lines = await client.sql<{ lot_id: string; delta: number }[]>`
+      SELECT lot_id, delta FROM credit_ledger WHERE payer_id = ${w}::uuid AND reason = 'unlock_debit'
+      ORDER BY created_at, id`;
+    expect(lines.map((l) => [l.lot_id, Number(l.delta)])).toEqual([
+      [soon, -1],
+      [later, -1],
+    ]);
+    expect(await remaining(soon)).toBe(0);
+    expect(await remaining(later)).toBe(2);
+    await expectInvariant(w, { ledger: true });
+  });
+
+  it("#2750: a 2-credit spend from one lot holding enough is ONE take and one line", async () => {
+    const w = wallet();
+    const lot = await pack(w, 5);
+    expect(await spendCredits(w, 2)).toMatchObject({
+      balanceAfter: 3,
+      takes: [{ lotId: lot, credits: 2 }],
+    });
+    await expectInvariant(w, { ledger: true });
+  });
+
+  it("#2750: a spend of 3 with only 2 spendable (a third credit past due) writes NOTHING (F-1/F-3)", async () => {
+    const w = wallet();
+    const live = await pack(w, 2);
+    const past = await pack(w, 1);
+    await setExpiry(live, "5 days");
+    await setExpiry(past, "-1 day");
+    expect(await repo.getSpendableBalance(w)).toBe(2);
+
+    const before = await snapshot(w);
+    expect(await spendCredits(w, 3)).toBeUndefined();
+    // Byte for byte: no partial spend, no expiry line, no lot or balance change, no event.
+    expect(await snapshot(w)).toBe(before);
+    await expectInvariant(w, { ledger: true });
+  });
+
+  it("#2750: a spend that happens expires the due lot first, then takes n from the live ones", async () => {
+    const w = wallet();
+    const past = await pack(w, 4);
+    const live = await pack(w, 3);
+    await setExpiry(past, "-1 day");
+
+    const debit = await spendCredits(w, 2);
+    expect(debit).toMatchObject({ balanceAfter: 1, takes: [{ lotId: live, credits: 2 }] });
+    expect(debit!.expiredLots).toEqual([
+      { lotId: past, credits: 4, source: "pack", expiresAt: expect.any(Date) },
+    ]);
+    expect(await expiredLines(w)).toEqual([{ lot_id: past, delta: -4 }]);
+    await expectInvariant(w, { ledger: true });
+  });
+
+  it("#2750: concurrent 2-credit spends against 3 credits: one succeeds, nothing overdraws", async () => {
+    const w = wallet();
+    await pack(w, 1);
+    await pack(w, 2);
+    const results = await Promise.all([spendCredits(w, 2), spendCredits(w, 2), spendCredits(w, 2)]);
+    expect(results.filter((r) => r !== undefined)).toHaveLength(1);
+    expect(await balanceOf(w)).toBe(1);
+    await expectInvariant(w, { ledger: true });
+  });
 });

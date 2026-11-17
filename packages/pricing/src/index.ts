@@ -24,6 +24,12 @@ export {
   type CreditRuleKey,
 } from "./credit-rules";
 export {
+  contactCost,
+  type ContactCost,
+  type ContactCostBasis,
+  type ContactCostFacts,
+} from "./contact-cost";
+export {
   GST_RATE_BPS,
   gstPriceLine,
   formatPackPriceLine,

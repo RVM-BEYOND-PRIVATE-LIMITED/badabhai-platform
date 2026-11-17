@@ -8,7 +8,7 @@ import {
   UnprocessableEntityException,
 } from "@nestjs/common";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
-import { PayerRequestUnlockSchema } from "./payer-unlocks.dto";
+import { PayerContactQuotesSchema, PayerRequestUnlockSchema } from "./payer-unlocks.dto";
 import { PAYMENT_ORDER_ORIGINS } from "@badabhai/types";
 import { CreateCreditOrderSchema } from "../unlocks/razorpay-webhook.dto";
 import type { Request } from "express";
@@ -864,5 +864,39 @@ describe("PayerUnlocksController — the credit_checkout gates (#2749 item 10)",
       NotFoundException,
     );
     expect(d.unlocks.verifyCheckoutPayment).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #2750 item 3 — the quote route: priced for the SESSION payer's company, never a body payer;
+ * opens nothing, so it is off the disclosure cap; and the body is a bounded, unique id list.
+ */
+describe("PayerUnlocksController — the contact quote (#2750)", () => {
+  it("binds the quote to the SESSION payer and passes the ids through; no disclosure cap", async () => {
+    const d = makeCtrl();
+    const quoteContacts = vi.fn(async () => ({ quotes: [], credits_available: 0 }));
+    (d.unlocks as unknown as Record<string, unknown>).quoteContacts = quoteContacts;
+    await d.ctrl.quoteContacts({ worker_ids: [WORKER] }, PAYER_A);
+    expect(quoteContacts).toHaveBeenCalledWith(PAYER_A.id, [WORKER]);
+    expect(d.disclosureRate.assertWithinHourlyCap).not.toHaveBeenCalled();
+  });
+
+  const pipe = new ZodValidationPipe(PayerContactQuotesSchema);
+  const parse = (body: unknown) => pipe.transform(body);
+  const id = (n: number) => `cccccccc-0000-4000-8000-${String(n).padStart(12, "0")}`;
+
+  it("accepts 1 to 50 distinct worker ids", () => {
+    expect(parse({ worker_ids: [WORKER] })).toEqual({ worker_ids: [WORKER] });
+    expect(() => parse({ worker_ids: Array.from({ length: 50 }, (_, i) => id(i)) })).not.toThrow();
+  });
+
+  it.each([
+    ["an empty list", { worker_ids: [] }],
+    ["51 ids", { worker_ids: Array.from({ length: 51 }, (_, i) => id(i)) }],
+    ["a repeated id", { worker_ids: [WORKER, WORKER] }],
+    ["a malformed id", { worker_ids: ["not-a-uuid"] }],
+    ["a payer id in the body", { worker_ids: [WORKER], payer_id: PAYER_A.id }],
+  ])("refuses %s", (_label, body) => {
+    expect(() => parse(body)).toThrow(BadRequestException);
   });
 });
