@@ -4,7 +4,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
+import { WelcomeCreditsService } from "../credit-rules/welcome-credits.service";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { SkillCanonicalizationInput } from "@badabhai/ai-contracts";
 import { bandForCount } from "@badabhai/validators";
@@ -150,6 +152,9 @@ export class JobPostingsService {
     // #2746 — who sees a COMPANY posting (audience, RVM targeting, the RVM review row). Called on
     // the payer path only; the ops and admin edits cannot express an audience.
     private readonly audience: PostingAudienceService,
+    // #2750 item 4 — the ops approval route grants welcome credits too (#2750 private notes item
+    // 9: both approval routes call the one grant function). Optional for hand-built instances.
+    @Optional() private readonly welcome?: WelcomeCreditsService,
   ) {}
 
   /**
@@ -456,6 +461,10 @@ export class JobPostingsService {
     await this.events.emit(
       this.emitParams("job_posting.verification_updated", updated.id, actor, payload, ctx),
     );
+    // #2750 item 4 — AFTER the approval is stored; never fails it (the service logs and returns).
+    if (next === "verified" && updated.payer_id !== null) {
+      await this.welcome?.afterPostingApproved(updated.payer_id, ctx);
+    }
     return updated;
   }
 

@@ -423,3 +423,30 @@ describe("#2566 admin posting control — one transaction per action", () => {
     expect(h.repo.withTransaction).not.toHaveBeenCalled();
   });
 });
+
+describe("AdminPostingsService — #2750 welcome credits after an admin approval", () => {
+  function withWelcome(h: ReturnType<typeof harness>) {
+    const welcome = { afterPostingApproved: vi.fn(async () => "granted") };
+    (h.service as unknown as { welcome: unknown }).welcome = welcome;
+    return welcome;
+  }
+
+  it("verify asks for the posting owner's welcome credits, after the transaction", async () => {
+    const owner = randomUUID();
+    const h = harness({ posting: posting() });
+    h.repo.setPostingVerification.mockImplementation(
+      async (_id: string, _from: string, next: string) =>
+        posting({ payerId: owner, verificationStatus: next as JobPosting["verificationStatus"] }),
+    );
+    const welcome = withWelcome(h);
+    await h.service.verify(ADMIN, POSTING_ID, VERIFY_REASON, CTX);
+    expect(welcome.afterPostingApproved).toHaveBeenCalledWith(owner, CTX);
+  });
+
+  it("an already-verified posting (a no-op) never asks", async () => {
+    const h = harness({ posting: posting({ verificationStatus: "verified" }) });
+    const welcome = withWelcome(h);
+    await h.service.verify(ADMIN, POSTING_ID, VERIFY_REASON, CTX);
+    expect(welcome.afterPostingApproved).not.toHaveBeenCalled();
+  });
+});

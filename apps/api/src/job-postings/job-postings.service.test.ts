@@ -2751,3 +2751,29 @@ describe("#2746 — who sees a company posting: the payer write path", () => {
     for (const key of AUDIENCE_KEYS) expect(prepared.patch).not.toHaveProperty(key);
   });
 });
+
+describe("JobPostingsService — #2750 welcome credits after an ops approval", () => {
+  const OWNER = "d0000000-0000-4000-8000-0000000000aa";
+  function withWelcome(d: ReturnType<typeof make>) {
+    const welcome = { afterPostingApproved: vi.fn(async () => "granted") };
+    (d.svc as unknown as { welcome: unknown }).welcome = welcome;
+    d.update.mockImplementation((id: string, patch: Partial<Row>) =>
+      Promise.resolve({ ...toApi(row({ ...patch, id })), payer_id: OWNER }),
+    );
+    return welcome;
+  }
+
+  it("verify asks for the owner's welcome credits, after the approval is stored", async () => {
+    const d = make(row({ verificationStatus: "unverified" }));
+    const welcome = withWelcome(d);
+    await d.svc.verify(POSTING_ID, CTX as never);
+    expect(welcome.afterPostingApproved).toHaveBeenCalledWith(OWNER, CTX);
+  });
+
+  it("reject never does", async () => {
+    const d = make(row({ verificationStatus: "unverified" }));
+    const welcome = withWelcome(d);
+    await d.svc.reject(POSTING_ID, CTX as never);
+    expect(welcome.afterPostingApproved).not.toHaveBeenCalled();
+  });
+});
