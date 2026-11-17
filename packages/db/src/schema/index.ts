@@ -67,8 +67,6 @@ import {
   studentImportRows,
   studentImportSubjects,
   studentVisibility,
-  // #2891 - a Campus-origin posting held from BadaBhai workers until an admin opens it (read by reachesBadaBhaiWorkers).
-  jobPostingWorkerVisibility,
   workerFieldSources,
 } from "./student-move";
 import { jobPostingWorkerVisibility } from "./job-worker-visibility";
@@ -569,4 +567,6 @@ export const schema = {
   // #2754 item 4 - the Campus company import ledger (written only by import-campus-companies.cli).
   companyImportBatches,
   companyImportRows,
+  // #2891 - a Campus-origin posting held from BadaBhai workers until an admin opens it (read by reachesBadaBhaiWorkers).
+  jobPostingWorkerVisibility,
 };
