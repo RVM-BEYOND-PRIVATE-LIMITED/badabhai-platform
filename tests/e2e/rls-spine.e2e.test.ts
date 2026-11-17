@@ -314,6 +314,9 @@ const LOCKED_TABLES = [
   // BadaBhai ids, reason codes). RLS+FORCE+REVOKE in the hand-written tail of `*_company_import`.
   "company_import_batches",
   "company_import_rows",
+  // #2891: a Campus-origin posting's BadaBhai worker visibility (a posting id, off/on, the deciding
+  // admin id, times). RLS+FORCE+REVOKE in the hand-written tail of `*_job_posting_worker_visibility`.
+  "job_posting_worker_visibility",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

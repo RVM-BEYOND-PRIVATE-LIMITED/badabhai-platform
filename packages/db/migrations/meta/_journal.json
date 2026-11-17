@@ -1290,6 +1290,13 @@
       "when": 1794923033770,
       "tag": "0183_company_import",
       "breakpoints": true
+    },
+    {
+      "idx": 184,
+      "version": "7",
+      "when": 1794924263934,
+      "tag": "0184_job_posting_worker_visibility",
+      "breakpoints": true
     }
   ]
 }

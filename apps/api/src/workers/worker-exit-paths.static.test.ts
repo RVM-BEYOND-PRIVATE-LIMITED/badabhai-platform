@@ -28,6 +28,8 @@ const SRC = join(__dirname, "..");
 const DELETES_THE_ROW: Readonly<Record<string, string>> = {
   "workers/workers.repository.ts": "hardDelete",
   "campus-link/institute-link.repository.ts": "deleteLinkCreatedPendingWorker",
+  // #2887 — the import rollback: only a never-signed-in row that import run created.
+  "student-import/student-import.repository.ts": "deleteImportCreatedPendingWorker",
 };
 
 /** Every caller of those methods (and of the erasure), each of which writes the event itself. */
@@ -43,6 +45,10 @@ const CALLERS: Readonly<Record<string, { calls: string; writesEvent: boolean }>>
     writesEvent: false,
   },
   "auth/auth.controller.ts": { calls: "accountDeletion.execute(", writesEvent: false },
+  "student-import/import-campus-students.ts": {
+    calls: ".deleteImportCreatedPendingWorker(",
+    writesEvent: true,
+  },
 };
 
 function sourceFiles(dir: string): string[] {
@@ -70,7 +76,8 @@ const relativePath = (path: string) => relative(SRC, path).split(sep).join("/");
 
 const DELETE_WORKERS = /\.delete\(\s*workers\s*\)|\bdelete\s+from\s+"?workers"?\b/i;
 /** A call (`x.hardDelete(`), never the definition (`async hardDelete(`). */
-const DELETE_CALL = /\.(hardDelete|deleteLinkCreatedPendingWorker)\(/;
+const DELETE_CALL =
+  /\.(hardDelete|deleteLinkCreatedPendingWorker|deleteImportCreatedPendingWorker)\(/;
 const IMPORTS_ERASURE = /import\s*(type\s*)?\{[^}]*\bAccountDeletionService\b[^}]*\}\s*from/;
 
 describe("#2753 item 13 — every worker exit path is listed and writes the deletion event", () => {
