@@ -59,6 +59,7 @@ import { unlockOutcomes } from "./unlock-outcome";
 import { stillLookingChecks } from "./still-looking";
 import { payerPhoneProofs } from "./payer-phone-proof";
 import { numbersRecomputeLog, numbersWeekly } from "./numbers-weekly";
+import { creditCallLog } from "./credit-call-log";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -192,6 +193,8 @@ export * from "./still-looking";
 export * from "./payer-phone-proof";
 // #2755 items 4 and 11 — the numbers screen's weekly snapshot and its recompute log.
 export * from "./numbers-weekly";
+// #2755 item 8 — the out-of-credits call log (one row per call, a closed result code).
+export * from "./credit-call-log";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -522,4 +525,6 @@ export const schema = {
   // #2755 - the numbers screen's weekly snapshot and its recompute log (behind ADMIN_NUMBERS_ENABLED).
   numbersWeekly,
   numbersRecomputeLog,
+  // #2755 item 8 - the out-of-credits call log (behind ADMIN_NUMBERS_ENABLED).
+  creditCallLog,
 };

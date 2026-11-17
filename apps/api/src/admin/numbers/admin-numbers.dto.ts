@@ -2,6 +2,7 @@ import { BadRequestException, createParamDecorator, type ExecutionContext } from
 import type { Request } from "express";
 import { z } from "zod";
 import { PAYER_TEST_ACCOUNT_REASONS } from "@badabhai/event-schema";
+import { CREDIT_CALL_RESULTS, type CreditCallResult } from "@badabhai/types";
 import type { PaymentsPosture } from "../admin-finance.dto";
 import type {
   NumbersMetricGroupDefinition,
@@ -18,8 +19,8 @@ import {
 
 /**
  * #2755 — the wire contract of `/admin/numbers/*`: the definitions catalogue and the test-company
- * marks (part A) and the weekly figures (part B). Later parts add the call list and the
- * launch-test records beside these.
+ * marks (part A), the weekly figures (part B), and the out-of-credits call list and its call log
+ * (part C).
  */
 
 // -----------------------------------------------------------------------------------------------
@@ -153,15 +154,25 @@ export type AdminNumbersWeeklyQueryDto = z.infer<typeof AdminNumbersWeeklyQueryS
 export interface AdminNumbersWeeklyPoint {
   week_start: string;
   /**
-   * The figure: a count, paise, or (unit `ratio`) the quotient with two decimals. Null when the
-   * cell is suppressed, the ratio not computable (no hire), or the week not computed yet.
+   * The figure: a count, paise, (unit `ratio`) the quotient with two decimals, or (unit `share`)
+   * the share as a fraction 0..1 with two decimals. Null when the cell is suppressed, the ratio
+   * not computable (no hire), a share's cohort empty or its window `pending`, or the week not
+   * computed yet.
    */
   value: number | null;
-  /** A ratio's or a share's two terms; null for counts and money, and when suppressed. */
+  /**
+   * A ratio's or a share's two terms; null for counts and money, and when suppressed. A pending
+   * share keeps its denominator (the cohort's size) and no numerator.
+   */
   numerator: number | null;
   denominator: number | null;
   /** A worker cell under the small-cell floor: no number is shown. */
   suppressed: boolean;
+  /**
+   * A COHORT figure (repeat buying) whose window has not yet elapsed for every company of the
+   * cohort: no share is shown, never a partial one. Always false for every other metric.
+   */
+  pending: boolean;
   /** The week ends before the first real paid order: a zero here is not "nobody paid". */
   before_real_payments: boolean;
   /** The week is final: the sweep will not recompute it (only a logged recompute can). */
@@ -192,6 +203,17 @@ export interface AdminNumbersWeeklyMetric {
   waits_on?: string;
   /** The pack of a `revenue_by_pack:<code>` figure. */
   pack?: string;
+  /**
+   * A live figure served as a LIST by its own route (group 10, the call list,
+   * `GET /admin/numbers/out-of-credits`): no values and an empty series, never a zero.
+   */
+  list_route?: string;
+  /**
+   * A COHORT figure only (repeat buying): its newest CLOSED cohort for this filter, from any week up
+   * to the current one, or null when no cohort has closed yet. The series' newest weeks are always
+   * `pending`, so this is the figure to headline.
+   */
+  latest_complete?: AdminNumbersWeeklyPoint | null;
   /** The current week's value (the week in progress), and the week before. */
   this_week: number | null;
   last_week: number | null;
@@ -216,4 +238,95 @@ export interface AdminNumbersWeekly {
   /** When the newest row read was computed; null when none was. */
   computed_at: string | null;
   metrics: AdminNumbersWeeklyMetric[];
+}
+
+// -----------------------------------------------------------------------------------------------
+// GET /admin/numbers/out-of-credits (part C, item 8)
+// -----------------------------------------------------------------------------------------------
+
+/** The call list's page size: default and most. A named page is clamped to 50 (see the service). */
+export const NUMBERS_OUT_OF_CREDITS_DEFAULT_LIMIT = 50;
+export const NUMBERS_OUT_OF_CREDITS_MAX_LIMIT = 100;
+
+/**
+ * The query: `limit` 1..100 (default 50) and the opaque `cursor` of the previous page. STRICT: an
+ * unknown key is a 400. A cursor that does not decode is the first page (a cursor is client-held
+ * state), never a 500.
+ */
+export const AdminNumbersOutOfCreditsQuerySchema = z
+  .object({
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(NUMBERS_OUT_OF_CREDITS_MAX_LIMIT)
+      .optional()
+      .default(NUMBERS_OUT_OF_CREDITS_DEFAULT_LIMIT),
+    cursor: z.string().min(1).max(512).optional(),
+  })
+  .strict();
+export type AdminNumbersOutOfCreditsQueryDto = z.infer<typeof AdminNumbersOutOfCreditsQuerySchema>;
+
+/** The latest call logged for a company. */
+export interface AdminNumbersCreditCall {
+  called_at: string;
+  result: CreditCallResult;
+  /** The admin who logged it. */
+  admin_id: string;
+}
+
+/** One company on the call list. Ids, times, a pack code and a closed code; never a phone. */
+export interface AdminNumbersOutOfCreditsRow {
+  /** The company (its wallet key, the id the admin Companies page shows). */
+  payer_id: string;
+  /**
+   * When it ran out: the later of its last `payer.credits_exhausted` (its last credit spent) and
+   * the `expires_at` of the last lot that expired holding credits.
+   */
+  ran_out_at: string;
+  /** Its last real paid order: the settle time and the pack. Null when it never paid. */
+  last_purchase: { at: string; pack_code: string } | null;
+  /** When it last opened a contact (an unlock granted). Null when it never did. */
+  last_open_at: string | null;
+  /** The latest call logged for it, or null (none, or the call log not applied yet). */
+  last_call: AdminNumbersCreditCall | null;
+  /**
+   * The company's name: PRESENT only when the admin holds `read_identity` and the identity read
+   * disclosed names (`AdminIdentityService`, audited); null when none is on record. Absent
+   * otherwise.
+   */
+  org_name?: string | null;
+}
+
+export interface AdminNumbersOutOfCreditsPage {
+  rows: AdminNumbersOutOfCreditsRow[];
+  /** The next page's cursor, or null on the last page. */
+  next_cursor: string | null;
+  /**
+   * Always true: the company's phone is NOT on this route. It is on the User accounts surface
+   * (`GET /admin/accounts`, capability `manage_payer_credentials`), which the screen links to.
+   */
+  accounts_link_hint: true;
+}
+
+// -----------------------------------------------------------------------------------------------
+// POST /admin/numbers/out-of-credits/:payerId/calls (part C, item 8)
+// -----------------------------------------------------------------------------------------------
+
+/** The body: what the call came to — one of five closed codes, never free text. STRICT. */
+export const AdminNumbersLogCreditCallSchema = z
+  .object({ result: z.enum(CREDIT_CALL_RESULTS) })
+  .strict();
+export type AdminNumbersLogCreditCallDto = z.infer<typeof AdminNumbersLogCreditCallSchema>;
+
+/** The logged call. */
+export interface AdminNumbersLoggedCall extends AdminNumbersCreditCall {
+  id: string;
+  payer_id: string;
+}
+
+/** What a POST left behind; `created: false` is a replay of the same Idempotency-Key. */
+export interface AdminNumbersLogCreditCallResult {
+  call: AdminNumbersLoggedCall;
+  created: boolean;
 }

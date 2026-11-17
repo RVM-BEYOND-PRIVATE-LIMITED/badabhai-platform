@@ -10,6 +10,10 @@ import { NUMBERS_DEFINITION_VERSION } from "./groups";
  * listed with the reason and the issue they wait on, so the screen can say "not yet measured"
  * instead of drawing a zero that reads as "nobody did this". A zero is a measurement.
  *
+ * ── A LIST IS NOT A WEEKLY FIGURE ────────────────────────────────────────────────────────────
+ * Group 10 (the telecaller list) is live as a LIST, not a number per week: its one entry names the
+ * route that serves it (`list_route`), and the weekly snapshot never stores it.
+ *
  * ── COMMON RULES (every figure) ─────────────────────────────────────────────────────────────
  *   - Weeks are `week.ts`'s: Monday to Sunday, India time. A "week" figure counts what happened
  *     inside the week; an "as of the week's end" figure is a state on its last day.
@@ -33,12 +37,8 @@ export type NumbersMetricUnit = (typeof NUMBERS_METRIC_UNITS)[number];
 export const NUMBERS_METRIC_KINDS = ["headline", "diagnostic"] as const;
 export type NumbersMetricKind = (typeof NUMBERS_METRIC_KINDS)[number];
 
-/**
- * The issues a not-yet-measured figure waits on. `#2755` is this screen's own later part (part C:
- * repeat buying and the out-of-credits call list), whose figures the weekly snapshot does not hold
- * yet.
- */
-export const NUMBERS_WAITS_ON = ["#2749", "#2750", "#2751", "#2755"] as const;
+/** The issues a not-yet-measured figure waits on. */
+export const NUMBERS_WAITS_ON = ["#2749", "#2750", "#2751"] as const;
 export type NumbersWaitsOn = (typeof NUMBERS_WAITS_ON)[number];
 
 export type NumbersAvailability =
@@ -67,6 +67,11 @@ export interface NumbersMetricDefinition {
   /** How it is counted, in words a reviewer can check against a hand-written query. */
   readonly rule: string;
   readonly availability: NumbersAvailability;
+  /**
+   * A live figure served as a LIST by its own route rather than as a weekly number (group 10, the
+   * call list): the route, e.g. `GET /admin/numbers/out-of-credits`. Absent on every weekly figure.
+   */
+  readonly list_route?: string;
 }
 
 export interface NumbersMetricGroupDefinition {
@@ -78,6 +83,18 @@ export interface NumbersMetricGroupDefinition {
 }
 
 const LIVE: NumbersAvailability = { status: "live" };
+
+/** #2755 item 7 — the repeat-buying windows, in days after a company's first payment. */
+export const NUMBERS_REPEAT_WINDOWS_DAYS = [30, 60, 90] as const;
+export type NumbersRepeatWindowDays = (typeof NUMBERS_REPEAT_WINDOWS_DAYS)[number];
+
+/** The longest window: a cohort week's repeat rows stay open until it has elapsed. */
+export const NUMBERS_REPEAT_LONGEST_WINDOW_DAYS = 90;
+
+/** The metric id of one repeat-buying window: `repeat_purchase_30d`. Never renamed. */
+export function repeatPurchaseMetricId(days: NumbersRepeatWindowDays): string {
+  return `repeat_purchase_${days}d`;
+}
 
 function waitsOn(waits_on: NumbersWaitsOn, reason: string): NumbersAvailability {
   return { status: "not_available", reason, waits_on };
@@ -118,22 +135,29 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
           "also what marks a week as before real payments: zero means no real payment yet.",
         availability: LIVE,
       },
-      ...([30, 60, 90] as const).map(
+      ...NUMBERS_REPEAT_WINDOWS_DAYS.map(
         (days): NumbersMetricDefinition => ({
-          id: `repeat_purchase_${days}d`,
+          id: repeatPurchaseMetricId(days),
           title: `Paid again within ${days} days`,
           unit: "share",
           kind: "headline",
-          source: "payment_orders with status paid, as above.",
+          source:
+            "payment_orders with status paid, as above (the same paid, real-money rule: the mock " +
+            "route writes no order row).",
           rule:
-            "Cohort: the companies whose FIRST paid order settled in the week. The share of that " +
-            `cohort with another paid order settled within ${days} days after the first. A cohort ` +
-            `younger than ${days} days is reported as still open, not as a share.`,
-          availability: waitsOn(
-            "#2755",
-            "repeat buying is computed in part C of this screen; the weekly snapshot does not " +
-              "hold it yet",
-          ),
+            "A COHORT per week: the companies (test and sample companies left out) whose FIRST " +
+            "paid order ever settled in the week. The denominator is the cohort's size; the " +
+            "numerator is how many of them have a second paid order settled within " +
+            `${days} days of their first (second settle time minus first settle time, ${days} × 24 ` +
+            "hours at most). The value is the share in hundredths, rounded half up. PENDING " +
+            `until the window has fully elapsed for every company in the cohort, i.e. until ${days} ` +
+            "days after the week ends: a pending cell holds the cohort size only (value and " +
+            "numerator null), never a partial share. Stored under the COHORT week, split by the " +
+            "company's city and trade (the city and role_kind of its latest posting). THE FREEZE " +
+            `IS KEYED ON THE LONGEST WINDOW: a cohort week's three rows stay open until ` +
+            `${NUMBERS_REPEAT_LONGEST_WINDOW_DAYS} days after the week ends, then freeze ` +
+            "NUMBERS_FREEZE_AFTER_DAYS later like any week, and a frozen row never changes.",
+          availability: LIVE,
         }),
       ),
     ],
@@ -425,21 +449,25 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
     metrics: [
       {
         id: "out_of_credits_companies",
-        title: "Companies whose credits ran out",
+        title: "Companies whose credits ran out (the call list)",
         unit: "count",
         kind: "headline",
         source:
-          "the company's usable balance (zero after a spend or an expiry); payer.credits_exhausted " +
-          "gives the moment of the last spend.",
+          "the company's USABLE balance: payer_credits.balance minus what its credit_lots past " +
+          "expires_at still hold, never below zero (the unlock path's readSpendableCredits " +
+          "rule); payer.credits_exhausted gives the moment of the last spend, and credit_lots " +
+          "the moment a lot expired.",
         rule:
-          "Companies (test companies left out) whose usable balance reached zero in the week and " +
-          "is still zero at its end. The call list itself is GET /admin/numbers/out-of-credits " +
-          "(part C), newest first.",
-        availability: waitsOn(
-          "#2755",
-          "the out-of-credits figure is computed with the call list in part C of this screen; " +
-            "the weekly snapshot does not hold it yet",
-        ),
+          "A LIST, served live by GET /admin/numbers/out-of-credits, not a weekly figure. The " +
+          "companies (test, sample and archived companies left out) whose usable balance is zero " +
+          "now and that ran out: the moment they ran out is the later of their last " +
+          "payer.credits_exhausted and the expires_at of the last lot that expired holding " +
+          "credits; a company that never held a credit is not on it. Newest first by that " +
+          "moment, keyset paged. Each row: the last real paid order (time and pack), the last " +
+          "contact opened (an unlock granted) and the latest call logged (time, result, admin). " +
+          "The name only through AdminIdentityService (read_identity); never the phone.",
+        availability: LIVE,
+        list_route: "GET /admin/numbers/out-of-credits",
       },
     ],
   },
@@ -477,9 +505,11 @@ export type NumbersSnapshotSubject = "worker" | "company";
 
 /**
  * Every metric the nightly sweep writes to `numbers_weekly`, with whose figure it is. The live
- * catalogue entries above, exactly (a test pins the two lists together); a `not_available` metric
- * is never stored, so the screen can never draw it as a zero. `revenue_by_pack` is stored as the
- * all-packs total under its own id AND once per pack under `revenue_by_pack:<pack_code>`.
+ * WEEKLY catalogue entries above, exactly (a test pins the two lists together: every live entry
+ * but the one served as a list, `list_route`); a `not_available` metric is never stored, so the
+ * screen can never draw it as a zero. `revenue_by_pack` is stored as the all-packs total under its
+ * own id AND once per pack under `revenue_by_pack:<pack_code>`. The three repeat-buying windows
+ * are stored under their COHORT week (the week of the first payment).
  */
 export const NUMBERS_SNAPSHOT_METRICS: Readonly<Record<string, NumbersSnapshotSubject>> = {
   paying_companies: "company",
@@ -494,7 +524,43 @@ export const NUMBERS_SNAPSHOT_METRICS: Readonly<Record<string, NumbersSnapshotSu
   confirmed_hires_cumulative: "company",
   contacts_per_hire: "company",
   revenue_by_pack: "company",
+  repeat_purchase_30d: "company",
+  repeat_purchase_60d: "company",
+  repeat_purchase_90d: "company",
 };
+
+// ---------------------------------------------------------------------------------------------
+// The freeze of a cohort metric (part C)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The COHORT metrics: stored under the week a cohort was formed in (the week of its first
+ * payment), and complete only once their window has elapsed. Today: the three repeat-buying
+ * windows.
+ */
+export const NUMBERS_COHORT_METRICS: readonly string[] =
+  NUMBERS_REPEAT_WINDOWS_DAYS.map(repeatPurchaseMetricId);
+
+/**
+ * When a stored row freezes. A `week` row (every metric but the cohort ones) freezes
+ * NUMBERS_FREEZE_AFTER_DAYS after its week ends. A `cohort` row freezes that many days after its
+ * LONGEST window has elapsed for every company of the cohort
+ * ({@link NUMBERS_REPEAT_LONGEST_WINDOW_DAYS} days after the week ends): until then the sweep keeps
+ * recomputing it, so a window that has not closed is never frozen as pending. Either way a FROZEN
+ * ROW NEVER CHANGES: the sweep skips it, and only the logged recompute rewrites it.
+ */
+export type NumbersFreezeClass = "week" | "cohort";
+export const NUMBERS_FREEZE_CLASSES: readonly NumbersFreezeClass[] = ["week", "cohort"];
+
+/** The freeze class of a stored metric id (a per-pack revenue id is a `week` row). */
+export function numbersFreezeClassOf(metric: string): NumbersFreezeClass {
+  return NUMBERS_COHORT_METRICS.includes(metric) ? "cohort" : "week";
+}
+
+/** How many days after its week ends a row of `cls` stops changing (before the freeze delay). */
+export function numbersFreezeWindowDays(cls: NumbersFreezeClass): number {
+  return cls === "cohort" ? NUMBERS_REPEAT_LONGEST_WINDOW_DAYS : 0;
+}
 
 /** The id prefix of one pack's revenue: `revenue_by_pack:pack_50`. */
 export const NUMBERS_REVENUE_PACK_PREFIX = "revenue_by_pack:";

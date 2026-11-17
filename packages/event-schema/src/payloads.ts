@@ -68,6 +68,7 @@ import {
   UNLOCK_OUTCOME_ANSWERERS,
   CREDIT_LOT_SOURCES,
   CREDIT_LOT_EXPIRY_TRIGGERS,
+  CREDIT_CALL_RESULTS,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -7018,3 +7019,30 @@ export const AdminPayerTestAccountUnmarkedPayload = z
 export type AdminPayerTestAccountUnmarkedPayload = z.infer<
   typeof AdminPayerTestAccountUnmarkedPayload
 >;
+
+// ---------------------------------------------------------------------------
+// #2755 item 8 — A CALL TO A COMPANY WHOSE CREDITS RAN OUT, LOGGED. The telecaller works the call
+// list (`GET /admin/numbers/out-of-credits`) and records each call with
+// `POST /admin/numbers/out-of-credits/:payerId/calls`; one `credit_call_log` row and this event are
+// written in the same transaction, once per call (a retried POST carries the same Idempotency-Key,
+// from which the row id is derived, and emits nothing again).
+//
+// IDS AND ONE CLOSED CODE ONLY, strict. The result is one of `CREDIT_CALL_RESULTS` (@badabhai/types),
+// never text; no name, phone or note of the company ever rides along.
+// ---------------------------------------------------------------------------
+
+/** What a call came to (`CREDIT_CALL_RESULTS`). */
+export const CreditCallResultSchema = z.enum(CREDIT_CALL_RESULTS);
+
+export const AdminCreditCallLoggedPayload = z
+  .object({
+    /** The company called (its wallet key). */
+    payer_id: uuidSchema,
+    /** The `credit_call_log` row. */
+    call_id: uuidSchema,
+    /** The admin who logged the call. */
+    admin_id: uuidSchema,
+    result: CreditCallResultSchema,
+  })
+  .strict();
+export type AdminCreditCallLoggedPayload = z.infer<typeof AdminCreditCallLoggedPayload>;

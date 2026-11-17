@@ -283,6 +283,10 @@ const LOCKED_TABLES = [
   // per person (no person in them). RLS+FORCE+REVOKE in the hand-written tail of `*_numbers_weekly`.
   "numbers_weekly",
   "numbers_recompute_log",
+  // #2755 part C: the out-of-credits call log (a company id, an admin id, a time and one closed
+  // result code; no free text). Payer FK cascade as the erasure coverage. RLS+FORCE+REVOKE in the
+  // hand-written tail of `*_credit_call_log`.
+  "credit_call_log",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

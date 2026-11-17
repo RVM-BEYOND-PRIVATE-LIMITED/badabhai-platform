@@ -1,7 +1,11 @@
 import { parseArgs } from "node:util";
 import { NUMBERS_RECOMPUTE_REASON_MAX, PRODUCTION_WRITE_FLAG } from "@badabhai/db";
-import { NUMBERS_BASELINE_FROM, NUMBERS_DEFINITION_VERSION } from "./definitions";
-import type { NumbersSnapshotService } from "./numbers-snapshot.service";
+import {
+  NUMBERS_BASELINE_FROM,
+  NUMBERS_DEFINITION_VERSION,
+  NUMBERS_FREEZE_CLASSES,
+} from "./definitions";
+import { rowsOfClass, type NumbersSnapshotService } from "./numbers-snapshot.service";
 import type { NumbersSnapshotCellRow, NumbersWeeklyRepository } from "./numbers-weekly.repository";
 import { assertWeekStart, weekStartOf, weeksBetween } from "./week";
 
@@ -16,7 +20,9 @@ import { assertWeekStart, weekStartOf, weeksBetween } from "./week";
  *   - `--apply`: ONE transaction rewrites every week of the span (frozen ones included), each
  *     under its advisory lock, re-freezes the weeks whose freeze time has passed (`frozen_at` =
  *     now; a week not yet due stays open for the sweep), and writes ONE `numbers_recompute_log`
- *     row: the span, the definition version, the rows changed and the operator's reason.
+ *     row: the span, the definition version, the rows changed and the operator's reason. Each of a
+ *     week's two freeze classes is re-frozen on its own time: its repeat-buying (cohort) rows only
+ *     once their longest window has elapsed (part C).
  *
  * THE REASON IS THE OPERATOR'S OWN WORDS (1..500 characters). It is stored in the log row and
  * nowhere else: never printed, never logged, never put on an event.
@@ -184,11 +190,13 @@ export async function recomputeNumbers(
         // Applied, every writer of the week waits (the sweep included); a dry run takes no lock.
         if (args.apply) await repo.lockWeek(tx, week);
         const stored = await repo.readWeek(tx, week);
-        const fresh = await snapshot.computeWeekRows(tx, week, hasActivityTable);
+        const fresh = await snapshot.computeWeekRows(tx, week, hasActivityTable, now);
         rowsChanged += diffWeekRows(stored, fresh, perMetric);
         if (args.apply) {
-          const frozenAt = snapshot.isDueToFreeze(week, now) ? now : null;
-          await repo.replaceWeek(tx, week, fresh, now, frozenAt);
+          for (const cls of NUMBERS_FREEZE_CLASSES) {
+            const frozenAt = snapshot.isDueToFreeze(week, now, cls) ? now : null;
+            await repo.replaceWeek(tx, week, cls, rowsOfClass(fresh, cls), now, frozenAt);
+          }
         }
       }
       if (!args.apply) throw new DryRunRollback();

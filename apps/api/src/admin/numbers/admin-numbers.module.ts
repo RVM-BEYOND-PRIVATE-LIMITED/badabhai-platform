@@ -8,8 +8,10 @@ import { AdminNumbersController } from "./admin-numbers.controller";
 import { AdminNumbersEnabledGuard } from "./admin-numbers.flag";
 import { AdminNumbersRepository } from "./admin-numbers.repository";
 import { AdminNumbersService } from "./admin-numbers.service";
+import { AdminNumbersCallsService } from "./admin-numbers-calls.service";
 import { AdminNumbersWeeklyService } from "./admin-numbers-weekly.service";
 import { NumbersSnapshotService } from "./numbers-snapshot.service";
+import { NumbersCallsRepository } from "./numbers-calls.repository";
 import { NumbersSweepProcessor } from "./numbers-sweep.processor";
 import { NumbersWeeklyRepository } from "./numbers-weekly.repository";
 
@@ -20,8 +22,9 @@ import { NumbersWeeklyRepository } from "./numbers-weekly.repository";
  * and the sweep (registered whatever the switch says) returns at once.
  *
  * `AdminEventsRepository` is provided here, not imported: `AdminModule` does not export it, and it
- * is the one admin reader of `events` (the form-completion diagnostic's read), select-only and
- * stateless, so a second instance is the same reader.
+ * is the one admin reader of `events` (the form-completion diagnostic's read and the call list's
+ * `payer.credits_exhausted` read), select-only and stateless, so a second instance is the same
+ * reader. `AdminIdentityService` (the call list's names) comes from `AdminModule`'s exports.
  */
 @Module({
   imports: [
@@ -39,6 +42,8 @@ import { NumbersWeeklyRepository } from "./numbers-weekly.repository";
     NumbersSnapshotService,
     AdminNumbersWeeklyService,
     NumbersSweepProcessor,
+    NumbersCallsRepository,
+    AdminNumbersCallsService,
   ],
 })
 export class AdminNumbersModule {}

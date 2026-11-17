@@ -108,6 +108,10 @@ export const ADMIN_ACTION_CODES = {
   // `admin.payer_test_account_marked`; the spine's `admin.action_performed` carries the CODE only.
   payer_test_account_marked: "payer_test_account_marked",
   payer_test_account_unmarked: "payer_test_account_unmarked",
+  // ── #2755 item 8 — a call to a company whose credits ran out, logged ─────────────────────
+  // Target = the payer (`target_type: "payer"`). The closed result code rides
+  // `admin.credit_call_logged`; the spine's `admin.action_performed` carries the CODE only.
+  credit_call_logged: "credit_call_logged",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];

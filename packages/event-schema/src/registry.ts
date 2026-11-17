@@ -1867,6 +1867,13 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminPayerTestAccountUnmarkedPayload,
   },
+  // #2755 item 8 — a call to a company whose credits ran out, logged by an admin from the call list
+  // (`credit_call_log`). IDS AND ONE CLOSED RESULT CODE ONLY, strict. v1.
+  "admin.credit_call_logged": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminCreditCallLoggedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
