@@ -535,6 +535,84 @@ export const CampusSearchGrantSchema = z.object({
   changed_at: IsoDateTime,
 });
 
+// ─── PUT / GET waivers (#2750 item 5) ────────────────────────────────────────
+
+/** Who a waiver frees: every RVM applicant of one company, or the RVM applicants of one job. */
+export const CAMPUS_WAIVER_SCOPES = ["company", "job"] as const;
+
+/**
+ * The placement team's switch (#2750 item 5, Campus #154 item 9): set (`active: true`) or clear
+ * (`active: false`) the waiver of the contact cost for ONE company or ONE job. Under the credit
+ * rules a waived company opens an RVM student who applied to it (to the waived job, for a job
+ * waiver) for no credit; everyone else still pays.
+ *
+ * Idempotent BY STATE, not by key: setting an active waiver again, or clearing a cleared one,
+ * stores nothing and answers `changed: false` with the waiver as it stands. A new reason needs a
+ * clear and a new set. `posting_id` is required for a job waiver and refused for a company waiver;
+ * the posting must be this company's (else the neutral 404, like an unknown company).
+ *
+ * `staff_label` is the staff member's name, stored ENCRYPTED and shown only on these routes and
+ * BadaBhai's admin console. `reason` is the staff member's own words (up to 500 characters).
+ */
+export const CampusWaiverBodySchema = z
+  .strictObject({
+    scope: z.enum(CAMPUS_WAIVER_SCOPES),
+    company_id: Id,
+    posting_id: Id.optional(),
+    active: z.boolean(),
+    staff_ref: StaffRefSchema,
+    staff_label: campusLabel(120),
+    reason: campusLabel(500),
+  })
+  .refine((b) => (b.scope === "job") === (b.posting_id !== undefined), {
+    message: "posting_id is required for a job waiver and refused for a company waiver",
+    path: ["posting_id"],
+  });
+
+/** One waiver: who set it and why, whether it still stands, and how many opens it paid for. */
+export const CampusWaiverSchema = z.object({
+  waiver_id: Id,
+  scope: z.enum(CAMPUS_WAIVER_SCOPES),
+  company_id: Id,
+  posting_id: Id.nullable(),
+  active: z.boolean(),
+  /** `admin` when a BadaBhai super admin set it from the admin console. */
+  source: z.enum(["campus", "admin"]),
+  set_by_ref: z.string(),
+  /** Null when the name cannot be shown (an admin with no stored name). */
+  set_by_label: z.string().nullable(),
+  reason: z.string(),
+  set_at: IsoDateTime,
+  cleared_at: IsoDateTime.nullable(),
+  cleared_by_ref: z.string().nullable(),
+  cleared_by_label: z.string().nullable(),
+  clear_reason: z.string().nullable(),
+  /** Contacts this waiver made free so far ("contacts opened under it", Campus #159 item 6). */
+  waived_opens: z.number().int().min(0),
+});
+
+/**
+ * The scope's state after the call. `waiver` is the active waiver (on), the one just cleared or
+ * the newest one of the scope (off), or null when the scope never had one.
+ */
+export const CampusWaiverResponseSchema = z.object({
+  active: z.boolean(),
+  changed: z.boolean(),
+  waiver: CampusWaiverSchema.nullable(),
+});
+
+/** "Waivers in force" (Campus #159 item 6): active waivers, newest first; one company's if named. */
+export const CampusWaiversQuerySchema = z.strictObject({
+  company_id: Id.optional(),
+  cursor: Cursor.optional(),
+  limit: PageLimit,
+});
+
+export const CampusWaiverPageSchema = z.object({
+  waivers: z.array(CampusWaiverSchema),
+  next_cursor: Cursor.nullable(),
+});
+
 // ─── DELETE students/:student_ref ────────────────────────────────────────────
 
 export const CampusUnlinkResponseSchema = z.object({

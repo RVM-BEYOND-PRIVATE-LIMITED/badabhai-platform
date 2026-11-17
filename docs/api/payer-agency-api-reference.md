@@ -557,6 +557,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Mobile gotchas:** Spends 1 credit on grant. All denials (no credit / capped / no consent / protected) return the **same** neutral `unavailable` — never infer why. Fail-closed ordering (credit precondition → consent → cap → grant). Branch on the `ok` field, not the HTTP status.
 - **Credit rules (#2750, ADR-0066, behind `CREDIT_RULES_ROLLOUT`, which is off / pilot / on, default off):** for a company under the rules, an open costs what `POST /payer/unlocks/quotes` quoted: 1 or 2 credits by the worker's rung and experience, 1 for an RVM student, 0 for a contact you already hold.
   - A success adds `credits_charged` (the credits taken; `0` on a re-open).
+  - **Placement-team waivers (#2750 item 5):** an RVM student who applied to a job of yours that RVM's placement team waived (that job, or your whole company) opens for `0` (`credits_charged: 0`), even with no credits. No payment events are written for it; your ledger gets a zero-credit `waived` line. If the waiver is cleared between the quote and the tap, that one open is refused (the neutral body); quote again.
   - When you cannot afford the contact, the answer is `200 { status: 'insufficient_credits', credits_needed, credits_available }` instead of the neutral body. Nothing is debited or opened; offer a pack. This is decided before anything about the worker is read, so it says nothing about him.
   - Every other refusal is still the neutral `unavailable`.
   - Off, nothing changes: one credit, no `credits_charged`, and no-credit is the neutral body.
@@ -565,7 +566,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 
 - **Auth:** `PayerAuthGuard` (Bearer). Not on the disclosure cap: it opens nothing.
 - **Body:** `{ worker_ids: UUID[] }`, 1 to 50 ids, no repeats, strict.
-- **Response:** `200 { quotes: [{ worker_id, credits }], credits_available }`. Each worker is priced by the same rule as the open, from facts on his card only. A contact you hold open quotes `0`. An unknown id is priced like a worker who stated nothing, so the answer never tells you whether an id exists. `credits_available` is your spendable balance.
+- **Response:** `200 { quotes: [{ worker_id, credits, waived? }], credits_available }`. `waived: true` is present only when a placement-team waiver makes the contact free (`credits: 0`); show who made it free (for example "Free: RVM placement team"). Each worker is priced by the same rule as the open, from facts on his card only. A contact you hold open quotes `0`. An unknown id is priced like a worker who stated nothing, so the answer never tells you whether an id exists. `credits_available` is your spendable balance.
 - **Off** (`CREDIT_RULES_ROLLOUT` off for your company): `404`.
 - **Mobile gotchas:** Show "Open for N credit(s)" from `credits`, and the Starter pack when `credits > credits_available`. Re-quote after a purchase. The open charges the price at the tap; if the worker's card changed in between, that price can differ from the quote.
 

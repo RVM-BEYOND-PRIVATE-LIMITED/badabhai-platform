@@ -58,11 +58,13 @@ export function higherRungMonthsOf(row: ContactCostFactsRow): number | null {
 /**
  * The cost rule's input for one worker. `alreadyOpened` is read from the STORED grant only (open
  * now, or stored open for good), never from consent: the quote must not depend on anything the
- * card does not show. Managed Hiring (#2751) and waivers (#2750 item 5) are not built yet: false.
+ * card does not show. `waived` is the caller's read of the placement team's waivers (#2750 item 5:
+ * he applied to a job of this company under an active job or company waiver); the cost rule frees
+ * him only if he is also an RVM student. Managed Hiring (#2751) is not built yet: false.
  */
 export function contactCostFactsOf(
   row: ContactCostFactsRow,
-  opts: { readonly forOpen: boolean; readonly now?: Date },
+  opts: { readonly forOpen: boolean; readonly now?: Date; readonly waived?: boolean },
 ): ContactCostFacts {
   return {
     // The open itself prices a NEW grant; a held contact is answered inside its transaction before
@@ -72,7 +74,7 @@ export function contactCostFactsOf(
       row.grant !== null &&
       isOpenGrant(row.grant, { openForGood: false, ...(opts.now ? { now: opts.now } : {}) }),
     managedHiringOrder: false,
-    waived: false,
+    waived: opts.waived === true,
     rvmStudent: row.rvmStudent,
     higherRungMonths: higherRungMonthsOf(row),
   };

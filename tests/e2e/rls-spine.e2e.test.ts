@@ -297,6 +297,11 @@ const LOCKED_TABLES = [
   // RLS+FORCE+REVOKE in the hand-written tail of `*_launch_tests`.
   "launch_test_cohort",
   "launch_test_shares",
+  // #2750 item 5: the placement team's waivers (scope, the company's tenant key, a posting id,
+  // encrypted staff names, a capped reason, times) and the opens each paid for (opaque ids and a
+  // time). RLS+FORCE+REVOKE in the hand-written tail of `*_rvm_applicant_waivers`.
+  "rvm_applicant_waivers",
+  "rvm_waiver_uses",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

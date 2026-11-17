@@ -77,6 +77,7 @@ import {
 import { contactCost } from "@badabhai/pricing";
 import { CreditRulesService } from "../credit-rules/credit-rules.service";
 import { contactCostFactsOf } from "./contact-cost-facts";
+import { RvmWaiversRepository, type WaiverMatch } from "../rvm-waivers/rvm-waivers.repository";
 import { onBriefNotice } from "./brief-notice";
 import { searchExitRefuses } from "../search-exit/search-exit-gate";
 
@@ -114,6 +115,20 @@ export interface RelayResolution {
  * transaction commits — see {@link UnlockService} class doc (deadlock fix).
  */
 type DeferredEmit = () => Promise<void>;
+
+/**
+ * #2750 — what the open's debit did: the lots it took from, and the balance after. A waived open
+ * (#2750 item 5) debits nothing: no takes, and `balanceAfter` null (the balance was not touched,
+ * so it can never be the `>0 → 0` transition the conversion signal fires on).
+ */
+type PricedDebit =
+  | {
+      ok: true;
+      balanceAfter: number | null;
+      takes: readonly { lotId: string; credits: number }[];
+      expiredLots: readonly ExpiredCreditLot[];
+    }
+  | { ok: false };
 
 /** #1899 — the job context an unlock may store, or a refusal (the reference is not the payer's). */
 /**
@@ -248,6 +263,9 @@ export class UnlockService {
     // #2750 — the credit rules' numbers (what a contact costs). Optional for the same reason as
     // `rollout`; absent, no company is under the credit rules. Nest always injects it.
     @Optional() private readonly creditRules?: CreditRulesService,
+    // #2750 item 5 — the placement team's waivers (which waiver frees a worker, and its use).
+    // Optional for the same reason; absent, no open is waived. Nest always injects it.
+    @Optional() private readonly waivers?: RvmWaiversRepository,
   ) {}
 
   /**
@@ -283,15 +301,31 @@ export class UnlockService {
    *
    * A global-pool read, so it runs BEFORE the advisory-locked transaction (the deadlock rule).
    */
-  private async priceOpen(tenant: TenantKey, workerId: string): Promise<number> {
+  private async priceOpen(
+    tenant: TenantKey,
+    workerId: string,
+  ): Promise<{ credits: number; waiverId: string | null }> {
     const rules = await this.creditRules!.get();
     const facts = await this.repo.readContactCostFacts(tenant, [workerId]);
+    const waiver = (await this.waiversFor(tenant, [workerId])).get(workerId) ?? null;
     const row = facts.get(workerId)!;
-    const cost = contactCost(rules, contactCostFactsOf(row, { forOpen: true }));
+    const cost = contactCost(
+      rules,
+      contactCostFactsOf(row, { forOpen: true, waived: waiver !== null }),
+    );
     this.logger.log(
       `unlock price worker=${workerId} credits=${cost.credits} basis=${cost.basis} tenant=${tenant}`,
     );
-    return cost.credits;
+    // #2750 item 5 — the waiver is recorded as used only when it is what made the open free.
+    return { credits: cost.credits, waiverId: cost.basis === "waived" ? waiver!.waiverId : null };
+  }
+
+  /** #2750 item 5 — which waiver frees each worker for this company (none without the reader). */
+  private async waiversFor(
+    tenant: TenantKey,
+    workerIds: readonly string[],
+  ): Promise<Map<string, WaiverMatch>> {
+    return this.waivers ? this.waivers.waiversFor(tenant, workerIds) : new Map();
   }
 
   // ===========================================================================
@@ -365,7 +399,14 @@ export class UnlockService {
     // #2750 item 2 (ADR-0066) — under the credit rules the price is the cost rule's, from facts on
     // his card only (rungs, experience, the RVM label): never consent, a limit or deletion state.
     // Off, it is one credit, exactly as before.
-    const price = creditRules === "on" ? await this.priceOpen(tenant, workerId) : 1;
+    //
+    // #2750 item 5 — a placement-team waiver can make the price 0 (an RVM student who applied to a
+    // waived job or company): no credit is needed, so a company with none still opens him.
+    const priced =
+      creditRules === "on"
+        ? await this.priceOpen(tenant, workerId)
+        : { credits: 1, waiverId: null };
+    const price = priced.credits;
     const balance = await this.repo.getSpendableBalance(tenant);
     if (balance < price) {
       // INSUFFICIENT CREDITS collapses into the neutral response (F-1 option (a)).
@@ -564,12 +605,28 @@ export class UnlockService {
         // wallet's row lock inside this UPDATE, so the team can never overdraw it.
         // #2750 — under the credit rules the debit is the price (possibly from several lots: one
         // take per lot); off, one credit from one lot, as before.
-        const debit =
-          creditRules === "on"
-            ? await this.payments.debitCreditsWithinTx(tx, tenant, price)
-            : await this.payments
-                .debitOneCreditWithinTx(tx, tenant)
-                .then((d) => (d.ok ? { ...d, takes: [{ lotId: d.lotId, credits: 1 }] } : d));
+        //
+        // #2750 item 5 — a WAIVED open (price 0) debits nothing and touches no lot. The waiver is
+        // re-read here under a share lock: one cleared since the price was read refuses this open
+        // (neutral, nothing written), and a clear racing it waits for this open to commit, so the
+        // use recorded below names a waiver that was live.
+        if (
+          priced.waiverId !== null &&
+          !(await this.waivers!.isActiveForShare(tx as unknown as Database, priced.waiverId))
+        ) {
+          this.logger.log(
+            `unlock refused: waiver cleared since the price was read worker=${workerId.slice(0, 8)} tenant=${tenant.slice(0, 8)}`,
+          );
+          return { response: neutralUnavailable(), events };
+        }
+        const debit: PricedDebit =
+          price === 0
+            ? { ok: true, balanceAfter: null, takes: [], expiredLots: [] }
+            : creditRules === "on"
+              ? await this.payments.debitCreditsWithinTx(tx, tenant, price)
+              : await this.payments
+                  .debitOneCreditWithinTx(tx, tenant)
+                  .then((d) => (d.ok ? { ...d, takes: [{ lotId: d.lotId, credits: 1 }] } : d));
         if (!debit.ok) {
           // Lost a concurrent debit race after the precondition — or (#2749) a lot fell due
           // since the precondition read — collapse to neutral (still no worker-state oracle;
@@ -617,11 +674,31 @@ export class UnlockService {
           });
         }
 
+        // #2750 item 5 — a waived open: ONE zero-credit `waived` line naming the open (no lot:
+        // nothing moved; keyed `waived:<unlock id>`), and the waiver's use, in this transaction.
+        if (priced.waiverId !== null) {
+          await this.repo.appendLedger(tx, {
+            payerId: tenant,
+            delta: 0,
+            reason: "waived",
+            unlockId: granted.id,
+            idempotencyKey: `waived:${granted.id}`,
+          });
+          await this.waivers!.recordUse(tx as unknown as Database, {
+            waiverId: priced.waiverId,
+            unlockId: granted.id,
+            tenant,
+          });
+        }
+
         // Order preserved: payment.authorized → payment.captured → unlock.granted.
-        // #2750 — the credits this open took (one, unless the credit rules priced it).
+        // #2750 — the credits this open took (one, unless the credit rules priced it). A free open
+        // (#2750 item 5, waived) took no payment, so it emits no payment events.
         const amount = creditRules === "on" ? { amountCredits: price } : undefined;
-        events.push(() => this.emitPaymentAuthorized(granted.id, party, ctx, amount));
-        events.push(() => this.emitPaymentCaptured(granted.id, party, ctx, amount));
+        if (price > 0) {
+          events.push(() => this.emitPaymentAuthorized(granted.id, party, ctx, amount));
+          events.push(() => this.emitPaymentCaptured(granted.id, party, ctx, amount));
+        }
         events.push(() =>
           this.emitGranted(granted.id, party, workerId, jobContext, expiresAt, ctx),
         );
@@ -1100,10 +1177,17 @@ export class UnlockService {
     const rules = await this.creditRules!.get();
     const facts = await this.repo.readContactCostFacts(tenant, workerIds);
     const now = new Date();
-    const quotes = [...facts.entries()].map(([workerId, row]) => ({
-      worker_id: workerId,
-      credits: contactCost(rules, contactCostFactsOf(row, { forOpen: false, now })).credits,
-    }));
+    const waivers = await this.waiversFor(tenant, workerIds);
+    const quotes = [...facts.entries()].map(([workerId, row]) => {
+      const cost = contactCost(
+        rules,
+        contactCostFactsOf(row, { forOpen: false, now, waived: waivers.has(workerId) }),
+      );
+      // #2750 item 5 — `waived` (present only when true) lets the button say who made it free.
+      return cost.basis === "waived"
+        ? { worker_id: workerId, credits: cost.credits, waived: true as const }
+        : { worker_id: workerId, credits: cost.credits };
+    });
     return { quotes, credits_available: await this.repo.getSpendableBalance(tenant) };
   }
 

@@ -101,7 +101,15 @@ export interface ContactRevealedResponse {
  * the quote and the tap). A contact the company already holds quotes 0.
  */
 export interface ContactQuotesResponse {
-  readonly quotes: readonly { readonly worker_id: string; readonly credits: number }[];
+  readonly quotes: readonly {
+    readonly worker_id: string;
+    readonly credits: number;
+    /**
+     * #2750 item 5 — present (true) only when a placement-team waiver makes this contact free (an
+     * RVM student who applied to a waived job or company). Additive: absent means not waived.
+     */
+    readonly waived?: true;
+  }[];
   /** The company's spendable credits now, so the button can say when a contact is out of reach. */
   readonly credits_available: number;
 }

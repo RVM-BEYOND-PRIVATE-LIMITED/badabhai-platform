@@ -941,6 +941,18 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerWelcomeCreditsGrantedPayload,
   },
+  // #2750 item 5 — the placement team's waiver of the contact cost was set or cleared: ONE each per
+  // waiver, in the transaction that writes the `rvm_applicant_waivers` change. v1.
+  "payer.rvm_waiver_set": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerRvmWaiverChangedPayload,
+  },
+  "payer.rvm_waiver_cleared": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerRvmWaiverChangedPayload,
+  },
   // MOMENT ④ — `feed.shown` VERSION 2. `feed.shown` above KEEPS its v1 entry,
   // unmodified, as history (invariant #8): `validateEvent` allows exactly one version
   // per NAME, so a bump in place would invalidate every shipped emitter the moment it

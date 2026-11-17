@@ -642,6 +642,7 @@ describe("UnlocksRepository.appendLedger — append-only ledger write", () => {
       packCode: null,
       paymentRef: null,
       lotId: null,
+      idempotencyKey: null,
     });
   });
 
@@ -655,6 +656,7 @@ describe("UnlocksRepository.appendLedger — append-only ledger write", () => {
       packCode: "pack_10",
       paymentRef: "order-1",
       lotId: "lot-1",
+      idempotencyKey: "waived:u-1",
     });
     expect(captured.insertValues).toEqual({
       payerId: PAYER_ID,
@@ -664,6 +666,7 @@ describe("UnlocksRepository.appendLedger — append-only ledger write", () => {
       packCode: "pack_10",
       paymentRef: "order-1",
       lotId: "lot-1",
+      idempotencyKey: "waived:u-1",
     });
   });
 });

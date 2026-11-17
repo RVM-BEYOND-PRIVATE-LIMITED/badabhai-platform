@@ -78,8 +78,11 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 | `DELETE students/:student_ref`      | Unlink a student (consent withdrawn or deleted)         | **live**   |
 | `GET drive-requests`                | Companies' campus-drive requests, with contacts         | **live**   |
 | `POST drive-requests/:id/decision`  | Schedule, decline or complete a drive request           | **live**   |
+| `PUT waivers`                       | Set or clear the waiver of one company or one job       | #2750      |
+| `GET waivers`                       | The waivers in force, with the opens each paid for      | #2750      |
 
-Mounted behind the same guard by its own issue: credit waivers (#2750).
+The two waiver routes (#2750 item 5) answer a neutral 404 until BadaBhai's credit rules are
+switched on (`CREDIT_RULES_ROLLOUT` pilot or on); see `PUT waivers` below.
 
 ### GET ping
 
@@ -393,6 +396,78 @@ is `EXTERNAL_REF_CONFLICT`, as is a second live grant for one company and studen
 ref is a 404). While a grant is live, the student appears in that company's candidate search only,
 on the one skill his course maps to, and that company may open him (it pays as for an applicant,
 #2750).
+
+### PUT waivers
+
+The placement team's switch (#2750 item 5; Campus #154 item 9, screens #159 items 5 and 6). Under
+BadaBhai's credit rules an RVM student who applied costs a company one credit to open. A waiver on a
+**company** makes every RVM student who applied to any of its jobs free to open; a waiver on a
+**job** makes the RVM students who applied to that job free. Everyone else still pays, and a student
+the company found only by search (a named-company grant) is not covered.
+
+```json
+{
+  "scope": "company",
+  "company_id": "7d3f2a10-5b8e-4c1d-9a6f-0e2b4c6d8f10",
+  "active": true,
+  "staff_ref": "7d0f6c1e-2b4a-4c8e-9f10-3a5b6c7d8e9f",
+  "staff_label": "Placement desk, Pune",
+  "reason": "Campus drive partner for the November batch"
+}
+```
+
+- `scope` is `company` or `job`. A job waiver also sends `posting_id` (a BadaBhai posting of that
+  company); a company waiver must not.
+- `active: true` sets the waiver, `active: false` clears it. **Idempotent by state:** setting an
+  active waiver again, or clearing one that is not set, stores nothing and answers
+  `"changed": false` with the waiver as it stands. To change the reason, clear and set again.
+- `staff_ref` is the staff member's uuid; `staff_label` is their name (up to 120 characters), stored
+  **encrypted** and shown only on these routes and BadaBhai's admin console. `reason` is the staff
+  member's own words (up to 500 characters). The same holds for a clear: who cleared it and why.
+- An unknown or barred `company_id`, or a `posting_id` that is not that company's, is a neutral 404.
+- `Idempotency-Key` is required, as on every write.
+
+Answers the scope's state after the call:
+
+```json
+{
+  "active": true,
+  "changed": true,
+  "waiver": {
+    "waiver_id": "0b6e2a4c-8d1f-4e3a-9b5c-7d2e1f0a3b4c",
+    "scope": "company",
+    "company_id": "7d3f2a10-5b8e-4c1d-9a6f-0e2b4c6d8f10",
+    "posting_id": null,
+    "active": true,
+    "source": "campus",
+    "set_by_ref": "7d0f6c1e-2b4a-4c8e-9f10-3a5b6c7d8e9f",
+    "set_by_label": "Placement desk, Pune",
+    "reason": "Campus drive partner for the November batch",
+    "set_at": "2026-11-17T06:30:00.000Z",
+    "cleared_at": null,
+    "cleared_by_ref": null,
+    "cleared_by_label": null,
+    "clear_reason": null,
+    "waived_opens": 0
+  }
+}
+```
+
+`waiver` is the active waiver after a set, the one just cleared after a clear, the newest one of the
+scope when nothing changed and none is active, or `null` when the scope never had one. `source` is
+`admin` for a waiver a BadaBhai super admin set from the admin console (`/admin/waivers`); either
+side may clear either. `waived_opens` counts the contacts the waiver made free so far.
+
+A waived open moves no credit: BadaBhai writes a zero-credit `waived` line on the company's ledger
+and records which waiver paid for it. If a waiver is cleared while an open is in flight, the open is
+refused and the company retries at the normal price.
+
+### GET waivers
+
+`?company_id=&cursor=&limit=` (limit 1 to 200, default 100). The waivers **in force** (active only),
+newest first, each in the shape above; `company_id` narrows to one company (an unknown one is an
+empty page). Answers `{ "waivers": [ ... ], "next_cursor": null }`. Campus keeps its own history in
+`credit_waiver_log`; cleared waivers are read on BadaBhai's admin console.
 
 ### DELETE students/:student_ref
 

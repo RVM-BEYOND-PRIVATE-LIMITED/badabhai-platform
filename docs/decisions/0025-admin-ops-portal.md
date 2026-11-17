@@ -325,6 +325,7 @@ guard's fail-closed `role: null`).
 | Suspend / reinstate a payer | ✅ | ✅ | ❌ | ❌ |
 | Grant / adjust credits | ✅ | ✅ | ❌ | ❌ |
 | **Edit the credit rules (what a contact costs, the limits, welcome credits, the couldn't-reach windows, returned credits, refund rules, the goodwill cap)** — `manage_credit_rules`, #2750 item 12. Changes every company's price at once, with no deploy, so it is narrower than a grant | ✅ | ❌ | ❌ | ❌ |
+| **Set or clear the placement team's waiver (RVM applicants of one company or one job open for no credit), and read every waiver with who set it** — `manage_waivers`, #2750 items 5 and 12 (`/admin/waivers`). A waiver is a price decision for that company, so it sits with the credit rules; Campus's placement team sets waivers through its own service route, not this capability | ✅ | ❌ | ❌ | ❌ |
 | Force-close a job posting | ✅ | ✅ | ❌ | ❌ |
 | Flag / unflag a worker | ✅ | ✅ | ❌ | ❌ |
 | Toggle a feature flag / kill-switch | ✅ | ❌ | ❌ | ❌ |

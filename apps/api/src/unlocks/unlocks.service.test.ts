@@ -111,6 +111,10 @@ interface SetupOpts {
   costFacts?: Partial<ContactCostFactsRow>;
   /** #2750: the multi-credit debit's takes (default: all from one lot). */
   debitTakes?: { lotId: string; credits: number }[];
+  /** #2750 item 5: the waiver that frees him for this company (default: no waiver reader). */
+  waiver?: { waiverId: string; scope: "company" | "job" } | null;
+  /** #2750 item 5: whether the waiver is still active under the open's lock (default: yes). */
+  waiverStillActive?: boolean;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -179,6 +183,20 @@ function setup(opts: SetupOpts = {}) {
         : undefined,
     ),
   };
+
+  // #2750 item 5 — the placement team's waivers: the same match for every id asked.
+  const waivers =
+    opts.waiver === undefined
+      ? undefined
+      : {
+          waiversFor: vi.fn(async (_tenant: string, ids: readonly string[]) => {
+            const out = new Map<string, { waiverId: string; scope: "company" | "job" }>();
+            if (opts.waiver) for (const id of ids) out.set(id, opts.waiver);
+            return out;
+          }),
+          isActiveForShare: vi.fn(async () => opts.waiverStillActive ?? true),
+          recordUse: vi.fn(async () => undefined),
+        };
 
   const repo = {
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work(txMethods)),
@@ -333,9 +351,12 @@ function setup(opts: SetupOpts = {}) {
     opts.creditRules === undefined
       ? undefined
       : ({ get: vi.fn(async () => DEFAULT_CREDIT_RULES) } as never),
+    // #2750 item 5 — the waiver reader only when a test names a waiver.
+    waivers as never,
   );
   return {
     svc,
+    waivers,
     repo,
     txMethods,
     consents,
@@ -2865,5 +2886,92 @@ describe("#2750 item 3 — the quote", () => {
     expect(s.instituteGate.decide).not.toHaveBeenCalled();
     expect(s.events.emit).not.toHaveBeenCalled();
     expect(s.repo.withTransaction).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// #2750 item 5 — the placement team's waiver: a free open, and the quote that says so
+// ===========================================================================
+describe("#2750 item 5 — a waived open", () => {
+  const RVM = { rvmStudent: true };
+  const WAIVER = { waiverId: "waiver-1", scope: "company" as const };
+  const open = (s: ReturnType<typeof setup>) =>
+    s.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+
+  it("an RVM student under a waiver opens for 0: no debit, one zero-credit waived line, the use", async () => {
+    const s = setup({ creditRules: "on", costFacts: RVM, waiver: WAIVER });
+    const out = await open(s);
+    expect(out).toMatchObject({ ok: true, status: "granted", credits_charged: 0 });
+    expect(s.txMethods.tryDebitCredits).not.toHaveBeenCalled();
+    expect(s.txMethods.tryDebit).not.toHaveBeenCalled();
+    expect(s.txMethods.appendLedger.mock.calls.map((c) => (c as unknown[])[1])).toEqual([
+      {
+        payerId: PAYER,
+        delta: 0,
+        reason: "waived",
+        unlockId: "unlock-1",
+        idempotencyKey: "waived:unlock-1",
+      },
+    ]);
+    expect(s.waivers!.recordUse).toHaveBeenCalledWith(expect.anything(), {
+      waiverId: "waiver-1",
+      unlockId: "unlock-1",
+      tenant: PAYER,
+    });
+  });
+
+  it("a waived open needs no credit: a company with none still opens him", async () => {
+    const s = setup({ creditRules: "on", costFacts: RVM, waiver: WAIVER, balance: 0 });
+    expect(await open(s)).toMatchObject({ status: "granted", credits_charged: 0 });
+  });
+
+  it("a waived open takes no payment, so it emits no payment events and no exhausted signal", async () => {
+    const s = setup({ creditRules: "on", costFacts: RVM, waiver: WAIVER, balance: 0 });
+    await open(s);
+    const names = emitted(s.events);
+    expect(names).toContain("unlock.granted");
+    expect(names).not.toContain("payment.authorized");
+    expect(names).not.toContain("payment.captured");
+    expect(names).not.toContain("payer.credits_exhausted");
+  });
+
+  it("a waiver cleared since the price was read refuses the open: neutral, nothing written", async () => {
+    const s = setup({ creditRules: "on", costFacts: RVM, waiver: WAIVER, waiverStillActive: false });
+    expect(await open(s)).toEqual({ status: "unavailable" });
+    expect(s.txMethods.upsertGrant).not.toHaveBeenCalled();
+    expect(s.txMethods.appendLedger).not.toHaveBeenCalled();
+    expect(s.waivers!.recordUse).not.toHaveBeenCalled();
+  });
+
+  it("a waiver frees only an RVM student: anyone else under it still pays", async () => {
+    const s = setup({ creditRules: "on", costFacts: { rvmStudent: false }, waiver: WAIVER });
+    expect(await open(s)).toMatchObject({ credits_charged: 1 });
+    expect(s.txMethods.tryDebitCredits).toHaveBeenCalledWith(expect.anything(), PAYER, 1);
+    expect(s.waivers!.isActiveForShare).not.toHaveBeenCalled();
+    expect(s.waivers!.recordUse).not.toHaveBeenCalled();
+  });
+
+  it("an RVM student with no waiver costs the standard 1 (B2-37, B6-04)", async () => {
+    const s = setup({ creditRules: "on", costFacts: RVM, waiver: null });
+    expect(await open(s)).toMatchObject({ credits_charged: 1 });
+    expect(s.waivers!.recordUse).not.toHaveBeenCalled();
+  });
+
+  it("off: no waiver is read and the open costs one credit, as before", async () => {
+    const s = setup({ creditRules: "off", costFacts: RVM, waiver: WAIVER });
+    await open(s);
+    expect(s.waivers!.waiversFor).not.toHaveBeenCalled();
+    expect(s.txMethods.tryDebit).toHaveBeenCalledTimes(1);
+  });
+
+  it("the quote says 0 and `waived` for a waived RVM student, and nothing extra for anyone else", async () => {
+    const s = setup({ creditRules: "on", costFacts: RVM, waiver: WAIVER });
+    expect((await s.svc.quoteContacts(PAYER, [WORKER])).quotes).toEqual([
+      { worker_id: WORKER, credits: 0, waived: true },
+    ]);
+    const plain = setup({ creditRules: "on", costFacts: RVM, waiver: null });
+    expect((await plain.svc.quoteContacts(PAYER, [WORKER])).quotes).toEqual([
+      { worker_id: WORKER, credits: 1 },
+    ]);
   });
 });

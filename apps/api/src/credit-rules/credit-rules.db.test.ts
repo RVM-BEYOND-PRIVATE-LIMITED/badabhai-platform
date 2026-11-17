@@ -7,6 +7,8 @@ import { isUniqueViolation } from "../common/db-error";
 import { CreditRulesRepository } from "./credit-rules.repository";
 import { WelcomeCreditsRepository } from "./welcome-credits.repository";
 import type { TenantKey } from "../payers/payer-tenant-scope";
+import { RvmWaiversRepository } from "../rvm-waivers/rvm-waivers.repository";
+import { UnlocksRepository } from "../unlocks/unlocks.repository";
 
 /**
  * #2750 item 1 — the credit rules' revisions against real Postgres.
@@ -288,5 +290,227 @@ describe.skipIf(!RUN)("welcome credits — against real Postgres", () => {
     const [n] = await sql<{ n: number }[]>`
       SELECT count(*)::int AS n FROM credit_ledger WHERE payer_id = ${RACE}::uuid AND reason = 'welcome'`;
     expect(Number(n!.n)).toBe(1);
+  });
+});
+
+/**
+ * #2750 item 5 — the placement team's waivers against real Postgres: one ACTIVE waiver per company
+ * and per job (the partial unique indexes), the CHECKs tying scope to posting and `active` to
+ * `cleared_at`, which waiver frees which worker (`waiversFor`: he must have APPLIED, a job waiver
+ * wins, another company's posting frees nothing), and a waived open's writes: one zero-credit
+ * `waived` line naming the open, its use row, and a balance that does not move.
+ */
+describe.skipIf(!RUN)("rvm applicant waivers — against real Postgres", () => {
+  let client: DbClient;
+  let waivers: RvmWaiversRepository;
+  let unlocksRepo: UnlocksRepository;
+  const T = randomUUID().slice(0, 8);
+  const COMPANY = randomUUID();
+  const OTHER = randomUUID();
+  const companies = [COMPANY, OTHER];
+  const P_WAIVED = randomUUID(); // COMPANY's posting with a job waiver
+  const P_PLAIN = randomUUID(); // COMPANY's posting with none
+  const P_OTHER = randomUUID(); // OTHER's posting
+  const A = randomUUID(); // applied to P_WAIVED
+  const B = randomUUID(); // applied to P_PLAIN
+  const C = randomUUID(); // applied to P_OTHER only
+  const D = randomUUID(); // skipped P_WAIVED
+  const workers = [A, B, C, D];
+  const STAFF = randomUUID();
+  const tenant = (id: string) => id as TenantKey;
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL);
+    waivers = new RvmWaiversRepository(client.db);
+    unlocksRepo = new UnlocksRepository(client.db);
+    const { sql } = client;
+    for (const id of companies) {
+      await sql`
+        INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+        VALUES (${id}::uuid, 'employer', ${`enc:2750c-${T}-${id}`}, ${`hash:2750c-${T}-${id}`},
+                ${`enc:co-${T}`}, 'active')`;
+    }
+    for (const [id, owner] of [
+      [P_WAIVED, COMPANY],
+      [P_PLAIN, COMPANY],
+      [P_OTHER, OTHER],
+    ] as const) {
+      await sql`
+        INSERT INTO job_postings
+          (id, created_by, payer_id, org_label, role_title, vacancy_band, status, verification_status)
+        VALUES (${id}::uuid, ${owner}::uuid, ${owner}::uuid, 'Waiver Co', 'CNC Operator', '1',
+                'open', 'verified')`;
+    }
+    for (const id of workers) {
+      await sql`
+        INSERT INTO workers (id, phone_e164, phone_hash, status)
+        VALUES (${id}::uuid, ${`enc:2750c-${T}-${id}`}, ${`hash:2750c-${T}-${id}`}, 'active')`;
+    }
+    for (const [worker, posting, action] of [
+      [A, P_WAIVED, "applied"],
+      [B, P_PLAIN, "applied"],
+      [C, P_OTHER, "applied"],
+      [D, P_WAIVED, "skipped"],
+    ] as const) {
+      await sql`
+        INSERT INTO applications (job_posting_id, worker_id, action, source_surface)
+        VALUES (${posting}::uuid, ${worker}::uuid, ${action}, 'other')`;
+    }
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      const { sql } = client;
+      for (const id of companies) {
+        await sql`DELETE FROM rvm_waiver_uses WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM rvm_applicant_waivers WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM credit_ledger WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM unlocks WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM job_postings WHERE payer_id = ${id}::uuid`;
+      }
+      await sql`DELETE FROM workers WHERE phone_hash LIKE ${`hash:2750c-${T}-%`}`;
+      for (const id of companies) await sql`DELETE FROM payers WHERE id = ${id}::uuid`;
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  const set = (scope: "company" | "job", jobPostingId: string | null) =>
+    client.db.transaction((tx) =>
+      waivers.insert(tx as never, {
+        scope,
+        tenant: tenant(COMPANY),
+        jobPostingId,
+        source: "campus",
+        setByRef: STAFF,
+        setByLabelEnc: "enc:staff",
+        reason: "Drive partner",
+      }),
+    );
+
+  it("no waiver yet: nobody is freed", async () => {
+    expect((await waivers.waiversFor(tenant(COMPANY), workers)).size).toBe(0);
+  });
+
+  it("a job waiver frees only who APPLIED to that job, never a skip or another company's applicant", async () => {
+    const job = await set("job", P_WAIVED);
+    const freed = await waivers.waiversFor(tenant(COMPANY), workers);
+    expect([...freed.entries()]).toEqual([[A, { waiverId: job.id, scope: "job" }]]);
+    // The waiver is this company's: another company asking frees nobody.
+    expect((await waivers.waiversFor(tenant(OTHER), workers)).size).toBe(0);
+  });
+
+  it("one active waiver per job: a second one is refused by the index", async () => {
+    await expect(set("job", P_WAIVED)).rejects.toSatisfy(isUniqueViolation);
+  });
+
+  it("a company waiver frees every applicant of the company's jobs; the job waiver still wins for A", async () => {
+    const company = await set("company", null);
+    const freed = await waivers.waiversFor(tenant(COMPANY), workers);
+    expect(freed.get(A)?.scope).toBe("job");
+    expect(freed.get(B)).toEqual({ waiverId: company.id, scope: "company" });
+    expect(freed.has(C)).toBe(false);
+    expect(freed.has(D)).toBe(false);
+    await expect(set("company", null)).rejects.toSatisfy(isUniqueViolation);
+  });
+
+  it("the CHECKs: a job waiver needs its posting, and a company waiver may not name one", async () => {
+    await expect(set("job", null)).rejects.toThrow();
+    await expect(
+      client.db.transaction((tx) =>
+        waivers.insert(tx as never, {
+          scope: "company",
+          tenant: tenant(OTHER),
+          jobPostingId: P_OTHER,
+          source: "admin",
+          setByRef: STAFF,
+          setByLabelEnc: null,
+          reason: "x",
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("a waived open: one zero-credit `waived` line naming it, its use, and no balance moved", async () => {
+    const { sql } = client;
+    const freed = await waivers.waiversFor(tenant(COMPANY), [B]);
+    const waiverId = freed.get(B)!.waiverId;
+    const [unlock] = await sql<{ id: string }[]>`
+      INSERT INTO unlocks (payer_id, worker_id, status, granted_at, expires_at, routing_token_ref)
+      VALUES (${COMPANY}::uuid, ${B}::uuid, 'granted', now(), now() + interval '10 days',
+              ${randomUUID()}::uuid)
+      RETURNING id`;
+    await client.db.transaction(async (tx) => {
+      expect(await waivers.isActiveForShare(tx as never, waiverId)).toBe(true);
+      await unlocksRepo.appendLedger(tx as never, {
+        payerId: tenant(COMPANY),
+        delta: 0,
+        reason: "waived",
+        unlockId: unlock!.id,
+        idempotencyKey: `waived:${unlock!.id}`,
+      });
+      await waivers.recordUse(tx as never, {
+        waiverId,
+        unlockId: unlock!.id,
+        tenant: tenant(COMPANY),
+      });
+    });
+    const lines = await sql<{ reason: string; delta: number; lot_id: string | null; key: string }[]>`
+      SELECT reason, delta, lot_id, idempotency_key AS key FROM credit_ledger
+      WHERE payer_id = ${COMPANY}::uuid`;
+    expect(lines.map((l) => [l.reason, Number(l.delta), l.lot_id, l.key])).toEqual([
+      ["waived", 0, null, `waived:${unlock!.id}`],
+    ]);
+    expect((await waivers.usesOf([waiverId])).get(waiverId)).toBe(1);
+    // One open is waived at most once.
+    await expect(
+      client.db.transaction((tx) =>
+        waivers.recordUse(tx as never, { waiverId, unlockId: unlock!.id, tenant: tenant(COMPANY) }),
+      ),
+    ).rejects.toSatisfy(isUniqueViolation);
+  });
+
+  it("clearing: the row keeps who and why, frees nobody after, and a new waiver may be set", async () => {
+    const company = (await waivers.list({
+      tenant: tenant(COMPANY),
+      includeCleared: false,
+      after: null,
+      limit: 10,
+    })).find((w) => w.scope === "company")!;
+    expect(company.waivedOpens).toBe(1);
+    const cleared = await client.db.transaction((tx) =>
+      waivers.clear(tx as never, company.id, {
+        clearedByRef: STAFF,
+        clearedByLabelEnc: "enc:staff",
+        clearReason: "Drive over",
+        at: new Date(),
+      }),
+    );
+    expect(cleared).toMatchObject({ active: false, clearReason: "Drive over" });
+    expect(await client.db.transaction((tx) => waivers.isActiveForShare(tx as never, company.id))).toBe(
+      false,
+    );
+    // Clearing again changes nothing.
+    expect(
+      await client.db.transaction((tx) =>
+        waivers.clear(tx as never, company.id, {
+          clearedByRef: STAFF,
+          clearedByLabelEnc: null,
+          clearReason: "again",
+          at: new Date(),
+        }),
+      ),
+    ).toBeUndefined();
+    expect((await waivers.waiversFor(tenant(COMPANY), [B])).has(B)).toBe(false);
+    const again = await set("company", null);
+    expect(again.active).toBe(true);
+    const all = await waivers.list({
+      tenant: tenant(COMPANY),
+      includeCleared: true,
+      after: null,
+      limit: 10,
+    });
+    expect(all.filter((w) => w.scope === "company").map((w) => w.active)).toEqual([true, false]);
   });
 });

@@ -61,6 +61,7 @@ import { payerPhoneProofs } from "./payer-phone-proof";
 import { numbersRecomputeLog, numbersWeekly } from "./numbers-weekly";
 import { creditCallLog } from "./credit-call-log";
 import { creditRulesConfig } from "./credit-rules";
+import { rvmApplicantWaivers, rvmWaiverUses } from "./rvm-waivers";
 import { launchTestCohort, launchTestShares } from "./launch-test";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
@@ -198,6 +199,8 @@ export * from "./numbers-weekly";
 // #2755 item 8 — the out-of-credits call log (one row per call, a closed result code).
 export * from "./credit-call-log";
 export * from "./credit-rules";
+// #2750 item 5 - the placement team's waivers of the contact cost, and their uses.
+export * from "./rvm-waivers";
 // #2755 item 9 — launch test A: the factories, what each was sent, its payment link and result.
 export * from "./launch-test";
 
@@ -534,6 +537,9 @@ export const schema = {
   creditCallLog,
   // #2750 item 1 - the credit rules settings, one row per revision (read only while CREDIT_RULES_ROLLOUT is on).
   creditRulesConfig,
+  // #2750 item 5 - the placement team's waivers and the opens they paid for (read only while CREDIT_RULES_ROLLOUT is on).
+  rvmApplicantWaivers,
+  rvmWaiverUses,
   // #2755 item 9 - launch test A records (read and written only while ADMIN_NUMBERS_ENABLED is on).
   launchTestCohort,
   launchTestShares,
