@@ -257,7 +257,44 @@ NestJS boot assertion).
   `AI_EMBED_TEXTS_PER_MINUTE=90`; leaving it at 0 preserves today's behaviour so a paid tier is
   never throttled to a free-tier number.
 - **Payments** — `PAYMENTS_ENABLE_REAL` + the three Razorpay vars, all-or-nothing per
-  `assertPaymentsConfig` above.
+  `assertPaymentsConfig` above. ⚠ None of the four is bridged from a GitHub secret today:
+  `PAYMENTS_ENABLE_REAL` is declared in `docker-compose.staging.yml` (`:-false`) but is not in
+  `ci.yml`'s `env:` / `envs:`, and the three Razorpay secrets are not declared on the `api` service
+  at all (they are bare `.optional()` fields, so a `${VAR:-}` pass-through would crash boot; they
+  need `optionalSecret()` first, #858). Arming real payments in production needs that bridge in its
+  own reviewed PR first (`docs/runbooks/2749-switch-on.md`).
+- **Credit checkout rollout (#2749 item 10, ADR-0065)** — `CREDIT_CHECKOUT_ROLLOUT` (`off` |
+  `pilot` | `on`, key `credit_checkout`): do the new money rules apply to this company? Same
+  grammar, wiring and preflight as the rollout switches above (`${CREDIT_CHECKOUT_ROLLOUT:-off}` on
+  the `api` service only, bridged from the `production` secret of the same name; **absent =
+  `off`**). Asked only by `UnlockService` through `FeatureRolloutService.stateForPayer`, which is
+  lazy: `off` and `on` answer without resolving the tenant or reading the list; `pilot` resolves
+  the session (or path) payer's tenant key and reads `feature_pilot_payers` for
+  `credit_checkout`. What it gates (with `PAYMENTS_ENABLE_REAL` = live payments, as
+  `areRealPaymentsEnabled`):
+  - `POST /payer/credits/order` and `/verify` (real checkout): open only when payments are live
+    AND the rules apply to the company; otherwise the route's neutral 404.
+  - `POST /payer/credits` (free mock packs): open only when payments are NOT live AND the rules do
+    NOT apply to the company; otherwise the same 404 (hardening 1).
+  - `POST /payers/:payerId/credits` (ops grant, InternalServiceGuard): a 409
+    `reason: credit_checkout_rollout` for a company the rules apply to; everyone else as before
+    (hardening 2).
+  - A pilot list that cannot be read closes all three (the ops grant answers 503).
+  - Never gated: the Razorpay webhook, stored lots and orders, `GET /payer/credits` and the ledger.
+
+  `off` is today's routes exactly, with no extra read. Rollback is the secret set back to `off`
+  plus a redeploy. The switch-on order is `docs/runbooks/2749-switch-on.md`.
+- **Dropped products (#2749 item 11, ADR-0065)** — `RETIRED_PRODUCTS_OFF_SALE`, api only
+  (`booleanFromString`, default `false` = still on sale). `true` takes posting plans, boosts (the
+  retired `all_candidates` tier included), hiring capacity and quota top-ups off sale, and with them
+  every offer and coupon: they leave `GET /payer/pricing/catalog` (`products` and `prices`), and
+  every purchase route for them (`POST /payer/job-postings/:id/plan|boost|quota-topup`,
+  `POST /payer/capacity`, the ops `POST /job-postings/:id/plan|boost`) answers a bare 404. Credit
+  packs are unaffected; what was already bought stays readable and runs to its end date. One reader
+  (`apps/api/src/pricing/retired-products.ts`). Bridged through the GitHub `production` secret of
+  the same name (compose `${RETIRED_PRODUCTS_OFF_SALE:-false}` on `api`, `ci.yml` `env:` + `envs:`,
+  preflighted in `scripts/deploy/staging-deploy.sh`'s bridged-boolean list). It must be `true` **no
+  later than** real payments (hardening 7). Values lowercase `true`/`false`/`1`/`0`/empty only.
 - **Messaging / push** — `MESSAGING_ENABLE_REAL` (WhatsApp), `PUSH_ENABLE_REAL` (FCM, security
   alerts only in this phase — security pushes are exempt from the numeric daily ceiling).
 - **Post-completion chat companion (ADR-0044)** — `CHAT_COMPANION_ENABLED` (default off; off is

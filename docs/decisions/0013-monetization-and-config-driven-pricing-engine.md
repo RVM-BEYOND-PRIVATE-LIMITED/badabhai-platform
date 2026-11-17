@@ -11,6 +11,13 @@
   additively. ADR-0016 is a **capacity ADD-ON, not a subscription**, so the ADR-0010 §Decision-1
   subscription deferral stays **kept, not reopened**; this ADR's catalog/`resolvePrice` contract is
   unchanged.
+- **Amended by:** [ADR-0065](0065-credit-money-gst-validity-and-retired-products.md) (Proposed,
+  2026-11-17, #2749) — money in integer paise in new fields beside the rupee ones (§A.3's "integer
+  ₹" stays for the catalogue price); 18% GST on every credit pack; expiring credit lots spent
+  soonest-expiring first; pack validity, an on-sale date and a hidden pack; Decision B's posting
+  plans and boosts, ADR-0016's capacity, the quota top-ups, offers and coupons taken off sale by one
+  switch (`RETIRED_PRODUCTS_OFF_SALE`, default still on sale); real checkout rolled out company by
+  company (`CREDIT_CHECKOUT_ROLLOUT`).
 - **Date:** 2026-06-16
 - **Phase:** **Phase-2** (employer/agent posting, booster, candidate search / resume
   download, and the pricing engine are all in CLAUDE.md §8 "Deferred — do not build in
