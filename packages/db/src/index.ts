@@ -195,6 +195,8 @@ export {
 // and its `db:sync:agency-twins` CLI (apps/api) must run the SAME plan, diff and write, and the
 // api's posting publish runs the same `job_reach` materialization statement.
 export * from "./agency-twin";
+// #2887 — the bulk student move: the hidden-student SQL the reach and search statements splice in.
+export * from "./student-visibility";
 // The ops TARGET guard (DATABASE_URL decides, not NODE_ENV). Exported so a runner that lives in
 // `apps/api` — ADR-0050's `sync-agency-twins` CLI — is held to the SAME production-write rule as
 // every `db:*` runner here, rather than restating it. Pure; no IO.
