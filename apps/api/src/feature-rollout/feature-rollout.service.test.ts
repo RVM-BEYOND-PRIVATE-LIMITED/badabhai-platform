@@ -550,7 +550,10 @@ describe("the rollout switches and the pilot list have ONE reader each", () => {
   });
 
   it("feature_pilot_subjects is reached only through FeaturePilotSubjectsRepository, which only the service uses", () => {
+    // #2837 (R87) — and by the erasure's delete of a deleted login's rows, which can only remove a
+    // pilot place, never add one (pinned below).
     expect(filesNaming("featurePilotSubjects")).toEqual([
+      "common/login-keyed-rows.ts",
       "feature-rollout/feature-pilot-subjects.repository.ts",
     ]);
     expect(filesNaming("feature_pilot_subjects")).toEqual([]);
@@ -563,6 +566,14 @@ describe("the rollout switches and the pilot list have ONE reader each", () => {
       "feature-rollout/feature-rollout.module.ts",
       "feature-rollout/feature-rollout.service.ts",
     ]);
+  });
+
+  it("#2837: the erasure helper only DELETES feature_pilot_subjects rows: it cannot put anyone on a pilot", () => {
+    const erasure = codeOf(join(SRC, "common", "login-keyed-rows.ts"));
+    expect(erasure).toContain(".delete(featurePilotSubjects)");
+    for (const write of [".insert(", ".update(", ".execute("]) {
+      expect(erasure, write).not.toContain(write);
+    }
   });
 
   it("isSealedRolloutCaller has one caller, the service", () => {

@@ -18,6 +18,7 @@ import {
   type InstituteStudentStatus,
   type WorkerOriginKind,
 } from "@badabhai/db";
+import { eraseLoginKeyedRows } from "../common/login-keyed-rows";
 import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 
@@ -279,6 +280,10 @@ export class InstituteLinkRepository {
    * cascades his link, origin and applications and sets his billing rows' worker to null, as the
    * DPDP erasure's own delete does; with no account there are no sessions, files or transcripts
    * for `AccountDeletionService` to sweep. False when nothing was deleted.
+   *
+   * #2837 — when the row went, the rows keyed on his id that no cascade reaches go with it on `tx`
+   * ({@link eraseLoginKeyedRows}: a theme a pre-consent screen saved, an owner-added pilot place),
+   * after the row delete as on every erasure path. A row that stays keeps them: it is his account.
    */
   async deleteLinkCreatedPendingWorker(
     tx: Database,
@@ -324,7 +329,9 @@ export class InstituteLinkRepository {
         ),
       )
       .returning({ id: workers.id });
-    return rows.length > 0;
+    if (rows.length === 0) return false;
+    await eraseLoginKeyedRows(tx, { kind: "worker", id: workerId });
+    return true;
   }
 
   /**

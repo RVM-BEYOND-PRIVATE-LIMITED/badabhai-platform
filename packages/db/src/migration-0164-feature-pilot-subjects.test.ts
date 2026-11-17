@@ -152,9 +152,9 @@ describe("the operator instructions, the manifest and the slot", () => {
     );
   });
 
-  it("registers the lock in the schema contract, and NOT the table (nothing names it unswitched)", () => {
+  it("registers the table (every erasure names it since #2837) and the lock in the schema contract", () => {
     const ours = SCHEMA_REQUIREMENTS.filter((r) => r.migration === TAG);
-    expect(ours.map((r) => `${r.kind} ${r.table}`)).toEqual([`rls ${TABLE}`]);
+    expect(ours.map((r) => `${r.kind} ${r.table}`)).toEqual([`table ${TABLE}`, `rls ${TABLE}`]);
   });
 
   it("holds the only 0164 slot, after 0163, with a later `when`", () => {
