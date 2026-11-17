@@ -324,6 +324,7 @@ guard's fail-closed `role: null`).
 | Export (PII-free events / aggregates) | ✅ | ✅ | ❌ | ❌ |
 | Suspend / reinstate a payer | ✅ | ✅ | ❌ | ❌ |
 | Grant / adjust credits | ✅ | ✅ | ❌ | ❌ |
+| **Edit the credit rules (what a contact costs, the limits, welcome credits, the couldn't-reach windows, returned credits, refund rules, the goodwill cap)** — `manage_credit_rules`, #2750 item 12. Changes every company's price at once, with no deploy, so it is narrower than a grant | ✅ | ❌ | ❌ | ❌ |
 | Force-close a job posting | ✅ | ✅ | ❌ | ❌ |
 | Flag / unflag a worker | ✅ | ✅ | ❌ | ❌ |
 | Toggle a feature flag / kill-switch | ✅ | ❌ | ❌ | ❌ |

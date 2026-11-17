@@ -304,6 +304,11 @@ export const SUBJECT_TYPES = [
   // "what did this admin do" but not "what happened to this candidate", and the second question is
   // the one a taxonomy decision has to survive being asked years later.
   "skill_candidate",
+  // #2750 item 1 — one revision of the credit rules' settings (`credit_rules_config.id`). The
+  // subject of the `admin.action_performed` an edit emits (`credit_rules_changed`). Carries NO PII
+  // and no value: which keys moved, from what to what, and the admin's reason live on the
+  // `audit_logs` row of the same transaction. Not `payer`: a revision applies to every company.
+  "credit_rules_config",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;
