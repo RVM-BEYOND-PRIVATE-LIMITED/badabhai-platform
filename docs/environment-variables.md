@@ -272,18 +272,29 @@ NestJS boot assertion).
   the session (or path) payer's tenant key and reads `feature_pilot_payers` for
   `credit_checkout`. What it gates (with `PAYMENTS_ENABLE_REAL` = live payments, as
   `areRealPaymentsEnabled`):
-  - `POST /payer/credits/order` and `/verify` (real checkout): open only when payments are live
-    AND the rules apply to the company; otherwise the route's neutral 404.
+  - `POST /payer/credits/order` (a new real order): open only when payments are live AND the
+    rules apply to the company; otherwise the route's neutral 404.
+  - `POST /payer/credits/verify`: gated on payments being live only, NOT on this switch (it
+    creates no order; the signature and the order's tenant bind it), so a paid order still
+    settles after a rollback. It settles only a payment Razorpay reports `captured`.
   - `POST /payer/credits` (free mock packs): open only when payments are NOT live AND the rules do
     NOT apply to the company; otherwise the same 404 (hardening 1).
   - `POST /payers/:payerId/credits` (ops grant, InternalServiceGuard): a 409
+    `reason: real_payments_live` for every company while payments are live; otherwise a 409
     `reason: credit_checkout_rollout` for a company the rules apply to; everyone else as before
     (hardening 2).
-  - A pilot list that cannot be read closes all three (the ops grant answers 503).
-  - Never gated: the Razorpay webhook, stored lots and orders, `GET /payer/credits` and the ledger.
+  - `GET /payer/credits` carries `checkout` (`real` | `free` | `none`) from the same gates, for
+    the front ends.
+  - A pilot list that cannot be read closes the order and the free packs, and the ops grant
+    answers 503 (409 while payments are live).
+  - Not gated by this switch: the Razorpay webhook (its guard needs `RAZORPAY_WEBHOOK_SECRET`, so
+    it answers 401 to every delivery while payments are not live), the signup free-tier grant,
+    the admin grant, stored lots and orders, and the ledger.
 
-  `off` is today's routes exactly, with no extra read. Rollback is the secret set back to `off`
-  plus a redeploy. The switch-on order is `docs/runbooks/2749-switch-on.md`.
+  `off` is today's routes exactly, with no extra read. Rollback is this switch back to `off` with
+  `PAYMENTS_ENABLE_REAL` LEFT ON (new orders stop, paid ones still settle); turning real payments
+  off strands any payment still in flight. The switch-on order and the rollback are
+  `docs/runbooks/2749-switch-on.md`.
 - **Dropped products (#2749 item 11, ADR-0065)** — `RETIRED_PRODUCTS_OFF_SALE`, api only
   (`booleanFromString`, default `false` = still on sale). `true` takes posting plans, boosts (the
   retired `all_candidates` tier included), hiring capacity and quota top-ups off sale, and with them
