@@ -76,6 +76,30 @@ A worker who was never moved is untouched.
 - **On before the migration:** the hot reads fall back to their off form, and the routes answer 503.
 - **Order:** apply the migration before turning the switch on.
 
+### 2.6 The import (step 3, `apps/api/src/workers/import-campus-students.cli.ts`)
+
+The CLI reads Campus's export (bundle format v1, RVMBeyond_jobportal#197): it decrypts it with the passphrase from `CAMPUS_EXPORT_PASSPHRASE`, checks every file's hash against the manifest, and refuses a bad line with its line number. It runs as a dry run by default. Writing needs `STUDENT_MOVE_ENABLED=true`, the 0182 tables and, against production, the ops guard's flag and environment pair. Each student is decided, then written in his own transaction with his ledger row.
+
+- **Held, nothing written:**
+  - A phone that is not his own usable mobile (`phone_missing`, `phone_not_mobile`, `phone_shared`, `phone_company_number`). One phone is one person, and the placement team resolves those cases.
+  - Under 18 by Campus's `adult` (`under_18`).
+  - **A phone that already belongs to a BadaBhai worker the import did not create** (`already_badabhai_worker`). An existing worker is never hidden, overwritten or taken over.
+  - A phone another moved student holds (`phone_shared`).
+  - A phone that changed on Campus since the move (`phone_changed`). A login never moves without the person.
+- **New student:**
+  - A `pending` worker. No `worker.created` is emitted, and no welcome or grant is sent; his first sign-in activates the row.
+  - Origin `institute`/`rvm`.
+  - His institute link, but only when Campus sent a student reference.
+  - A confirmed profile: his own skill and software names, total years, and his role and domain as labels.
+  - His match skills as `worker_skill` rows with source `ops`, which a rebuild keeps and his own skill edit clears. Only certain mappings are used; the rest go to the report.
+  - His certificates (approved RVM CAD certifications first) and his own work history.
+  - The imported consent (§2.4).
+  - Visibility OFF.
+- **Same record again:** `unchanged`, by the record's content hash.
+- **Changed record:** only the fields not marked as his own edit are rewritten, and only on rows the import wrote. Consent and visibility are never touched again.
+- **Rollback (`--rollback <batch>`):** removes the workers that run created who never signed in. Removing the worker removes his profile, consent, markers and visibility with him. A worker who signed in since is kept and reported. An updated student's changes are reported, not reverted.
+- **Report:** counts by action and reason, the manifest's counts, the problem list's kinds, and every unmapped value with how many students carry it, for the owner to rule on. It carries ids only, never a name or a phone.
+
 ## 3. Consequences
 
 - `job_reach` can now depend on an admin decision. A student hidden after a posting was published loses his rows at his next reconcile or the posting's next materialization.
