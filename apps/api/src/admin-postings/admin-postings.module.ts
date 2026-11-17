@@ -8,6 +8,9 @@ import { JobPostingsModule } from "../job-postings/job-postings.module";
 import { AdminPostingsController } from "./admin-postings.controller";
 import { AdminPostingsRepository } from "./admin-postings.repository";
 import { AdminPostingsService } from "./admin-postings.service";
+import { AdminPostingWorkerVisibilityController } from "./admin-posting-worker-visibility.controller";
+import { AdminPostingWorkerVisibilityRepository } from "./admin-posting-worker-visibility.repository";
+import { AdminPostingWorkerVisibilityService } from "./admin-posting-worker-visibility.service";
 
 /**
  * #2566 — the ADMIN posting-control write surface.
@@ -29,7 +32,13 @@ import { AdminPostingsService } from "./admin-postings.service";
     // #2750 item 4 — welcome credits after an approval. No dependency back.
     CreditRulesModule,
   ],
-  controllers: [AdminPostingsController],
-  providers: [AdminPostingsRepository, AdminPostingsService],
+  // #2891 — BadaBhai worker visibility of Campus-origin postings, under the same capability.
+  controllers: [AdminPostingsController, AdminPostingWorkerVisibilityController],
+  providers: [
+    AdminPostingsRepository,
+    AdminPostingsService,
+    AdminPostingWorkerVisibilityRepository,
+    AdminPostingWorkerVisibilityService,
+  ],
 })
 export class AdminPostingsModule {}
