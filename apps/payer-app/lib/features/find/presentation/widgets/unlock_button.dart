@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_haptics.dart';
+import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_shake.dart';
 
@@ -10,6 +11,13 @@ const String kUnlockLabel = 'Unlock';
 
 /// The CTA on a card the payer has already unlocked.
 const String kViewLabel = 'View';
+
+/// #2750 — the open CTA at the price the quote returned. No quote keeps today's label.
+String unlockCtaLabel(int? credits) {
+  if (credits == null) return kUnlockLabel;
+  if (credits == 0) return 'Open (free)';
+  return 'Open for $credits ${credits == 1 ? 'credit' : 'credits'}';
+}
 
 /// How one unlock attempt ended — what the card's [UnlockButton] reacts to.
 enum UnlockOutcome {
@@ -21,6 +29,9 @@ enum UnlockOutcome {
 
   /// The server's neutral refusal (no credit, a cap, unavailable).
   denied,
+
+  /// #2750 — the honest "you need N credits, you have M" answer.
+  insufficient,
 
   /// The request never completed (an outage). The list stays; Retry is a tap.
   failed;
@@ -45,13 +56,25 @@ enum UnlockOutcome {
 /// A failed attempt ([UnlockOutcome.isFailure]) gives the error haptic and
 /// shakes the enclosing [BbShake] — the card — once (none under reduced motion).
 class UnlockButton extends StatefulWidget {
-  const UnlockButton({super.key, required this.onUnlock, this.busy = false});
+  const UnlockButton({
+    super.key,
+    required this.onUnlock,
+    this.busy = false,
+    this.credits,
+    this.affordable = true,
+  });
 
   /// One attempt: the confirm dialog, then the request.
   final Future<UnlockOutcome> Function() onUnlock;
 
   /// A request for this card is in flight.
   final bool busy;
+
+  /// #2750 — the quoted credits for this card (null = no quote, today's button).
+  final int? credits;
+
+  /// False when the quote is beyond the payer's spendable balance.
+  final bool affordable;
 
   @override
   State<UnlockButton> createState() => _UnlockButtonState();
@@ -82,13 +105,14 @@ class _UnlockButtonState extends State<UnlockButton> {
     return IgnorePointer(
       ignoring: _running,
       child: BbButton(
-        label: kUnlockLabel,
+        label: unlockCtaLabel(widget.credits),
         iconLeft: Icons.lock_rounded,
         // md (44px), the paid CTA's floor (#1082).
         size: BbButtonSize.md,
         block: true,
         loading: widget.busy,
-        onPressed: _attempt,
+        // An unaffordable open is disabled; the Starter pack sits beside it.
+        onPressed: widget.affordable ? _attempt : null,
       ),
     );
   }
@@ -106,6 +130,9 @@ class CandidateCardAction extends StatelessWidget {
     required this.onView,
     this.busy = false,
     this.viewIcon = Icons.chat_bubble_rounded,
+    this.credits,
+    this.affordable = true,
+    this.onOpenCredits,
   });
 
   final bool unlocked;
@@ -120,9 +147,36 @@ class CandidateCardAction extends StatelessWidget {
   /// The View button's icon — the relay chat on the real cards.
   final IconData viewIcon;
 
+  /// #2750 — this card's quoted credits / affordability.
+  final int? credits;
+  final bool affordable;
+
+  /// #2750 — the Starter pack offer's destination (the Credits tab).
+  final VoidCallback? onOpenCredits;
+
   @override
   Widget build(BuildContext context) {
-    if (!unlocked) return UnlockButton(busy: busy, onUnlock: onUnlock);
+    if (!unlocked) {
+      final Widget unlock = UnlockButton(
+        busy: busy,
+        credits: credits,
+        affordable: affordable,
+        onUnlock: onUnlock,
+      );
+      if (affordable || onOpenCredits == null) return unlock;
+      return Row(
+        children: <Widget>[
+          Expanded(child: unlock),
+          const SizedBox(width: AppSpacing.s2),
+          BbButton(
+            label: 'Starter pack',
+            variant: BbButtonVariant.secondary,
+            size: BbButtonSize.md,
+            onPressed: onOpenCredits,
+          ),
+        ],
+      );
+    }
     return BbButton(
       label: kViewLabel,
       size: BbButtonSize.md,

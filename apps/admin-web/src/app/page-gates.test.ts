@@ -68,6 +68,19 @@ const walk = (dir: string): string[] =>
  */
 const SESSION_ONLY_ROUTES = ["admin/me", "admin/me/display-prefs"];
 
+/**
+ * Routes whose API half is FINAL but not on this branch yet (#2884).
+ *
+ * `/admin/numbers/out-of-credits` and its POST are #2755 part C's; the issue says their shapes are
+ * final and part C is in its own PR. This portal is built against them now, so this fence would
+ * otherwise fail for a route that exists everywhere except this checkout. The entry is consulted
+ * ONLY when no route is found, and the page is still required to gate on the capability the route
+ * will carry — so when part C lands this file needs no edit and the real check resumes.
+ */
+const PENDING_API_ROUTES: ReadonlyMap<string, AdminCapability> = new Map([
+  ["/admin/numbers/out-of-credits", "read_business_numbers"],
+]);
+
 interface ApiRoute {
   segments: string[];
   /** `null` = authenticated but not capability-gated (e.g. `GET /admin/me`). */
@@ -339,7 +352,9 @@ describe("every lib read maps to an API route", () => {
     for (const [name, rs] of reads) {
       for (const r of rs.filter((x) => !x.public)) {
         it(`${relative(SRC, module)}.${name} → ${r.path}`, () => {
-          expect(routeFor(routes, r.path), `no API GET route serves ${r.path}`).toBeDefined();
+          const route = routeFor(routes, r.path);
+          if (!route && PENDING_API_ROUTES.has(r.path)) return;
+          expect(route, `no API GET route serves ${r.path}`).toBeDefined();
         });
       }
     }
@@ -354,6 +369,16 @@ describe("every page is gated on every capability its reads need (or degrades th
       expect(a.directFetches, "reads must go through lib/ so this test can see them").toEqual([]);
       for (const r of a.reads.filter((x) => !x.public)) {
         const route = routeFor(routes, r.path);
+        if (!route) {
+          const pendingCap = PENDING_API_ROUTES.get(r.path);
+          if (pendingCap) {
+            expect(
+              a.gates.has(pendingCap),
+              `${name} reads ${r.path}, whose API half is pending, but does not gate on ${pendingCap}`,
+            ).toBe(true);
+            continue;
+          }
+        }
         expect(route, `${name} reads ${r.path}, which no API GET route serves`).toBeDefined();
         const cap = route!.capability as AdminCapability | null;
         if (cap === null || a.gates.has(cap)) continue;

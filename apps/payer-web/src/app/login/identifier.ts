@@ -13,6 +13,8 @@
  * digits ("Unit 1234567890 Tools") stays a name.
  */
 
+import { e164PhoneSchema, emailSchema } from "@badabhai/validators";
+
 /** Digits in an Indian national mobile number. */
 const NATIONAL_DIGITS = 10;
 /** Only phone characters — what a typed or pasted phone number is made of. */
@@ -27,4 +29,22 @@ export function normalizeLoginIdentifier(raw: string): string {
   if (digits.length === NATIONAL_DIGITS + 2 && digits.startsWith("91")) digits = digits.slice(2);
   else if (digits.length === NATIONAL_DIGITS + 1 && digits.startsWith("0")) digits = digits.slice(1);
   return digits.length === NATIONAL_DIGITS ? `+91${digits}` : value;
+}
+
+/** The contact a code sign-in carries: exactly one of `email` / `phone` (E.164). */
+export type LoginContact = { email: string } | { phone: string };
+
+/**
+ * The contact to send to `POST /payer/login/request` and `POST /payer/login/verify` (#2754).
+ * Uses {@link normalizeLoginIdentifier} so an Indian mobile typed the usual way becomes E.164;
+ * an email is trimmed/lowercased. Anything else (a company name, a malformed number) is `null`:
+ * the code door takes only an email or a phone.
+ */
+export function normalizeLoginContact(raw: string): LoginContact | null {
+  const value = normalizeLoginIdentifier(raw);
+  const email = emailSchema.safeParse(value);
+  if (email.success) return { email: email.data };
+  const phone = e164PhoneSchema.safeParse(value);
+  if (phone.success) return { phone: phone.data };
+  return null;
 }

@@ -171,6 +171,7 @@ class FindCubit extends Cubit<FindState> {
         // An unlock still in flight keeps its spinner across a refresh.
         unlocking: state.unlocking,
       ));
+      await _loadQuotes(applicants, generation);
       return null;
     } catch (e) {
       if (isClosed || generation != _generation) return null;
@@ -201,6 +202,7 @@ class FindCubit extends Cubit<FindState> {
         // An unlock still in flight keeps its spinner across a job switch.
         unlocking: state.unlocking,
       ));
+      await _loadQuotes(applicants, generation);
     } catch (e) {
       if (isClosed || generation != _generation) return;
       emit(FindState(
@@ -229,6 +231,25 @@ class FindCubit extends Cubit<FindState> {
       // An unlock still in flight keeps its spinner across a job switch.
       unlocking: state.unlocking,
     ));
+    await _loadQuotes(applicants, generation);
+  }
+
+  /// #2750 — the page's quotes, read AFTER the cards are on screen. Soft: an
+  /// outage (or the route's 404 for a company outside the rules) simply leaves
+  /// today's button; the feed never fails because a quote did.
+  Future<void> _loadQuotes(List<Applicant> applicants, int generation) async {
+    final List<String> ids = <String>{
+      for (final Applicant a in applicants) a.workerId,
+    }.take(50).toList(growable: false);
+    if (ids.isEmpty) return;
+    try {
+      final UnlockQuotes? quotes = await _api.fetchUnlockQuotes(ids);
+      if (isClosed || generation != _generation) return;
+      emit(state.copyWith(quotes: quotes));
+    } catch (_) {
+      if (isClosed || generation != _generation) return;
+      emit(state.copyWith(quotes: null));
+    }
   }
 
   /// REAL unlock: spend a credit against the opaque worker UUID. On a grant the
@@ -292,8 +313,22 @@ class FindCubit extends Cubit<FindState> {
                   : a)
               .toList(growable: false)
           : null,
+      quotes: _quotesAfter(workerId, result),
     ));
     return result;
+  }
+
+  /// #2750 — fold a grant / refusal into the page's quotes without a second read.
+  UnlockQuotes? _quotesAfter(String workerId, UnlockResult result) {
+    final UnlockQuotes? current = state.quotes;
+    if (current != null) return current.afterUnlock(workerId, result);
+    if (result.insufficient) {
+      return UnlockQuotes(
+        creditsByWorker: const <String, int>{},
+        creditsAvailable: result.creditsAvailable!,
+      );
+    }
+    return current;
   }
 
   /// Mark a MOCK candidate unlocked in the local list (call after the spend).
@@ -323,6 +358,7 @@ class FindState extends Equatable {
     this.failure,
     this.switchingJobId,
     this.unlocking = const <String>{},
+    this.quotes,
   });
 
   final FindStatus status;
@@ -352,6 +388,18 @@ class FindState extends Equatable {
   /// progress and takes no tap, #2593).
   final Set<String> unlocking;
 
+  /// #2750 — the page's contact-cost quotes, or null when the read failed / the
+  /// company is outside the credit rules (the cards then keep today's button).
+  final UnlockQuotes? quotes;
+
+  /// The quoted credits for [workerId], or null when there is no quote.
+  int? quotedCreditsFor(String workerId) => quotes?.creditsFor(workerId);
+
+  bool quoteUnaffordableFor(String workerId) =>
+      quotes?.unaffordableFor(workerId) ?? false;
+
+  static const Object _keep = Object();
+
   /// True when rendering the REAL per-job feed (a job is selected).
   bool get isRealFeed => selectedJob != null;
 
@@ -366,6 +414,7 @@ class FindState extends Equatable {
     PayerFailure? failure,
     String? switchingJobId,
     Set<String>? unlocking,
+    Object? quotes = _keep,
   }) {
     return FindState(
       status: status ?? this.status,
@@ -376,6 +425,7 @@ class FindState extends Equatable {
       failure: failure ?? this.failure,
       switchingJobId: switchingJobId ?? this.switchingJobId,
       unlocking: unlocking ?? this.unlocking,
+      quotes: identical(quotes, _keep) ? this.quotes : quotes as UnlockQuotes?,
     );
   }
 
@@ -389,5 +439,6 @@ class FindState extends Equatable {
         failure,
         switchingJobId,
         unlocking,
+        quotes,
       ];
 }

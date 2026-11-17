@@ -35,13 +35,14 @@ export interface NavSection {
 }
 
 /**
- * THE SIDEBAR (A6, #2576) — five groups, at most 15 items, so the whole nav fits a 1080p screen
+ * THE SIDEBAR (A6, #2576) — five groups, at most 17 items, so the whole nav fits a 1080p screen
  * with no scrolling (it was 19, which pushed Account and Sign out below the fold; those two now
  * live in the topbar's avatar menu). Workers is Candidates; Companies holds Agencies (a Kind
  * filter); Agency match skills is a tab on the agency posting, under Postings. Routes, API paths
  * and capability keys did not move with the labels — the old addresses redirect
  * (next.config.mjs) — and every item's capability is still its page's own gate
- * (`nav-model.test.ts` reads each page's source to hold that).
+ * (`nav-model.test.ts` reads each page's source to hold that). Numbers (#2884) is the
+ * seventeenth: it sits under Finance, where the commercial figures live.
  */
 export const NAV: NavSection[] = [
   {
@@ -89,6 +90,24 @@ export const NAV: NavSection[] = [
         label: "Payment orders",
         icon: "receipt",
         capability: "read_entities",
+      },
+      // #2878 — the brief's credit numbers as settings. `manage_credit_rules` mirrors both
+      // `/admin/credit-rules` routes: super_admin only, because one edit changes every
+      // company's price at once.
+      {
+        href: "/credit-rules",
+        label: "Credit rules",
+        icon: "gear",
+        capability: "manage_credit_rules",
+      },
+      // #2755 / #2884 — the weekly business numbers and the two pre-launch test records.
+      // `read_business_numbers` mirrors every route under `/admin/numbers` and
+      // `/admin/launch-tests`.
+      {
+        href: "/numbers",
+        label: "Numbers",
+        icon: "chart-donut",
+        capability: "read_business_numbers",
       },
     ],
   },
@@ -162,7 +181,7 @@ export const NAV: NavSection[] = [
 ];
 
 /** The most items the sidebar may list (A6 acceptance: it fits 1920×1080 with no scrolling). */
-export const NAV_ITEM_LIMIT = 15;
+export const NAV_ITEM_LIMIT = 17;
 
 /**
  * Does `pathname` sit at or below `href`? Exact for the dashboard, prefix elsewhere — but on a

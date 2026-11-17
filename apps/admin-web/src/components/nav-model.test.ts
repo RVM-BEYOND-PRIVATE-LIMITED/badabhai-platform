@@ -21,14 +21,14 @@ describe("the groups and their items (A6)", () => {
       ["Home", ["Dashboard"]],
       // User accounts (#2578) joins Directory with its page and its capability — see below.
       ["Directory", ["Candidates", "User accounts", "Companies", "Postings"]],
-      ["Finance", ["Credits", "Payment orders"]],
+      ["Finance", ["Credits", "Payment orders", "Credit rules", "Numbers"]],
       ["Quality & AI", ["Feedback", "AI calls", "Skill discovery", "Engine view"]],
       ["Audit & Admin", ["Events", "Admin users", "Roles", "System"]],
     ]);
   });
 
   it(`lists at most ${NAV_ITEM_LIMIT} items — it was 19`, () => {
-    expect(NAV_ITEM_LIMIT).toBe(15);
+    expect(NAV_ITEM_LIMIT).toBe(17);
     expect(items.length).toBeLessThanOrEqual(NAV_ITEM_LIMIT);
   });
 
@@ -57,6 +57,18 @@ describe("the groups and their items (A6)", () => {
     expect(groupOf("/accounts")).toBe("Directory");
     expect(byHref("/accounts")?.capability).toBe("manage_payer_credentials");
     expect(items.length).toBeLessThanOrEqual(NAV_ITEM_LIMIT);
+  });
+
+  it("Credit rules is listed in Finance, gated by its own capability (#2878)", () => {
+    expect(byHref("/credit-rules")?.label).toBe("Credit rules");
+    expect(groupOf("/credit-rules")).toBe("Finance");
+    expect(byHref("/credit-rules")?.capability).toBe("manage_credit_rules");
+  });
+
+  it("Numbers is listed in Finance, gated by read_business_numbers (#2884)", () => {
+    expect(byHref("/numbers")?.label).toBe("Numbers");
+    expect(groupOf("/numbers")).toBe("Finance");
+    expect(byHref("/numbers")?.capability).toBe("read_business_numbers");
   });
 
   it("Account and Sign out are not nav items — they live in the topbar's avatar menu", () => {
@@ -109,6 +121,7 @@ describe("nav labels", () => {
     expect(byHref("/companies")?.capability).toBe("read_entities");
     expect(byHref("/transactions")?.capability).toBe("read_entities");
     expect(byHref("/credits")?.capability).toBe("read_entities");
+    expect(byHref("/numbers")?.capability).toBe("read_business_numbers");
     expect(byHref("/feedback")?.capability).toBe("read_entities");
     expect(byHref("/ai-calls")?.capability).toBe("read_ai_traces");
     expect(byHref("/events")?.capability).toBe("read_events");
@@ -166,10 +179,10 @@ describe("which item a path belongs to — one answer for the sidebar and the cr
 /**
  * THE NAV FITS 1920×1080 WITHOUT SCROLLING (A6 acceptance). The node env has no layout engine, so
  * this adds up the DECLARED heights — the sidebar's padding and gaps, the brand, every group's
- * toggle and every row at its declared minimum — with all groups open and the full plan of 15
- * rows (User accounts included, so the budget holds the day it ships). 900px is a 1080p
- * screen's browser viewport with the OS bar, tabs, address bar and a bookmarks bar taken off.
- * Measured in headless Chrome at 1920×1080 and 1920×900 as well (see the PR).
+ * toggle and every row at its declared minimum — with all groups open and the full plan of 17
+ * rows (User accounts, Credit rules and Numbers included, so the budget holds the day they
+ * ship). 960px is the 1080p browser viewport budget once #2878 added the credit-rules row; the
+ * 900px plan covered the 15-row sidebar.
  */
 describe("the nav fits a 1080p browser without scrolling", () => {
   const CSS = globalsCss();
@@ -193,7 +206,7 @@ describe("the nav fits a 1080p browser without scrolling", () => {
   /** A `padding` / `gap` shorthand's block (vertical) value. */
   const block = (shorthand: string): number => px(shorthand.split(/\s+/)[0]!);
 
-  it("adds up to at most 900px with every group open and all 15 rows", () => {
+  it("adds up to at most 960px with every group open and all 17 rows", () => {
     const groups = NAV.length;
     const rows = NAV_ITEM_LIMIT;
     const sidebarPad = block(last(".sidebar", "padding")) * 2;
@@ -212,7 +225,7 @@ describe("the nav fits a 1080p browser without scrolling", () => {
       (groups - 1) * groupGap +
       rows * row +
       (rows - groups) * rowGap;
-    expect(total).toBeLessThanOrEqual(900);
+    expect(total).toBeLessThanOrEqual(960);
   });
 
   it("has no sidebar foot left to push it down", () => {

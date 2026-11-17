@@ -59,6 +59,7 @@ interface FieldErrors {
 const PROPS: {
   orgName: string;
   phoneLast4: string | null;
+  phoneProof?: { proven: boolean } | null;
 } = {
   orgName: "Acme Tools",
   phoneLast4: "1234",
@@ -319,5 +320,27 @@ describe("AccountForm — a11y wiring", () => {
     const phone = findAll(tree, Input).find((el) => p(el).id === "account-phone")!;
     expect(p(phone)["aria-invalid"]).toBeUndefined();
     expect(p(phone)["aria-describedby"]).toBeUndefined();
+  });
+});
+
+/**
+ * #2754 — the confirm-your-number affordance sits beside the contact phone, and is ABSENT when
+ * `GET /payer/me/phone-proof` answered 404 (the switch is off).
+ */
+describe("AccountForm — phone proof (#2754)", () => {
+  it("renders no prompt when the status is absent (404 / switch off)", async () => {
+    const { PhoneProofPrompt } = await import("./phone-proof-prompt");
+    expect(findAll(render({}), PhoneProofPrompt)).toHaveLength(0);
+  });
+
+  it("proven false asks to confirm; proven true shows the confirmed state", async () => {
+    const { PhoneProofPrompt } = await import("./phone-proof-prompt");
+    const unproven = render({}, { phoneProof: { proven: false } });
+    const prompt = findAll(unproven, PhoneProofPrompt)[0]!;
+    expect(p(prompt!).proven).toBe(false);
+    expect(p(prompt!).phoneLast4).toBe("1234");
+
+    const proven = render({}, { phoneProof: { proven: true } });
+    expect(p(findAll(proven, PhoneProofPrompt)[0]!).proven).toBe(true);
   });
 });

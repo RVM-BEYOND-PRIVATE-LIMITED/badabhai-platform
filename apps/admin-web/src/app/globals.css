@@ -541,7 +541,9 @@ details[open] > summary > .disclosure__caret {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
-  padding: var(--space-5) var(--space-4);
+  /* 16px block padding, not 20: the 17-row sidebar (#2878's Credit rules + #2884's Numbers)
+     keeps the declared 960px budget at a 1080p browser viewport. */
+  padding: var(--space-4) var(--space-4);
   position: sticky;
   top: 0;
   height: 100dvh;

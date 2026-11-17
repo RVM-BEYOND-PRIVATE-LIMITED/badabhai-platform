@@ -123,6 +123,13 @@ export type RequestCodeResult =
   | { ok: false; error: string };
 
 /**
+ * The contact a code sign-in carries (#2754): an email, or an E.164 phone. `POST
+ * /payer/login/request` and `/verify` accept either; a phone only receives an SMS when a company
+ * has PROVEN it, and an email wins if an API caller sends both.
+ */
+export type LoginCodeContact = { email: string } | { phone: string };
+
+/**
  * The seam. The app never branches on the provider. All methods run SERVER-SIDE
  * only (cookies + secrets).
  *
@@ -132,8 +139,11 @@ export type RequestCodeResult =
  * signs in with a password (#2587), including the forced first change of a temporary one.
  */
 export interface PayerAuthProvider {
-  /** Step 1: request a login code for an email. NO-ENUMERATION on the result. */
-  requestCode(input: { email: string }): Promise<RequestCodeResult>;
+  /**
+   * Step 1: request a login code for an email or an E.164 phone (#2754). NO-ENUMERATION on the
+   * result — an unproven/unknown phone gets the same neutral answer and no SMS.
+   */
+  requestCode(input: LoginCodeContact): Promise<RequestCodeResult>;
   /**
    * Self-serve signup (AUTH-1). Creates the account with its stored `role` and funnels
    * into the EXACT SAME OTP `code` step the login uses — so the return shape is the same
@@ -149,7 +159,7 @@ export interface PayerAuthProvider {
     phone?: string;
   }): Promise<RequestCodeResult>;
   /** Step 2: verify the code and establish a session. NO-ORACLE on failure. */
-  verifyCode(input: { email: string; code: string }): Promise<LoginResult>;
+  verifyCode(input: LoginCodeContact & { code: string }): Promise<LoginResult>;
   /**
    * Password sign-in (#2587): `identifier` is an email, an E.164 phone or the exact org name.
    * With `newPassword` it is the forced first change of a temporary password (#2628): the
