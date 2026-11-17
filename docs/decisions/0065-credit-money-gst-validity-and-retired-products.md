@@ -119,7 +119,7 @@ The switch decides capabilities, never stored state: setting it back to `off` cl
 - **Invoices** (#2749 part 4, item 8): `seller_tax_config`, `invoices`, the gap-free number per financial year and the PDF. It needs the seller of record's details (item 1), which Akshit must name. Real payments do not switch on before it ships.
 - **The app's web checkout link** (item 12): a one-time, short-lived link from the mobile app to web checkout. CLAUDE.md §12 keeps payment screens out of the apps.
 - **Moving catalogue edits behind admin auth** (hardening 11): `PUT /pricing/catalog` still rides the shared ops token.
-- **Bridging the Razorpay secrets to production**: `PAYMENTS_ENABLE_REAL` and the three Razorpay secrets are not bridged from GitHub secrets to the container today (§7).
+- **Bridging the Razorpay secrets to production**: `PAYMENTS_ENABLE_REAL` and the three Razorpay secrets are bridged from the GitHub `production` environment secrets by #2749 part 5b, with a deploy preflight that refuses an unsafe combination (§7).
 - **A refund path** (BB-D-05) and the reconciliation jobs (#2773, #2774).
 
 ## 6. Open owner questions (each built with the default)

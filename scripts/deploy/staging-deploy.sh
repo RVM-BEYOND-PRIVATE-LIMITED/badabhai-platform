@@ -340,7 +340,7 @@ for _flag in "${BRIDGED_BOOLEAN_FLAGS[@]}"; do
   case "${!_flag-}" in
     "" | true | false | 1 | 0) ;;
     *)
-      echo "::error::${_flag} must be exactly true, false, 1, 0 or empty (lowercase). Set the production secret to a literal (gh secret set ${_flag} --env production --body false) and re-run. Nothing was deployed."
+      echo "::error::${_flag} must be exactly true, false, 1, 0 or empty (lowercase). Set the production secret to the lowercase literal you meant (gh secret set ${_flag} --env production, the value entered at the prompt) and re-run. Nothing was deployed."
       _bad_flags=1
       ;;
   esac
@@ -393,12 +393,12 @@ case "${PAYMENTS_ENABLE_REAL-}" in
     case "${RETIRED_PRODUCTS_OFF_SALE-}" in
       true | 1) ;;
       *)
-        echo "::error::PAYMENTS_ENABLE_REAL is true but RETIRED_PRODUCTS_OFF_SALE is not: the dropped products (plans, boosts, capacity, top-ups) have no real-payments path and must be off sale no later than real money (ADR-0065 hardening 7). Set RETIRED_PRODUCTS_OFF_SALE to true first (gh secret set RETIRED_PRODUCTS_OFF_SALE --env production --body true), or set PAYMENTS_ENABLE_REAL to false, and re-run. Nothing was deployed."
+        echo "::error::PAYMENTS_ENABLE_REAL is true but RETIRED_PRODUCTS_OFF_SALE is not: the dropped products (plans, boosts, capacity, top-ups) have no real-payments path and must be off sale no later than real money (ADR-0065 hardening 7). Set RETIRED_PRODUCTS_OFF_SALE to true (gh secret set RETIRED_PRODUCTS_OFF_SALE --env production --body true) and re-run. Do not turn PAYMENTS_ENABLE_REAL off to get past this: paid orders would stop settling (docs/runbooks/2749-switch-on.md, Rollback). Nothing was deployed."
         _bad_flags=1
         ;;
     esac
     if [ -n "${_missing_list}" ]; then
-      echo "::error::PAYMENTS_ENABLE_REAL is true but these production secrets are empty: ${_missing_list}. The api would refuse to boot. Set them (gh secret set NAME --env production, the value entered at the prompt) or set PAYMENTS_ENABLE_REAL to false, and re-run. Nothing was deployed."
+      echo "::error::PAYMENTS_ENABLE_REAL is true but these production secrets are empty: ${_missing_list}. The api would refuse to boot. Set them (gh secret set NAME --env production, the value entered at the prompt) and re-run. Do not turn PAYMENTS_ENABLE_REAL off to get past this: paid orders would stop settling (docs/runbooks/2749-switch-on.md, Rollback). Nothing was deployed."
       _bad_flags=1
     else
       case "${_payments_key}" in
@@ -409,16 +409,18 @@ case "${PAYMENTS_ENABLE_REAL-}" in
     fi
     ;;
   1)
-    echo "::error::PAYMENTS_ENABLE_REAL must be exactly true, false or empty: the api reads 1 as on but payer-web reads only true, so the two would disagree. Set the production secret to a literal (gh secret set PAYMENTS_ENABLE_REAL --env production --body false) and re-run. Nothing was deployed."
+    echo "::error::PAYMENTS_ENABLE_REAL must be exactly true, false or empty: the api reads 1 as on but payer-web reads only true, so the two would disagree. The api already reads this 1 as on, so set the literal true (gh secret set PAYMENTS_ENABLE_REAL --env production --body true) and re-run. Nothing was deployed."
     _bad_flags=1
     ;;
 esac
 if [ -n "${_payments_key//[[:space:]]/}" ]; then
-  case "${_payments_key}" in
-    *[[:space:]]*) _payments_key_ok=0 ;;
-    rzp_test_?* | rzp_live_?*) _payments_key_ok=1 ;;
-    *) _payments_key_ok=0 ;;
-  esac
+  # The key ID alone: the prefix, then letters and digits only. A `key-id:key-secret` pair (an old
+  # example file's shape) or anything else after the id is refused, so the secret never rides here.
+  if [[ "${_payments_key}" =~ ^rzp_(test|live)_[A-Za-z0-9]+$ ]]; then
+    _payments_key_ok=1
+  else
+    _payments_key_ok=0
+  fi
   if [ "${_payments_key_ok}" -ne 1 ]; then
     if [ "${PAYMENTS_ENABLE_REAL-}" = "true" ]; then
       echo "::error::PAYMENTS_PROVIDER_KEY must be the Razorpay key ID: rzp_test_ or rzp_live_ followed by the id, with no spaces. The key secret belongs in PAYMENTS_PROVIDER_SECRET. Fix the production secret (gh secret set PAYMENTS_PROVIDER_KEY --env production, the value entered at the prompt) and re-run. Nothing was deployed."

@@ -288,8 +288,9 @@ NestJS boot assertion).
   - `PAYMENTS_ENABLE_REAL=true` while `RETIRED_PRODUCTS_OFF_SALE` is not `true`/`1`: refused
     (ADR-0065 hardening 7: the dropped products have no real-payments path, so they go off sale no
     later than real money).
-  - `PAYMENTS_PROVIDER_KEY` set but not `rzp_test_` or `rzp_live_` followed by the id, with no
-    whitespace (most likely the key secret pasted into the key slot): refused when
+  - `PAYMENTS_PROVIDER_KEY` set but not the key ID alone, `rzp_test_` or `rzp_live_` followed by
+    letters and digits only (most likely the key secret pasted into the key slot, or a
+    `key-id:key-secret` pair): refused when
     `PAYMENTS_ENABLE_REAL` is `true`; otherwise a `::warning::` naming the variable, and the deploy
     goes on (nothing reads the key yet, but arming will be refused until it is fixed).
   - Armed with a `rzp_test_` key: a `::warning::`, no refusal. `rzp_live_` is what production
@@ -298,7 +299,6 @@ NestJS boot assertion).
   Unset in production today, so deploying the bridge changes nothing. The switch-on order is
   `docs/runbooks/2749-switch-on.md`.
 
-- **Credit checkout rollout (#2749 item 10, ADR-0065)** — `CREDIT_CHECKOUT_ROLLOUT` (`off` |
 - **Credit checkout rollout (#2749 item 10, ADR-0065)** — `CREDIT_CHECKOUT_ROLLOUT` (`off` |
   `pilot` | `on`, key `credit_checkout`): do the new money rules apply to this company? Same
   grammar, wiring and preflight as the rollout switches above (`${CREDIT_CHECKOUT_ROLLOUT:-off}` on

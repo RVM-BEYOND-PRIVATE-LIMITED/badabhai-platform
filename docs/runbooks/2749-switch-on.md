@@ -91,7 +91,8 @@ no money and may go ahead of "Invoices are live" (4b says what that costs).
     ORDER BY created_at;
     ```
 
-    Look each row up in the Razorpay dashboard. Not paid: leave it. Captured: it must be settled
+    Look each row up in the Razorpay dashboard. A row created before step 4c is a rehearsal order:
+    look it up in **Test Mode**; it carries no money. Not paid: leave it. Captured: it must be settled
     while real payments are live (a webhook redelivery, or the buyer's `/verify` again); if that
     cannot happen, refund it in the dashboard.
 
@@ -141,9 +142,11 @@ refuses the deploy, prints `::error::` naming the variable (never its value) and
 deployed", when:
 
 - `PAYMENTS_ENABLE_REAL` is `true` and any of the three Razorpay secrets is empty or blank;
-- `PAYMENTS_ENABLE_REAL` is `true` and `RETIRED_PRODUCTS_OFF_SALE` is not `true` (hardening 7);
-- `PAYMENTS_ENABLE_REAL` is `true` and `PAYMENTS_PROVIDER_KEY` is not `rzp_test_…` or
-  `rzp_live_…` with no spaces (most likely the key secret pasted into the key slot). With the flag
+- `PAYMENTS_ENABLE_REAL` is `true` and `RETIRED_PRODUCTS_OFF_SALE` is not on (`true` or `1`)
+  (hardening 7);
+- `PAYMENTS_ENABLE_REAL` is `true` and `PAYMENTS_PROVIDER_KEY` is not the key ID alone,
+  `rzp_test_` or `rzp_live_` then letters and digits only (most likely the key secret pasted into
+  the key slot, or a `key-id:key-secret` pair). With the flag
   not `true` the same key only prints a `::warning::` naming `PAYMENTS_PROVIDER_KEY` and the deploy
   goes on, so a bad paste never blocks unrelated deploys, but it does block arming: fix it as soon
   as the warning appears;
@@ -290,7 +293,8 @@ its key secret) and the webhook above, with a new secret. Then:
 
    then redeploy, and allow open test checkouts to finish (at least an hour). Real payments stay
    on, so no company can buy credits meanwhile. Test orders carry no money; one left `created` can
-   stay.
+   stay, but it keeps appearing in the daily check and in the Rollback list: anything created
+   before this step is looked up in Test Mode, not Live Mode.
 
 2. Swap all three:
 
@@ -384,7 +388,8 @@ Turn real payments off only after every open order is reconciled:
    (`failed` is listed too: Razorpay lets a buyer retry on the same order, and a later capture
    still settles it.)
 
-3. For each, look the order up in the Razorpay dashboard. Not paid: nothing to do. Captured: settle
+3. For each, look the order up in the Razorpay dashboard (Test Mode for one created before step
+   4c). Not paid: nothing to do. Captured: settle
    it while real payments are still live (a webhook redelivery, or the buyer's `/verify`), or
    refund it in the dashboard.
 4. Only when the list holds no captured payment: `gh secret set PAYMENTS_ENABLE_REAL --env
@@ -400,8 +405,16 @@ production --body false`, then redeploy. From then on the free mock packs reopen
   sale, but only once `PAYMENTS_ENABLE_REAL` is off (the deploy preflight refuses the pair).
 - The three Razorpay secrets stay. With `PAYMENTS_ENABLE_REAL` off they are inert; remove them, if
   wanted, with `gh secret delete NAME --env production`.
-- A rotated Razorpay key or webhook secret is changed in the dashboard and in the `production`
-  secret together, then a redeploy: a webhook secret that does not match makes every delivery 401.
+- A rotated Razorpay key or webhook secret follows 4c's order. The webhook guard holds one secret,
+  so from the dashboard change until the redeploy lands every delivery gets 401:
+  1. the rollout `off` (`PAYMENTS_ENABLE_REAL` stays on) and a redeploy, then wait for open
+     checkouts to finish;
+  2. change it in the dashboard and in the `production` secret together;
+  3. redeploy, and confirm the deploy succeeded (a refused deploy, or a red `main`, leaves the old
+     secret serving and the 401s going on);
+  4. run the daily check above: any captured order still `created` is settled by a webhook
+     redelivery or the buyer's `/verify`;
+  5. only then the rollout back to `pilot` or `on`.
 
 Never roll the code back below #2749 PR 2 while the catalogue row carries `onSaleFrom` or `offered`
 (`docs/runbooks/2749-publish-brief-credit-packs.md`).

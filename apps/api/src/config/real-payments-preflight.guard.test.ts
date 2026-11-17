@@ -90,9 +90,17 @@ describe("real payments — the deploy preflight (#2749 part 5b)", () => {
     expect(BLOCK).toContain('case "${PAYMENTS_ENABLE_REAL-}" in');
     for (const name of NAMES) expect(BLOCK).toContain(name);
     expect(BLOCK).toMatch(/_bad_flags=1/);
-    expect(BLOCK).toMatch(/rzp_test_\?\* \| rzp_live_\?\*\)/);
+    expect(BLOCK).toContain("=~ ^rzp_(test|live)_[A-Za-z0-9]+$ ]]");
     // Hardening 7: armed only with the dropped products off sale (true or 1, as the api reads it).
     expect(BLOCK).toMatch(/case "\$\{RETIRED_PRODUCTS_OFF_SALE-\}" in\n\s*true \| 1\) ;;/);
+  });
+
+  it("never tells the operator to turn real payments off (the runbook's Rollback forbids it)", () => {
+    // Turning PAYMENTS_ENABLE_REAL off while orders are open 401s every webhook and 404s /verify,
+    // so buyers who paid get no credits. No refusal may offer it as the way past.
+    expect(SCRIPT).not.toMatch(/PAYMENTS_ENABLE_REAL --env production --body false/);
+    expect(SCRIPT).not.toMatch(/or set PAYMENTS_ENABLE_REAL to false/);
+    expect(SCRIPT).not.toMatch(/gh secret set \$\{_flag\} --env production --body false/);
   });
 
   it("is checked before the job exits on _bad_flags", () => {
@@ -252,6 +260,7 @@ describe("real payments — the deploy preflight (#2749 part 5b)", () => {
 
     const MALFORMED_KEYS = [
       ["the key secret pasted into the key slot", KEY_SECRET],
+      ["the key id and secret joined (key-id:key-secret)", `${LIVE_KEY}:${KEY_SECRET}`],
       ["a bare prefix", "rzp_live_"],
       ["a capitalised prefix", "RZP_LIVE_FAKEKEYID000"],
       ["a leading space", ` ${LIVE_KEY}`],
