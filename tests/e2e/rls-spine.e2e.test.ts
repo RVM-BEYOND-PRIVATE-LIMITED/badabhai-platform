@@ -302,6 +302,11 @@ const LOCKED_TABLES = [
   // time). RLS+FORCE+REVOKE in the hand-written tail of `*_rvm_applicant_waivers`.
   "rvm_applicant_waivers",
   "rvm_waiver_uses",
+  // #2750 item 7: the couldn't-reach cases (opaque unlock / tenant / worker / login / admin ids,
+  // a closed status, an integer and times) and the desk's call attempts (ids, a closed result
+  // code, a time). RLS+FORCE+REVOKE in the hand-written tail of `*_contact_reach_cases`.
+  "contact_reach_cases",
+  "contact_reach_attempts",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

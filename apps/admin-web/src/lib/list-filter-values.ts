@@ -29,6 +29,7 @@ export const LEDGER_REASONS = [
   "expired",
   "welcome",
   "waived",
+  "returned",
 ] as const;
 
 /**

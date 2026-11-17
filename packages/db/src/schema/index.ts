@@ -62,6 +62,7 @@ import { numbersRecomputeLog, numbersWeekly } from "./numbers-weekly";
 import { creditCallLog } from "./credit-call-log";
 import { creditRulesConfig } from "./credit-rules";
 import { rvmApplicantWaivers, rvmWaiverUses } from "./rvm-waivers";
+import { contactReachAttempts, contactReachCases } from "./contact-reach";
 import { launchTestCohort, launchTestShares } from "./launch-test";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
@@ -201,6 +202,8 @@ export * from "./credit-call-log";
 export * from "./credit-rules";
 // #2750 item 5 - the placement team's waivers of the contact cost, and their uses.
 export * from "./rvm-waivers";
+// #2750 item 7 - the couldn't-reach guarantee: cases and the desk's call attempts.
+export * from "./contact-reach";
 // #2755 item 9 — launch test A: the factories, what each was sent, its payment link and result.
 export * from "./launch-test";
 
@@ -540,6 +543,9 @@ export const schema = {
   // #2750 item 5 - the placement team's waivers and the opens they paid for (read only while CREDIT_RULES_ROLLOUT is on).
   rvmApplicantWaivers,
   rvmWaiverUses,
+  // #2750 item 7 - the couldn't-reach cases and the desk's call attempts (read only while CREDIT_RULES_ROLLOUT is on).
+  contactReachCases,
+  contactReachAttempts,
   // #2755 item 9 - launch test A records (read and written only while ADMIN_NUMBERS_ENABLED is on).
   launchTestCohort,
   launchTestShares,

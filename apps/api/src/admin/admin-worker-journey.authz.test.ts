@@ -187,6 +187,9 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
         // #2750 items 5 and 12 — the placement team's waivers (super_admin). Not the journey's: it
         // writes a company's price and reads no funnel step.
         "manage_waivers",
+        // #2750 items 7 and 12 — the worker desk (super_admin, ops_admin, support). Not the
+        // journey's: it closes couldn't-reach cases and reads no funnel step.
+        "work_reach_desk",
         // ADR-0062 §3.8 (#2560) — the Candidates full-detail read. Not the journey's: the journey
         // stays on `read_entities` and returns no profile values.
         "read_candidates",

@@ -4415,6 +4415,55 @@ export const PayerRvmWaiverChangedPayload = z
   });
 export type PayerRvmWaiverChangedPayload = z.infer<typeof PayerRvmWaiverChangedPayload>;
 
+/** #2750 item 7 — how a couldn't-reach case closed. */
+export const CONTACT_REACH_OUTCOMES = ["reached_interested", "reached_declined", "not_reached"] as const;
+/** #2750 item 7 — who closed it: a desk staff member, or the deadline (nobody closed it in time). */
+export const CONTACT_REACH_RESOLVERS = ["desk", "deadline"] as const;
+
+/**
+ * #2750 item 7 (brief 4C.9, B7-13) — a company reported it could not reach a worker it opened: a
+ * desk case is open until `deadline_at`. Written in the SAME transaction as the
+ * `contact_reach_cases` row (idempotency key `payer.contact_reach_reported:<case id>`).
+ *
+ * FACELESS: ids and a time. No name, no phone.
+ */
+export const PayerContactReachReportedPayload = z
+  .object({
+    case_id: uuidSchema,
+    unlock_id: uuidSchema,
+    /** The company's tenant key (ADR-0053): the wallet any return goes to. */
+    payer_id: uuidSchema,
+    deadline_at: isoDateTimeSchema,
+  })
+  .strict();
+export type PayerContactReachReportedPayload = z.infer<typeof PayerContactReachReportedPayload>;
+
+/**
+ * #2750 item 7 — a couldn't-reach case closed, by the desk or at its deadline, in the SAME
+ * transaction as the case row and any `returned` credits (idempotency key
+ * `payer.contact_reach_resolved:<case id>`: a case closes once). `credits_returned` is 0 unless
+ * the worker was not reached (and 0 for a free open).
+ */
+export const PayerContactReachResolvedPayload = z
+  .object({
+    case_id: uuidSchema,
+    unlock_id: uuidSchema,
+    payer_id: uuidSchema,
+    status: z.enum(CONTACT_REACH_OUTCOMES),
+    credits_returned: z.number().int().min(0),
+    resolved_by: z.enum(CONTACT_REACH_RESOLVERS),
+  })
+  .strict()
+  .refine((p) => p.status === "not_reached" || p.credits_returned === 0, {
+    message: "credits come back only when the worker was not reached",
+    path: ["credits_returned"],
+  })
+  .refine((p) => p.resolved_by === "desk" || p.status === "not_reached", {
+    message: "a case closed at its deadline is not reached",
+    path: ["status"],
+  });
+export type PayerContactReachResolvedPayload = z.infer<typeof PayerContactReachResolvedPayload>;
+
 /**
  * MOMENT ④ — `feed.shown`, VERSION 2 (ADR-0036 "feed.shown gets a v2 payload").
  *

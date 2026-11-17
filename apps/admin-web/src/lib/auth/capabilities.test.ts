@@ -122,7 +122,7 @@ describe("labels stay in lockstep with the vocabulary", () => {
     // (#2566 — admin posting control) and `manage_companies` (#2564 — company records), and
     // `read_business_numbers` (#2755 — the business numbers screen), and `manage_credit_rules`
     // (#2750 — the credit rules settings), and `manage_waivers` (#2750 — the placement team's
-    // waivers).
+    // waivers), and `work_reach_desk` (#2750 — the couldn't-reach desk).
     expect([...ADMIN_CAPABILITIES].sort()).toEqual(
       [
         "export",
@@ -148,6 +148,7 @@ describe("labels stay in lockstep with the vocabulary", () => {
         "reveal_pii",
         "suspend_payer",
         "toggle_kill_switch",
+        "work_reach_desk",
       ].sort(),
     );
   });

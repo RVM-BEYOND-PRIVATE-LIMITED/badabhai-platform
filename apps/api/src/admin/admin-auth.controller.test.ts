@@ -251,6 +251,8 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
         "edit_candidates",
         // #2755 — the business numbers screen (super_admin, ops_admin). Tail-appended.
         "read_business_numbers",
+        // #2750 — the worker desk (super_admin, ops_admin, support). Tail-appended.
+        "work_reach_desk",
       ],
     });
   });

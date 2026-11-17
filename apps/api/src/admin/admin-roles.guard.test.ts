@@ -211,6 +211,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     manage_credit_rules: ["super_admin"],
     // #2750 items 5 and 12 - the placement team's waivers. super_admin only.
     manage_waivers: ["super_admin"],
+    // #2750 items 7 and 12 - the worker desk. Owner ruling 2026-11-17.
+    work_reach_desk: ["super_admin", "ops_admin", "support"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -273,6 +275,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "manage_credit_rules",
       // #2750 - setting or clearing a waiver is a write.
       "manage_waivers",
+      // #2750 - closing a desk case returns credits: a write.
+      "work_reach_desk",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }
@@ -358,6 +362,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "manage_worker_account",
       // #2561 - candidate-field corrections.
       "edit_candidates",
+      // #2750 - the worker desk (owner ruling 2026-11-17). Tail-appended.
+      "work_reach_desk",
     ]);
     expect(capabilitiesFor("ops_admin")).toEqual([
       "read_events",
@@ -385,6 +391,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "edit_candidates",
       // #2755 — the business numbers screen.
       "read_business_numbers",
+      // #2750 — the worker desk (owner ruling 2026-11-17). Tail-appended.
+      "work_reach_desk",
     ]);
     // super_admin holds everything — the one role for which the list is the whole vocabulary.
     expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);
