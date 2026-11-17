@@ -12,6 +12,7 @@ import type { SkillCanonicalizationInput } from "@badabhai/ai-contracts";
 import { bandForCount } from "@badabhai/validators";
 import {
   audienceReachesBadaBhaiWorkers,
+  holdPostingFromWorkers,
   type Database,
   type JobPosting,
   type JobPostingAudience,
@@ -424,6 +425,25 @@ export class JobPostingsService {
     );
   }
 
+  /**
+   * #2891 — the reach rebuild after an admin turned a Campus-origin posting's BadaBhai worker
+   * visibility ON. Post-commit and non-fatal, like {@link materializeAfterAdminEdit}: the decision
+   * and its audit row have committed, and `job_reach` is a rebuildable cache. Run as a PUBLISH,
+   * because this is the moment BadaBhai workers can first see the posting: it resolves the match
+   * set the way a company publish does, stamps `published_at` if it was never stamped, and raises
+   * the zero-reach alert when nobody matches. Only an OPEN posting is rebuilt; a paused one is
+   * rebuilt by its resume, through the same fragment. Resolves whether the reach core ran.
+   */
+  async materializeAfterWorkerVisibility(
+    jobPostingId: string,
+    adminId: string,
+    ctx: RequestContext,
+  ): Promise<boolean> {
+    const posting = await this.repo.findById(jobPostingId);
+    if (!posting || posting.status !== "open") return false;
+    return this.materializeReach(posting, "publish", { actor_type: "admin", actor_id: adminId }, ctx);
+  }
+
   /** Ops: mark a posting REJECTED (reviewed and declined). */
   reject(id: string, ctx: RequestContext): Promise<JobPostingApi> {
     return this.setVerification(id, "rejected", ctx);
@@ -502,9 +522,15 @@ export class JobPostingsService {
   ): Promise<JobPostingApi> {
     const audience = await this.audience.resolveForInstitute(targeting);
     const draft = await this.createWithin(scope, dto, ctx, audience);
+    // #2891 — HELD FROM BADABHAI WORKERS until an admin opens it (ruling of 17 Nov 2026). Written
+    // while the posting is still a DRAFT, which no worker path reads, and BEFORE the open below: if
+    // this write fails the posting stays a draft and nothing leaks. Its audience is `both`, so the
+    // admin's `on` is all it takes; the hold is outside the RVM review hash.
+    await this.repo.withTransaction((tx) => holdPostingFromWorkers(tx, draft.id, "campus_posted"));
     // OPEN AT ONCE, as Campus puts a staff-posted job live today. Not through the company
     // publish gate: that gate requires one of the 16 trades because publishing MATCHES BadaBhai
-    // workers (#2635), and an RVM-only posting reaches no worker at all.
+    // workers (#2635), and a held posting reaches no worker at all. Reach is built when an admin
+    // turns its worker visibility on (`materializeAfterWorkerVisibility`).
     const opened = await this.repo.transitionOwned(draft.id, scope.tenantKey, "draft", "open");
     if (!opened) throw new Error("campus posting: the new draft could not be opened");
     const payload: PayloadInputOf<"job_posting.updated"> = {

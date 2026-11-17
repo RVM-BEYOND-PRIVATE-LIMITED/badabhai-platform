@@ -101,7 +101,8 @@ export function decodeFeedCursor(cursor: string): { changedAt: Date; id: string 
  * from its own account. So a Campus credential can never publish in another employer's name. A new
  * company is created `pending` (its owner activates it by signing in with a code), with the staff
  * reference in `audit_logs`. The posting is open, for RVM students, its review approved by
- * `staff_ref` against the content as stored.
+ * `staff_ref` against the content as stored. Its audience is `both`, held from BadaBhai workers until
+ * an admin opens it (#2891, `job_posting_worker_visibility`).
  */
 @Injectable()
 export class CampusPostingsService {

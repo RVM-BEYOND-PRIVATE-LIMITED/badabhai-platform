@@ -199,7 +199,7 @@ async function readPosting(
   }>(
     await exec.execute(dsql`
       SELECT status, match_skill_ids, reach_skill_ids,
-             ${reachesBadaBhaiWorkers(dsql`audience`)} AS reaches_badabhai_workers
+             ${reachesBadaBhaiWorkers("job_postings")} AS reaches_badabhai_workers
       FROM job_postings
       WHERE id = ${jobPostingId}::uuid
       ${lock ? dsql`FOR UPDATE` : dsql``}
