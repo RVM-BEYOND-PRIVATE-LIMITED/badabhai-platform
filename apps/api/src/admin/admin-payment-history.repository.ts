@@ -193,6 +193,9 @@ export class AdminPaymentHistoryRepository {
       });
     }
     for (const l of ledger) {
+      // #2750 item 5 — a `waived` line moved no credit and took no payment (a free open the
+      // placement team's waiver paid for): it is not part of a payment history.
+      if (l.reason === "waived") continue;
       // #2749 — `expired` (a lot's unspent credits removed at its date) is its own kind, so it
       // is never counted as credits USED (the totals sum only `credit_spend`).
       // #2750 item 4 — `welcome` is a free grant too: it is never credits USED.

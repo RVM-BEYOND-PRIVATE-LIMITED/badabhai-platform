@@ -27,6 +27,11 @@ import {
   CampusTargetingOptionsBodySchema,
   CampusTargetingOptionsResponseSchema,
   CampusUnlinkResponseSchema,
+  CampusWaiverBodySchema,
+  CampusWaiverPageSchema,
+  CampusWaiverResponseSchema,
+  CampusWaiverSchema,
+  CampusWaiversQuerySchema,
   Phone10Schema,
   StudentRefSchema,
 } from "./campus-link.contract";
@@ -60,6 +65,10 @@ const PAIRS: ReadonlyArray<[string, z.ZodType, unknown]> = [
   ["application page", CampusApplicationPageSchema, examples.APPLICATION_PAGE_EXAMPLE],
   ["search-grant body", CampusSearchGrantBodySchema, examples.SEARCH_GRANT_BODY_EXAMPLE],
   ["search grant", CampusSearchGrantSchema, examples.SEARCH_GRANT_EXAMPLE],
+  ["waiver body", CampusWaiverBodySchema, examples.WAIVER_BODY_EXAMPLE],
+  ["waiver", CampusWaiverSchema, examples.WAIVER_EXAMPLE],
+  ["waiver response", CampusWaiverResponseSchema, examples.WAIVER_RESPONSE_EXAMPLE],
+  ["waiver page", CampusWaiverPageSchema, examples.WAIVER_PAGE_EXAMPLE],
   ["unlink response", CampusUnlinkResponseSchema, examples.UNLINK_RESPONSE_EXAMPLE],
   ["drive request", CampusDriveRequestSchema, examples.DRIVE_REQUEST_EXAMPLE],
   ["drive request page", CampusDriveRequestPageSchema, examples.DRIVE_REQUEST_PAGE_EXAMPLE],
@@ -113,6 +122,40 @@ describe("Campus contract v1 — requests are strict", () => {
     expect(CampusPostingsQuerySchema.safeParse({ limit: "201" }).success).toBe(false);
     expect(CampusPostingsQuerySchema.parse({}).limit).toBe(100);
     expect(CampusPostingsQuerySchema.parse({ branch_id: "2" }).branch_id).toBe(2);
+  });
+});
+
+describe("Campus contract v1 — the waiver switch (#2750 item 5)", () => {
+  const POSTING = "5a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+
+  it("a job waiver needs its posting, and a company waiver refuses one", () => {
+    const job = { ...examples.WAIVER_BODY_EXAMPLE, scope: "job" as const };
+    expect(CampusWaiverBodySchema.safeParse(job).success).toBe(false);
+    expect(CampusWaiverBodySchema.safeParse({ ...job, posting_id: POSTING }).success).toBe(true);
+    expect(
+      CampusWaiverBodySchema.safeParse({ ...examples.WAIVER_BODY_EXAMPLE, posting_id: POSTING })
+        .success,
+    ).toBe(false);
+  });
+
+  it("needs a staff name and a reason with something visible, and caps both", () => {
+    const body = examples.WAIVER_BODY_EXAMPLE;
+    expect(CampusWaiverBodySchema.safeParse({ ...body, staff_label: "   " }).success).toBe(false);
+    expect(CampusWaiverBodySchema.safeParse({ ...body, reason: "" }).success).toBe(false);
+    expect(CampusWaiverBodySchema.safeParse({ ...body, reason: "x".repeat(501) }).success).toBe(
+      false,
+    );
+    expect(
+      CampusWaiverBodySchema.safeParse({ ...body, staff_label: "x".repeat(121) }).success,
+    ).toBe(false);
+  });
+
+  it("refuses an unknown key, a non-uuid staff ref and an unknown query parameter", () => {
+    const body = examples.WAIVER_BODY_EXAMPLE;
+    expect(CampusWaiverBodySchema.safeParse({ ...body, credits: 0 }).success).toBe(false);
+    expect(CampusWaiverBodySchema.safeParse({ ...body, staff_ref: "asha" }).success).toBe(false);
+    expect(CampusWaiversQuerySchema.safeParse({ include_cleared: "true" }).success).toBe(false);
+    expect(CampusWaiversQuerySchema.parse({}).limit).toBe(100);
   });
 });
 

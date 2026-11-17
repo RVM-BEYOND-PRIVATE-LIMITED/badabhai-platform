@@ -1,4 +1,5 @@
 import { CreditRulesModule } from "../credit-rules/credit-rules.module";
+import { RvmWaiversModule } from "../rvm-waivers/rvm-waivers.module";
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { CampusLinkModule } from "../campus-link/campus-link.module";
@@ -55,6 +56,9 @@ import { CreditLotExpirySweepProcessor } from "./credit-lot-expiry-sweep.process
     FeatureRolloutModule,
     // #2750 — the credit rules (what a contact costs). CreditRulesModule has no dependency back.
     CreditRulesModule,
+    // #2750 item 5 - the placement team's waivers (which waiver frees a worker, and its use). No
+    // dependency back: RvmWaiversModule imports only CreditRulesModule and PayersModule.
+    RvmWaiversModule,
   ],
   // RazorpayWebhookController is the PUBLIC capture surface (ADR-0010 real-payments
   // stream). It lives here, beside the money chokepoint it drives, so the whole payment

@@ -111,6 +111,8 @@ import { AdminCompaniesService } from "./companies/admin-companies.service";
 import { AdminCompaniesController } from "./companies/admin-companies.controller";
 import { AdminCreditRulesController } from "./credit-rules/admin-credit-rules.controller";
 import { CreditRulesModule } from "../credit-rules/credit-rules.module";
+import { AdminWaiversController } from "./waivers/admin-waivers.controller";
+import { RvmWaiversModule } from "../rvm-waivers/rvm-waivers.module";
 import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerPreferencesService } from "../profiles/worker-preferences.service";
@@ -229,6 +231,9 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // #2750 item 1 - the credit rules settings routes read and write through CreditRulesService.
     // CreditRulesModule does not import AdminModule, so no cycle.
     CreditRulesModule,
+    // #2750 items 5 and 12 - the placement team's waivers (`/admin/waivers`). RvmWaiversModule
+    // does not import AdminModule, so no cycle.
+    RvmWaiversModule,
     // The Engine view's demo-worker gate resolves demo phones to worker ids through the workers
     // domain (`WorkersRepository.findLiveIdsByPhoneHashes`), so nothing under admin/** names a
     // phone column. WorkersModule does not import AdminModule.
@@ -279,6 +284,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // #2564 (B10) — the company record (create / edit / archive / restore / list / detail).
     AdminCompaniesController,
     AdminCreditRulesController,
+    AdminWaiversController,
     // #2561 — admin corrections of candidate fields (ADR-0062).
     AdminCorrectionsController,
   ],

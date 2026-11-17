@@ -4350,6 +4350,40 @@ export const PayerWelcomeCreditsGrantedPayload = z
   .strict();
 export type PayerWelcomeCreditsGrantedPayload = z.infer<typeof PayerWelcomeCreditsGrantedPayload>;
 
+/** #2750 item 5 — who a placement-team waiver frees: one company's RVM applicants, or one job's. */
+export const RVM_WAIVER_SCOPES = ["company", "job"] as const;
+/** #2750 item 5 — where a waiver was set or cleared: Campus's placement team, or a BadaBhai admin. */
+export const RVM_WAIVER_SOURCES = ["campus", "admin"] as const;
+
+/**
+ * #2750 item 5 (brief 4C.7, B6-05) — the placement team's waiver of the contact cost was SET
+ * (`payer.rvm_waiver_set`) or CLEARED (`payer.rvm_waiver_cleared`): written in the SAME transaction
+ * as the `rvm_applicant_waivers` row change (idempotency key `<event name>:<waiver id>`, so each
+ * happens once per waiver).
+ *
+ * FACELESS: the company's tenant key, the opaque waiver and posting ids and closed codes. No staff
+ * name (stored encrypted on the row) and no reason text (the staff member's own words stay on the
+ * row and on `audit_logs`).
+ */
+export const PayerRvmWaiverChangedPayload = z
+  .object({
+    /** The waiver (opaque `rvm_applicant_waivers.id`). */
+    waiver_id: uuidSchema,
+    /** The company whose RVM applicants it frees (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    scope: z.enum(RVM_WAIVER_SCOPES),
+    /** The job a `job` waiver frees; null for a `company` waiver. */
+    job_posting_id: uuidSchema.nullable(),
+    /** Where THIS change was made (a waiver set from Campus may be cleared by an admin). */
+    source: z.enum(RVM_WAIVER_SOURCES),
+  })
+  .strict()
+  .refine((p) => (p.scope === "job") === (p.job_posting_id !== null), {
+    message: "job_posting_id is set exactly for a job waiver",
+    path: ["job_posting_id"],
+  });
+export type PayerRvmWaiverChangedPayload = z.infer<typeof PayerRvmWaiverChangedPayload>;
+
 /**
  * MOMENT ④ — `feed.shown`, VERSION 2 (ADR-0036 "feed.shown gets a v2 payload").
  *

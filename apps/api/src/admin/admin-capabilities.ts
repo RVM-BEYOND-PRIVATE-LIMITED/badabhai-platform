@@ -286,6 +286,16 @@ export const ADMIN_CAPABILITIES = [
    * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
    */
   "manage_credit_rules",
+  /**
+   * #2750 items 5 and 12 — set or clear the placement team's waiver of the contact cost for one
+   * company or one job (`/admin/waivers`), and read every waiver with who set it. A waiver makes a
+   * company's RVM applicants free to open, so it is a price decision for that company, held by the
+   * same role as the credit rules (the issue's default: "BadaBhai super admins"). Campus's
+   * placement team sets waivers through its own service route, not through this capability.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "manage_waivers",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -365,6 +375,9 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   // #2750 item 12 — the credit rules' settings: every company's price and limits at once.
   // `super_admin` only (see the capability's docstring).
   manage_credit_rules: ["super_admin"],
+  // #2750 items 5 and 12 — the placement team's waivers (free RVM applicants for one company or
+  // job). `super_admin` only, the issue's default (see the capability's docstring).
+  manage_waivers: ["super_admin"],
 } as const;
 
 /**

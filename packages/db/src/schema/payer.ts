@@ -313,6 +313,10 @@ export type UnlockDenyReason = "no_consent" | "capped" | "payment_required" | "u
  *
  * #2750 item 4 — `welcome`: a verified company's welcome credits, once (`credit_lots.source =
  * 'welcome'`, keyed `welcome_credits:<payer id>`). The numbers screen (#2755) counts it apart.
+ *
+ * #2750 item 5 — `waived`: an open the placement team's waiver paid for. `delta` 0 and no lot
+ * (nothing moved), `unlock_id` set, keyed `waived:<unlock id>`; the waiver it used is on
+ * `rvm_waiver_uses`. The numbers screen counts these as "credits waived by the placement team".
  */
 export type CreditReason =
   | "pack_purchase"
@@ -320,7 +324,8 @@ export type CreditReason =
   | "refund"
   | "grant"
   | "expired"
-  | "welcome";
+  | "welcome"
+  | "waived";
 
 /**
  * Routed-channel kind (ADR-0010 §D2). Alpha ships `in_app_relay` ONLY — it

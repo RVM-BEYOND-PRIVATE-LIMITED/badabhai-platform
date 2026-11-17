@@ -897,6 +897,8 @@ export class UnlocksRepository {
       paymentRef?: string | null;
       /** #2749 — the lot the movement spent from ({@link tryDebit}'s `lotId`). */
       lotId?: string | null;
+      /** #2750 item 5 — the exactly-once key (`waived:<unlock id>` for a waived open). */
+      idempotencyKey?: string | null;
     },
   ): Promise<void> {
     await tx.insert(creditLedger).values({
@@ -907,6 +909,7 @@ export class UnlocksRepository {
       packCode: input.packCode ?? null,
       paymentRef: input.paymentRef ?? null,
       lotId: input.lotId ?? null,
+      idempotencyKey: input.idempotencyKey ?? null,
     });
   }
 

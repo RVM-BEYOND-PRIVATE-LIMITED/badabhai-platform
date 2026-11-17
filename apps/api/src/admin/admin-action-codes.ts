@@ -118,6 +118,11 @@ export const ADMIN_ACTION_CODES = {
   // ride `admin.launch_test_factory_recorded|updated`; never the name, phone or link text.
   launch_test_factory_recorded: "launch_test_factory_recorded",
   launch_test_factory_updated: "launch_test_factory_updated",
+  // ── #2750 item 5 — a placement-team waiver set or cleared from the admin console ───────
+  // The `audit_logs` row (entity `rvm_applicant_waiver`) carries the change, the scope and the
+  // admin's reason; the spine records it as `payer.rvm_waiver_set|cleared` (actor = the admin),
+  // ids and codes only.
+  rvm_waiver_changed: "rvm_waiver_changed",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];

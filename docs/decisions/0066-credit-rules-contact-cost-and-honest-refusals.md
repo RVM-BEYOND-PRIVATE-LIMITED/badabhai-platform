@@ -71,6 +71,15 @@ For a company under the credit rules, an open it cannot afford answers:
 - **Pilot list unreadable** (`unavailable`): the open refuses with the neutral body and writes nothing. Charging one credit or the rules' price on a guess are both wrong.
 - **During the pilot both rule sets run side by side.** The weekly limit (part D) counts opens by companies outside the pilot too.
 
+### 2.6 The placement team's waiver (part C)
+
+RVM's placement team can make RVM applicants free to open: for **one company** (every RVM student who applied to any of its jobs) or **one job** (the RVM students who applied to it). Everyone else still pays; a student found only by search is not covered.
+
+- Set or cleared from Campus (`PUT internal/campus/v1/waivers`) or by a super admin (`PUT /admin/waivers`, capability `manage_waivers`). One active waiver per company and per job; clearing keeps the row, with who and why. Staff names are stored encrypted (owner ruling 2026-11-17).
+- The cost rule prices a waived RVM applicant at 0 (`basis: waived`). The quote says `waived: true`.
+- A waived open debits nothing and needs no balance. In the open's transaction it writes one zero-credit `waived` ledger line naming the unlock (no lot) and a use row naming the waiver. It emits no payment events.
+- The waiver is re-read under a share lock inside the open's transaction: one cleared since the price was read refuses the open (neutral, nothing written), and a clear racing the open waits for it.
+
 ## 3. Consequences
 
 - The number on the button equals the credits debited, unless the worker's card changes between the quote and the tap. In that case the open charges the price at the tap; the price is always from the card he shows then.
@@ -78,17 +87,20 @@ For a company under the credit rules, an open it cannot afford answers:
 - The ledger can now hold two `unlock_debit` lines for one unlock (one per lot). `Σ delta` per wallet and per lot still equals the balance and the lots.
 - The app and the web must show the quote on the open button and handle `insufficient_credits` by offering the Starter pack. Until they do, a pilot company on an old client sees an unknown body for a refusal it could not afford; keep pilot companies on updated clients.
 
-## 4. Security review (parts A1 and A2)
+- A `waived` line has `delta = 0` and no lot, so `Σ delta` per wallet and per lot is unchanged by it. Payment history leaves it out.
+
+## 4. Security review (parts A1, A2 and C)
 
 - **Oracle:** the price and the honest refusal depend only on card facts and the company's own balance; both are decided before any worker-state read. Pinned by unit tests: no consent or institute read on the refusal path, and an identical answer for a consented worker and an unknown id.
 - **Tenancy:** the price facts read this company's grant by tenant key. The wallet helper is tenant-keyed and on the static tenancy scan's helper list.
 - **Money:** an n-credit spend is all-or-nothing under the wallet row lock. Concurrent spends cannot overdraw (DB test). A past-due-only wallet is refused byte-for-byte unchanged (DB test).
+- **Waivers:** whether a waiver frees a worker reads only his applications to this company's jobs (already on the company's applicant list) and the company's own waivers: no consent, limit or deletion state, so the 0 on the button is no oracle. Setting one is super_admin only on BadaBhai's side, or the Campus credential; an unknown or barred company and another company's job are the same neutral 404. Staff names are encrypted at rest and appear in no event.
 - **Settings:** super_admin only; the reason text refuses hard identifiers; one audited transaction; 409 on a stale or racing edit.
 
 ## 5. Arming and rollback
 
 - **Arm:**
-  1. Apply the `credit_rules_config` migration.
+  1. Apply the `credit_rules_config` migration, then the `rvm_applicant_waivers` one.
   2. Optionally publish rules different from the defaults.
   3. Set `CREDIT_RULES_ROLLOUT=pilot` and list pilot companies in `feature_pilot_payers` (feature `credit_rules`).
 - **Roll back:** set the switch to `off`. Every company is back to one credit per open on the next request. Stored revisions stay.
