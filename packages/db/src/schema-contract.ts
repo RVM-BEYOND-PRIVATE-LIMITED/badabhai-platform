@@ -1888,6 +1888,39 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "grant lets any PostgREST role turn a posting's worker visibility on (bypassing the " +
       "admin decision and its audit row) or read which Campus jobs are held",
   },
+  // #2750 item 7: the couldn't-reach cases and the desk's call attempts. Nothing names either
+  // table while CREDIT_RULES_ROLLOUT is off (the payer and desk routes answer 404, the deadline
+  // sweep does nothing), and with it on a 42P01 is a 503 on the routes and a logged wait in the
+  // sweep, so a deploy ahead of the migration breaks no request and neither is a `table` entry.
+  // Listed for their locks (the 0134 rule). APPLY BEFORE THE SWITCH (migration header). The ids
+  // and tag carry the slot number: regenerated with the migration when the slot moves.
+  {
+    id: "0185-contact-reach-cases-rls",
+    migration: "0185_contact_reach_cases",
+    kind: "rls",
+    table: "contact_reach_cases",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides whose credits come back: an open grant lets any PostgREST role " +
+      "insert or close a case as not reached (credits returned for a contact that was reached) " +
+      "or read which company could not reach which worker",
+  },
+  {
+    id: "0185-contact-reach-attempts-rls",
+    migration: "0185_contact_reach_cases",
+    kind: "rls",
+    table: "contact_reach_attempts",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which admin called which case when and what happened; an open " +
+      "grant lets any PostgREST role read the desk's work or forge attempts on a case",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

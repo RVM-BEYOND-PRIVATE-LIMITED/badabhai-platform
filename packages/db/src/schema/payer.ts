@@ -317,6 +317,11 @@ export type UnlockDenyReason = "no_consent" | "capped" | "payment_required" | "u
  * #2750 item 5 — `waived`: an open the placement team's waiver paid for. `delta` 0 and no lot
  * (nothing moved), `unlock_id` set, keyed `waived:<unlock id>`; the waiver it used is on
  * `rvm_waiver_uses`. The numbers screen counts these as "credits waived by the placement team".
+ *
+ * #2750 item 7 — `returned`: credits a couldn't-reach case gave back (the worker was not reached).
+ * `unlock_id` names the open; the line adds a new `returned` lot (`lot_id`), keyed
+ * `reach_returned:<unlock id>:<spent lot id>`. Returned credits from a pack (#2750 item 9) will name
+ * the new pack's lot instead (private notes item 12).
  */
 export type CreditReason =
   | "pack_purchase"
@@ -325,7 +330,8 @@ export type CreditReason =
   | "grant"
   | "expired"
   | "welcome"
-  | "waived";
+  | "waived"
+  | "returned";
 
 /**
  * Routed-channel kind (ADR-0010 §D2). Alpha ships `in_app_relay` ONLY — it

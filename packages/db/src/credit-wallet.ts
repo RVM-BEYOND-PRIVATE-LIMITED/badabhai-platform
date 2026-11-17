@@ -483,6 +483,11 @@ export interface WalletGrant {
     readonly priceInr?: number | null;
     /** Exactly-once: a grant whose key is already on the ledger changes nothing. */
     readonly idempotencyKey?: string | null;
+    /**
+     * #2750 item 7 — the open this grant concerns (`credit_ledger.unlock_id`): a couldn't-reach
+     * return names the unlock whose credits it gives back. Null or absent for every other grant.
+     */
+    readonly unlockId?: string | null;
   };
 }
 
@@ -592,6 +597,7 @@ export async function grantCreditsWithinTx(
       paymentRef: input.ledger.paymentRef ?? null,
       priceInr: input.ledger.priceInr ?? null,
       idempotencyKey: key,
+      unlockId: input.ledger.unlockId ?? null,
     })
     .returning({ id: creditLedger.id });
   if (!line) throw new Error("credit-wallet: the ledger line was not written");

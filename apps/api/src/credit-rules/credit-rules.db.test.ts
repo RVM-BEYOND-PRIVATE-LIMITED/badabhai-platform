@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
-import { auditLogs, createDbClient, creditRulesConfig, type DbClient } from "@badabhai/db";
+import {
+  auditLogs,
+  createDbClient,
+  creditRulesConfig,
+  grantCreditsWithinTx,
+  spendCreditsWithinTx,
+  type DbClient,
+} from "@badabhai/db";
 import { DEFAULT_CREDIT_RULES } from "@badabhai/pricing";
 import { isUniqueViolation } from "../common/db-error";
 import { CreditRulesRepository } from "./credit-rules.repository";
@@ -9,6 +16,7 @@ import { WelcomeCreditsRepository } from "./welcome-credits.repository";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { RvmWaiversRepository } from "../rvm-waivers/rvm-waivers.repository";
 import { UnlocksRepository } from "../unlocks/unlocks.repository";
+import { ReachDeskRepository } from "../reach-desk/reach-desk.repository";
 
 /**
  * #2750 item 1 — the credit rules' revisions against real Postgres.
@@ -587,5 +595,206 @@ describe.skipIf(!RUN)("opening-limit counts — against real Postgres", () => {
       return repo.countTenantOpensSince(companies[0]! as TenantKey, threeHoursAgo, tx as never);
     });
     expect(underLock).toBe(2);
+  });
+});
+
+/**
+ * #2750 item 7 — the couldn't-reach desk against real Postgres: one case per open, the CHECK that
+ * ties a close to who closed it, and the return — a 2-credit open spent from two lots comes back
+ * as two `returned` lots naming the open, the live lot's expiry kept and the gone lot's 30 days
+ * ahead, the wallet invariant whole, and a second return changing nothing.
+ */
+describe.skipIf(!RUN)("couldn't-reach desk — against real Postgres", () => {
+  let client: DbClient;
+  let desk: ReachDeskRepository;
+  let unlocksRepo: UnlocksRepository;
+  const T = randomUUID().slice(0, 8);
+  const COMPANY = randomUUID();
+  const WORKER = randomUUID();
+  let unlockId = "";
+  let caseId = "";
+  const liveExpiry = new Date(Date.now() + 20 * 86_400_000);
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL);
+    desk = new ReachDeskRepository(client.db);
+    unlocksRepo = new UnlocksRepository(client.db);
+    const { sql } = client;
+    await sql`
+      INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+      VALUES (${COMPANY}::uuid, 'employer', ${`enc:2750e-${T}`}, ${`hash:2750e-${T}`},
+              ${`enc:co-${T}`}, 'active')`;
+    await sql`
+      INSERT INTO workers (id, phone_e164, phone_hash, status)
+      VALUES (${WORKER}::uuid, ${`enc:2750e-${T}`}, ${`hash:2750e-${T}`}, 'active')`;
+    const [u] = await sql<{ id: string }[]>`
+      INSERT INTO unlocks (payer_id, worker_id, status, granted_at, expires_at, routing_token_ref)
+      VALUES (${COMPANY}::uuid, ${WORKER}::uuid, 'granted', now(), now() + interval '10 days',
+              ${randomUUID()}::uuid)
+      RETURNING id`;
+    unlockId = u!.id;
+    // Two lots of one credit: one live 20 days, one that will be past due when the credit returns.
+    await client.db.transaction(async (tx) => {
+      await grantCreditsWithinTx(tx, {
+        payerId: COMPANY,
+        credits: 1,
+        lot: { source: "pack", expiresAt: new Date(Date.now() + 3_600_000) },
+        ledger: { reason: "grant" },
+      });
+      await grantCreditsWithinTx(tx, {
+        payerId: COMPANY,
+        credits: 1,
+        lot: { source: "pack", expiresAt: liveExpiry },
+        ledger: { reason: "grant" },
+      });
+      const spent = await spendCreditsWithinTx(tx, COMPANY, 2);
+      if (!spent.ok) throw new Error("fixture spend failed");
+      for (const take of spent.takes) {
+        await unlocksRepo.appendLedger(tx as never, {
+          payerId: COMPANY as TenantKey,
+          delta: -take.credits,
+          reason: "unlock_debit",
+          unlockId,
+          lotId: take.lotId,
+        });
+      }
+    });
+    // The soon lot falls due before the return.
+    await sql`
+      UPDATE credit_lots SET expires_at = now() - interval '1 day'
+      WHERE payer_id = ${COMPANY}::uuid AND expires_at < now() + interval '1 day'`;
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      const { sql } = client;
+      await sql`DELETE FROM contact_reach_cases WHERE payer_id = ${COMPANY}::uuid`;
+      await sql`DELETE FROM credit_ledger WHERE payer_id = ${COMPANY}::uuid`;
+      await sql`DELETE FROM credit_lots WHERE payer_id = ${COMPANY}::uuid`;
+      await sql`DELETE FROM payer_credits WHERE payer_id = ${COMPANY}::uuid`;
+      await sql`DELETE FROM unlocks WHERE payer_id = ${COMPANY}::uuid`;
+      await sql`DELETE FROM workers WHERE id = ${WORKER}::uuid`;
+      await sql`DELETE FROM payers WHERE id = ${COMPANY}::uuid`;
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  it("one case per open: a second insert writes nothing", async () => {
+    const row = {
+      unlockId,
+      tenant: COMPANY as TenantKey,
+      workerId: WORKER,
+      reportedBy: COMPANY,
+      deadlineAt: new Date(Date.now() + 48 * 3_600_000),
+    };
+    const first = await client.db.transaction((tx) => desk.insertCase(tx as never, row));
+    const second = await client.db.transaction((tx) => desk.insertCase(tx as never, row));
+    expect(first?.status).toBe("open");
+    expect(second).toBeUndefined();
+    caseId = first!.id;
+    expect((await desk.findCaseByUnlock(unlockId))?.id).toBe(caseId);
+  });
+
+  it("an attempt is logged against the case, and the queue lists it", async () => {
+    await client.db.transaction((tx) =>
+      desk.insertAttempt(tx as never, { caseId, adminId: randomUUID(), result: "switched_off" }),
+    );
+    expect((await desk.attemptCounts([caseId])).get(caseId)).toBe(1);
+    const queue = await desk.listCases({ status: "open", after: null, limit: 200 });
+    expect(queue.find((c) => c.id === caseId)?.attempts).toBe(1);
+  });
+
+  it("the return: one `returned` lot per spent lot, naming the open, with the right expiry", async () => {
+    const { sql } = client;
+    const returned = await client.db.transaction(async (tx) => {
+      const spent = await desk.spentFromLots(tx as never, COMPANY, unlockId);
+      expect(spent.map((s) => s.credits)).toEqual([1, 1]);
+      let n = 0;
+      for (const s of spent) {
+        const expiresAt =
+          s.lotExpiresAt && s.lotExpiresAt.getTime() > Date.now()
+            ? s.lotExpiresAt
+            : new Date(Date.now() + 30 * 86_400_000);
+        if (await desk.returnCredits(tx as never, COMPANY, unlockId, s, expiresAt)) n += s.credits;
+      }
+      return n;
+    });
+    expect(returned).toBe(2);
+    const lots = await sql<{ expires_at: Date; credits_remaining: number }[]>`
+      SELECT expires_at, credits_remaining FROM credit_lots
+      WHERE payer_id = ${COMPANY}::uuid AND source = 'returned' ORDER BY expires_at`;
+    expect(lots.map((l) => Number(l.credits_remaining))).toEqual([1, 1]);
+    expect(Math.abs(new Date(lots[0]!.expires_at).getTime() - liveExpiry.getTime())).toBeLessThan(
+      1000,
+    );
+    expect(new Date(lots[1]!.expires_at).getTime()).toBeGreaterThan(Date.now() + 29 * 86_400_000);
+    const lines = await sql<{ reason: string; delta: number; unlock_id: string | null }[]>`
+      SELECT reason, delta, unlock_id FROM credit_ledger
+      WHERE payer_id = ${COMPANY}::uuid AND reason = 'returned'`;
+    expect(lines.map((l) => [l.reason, Number(l.delta), l.unlock_id])).toEqual([
+      ["returned", 1, unlockId],
+      ["returned", 1, unlockId],
+    ]);
+    // The wallet invariant: the balance is the sum of the ledger.
+    const [w] = await sql<{ balance: number; total: number }[]>`
+      SELECT pc.balance, (SELECT COALESCE(SUM(delta), 0) FROM credit_ledger cl
+                          WHERE cl.payer_id = pc.payer_id)::int AS total
+      FROM payer_credits pc WHERE pc.payer_id = ${COMPANY}::uuid`;
+    expect(Number(w!.balance)).toBe(Number(w!.total));
+  });
+
+  it("a second return of the same lots changes nothing", async () => {
+    const again = await client.db.transaction(async (tx) => {
+      const spent = await desk.spentFromLots(tx as never, COMPANY, unlockId);
+      const applied: boolean[] = [];
+      for (const s of spent) {
+        applied.push(await desk.returnCredits(tx as never, COMPANY, unlockId, s, null));
+      }
+      return applied;
+    });
+    expect(again).toEqual([false, false]);
+  });
+
+  it("closing: once, and a deadline close names no admin (the CHECK)", async () => {
+    await expect(
+      client.db.transaction((tx) =>
+        desk.resolve(tx as never, caseId, {
+          status: "not_reached",
+          creditsReturned: 2,
+          resolvedBy: "deadline",
+          adminId: randomUUID(),
+          at: new Date(),
+        }),
+      ),
+    ).rejects.toThrow();
+    const closed = await client.db.transaction((tx) =>
+      desk.resolve(tx as never, caseId, {
+        status: "not_reached",
+        creditsReturned: 2,
+        resolvedBy: "deadline",
+        adminId: null,
+        at: new Date(),
+      }),
+    );
+    expect(closed).toMatchObject({
+      status: "not_reached",
+      creditsReturned: 2,
+      resolvedBy: "deadline",
+    });
+    const twice = await client.db.transaction((tx) =>
+      desk.resolve(tx as never, caseId, {
+        status: "reached_declined",
+        creditsReturned: 0,
+        resolvedBy: "desk",
+        adminId: null,
+        at: new Date(),
+      }),
+    );
+    expect(twice).toBeUndefined();
+    expect(await desk.dueCaseIds(50, new Date(Date.now() + 365 * 86_400_000))).not.toContain(
+      caseId,
+    );
   });
 });
