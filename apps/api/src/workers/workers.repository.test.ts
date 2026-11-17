@@ -4,6 +4,8 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import {
   CURRENT_PROFILE_ORDER,
+  displayPrefs,
+  featurePilotSubjects,
   workers,
   workerProfiles,
   workerCredentials,
@@ -56,13 +58,13 @@ interface Captured {
   insertTable?: unknown;
   insertValues?: unknown;
   conflict?: unknown;
-  deleteTable?: unknown;
-  deleteWhere?: unknown;
+  /** Every delete(...).where(...) call, in order — the hard delete runs three. */
+  deletes: { table: unknown; where: unknown }[];
 }
 
 /** Same capturing-mock shape used across the repository test suite (reach/unlocks/posting-plans). */
 function makeDb(opts: { rows?: unknown[]; sequence?: unknown[][] } = {}) {
-  const captured: Captured = { selects: [] };
+  const captured: Captured = { selects: [], deletes: [] };
   const seq = opts.sequence ? [...opts.sequence] : undefined;
   const nextRows = () => (seq ? (seq.shift() ?? []) : (opts.rows ?? []));
 
@@ -130,8 +132,7 @@ function makeDb(opts: { rows?: unknown[]; sequence?: unknown[][] } = {}) {
 
   const deleteChain = (table: unknown) => ({
     where: (c: unknown) => {
-      captured.deleteTable = table;
-      captured.deleteWhere = c;
+      captured.deletes.push({ table, where: c });
       return { returning: () => Promise.resolve(nextRows()) };
     },
   });
@@ -582,18 +583,57 @@ describe("WorkersRepository.countDevices — the DSAR devices_revoked count, cap
 });
 
 describe("WorkersRepository.hardDelete — ADR-0026 Phase 5 right-to-erasure, one DELETE in a tx", () => {
+  /** The three statements, as table + compiled WHERE + params, in the order they ran. */
+  const shape = (captured: Captured) =>
+    captured.deletes.map((d) => [d.table, text(d.where), params(d.where)]);
+  const ERASURE = [
+    [workers, '"workers"."id" = $1', [WORKER_ID]],
+    // #2837 (R88, R87) — the two rows no cascade reaches, the worker's own kind only.
+    [
+      displayPrefs,
+      '("display_prefs"."subject_kind" = $1 and "display_prefs"."subject_id" = $2)',
+      ["worker", WORKER_ID],
+    ],
+    [
+      featurePilotSubjects,
+      '("feature_pilot_subjects"."subject_kind" = $1 and "feature_pilot_subjects"."subject_id" = $2)',
+      ["worker", WORKER_ID],
+    ],
+  ];
+
   it("deletes the worker row by id inside a transaction and returns true when a row was deleted", async () => {
     const { db, captured } = makeDb({ rows: [{ id: WORKER_ID }] });
     const out = await new WorkersRepository(db).hardDelete(WORKER_ID);
-    expect(captured.deleteTable).toBe(workers);
-    expect(text(captured.deleteWhere)).toBe('"workers"."id" = $1');
-    expect(params(captured.deleteWhere)).toEqual([WORKER_ID]);
+    expect(shape(captured)).toEqual(ERASURE);
     expect(out).toBe(true);
   });
 
-  it("returns false (idempotent no-op) when the worker was already gone", async () => {
-    const { db } = makeDb({ rows: [] });
-    expect(await new WorkersRepository(db).hardDelete(WORKER_ID)).toBe(false);
+  it("#2837: the worker row FIRST, then his theme and pilot rows, then the caller's in-tx work", async () => {
+    const { db, captured } = makeDb({ rows: [{ id: WORKER_ID }] });
+    let deletesBeforeInTx = -1;
+    await new WorkersRepository(db).hardDelete(WORKER_ID, {
+      inTx: async () => {
+        deletesBeforeInTx = captured.deletes.length;
+      },
+    });
+    // The row delete waits for a theme PATCH holding the row, so the side rows must come after it.
+    expect(captured.deletes[0]!.table).toBe(workers);
+    expect(deletesBeforeInTx).toBe(3);
+  });
+
+  it("returns false (idempotent no-op) when the worker was already gone, and still clears his rows", async () => {
+    const { db, captured } = makeDb({ rows: [] });
+    let ranInTx = false;
+    expect(
+      await new WorkersRepository(db).hardDelete(WORKER_ID, {
+        inTx: async () => {
+          ranInTx = true;
+        },
+      }),
+    ).toBe(false);
+    // An out-of-band delete leaves no row to cascade from; a re-run still removes the orphans.
+    expect(shape(captured)).toEqual(ERASURE);
+    expect(ranInTx).toBe(false);
   });
 });
 

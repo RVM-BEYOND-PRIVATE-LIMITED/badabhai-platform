@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException, UnauthorizedException } from "@nestjs/common";
 
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import {
@@ -31,6 +31,18 @@ interface Subject {
  * Either fails the request CLOSED (light / `theme_open: false`, or a 404); anything else propagates.
  */
 const MISSING_SCHEMA: ReadonlySet<string> = new Set(["42P01", "42703"]);
+
+/**
+ * #2837 — what a PATCH answers when the login's own row is gone by the time it writes: its realm
+ * guard's refusal of a revoked session, word for word. Every managed deletion revokes the sessions
+ * before it deletes the row, so that is the truth, and the reply is the one the same request gets a
+ * moment later from the guard: the client's ordinary re-auth path runs, never a 500.
+ */
+const LOGIN_GONE: Readonly<Record<DisplayPrefsSubjectKind, string>> = {
+  worker: "Invalid or expired session",
+  payer_user: "Invalid or expired payer session",
+  admin: "Invalid or expired admin session",
+};
 
 /** What every route answers while the theme is closed for the login. A fresh object per reply. */
 const closed = (): DisplayPrefsResponse => ({ theme: DEFAULT_DISPLAY_THEME, theme_open: false });
@@ -165,6 +177,11 @@ export class DisplayPrefsService {
    * concurrent changes serialise and each reports the theme it replaced. Two concurrent FIRST
    * choices cannot both insert: the loser locks the winner's row and decides again, so the later
    * request wins and its event's `from` is the winner's theme.
+   *
+   * NEVER AFTER AN ERASURE (#2837, review L3). The table has no FK, so the transaction's FIRST
+   * statement takes `FOR KEY SHARE` on the login's own row (`lockSubject`). A login deleted while
+   * this request was past its guard answers the guard's own 401 ({@link LOGIN_GONE}) and writes
+   * nothing; an erasure that starts after the lock waits for this commit and then deletes the row.
    */
   private async write(
     subject: Subject,
@@ -177,6 +194,12 @@ export class DisplayPrefsService {
     let replaced: DisplayTheme | null;
     try {
       replaced = await this.repo.withTransaction(async (tx) => {
+        if (!(await this.repo.lockSubject(subject.kind, subject.id, tx))) {
+          this.logger.warn(
+            `display prefs: write refused, login gone (kind=${subject.kind} id=${subject.id})`,
+          );
+          throw new UnauthorizedException(LOGIN_GONE[subject.kind]);
+        }
         const held = await this.repo.lockTheme(subject.kind, subject.id, tx);
         let from = inForce(held);
         if (from === theme) return null;

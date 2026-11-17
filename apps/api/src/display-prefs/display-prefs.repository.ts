@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, eq, sql } from "drizzle-orm";
-import { displayPrefs, type Database } from "@badabhai/db";
+import { adminUsers, displayPrefs, payers, workers, type Database } from "@badabhai/db";
 import type { DisplayPrefsSubjectKind, DisplayTheme } from "@badabhai/types";
 
 import { DATABASE } from "../database/database.module";
@@ -32,6 +32,51 @@ export class DisplayPrefsRepository {
   /** Run `cb` inside one Drizzle transaction; the `tx` it gets is a `Database`-shaped executor. */
   withTransaction<T>(cb: (tx: Database) => Promise<T>): Promise<T> {
     return this.db.transaction(cb as (tx: unknown) => Promise<T>);
+  }
+
+  /**
+   * #2837 — holds the LOGIN'S OWN ROW (`workers`, `payers` or `admin_users`) with `FOR KEY SHARE`
+   * until `tx` ends, and says whether it still exists. Call it on the write's transaction, first.
+   *
+   * WHY. The guard read the row before the request reached here, but an erasure can delete it
+   * between that read and this write, and `display_prefs` has no FK to stop a row landing after.
+   * This lock is the FK check the table cannot have: an erasure that already deleted the row makes
+   * this wait for its commit and then find nothing (false); an erasure that comes later waits for
+   * this transaction, then deletes the row this write committed (`eraseLoginKeyedRows`).
+   *
+   * `FOR KEY SHARE` is the lock a real FK check takes: it blocks only a delete (or a key change) of
+   * the login's row, never an ordinary update of it.
+   */
+  async lockSubject(
+    kind: DisplayPrefsSubjectKind,
+    subjectId: string,
+    tx: Database,
+  ): Promise<boolean> {
+    let rows: unknown[];
+    switch (kind) {
+      case "worker":
+        rows = await tx
+          .select({ id: workers.id })
+          .from(workers)
+          .where(eq(workers.id, subjectId))
+          .for("key share");
+        break;
+      case "payer_user":
+        rows = await tx
+          .select({ id: payers.id })
+          .from(payers)
+          .where(eq(payers.id, subjectId))
+          .for("key share");
+        break;
+      case "admin":
+        rows = await tx
+          .select({ id: adminUsers.id })
+          .from(adminUsers)
+          .where(eq(adminUsers.id, subjectId))
+          .for("key share");
+        break;
+    }
+    return rows.length > 0;
   }
 
   /** The login's stored theme, or null when it has never chosen. One primary-key read. */

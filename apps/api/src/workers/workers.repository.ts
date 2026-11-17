@@ -15,6 +15,7 @@ import {
   type WorkerProfile,
   type GeneratedResume,
 } from "@badabhai/db";
+import { eraseLoginKeyedRows } from "../common/login-keyed-rows";
 import { DATABASE } from "../database/database.module";
 import { NEWEST_RESUME_FIRST } from "../resume/resume-order";
 
@@ -639,6 +640,12 @@ export class WorkersRepository {
    * downloads, flags) and SET-NULLs the three billing/intent FKs (unlocks/resume_disclosures/
    * invites.inviter_worker_id) per migration 0030. Returns true if a row was deleted, false if
    * the worker was already gone (idempotent — a re-run is a no-op).
+   *
+   * #2837 — then, on the same transaction, the two rows keyed on his id that NO cascade reaches
+   * (`display_prefs`, `feature_pilot_subjects`: no FK, by design), via {@link eraseLoginKeyedRows}.
+   * AFTER the row delete, which waits for any theme PATCH holding the row, so a choice committed
+   * mid-erasure is seen and deleted. Run whether or not this call removed the row: a re-run
+   * clears what an out-of-band delete left, and removes nothing when there is nothing.
    */
   async hardDelete(
     id: string,
@@ -658,7 +665,9 @@ export class WorkersRepository {
         .returning({ id: workers.id });
       // A drizzle transaction handle exposes the same query API; writers take it typed as
       // `Database` (the codebase's tx convention).
-      if (deleted.length > 0 && opts.inTx !== undefined) await opts.inTx(tx as unknown as Database);
+      const executor = tx as unknown as Database;
+      await eraseLoginKeyedRows(executor, { kind: "worker", id });
+      if (deleted.length > 0 && opts.inTx !== undefined) await opts.inTx(executor);
       return deleted.length > 0;
     });
   }

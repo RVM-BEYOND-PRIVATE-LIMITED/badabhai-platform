@@ -1,6 +1,11 @@
 import "reflect-metadata";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ForbiddenException, Logger, NotFoundException } from "@nestjs/common";
+import {
+  ForbiddenException,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { loadServerConfig } from "@badabhai/config";
 import type { DisplayTheme } from "@badabhai/types";
 
@@ -53,6 +58,8 @@ interface Options {
   tableError?: Error;
   /** insertTheme loses a first-choice race: this theme was committed concurrently. */
   raceWinner?: DisplayTheme;
+  /** #2837 — the login's own row is gone (erased after the guard read it). */
+  loginGone?: boolean;
 }
 
 function harness(opts: Options = {}) {
@@ -64,6 +71,9 @@ function harness(opts: Options = {}) {
   };
   const repo = {
     withTransaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(TX)),
+    // The login's own table (workers / payers / admin_users), never display_prefs: `tableError`
+    // stands for a missing display_prefs, so it does not reach this.
+    lockSubject: vi.fn(async (_kind: string, _id: string, _tx: unknown) => !opts.loginGone),
     findTheme: vi.fn(async (kind: string, id: string) => {
       touch();
       return store.get(`${kind}:${id}`) ?? null;
@@ -122,6 +132,13 @@ const payer = (id = PAYER, role: "employer" | "agent" = "employer"): Authenticat
 });
 
 type Svc = DisplayPrefsService;
+
+/** #2837 — each realm guard's refusal of a revoked session, word for word. */
+const GUARD_REFUSAL = {
+  worker: "Invalid or expired session",
+  payer_user: "Invalid or expired payer session",
+  admin: "Invalid or expired admin session",
+} as const;
 
 /** The three realms, each read and written the way its controller does. */
 const REALMS = [
@@ -326,6 +343,43 @@ describe.each(REALMS)(
         h.events.emit.mockRejectedValueOnce(new Error("events insert failed"));
         await expect(write(h.svc, "dark")).rejects.toThrow("events insert failed");
         expect(h.repo.withTransaction).toHaveBeenCalledTimes(1);
+      });
+
+      it("#2837: the transaction's FIRST statement locks the login's own row, on the same tx", async () => {
+        const h = open({ rows: { [key]: "dark" } });
+        await write(h.svc, "system");
+        expect(h.repo.lockSubject.mock.calls).toEqual([[realm, subjectId, h.TX]]);
+        const locked = h.repo.lockSubject.mock.invocationCallOrder[0]!;
+        expect(locked).toBeLessThan(h.repo.lockTheme.mock.invocationCallOrder[0]!);
+        expect(locked).toBeLessThan(h.repo.updateTheme.mock.invocationCallOrder[0]!);
+      });
+
+      it.each([
+        ["a first choice", {}],
+        ["a change", { [key]: "dark" }],
+        ["a repeat of the stored theme", { [key]: "system" }],
+      ] as const)(
+        "#2837: %s for a login erased past its guard is the guard's 401, nothing written or emitted",
+        async (_name, rows) => {
+          const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+          const h = open({ loginGone: true, rows: { ...rows } });
+          const err = await write(h.svc, "system").catch((e: unknown) => e);
+          expect(err).toBeInstanceOf(UnauthorizedException);
+          expect((err as Error).message).toBe(GUARD_REFUSAL[realm]);
+          expect(h.repo.lockTheme).not.toHaveBeenCalled();
+          expect(h.repo.insertTheme).not.toHaveBeenCalled();
+          expect(h.repo.updateTheme).not.toHaveBeenCalled();
+          expect(h.events.emit).not.toHaveBeenCalled();
+          expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([
+            `display prefs: write refused, login gone (kind=${realm} id=${subjectId})`,
+          ]);
+        },
+      );
+
+      it("#2837: a GET never takes the login lock (a read cannot outlive an erasure)", async () => {
+        const h = open({ loginGone: true, rows: { [key]: "dark" } });
+        expect(await read(h.svc)).toEqual({ theme: "dark", theme_open: true });
+        expect(h.repo.lockSubject).not.toHaveBeenCalled();
       });
     });
   },

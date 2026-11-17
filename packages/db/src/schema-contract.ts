@@ -1273,10 +1273,23 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. Every PostgREST role could read which workers applied through Campus to which " +
       "posting, and write an application that a company would see",
   },
-  // 0164 (#2820): THE API names `feature_pilot_subjects` only for a worker or an admin while a
-  // rollout switch reads `pilot` (THEME_ROLLOUT first), and a read error there answers "not
-  // listed", so a deploy ahead of the migration breaks no request and the table is NOT a `table`
-  // entry. It is listed for its lock, exactly as 0134's table is. APPLY BEFORE PILOT (header).
+  // 0164 (#2820): the pilot READ names `feature_pilot_subjects` only while a rollout switch reads
+  // `pilot`, and a read error there answers "not listed". Since #2837 (risk R87, after 0164 was
+  // applied in production) every worker ERASURE names it unconditionally too: the delete of his
+  // pilot rows runs on the erasure's transaction, so the table is a `table` entry as well as a lock.
+  {
+    id: "0164-feature-pilot-subjects-table",
+    migration: "0164_feature_pilot_subjects",
+    kind: "table",
+    table: "feature_pilot_subjects",
+    requiredBy:
+      "eraseLoginKeyedRows on the transaction of every worker deletion: WorkersRepository.hardDelete " +
+      "(the DPDP erasure sweep and the QA seam) and InstituteLinkRepository." +
+      "deleteLinkCreatedPendingWorker (Campus's unlink)",
+    failureMode:
+      "every worker erasure rolls back (relation does not exist): the sweep retries and fails each " +
+      "tick, the QA seam 500s, and a Campus unlink that would delete the row 500s",
+  },
   {
     id: "0164-feature-pilot-subjects-rls",
     migration: "0164_feature_pilot_subjects",
@@ -1287,10 +1300,24 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. A writable grant lets any PostgREST role put a worker or an admin on a pilot, " +
       "opening a feature meant for the named pilot logins only",
   },
-  // 0165 (#2819): THE API names `display_prefs` only for a login the THEME_ROLLOUT switch is open
-  // for, and a missing table there answers light / theme_open false (GET) or a 404 (PATCH), so a
-  // deploy ahead of the migration breaks no request and the table is NOT a `table` entry. No
-  // erasure path names it yet (#2837). Listed for its lock, as 0164's table is. APPLY BEFORE PILOT.
+  // 0165 (#2819): the theme routes name `display_prefs` only for a login the THEME_ROLLOUT switch is
+  // open for, and a missing table there answers light / theme_open false (GET) or a 404 (PATCH).
+  // Since #2837 (risk R88, after 0165 was applied in production) every worker and payer-login
+  // DELETION names it unconditionally: a `table` entry as well as a lock.
+  {
+    id: "0165-display-prefs-table",
+    migration: "0165_display_prefs",
+    kind: "table",
+    table: "display_prefs",
+    requiredBy:
+      "eraseLoginKeyedRows on the transaction of every login deletion: WorkersRepository.hardDelete " +
+      "(the DPDP erasure sweep and the QA seam), InstituteLinkRepository." +
+      "deleteLinkCreatedPendingWorker (Campus's unlink) and PayerAccountDeletionService.execute",
+    failureMode:
+      "every worker erasure rolls back (relation does not exist): the sweep retries and fails each " +
+      "tick, the worker and payer QA deletion seams 500, and a Campus unlink that would delete " +
+      "the row 500s",
+  },
   {
     id: "0165-display-prefs-rls",
     migration: "0165_display_prefs",
