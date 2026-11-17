@@ -320,7 +320,9 @@ describe("PayerApplicantsService — the result does not depend on MATCH_V1_ENAB
     // PAYER_APPLICANT_STAGES_ENABLED — never MATCH_V1_ENABLED; it is not a config object.
     // The 5th (ADR-0053, P2a) is the tenant resolver, whose only config read is the tenancy
     // mode — never MATCH_V1_ENABLED either.
-    expect(PayerApplicantsService.length).toBe(5);
+    // The 6th (#2747) is the pre-pay facts decorator, whose only switch is `applicant_facts`
+    // through FeatureRolloutService — never MATCH_V1_ENABLED.
+    expect(PayerApplicantsService.length).toBe(6);
   });
 
   it.each(FLAG_STATES)(
@@ -492,6 +494,10 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
       { emit: vi.fn() } as never,
       { PAYER_APPLICANT_STAGES_ENABLED: true },
       defaultModeResolver(),
+      { isEnabledFor: async () => false } as never,
+      { signalsStateFor: async () => "off", recordMark: async () => "not_rvm" } as never,
+      // #2753 item 9 — hire records off: the stage write calls nothing on it.
+      { enabled: false } as never,
     );
     return {
       repo,

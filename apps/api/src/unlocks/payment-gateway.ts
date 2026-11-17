@@ -2,16 +2,23 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { areRealPaymentsEnabled } from "@badabhai/config";
-import { CREDIT_PACKS, type CreditPack, type PaymentOrder } from "@badabhai/db";
+import type { CreditPack, ExpiredCreditLot, PaymentOrder } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PricingService } from "../pricing/pricing.service";
-import { chargeQuote } from "../pricing/charge-price";
+import { creditPackSale, findCreditPackTier } from "../pricing/credit-pack-sale";
 import { UnlocksRepository, type Tx } from "./unlocks.repository";
 import { RazorpayClient } from "./razorpay.client";
 
-/** The credit-pack product code in the pricing catalog (D-6). */
-const CREDIT_PACK_PRODUCT = "contact_unlock";
+/**
+ * A credit pack a purchase may charge for (#2749): a `contact_unlock` tier that `creditPackSale`
+ * calls sellable now — the same answer the payer catalogue shows packs on — priced through
+ * `chargeQuote`.
+ */
+export interface ResolvedPack extends CreditPack {
+  /** How long the pack's credits last, in days, or null when the catalogue sets none. */
+  readonly validityDays: number | null;
+}
 
 /**
  * The PaymentGateway / CreditService seam (ADR-0010 §D5 / Phase-0 F-6) — the single
@@ -104,9 +111,14 @@ export class PaymentGateway {
 
   /**
    * Debit ONE credit for an unlock, inside the caller's transaction (F-6 atomicity).
-   * Returns `{ ok: true, balanceAfter }` on success, or `{ ok: false }` when the payer
-   * has insufficient credits (atomic conditional decrement updated no row). The caller
-   * (chokepoint) appends the ledger row in the SAME tx so balance + ledger never drift.
+   * Returns `{ ok: true, balanceAfter, lotId }` on success — `lotId` is the lot the credit came
+   * from, the soonest-expiring open one (#2749) — or `{ ok: false }` when the payer has no
+   * credit left once due lots are expired. The caller (chokepoint) appends the ledger row, naming
+   * `lotId`, in the SAME tx so balance + lots + ledger never drift.
+   *
+   * `expiredLots` (possibly empty): the lots this spend expired before it spent. Their `expired`
+   * lines are written in the caller's transaction, and the caller emits `payer.credits_expired`
+   * on that SAME transaction. `{ ok: false }` means NOTHING was written (#2749 review, F-1/F-3).
    *
    * IDEMPOTENCY (F-6): the chokepoint only calls this on the grant path AFTER it has
    * established there is no pre-existing live grant for (payer, worker) within the same
@@ -116,51 +128,69 @@ export class PaymentGateway {
   async debitOneCreditWithinTx(
     tx: Tx,
     tenant: TenantKey,
-  ): Promise<{ ok: true; balanceAfter: number } | { ok: false }> {
-    const balanceAfter = await this.repo.tryDebit(tx, tenant, 1);
-    if (balanceAfter === undefined) return { ok: false };
-    return { ok: true, balanceAfter };
+  ): Promise<
+    | { ok: true; balanceAfter: number; lotId: string; expiredLots: readonly ExpiredCreditLot[] }
+    | { ok: false }
+  > {
+    const debited = await this.repo.tryDebit(tx, tenant, 1);
+    if (debited === undefined) return { ok: false };
+    return {
+      ok: true,
+      balanceAfter: debited.balanceAfter,
+      lotId: debited.lotId,
+      expiredLots: debited.expiredLots ?? [],
+    };
   }
 
   /**
-   * Resolve a credit pack by code from the LIVE catalog, falling back to the legacy
-   * compile-time constants. ASYNC since D-6.
+   * Resolve a credit pack a purchase may charge for: a `contact_unlock` tier the ACTIVE
+   * catalogue lists and `creditPackSale` calls sellable at `now`, else null (→ the caller's 404).
+   * ASYNC since D-6.
    *
-   * WHY (D-6 MEDIUM-1): the portal RENDERS the live `contact_unlock` tiers, so the CHARGE
-   * must read the SAME source or an ops price edit makes advertised ≠ charged (and, worse,
-   * advertised-credits ≠ granted-credits). Both sides were compile-time before D-6 and the
-   * values happened to match; that coupling is now explicit rather than coincidental. This
-   * mirrors what PostingPlansService already does for plan/boost/capacity/topup — one engine,
-   * one price. `getActiveCatalog` is itself fail-closed (an invalid stored row serves the
-   * typed default), so this can never resolve an unvalidated/negative price.
+   * WHY ONE SOURCE (D-6 MEDIUM-1): the portal RENDERS the live `contact_unlock` tiers, so the
+   * CHARGE must read the SAME source or an ops price edit makes advertised ≠ charged (and, worse,
+   * advertised-credits ≠ granted-credits). What `getActiveCatalog` falls back to, and what that
+   * means here: with NO stored row it serves DEFAULT_CATALOG, so the DEFAULT packs are sold (this
+   * is production today). With a stored row that FAILS validation it also serves DEFAULT_CATALOG,
+   * and selling from that would put the default packs back on sale in place of the catalogue ops
+   * published — so in that state (#2749) this sells NOTHING. Either way it never resolves an
+   * unvalidated price.
    *
-   * LEGACY FALLBACK (invariant #8): `pack_10`/`pack_25` are RETAINED-but-not-OFFERED — they
-   * are absent from the catalog yet must still resolve for historical `credit_ledger.pack_code`
-   * references. A code the live catalog does not carry falls through to {@link CREDIT_PACKS};
-   * only a code in NEITHER is unknown (→ the caller's 404). The live catalog WINS on conflict
-   * (it is the ops-editable source of truth); the constant is a floor, never an override.
+   * SELLABLE ONLY (#2749): `creditPackSale` is the same answer the payer catalogue read shows
+   * packs on, so a pack a payer cannot see cannot be ordered — `offered:false`, a future
+   * `onSaleFrom`, a rejected row and a price whose GST line cannot be computed all resolve to
+   * null. There is NO constant fallback any more: a code the catalogue does not list (`pack_10`,
+   * `pack_25`, or any old code a published catalogue drops) is null too. Old codes stay READABLE
+   * where they are history (`credit_ledger.pack_code`, `payment_orders.pack_code`, the admin
+   * views), none of which call this.
+   *
+   * A catalog read failure propagates deliberately: unlike the DISPLAY seam (payer-web fails OPEN
+   * to cached prices), the CHARGE path must never invent a price — the caller surfaces the error
+   * and no money moves.
    */
-  async resolvePack(packCode: string): Promise<CreditPack | undefined> {
-    const live = await this.resolveLivePack(packCode);
-    return live ?? CREDIT_PACKS[packCode];
-  }
-
-  /**
-   * The `contact_unlock` tier for `packCode` from the ACTIVE catalog, or undefined when the
-   * catalog has no such tier (→ the legacy-constant fallback above). A catalog read failure
-   * propagates deliberately: unlike the DISPLAY seam (payer-web fails OPEN to cached prices),
-   * the CHARGE path must never invent a price — the caller surfaces the error and no money moves.
-   */
-  private async resolveLivePack(packCode: string): Promise<CreditPack | undefined> {
-    const { catalog } = await this.pricing.getActiveCatalog();
-    // #2085: priced through `chargeQuote`, the ONE charge function the payer catalog also
-    // displays through, so the ₹ shown for a pack is the ₹ this charges (list price — see
-    // `chargeQuote` on why credit packs take no offer).
-    const result = chargeQuote(catalog, { productCode: CREDIT_PACK_PRODUCT, tierCode: packCode });
-    if (!result.ok || result.quote.grants.kind !== "credit_pack") return undefined;
-    // Map the quote onto the CreditPack shape the purchase path consumes. `credits` comes
-    // from the LIVE tier too — the grant, not just the price, follows the catalog.
-    return { code: packCode, priceInr: result.quote.finalInr, credits: result.quote.grants.credits };
+  async resolvePack(packCode: string, now: Date = new Date()): Promise<ResolvedPack | null> {
+    const active = await this.pricing.getActiveCatalog();
+    const tier = findCreditPackTier(active.catalog, packCode);
+    if (!tier) return null;
+    const sale = creditPackSale(active, tier, now);
+    if (!sale.sellable) {
+      if (sale.reason === "gst_error") {
+        this.logger.warn(
+          `credit pack refused: GST line failed pack=${tier.code} error=${sale.errorClass}`,
+        );
+      }
+      return null;
+    }
+    return {
+      code: packCode,
+      // #2085: priced through `chargeQuote`, the ONE charge function the payer catalog also
+      // displays through (list price — see `chargeQuote` on why credit packs take no offer).
+      priceInr: sale.pack.quote.finalInr,
+      // The grant, not just the price, follows the live tier.
+      credits: sale.pack.credits,
+      // Unused for now: PR 3 of #2749 stamps it on the order and the lot.
+      validityDays: tier.validityDays ?? null,
+    };
   }
 
   /**
@@ -169,9 +199,9 @@ export class PaymentGateway {
    * (authorize→capture against an order) is a LATER human-gated stream; the seam (this
    * method + the events) is what it slots into.
    *
-   * The `pack` is whatever {@link resolvePack} returned (live catalog, else the legacy
-   * constant), so credits GRANTED and ₹ STAMPED are both that one resolved tier — never a
-   * second, possibly-drifted lookup.
+   * The `pack` is whatever {@link resolvePack} returned (an on-sale live catalog tier), so
+   * credits GRANTED and ₹ STAMPED are both that one resolved tier — never a second,
+   * possibly-drifted lookup.
    */
   async purchasePackMock(
     tenant: TenantKey,
@@ -261,9 +291,10 @@ export class PaymentGateway {
    *     {@link UnlocksRepository.claimAndCreditPaymentOrderWithinTx}) — a single statement, so
    *     there is no read-then-write window; concurrent settlers serialize on the row lock
    *     and exactly one gets a row back.
-   *  3. `credit_ledger.idempotency_key = payment_order:<row id>` — a partial UNIQUE index.
-   *     Even if (2) were somehow bypassed, the second ledger insert violates the index and
-   *     aborts the transaction, so the balance cannot double.
+   *  3. `credit_ledger.idempotency_key = payment_order:<row id>`, checked under the wallet
+   *     lock (a key already on the ledger grants nothing), with the full UNIQUE index
+   *     `credit_ledger_idempotency_key_uq` and the one-lot-per-order `credit_lots_payment_order_uq`
+   *     (#2749) behind it. Even if (2) were somehow bypassed, the balance cannot double.
    *
    * The claim and the grant run in ONE transaction, so "order marked paid" and "credits
    * granted" are inseparable — no crash window can produce one without the other.
@@ -334,8 +365,9 @@ export class PaymentGateway {
    * the settle decision is already determined and BEFORE the transaction, so a catalog read
    * failure can neither block a grant nor hold a row lock.
    *
-   * A pack that no longer resolves at all is logged too — under the old design that was a
-   * stranded payment, and it is now merely informational, which is the point.
+   * A pack that no longer resolves at all (gone from the catalogue, or off sale since #2749) is
+   * logged too — under the old design that was a stranded payment, and it is now merely
+   * informational, which is the point.
    *
    * PII-free: opaque row id, catalog code, integer ₹/counts.
    */

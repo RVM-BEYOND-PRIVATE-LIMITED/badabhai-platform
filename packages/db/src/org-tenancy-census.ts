@@ -146,6 +146,7 @@ export const CENSUS_QUERIES: readonly CensusQuery[] = [
       UNION ALL SELECT 'payer_capacity', count(*) FROM payer_capacity WHERE payer_id IN (SELECT id FROM team_members)
       UNION ALL SELECT 'payment_orders', count(*) FROM payment_orders WHERE payer_id IN (SELECT id FROM team_members)
       UNION ALL SELECT 'credit_ledger', count(*) FROM credit_ledger WHERE payer_id IN (SELECT id FROM team_members)
+      UNION ALL SELECT 'credit_lots', count(*) FROM credit_lots WHERE payer_id IN (SELECT id FROM team_members)
       UNION ALL SELECT 'payer_credits', count(*) FROM payer_credits WHERE payer_id IN (SELECT id FROM team_members)
       UNION ALL SELECT 'agency_invites', count(*) FROM agency_invites WHERE inviter_payer_id IN (SELECT id FROM team_members)
       UNION ALL SELECT 'referral_links', count(*) FROM referral_links WHERE agent_payer_id IN (SELECT id FROM team_members)

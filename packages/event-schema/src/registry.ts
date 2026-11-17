@@ -420,6 +420,15 @@ export const EVENT_REGISTRY = {
   "unlock.denied": { version: 1, domain: "unlock", payload: p.UnlockDeniedPayload },
   "unlock.cap_exceeded": { version: 1, domain: "unlock", payload: p.UnlockCapExceededPayload },
   "contact.revealed": { version: 1, domain: "contact", payload: p.ContactRevealedPayload },
+  "contact.viewed": { version: 1, domain: "contact", payload: p.ContactViewedPayload },
+  "unlock.reopened": { version: 1, domain: "unlock", payload: p.UnlockReopenedPayload },
+  // #2753 item 10 — the company follow-up answer (or the desk's not_reached) on an opened contact.
+  // One per real change; ids + closed values only, strict. v1.
+  "unlock.outcome_recorded": {
+    version: 1,
+    domain: "unlock",
+    payload: p.UnlockOutcomeRecordedPayload,
+  },
   "payment.authorized": { version: 1, domain: "payment", payload: p.PaymentAuthorizedPayload },
   "payment.captured": { version: 1, domain: "payment", payload: p.PaymentCapturedPayload },
   "payment.failed": { version: 1, domain: "payment", payload: p.PaymentFailedPayload },
@@ -911,6 +920,13 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "payer",
     payload: p.PayerCreditsExhaustedPayload,
+  },
+  // #2749 — a credit lot's unspent credits expired: ONE per lot, ever, in the transaction that
+  // writes its `expired` ledger line (a spend that found it due, or the expiry sweep). v1.
+  "payer.credits_expired": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerCreditsExpiredPayload,
   },
   // MOMENT ④ — `feed.shown` VERSION 2. `feed.shown` above KEEPS its v1 entry,
   // unmodified, as history (invariant #8): `validateEvent` allows exactly one version
@@ -1784,6 +1800,57 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "campus_drive",
     payload: p.CampusDriveCancelledPayload,
+  },
+  // #2819 — a worker, a company or agency login, or an admin changed their theme. IDS AND ENUMS
+  // ONLY. v1.
+  "display_prefs.changed": {
+    version: 1,
+    domain: "display_prefs",
+    payload: p.DisplayPrefsChangedPayload,
+  },
+  // #2747 item 7 — `payer.applicant_stage_changed` VERSION 2: a move to or from the outcome stages
+  // `selected` / `hired`. A NEW NAME, as `resume.edited_v2` is: the v1 entry keeps its definition,
+  // pinned to the first three stages, and still reports every move between them. Ids + closed
+  // enums only, strict. v2.
+  "payer.applicant_stage_changed_v2": {
+    version: 2,
+    domain: "payer",
+    payload: p.PayerApplicantStageChangedV2Payload,
+  },
+  // #2753 item 6 — a worker left company search or came back to it (`worker_search_exits`,
+  // migration 0169). One per real change, in the row's transaction. His consent is untouched. IDS
+  // AND CLOSED VALUES ONLY, strict. v1.
+  "worker.search_visibility_changed": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerSearchVisibilityChangedPayload,
+  },
+  // #2753 item 5 — the monthly "still looking?" check (`still_looking_checks`, migration 0173):
+  // the sweep opened one for a worker, and he answered it (yes / not_now / hired). One per row
+  // written, in the row's transaction. IDS AND CLOSED VALUES ONLY, strict. v1.
+  "worker.still_looking_prompted": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerStillLookingPromptedPayload,
+  },
+  "worker.still_looking_answered": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerStillLookingAnsweredPayload,
+  },
+  // #2753 item 9 — a hire record (one company, worker and posting) changed: created, a status
+  // move, or a source saying "hired" for the first time. Ids + closed values only, strict. v1.
+  "hire.recorded": {
+    version: 1,
+    domain: "hire",
+    payload: p.HireRecordedPayload,
+  },
+  // #2753 item 11 — an admin created or edited a pay-on-joining hire record (the pilot). IDS, PAISE
+  // INTEGERS AND CLOSED VALUES ONLY; the admin note never rides along. v1.
+  "pay_on_joining.recorded": {
+    version: 1,
+    domain: "pay_on_joining",
+    payload: p.PayOnJoiningRecordedPayload,
   },
 } as const satisfies Record<string, EventDefinition>;
 

@@ -1,5 +1,5 @@
-import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gte, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import {
   type Database,
   type Unlock,
@@ -10,10 +10,23 @@ import {
   type RoutingChannel,
   type PaymentOrder,
   type PaymentOrderStatus,
+  type ExpiredCreditLot,
+  type LotAlignment,
+  type WalletExpiryResult,
+  type WalletGrantResult,
+  CREDIT_LOT_SPEND_ORDER,
+  countOrphanWalletsWithDueLots,
+  expireWalletWithinTx,
+  findWalletsWithDueLots,
+  grantCreditsWithinTx,
+  lotAlignmentWarning,
+  readSpendableCredits,
+  spendOneCreditWithinTx,
   unlocks,
   unlockRouting,
   payerCredits,
   creditLedger,
+  creditLots,
   paymentOrders,
   workers,
   jobs,
@@ -25,6 +38,7 @@ import { DATABASE } from "../database/database.module";
 import { findOwnedJobRef, type OwnedJobRef } from "../payers/owned-job-ref";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { OPS_LIST_CAP } from "../common/pagination";
+import type { CreditLotSource } from "@badabhai/types";
 
 /**
  * The one payment provider this stream supports, and the value that must match
@@ -76,12 +90,47 @@ export interface WalletCredit {
    */
   priceInr?: number | null;
   /**
-   * EXACTLY-ONCE key for the ledger insert (the `credit_ledger_idempotency_key_uq` partial
-   * unique index). Optional: movements with no natural dedup key leave it null and never
-   * collide (NULLS DISTINCT). The real-payment path passes a key derived from the order row.
+   * EXACTLY-ONCE key for the ledger insert (`credit_ledger_idempotency_key_uq`, a full unique
+   * index on the nullable key). Optional: movements with no natural dedup key leave it null and
+   * never collide (NULLS DISTINCT). The real-payment path passes a key derived from the order row.
    */
   idempotencyKey?: string | null;
 }
+
+/**
+ * One OPEN lot of the tenant's wallet as `GET /payer/credits` returns it (#2749): what is left,
+ * what it granted, when it ends, and the pack it came from. No lot id, no payment reference.
+ */
+export interface OpenLotProjection {
+  source: CreditLotSource;
+  credits_remaining: number;
+  credits_granted: number;
+  /** ISO 8601, or null when the lot never expires. */
+  expires_at: string | null;
+  pack_code: string | null;
+}
+
+/**
+ * What {@link UnlocksRepository.tryDebit} answers when it spent a credit (#2749): the new balance,
+ * the lot, and the lots it expired first (absent = none). `undefined` keeps its pre-#2749 meaning,
+ * no credit to spend, and since the #2749 review it also means NOTHING was written. `ok` is
+ * optional so callers' fakes that return `{ balanceAfter, lotId }` keep their meaning.
+ */
+export interface TryDebitResult {
+  ok?: true;
+  balanceAfter: number;
+  lotId: string;
+  /** The lots this spend expired before it spent (absent = none). */
+  expiredLots?: readonly ExpiredCreditLot[];
+}
+
+/**
+ * A wallet key READ FROM `credit_lots` by {@link UnlocksRepository.findWalletsWithDueLots} — the
+ * expiry sweep's only input. Branded so the sweep can only expire a wallet the table itself named
+ * (the same rule as settlement, which credits only the wallet the claimed order row names): no
+ * request, body or caller supplies it, so it is not a tenant resolution and needs none.
+ */
+export type StoredWalletKey = string & { readonly __storedWalletKey: unique symbol };
 
 /** PII-free ops/list projection of an unlock row (NO routing token resolved). */
 export interface UnlockProjection {
@@ -124,6 +173,14 @@ export interface UnlockProjection {
  */
 @Injectable()
 export class UnlocksRepository {
+  /**
+   * #2749 — the one log line this repository writes, at ERROR: a wallet whose lots the
+   * credit-wallet helper just re-aligned with its balance (ids and numbers only). It reports the
+   * state of the write it made, so it lives beside the write; after the 0174 apply-to-deploy
+   * window it should never fire, and any occurrence means a writer bypassed the helpers.
+   */
+  private readonly walletLog = new Logger("CreditWallet");
+
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /** Run `work` inside a single DB transaction (the chokepoint's atomic boundary). */
@@ -150,16 +207,8 @@ export class UnlocksRepository {
         tradeLevel: workerProfileSkills.tradeLevel,
       })
       .from(workerProfiles)
-      .innerJoin(
-        workerProfileSkills,
-        eq(workerProfileSkills.workerProfileId, workerProfiles.id),
-      )
-      .where(
-        and(
-          eq(workerProfiles.workerId, workerId),
-          isNotNull(workerProfileSkills.tradeLevel),
-        ),
-      )
+      .innerJoin(workerProfileSkills, eq(workerProfileSkills.workerProfileId, workerProfiles.id))
+      .where(and(eq(workerProfiles.workerId, workerId), isNotNull(workerProfileSkills.tradeLevel)))
       .orderBy(workerProfileSkills.skillId, desc(workerProfiles.createdAt));
     return rows.flatMap((r) =>
       r.tradeLevel === null ? [] : [{ skillId: r.skillId, tradeLevel: r.tradeLevel }],
@@ -404,6 +453,31 @@ export class UnlocksRepository {
   }
 
   /** Set an unlock to status=revealed and bump reveal_count by 1 (tx-scoped). */
+  /**
+   * #2747 (ADR-0064 §3.4) — store "open for good" on a grant and its relay row: both expiry dates
+   * move to `until`, and nothing else changes (status, reveal count, the routing token). Only ever
+   * moves a date LATER, so a re-run is a no-op and a concurrent writer can never shorten one. Run
+   * under the worker lock, inside the caller's transaction.
+   */
+  async extendOpenUntil(tx: Tx, unlockId: string, until: Date): Promise<void> {
+    await tx
+      .update(unlocks)
+      .set({ expiresAt: until, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(unlocks.id, unlockId),
+          inArray(unlocks.status, ["granted", "revealed"]),
+          // Column-aware comparisons: the driver maps `until` through the column type (a raw Date
+          // inside a hand-written fragment is not serialised).
+          or(isNull(unlocks.expiresAt), lt(unlocks.expiresAt, until)),
+        ),
+      );
+    await tx
+      .update(unlockRouting)
+      .set({ expiresAt: until })
+      .where(and(eq(unlockRouting.unlockId, unlockId), lt(unlockRouting.expiresAt, until)));
+  }
+
   async incrementReveal(tx: Tx, unlockId: string): Promise<number> {
     const rows = await tx
       .update(unlocks)
@@ -509,6 +583,16 @@ export class UnlocksRepository {
   // atomic conditional decrement below guarantee balance never goes negative.
   // -------------------------------------------------------------------------
 
+  /**
+   * #2749 — the credits the tenant wallet can SPEND now: its balance minus what its lots past
+   * `expires_at` still hold (non-tx read, 0 if no row). The unlock path's F-1 precondition reads
+   * THIS, not {@link getBalance}: a wallet whose credits are all past due is refused before any
+   * worker state is consulted.
+   */
+  async getSpendableBalance(tenant: TenantKey): Promise<number> {
+    return readSpendableCredits(this.db, tenant);
+  }
+
   /** The tenant wallet's current balance (non-tx read), or 0 if no row. */
   async getBalance(tenant: TenantKey): Promise<number> {
     const rows = await this.db
@@ -547,23 +631,60 @@ export class UnlocksRepository {
   }
 
   /**
-   * ATOMIC conditional debit of one credit (F-6): decrements balance only WHERE
-   * balance >= amount, returning the new balance — or undefined if there were
-   * insufficient credits (no row updated). Combined with the DB CHECK this makes a
-   * negative balance impossible even under concurrency. Tx-scoped.
-   *
-   * THE ORG WALLET LOCK (ADR-0053 §6). The UPDATE takes the wallet row's lock, keyed by the
-   * tenant: in mode `on` two members spending at once queue on the SAME row, and the second
-   * re-evaluates `balance >= amount` against the first's committed balance — so a team can
-   * never overdraw its one wallet, exactly as one payer never could.
+   * The tenant wallet's OPEN lots (#2749), in the order they are spent: the soonest `expires_at`
+   * first, a lot that never expires last. A non-tx read, like {@link getBalance}; a lot past its
+   * date still reads here until the spend path or the sweep expires it (at most one sweep tick).
    */
-  async tryDebit(tx: Tx, tenant: TenantKey, amount: number): Promise<number | undefined> {
-    const rows = await tx
-      .update(payerCredits)
-      .set({ balance: sql`${payerCredits.balance} - ${amount}`, updatedAt: sql`now()` })
-      .where(and(eq(payerCredits.payerId, tenant), gte(payerCredits.balance, amount)))
-      .returning({ balance: payerCredits.balance });
-    return rows[0]?.balance;
+  async listOpenLots(tenant: TenantKey): Promise<OpenLotProjection[]> {
+    const rows = await this.db
+      .select({
+        source: creditLots.source,
+        creditsRemaining: creditLots.creditsRemaining,
+        creditsGranted: creditLots.creditsGranted,
+        expiresAt: creditLots.expiresAt,
+        packCode: creditLots.packCode,
+      })
+      .from(creditLots)
+      .where(and(eq(creditLots.payerId, tenant), gt(creditLots.creditsRemaining, 0)))
+      .orderBy(...CREDIT_LOT_SPEND_ORDER);
+    return rows.map((r) => ({
+      source: r.source,
+      credits_remaining: r.creditsRemaining,
+      credits_granted: r.creditsGranted,
+      expires_at: r.expiresAt === null ? null : r.expiresAt.toISOString(),
+      pack_code: r.packCode,
+    }));
+  }
+
+  /**
+   * Debit ONE credit (F-6) from the soonest-expiring open lot (#2749): returns the new balance, the
+   * lot it came from and any lots it expired first — or `undefined` when no credit is spendable
+   * once due lots are counted out, in which case NOTHING was written (no expiry, no lot, no
+   * balance; F-1/F-3: the ledger never shows that a request reached the debit). Tx-scoped; the
+   * caller writes the `unlock_debit` ledger line with the returned `lotId` and the expired lots'
+   * events in the SAME transaction.
+   *
+   * THE ORG WALLET LOCK (ADR-0053 §6). `spendOneCreditWithinTx` takes the wallet row's lock
+   * (`SELECT … FOR UPDATE`), keyed by the tenant, before it reads a lot: in mode `on` two members
+   * spending at once queue on the SAME row, and the second reads the first's committed balance
+   * and lots — so a team can never overdraw its one wallet, or any lot in it, exactly as one payer
+   * never could. The DB CHECKs (balance >= 0, 0 <= remaining <= granted) are the backstop.
+   *
+   * A due lot is expired here too (one `expired` line, once per lot) — only when a credit is spent.
+   *
+   * `amount` stays in the signature for its callers; a spend is always one credit (one lot).
+   */
+  async tryDebit(tx: Tx, tenant: TenantKey, amount: 1): Promise<TryDebitResult | undefined> {
+    if (amount !== 1) throw new RangeError(`tryDebit spends one credit (asked for ${amount})`);
+    const spent = await spendOneCreditWithinTx(tx, tenant);
+    if (!spent.ok) return undefined;
+    this.reportRealigned(tenant, spent.alignment);
+    return {
+      ok: true,
+      balanceAfter: spent.balanceAfter,
+      lotId: spent.lotId,
+      expiredLots: spent.expiredLots,
+    };
   }
 
   /**
@@ -580,6 +701,8 @@ export class UnlocksRepository {
       unlockId?: string | null;
       packCode?: string | null;
       paymentRef?: string | null;
+      /** #2749 — the lot the movement spent from ({@link tryDebit}'s `lotId`). */
+      lotId?: string | null;
     },
   ): Promise<void> {
     await tx.insert(creditLedger).values({
@@ -589,16 +712,17 @@ export class UnlocksRepository {
       unlockId: input.unlockId ?? null,
       packCode: input.packCode ?? null,
       paymentRef: input.paymentRef ?? null,
+      lotId: input.lotId ?? null,
     });
   }
 
   /**
    * Credit a pack purchase / ops grant (NON-tx convenience for the mock top-up
-   * endpoint): upsert the balance row (+credits) and append the ledger in ONE
-   * transaction. Returns the new balance.
+   * endpoint): one `pack` lot (no expiry in #2749 PR 1), one ledger line naming it and the
+   * balance, in ONE transaction. Returns the new balance.
    *
-   * ⚠️ Inserts `price_inr` EXPLICITLY (D-6) ⇒ requires migration 0043. APPLY BEFORE DEPLOY:
-   * against an unmigrated DB EVERY pack purchase fails on this insert.
+   * ⚠️ Inserts `price_inr` (D-6, migration 0043) and `lot_id` (#2749, migration 0174)
+   * EXPLICITLY ⇒ APPLY BEFORE DEPLOY: against an unmigrated DB EVERY pack purchase fails.
    */
   async creditPack(
     input: {
@@ -607,13 +731,16 @@ export class UnlocksRepository {
     } & WalletCredit,
   ): Promise<number> {
     const { payerId, ...credit } = input;
-    return this.db.transaction((tx) => this.creditWalletWithinTx(tx, payerId, credit));
+    const grant = await this.db.transaction((tx) => this.creditWalletWithinTx(tx, payerId, credit));
+    return grant.balanceAfter;
   }
 
   /**
    * The ONE wallet-credit implementation, inside the CALLER's transaction (the F-6 atomicity
-   * shape of {@link tryDebit}): upsert the balance row (+credits), append the ledger line on the
-   * SAME key. PRIVATE, and typed so only an authority names the wallet: a resolver-minted
+   * shape of {@link tryDebit}): `grantCreditsWithinTx` locks the wallet row, aligns its lots,
+   * writes one `pack` lot (for a paid order, naming it — one lot per order), one ledger line
+   * naming the lot, and the balance, all on the SAME key. PRIVATE, and typed so only an
+   * authority names the wallet: a resolver-minted
    * {@link TenantKey} ({@link creditPack}) or the row a payment-order claim RETURNED
    * ({@link claimAndCreditPaymentOrderWithinTx}). No caller can hand it an order it built.
    *
@@ -626,28 +753,79 @@ export class UnlocksRepository {
     tx: Tx,
     wallet: TenantKey | PaymentOrder,
     credit: WalletCredit,
-  ): Promise<number> {
+  ): Promise<WalletGrantResult> {
     const walletKey = typeof wallet === "string" ? wallet : wallet.payerId;
-    const updated = await tx
-      .insert(payerCredits)
-      .values({ payerId: walletKey, balance: credit.credits })
-      .onConflictDoUpdate({
-        target: payerCredits.payerId,
-        set: { balance: sql`${payerCredits.balance} + ${credit.credits}`, updatedAt: sql`now()` },
-      })
-      .returning({ balance: payerCredits.balance });
-    await tx.insert(creditLedger).values({
+    const grant = await grantCreditsWithinTx(tx, {
       payerId: walletKey,
-      delta: credit.credits,
-      reason: credit.reason,
-      packCode: credit.packCode,
-      paymentRef: credit.paymentRef,
-      priceInr: credit.priceInr ?? null,
-      idempotencyKey: credit.idempotencyKey ?? null,
+      credits: credit.credits,
+      lot: {
+        source: "pack",
+        packCode: credit.packCode,
+        paymentOrderId: typeof wallet === "string" ? null : wallet.id,
+        // #2749 PR 1 writes no validity; packs gain theirs with the catalogue (item 5).
+        expiresAt: null,
+      },
+      ledger: {
+        reason: credit.reason,
+        packCode: credit.packCode,
+        paymentRef: credit.paymentRef,
+        priceInr: credit.priceInr ?? null,
+        idempotencyKey: credit.idempotencyKey ?? null,
+      },
     });
-    const balance = updated[0]?.balance;
-    if (balance === undefined) throw new Error("Failed to credit pack");
-    return balance;
+    this.reportRealigned(walletKey, grant.alignment);
+    return grant;
+  }
+
+  /**
+   * Log, at ERROR, that the wallet helper re-aligned a wallet's lots with its balance (ids and
+   * numbers, the stable `credit-wallet: lots out of step with balance` prefix). The self-heal
+   * stays; after the 0174 apply-to-deploy window this should never fire, and any occurrence
+   * means some writer moved a balance without going through the wallet helpers.
+   */
+  private reportRealigned(walletKey: string, alignment: LotAlignment): void {
+    const line = lotAlignmentWarning(walletKey, alignment);
+    if (line !== null) this.walletLog.error(line);
+  }
+
+  // ===========================================================================
+  // credit_lots expiry sweep (#2749 item 4) — the `credit-lot-expiry` processor's two calls
+  // ===========================================================================
+
+  /**
+   * Up to `limit` wallets holding a lot past its `expires_at`, the longest-overdue first — the
+   * sweep's work list. Keys are READ FROM `credit_lots` (see {@link StoredWalletKey}), and only
+   * for wallets that have a `payer_credits` row (an orphan lot can never be expired, so it must
+   * not take a slot on every tick).
+   */
+  async findWalletsWithDueLots(limit: number): Promise<StoredWalletKey[]> {
+    const keys = await findWalletsWithDueLots(this.db, limit);
+    return keys as StoredWalletKey[];
+  }
+
+  /** Wallet keys holding a due lot but no `payer_credits` row — skipped by the sweep. */
+  async countOrphanWalletsWithDueLots(): Promise<number> {
+    return countOrphanWalletsWithDueLots(this.db);
+  }
+
+  /**
+   * Expire one wallet's due lots in its OWN transaction: lock the wallet row → align → one
+   * `expired` line per due lot → balance down → then `withinTx` (the sweep's events) on the SAME
+   * transaction, so a committed expiry can never lose its event and a failed event rolls the
+   * expiry back. The same lock order as a spend, so a sweep racing an unlock on the same wallet
+   * waits on the row lock and never deadlocks.
+   */
+  async expireDueLotsForWallet(
+    wallet: StoredWalletKey,
+    withinTx?: (tx: Tx, result: WalletExpiryResult) => Promise<void>,
+  ): Promise<WalletExpiryResult> {
+    const result = await this.db.transaction(async (tx) => {
+      const done = await expireWalletWithinTx(tx, wallet);
+      if (withinTx) await withinTx(tx, done);
+      return done;
+    });
+    this.reportRealigned(wallet, result.alignment);
+    return result;
   }
 
   // ===========================================================================
@@ -722,8 +900,10 @@ export class UnlocksRepository {
    * credit helper is private. `undefined` when the claim matched no row (already paid, unknown,
    * or a concurrent settler won) — then nothing is credited.
    *
-   * Exactly-once, layer 3: the ledger line carries `payment_order:<row id>` under the partial
-   * unique index, so even a bypassed claim could not credit an order twice.
+   * Exactly-once, layer 3: the ledger line carries `payment_order:<row id>` (checked under the
+   * wallet lock, with `credit_ledger_idempotency_key_uq` as the backstop) and the lot names the
+   * order under the unique `credit_lots_payment_order_uq`, so even a bypassed claim could not
+   * credit an order twice: a key already on the ledger grants nothing and reads as a lost race.
    */
   async claimAndCreditPaymentOrderWithinTx(
     tx: Tx,
@@ -731,7 +911,7 @@ export class UnlocksRepository {
   ): Promise<{ order: PaymentOrder; balanceAfter: number } | undefined> {
     const claimed = await this.claimPaymentOrderPaidWithinTx(tx, input);
     if (!claimed) return undefined;
-    const balanceAfter = await this.creditWalletWithinTx(tx, claimed, {
+    const grant = await this.creditWalletWithinTx(tx, claimed, {
       credits: claimed.creditsGranted,
       reason: "pack_purchase",
       packCode: claimed.packCode,
@@ -740,7 +920,9 @@ export class UnlocksRepository {
       priceInr: claimed.amountInr,
       idempotencyKey: `payment_order:${claimed.id}`,
     });
-    return { order: claimed, balanceAfter };
+    // Already credited under this order's key: nothing was granted now (the caller re-reads).
+    if (!grant.applied) return undefined;
+    return { order: claimed, balanceAfter: grant.balanceAfter };
   }
 
   /**

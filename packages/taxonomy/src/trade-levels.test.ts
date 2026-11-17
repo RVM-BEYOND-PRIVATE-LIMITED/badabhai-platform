@@ -7,6 +7,7 @@ import {
   priceTierForTradeLevel,
   priceTierForTradeRows,
   priceTierForTradeSkill,
+  TRADE_LEVEL_CONFIRM_ITEMS,
   TRADE_LEVEL_LABELS,
   TRADE_LEVEL_PACKS,
   tradeLevelEntriesForPackAnswers,
@@ -210,7 +211,8 @@ describe("trade-level crosswalk", () => {
       qp_industrial_electrician: { trainee: L, technician: L, electrician: L, senior_technician: H, senior: H, supervisor: H }, // 7
       qp_welding_trade: { trainee: L, operator: L, welder: L, skilled: H, senior: H, supervisor: H }, // 8
       qp_conventional_machining: { trainee: L, operator: L, skilled: H, senior: H, supervisor: H }, // 9
-      qp_sheet_metal_fab: { trainee: L, operator: L, skilled: H, senior: H, supervisor: H }, // 10
+      // 10 — #2753 item 1 (@3) splits "Senior / Programmer"; the programmer rung prices Higher.
+      qp_sheet_metal_fab: { trainee: L, operator: L, skilled: H, senior: H, programmer: H, supervisor: H },
       qp_assembly_line: { trainee: L, operator: L, skilled: H, senior: H, supervisor: H }, // 11
       qp_quality_inspection: { trainee: L, inspector: L, senior_inspector: H, qc_engineer: H, supervisor: H }, // 12
       qp_tool_die_making: { trainee: L, operator: L, skilled: H, senior: H, supervisor: H }, // 13
@@ -340,6 +342,8 @@ describe("trade-level crosswalk", () => {
     expect(tradeLevelLabelFor("qp_sheet_metal_fab", "operator")).toBe("Operator");
     expect(tradeLevelLabelFor("qp_sheet_metal_fab", "skilled")).toBe("Skilled");
     expect(tradeLevelLabelFor("qp_sheet_metal_fab", "senior")).toBe("Senior");
+    // #2753 item 1 (@3) — the programmer rung prints apart from the senior one.
+    expect(tradeLevelLabelFor("qp_sheet_metal_fab", "programmer")).toBe("Programmer");
     expect(tradeLevelLabelFor("qp_sheet_metal_fab", "supervisor")).toBe("Supervisor");
     expect(tradeLevelLabelFor("qp_sheet_metal_fab", "boss")).toBeNull();
     // Track B #6 — the assembly rungs print the trade's words anywhere.
@@ -847,6 +851,26 @@ describe("trade-level crosswalk", () => {
     expect(sheeting("senior", { attributeKey: "sheet_senior_confirm", value: "other" })).toEqual([
       { skillId: "mskill_sheet_metal_worker", tradeLevel: "senior", levelConfirmed: false },
     ]);
+    // #2753 item 1 (@3) — the programmer rung: its own row, confirmed by the rung rule, and
+    // asked the senior's one separating question (standing owner rule 2026-11-03).
+    expect(sheeting("programmer", null)).toEqual([
+      { skillId: "mskill_sheet_metal_worker", tradeLevel: "programmer", levelConfirmed: true },
+    ]);
+    expect(
+      sheeting("programmer", { attributeKey: "sheet_senior_confirm", value: "self" }),
+    ).toEqual([
+      { skillId: "mskill_sheet_metal_worker", tradeLevel: "programmer", levelConfirmed: true },
+    ]);
+    expect(
+      sheeting("programmer", { attributeKey: "sheet_senior_confirm", value: "other" }),
+    ).toEqual([
+      { skillId: "mskill_sheet_metal_worker", tradeLevel: "programmer", levelConfirmed: false },
+    ]);
+    expect(TRADE_LEVEL_CONFIRM_ITEMS.qp_sheet_metal_fab).toEqual({
+      skilled: "sheet_skilled_confirm",
+      senior: "sheet_senior_confirm",
+      programmer: "sheet_senior_confirm",
+    });
     // Supervisor: no confirm item, rung rule (confirmed).
     expect(sheeting("supervisor", null)).toEqual([
       { skillId: "mskill_sheet_metal_worker", tradeLevel: "supervisor", levelConfirmed: true },

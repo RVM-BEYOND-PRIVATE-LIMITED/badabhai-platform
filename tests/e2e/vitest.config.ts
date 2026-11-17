@@ -2,7 +2,8 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["**/*.e2e.test.ts"],
+    // `*.static.test.ts`: source checks that need no API or DB (e2e-phone-slots.static.test.ts).
+    include: ["**/*.e2e.test.ts", "**/*.static.test.ts"],
     // The flow makes several network round-trips against a live API + DB.
     testTimeout: 30_000,
     hookTimeout: 30_000,

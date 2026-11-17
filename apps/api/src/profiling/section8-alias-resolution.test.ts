@@ -483,6 +483,23 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     expect(rungFor(sheetLevel2, text as string)).toEqual([expected]);
   });
 
+  // #2753 ITEM 1 (@3) — @2's "Senior / Programmer" chip is two chips. Each captures its own
+  // rung, so a programmer no longer lands on `senior`; the other rungs capture as in @2.
+  const sheetLevel3 = loadItem("qp_sheet_metal_fab@3.json", "sheet_metal_level");
+  it.each([
+    ["Helper", "helper"],
+    ["Operator", "operator"],
+    ["Skilled", "skilled"],
+    ["Senior", "senior"],
+    ["senior hoon", "senior"],
+    ["Programmer", "programmer"],
+    ["programmer hoon", "programmer"],
+    ["Supervisor", "supervisor"],
+    ["supervisor hoon", "supervisor"],
+  ])("sheet_metal_level@3: %s → %s", (text, expected) => {
+    expect(rungFor(sheetLevel3, text as string)).toEqual([expected]);
+  });
+
   // TRACK B #6 (@2) — the sheet-11 ladder. Old helper/operator/skilled keys
   // live on in frozen @1 (no rung block existed then); @2 asks trainee/line
   // operator/assembly-technician/line-leader/supervisor, and the chips capture

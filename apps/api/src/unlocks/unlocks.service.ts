@@ -1,10 +1,12 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { getRazorpayCredentials, type ServerConfig } from "@badabhai/config";
 import {
   isSampleWorkerId,
   UNLOCK_WINDOW_DAYS,
+  type Database,
+  type ExpiredCreditLot,
   type UnlockDenyReason,
   type UnlockRouting,
   type RoutingChannel,
@@ -12,6 +14,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { PayerCreditsResponse } from "@badabhai/types";
 import {
   normalizeTradeLevelKey,
   priceTierForTradeRows,
@@ -44,6 +47,7 @@ import {
   type CreditLedgerItem,
 } from "./unlocks.repository";
 import { PaymentGateway, type RealOrderHandoff, type SettleResult } from "./payment-gateway";
+import { creditsExpiredEvent } from "./credits-expired-event";
 import { verifyCheckoutSignature } from "./razorpay-signature";
 import { assertExpectedPrice } from "../pricing/charge-price";
 import {
@@ -57,7 +61,17 @@ import {
   type NeutralUnavailableResponse,
   type UnlockGrantedResponse,
   type ContactRevealedResponse,
+  type ContactReadResponse,
 } from "./unlock-response";
+import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
+import {
+  isOpenGrant,
+  needsOpenForGoodDate,
+  OPEN_FOR_GOOD_UNTIL,
+  openUntilOf,
+} from "./open-grant";
+import { onBriefNotice } from "./brief-notice";
+import { searchExitRefuses } from "../search-exit/search-exit-gate";
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
 const EMPLOYER_SHARING = "employer_sharing";
@@ -176,6 +190,11 @@ function rowOwnerParty(rowPayerId: string): EventParty {
  * event class, NO PII) and STILL return the committed result. This is the accepted
  * trade-off — the alternative (emit-in-tx) reintroduces the pool-vs-lock deadlock.
  *
+ * ONE EXCEPTION (#2749): `payer.credits_expired` is written ON `tx`. `EventsService.emit({ tx })`
+ * builds and validates the event in memory and inserts it on the executor it is handed, so it
+ * takes no second connection and the pool-vs-lock deadlock above cannot arise; in exchange the
+ * event commits or rolls back with the expiry it records, so a committed expiry can never lose it.
+ *
  * ORG TENANCY (ADR-0053, PAY-DB-01). Every public entry point that names a payer resolves the
  * tenant ONCE through {@link PayerTenantScopeService} — the payer-session routes and the ops
  * routes alike (§5.2 rules 1 and 4) — and passes the branded `tenantKey` down. Unlocks, the
@@ -212,7 +231,25 @@ export class UnlockService {
     private readonly tenancy: PayerTenantScopeService,
     // #2752 — the institute rule for a linked student (CampusLinkModule, one-way edge).
     private readonly instituteGate: InstituteOpenGate,
+    // #2747 — the `contact_rules` switch (open for good, the contact read). Optional only so the
+    // hand-built unit instances keep compiling; absent reads as off. Nest always injects it.
+    @Optional() private readonly rollout?: FeatureRolloutService,
   ) {}
+
+  /**
+   * #2747 — is `contact_rules` on for this company? Off when the rollout service is absent; a
+   * pilot-list read error is `unavailable` (the unlock path refuses rather than charge a pilot
+   * company again for a contact it holds), and off everywhere else: the old window, never a wider
+   * opening.
+   */
+  private async contactRulesState(tenant: TenantKey): Promise<"on" | "off" | "unavailable"> {
+    if (this.rollout === undefined) return "off";
+    return this.rollout.stateFor("contact_rules", tenant);
+  }
+
+  private async contactRulesOn(tenant: TenantKey): Promise<boolean> {
+    return (await this.contactRulesState(tenant)) === "on";
+  }
 
   // ===========================================================================
   // POST /unlocks  —  request an unlock (F-1 → [4])
@@ -236,6 +273,12 @@ export class UnlockService {
     const scope = await this.tenancy.resolve(input.payerId);
     const tenant = scope.tenantKey;
     const party = partyOf(scope);
+    // #2747 (ADR-0064 §3.4) — read ONCE per request. With it on (and the brief's rules applying to
+    // this worker, below), a held contact is re-opened free whatever its date and a new grant is
+    // stored open for good. A pilot list that cannot be read is "unavailable": the request goes on
+    // as if off, EXCEPT that a re-grant over a contact the company already holds is refused (below)
+    // — reading a pilot company as "off" there would debit it again. First opens are unaffected.
+    const contactRules = await this.contactRulesState(tenant);
 
     // #1903 — normalise the caller's job context ONCE, before anything is written or
     // emitted: every row and event below carries `jobContext`, never the raw input. It is
@@ -261,7 +304,13 @@ export class UnlockService {
     // distinguish a consented-uncapped worker from a non-consented/unknown one: every
     // branch from here that ends in "no contact" returns the IDENTICAL neutral body.
     // The balance is the TENANT's wallet (the org's in `on`, ADR-0053 W1).
-    const balance = await this.repo.getBalance(tenant);
+    //
+    // #2749 — SPENDABLE credits, not the raw balance: credits in lots past `expires_at` do not
+    // count. Read on the raw balance, a wallet whose credits were all past due would pass this
+    // gate, reach the debit only for a worker who passed the consent / deletion / cap gates, and
+    // (before the review fix) leave an `expired` line only in that case — a worker-state oracle
+    // the company could read back from its own ledger. Refused here, before any worker read.
+    const balance = await this.repo.getSpendableBalance(tenant);
     if (balance < 1) {
       // INSUFFICIENT CREDITS collapses into the neutral response (F-1 option (a)).
       // No worker state was consulted → no oracle. We do NOT record a per-worker deny
@@ -281,7 +330,11 @@ export class UnlockService {
       // contact even if consent is revoked between here and the grant (the grant is not the
       // disclosure). unknown_worker vs no_consent both return the IDENTICAL neutral body;
       // workerExists only picks the internal audit reason (consented ⇒ worker exists).
-      const consented = await this.isOpenableBy(workerId, { tenant }, ctx);
+      // #2747 — the SAME reads answer whether the brief's contact rules apply to him (§3.8): only
+      // then, and only with the company's `contact_rules` on, is the contact open for good.
+      const access = await this.contactAccess(workerId, { tenant }, ctx);
+      const consented = access.openable;
+      const openForGood = contactRules === "on" && access.brief;
       const workerPresent = consented || (await this.workerExists(workerId));
 
     // ---- ADR-0031 payer-surface freeze (ruling (b)) — pending-deletion gate -----
@@ -321,12 +374,36 @@ export class UnlockService {
         // In `on` that is per ORG: a teammate re-unlocking a worker the org already holds gets
         // the org's existing grant and is charged nothing.
         const existing = await this.repo.findByPayerWorker(tx, tenant, workerId);
-        if (existing && (existing.status === "granted" || existing.status === "revealed")) {
-          if (existing.expiresAt && existing.expiresAt.getTime() > Date.now()) {
-            return { response: this.grantedResponse(existing.id, existing.expiresAt), events };
+        if (existing && isOpenGrant(existing, { openForGood })) {
+          // #2747 — with `contact_rules` on and the brief's rules applying to him, a held contact
+          // is open whatever its date (past opens included) and re-opening it is free. Its stored
+          // dates move to "for good" here, under the worker lock, so switching the rule off later
+          // never re-charges it. `openForGood` implies his consent passed (`brief` ⇒ `openable`):
+          // a worker who withdrew is never re-opened. The re-open is audited (`unlock.reopened`).
+          if (openForGood && needsOpenForGoodDate(existing)) {
+            await this.repo.extendOpenUntil(tx, existing.id, OPEN_FOR_GOOD_UNTIL);
+            const reopenedId = existing.id;
+            events.push(() => this.emitReopened(reopenedId, party, workerId, ctx));
+            return {
+              response: this.grantedResponse(existing.id, OPEN_FOR_GOOD_UNTIL, true),
+              events,
+            };
           }
-          // else: expired — fall through to re-grant (a fresh window) below.
+          return {
+            response: this.grantedResponse(existing.id, existing.expiresAt!, openForGood),
+            events,
+          };
         }
+        // #2747 — the pilot list could not be read: this company may be a pilot one whose contact is
+        // open for good. Never charge it again on a guess; the neutral body, nothing written.
+        if (
+          contactRules === "unavailable" &&
+          existing &&
+          (existing.status === "granted" || existing.status === "revealed")
+        ) {
+          return { response: neutralUnavailable(), events };
+        }
+        // else: none, or lapsed with the rule off — fall through to a (paid) grant below.
 
         // ---- [1] employer_sharing CONSENT gate (fail closed) ------------------
         // `consented`/`workerPresent` were resolved BEFORE the lock (deadlock fix above).
@@ -371,6 +448,12 @@ export class UnlockService {
           return { response: neutralUnavailable(), events };
         }
 
+        // #2753 item 6 — he left company search: only a company he applied to opens him.
+        if (await searchExitRefuses(tx, this.config, workerId, tenant)) {
+          events.push(() => this.emitDenied(null, party, workerId, jobContext, "no_consent", ctx));
+          return { response: neutralUnavailable(), events };
+        }
+
         // ---- [2] worker CAPS (atomic, before payment) -------------------------
         // Counted over `unlocks.payer_id`, the tenant key: distinct ORGS in `on` (O-3).
         const cap = await this.checkCaps(tx, workerId);
@@ -412,15 +495,28 @@ export class UnlockService {
         // wallet's row lock inside this UPDATE, so the team can never overdraw it.
         const debit = await this.payments.debitOneCreditWithinTx(tx, tenant);
         if (!debit.ok) {
-          // Lost a concurrent debit race after the precondition — collapse to neutral
-          // (still no worker-state oracle; consent already passed but the BODY is neutral).
+          // Lost a concurrent debit race after the precondition — or (#2749) a lot fell due
+          // since the precondition read — collapse to neutral (still no worker-state oracle;
+          // consent already passed but the BODY is neutral). The wallet helper wrote NOTHING on
+          // this path: no expiry, no lot, no balance.
           events.push(() => this.emitPaymentFailed(null, party, "insufficient_credits", ctx));
           return { response: neutralUnavailable(), events };
+        }
+        // #2749 — one `payer.credits_expired` per lot this spend expired before it spent, written
+        // on THIS transaction (`tx`), not deferred: the event commits or rolls back with the
+        // expiry, so a committed expiry can never lose its event. Safe under the worker lock
+        // because `EventsService.emit({ tx })` does no global-pool I/O (it validates in memory
+        // and inserts on the executor it is given) — the deadlock rule above is about the pool.
+        for (const lot of debit.expiredLots) {
+          await this.emitCreditsExpired(party, lot, ctx, tx as unknown as Database);
         }
 
         // ---- [4] GRANT (same tx) ----------------------------------------------
         const now = new Date();
-        const expiresAt = new Date(now.getTime() + UNLOCK_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+        // #2747 — open for good with `contact_rules` on; the 14-day window otherwise.
+        const expiresAt = openForGood
+          ? OPEN_FOR_GOOD_UNTIL
+          : new Date(now.getTime() + UNLOCK_WINDOW_DAYS * 24 * 60 * 60 * 1000);
         const routingTokenRef = randomUUID(); // 122-bit, server-internal only (F-4)
         const granted = await this.repo.upsertGrant(tx, {
           payerId: tenant,
@@ -432,12 +528,14 @@ export class UnlockService {
           expiresAt,
         });
         // Ledger debit in the SAME tx, on the SAME key as the wallet it debited (balance +
-        // ledger never drift; F-6 — and `balance = Σ delta` per payer_id holds, ADR-0053 §6).
+        // ledger never drift; F-6 — and `balance = Σ delta` per payer_id holds, ADR-0053 §6),
+        // naming the lot the credit came from (#2749: one line per lot; one credit, one lot).
         await this.repo.appendLedger(tx, {
           payerId: tenant,
           delta: -1,
           reason: "unlock_debit",
           unlockId: granted.id,
+          lotId: debit.lotId,
         });
 
         // Order preserved: payment.authorized → payment.captured → unlock.granted.
@@ -474,7 +572,7 @@ export class UnlockService {
           events.push(() => this.emitCreditsExhausted(party, granted.id, ctx));
         }
 
-        return { response: this.grantedResponse(granted.id, expiresAt), events };
+        return { response: this.grantedResponse(granted.id, expiresAt, openForGood), events };
       },
     );
 
@@ -501,6 +599,12 @@ export class UnlockService {
     // before anything else. The ops route names no payer and is unaffected.
     const scope =
       expectedPayerId === undefined ? undefined : await this.tenancy.resolve(expectedPayerId);
+    // #2747 — the company route only (the ops route keeps the window): with `contact_rules` on and
+    // the brief's rules applying to him (resolved with his consent below), an open contact is
+    // revealed whatever its date and its dates are stored "for good". A pilot-list read error is off
+    // here: a reveal charges nothing, so off is the safe answer.
+    const rulesOn = scope !== undefined && (await this.contactRulesOn(scope.tenantKey));
+    let openForGood = false;
     // Consent re-check BEFORE the advisory lock (same pool-vs-lock deadlock fix as
     // requestUnlock): a tx-external consent read inside the locked tx would need a 2nd
     // pool connection while concurrent reveals on this worker hold theirs → deadlock.
@@ -529,12 +633,11 @@ export class UnlockService {
       return neutralUnavailable();
     // #2752 — the institute rule is asked about the company that HOLDS this unlock (the ops
     // route included), by the unlock's id: its holder is read in SQL, never passed as a raw id.
-    if (
-      pre &&
-      pre.worker_id !== null &&
-      !(await this.isOpenableBy(pre.worker_id, { unlockId }, ctx))
-    )
-      return neutralUnavailable();
+    if (pre && pre.worker_id !== null) {
+      const access = await this.contactAccess(pre.worker_id, { unlockId }, ctx);
+      if (!access.openable) return neutralUnavailable();
+      openForGood = rulesOn && access.brief;
+    }
 
     // F-3: unknown/expired/over-cap/revoked all return the NEUTRAL body (not a 404).
     // The transaction does ALL the DB work + returns WHICH events to emit; it does NOT
@@ -595,16 +698,28 @@ export class UnlockService {
         )
           return { response: neutralUnavailable(), events };
 
-        // Must be a live grant: granted/revealed, not expired.
-        const live =
-          (fresh.status === "granted" || fresh.status === "revealed") &&
-          fresh.expiresAt !== null &&
-          fresh.expiresAt.getTime() > Date.now() &&
-          fresh.routingTokenRef !== null;
-        if (!live) return { response: neutralUnavailable(), events };
+        // Must be an OPEN grant (`isOpenGrant`, the one definition): granted/revealed, and either
+        // unexpired or — #2747, `contact_rules` on — whatever its date.
+        if (!isOpenGrant(fresh, { openForGood }) || fresh.routingTokenRef === null) {
+          return { response: neutralUnavailable(), events };
+        }
+        // #2747 — a lapsed past open, revealed while the rule is on, is stored "for good" (grant
+        // and relay row), so the relay it reveals stays usable and a later rollback keeps it open.
+        if (openForGood && needsOpenForGoodDate(fresh)) {
+          await this.repo.extendOpenUntil(tx, fresh.id, OPEN_FOR_GOOD_UNTIL);
+        }
+        const openUntil: Date = openForGood ? OPEN_FOR_GOOD_UNTIL : fresh.expiresAt!;
 
-        // Per-unlock attempt cap (F-2 atomic; under the worker lock).
-        if (fresh.revealCount >= this.config.UNLOCK_MAX_ATTEMPTS_PER_UNLOCK) {
+        // P-021 — read the routing row first (see [5] below): a repeat reveal re-uses it.
+        let routing: UnlockRouting | undefined = await this.repo.findRoutingByUnlock(tx, fresh.id);
+
+        // Per-unlock attempt cap (F-2 atomic; under the worker lock). #2747 — with `contact_rules`
+        // on it limits FIRST opens only: once the relay is wired, a repeat reveal hands back the
+        // same handle and reads nothing new, so it is never refused for the count.
+        if (
+          !(openForGood && routing !== undefined) &&
+          fresh.revealCount >= this.config.UNLOCK_MAX_ATTEMPTS_PER_UNLOCK
+        ) {
           events.push(() => this.emitCapExceeded(party, freshWorkerId, "attempts_per_unlock", ctx));
           return { response: neutralUnavailable(), events };
         }
@@ -627,7 +742,7 @@ export class UnlockService {
         // cannot both miss) means a repeat reveal never re-inserts, never re-decrypts the
         // phone, and answers with the handle the payer already holds.
         const channel: RoutingChannel = "in_app_relay"; // alpha: discloses no number
-        let routing: UnlockRouting | undefined = await this.repo.findRoutingByUnlock(tx, fresh.id);
+        const wiredBefore = routing !== undefined;
         if (!routing) {
           let relayHandle: string;
           try {
@@ -643,11 +758,17 @@ export class UnlockService {
             routingToken: fresh.routingTokenRef!, // server-internal; NEVER returned (F-4)
             channel,
             relayHandle,
-            // Handle expires with the unlock window.
-            expiresAt: fresh.expiresAt!,
+            // Handle expires with the unlock window (#2747: "for good" while the rule is on).
+            expiresAt: openUntil,
           });
         }
-        const revealCount = await this.repo.incrementReveal(tx, fresh.id);
+        // #2747 — a REPEAT reveal of a wired relay while the brief's rules apply re-reads nothing
+        // and is not counted: `reveal_count` feeds the per-worker daily caps, so counting it would
+        // let one company lock every other company out of this worker for a day.
+        const repeat = openForGood && wiredBefore;
+        const revealCount = repeat
+          ? fresh.revealCount
+          : await this.repo.incrementReveal(tx, fresh.id);
         // Bound to a const so the deferred closure below carries a definitely-assigned
         // row (TypeScript will not narrow a mutable `let` through a closure).
         const routingRow: UnlockRouting = routing;
@@ -675,6 +796,167 @@ export class UnlockService {
     await this.padToTarget(_r21_start);
   }
 }
+
+  // ===========================================================================
+  // GET /payer/unlocks/:id/contact  —  what a credit opens, on screen (#2747 item 5)
+  // ===========================================================================
+  /**
+   * The full name and phone number of a contact the company OPENED (ADR-0064 §3.3, brief 4B.6).
+   * This reverses ADR-0010 Decision 2 (the number never crossed the API) for the company that
+   * paid, and only while `contact_rules` is on for it.
+   *
+   * THE LADDER — every refusal is the ONE neutral body (no oracle), checked in this order:
+   *   1. the switch is on for the company (off: 404, the route is not there);
+   *   2. the unlock exists and belongs to the company's TENANT (another tenant's is neutral);
+   *   3. the worker still exists (erasure SET-NULLs `worker_id`) and the grant is OPEN
+   *      (`isOpenGrant` — granted/revealed, any date while the rule is on);
+   *   4. he is not a sample candidate (R74), not pending deletion or suspended (ADR-0031) — the
+   *      freeze re-read on the row that is decrypted;
+   *   5. the company may still open him, AND the brief's rules apply to him (§3.8): his latest
+   *      consent carries `employer_sharing` on a notice that describes them, or for an actively
+   *      linked RVM student the institute rule (`contactAccess`, the reads the grant used).
+   *   "For good" cannot outlive 3–5: an erasure, a deletion freeze or a withdrawn consent closes it.
+   *
+   * AUDIT BEFORE DISCLOSURE. `contact.viewed` is written first; if it cannot be written, the
+   * request fails and no number leaves. The per-login hourly limit is the controller's.
+   *
+   * Never cached (`Cache-Control: no-store` on the route), never logged: the decrypted values live
+   * for this one response. Not a FIRST open, so the attempt and per-worker caps (written for the
+   * relay's first opens) do not apply. Latency-padded like the reveal (R21).
+   *
+   * @throws NotFoundException while `contact_rules` is off for the company.
+   */
+  async readContact(
+    unlockId: string,
+    payerId: string,
+    ctx: RequestContext,
+  ): Promise<ContactReadResponse | NeutralUnavailableResponse> {
+    const start = Date.now();
+    try {
+      const scope = await this.tenancy.resolve(payerId);
+      if (!(await this.contactRulesOn(scope.tenantKey))) throw new NotFoundException();
+
+      const unlock = await this.repo.getProjection(unlockId);
+      if (!unlock || unlock.payer_id !== scope.tenantKey) return neutralUnavailable();
+      if (unlock.worker_id === null) return neutralUnavailable();
+      const workerId: string = unlock.worker_id;
+      if (
+        !isOpenGrant(
+          { status: unlock.status, expiresAt: unlock.expires_at },
+          { openForGood: true },
+        )
+      ) {
+        return neutralUnavailable();
+      }
+      // R74 — a sample candidate is not a person (an unlock of one made before R74 still exists).
+      if (isSampleWorkerId(workerId)) return neutralUnavailable();
+      if (await this.isPayerSurfaceFrozen(workerId)) return neutralUnavailable();
+      // His consent, AND the brief's rules (§3.8): a worker on the 2026-11-04 notice agreed to
+      // initials and 14 days, so his number never reaches this screen.
+      const access = await this.contactAccess(workerId, { unlockId }, ctx);
+      if (!access.openable || !access.brief) return neutralUnavailable();
+
+      const contact = await this.decryptContact(workerId, unlock.unlock_id);
+      if (contact === null) return neutralUnavailable();
+
+      await this.emitContactViewed(unlock.unlock_id, partyOf(scope), workerId, ctx);
+      return {
+        ok: true,
+        full_name: contact.fullName,
+        phone: contact.phone,
+        opened_at: unlock.granted_at === null ? null : unlock.granted_at.toISOString(),
+      };
+    } finally {
+      await this.padToTarget(start);
+    }
+  }
+
+  /**
+   * #2747 — THE CONTACT READ'S decrypt site (ADR-0064 §3.3; the BC-5 static guard names it): the
+   * phone number and the full name, for one response. Never logged, evented, stored or put in an
+   * exception. A phone that does not decrypt is the neutral body (logged by unlock id); a name that
+   * does not decrypt is "not given".
+   */
+  private async decryptContact(
+    workerId: string,
+    unlockId: string,
+  ): Promise<{ phone: string; fullName: string | null } | null> {
+    let worker: Awaited<ReturnType<WorkersRepository["findById"]>>;
+    try {
+      worker = await this.workers.findById(workerId);
+    } catch {
+      this.logger.warn(`contact read failed for unlock=${unlockId}: worker_read_error`);
+      return null;
+    }
+    if (!worker?.phoneE164) return null;
+    // ADR-0031 — re-checked on the SAME row that is decrypted, so a deletion scheduled (or a
+    // suspension) while the consent read above ran still closes the contact.
+    if (worker.deletionScheduledAt !== null || worker.status === "suspended") return null;
+    let phone: string;
+    try {
+      phone = this.pii.decrypt(worker.phoneE164);
+    } catch {
+      this.logger.warn(`contact read failed for unlock=${unlockId}: decrypt_error`);
+      return null;
+    }
+    let fullName: string | null = null;
+    if (worker.fullName) {
+      try {
+        const name = this.pii.decrypt(worker.fullName).trim();
+        fullName = name === "" ? null : name;
+      } catch {
+        this.logger.warn(`contact read: full_name did not decrypt for unlock=${unlockId}`);
+      }
+    }
+    return { phone, fullName };
+  }
+
+  /**
+   * #2747 — a held contact re-opened while the brief's rules apply: its dates moved to "for good",
+   * no credit spent. Ids only; deferred post-commit like the grant's events.
+   */
+  private async emitReopened(
+    unlockId: string,
+    party: EventParty,
+    workerId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const payload: PayloadInputOf<"unlock.reopened"> = {
+      unlock_id: unlockId,
+      payer_id: party.payerId,
+      worker_id: workerId,
+    };
+    await this.events.emit({
+      event_name: "unlock.reopened",
+      actor: { actor_type: "payer", actor_id: party.actorId },
+      subject: { subject_type: "unlock", subject_id: unlockId },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+      idempotencyKey: `unlock.reopened:${unlockId}`,
+    });
+  }
+
+  private async emitContactViewed(
+    unlockId: string,
+    party: EventParty,
+    workerId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const payload: PayloadInputOf<"contact.viewed"> = {
+      unlock_id: unlockId,
+      payer_id: party.payerId,
+      worker_id: workerId,
+    };
+    await this.events.emit({
+      event_name: "contact.viewed",
+      actor: { actor_type: "payer", actor_id: party.actorId },
+      subject: { subject_type: "unlock", subject_id: unlockId },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
 
   /**
    * Fire the deferred, PII-free event emits AFTER the transaction has committed (so
@@ -726,6 +1008,9 @@ export class UnlockService {
       scope.tenantKey,
       PAYER_VISIBLE_STORED_STATUSES,
     );
+    // #2747 — the list reads STORED dates: a contact opened, re-opened or revealed for good never
+    // reads `expired` (`open_until: null`). Whether a lapsed one would re-open free depends on the
+    // worker's own notice (§3.8), which a list of rows does not read; `POST /payer/unlocks` answers it.
     return { unlocks: toPayerUnlocks(rows, now) };
   }
 
@@ -737,10 +1022,19 @@ export class UnlockService {
    * The balance of the wallet `payerId` spends from: the org wallet in mode `on` (the anchor's
    * existing row, O-1), never a member's personal pre-team balance (O-2), and `payerId`'s own
    * wallet in `off`. `payer_id` in the response echoes the CALLER, not the wallet (ADR-0053 §10).
+   *
+   * #2749 — plus the wallet's OPEN lots in spend order (soonest expiry first, never-expiring
+   * last): source, what is left, what it granted, when it ends and its pack. Additive: a reader
+   * that knows only `{ payer_id, balance }` is unaffected. Two non-tx reads, so a purchase landing
+   * between them can show a lot the balance does not include yet (the next read agrees).
    */
-  async getCredits(payerId: string): Promise<{ payer_id: string; balance: number }> {
+  async getCredits(payerId: string): Promise<PayerCreditsResponse> {
     const scope = await this.tenancy.resolve(payerId);
-    return { payer_id: payerId, balance: await this.repo.getBalance(scope.tenantKey) };
+    const [balance, lots] = await Promise.all([
+      this.repo.getBalance(scope.tenantKey),
+      this.repo.listOpenLots(scope.tenantKey),
+    ]);
+    return { payer_id: payerId, balance, lots };
   }
 
   // R21 / LC-7: latency-normalisation helper. Pads the response to
@@ -782,10 +1076,10 @@ export class UnlockService {
     // ADR-0053 — any member's purchase credits the ORG wallet in mode `on` (O-1; owner ruling
     // 2026-10-07, any authenticated payer may buy). Resolved once, before the catalog read.
     const scope = await this.tenancy.resolve(payerId);
-    // D-6: resolved from the LIVE catalog (legacy constants as the fallback) so the price +
-    // credits CHARGED are the same ones the portal DISPLAYED. Async since D-6.
+    // D-6: resolved from the LIVE catalog so the price + credits CHARGED are the same ones the
+    // portal DISPLAYED. #2749: only a pack the catalogue lists AND has on sale resolves.
     const pack = await this.payments.resolvePack(packCode);
-    if (!pack) return null; // unknown pack → 404 (this is NOT the unlock no-oracle path)
+    if (!pack) return null; // unknown or off-sale pack → 404 (NOT the unlock no-oracle path)
     // #2085: the ₹ the payer confirmed must be the ₹ charged — refused (409) BEFORE the
     // ledger write, so a mismatch grants and records nothing.
     assertExpectedPrice(expectedPriceInr, pack.priceInr);
@@ -820,8 +1114,8 @@ export class UnlockService {
   /**
    * Create a REAL provider order for a credit pack (`POST /payer/credits/order`).
    *
-   * Returns null for an unknown pack (→ the caller's 404 — a pack code is a public catalog
-   * item, not a per-tenant resource, so a 404 leaks nothing).
+   * Returns null for an unknown or off-sale pack (#2749) (→ the caller's 404 — a pack code is
+   * a public catalog item, not a per-tenant resource, so a 404 leaks nothing).
    *
    * PRICE AUTHORITY: {@link PaymentGateway.resolvePack} — the same live-catalog path the
    * portal renders from (D-6). The advertised price and the charged price are the same
@@ -1086,30 +1380,40 @@ export class UnlockService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Fail-closed disclosure-consent read (ADR-0010 §D3): the worker's LATEST
-   * worker_consents row must exist, be unrevoked, AND carry the exact
-   * `employer_sharing` purpose. Profiling consent does NOT substitute. Any error →
-   * false (fail closed).
+   * Two questions from ONE set of reads.
+   *
+   * `openable` — may this company open this worker (#2752 item 9)? An actively linked institute
+   * student is decided by the institute rule alone, whatever his own BadaBhai consent says (the tag
+   * rule wins while the link is active); every other worker by his LATEST consent row: unrevoked
+   * and carrying the exact `employer_sharing` purpose (profiling consent does not substitute).
+   *
+   * `brief` — #2747 (ADR-0064 §3.8): do the brief's contact rules apply to him — open for good, his
+   * full name and phone on screen? For an RVM student the institute rule answers it (RVM's consent
+   * line, brief 9). Any other worker also needs that consent given on a notice that describes those
+   * rules (`onBriefNotice`): on the 2026-11-04 notice (14 days, initials) it is false, whatever the
+   * company's switch says. `brief` implies `openable`. Both fail closed.
    */
-  private async isConsentedForSharing(workerId: string): Promise<boolean> {
-    const purposes = await this.latestConsentPurposes(workerId);
-    return purposes !== null && purposes.includes(EMPLOYER_SHARING);
-  }
-
-  /**
-   * Whether this company may open this worker (#2752 item 9). An actively
-   * linked institute student is decided by the institute rule alone, whatever his own BadaBhai
-   * consent says (issue question 2: the tag rule wins while the link is active); every other
-   * worker by his own `employer_sharing` consent, exactly as before. Both fail closed.
-   */
-  private async isOpenableBy(
+  private async contactAccess(
     workerId: string,
     opener: InstituteOpener,
     ctx: RequestContext,
-  ): Promise<boolean> {
+  ): Promise<{ openable: boolean; brief: boolean }> {
     const institute = await this.instituteGate.decide(workerId, opener, ctx);
-    if (institute === "not_linked") return this.isConsentedForSharing(workerId);
-    return institute === "open";
+    if (institute !== "not_linked") {
+      const open = institute === "open";
+      return { openable: open, brief: open };
+    }
+    let latest: Awaited<ReturnType<ConsentRepository["findLatestByWorker"]>>;
+    try {
+      latest = await this.consents.findLatestByWorker(workerId);
+    } catch {
+      return { openable: false, brief: false }; // fail closed
+    }
+    const openable =
+      latest !== undefined &&
+      latest.revokedAt === null &&
+      ((latest.purposes ?? []) as string[]).includes(EMPLOYER_SHARING);
+    return { openable, brief: openable && onBriefNotice(latest) };
   }
 
   /**
@@ -1199,12 +1503,16 @@ export class UnlockService {
     }
   }
 
-  /** `granted`/`revealed` + unexpired, the one spelling of "live" for relay resolution. */
+  /**
+   * Relay resolution reads the STORED dates (`isOpenGrant` with the rule off): a contact opened,
+   * re-opened or revealed while `contact_rules` was on is stored "for good", so its relay stays
+   * live; a lapsed past open the company has not touched since stays closed to the relay until it
+   * re-opens or reveals it (both free with the rule on).
+   */
   private isLiveGrant(unlock: UnlockProjection): boolean {
-    return (
-      (unlock.status === "granted" || unlock.status === "revealed") &&
-      unlock.expires_at !== null &&
-      unlock.expires_at.getTime() > Date.now()
+    return isOpenGrant(
+      { status: unlock.status, expiresAt: unlock.expires_at },
+      { openForGood: false },
     );
   }
 
@@ -1349,8 +1657,22 @@ export class UnlockService {
     return `relay_${unlockId}_${randomUUID()}`;
   }
 
-  private grantedResponse(unlockId: string, expiresAt: Date): UnlockGrantedResponse {
-    return { ok: true, unlock_id: unlockId, status: "granted", expires_at: expiresAt.toISOString() };
+  /**
+   * The one distinguishable success. `expires_at` stays a date string for the shipped apps; #2747
+   * adds `open_until` (null = open for good, else the window's end).
+   */
+  private grantedResponse(
+    unlockId: string,
+    expiresAt: Date,
+    openForGood: boolean,
+  ): UnlockGrantedResponse {
+    return {
+      ok: true,
+      unlock_id: unlockId,
+      status: "granted",
+      expires_at: expiresAt.toISOString(),
+      open_until: openUntilOf(openForGood, expiresAt),
+    };
   }
 
   // ---- Event emitters (all PII-free; ids + enums + counts only) -------------
@@ -1580,6 +1902,29 @@ export class UnlockService {
       ...(idempotencyKey ? { idempotencyKey } : {}),
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
+    });
+  }
+
+  /**
+   * #2749 — a lot the spend path expired, on the unlock transaction (`tx`): the event shares the
+   * expiry's fate (see {@link creditsExpiredEvent}).
+   */
+  private async emitCreditsExpired(
+    party: EventParty,
+    lot: ExpiredCreditLot,
+    ctx: RequestContext,
+    tx: Database,
+  ): Promise<void> {
+    await this.events.emit({
+      ...creditsExpiredEvent({
+        walletKey: party.payerId,
+        lot,
+        trigger: "spend",
+        actor: { actor_type: "payer", actor_id: party.actorId },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      }),
+      tx,
     });
   }
 

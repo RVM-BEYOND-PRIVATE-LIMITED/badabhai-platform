@@ -1257,6 +1257,222 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. Every PostgREST role could read which workers applied through Campus to which " +
       "posting, and write an application that a company would see",
   },
+  // 0164 (#2820): THE API names `feature_pilot_subjects` only for a worker or an admin while a
+  // rollout switch reads `pilot` (THEME_ROLLOUT first), and a read error there answers "not
+  // listed", so a deploy ahead of the migration breaks no request and the table is NOT a `table`
+  // entry. It is listed for its lock, exactly as 0134's table is. APPLY BEFORE PILOT (header).
+  {
+    id: "0164-feature-pilot-subjects-rls",
+    migration: "0164_feature_pilot_subjects",
+    kind: "rls",
+    table: "feature_pilot_subjects",
+    requiredBy: "no code path - FORCE + four REVOKEs HAND-APPENDED, as the entries above",
+    failureMode:
+      "SILENT. A writable grant lets any PostgREST role put a worker or an admin on a pilot, " +
+      "opening a feature meant for the named pilot logins only",
+  },
+  // 0165 (#2819): THE API names `display_prefs` only for a login the THEME_ROLLOUT switch is open
+  // for, and a missing table there answers light / theme_open false (GET) or a 404 (PATCH), so a
+  // deploy ahead of the migration breaks no request and the table is NOT a `table` entry. No
+  // erasure path names it yet (#2837). Listed for its lock, as 0164's table is. APPLY BEFORE PILOT.
+  {
+    id: "0165-display-prefs-rls",
+    migration: "0165_display_prefs",
+    kind: "rls",
+    table: "display_prefs",
+    requiredBy: "no code path - FORCE + four REVOKEs HAND-APPENDED, as the entries above",
+    failureMode:
+      "SILENT. A readable grant lets any PostgREST role list which worker, company login and " +
+      "admin ids exist; a writable one lets it change anyone's theme",
+  },
+  // 0167 (#2747 item 8): THE API names `outbound_signals` only while OUTBOUND_SIGNALS_ROLLOUT is
+  // on (the stage transaction's queue, the sender's sweep), so a deploy ahead of the migration
+  // breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134 rule).
+  // APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0167-outbound-signals-rls",
+    migration: "0167_outbound_signals",
+    kind: "rls",
+    table: "outbound_signals",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which RVM students each company selected or hired, keyed by " +
+      "worker id; an open grant lets any PostgREST role read those marks, or write a row the " +
+      "sender would post to RVM as a company's selection",
+  },
+  // 0168 (#2753 items 4 and 7): THE API names `worker_activity` only while WORKER_ACTIVITY_ENABLED
+  // is on (the interceptor's and Campus's writes, the last-active read), so a deploy ahead of the
+  // migration breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134
+  // rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0168-worker-activity-rls",
+    migration: "0168_worker_activity",
+    kind: "rls",
+    table: "worker_activity",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records every day each worker used the app, keyed by worker id; an " +
+      "open grant lets any PostgREST role read that daily pattern, or write a day that clears " +
+      "a worker's not-recently-active mark",
+  },
+  // 0169 (#2753 item 6): THE API names `worker_search_exits` only while SEARCH_EXIT_ENABLED is on
+  // (the worker routes, the search pool's predicate, the unlock refusal), so a deploy ahead of the
+  // migration breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134
+  // rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0169-worker-search-exits-rls",
+    migration: "0169_worker_search_exits",
+    kind: "rls",
+    table: "worker_search_exits",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. A readable grant lets any PostgREST role list which workers left company search; " +
+      "a writable one lets it take any worker out of every company's search, or put one back " +
+      "who asked to leave",
+  },
+  // 0170 (#2753 item 9): THE API names `hires` only while HIRE_RECORDS_ENABLED is on (the stage
+  // transaction's hire source, GET /admin/hires), so a deploy ahead of the migration breaks no
+  // request and the table is NOT a `table` entry. Listed for its lock (the 0134 rule). APPLY
+  // BEFORE THE SWITCH (migration header).
+  {
+    id: "0170-hires-rls",
+    migration: "0170_hires",
+    kind: "rls",
+    table: "hires",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which workers each company hired, keyed by worker and company " +
+      "id; an open grant lets any PostgREST role read those hires, or write a confirmed hire that " +
+      "counts toward the target",
+  },
+  // 0171 (#2753 item 11): THE API names `pay_on_joining_hires` only while
+  // PAY_ON_JOINING_RECORDS_ENABLED is on (every admin route is a 404 before a query while it is
+  // off), so a deploy ahead of the migration breaks no request and the table is NOT a `table`
+  // entry. Listed for its lock (the 0134 rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0171-pay-on-joining-hires-rls",
+    migration: "0171_pay_on_joining_hires",
+    kind: "rls",
+    table: "pay_on_joining_hires",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which worker each pilot factory hired, the fee in paise and the " +
+      "partner's share, with an admin's free-text note; an open grant lets any PostgREST role " +
+      "read the pilot's commercial terms, or write a hire record ops would act on",
+  },
+  // 0172 (#2753 item 10): THE API names `unlock_outcomes` only while UNLOCK_FOLLOWUP_ENABLED is on
+  // (the due list, the company's answer, the desk's not_reached), so a deploy ahead of the
+  // migration breaks no request and the table is NOT a `table` entry. Listed for its lock (the 0134
+  // rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0172-unlock-outcomes-rls",
+    migration: "0172_unlock_outcomes",
+    kind: "rls",
+    table: "unlock_outcomes",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records what each company said became of every contact it opened, " +
+      "keyed by unlock, worker and company id; an open grant lets any PostgREST role read those " +
+      "answers, or write a `hired` that the launch test counts",
+  },
+  // 0173 (#2753 item 5): THE API names `still_looking_checks` only while
+  // STILL_LOOKING_CHECK_ENABLED is on (both worker routes are a 404 and the sweep reads nothing
+  // while it is off), so a deploy ahead of the migration breaks no request and the table is NOT a
+  // `table` entry. Listed for its lock (the 0134 rule). APPLY BEFORE THE SWITCH (migration header).
+  {
+    id: "0173-still-looking-checks-rls",
+    migration: "0173_still_looking_checks",
+    kind: "rls",
+    table: "still_looking_checks",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records, per worker id, when he was asked whether he is still looking " +
+      "and what he answered (yes, not now, hired); an open grant lets any PostgREST role read who " +
+      "is job hunting, or write an answer that takes a worker out of company search",
+  },
+  // 0174 (#2749 items 2-4): expiring credit lots. Unconditional - no flag - because every wallet
+  // writer goes through packages/db/src/credit-wallet.ts, which names `credit_lots` on every
+  // grant, spend and expiry, and Drizzle 0.45 names every model column (so `credit_ledger.lot_id`)
+  // in each ledger insert. APPLY BEFORE DEPLOY, from the PR branch before the merge (header).
+  // (`credit_lots_payment_order_uq` is not an `index` entry: that probe checks 0078's shape.)
+  {
+    id: "0174-credit-lots-table",
+    migration: "0174_credit_lots",
+    kind: "table",
+    table: "credit_lots",
+    requiredBy:
+      "credit-wallet.ts (lockWallet → align → lots → ledger) on every wallet move: " +
+      "UnlocksRepository.tryDebit (every contact open), creditPack (POST /payer/credits and the " +
+      "ops POST /payers/:payerId/credits), claimAndCreditPaymentOrderWithinTx (Razorpay verify + " +
+      "webhook), AdminActionsRepository.grantCredits, FreeTierService.grantForPayer (signup), " +
+      "db:grant:free-tier, the credit-lot-expiry sweep, and the GET /payer/credits lots read",
+    failureMode:
+      "every contact open, pack purchase, Razorpay settle (5xx, so Razorpay redelivers), admin " +
+      "grant and signup free-tier grant fails (relation does not exist), and GET /payer/credits " +
+      "500s. Old builds on a migrated database are fine (they name neither object); new builds " +
+      "on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0174-credit-ledger-lot-id",
+    migration: "0174_credit_lots",
+    kind: "column",
+    table: "credit_ledger",
+    object: "lot_id",
+    requiredBy:
+      "every credit_ledger insert (Drizzle 0.45 lists every model column): the unlock debit " +
+      "(UnlocksRepository.appendLedger), the grant and expiry lines in credit-wallet.ts; and " +
+      "every bare `select()` of credit_ledger",
+    failureMode:
+      "every ledger write fails (column does not exist), so every contact open, purchase, settle " +
+      "and grant rolls back. APPLY-BEFORE-DEPLOY, same reason as the table entry above",
+  },
+  {
+    id: "0174-credit-ledger-lot-fk",
+    migration: "0174_credit_lots",
+    kind: "constraint",
+    table: "credit_ledger",
+    object: "credit_ledger_lot_id_credit_lots_id_fk",
+    requiredBy:
+      "no code path names it - it is the link that keeps a ledger line's lot real, the half of " +
+      "balance = Σ ledger = Σ lots a hand-written statement could otherwise break",
+    failureMode:
+      "SILENT. A ledger line could name a lot that does not exist, and the per-lot audit trail " +
+      "(which lot a credit came from, which lot expired) would stop being checkable",
+  },
+  {
+    id: "0174-credit-lots-rls",
+    migration: "0174_credit_lots",
+    kind: "rls",
+    table: "credit_lots",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table is every company's credit holdings and their expiry dates; an open " +
+      "grant lets any PostgREST role read them, or write a lot that the next spend would honour",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

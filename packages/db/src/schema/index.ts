@@ -50,6 +50,13 @@ import {
 import { workerProfilingTiers } from "./worker-profiling-tier";
 import { workerResumeSkins } from "./worker-resume-skin";
 import { payerApplicantStages } from "./payer-applicant-stage";
+import { outboundSignals } from "./outbound-signal";
+import { workerActivity } from "./worker-activity";
+import { workerSearchExits } from "./worker-search-exit";
+import { hires } from "./hire";
+import { payOnJoiningHires } from "./pay-on-joining";
+import { unlockOutcomes } from "./unlock-outcome";
+import { stillLookingChecks } from "./still-looking";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -64,6 +71,7 @@ import {
 import { applications, jobPostings, jobs } from "./job";
 import {
   creditLedger,
+  creditLots,
   payerCapacity,
   payerCredits,
   payerFormDrafts,
@@ -116,7 +124,8 @@ import { aiCallTraces } from "./ai-trace";
 import { deleteForensics } from "./delete-forensics";
 import { jobPostingInstituteReviews, rvmTargetingOptions } from "./job-audience";
 import { campusDriveRequests } from "./campus-drive";
-import { featurePilotPayers } from "./feature-pilot";
+import { featurePilotPayers, featurePilotSubjects } from "./feature-pilot";
+import { displayPrefs } from "./display-prefs";
 
 export * from "./worker";
 export * from "./skill";
@@ -161,6 +170,22 @@ export * from "./campus-drive";
 export * from "./feature-pilot";
 // #2752 — named-company search grants and Campus applications.
 export * from "./institute-campus";
+// #2819 — one login's display preference (the theme).
+export * from "./display-prefs";
+// #2747 — marks BadaBhai owes another system (the RVM selection signal).
+export * from "./outbound-signal";
+// #2753 - the days a worker was active (the one read of his last-active day).
+export * from "./worker-activity";
+// #2753 item 6 — a worker who left company search.
+export * from "./worker-search-exit";
+// #2753 item 9 — one hire record per company, worker and posting.
+export * from "./hire";
+// #2753 item 11 — the pay-on-joining pilot's hire record (admin-written, money in paise).
+export * from "./pay-on-joining";
+// #2753 item 10 — what became of one opened contact (the company follow-up).
+export * from "./unlock-outcome";
+// #2753 item 5 — the monthly "still looking?" check (one row per prompt).
+export * from "./still-looking";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -223,6 +248,9 @@ export type PayerCredit = typeof payerCredits.$inferSelect;
 export type NewPayerCredit = typeof payerCredits.$inferInsert;
 export type CreditLedger = typeof creditLedger.$inferSelect;
 export type NewCreditLedger = typeof creditLedger.$inferInsert;
+// #2749 — a wallet's balance as expiring lots (migration 0174).
+export type CreditLot = typeof creditLots.$inferSelect;
+export type NewCreditLot = typeof creditLots.$inferInsert;
 export type UnlockRouting = typeof unlockRouting.$inferSelect;
 export type NewUnlockRouting = typeof unlockRouting.$inferInsert;
 // E0 — the payer↔worker in-app relay message store (docs/agent/phases/E0_BUILD.md item 2).
@@ -354,6 +382,8 @@ export const schema = {
   applications,
   unlocks,
   payerCredits,
+  // #2749 — the lots a balance is made of (migration 0174).
+  creditLots,
   creditLedger,
   unlockRouting,
   relayMessages,
@@ -463,4 +493,22 @@ export const schema = {
   instituteSearchGrants,
   instituteApplications,
   instituteCompanies,
+  // #2820 - the pilot list for workers and admins behind THEME_ROLLOUT (migration 0164).
+  featurePilotSubjects,
+  // #2819 - one login's theme: a worker, a company or agency login, an admin (migration 0165).
+  displayPrefs,
+  // #2747 - marks owed to RVM, sent once (migration 0167).
+  outboundSignals,
+  // #2753 - the days a worker was active, one row per IST day (migration 0168).
+  workerActivity,
+  // #2753 item 6 - a worker who left company search (migration 0169).
+  workerSearchExits,
+  // #2753 item 9 - one hire record per company, worker and posting (behind HIRE_RECORDS_ENABLED).
+  hires,
+  // #2753 item 11 - the pay-on-joining pilot's hire record (migration 0171).
+  payOnJoiningHires,
+  // #2753 item 10 - one follow-up answer per opened contact (behind UNLOCK_FOLLOWUP_ENABLED).
+  unlockOutcomes,
+  // #2753 item 5 - the monthly "still looking?" check (behind STILL_LOOKING_CHECK_ENABLED).
+  stillLookingChecks,
 };

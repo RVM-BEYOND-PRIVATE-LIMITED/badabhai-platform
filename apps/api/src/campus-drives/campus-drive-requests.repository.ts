@@ -18,7 +18,11 @@ import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import type { DriveCursor } from "./campus-drive-cursor";
 import type { DriveCompanyStanding } from "./campus-drive-eligibility";
-import type { DecisionTiming, DriveDecisionWrite } from "./campus-drive-transitions";
+import {
+  DRIVE_OPEN_STATUSES,
+  type DecisionTiming,
+  type DriveDecisionWrite,
+} from "./campus-drive-transitions";
 
 /** Postgres's microsecond UTC text for a timestamp: a cursor key (a JS `Date` keeps only ms). */
 function microsecondText(column: SQLWrapper): SQL<string> {
@@ -246,6 +250,37 @@ export class CampusDriveRequestsRepository {
     return { ...row, hasGstNumber: row.hasGstNumber === true };
   }
 
+  /**
+   * #2768 — serialise every CREATE of one tenant for the rest of `tx`: a transaction-scoped
+   * advisory lock, released on commit or rollback. Without it two creates at the cap's edge would
+   * each count "under the cap" and both insert. Taken FIRST in the create's transaction, before
+   * {@link requesterFacts}' `FOR SHARE OF payers`, and only by creates, so the lock order is
+   * create lock → payers → requests and no other writer can wait on it. The key is namespaced:
+   * `posting-plans` locks the bare tenant key, and the two must not serialise each other.
+   */
+  async lockCreates(tx: Database, tenant: TenantKey): Promise<void> {
+    const key = `campus_drive_request_create:${tenant}`;
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
+  }
+
+  /**
+   * #2768 — how many of the tenant's requests are OPEN (`requested` or `scheduled`), on the
+   * create's transaction and under {@link lockCreates}, so it sees every create that committed
+   * before this one took the lock. Served by `campus_drive_requests_payer_idx` (`payer_id` leads).
+   */
+  async countOpen(tx: Database, tenant: TenantKey): Promise<number> {
+    const rows = await tx
+      .select({ open: sql<number>`count(*)::int` })
+      .from(campusDriveRequests)
+      .where(
+        and(
+          eq(campusDriveRequests.payerId, tenant),
+          inArray(campusDriveRequests.status, [...DRIVE_OPEN_STATUSES]),
+        ),
+      );
+    return Number(rows[0]?.open ?? 0);
+  }
+
   /** Is `postingId` one of the tenant's own postings? `payer_id` is in the WHERE. */
   async isOwnPosting(
     tenant: TenantKey,
@@ -280,12 +315,17 @@ export class CampusDriveRequestsRepository {
     }
   }
 
-  /** The tenant's request made under `idempotencyKey`, if any. */
+  /**
+   * The tenant's request made under `idempotencyKey`, if any. On the create's transaction (after
+   * {@link lockCreates}) it is a new READ COMMITTED snapshot, so it sees a same-key create that
+   * committed while this one waited for the lock.
+   */
   async findByIdempotencyKey(
     tenant: TenantKey,
     idempotencyKey: string,
+    executor: Database = this.db,
   ): Promise<DriveRequestRow | undefined> {
-    const rows = await this.db
+    const rows = await executor
       .select(ROW_COLUMNS)
       .from(campusDriveRequests)
       .where(

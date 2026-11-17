@@ -134,8 +134,16 @@ export class ResumeDisclosureRepository {
    * `expires_at` still in the future (a null expiry is not live). A NON-tx global-pool read by the
    * unlock's (payer, worker) key, called BEFORE the advisory-locked transaction (deadlock rule),
    * projecting the id only.
+   *
+   * #2747 — the SQL twin of `isOpenGrant` (apps/api/src/unlocks/open-grant.ts): with
+   * `openForGood` (`contact_rules` on for the company) the date is not read, so a contact opened
+   * under the old window is still open.
    */
-  async hasLiveUnlock(tenant: TenantKey, workerId: string): Promise<boolean> {
+  async hasLiveUnlock(
+    tenant: TenantKey,
+    workerId: string,
+    opts: { readonly openForGood: boolean } = { openForGood: false },
+  ): Promise<boolean> {
     const rows = await this.db
       .select({ id: unlocks.id })
       .from(unlocks)
@@ -144,7 +152,7 @@ export class ResumeDisclosureRepository {
           eq(unlocks.payerId, tenant),
           eq(unlocks.workerId, workerId),
           inArray(unlocks.status, ["granted", "revealed"]),
-          sql`${unlocks.expiresAt} > now()`,
+          opts.openForGood ? undefined : sql`${unlocks.expiresAt} > now()`,
         ),
       )
       .limit(1);
@@ -152,6 +160,26 @@ export class ResumeDisclosureRepository {
   }
 
   /** The existing disclosure row for (tenant, worker, posting), or undefined. Tx-scoped. */
+  /**
+   * #2747 — has the TENANT been disclosed this worker's résumé before (any posting)? A re-read of an
+   * opened contact is not a first disclosure, so the shared per-worker cap does not stop it; a
+   * company's FIRST résumé of him still meets the cap. Tx-scoped, under the worker lock.
+   */
+  async hasDisclosedTo(tx: Tx, tenant: TenantKey, workerId: string): Promise<boolean> {
+    const rows = await tx
+      .select({ id: resumeDisclosures.id })
+      .from(resumeDisclosures)
+      .where(
+        and(
+          eq(resumeDisclosures.payerId, tenant),
+          eq(resumeDisclosures.workerId, workerId),
+          eq(resumeDisclosures.status, "disclosed"),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
   async findByPayerWorkerPosting(
     tx: Tx,
     tenant: TenantKey,

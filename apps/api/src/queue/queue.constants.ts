@@ -65,6 +65,18 @@ export const REACH_WIDEN_EXPIRY_QUEUE = "reach-widen-expiry";
 export const REACH_WIDEN_EXPIRY_SWEEP_SCHEDULER_ID = "reach-widen-expiry-sweep";
 
 /**
+ * #2749 item 4 — the credit-lot expiry sweep queue. The repeatable tick carries NO payload: the
+ * predicate over `credit_lots` (open + past `expires_at`) is the authoritative work list, so a
+ * lost or duplicated Redis job is harmless — the next tick (or the wallet's next spend, which
+ * expires a due lot first) catches anything missed. The EXPIRY itself lives in packages/db
+ * `credit-wallet.ts`; this queue only supplies the clock.
+ */
+export const CREDIT_LOT_EXPIRY_QUEUE = "credit-lot-expiry";
+
+/** Stable BullMQ job-scheduler id for the credit-lot expiry sweep (twin doctrine). */
+export const CREDIT_LOT_EXPIRY_SWEEP_SCHEDULER_ID = "credit-lot-expiry-sweep";
+
+/**
  * LEARN label producer sweep (migration 0091) — drains spine events
  * (feed.shown_v2 / application.submitted / application.skipped) into `learn_labels`
  * for the offline reach-learn calibrator. The repeatable tick carries NO payload: the
@@ -320,3 +332,21 @@ export const CANDIDATE_INDEX_REBUILD_JOB = "rebuild";
 
 /** How far before the stored watermark each poll tick re-reads (overlap window). */
 export const CANDIDATE_INDEX_OVERLAP_MS = 5 * 60_000;
+
+/**
+ * #2747 item 8 — the outbound-signal sender (`outbound_signals`, migration 0167). One repeatable
+ * tick with NO payload: the table's due pending rows are the work list, and the destination
+ * de-duplicates on each row's id, so a lost or duplicated Redis job is harmless.
+ */
+export const OUTBOUND_SIGNALS_QUEUE = "outbound-signals";
+export const OUTBOUND_SIGNALS_SWEEP_SCHEDULER_ID = "outbound-signals-sweep";
+
+/**
+ * #2753 item 5 — the monthly "still looking?" sweep (`still_looking_checks`, migration 0173). One
+ * repeatable DAILY tick with NO payload: the predicate over `workers` and `still_looking_checks` (an
+ * active, consented worker with no open check and none inside STILL_LOOKING_EVERY_DAYS) is the work
+ * list, and the open-check unique index guards the insert, so a lost or duplicated Redis job is
+ * harmless: the next tick re-evaluates it, and two ticks racing open one check per worker.
+ */
+export const STILL_LOOKING_SWEEP_QUEUE = "still-looking-sweep";
+export const STILL_LOOKING_SWEEP_SCHEDULER_ID = "still-looking-sweep";

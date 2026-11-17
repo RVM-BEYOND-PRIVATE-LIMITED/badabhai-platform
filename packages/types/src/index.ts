@@ -688,6 +688,21 @@ export const EMPLOYER_CONTACT_PURPOSES = ["employer_sharing", "employer_messagin
  */
 export const EMPLOYER_CONTACT_NOTICE_VERSIONS: readonly string[] = ["2026-11-04"];
 
+/**
+ * #2747 (ADR-0064 §3.8) — the employer-sharing notice versions whose copy DESCRIBES the brief's
+ * rules: his first name and expected salary shown BEFORE a company pays; his full name and phone
+ * number on screen AFTER it opens him; and a contact that stays open for good. The 2026-11-04 notice
+ * says the opposite ("naam, phone number aur photo nahi dikhta"; "14 din tak"; "poora naam … nahi"),
+ * so a BadaBhai worker whose latest consent is on it keeps exactly those rules, whatever a
+ * company's pilot switches say.
+ *
+ * EMPTY until that notice is approved and shipped. Then append its version here AND to
+ * {@link EMPLOYER_CONTACT_NOTICE_VERSIONS} in the same change as the worker app's copy (the rule
+ * above). Never remove one. An actively linked RVM student is decided by the institute rule instead
+ * (#2752: RVM's own consent line, brief 9).
+ */
+export const BRIEF_CONTACT_NOTICE_VERSIONS: readonly string[] = [];
+
 // ---- Chat ----
 /**
  * `active` → running. `ended` → the worker finished the interview. `abandoned` → the interview did
@@ -1449,14 +1464,34 @@ export const APPLICANT_POSTING_KINDS = Object.freeze(["company_posting", "agency
 export type ApplicantPostingKind = (typeof APPLICANT_POSTING_KINDS)[number];
 
 /**
- * Where an applicant sits on a posting's New / Shortlist / Passed board in payer-web.
+ * The board's first three stages: New / Shortlist / Passed (owner ruling 2026-10-07, migration
+ * 0134). FROZEN: `payer.applicant_stage_changed` v1 takes its enum from this list, and a shipped
+ * payload never changes. A move between two of these stages is still reported as v1.
+ */
+export const APPLICANT_STAGES_V1 = Object.freeze(["new", "shortlist", "passed"] as const);
+export type ApplicantStageV1 = (typeof APPLICANT_STAGES_V1)[number];
+
+/**
+ * #2747 item 7 (brief 4B.8): the outcome stages. A company marks an applicant selected, then
+ * hired. Accepted on a write only while `OUTCOME_STAGES_ROLLOUT` is on for the company (and
+ * migration 0166 widened the CHECK). A stored one is always read back as itself.
+ */
+export const APPLICANT_OUTCOME_STAGES = Object.freeze(["selected", "hired"] as const);
+export type ApplicantOutcomeStage = (typeof APPLICANT_OUTCOME_STAGES)[number];
+
+/**
+ * Where an applicant sits on a posting's board: {@link APPLICANT_STAGES_V1}, then
+ * {@link APPLICANT_OUTCOME_STAGES}.
  *
  * `new` IS THE DEFAULT: an applicant nobody has moved has no stored row and reads `new`. A row
  * moved back to New stores `new` explicitly (it records who moved it and when), so "no row" and
  * "`new`" mean the same thing to every reader. A stage is the payer's own triage — never a match,
  * rank or visibility input.
  */
-export const APPLICANT_STAGES = Object.freeze(["new", "shortlist", "passed"] as const);
+export const APPLICANT_STAGES = Object.freeze([
+  ...APPLICANT_STAGES_V1,
+  ...APPLICANT_OUTCOME_STAGES,
+] as const);
 export type ApplicantStage = (typeof APPLICANT_STAGES)[number];
 
 /** The stage of an applicant with no stored row. */
@@ -1464,6 +1499,210 @@ export const DEFAULT_APPLICANT_STAGE: ApplicantStage = "new";
 
 export function isApplicantStage(value: unknown): value is ApplicantStage {
   return typeof value === "string" && (APPLICANT_STAGES as readonly string[]).includes(value);
+}
+
+/** One of the board's first three stages, the ones `payer.applicant_stage_changed` v1 carries. */
+export function isApplicantStageV1(value: unknown): value is ApplicantStageV1 {
+  return typeof value === "string" && (APPLICANT_STAGES_V1 as readonly string[]).includes(value);
+}
+
+/** `selected` or `hired`. */
+export function isApplicantOutcomeStage(value: unknown): value is ApplicantOutcomeStage {
+  return (
+    typeof value === "string" && (APPLICANT_OUTCOME_STAGES as readonly string[]).includes(value)
+  );
+}
+
+// ---- Hire records (#2753 item 9, migration `hires`) ----
+//
+// HERE FOR THE SAME REASON AS THE STAGES ABOVE: `packages/db` spells the statuses into a CHECK on
+// `hires`, `packages/event-schema` puts both sets on the spine (`hire.recorded`), and `apps/api`
+// writes and lists them. Declared once so the three cannot drift.
+
+/**
+ * Where one hire record (one company, worker and posting) stands.
+ *  - `reported`: one side said so and nobody who can confirm it has agreed (today: the worker's
+ *    own "hired" answer, owner question 2 default).
+ *  - `confirmed`: the company marked or answered "hired", or the worker desk confirmed it. Only a
+ *    confirmed hire counts toward the target.
+ *  - `rejected`: the desk rejected it, or the company took back its only confirming mark.
+ */
+export const HIRE_STATUSES = Object.freeze(["reported", "confirmed", "rejected"] as const);
+export type HireStatus = (typeof HIRE_STATUSES)[number];
+
+/**
+ * What moved a hire record: the `source` of `hire.recorded`. Four sources say "hired" and each
+ * stamps its own column on the row (so "how it was confirmed" is readable); two take it back.
+ *  - `company_mark`: the company moved the applicant INTO `hired` on its board;
+ *  - `company_unmark`: the company moved him OUT of `hired` again (the undo rule);
+ *  - `company_answer`: the company's follow-up answer was "hired";
+ *  - `worker_answer`: the worker's own monthly-check answer was "hired";
+ *  - `desk_confirm` / `desk_reject`: the worker desk confirmed or rejected it.
+ */
+export const HIRE_RECORD_SOURCES = Object.freeze([
+  "company_mark",
+  "company_unmark",
+  "company_answer",
+  "worker_answer",
+  "desk_confirm",
+  "desk_reject",
+] as const);
+export type HireRecordSource = (typeof HIRE_RECORD_SOURCES)[number];
+
+// ---- Unlock outcomes: the company follow-up (#2753 item 10, migration `unlock_outcomes`) ----
+//
+// HERE FOR THE SAME REASON AS THE HIRE STATUSES ABOVE: `packages/db` spells both sets into CHECKs
+// on `unlock_outcomes`, `packages/event-schema` puts them on the spine (`unlock.outcome_recorded`),
+// and `apps/api` writes and lists them. Declared once so the three cannot drift.
+
+/**
+ * What became of one opened contact (one unlock). One answer per unlock; a later answer replaces
+ * the earlier one (`still_talking` → `hired`), and the history is on the spine.
+ *  - `hired`: the company hired him (it also confirms the hire record when the unlock names a
+ *    posting and `HIRE_RECORDS_ENABLED` is on);
+ *  - `not_hired`: they spoke and did not hire him;
+ *  - `still_talking`: no decision yet; the contact is asked about again after the follow-up wait;
+ *  - `not_reached`: the company could not reach him. Written by the desk (#2750), never by the
+ *    company's own answer.
+ */
+export const UNLOCK_OUTCOMES = Object.freeze([
+  "hired",
+  "not_hired",
+  "still_talking",
+  "not_reached",
+] as const);
+export type UnlockOutcome = (typeof UNLOCK_OUTCOMES)[number];
+
+/** The outcomes a company may give itself (`POST /payer/unlocks/:unlockId/outcome`). */
+export const UNLOCK_COMPANY_OUTCOMES = Object.freeze([
+  "hired",
+  "not_hired",
+  "still_talking",
+] as const satisfies readonly UnlockOutcome[]);
+export type UnlockCompanyOutcome = (typeof UNLOCK_COMPANY_OUTCOMES)[number];
+
+/** Who gave the stored answer: the company itself, or the desk on its behalf (#2750). */
+export const UNLOCK_OUTCOME_ANSWERERS = Object.freeze(["company", "desk"] as const);
+export type UnlockOutcomeAnswerer = (typeof UNLOCK_OUTCOME_ANSWERERS)[number];
+
+// ---- Credit lots: a company's balance, as expiring lots (#2749, migration 0174) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells the sources into
+// `credit_lots_source_chk` and writes them from its wallet helpers, and the api returns them on
+// `GET /payer/credits`. Declared once so the CHECK, the writers and the readers cannot drift.
+
+/**
+ * Where a lot's credits came from (brief 4C.1). `pack` = a pack bought (mock or Razorpay);
+ * `welcome` = the one-time welcome credits; `goodwill` = an ops grant; `returned` = credits given
+ * back after a refund; `migrated` = moved from another wallet; `legacy` = what a wallet held before
+ * lots existed (migration 0174's backfill), and the free-tier signup grant. A new value is a
+ * migration widening `credit_lots_source_chk`.
+ */
+export const CREDIT_LOT_SOURCES = Object.freeze([
+  "pack",
+  "welcome",
+  "goodwill",
+  "returned",
+  "migrated",
+  "legacy",
+] as const);
+export type CreditLotSource = (typeof CREDIT_LOT_SOURCES)[number];
+
+export function isCreditLotSource(value: unknown): value is CreditLotSource {
+  return typeof value === "string" && (CREDIT_LOT_SOURCES as readonly string[]).includes(value);
+}
+
+/**
+ * What closed an expired lot (`payer.credits_expired.trigger`): `spend` = a contact open found the
+ * lot past its date before it spent, `sweep` = the `credit-lot-expiry` sweep. FROZEN: the event's
+ * v1 enum is taken from this list, and a shipped payload never changes.
+ */
+export const CREDIT_LOT_EXPIRY_TRIGGERS = Object.freeze(["spend", "sweep"] as const);
+export type CreditLotExpiryTrigger = (typeof CREDIT_LOT_EXPIRY_TRIGGERS)[number];
+
+/**
+ * One open lot on `GET /payer/credits` (`credits_remaining > 0`), in the order credits are spent:
+ * the soonest `expires_at` first, a lot that never expires last. No lot id and no payment
+ * reference: what a company can see is how many credits it holds and when they end.
+ */
+export interface PayerCreditLot {
+  readonly source: CreditLotSource;
+  readonly credits_remaining: number;
+  readonly credits_granted: number;
+  /** ISO 8601 instant the lot expires, or `null` when it never does. */
+  readonly expires_at: string | null;
+  /** The pack a `pack` lot came from; `null` for every other source. */
+  readonly pack_code: string | null;
+}
+
+/**
+ * The reply of `GET /payer/credits` (and the ops `GET /payers/:payerId/credits`). `payer_id`
+ * echoes the caller, `balance` is the wallet the caller spends from (the org wallet under org
+ * tenancy `on`, ADR-0053), and `balance` equals the sum of `lots[].credits_remaining`.
+ */
+export interface PayerCreditsResponse {
+  readonly payer_id: string;
+  readonly balance: number;
+  readonly lots: readonly PayerCreditLot[];
+}
+
+// ---- Display preferences: the theme (#2819, migration 0165) ----
+//
+// HERE FOR THE SAME REASON AS THE SKINS ABOVE: `packages/db` spells both sets into CHECK
+// constraints on `display_prefs`, `packages/event-schema` puts them on the spine
+// (`display_prefs.changed`), `packages/validators` parses the route bodies and replies with them,
+// and the apps (worker app, payer app, payer-web, admin-web) build their models from them. Declared
+// once so none of them can drift.
+
+/**
+ * The theme a login may choose. `system` follows the phone's or the browser's setting, live.
+ * A new value is a migration widening `display_prefs_theme_chk` AND a new `display_prefs.changed`
+ * version, because the event's enums are frozen once shipped.
+ */
+export const DISPLAY_THEMES = Object.freeze(["light", "dark", "system"] as const);
+export type DisplayTheme = (typeof DISPLAY_THEMES)[number];
+
+/**
+ * The theme of a login with no stored row, and the theme every route answers while the
+ * `THEME_ROLLOUT` switch is closed for that login: what every app shows today.
+ */
+export const DEFAULT_DISPLAY_THEME: DisplayTheme = "light";
+
+export function isDisplayTheme(value: unknown): value is DisplayTheme {
+  return typeof value === "string" && (DISPLAY_THEMES as readonly string[]).includes(value);
+}
+
+/**
+ * Whose preference a `display_prefs` row is: a worker (`workers.id`), a company or agency LOGIN
+ * (`payers.id` — the person, never the tenant, so two teammates keep two themes) or an admin
+ * (`admin_users.id`). Always the id the realm's auth guard attached, never one from a body.
+ */
+export const DISPLAY_PREFS_SUBJECT_KINDS = Object.freeze([
+  "worker",
+  "payer_user",
+  "admin",
+] as const);
+export type DisplayPrefsSubjectKind = (typeof DISPLAY_PREFS_SUBJECT_KINDS)[number];
+
+/**
+ * The body of `PATCH workers/me/display-prefs`, `PATCH payer/me/display-prefs` and
+ * `PATCH admin/me/display-prefs`. Exactly this key (`updateDisplayPrefsSchema` is strict): an id,
+ * or anything else, is a 400.
+ */
+export interface UpdateDisplayPrefsRequest {
+  readonly theme: DisplayTheme;
+}
+
+/**
+ * The reply of all six routes (`GET` and `PATCH`, in the three realms).
+ *
+ * `theme_open: false` means the `THEME_ROLLOUT` switch is closed for this login (or the server
+ * cannot read preferences yet): show no theme choice and use light. `theme` is then always
+ * `light`, whatever is stored; a stored choice waits for the switch to open again.
+ */
+export interface DisplayPrefsResponse {
+  readonly theme: DisplayTheme;
+  readonly theme_open: boolean;
 }
 
 // ---- Résumé import (ADR-0041) ----

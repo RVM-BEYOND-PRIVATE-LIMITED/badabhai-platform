@@ -1,6 +1,14 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { Logger } from "@nestjs/common";
+
+// #2747 (ADR-0064 §3.8) — no notice describing the brief's rules is approved yet, so the real list
+// is empty; these tests add one TEST-ONLY version to prove the gate in both directions. A worker on
+// the real 2026-11-04 notice is the default below and must never get the brief's rules.
+vi.mock("@badabhai/types", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@badabhai/types")>()),
+  BRIEF_CONTACT_NOTICE_VERSIONS: ["test-brief-notice"],
+}));
+import { Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import type { RequestContext } from "../common/request-context";
@@ -18,6 +26,7 @@ import type { PricingService } from "../pricing/pricing.service";
 import { PaymentGateway } from "./payment-gateway";
 import type { RazorpayClient } from "./razorpay.client";
 import { neutralUnavailable } from "./unlock-response";
+import { OPEN_FOR_GOOD_UNTIL } from "./open-grant";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import type {
@@ -86,11 +95,22 @@ interface SetupOpts {
   tenancy?: PayerTenantScopeService;
   /** #2752: what the institute open gate answers (default: not a linked student). */
   institute?: "not_linked" | "open" | "closed";
+  /** #2747: the `contact_rules` switch for the company (default: no rollout service = off). */
+  contactRules?: boolean;
+  /** #2747: the worker's encrypted full name (the contact read decrypts it). */
+  workerFullName?: string | null;
+  /** #2747 §3.8: the notice version of his latest consent (default: the real 2026-11-04 one). */
+  consentVersion?: string;
+  /** #2747: the pilot list could not be read (`stateFor` → unavailable). */
+  rolloutUnavailable?: boolean;
+  /** #2749: spendable credits for the F-1 precondition (default: `balance`). */
+  spendable?: number;
 }
 
 function setup(opts: SetupOpts = {}) {
   const balance = opts.balance ?? 5;
-  const consentPurposes = opts.consentPurposes === undefined ? ["employer_sharing"] : opts.consentPurposes;
+  const consentPurposes =
+    opts.consentPurposes === undefined ? ["employer_sharing"] : opts.consentPurposes;
   const workerExists = opts.workerExists ?? true;
   // ADR-0031: NULL = active worker; a Date = pending deletion (the grace marker).
   const deletionScheduledAt = opts.pendingDeletion ? new Date("2026-07-21T10:00:00.000Z") : null;
@@ -113,6 +133,8 @@ function setup(opts: SetupOpts = {}) {
       status: "denied",
     })),
     incrementReveal: vi.fn(async () => 1),
+    // #2747 — store "open for good" on a grant and its relay row.
+    extendOpenUntil: vi.fn(async () => undefined),
     // P-021: echo the input so the reveal response reads the STORED row (the service no
     // longer answers from the in-memory handle it just minted).
     createRouting: vi.fn(async (_tx: unknown, input: Record<string, unknown>) => ({
@@ -123,7 +145,10 @@ function setup(opts: SetupOpts = {}) {
     // E0 item 1 — the handle-keyed read the relay resolution starts from.
     findRoutingByHandle: vi.fn(async () => opts.routingByHandle),
     appendLedger: vi.fn(async () => undefined),
-    tryDebit: vi.fn(async () => ((opts.debitOk ?? true) ? balance - 1 : undefined)),
+    // #2749 — the debit names the lot the credit came from (the ledger line carries it).
+    tryDebit: vi.fn(async () =>
+      (opts.debitOk ?? true) ? { balanceAfter: balance - 1, lotId: "lot-1" } : undefined,
+    ),
     // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-checks). #2562 adds
     // the durable status so a suspended worker freezes exactly like a pending-deletion one.
     getWorkerDeletionMarker: vi.fn(async () =>
@@ -136,14 +161,15 @@ function setup(opts: SetupOpts = {}) {
     ),
     // Middle Way P5: the tx-scoped rung read for the price-tier hook. Default: no
     // stated rung, so the hook prices Lower — the ₹40 flat debit is untouched.
-    findTradeLevels: vi.fn(
-      async (): Promise<{ skillId: string; tradeLevel: string }[]> => [],
-    ),
+    findTradeLevels: vi.fn(async (): Promise<{ skillId: string; tradeLevel: string }[]> => []),
   };
 
   const repo = {
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work(txMethods)),
     getBalance: vi.fn(async () => balance),
+    // #2749 review — the F-1 precondition reads SPENDABLE credits (due lots out). Defaults to the
+    // balance (no lot is past due); a test overrides it to model a wallet of due lots.
+    getSpendableBalance: vi.fn(async () => opts.spendable ?? balance),
     // #1903: a global-pool read, so it lives on the repo only — NOT in txMethods, where a
     // call through the locked `tx` handle would be the pool-vs-lock deadlock shape.
     legacyJobExists: vi.fn(async (_jobId: string) => opts.jobRowExists ?? true),
@@ -159,6 +185,8 @@ function setup(opts: SetupOpts = {}) {
     listByPayerWithStatus: vi.fn(async (): Promise<unknown[]> => []),
     // The wallet's ledger read and the mock pack credit (ADR-0053 tests key-check both).
     listCreditLedgerByPayer: vi.fn(async (): Promise<unknown[]> => []),
+    // #2749 — the wallet's open lots on GET /payer/credits.
+    listOpenLots: vi.fn(async (): Promise<unknown[]> => []),
     creditPack: vi.fn(async (input: { credits: number }) => balance + input.credits),
     // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
     // gate; return a worker_id-bearing projection whenever an unlock exists so that
@@ -181,7 +209,11 @@ function setup(opts: SetupOpts = {}) {
     findLatestByWorker: vi.fn(async () =>
       consentPurposes === null
         ? undefined
-        : { purposes: consentPurposes, revokedAt: opts.consentRevoked ? new Date() : null },
+        : {
+            purposes: consentPurposes,
+            revokedAt: opts.consentRevoked ? new Date() : null,
+            consentVersion: opts.consentVersion ?? "2026-11-04",
+          },
     ),
   };
 
@@ -191,6 +223,7 @@ function setup(opts: SetupOpts = {}) {
         ? {
             id: WORKER,
             phoneE164: "ciphertext",
+            fullName: opts.workerFullName ?? null,
             deletionScheduledAt,
             status: opts.workerSuspended ? "suspended" : "active",
           }
@@ -202,9 +235,9 @@ function setup(opts: SetupOpts = {}) {
 
   const events = { emit: vi.fn(async (p: Record<string, unknown>) => p) };
 
-  // D-6: the gateway resolves packs through the pricing engine (legacy constants as the
-  // fallback). Serve the typed default catalog — the same values the legacy constants carry,
-  // so every existing expectation here is unchanged.
+  // D-6: the gateway resolves packs through the pricing engine (since #2749 only a pack the
+  // catalog lists and has on sale). Serve the typed default catalog — pack_50/200/1000, the
+  // same values the legacy constants carry, so every existing expectation here is unchanged.
   const pricing = {
     getActiveCatalog: vi.fn(async () => ({
       catalog: DEFAULT_CATALOG,
@@ -251,6 +284,15 @@ function setup(opts: SetupOpts = {}) {
     { findAuthFacts: vi.fn(async () => ({ role: "employer", status: "active" })) } as never,
     opts.tenancy ?? tenancyService("off"),
     instituteGate as never,
+    // #2747 — the rollout service only when a test names the switch; absent reads as off.
+    opts.contactRules === undefined && !opts.rolloutUnavailable
+      ? undefined
+      : ({
+          isEnabledFor: vi.fn(async () => opts.contactRules === true),
+          stateFor: vi.fn(async () =>
+            opts.rolloutUnavailable ? "unavailable" : opts.contactRules ? "on" : "off",
+          ),
+        } as never),
   );
   return {
     svc,
@@ -273,11 +315,17 @@ describe("UnlockService — F-1 (no consent oracle for a zero-credit payer)", ()
   it("returns a BYTE-IDENTICAL neutral body for a consented-uncapped vs a non-consented worker", async () => {
     // Consented + uncapped worker, but zero credits.
     const a = setup({ balance: 0, consentPurposes: ["employer_sharing"] });
-    const outConsented = await a.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    const outConsented = await a.svc.requestUnlock(
+      { payerId: PAYER, workerId: WORKER, jobId: null },
+      CTX,
+    );
 
     // Non-consented worker, zero credits.
     const b = setup({ balance: 0, consentPurposes: null });
-    const outNoConsent = await b.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    const outNoConsent = await b.svc.requestUnlock(
+      { payerId: PAYER, workerId: WORKER, jobId: null },
+      CTX,
+    );
 
     expect(outConsented).toEqual({ status: "unavailable" });
     expect(outNoConsent).toEqual({ status: "unavailable" });
@@ -300,19 +348,25 @@ describe("UnlockService — F-3 (every deny branch returns the identical neutral
     // no_consent (worker exists, has credits, but no employer_sharing consent)
     const noConsent = setup({ balance: 5, consentPurposes: ["profiling"] });
     bodies.push(
-      JSON.stringify(await noConsent.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX)),
+      JSON.stringify(
+        await noConsent.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX),
+      ),
     );
 
     // capped (consented but over daily reveals cap)
     const capped = setup({ balance: 5, consentPurposes: ["employer_sharing"], reveals: 5 });
     bodies.push(
-      JSON.stringify(await capped.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX)),
+      JSON.stringify(
+        await capped.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX),
+      ),
     );
 
     // unknown_worker (no worker row, no consent)
     const unknown = setup({ balance: 5, consentPurposes: null, workerExists: false });
     bodies.push(
-      JSON.stringify(await unknown.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX)),
+      JSON.stringify(
+        await unknown.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX),
+      ),
     );
 
     // already-owned-by-another: a live grant exists for a DIFFERENT payer would, for THIS
@@ -320,7 +374,12 @@ describe("UnlockService — F-3 (every deny branch returns the identical neutral
     // consent absent → neutral. (A second payer cannot tell the worker is unlockable.)
     const ownedByOther = setup({ balance: 5, consentPurposes: null });
     bodies.push(
-      JSON.stringify(await ownedByOther.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX)),
+      JSON.stringify(
+        await ownedByOther.svc.requestUnlock(
+          { payerId: PAYER, workerId: WORKER, jobId: null },
+          CTX,
+        ),
+      ),
     );
 
     // All four bodies identical.
@@ -351,11 +410,15 @@ describe("UnlockService — F-3 (every deny branch returns the identical neutral
 
 describe("UnlockService — consent gate", () => {
   it("a worker with profiling but NOT employer_sharing is denied (neutral) + emits internal unlock.denied", async () => {
-    const { svc, events, txMethods } = setup({ consentPurposes: ["profiling", "resume_generation"] });
+    const { svc, events, txMethods } = setup({
+      consentPurposes: ["profiling", "resume_generation"],
+    });
     const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
     expect(out).toEqual({ status: "unavailable" });
     expect(emitted(events)).toContain("unlock.denied");
-    const deny = events.emit.mock.calls.find((c) => (c[0] as { event_name: string }).event_name === "unlock.denied");
+    const deny = events.emit.mock.calls.find(
+      (c) => (c[0] as { event_name: string }).event_name === "unlock.denied",
+    );
     expect((deny![0] as { payload: { reason: string } }).payload.reason).toBe("no_consent");
     // No debit, no reveal.
     expect(txMethods.tryDebit).not.toHaveBeenCalled();
@@ -364,9 +427,11 @@ describe("UnlockService — consent gate", () => {
 
   it("a revoked employer_sharing consent fails closed (neutral)", async () => {
     const { svc } = setup({ consentPurposes: ["employer_sharing"], consentRevoked: true });
-    expect(await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX)).toEqual({
-      status: "unavailable",
-    });
+    expect(await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX)).toEqual(
+      {
+        status: "unavailable",
+      },
+    );
   });
 
   it("an UNKNOWN worker returns neutral WITHOUT an FK-constrained insert (F-A no-oracle)", async () => {
@@ -374,10 +439,17 @@ describe("UnlockService — consent gate", () => {
     // worker, which violates the unlocks.worker_id FK → 500 → a worker-enumeration oracle
     // distinguishable from the 200 neutral body. recordDeny must NOT be called; the audit
     // event is emitted row-less (unlock_id null, subject = worker).
-    const { svc, events, txMethods } = setup({ balance: 5, consentPurposes: null, workerExists: false });
+    const { svc, events, txMethods } = setup({
+      balance: 5,
+      consentPurposes: null,
+      workerExists: false,
+    });
     const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
     expect(out).toEqual({ status: "unavailable" });
-    expect(txMethods.recordDeny, "no unlocks row for an unknown worker (FK would 500)").not.toHaveBeenCalled();
+    expect(
+      txMethods.recordDeny,
+      "no unlocks row for an unknown worker (FK would 500)",
+    ).not.toHaveBeenCalled();
     const deny = events.emit.mock.calls.find(
       (c) => (c[0] as { event_name: string }).event_name === "unlock.denied",
     );
@@ -473,6 +545,14 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
     expect(txMethods.tryDebit).toHaveBeenCalledTimes(1);
     expect(txMethods.upsertGrant).toHaveBeenCalledTimes(1);
     expect(txMethods.appendLedger).toHaveBeenCalledTimes(1);
+    // #2749 — the debit line names the lot the credit came from (one credit, one lot, one line).
+    expect(txMethods.appendLedger).toHaveBeenCalledWith(expect.anything(), {
+      payerId: PAYER,
+      delta: -1,
+      reason: "unlock_debit",
+      unlockId: "unlock-1",
+      lotId: "lot-1",
+    });
 
     // Every payment.* event carries real_call:false (mock honesty, F-6).
     for (const c of events.emit.mock.calls) {
@@ -543,7 +623,10 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
     const viewed = events.emit.mock.calls.find(
       (c) => (c[0] as { event_name: string }).event_name === "profile.viewed_v2",
     );
-    expect(viewed, "the unlock path must EMIT profile.viewed_v2, not merely register it").toBeDefined();
+    expect(
+      viewed,
+      "the unlock path must EMIT profile.viewed_v2, not merely register it",
+    ).toBeDefined();
     const evt = viewed![0] as {
       payload: Record<string, unknown>;
       actor: Record<string, unknown>;
@@ -795,7 +878,7 @@ describe("UnlockService — #1899 payer-session job reference must be null or th
 
   function expectNothingHappened(t: ReturnType<typeof setup>) {
     expect(t.events.emit).not.toHaveBeenCalled(); // not even unlock.requested
-    expect(t.repo.getBalance).not.toHaveBeenCalled();
+    expect(t.repo.getSpendableBalance).not.toHaveBeenCalled();
     expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
     expect(t.repo.withTransaction).not.toHaveBeenCalled();
     expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
@@ -811,7 +894,13 @@ describe("UnlockService — #1899 payer-session job reference must be null or th
     stored: string | null;
     posting: string | null;
   }[] = [
-    { who: "agent · own jobs row (kept)", payer: AGENT, ref: AGENT_JOB, stored: AGENT_JOB, posting: null },
+    {
+      who: "agent · own jobs row (kept)",
+      payer: AGENT,
+      ref: AGENT_JOB,
+      stored: AGENT_JOB,
+      posting: null,
+    },
     {
       who: "agent · own pre-#1969 posting (job_id null, posting kept)",
       payer: AGENT,
@@ -860,12 +949,15 @@ describe("UnlockService — #1899 payer-session job reference must be null or th
     { who: "employer · unknown id", payer: EMPLOYER, ref: UNKNOWN },
   ];
 
-  it.each(refused)("$who → the neutral body, and nothing is emitted, read or written", async ({ payer, ref }) => {
-    const { t, out } = await unlockAs(payer, ref);
-    expect(out).toEqual(neutralUnavailable());
-    expect(t.repo.findOwnedJobRef).toHaveBeenCalledWith(ref, payer);
-    expectNothingHappened(t);
-  });
+  it.each(refused)(
+    "$who → the neutral body, and nothing is emitted, read or written",
+    async ({ payer, ref }) => {
+      const { t, out } = await unlockAs(payer, ref);
+      expect(out).toEqual(neutralUnavailable());
+      expect(t.repo.findOwnedJobRef).toHaveBeenCalledWith(ref, payer);
+      expectNothingHappened(t);
+    },
+  );
 
   it("unknown vs foreign vs an existing deny (no consent) are byte-identical (no id oracle)", async () => {
     const foreign = (await unlockAs(EMPLOYER, AGENT_JOB)).out;
@@ -879,8 +971,15 @@ describe("UnlockService — #1899 payer-session job reference must be null or th
 
   it("a refusal is still latency-padded (the early return sits inside the try/finally)", async () => {
     const t = setup(consented);
-    const pad = vi.spyOn(t.svc as unknown as { padToTarget: (s: number) => Promise<void> }, "padToTarget");
-    await t.svc.requestUnlock({ payerId: AGENT, workerId: WORKER, jobId: UNKNOWN }, CTX, "payer_owned");
+    const pad = vi.spyOn(
+      t.svc as unknown as { padToTarget: (s: number) => Promise<void> },
+      "padToTarget",
+    );
+    await t.svc.requestUnlock(
+      { payerId: AGENT, workerId: WORKER, jobId: UNKNOWN },
+      CTX,
+      "payer_owned",
+    );
     expect(pad).toHaveBeenCalledOnce();
   });
 
@@ -894,7 +993,11 @@ describe("UnlockService — #1899 payer-session job reference must be null or th
     const t = setup(consented);
     t.repo.findOwnedJobRef.mockRejectedValueOnce(new Error("db down"));
     await expect(
-      t.svc.requestUnlock({ payerId: AGENT, workerId: WORKER, jobId: AGENT_JOB }, CTX, "payer_owned"),
+      t.svc.requestUnlock(
+        { payerId: AGENT, workerId: WORKER, jobId: AGENT_JOB },
+        CTX,
+        "payer_owned",
+      ),
     ).rejects.toThrow("db down");
     expectNothingHappened(t);
   });
@@ -907,13 +1010,20 @@ describe("UnlockService — #1899 payer-session job reference must be null or th
     expect(out).toEqual(neutralUnavailable());
     expect(t.txMethods.recordDeny).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ jobId: null, jobPostingId: EMPLOYER_POSTING, denyReason: "no_consent" }),
+      expect.objectContaining({
+        jobId: null,
+        jobPostingId: EMPLOYER_POSTING,
+        denyReason: "no_consent",
+      }),
     );
   });
 
   it("the ops default ('normalise') is unchanged: no ownership read, an unknown id stores null", async () => {
     const t = setup({ ...consented, jobRowExists: false });
-    const out = await t.svc.requestUnlock({ payerId: AGENT, workerId: WORKER, jobId: UNKNOWN }, CTX);
+    const out = await t.svc.requestUnlock(
+      { payerId: AGENT, workerId: WORKER, jobId: UNKNOWN },
+      CTX,
+    );
     expect(out).toMatchObject({ ok: true, status: "granted" });
     expect(t.repo.findOwnedJobRef).not.toHaveBeenCalled();
     expect(t.txMethods.upsertGrant).toHaveBeenCalledWith(
@@ -943,7 +1053,11 @@ describe("UnlockService.listOwnForPayer — #2033 payer-visible states only, exp
   it("asks the repository for ONLY the stored payer-visible statuses (filtered in SQL)", async () => {
     const t = setup();
     await t.svc.listOwnForPayer(PAYER, NOW);
-    expect(t.repo.listByPayerWithStatus).toHaveBeenCalledWith(PAYER, ["granted", "revealed", "expired"]);
+    expect(t.repo.listByPayerWithStatus).toHaveBeenCalledWith(PAYER, [
+      "granted",
+      "revealed",
+      "expired",
+    ]);
     expect(t.repo.listByPayer).not.toHaveBeenCalled();
   });
 
@@ -969,7 +1083,8 @@ describe("UnlockService.listOwnForPayer — #2033 payer-visible states only, exp
       ["lapsed-revealed", "expired"],
       ["stored-expired", "expired"],
     ]);
-    for (const u of unlocks) expect(["granted", "revealed", "expired", "revoked"]).toContain(u.status);
+    for (const u of unlocks)
+      expect(["granted", "revealed", "expired", "revoked"]).toContain(u.status);
   });
 
   it("passes the posting context through untouched", async () => {
@@ -999,7 +1114,9 @@ describe("UnlockService — F-6 (insufficient credits → neutral, payment.faile
     expect(names).toContain("payment.failed");
     expect(names).not.toContain("unlock.granted");
     expect(txMethods.upsertGrant).not.toHaveBeenCalled();
-    const failed = events.emit.mock.calls.find((c) => (c[0] as { event_name: string }).event_name === "payment.failed");
+    const failed = events.emit.mock.calls.find(
+      (c) => (c[0] as { event_name: string }).event_name === "payment.failed",
+    );
     expect((failed![0] as { payload: { real_call: boolean } }).payload.real_call).toBe(false);
   });
 });
@@ -1083,7 +1200,10 @@ describe("UnlockService — reveal (F-5: sentinel phone never leaks)", () => {
   });
 
   it("a provider/relay error carrying the phone never reaches the response or logs (fail closed → neutral)", async () => {
-    const { svc, pii } = setup({ consentPurposes: ["employer_sharing"], existingUnlock: grantedUnlock() });
+    const { svc, pii } = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: grantedUnlock(),
+    });
     // Make decrypt throw WITH the sentinel phone in the message.
     pii.decrypt.mockImplementationOnce(() => {
       throw new Error(`provider failed for ${SENTINEL_PHONE}`);
@@ -1201,7 +1321,10 @@ describe("UnlockService — reveal ownership (XB-A: payer-self path, ADR-0019)",
   }
 
   it("a payer revealing ANOTHER payer's unlock gets the IDENTICAL neutral body (no 403, no routing, no contact.revealed)", async () => {
-    const r = setup({ consentPurposes: ["employer_sharing"], existingUnlock: grantedOwnedByOwner() });
+    const r = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: grantedOwnedByOwner(),
+    });
     // The projection (pre-lock read) reports the TRUE owner; the caller is someone else.
     r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: OWNER });
     const out = await r.svc.reveal("unlock-1", CTX, OTHER_PAYER);
@@ -1211,7 +1334,10 @@ describe("UnlockService — reveal ownership (XB-A: payer-self path, ADR-0019)",
   });
 
   it("the OWNER revealing their OWN unlock succeeds (expectedPayerId matches)", async () => {
-    const r = setup({ consentPurposes: ["employer_sharing"], existingUnlock: grantedOwnedByOwner() });
+    const r = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: grantedOwnedByOwner(),
+    });
     r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: OWNER });
     const out = await r.svc.reveal("unlock-1", CTX, OWNER);
     expect(out).toMatchObject({ channel: "in_app_relay" });
@@ -1226,7 +1352,10 @@ describe("UnlockService — reveal ownership (XB-A: payer-self path, ADR-0019)",
   });
 
   it("OPS reveal (no expectedPayerId) is UNAFFECTED by the ownership gate (backward-compat)", async () => {
-    const r = setup({ consentPurposes: ["employer_sharing"], existingUnlock: grantedOwnedByOwner() });
+    const r = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: grantedOwnedByOwner(),
+    });
     r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: OWNER });
     const out = await r.svc.reveal("unlock-1", CTX); // ops path — no expectedPayerId
     expect(out).toMatchObject({ channel: "in_app_relay" });
@@ -1293,10 +1422,20 @@ describe("UnlockService — ADR-0031 pending-deletion freeze (byte-identical neu
   });
 
   it("a pending-deletion deny is INDISTINGUISHABLE from a no-consent deny (no leaving-oracle)", async () => {
-    const pending = setup({ balance: 5, consentPurposes: ["employer_sharing"], pendingDeletion: true });
+    const pending = setup({
+      balance: 5,
+      consentPurposes: ["employer_sharing"],
+      pendingDeletion: true,
+    });
     const noConsent = setup({ balance: 5, consentPurposes: ["profiling"] });
-    const a = await pending.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
-    const b = await noConsent.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    const a = await pending.svc.requestUnlock(
+      { payerId: PAYER, workerId: WORKER, jobId: null },
+      CTX,
+    );
+    const b = await noConsent.svc.requestUnlock(
+      { payerId: PAYER, workerId: WORKER, jobId: null },
+      CTX,
+    );
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
   });
 
@@ -1406,12 +1545,129 @@ describe("#2562 - a suspended worker is frozen on every unlock surface", () => {
  * before it — which is why these tests drive it through `tryDebit`'s RETURN value
  * instead of stubbing a balance read.
  */
+/**
+ * #2749 — `payer.credits_expired` from the spend path, and the review's F-1/F-3 fix.
+ *
+ * The event is written ON the unlock transaction (`tx`), one per lot the spend expired, so it
+ * commits or rolls back with the expiry. A spend that cannot happen writes nothing (the wallet
+ * helper), and a wallet whose credits are all past due is refused at F-1 on its SPENDABLE
+ * credits, before any worker state is read.
+ */
+describe("UnlockService — #2749 payer.credits_expired and the spendable F-1", () => {
+  const grantFixture = { payerId: PAYER, workerId: WORKER, jobId: null };
+  const lot = (lotId: string, credits: number) => ({
+    lotId,
+    credits,
+    source: "pack" as const,
+    expiresAt: new Date("2026-11-10T00:00:00.000Z"),
+  });
+
+  /** Track the commit: the fake transaction "commits" when its work resolves. */
+  function withCommitTracking(t: ReturnType<typeof setup>) {
+    const state = { committed: false, expiredEmittedInsideTx: 0 };
+    t.repo.withTransaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => {
+      const out = await work(t.txMethods);
+      state.committed = true;
+      return out;
+    });
+    t.events.emit.mockImplementation(async (e: Record<string, unknown>) => {
+      if (e.event_name === "payer.credits_expired" && !state.committed) {
+        state.expiredEmittedInsideTx += 1;
+      }
+      return e;
+    });
+    return state;
+  }
+
+  type Emitted = { event_name: string; payload: Record<string, unknown>; tx?: unknown };
+  function expiredEvents(t: ReturnType<typeof setup>) {
+    return t.events.emit.mock.calls
+      .map((c) => c[0] as Emitted)
+      .filter((e) => e.event_name === "payer.credits_expired");
+  }
+
+  it("emits ONE event per expired lot, ON the unlock transaction (before it commits)", async () => {
+    const t = setup({ balance: 5 });
+    const state = withCommitTracking(t);
+    t.txMethods.tryDebit.mockResolvedValueOnce({
+      ok: true,
+      balanceAfter: 4,
+      lotId: "lot-1",
+      expiredLots: [lot("lot-a", 3), lot("lot-b", 1)],
+    } as never);
+
+    const out = await t.svc.requestUnlock(grantFixture, CTX);
+    expect(out).toMatchObject({ ok: true, status: "granted" });
+
+    const fired = expiredEvents(t);
+    expect(fired).toHaveLength(2);
+    // Inside the transaction, on its handle: the event shares the expiry's commit or rollback.
+    expect(state.expiredEmittedInsideTx).toBe(2);
+    for (const e of fired) expect(e.tx).toBe(t.txMethods);
+    expect(fired[0]).toMatchObject({
+      actor: { actor_type: "payer", actor_id: PAYER },
+      subject: { subject_type: "payer", subject_id: PAYER },
+      payload: {
+        payer_id: PAYER,
+        lot_id: "lot-a",
+        credits: 3,
+        source: "pack",
+        expires_at: "2026-11-10T00:00:00.000Z",
+        trigger: "spend",
+      },
+      idempotencyKey: "payer.credits_expired:lot-a",
+      correlationId: CTX.correlationId,
+    });
+    expect(fired[1]!.payload).toMatchObject({ lot_id: "lot-b", credits: 1 });
+  });
+
+  it("emits NOTHING when nothing expired", async () => {
+    const t = setup({ balance: 5 }); // the default debit expires nothing
+    await t.svc.requestUnlock(grantFixture, CTX);
+    expect(expiredEvents(t)).toHaveLength(0);
+    expect(emitted(t.events)).toContain("unlock.granted");
+  });
+
+  it("a debit that cannot happen (wrote nothing) emits no credits_expired, and the body is neutral", async () => {
+    const t = setup({ balance: 2, debitOk: false });
+    expect(await t.svc.requestUnlock(grantFixture, CTX)).toEqual({ status: "unavailable" });
+    expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
+    expect(t.txMethods.appendLedger).not.toHaveBeenCalled();
+    expect(expiredEvents(t)).toHaveLength(0);
+    expect(emitted(t.events)).toContain("payment.failed");
+  });
+
+  it("F-1 reads SPENDABLE credits: a balance held only in lots past due is refused before any worker read", async () => {
+    // balance 3, all of it in lots past their date → spendable 0.
+    const t = setup({ balance: 3, spendable: 0 });
+    expect(await t.svc.requestUnlock(grantFixture, CTX)).toEqual({ status: "unavailable" });
+    expect(t.repo.getSpendableBalance).toHaveBeenCalledWith(PAYER);
+    // No worker state consulted, nothing locked, nothing debited or expired.
+    expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+    expect(emitted(t.events)).toEqual(["unlock.requested", "payment.failed"]);
+  });
+
+  it("F-1 answers byte-identically whether the worker consented or does not exist (no oracle)", async () => {
+    const consented = setup({ balance: 3, spendable: 0 });
+    const unknown = setup({ balance: 3, spendable: 0, workerExists: false, consentPurposes: null });
+    const a = await consented.svc.requestUnlock(grantFixture, CTX);
+    const b = await unknown.svc.requestUnlock(grantFixture, CTX);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    expect(emitted(consented.events)).toEqual(emitted(unknown.events));
+  });
+});
+
 describe("UnlockService — ADR-0036 §7 credits_exhausted (the conversion signal)", () => {
   const grantFixture = { payerId: PAYER, workerId: WORKER, jobId: null };
 
   function exhaustionEvents(events: { emit: { mock: { calls: unknown[][] } } }) {
     return events.emit.mock.calls
-      .map((c) => c[0] as { event_name: string; payload: Record<string, unknown>; idempotencyKey?: string })
+      .map(
+        (c) =>
+          c[0] as { event_name: string; payload: Record<string, unknown>; idempotencyKey?: string },
+      )
       .filter((e) => e.event_name === "payer.credits_exhausted");
   }
 
@@ -1424,7 +1680,9 @@ describe("UnlockService — ADR-0036 §7 credits_exhausted (the conversion signa
     expect(fired).toHaveLength(1);
     // Ordering: the signal follows the grant it was caused by, never precedes it.
     const names = emitted(t.events);
-    expect(names.indexOf("payer.credits_exhausted")).toBeGreaterThan(names.indexOf("unlock.granted"));
+    expect(names.indexOf("payer.credits_exhausted")).toBeGreaterThan(
+      names.indexOf("unlock.granted"),
+    );
   });
 
   it("does NOT fire while credits remain (balance lands above zero)", async () => {
@@ -1483,8 +1741,7 @@ describe("UnlockService — ADR-0036 §7 credits_exhausted (the conversion signa
 });
 
 describe("UnlockService — E0 relay resolution (item 1, and C-3's use-time reach)", () => {
-  const HANDLE =
-    "relay_44444444-4444-4444-4444-444444444444_55555555-5555-4555-8555-555555555555";
+  const HANDLE = "relay_44444444-4444-4444-4444-444444444444_55555555-5555-4555-8555-555555555555";
   const future = new Date(Date.now() + 60_000);
   const BOTH = ["profiling", "employer_sharing", "employer_messaging"];
 
@@ -1697,7 +1954,11 @@ describe("UnlockService — ADR-0050 §4.5: an unlock on an agency TWIN stores t
 
   it("payer session: anyone else naming the twin gets the neutral refusal — nothing emitted or written", async () => {
     const t = setup(base);
-    await t.svc.requestUnlock({ payerId: OTHER, workerId: WORKER, jobId: TWIN }, CTX, "payer_owned");
+    await t.svc.requestUnlock(
+      { payerId: OTHER, workerId: WORKER, jobId: TWIN },
+      CTX,
+      "payer_owned",
+    );
     expect(t.events.emit).not.toHaveBeenCalled();
     expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
     expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
@@ -1765,7 +2026,7 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
     const payerIdOf = (calls: unknown[][]): unknown[] =>
       calls.map((c) => (c[1] as { payerId: unknown }).payerId);
     return [
-      ...arg(t.repo.getBalance.mock.calls as unknown[][], 0),
+      ...arg(t.repo.getSpendableBalance.mock.calls as unknown[][], 0),
       ...arg(t.txMethods.findByPayerWorker.mock.calls as unknown[][], 1),
       ...arg(t.txMethods.tryDebit.mock.calls as unknown[][], 1),
       ...payerIdOf(t.txMethods.upsertGrant.mock.calls as unknown[][]),
@@ -1830,7 +2091,7 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
     await expect(
       t.svc.requestUnlock({ payerId: MEMBER, workerId: WORKER, jobId: null }, CTX),
     ).rejects.toMatchObject({ status: 403 });
-    expect(t.repo.getBalance).not.toHaveBeenCalled();
+    expect(t.repo.getSpendableBalance).not.toHaveBeenCalled();
     expect(t.repo.withTransaction).not.toHaveBeenCalled();
     expect(t.events.emit).not.toHaveBeenCalled();
   });
@@ -1893,7 +2154,11 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
   }
 
   it("on: a teammate may reveal the ORG's unlock; contact.revealed names the teammate and the org", async () => {
-    const t = setup({ consentPurposes: ["employer_sharing"], existingUnlock: orgGrant(), tenancy: on() });
+    const t = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: orgGrant(),
+      tenancy: on(),
+    });
     t.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: ANCHOR });
     const out = await t.svc.reveal("unlock-1", CTX, MEMBER);
     expect(out).toMatchObject({ channel: "in_app_relay" });
@@ -1903,7 +2168,11 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
   });
 
   it("on: an outsider revealing the org's unlock gets the byte-identical neutral body — no decrypt, no event", async () => {
-    const t = setup({ consentPurposes: ["employer_sharing"], existingUnlock: orgGrant(), tenancy: on() });
+    const t = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: orgGrant(),
+      tenancy: on(),
+    });
     t.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: ANCHOR });
     expect(await t.svc.reveal("unlock-1", CTX, OUTSIDER)).toEqual(neutralUnavailable());
     expect(t.pii.decrypt).not.toHaveBeenCalled();
@@ -1911,7 +2180,11 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
   });
 
   it("off: the teammate is NOT the org — revealing A's unlock is the neutral body, as before ADR-0053", async () => {
-    const t = setup({ consentPurposes: ["employer_sharing"], existingUnlock: orgGrant(), tenancy: off() });
+    const t = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: orgGrant(),
+      tenancy: off(),
+    });
     t.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: ANCHOR });
     expect(await t.svc.reveal("unlock-1", CTX, MEMBER)).toEqual(neutralUnavailable());
     expect(t.pii.decrypt).not.toHaveBeenCalled();
@@ -1920,7 +2193,11 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
   it("ownership is re-asserted on the LOCKED row: a row the pre-lock read did not see is held to the same rule", async () => {
     // The pre-lock projection read finds nothing (the row did not exist yet, or the read raced);
     // the locked read then finds a live grant held by ANOTHER tenant. Neutral, never a reveal.
-    const t = setup({ consentPurposes: ["employer_sharing"], existingUnlock: orgGrant(), tenancy: on() });
+    const t = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: orgGrant(),
+      tenancy: on(),
+    });
     t.repo.getProjection.mockResolvedValue(undefined);
     expect(await t.svc.reveal("unlock-1", CTX, OUTSIDER)).toEqual(neutralUnavailable());
     expect(t.pii.decrypt).not.toHaveBeenCalled();
@@ -1930,8 +2207,10 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
   it("on: the teammate's balance, ledger and unlock lists are the ORG's; each response echoes the CALLER", async () => {
     const t = setup({ balance: 9, tenancy: on() });
 
-    expect(await t.svc.getCredits(MEMBER)).toEqual({ payer_id: MEMBER, balance: 9 });
+    expect(await t.svc.getCredits(MEMBER)).toEqual({ payer_id: MEMBER, balance: 9, lots: [] });
     expect(t.repo.getBalance).toHaveBeenLastCalledWith(ANCHOR);
+    // #2749 — the lots are the ORG wallet's too, never the teammate's own.
+    expect(t.repo.listOpenLots).toHaveBeenLastCalledWith(ANCHOR);
 
     expect(await t.svc.getCreditLedger(MEMBER, 25)).toEqual({ payer_id: MEMBER, ledger: [] });
     expect(t.repo.listCreditLedgerByPayer).toHaveBeenCalledWith(ANCHOR, 25);
@@ -1950,9 +2229,14 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
     await t.svc.getCreditLedger(OUTSIDER, 10);
     await t.svc.listOwnForPayer(OUTSIDER);
     expect(t.repo.getBalance).toHaveBeenCalledWith(OUTSIDER);
+    expect(t.repo.listOpenLots).toHaveBeenCalledWith(OUTSIDER);
     expect(t.repo.listCreditLedgerByPayer).toHaveBeenCalledWith(OUTSIDER, 10);
     expect(t.repo.listByPayerWithStatus).toHaveBeenCalledWith(OUTSIDER, expect.any(Array));
-    for (const fn of [t.repo.getBalance, t.repo.listCreditLedgerByPayer, t.repo.listByPayerWithStatus]) {
+    for (const fn of [
+      t.repo.getBalance,
+      t.repo.listCreditLedgerByPayer,
+      t.repo.listByPayerWithStatus,
+    ]) {
       expect((fn.mock.calls as unknown[][]).flat()).not.toContain(ANCHOR);
     }
   });
@@ -1978,5 +2262,387 @@ describe("UnlockService — ADR-0053 org tenancy: tenant rows by the TENANT key,
     });
     expect(t.repo.creditPack).not.toHaveBeenCalled();
     expect(t.events.emit).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================================
+// #2747 (ADR-0064 §3.3–3.4) — the `contact_rules` switch: open for good, and the contact read.
+// =============================================================================================
+const BRIEF = "test-brief-notice";
+
+describe("UnlockService — #2747 contact rules: open for good", () => {
+  const LAPSED = new Date("2026-01-01T00:00:00.000Z");
+  const held = (over: Record<string, unknown> = {}) => ({
+    id: "unlock-old",
+    payerId: PAYER,
+    workerId: WORKER,
+    status: "granted",
+    expiresAt: LAPSED,
+    revealCount: 0,
+    routingTokenRef: "routing-token",
+    ...over,
+  });
+  const req = { payerId: PAYER, workerId: WORKER, jobId: null };
+
+  it("rule off: a lapsed grant is re-granted with a debit; open_until is the window's end", async () => {
+    const t = setup({ contactRules: false, existingUnlock: held() });
+    const res = (await t.svc.requestUnlock(req, CTX)) as unknown as Record<string, unknown>;
+    expect(t.txMethods.upsertGrant).toHaveBeenCalledTimes(1);
+    expect(t.txMethods.appendLedger).toHaveBeenCalledTimes(1);
+    expect(t.txMethods.extendOpenUntil).not.toHaveBeenCalled();
+    expect(res.open_until).toBe(res.expires_at);
+  });
+
+  it("no rollout service at all reads as off (the shipped behaviour)", async () => {
+    const t = setup({ existingUnlock: held() });
+    await t.svc.requestUnlock(req, CTX);
+    expect(t.txMethods.appendLedger).toHaveBeenCalledTimes(1);
+  });
+
+  it("rule on: a lapsed held contact re-opens FREE, stored for good, open_until null", async () => {
+    const t = setup({ consentVersion: BRIEF, contactRules: true, existingUnlock: held() });
+    const res = await t.svc.requestUnlock(req, CTX);
+    expect(res).toEqual({
+      ok: true,
+      unlock_id: "unlock-old",
+      status: "granted",
+      expires_at: OPEN_FOR_GOOD_UNTIL.toISOString(),
+      open_until: null,
+    });
+    expect(t.txMethods.extendOpenUntil).toHaveBeenCalledWith(
+      expect.anything(),
+      "unlock-old",
+      OPEN_FOR_GOOD_UNTIL,
+    );
+    // Never charged twice: no grant row, no ledger line, no wallet debit.
+    expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
+    expect(t.txMethods.appendLedger).not.toHaveBeenCalled();
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+  });
+
+  it("rule on: a held contact already stored for good is returned with no write", async () => {
+    const t = setup({
+      consentVersion: BRIEF,
+      contactRules: true,
+      existingUnlock: held({ expiresAt: OPEN_FOR_GOOD_UNTIL }),
+    });
+    const res = (await t.svc.requestUnlock(req, CTX)) as unknown as Record<string, unknown>;
+    expect(res.open_until).toBeNull();
+    expect(t.txMethods.extendOpenUntil).not.toHaveBeenCalled();
+    expect(t.txMethods.appendLedger).not.toHaveBeenCalled();
+  });
+
+  it("rule on: a NEW grant is stored for good (one debit)", async () => {
+    const t = setup({ consentVersion: BRIEF, contactRules: true });
+    const res = (await t.svc.requestUnlock(req, CTX)) as unknown as Record<string, unknown>;
+    expect(t.txMethods.upsertGrant).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ expiresAt: OPEN_FOR_GOOD_UNTIL }),
+    );
+    expect(t.txMethods.appendLedger).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ expires_at: OPEN_FOR_GOOD_UNTIL.toISOString(), open_until: null });
+  });
+
+  it("rule on: a lapsed contact reveals, is stored for good, and a repeat reveal past the attempt cap keeps its handle", async () => {
+    const t = setup({
+      consentVersion: BRIEF,
+      contactRules: true,
+      existingUnlock: held({ status: "revealed", revealCount: 9 }),
+      existingRouting: {
+        relayHandle: "relay-1",
+        channel: "in_app_relay",
+        expiresAt: OPEN_FOR_GOOD_UNTIL,
+      },
+    });
+    const res = await t.svc.reveal("unlock-old", CTX, PAYER);
+    expect(res).toMatchObject({ relay_handle: "relay-1", channel: "in_app_relay" });
+    expect(t.txMethods.extendOpenUntil).toHaveBeenCalledWith(
+      expect.anything(),
+      "unlock-old",
+      OPEN_FOR_GOOD_UNTIL,
+    );
+    expect(emitted(t.events)).not.toContain("unlock.cap_exceeded");
+  });
+
+  it("rule on: the attempt cap still limits a FIRST reveal (no relay wired yet)", async () => {
+    const t = setup({ consentVersion: BRIEF, contactRules: true, existingUnlock: held({ revealCount: 9 }) });
+    expect(await t.svc.reveal("unlock-old", CTX, PAYER)).toEqual(neutralUnavailable());
+    expect(t.txMethods.createRouting).not.toHaveBeenCalled();
+  });
+
+  it("rule off: a lapsed contact does not reveal", async () => {
+    const t = setup({ contactRules: false, existingUnlock: held() });
+    expect(await t.svc.reveal("unlock-old", CTX, PAYER)).toEqual(neutralUnavailable());
+    expect(t.txMethods.extendOpenUntil).not.toHaveBeenCalled();
+  });
+
+  it("the payer list reads STORED dates: a contact stored for good has no end, a lapsed one reads expired", async () => {
+    const row = (expiresAt: Date) => ({
+      unlock_id: "unlock-old",
+      payer_id: PAYER,
+      worker_id: WORKER,
+      job_id: null,
+      job_posting_id: null,
+      status: "granted",
+      reveal_count: 0,
+      granted_at: LAPSED,
+      expires_at: expiresAt,
+      created_at: LAPSED,
+    });
+    const t = setup({ consentVersion: BRIEF, contactRules: true });
+    t.repo.listByPayerWithStatus.mockResolvedValue([row(OPEN_FOR_GOOD_UNTIL), row(LAPSED)]);
+    const [forGood, lapsed] = (await t.svc.listOwnForPayer(PAYER)).unlocks;
+    expect(forGood).toMatchObject({ status: "granted", open_until: null });
+    expect(lapsed).toMatchObject({ status: "expired", open_until: LAPSED.toISOString() });
+  });
+
+  // ---- §3.8: the worker's own notice decides, whatever the company's switch ----
+
+  it("a worker on the 2026-11-04 notice keeps the 14-day window: a lapsed contact is re-granted with a debit", async () => {
+    const t = setup({ contactRules: true, existingUnlock: held() });
+    const res = (await t.svc.requestUnlock(req, CTX)) as unknown as Record<string, unknown>;
+    expect(t.txMethods.extendOpenUntil).not.toHaveBeenCalled();
+    expect(t.txMethods.appendLedger).toHaveBeenCalledTimes(1);
+    expect(res.open_until).not.toBeNull();
+  });
+
+  it("a worker on the 2026-11-04 notice: a new grant is the 14-day window, never for good", async () => {
+    const t = setup({ contactRules: true });
+    await t.svc.requestUnlock(req, CTX);
+    const input = t.txMethods.upsertGrant.mock.calls[0]![1] as { expiresAt: Date };
+    expect(input.expiresAt.getTime()).toBeLessThan(OPEN_FOR_GOOD_UNTIL.getTime());
+  });
+
+  it("a pilot list that cannot be read never re-charges a held contact: neutral, nothing written", async () => {
+    const t = setup({ consentVersion: BRIEF, rolloutUnavailable: true, existingUnlock: held() });
+    expect(await t.svc.requestUnlock(req, CTX)).toEqual(neutralUnavailable());
+    expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
+    expect(t.txMethods.appendLedger).not.toHaveBeenCalled();
+    expect(t.txMethods.extendOpenUntil).not.toHaveBeenCalled();
+  });
+
+  it("a pilot list that cannot be read does not block a FIRST open (read as off: the 14-day window)", async () => {
+    const t = setup({ consentVersion: BRIEF, rolloutUnavailable: true });
+    const res = (await t.svc.requestUnlock(req, CTX)) as unknown as Record<string, unknown>;
+    expect(res).toMatchObject({ ok: true, status: "granted" });
+    expect(res.open_until).not.toBeNull();
+    expect(t.txMethods.appendLedger).toHaveBeenCalledTimes(1);
+  });
+
+  it("a re-open is audited as unlock.reopened (ids only), never as a grant", async () => {
+    const t = setup({ consentVersion: BRIEF, contactRules: true, existingUnlock: held() });
+    await t.svc.requestUnlock(req, CTX);
+    expect(emitted(t.events)).toContain("unlock.reopened");
+    expect(emitted(t.events)).not.toContain("unlock.granted");
+    const ev = t.events.emit.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((e) => e.event_name === "unlock.reopened")!;
+    expect(ev.payload).toEqual({ unlock_id: "unlock-old", payer_id: PAYER, worker_id: WORKER });
+  });
+
+  it("a worker who withdrew consent is never re-opened", async () => {
+    const t = setup({
+      consentVersion: BRIEF,
+      contactRules: true,
+      consentPurposes: ["profiling"],
+      existingUnlock: held(),
+    });
+    await t.svc.requestUnlock(req, CTX);
+    expect(t.txMethods.extendOpenUntil).not.toHaveBeenCalled();
+  });
+
+  it("a REPEAT reveal is not counted (reveal_count feeds the per-worker daily caps)", async () => {
+    const t = setup({
+      consentVersion: BRIEF,
+      contactRules: true,
+      existingUnlock: held({ status: "revealed", revealCount: 1 }),
+      existingRouting: {
+        relayHandle: "relay-1",
+        channel: "in_app_relay",
+        expiresAt: OPEN_FOR_GOOD_UNTIL,
+      },
+    });
+    await t.svc.reveal("unlock-old", CTX, PAYER);
+    expect(t.txMethods.incrementReveal).not.toHaveBeenCalled();
+  });
+
+  it("a FIRST reveal is still counted", async () => {
+    const t = setup({ consentVersion: BRIEF, contactRules: true, existingUnlock: held() });
+    await t.svc.reveal("unlock-old", CTX, PAYER);
+    expect(t.txMethods.incrementReveal).toHaveBeenCalledTimes(1);
+  });
+
+  it("a worker on the 2026-11-04 notice: a lapsed contact does not reveal, whatever the switch", async () => {
+    const t = setup({ contactRules: true, existingUnlock: held() });
+    expect(await t.svc.reveal("unlock-old", CTX, PAYER)).toEqual(neutralUnavailable());
+  });
+});
+
+describe("UnlockService — #2747 the contact read (GET /payer/unlocks/:id/contact)", () => {
+  const GRANTED_AT = new Date("2025-12-01T10:00:00.000Z");
+  const projection = (over: Record<string, unknown> = {}) => ({
+    unlock_id: "unlock-1",
+    payer_id: PAYER,
+    worker_id: WORKER,
+    job_id: null,
+    job_posting_id: null,
+    status: "revealed",
+    reveal_count: 1,
+    granted_at: GRANTED_AT,
+    // Lapsed under the old 14-day window: open for good while the rule is on.
+    expires_at: new Date("2025-12-15T10:00:00.000Z"),
+    created_at: GRANTED_AT,
+    ...over,
+  });
+  function contactSetup(opts: SetupOpts = {}) {
+    const t = setup({
+      consentVersion: BRIEF,
+      contactRules: true,
+      projection: projection(),
+      workerFullName: "name-ciphertext",
+      ...opts,
+    });
+    t.pii.decrypt.mockImplementation(((token: string) =>
+      token === "name-ciphertext" ? "Ramesh Kumar Yadav" : SENTINEL_PHONE) as never);
+    return t;
+  }
+
+  it("shows the full name and phone of a contact the company opened, long after the old window", async () => {
+    const t = contactSetup();
+    const res = await t.svc.readContact("unlock-1", PAYER, CTX);
+    expect(res).toEqual({
+      ok: true,
+      full_name: "Ramesh Kumar Yadav",
+      phone: SENTINEL_PHONE,
+      opened_at: GRANTED_AT.toISOString(),
+    });
+  });
+
+  it("writes contact.viewed (ids only, never the name or the number) before answering", async () => {
+    const t = contactSetup();
+    await t.svc.readContact("unlock-1", PAYER, CTX);
+    expect(emitted(t.events)).toEqual(["contact.viewed"]);
+    const event = t.events.emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(event.payload).toEqual({ unlock_id: "unlock-1", payer_id: PAYER, worker_id: WORKER });
+    expect(event.actor).toEqual({ actor_type: "payer", actor_id: PAYER });
+    expect(JSON.stringify(event)).not.toContain(SENTINEL_PHONE);
+    expect(JSON.stringify(event)).not.toMatch(/Ramesh|Yadav/);
+  });
+
+  it("an audit event that cannot be written fails the read: no number leaves", async () => {
+    const t = contactSetup();
+    t.events.emit.mockRejectedValueOnce(new Error("events table unreachable"));
+    await expect(t.svc.readContact("unlock-1", PAYER, CTX)).rejects.toThrow(
+      "events table unreachable",
+    );
+  });
+
+  it("is not there (404) while the rule is off for the company", async () => {
+    const t = contactSetup({ contactRules: false });
+    await expect(t.svc.readContact("unlock-1", PAYER, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, SetupOpts]>([
+    [
+      "another tenant's unlock",
+      { projection: projection({ payer_id: "99999999-9999-4999-8999-999999999999" }) },
+    ],
+    ["an erased worker (worker_id set null)", { projection: projection({ worker_id: null }) }],
+    ["a grant that never opened (denied)", { projection: projection({ status: "denied" }) }],
+    ["a worker pending deletion", { pendingDeletion: true }],
+    ["a suspended worker", { workerSuspended: true }],
+    ["a withdrawn employer_sharing consent", { consentPurposes: ["profiling"] }],
+    ["an RVM student the institute rule closes", { institute: "closed" }],
+  ])("%s: the one neutral body, no decrypt, no event", async (_label, opts) => {
+    const t = contactSetup(opts);
+    expect(await t.svc.readContact("unlock-1", PAYER, CTX)).toEqual(neutralUnavailable());
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
+    expect(t.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("an unknown unlock: the same neutral body", async () => {
+    const t = contactSetup();
+    t.repo.getProjection.mockResolvedValue(undefined);
+    expect(await t.svc.readContact("unlock-1", PAYER, CTX)).toEqual(neutralUnavailable());
+    expect(t.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("a phone that does not decrypt is the neutral body (logged by unlock id only)", async () => {
+    const t = contactSetup();
+    t.pii.decrypt.mockImplementation(() => {
+      throw new Error(`bad tag ${SENTINEL_PHONE}`);
+    });
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    expect(await t.svc.readContact("unlock-1", PAYER, CTX)).toEqual(neutralUnavailable());
+    const lines = warn.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(lines).toContain("unlock-1");
+    expect(lines).not.toContain(SENTINEL_PHONE);
+    warn.mockRestore();
+  });
+
+  it("a name that does not decrypt is not given; the number still shows", async () => {
+    const t = contactSetup();
+    t.pii.decrypt.mockImplementation(((token: string) => {
+      if (token === "name-ciphertext") throw new Error("bad tag");
+      return SENTINEL_PHONE;
+    }) as never);
+    expect(await t.svc.readContact("unlock-1", PAYER, CTX)).toMatchObject({
+      full_name: null,
+      phone: SENTINEL_PHONE,
+    });
+  });
+});
+
+describe("UnlockService — #2747 the contact read: the notice, sample workers, the freeze row", () => {
+  const projection = {
+    unlock_id: "unlock-1",
+    payer_id: PAYER,
+    worker_id: WORKER,
+    job_id: null,
+    job_posting_id: null,
+    status: "revealed",
+    reveal_count: 1,
+    granted_at: new Date("2025-12-01T10:00:00.000Z"),
+    expires_at: new Date("2025-12-15T10:00:00.000Z"),
+    created_at: new Date("2025-12-01T10:00:00.000Z"),
+  };
+
+  it("a worker on the 2026-11-04 notice: the one neutral body, no decrypt — his number never reaches the screen", async () => {
+    const t = setup({ contactRules: true, projection });
+    expect(await t.svc.readContact("unlock-1", PAYER, CTX)).toEqual(neutralUnavailable());
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
+    expect(t.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("a sample candidate (R74): the one neutral body", async () => {
+    const sample = workforceUuid("worker", 7);
+    const t = setup({
+      consentVersion: BRIEF,
+      contactRules: true,
+      projection: { ...projection, worker_id: sample },
+    });
+    expect(await t.svc.readContact("unlock-1", PAYER, CTX)).toEqual(neutralUnavailable());
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
+  });
+
+  it("a deletion scheduled on the row being decrypted closes it (the freeze re-read on the same row)", async () => {
+    const t = setup({ consentVersion: BRIEF, contactRules: true, projection });
+    let reads = 0;
+    t.workers.findById.mockImplementation((async () => {
+      reads += 1;
+      return {
+        id: WORKER,
+        phoneE164: "ciphertext",
+        fullName: null,
+        // Active at the freeze check, scheduled by the time the row is read for the decrypt.
+        deletionScheduledAt: reads === 1 ? null : new Date(),
+        status: "active",
+      };
+    }) as never);
+    expect(await t.svc.readContact("unlock-1", PAYER, CTX)).toEqual(neutralUnavailable());
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
   });
 });

@@ -9,7 +9,7 @@
   "version": 2,
   "family_id": "fam_sheet_metal_fab",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "v2 (CEO Launch Plan Pack v1, Track B #5): Easy/Medium/Advanced tiers; 6-band experience; sheet-10 level ladder (Helper/Operator/Skilled/Senior/Supervisor, mandatory) + 2 separating confirms (skilled + senior self/other; supervisor by rule); machine retagged Medium (+CO2 laser, manual brake, hand-fab); NEW product row (Medium); material short-labels + hard; thickness re-banded to sheet (<1/1-3/3-6/>6mm — old bands drop, recorded cost); instrument/drawing rows retagged Advanced; nesting row expanded to sheet Q10 set + hard; NEW extra-work row (Advanced; drawing reading covered by its own row); hard rows gated years OR rung. No union extension (`skilled`/`senior` already confirm; helper/operator Lower). Deviations recorded: no shift row and no new ITI block (Track A/B precedent); sector kept as hard depth (no sheet row); dxf_import kept as history; new process-depth chips derive no new match skill (reach unchanged).",
   "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half. The KEYS are read literally by that file and must not be renamed; only the workshop VOCABULARY is trade-specific. The three prompts are the welder's verbatim, so they reuse its served text and its voice clips.",
   "items": [

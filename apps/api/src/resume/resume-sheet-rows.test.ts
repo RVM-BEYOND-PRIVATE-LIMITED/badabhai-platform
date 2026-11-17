@@ -178,6 +178,12 @@ describe("the Verdict Line (§6.2)", () => {
       "on notice period",
     ],
     ["an unmapped word", { label: "2 months", start: { kind: "worded" } }, "available in 2 months"],
+    [
+      // #2753 item 3 — the brief's own words, and no day count: the worker named none.
+      "working, open to a better offer",
+      { label: "Working, open to a better offer", start: { kind: "open_to_offer" } },
+      "working, open to a better offer",
+    ],
   ])("prints %s as %s", (_name, availability, phrase) => {
     expect(buildVerdictLine({ ...FULL, availability }).subheadLine).toBe(
       `Faridabad · ${phrase} · expects ₹24,000 – ₹28,000 / month`,

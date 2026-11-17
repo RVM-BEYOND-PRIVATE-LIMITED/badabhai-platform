@@ -4,6 +4,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { INSTITUTE_STUDENT_STATUSES } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import {
+  CAMPUS_IDEMPOTENCY_KEY_HEADER,
   CAMPUS_SERVICE_TOKEN_HEADER,
   CampusExternalRefSchema,
   StudentRefSchema,
@@ -99,6 +100,40 @@ export type RvmConsentLookup =
 
 const NotAvailableBodySchema = z.object({ code: z.literal("NOT_AVAILABLE") });
 
+/** RVM's selection-event route (Scheduler_Backend#162 item 8). */
+export const RVM_SELECTION_EVENTS_PATH = "/internal/campus/selection-events";
+
+/**
+ * The body RVM's selection-event route takes, and nothing else (Scheduler_Backend#162 item 8):
+ * `{event_id, student_ref, company, job_title, status, date}`. Strict, so a field added here by
+ * mistake (a phone, a name) fails before it is sent. No money field, ever: a company's mark never
+ * releases the reward (brief 4B.8).
+ */
+export const RvmSelectionEventBodySchema = z.strictObject({
+  /** The `outbound_signals` row id: RVM de-duplicates on it. */
+  event_id: z.string().refine(isCanonicalUuid, "must be a uuid"),
+  student_ref: StudentRefSchema,
+  company: z.string().trim().min(1).max(200),
+  job_title: z.string().trim().min(1).max(200),
+  status: z.enum(["selected", "hired"]),
+  /** The day of the mark, India time. */
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+export type RvmSelectionEventBody = z.input<typeof RvmSelectionEventBodySchema>;
+
+/** What RVM made of one selection event. Anything retryable throws instead. */
+export type RvmSelectionEventOutcome =
+  | { kind: "accepted" }
+  | { kind: "not_available" }
+  | { kind: "rejected"; status: number };
+
+/**
+ * Statuses that say the request itself is wrong: retrying the same body cannot help. NOT 409: a
+ * conflict can be RVM still processing the same event_id, or a retry whose rebuilt body differs
+ * from one RVM already holds, and either way the attempt cap ends it.
+ */
+const SELECTION_EVENT_REFUSALS: ReadonlySet<number> = new Set([400, 413, 415, 422]);
+
 /** Six short fields fit in well under this; anything longer is not the agreed reply. */
 const MAX_BODY_CHARS = 16_384;
 /** A consent request lists up to a thousand short refs. */
@@ -128,6 +163,16 @@ export class RvmStudentApiClient {
     @Optional() @Inject(RVM_STUDENT_API_FETCH) fetchImpl?: typeof fetch,
   ) {
     this.fetchImpl = fetchImpl ?? fetch;
+  }
+
+  /** Are the base URL and token set? The outbound sender claims nothing until they are. */
+  isConfigured(): boolean {
+    return Boolean(this.config.RVM_STUDENT_API_BASE_URL && this.config.RVM_STUDENT_API_TOKEN);
+  }
+
+  /** The per-request timeout, which the outbound sender sizes its claim lease from. */
+  get timeoutMs(): number {
+    return this.config.RVM_STUDENT_API_TIMEOUT_MS;
   }
 
   async readStudent(studentRef: string): Promise<RvmStudentLookup> {
@@ -171,6 +216,57 @@ export class RvmStudentApiClient {
       companyRef: parsed.data.company?.ref.toLowerCase() ?? null,
       answers: new Map(parsed.data.students.map((s) => [s.student_ref.toLowerCase(), s.state])),
     };
+  }
+
+  /**
+   * Tells RVM a company marked one of its students selected or hired (#2747 item 8,
+   * Scheduler_Backend#162 item 8). RVM de-duplicates on `event_id`, which is also the
+   * Idempotency-Key, so a retry after a lost reply is harmless.
+   *
+   * - any 2xx: accepted (a replay of the same event is accepted too);
+   * - RVM's own 404 `NOT_AVAILABLE`: the student is not reachable under his RVM consent;
+   * - 400 / 413 / 415 / 422: a refusal no retry can change (`rejected`);
+   * - anything else (a timeout, a dropped connection, 401/403 while a token is being fixed, 409,
+   *   429, a 5xx, a bare 404): {@link RvmStudentApiUnavailableError}, which the sender retries.
+   *
+   * NEVER LOGS THE BODY: it carries the company name and the student's reference.
+   */
+  async postSelectionEvent(body: RvmSelectionEventBody): Promise<RvmSelectionEventOutcome> {
+    const event = RvmSelectionEventBodySchema.parse(body);
+    const base = this.config.RVM_STUDENT_API_BASE_URL;
+    const token = this.config.RVM_STUDENT_API_TOKEN;
+    if (!base || !token) throw new RvmStudentApiUnavailableError("not_configured");
+
+    let res: Response;
+    let text: string;
+    try {
+      res = await this.fetchImpl(`${base.replace(/\/+$/, "")}${RVM_SELECTION_EVENTS_PATH}`, {
+        method: "POST",
+        headers: {
+          [CAMPUS_SERVICE_TOKEN_HEADER]: token,
+          [CAMPUS_IDEMPOTENCY_KEY_HEADER]: event.event_id,
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify(event),
+        // Never follow a redirect: `X-Service-Token` would ride along to wherever it points.
+        redirect: "error",
+        signal: AbortSignal.timeout(this.config.RVM_STUDENT_API_TIMEOUT_MS),
+      });
+      text = await res.text();
+    } catch (err) {
+      const timedOut = err instanceof Error && err.name === "TimeoutError";
+      throw new RvmStudentApiUnavailableError(timedOut ? "timeout" : "network");
+    }
+
+    if (res.status >= 200 && res.status < 300) return { kind: "accepted" };
+    if (res.status === 404) {
+      const parsed = text.length <= MAX_BODY_CHARS ? parseJson(text) : undefined;
+      if (NotAvailableBodySchema.safeParse(parsed).success) return { kind: "not_available" };
+      throw new RvmStudentApiUnavailableError("http_status", "404");
+    }
+    if (SELECTION_EVENT_REFUSALS.has(res.status)) return { kind: "rejected", status: res.status };
+    throw new RvmStudentApiUnavailableError("http_status", String(res.status));
   }
 
   /**

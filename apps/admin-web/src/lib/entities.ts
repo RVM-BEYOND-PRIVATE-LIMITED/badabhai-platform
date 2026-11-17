@@ -165,7 +165,7 @@ export function getPayer(id: string, opts: { faceless?: boolean } = {}) {
 export const creditLedgerItemSchema = z.object({
   id: z.string(),
   delta: z.number(),
-  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant"]),
+  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant", "expired"]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),
   price_inr: z.number().nullable(),
@@ -373,7 +373,7 @@ function financePageOf<T extends z.ZodTypeAny>(item: T) {
 }
 
 export const reasonBucketSchema = z.object({
-  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant"]),
+  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant", "expired"]),
   movements: z.number(),
   credits_delta: z.number(),
   amount_inr: z.number(),
@@ -409,7 +409,7 @@ export const ledgerRowSchema = z.object({
   payer_id: z.string(),
   payer_role: payerRoleRefSchema,
   delta: z.number(),
-  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant"]),
+  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant", "expired"]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),
   price_inr: z.number().nullable(),

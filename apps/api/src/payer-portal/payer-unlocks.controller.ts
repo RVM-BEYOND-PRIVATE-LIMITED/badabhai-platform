@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   NotFoundException,
   Param,
@@ -110,6 +111,25 @@ export class PayerUnlocksController {
   }
 
   /**
+   * #2747 item 5 (ADR-0064 §3.3) — the full name and phone number of a contact the caller's
+   * company OPENED, on screen. Only while `contact_rules` is on for the company (off: 404).
+   * Ownership, the open rule, the deletion freeze and consent are the chokepoint's
+   * (`UnlockService.readContact`); every refusal is the one neutral body. Each read counts against
+   * the same per-login hourly disclosure cap as an unlock or a reveal (XB-G) and writes
+   * `contact.viewed`. `no-store`: no proxy or client cache keeps the number; the body is never logged.
+   */
+  @Get("unlocks/:unlockId/contact")
+  @Header("Cache-Control", "no-store")
+  async readContact(
+    @Param("unlockId", new ParseUUIDPipe()) unlockId: string,
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Ctx() ctx: RequestContext,
+  ) {
+    await this.disclosureRate.assertWithinHourlyCap(payer.id); // XB-G (real identity)
+    return this.unlocks.readContact(unlockId, payer.id, ctx);
+  }
+
+  /**
    * List the caller's OWN unlocks (scoped to the session `payer_id`; PII-free projection).
    * #2033: payer-visible states only (`granted | revealed | expired | revoked`), `expired`
    * derived from `expires_at`, plus the additive `job_posting_id`.
@@ -121,7 +141,8 @@ export class PayerUnlocksController {
 
   /**
    * The balance of the wallet the caller spends from — the TENANT's (the org wallet in mode `on`).
-   * `payer_id` echoes the caller (ADR-0053 §10). Amounts + id only.
+   * `payer_id` echoes the caller (ADR-0053 §10). Amounts + id only. #2749: plus the wallet's open
+   * `lots` in spend order (source, remaining, granted, expiry, pack) — no lot id, no payment ref.
    */
   @Get("credits")
   ownCredits(@CurrentPayer() payer: AuthenticatedPayer) {

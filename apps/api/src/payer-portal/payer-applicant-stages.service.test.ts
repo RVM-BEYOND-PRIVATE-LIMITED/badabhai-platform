@@ -1,9 +1,11 @@
 import "reflect-metadata";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { Logger, NotFoundException } from "@nestjs/common";
-import { validateEvent } from "@badabhai/event-schema";
+import { BadRequestException, Logger, NotFoundException } from "@nestjs/common";
+import { z } from "zod";
+import { EVENT_REGISTRY, validateEvent, type EventName } from "@badabhai/event-schema";
 import type { ApplicantPostingKind } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
+import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { AllExceptionsFilter } from "../common/filters/all-exceptions.filter";
 import {
   PayerApplicantStagesService,
@@ -75,6 +77,12 @@ function make(
     enabled?: boolean;
     /** ADR-0053 — the REAL resolver; the default mode (`off`) unless a case builds another. */
     tenancy?: PayerTenantScopeService;
+    /** #2747 — the `outcome_stages` switch for every company (default off). */
+    outcomeStages?: boolean;
+    /** #2747 item 8 — the `outbound_signals` switch for every company (default off). */
+    signals?: boolean | "unavailable";
+    /** #2753 item 9 — `HIRE_RECORDS_ENABLED` (default off). */
+    hires?: boolean;
   } = {},
 ) {
   const repo = memoryStagesRepo({
@@ -92,12 +100,27 @@ function make(
   };
   // The real validation every emitted event goes through, so a payload the registry would refuse
   // fails here exactly as it would in EventsService.
+  const rollout = { isEnabledFor: vi.fn(async () => over.outcomeStages ?? false) };
+  const outbound = {
+    signalsStateFor: vi.fn(async () =>
+      over.signals === "unavailable" ? "unavailable" : over.signals === true ? "on" : "off",
+    ),
+    recordMark: vi.fn(async (_mark: Record<string, unknown>, _tx: unknown) => "queued" as const),
+  };
+  const hireWrite = { changed: true, hire: null };
+  const hires = {
+    enabled: over.hires ?? false,
+    recordCompanyMark: vi.fn(
+      async (_k: unknown, _at: Date, _tx: unknown, _by: unknown) => hireWrite,
+    ),
+    undoCompanyMark: vi.fn(async (_k: unknown, _at: Date, _tx: unknown, _by: unknown) => hireWrite),
+  };
   const emitted: Record<string, unknown>[] = [];
   const emit = vi.fn(async (params: Record<string, unknown>) => {
     const { correlationId, requestId: _r, tx: _tx, ...rest } = params;
     const result = validateEvent({
       event_id: "11111111-1111-4111-8111-111111111111",
-      event_version: 1,
+      event_version: EVENT_REGISTRY[rest.event_name as EventName].version,
       occurred_at: NOW.toISOString(),
       source: "api",
       correlation_id: correlationId,
@@ -113,8 +136,11 @@ function make(
     { emit } as never,
     { PAYER_APPLICANT_STAGES_ENABLED: over.enabled ?? true },
     over.tenancy ?? defaultModeResolver(),
+    rollout as never,
+    outbound as never,
+    hires as never,
   );
-  return { svc, repo, spied, emit, emitted };
+  return { svc, repo, spied, emit, emitted, rollout, outbound, hires };
 }
 
 /** What the client receives for a rejection: the real global filter's status + error object. */
@@ -448,12 +474,14 @@ describe("readStoredStage / withStages", () => {
   it("no row is `new`; a known stage is itself", () => {
     expect(readStoredStage(null)).toBe("new");
     expect(readStoredStage(undefined)).toBe("new");
-    for (const s of ["new", "shortlist", "passed"] as const) expect(readStoredStage(s)).toBe(s);
+    for (const s of ["new", "shortlist", "passed", "selected", "hired"] as const) {
+      expect(readStoredStage(s)).toBe(s);
+    }
   });
 
   it("a stage this build does not know (DB ahead of code) reads as `new`, with a warning", () => {
     const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
-    expect(readStoredStage("hired")).toBe("new");
+    expect(readStoredStage("contacted")).toBe("new");
     expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
   });
@@ -518,4 +546,408 @@ describe("ADR-0053 P2a — the saved board follows the TENANT; the row and the e
     await rejection(d.svc.setStage(MEMBER, POSTING_A, APPLICANT, "passed", CTX, NOW));
     expect(resolve).not.toHaveBeenCalled();
   });
+});
+
+describe("#2747 item 7 — the outcome stages `selected` and `hired` (OUTCOME_STAGES_ROLLOUT)", () => {
+  /** The route's body schema as it was before #2747, behind the same pipe. */
+  const v1Body = z.object({ stage: z.enum(["new", "shortlist", "passed"]) }).strict();
+  function todays400(stage: string): unknown {
+    try {
+      new ZodValidationPipe(v1Body).transform({ stage });
+    } catch (err) {
+      return err;
+    }
+    throw new Error("expected the old pipe to refuse");
+  }
+
+  it.each(["selected", "hired"] as const)(
+    "switch off: `%s` gets EXACTLY the 400 the route gave it before #2747; nothing read or written",
+    async (stage) => {
+      const d = make({ outcomeStages: false });
+      const err = await rejection(d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, stage, CTX, NOW));
+      expect(err).toBeInstanceOf(BadRequestException);
+      expect(httpOutcome(err)).toEqual(httpOutcome(todays400(stage)));
+      expect(httpOutcome(err).status).toBe(400);
+      expect(d.rollout.isEnabledFor).toHaveBeenCalledWith("outcome_stages", KEY_A);
+      // Refused before the posting is looked up: the answer says nothing about any posting.
+      expect(d.spied.findOwnedPostingKind).not.toHaveBeenCalled();
+      expect(d.spied.withTransaction).not.toHaveBeenCalled();
+      expect(d.emit).not.toHaveBeenCalled();
+    },
+  );
+
+  it("switch off: the same 400 for another company's posting — no posting oracle", async () => {
+    const d = make({ outcomeStages: false });
+    const own = await rejection(d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW));
+    const foreign = await rejection(
+      d.svc.setStage(PAYER_A, POSTING_B, APPLICANT, "hired", CTX, NOW),
+    );
+    expect(httpOutcome(foreign)).toEqual(httpOutcome(own));
+  });
+
+  it("the first three stages never read the outcome switch", async () => {
+    const d = make({ outcomeStages: false });
+    for (const stage of ["shortlist", "passed", "new"] as const) {
+      await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, stage, CTX, NOW);
+    }
+    expect(d.rollout.isEnabledFor).not.toHaveBeenCalled();
+  });
+
+  it("switch on: selected, then hired — saved, shown, and each reported as v2", async () => {
+    const d = make({ outcomeStages: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW);
+    const selected = await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    expect(selected).toMatchObject({
+      stage: "selected",
+      previousStage: "shortlist",
+      changed: true,
+    });
+    const hired = await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    expect(hired).toMatchObject({ stage: "hired", previousStage: "selected", changed: true });
+    expect([...d.repo.rows.values()].map((r) => r.stage)).toEqual(["hired"]);
+
+    const board = await d.svc.stagesForOwnedPosting(POSTING_A, KEY_A);
+    expect([...board!.company_posting]).toEqual([[APPLICANT, "hired"]]);
+
+    expect(d.emitted.map((e) => e.event_name)).toEqual([
+      "payer.applicant_stage_changed",
+      "payer.applicant_stage_changed_v2",
+      "payer.applicant_stage_changed_v2",
+    ]);
+    expect(d.emitted[1]).toMatchObject({
+      actor: { actor_type: "payer", actor_id: PAYER_A },
+      subject: { subject_type: "worker", subject_id: APPLICANT },
+      payload: {
+        posting_kind: "company_posting",
+        posting_id: POSTING_A,
+        worker_id: APPLICANT,
+        stage: "selected",
+        previous_stage: "shortlist",
+      },
+    });
+    expect(d.emitted[2]!.payload).toMatchObject({ stage: "hired", previous_stage: "selected" });
+    expect(d.emitted[2]!.tx).toBeDefined();
+  });
+
+  it("switch on: a first move straight to hired is v2 from `new`", async () => {
+    const d = make({ outcomeStages: true });
+    await d.svc.setStage(PAYER_A, JOB_A, APPLICANT, "hired", CTX, NOW);
+    expect(d.emitted).toHaveLength(1);
+    expect(d.emitted[0]).toMatchObject({
+      event_name: "payer.applicant_stage_changed_v2",
+      payload: { posting_kind: "agency_job", stage: "hired", previous_stage: "new" },
+    });
+  });
+
+  it("switch on: a move between the first three stages is still v1, byte for byte", async () => {
+    const d = make({ outcomeStages: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "passed", CTX, NOW);
+    expect(d.emitted.map((e) => e.event_name)).toEqual([
+      "payer.applicant_stage_changed",
+      "payer.applicant_stage_changed",
+    ]);
+  });
+
+  it("switch on: re-sending the stage held is the usual no-op (no event)", async () => {
+    const d = make({ outcomeStages: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    const again = await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    expect(again).toMatchObject({ stage: "selected", previousStage: "selected", changed: false });
+    expect(d.emit).toHaveBeenCalledOnce();
+  });
+
+  it("switch on: another company's posting is still the feeds' own 404", async () => {
+    const d = make({ outcomeStages: true });
+    const err = await rejection(d.svc.setStage(PAYER_A, POSTING_B, APPLICANT, "hired", CTX, NOW));
+    expect(httpOutcome(err)).toEqual(httpOutcome(new NotFoundException(APPLICANT_NOT_FOUND)));
+    expect(d.repo.rows.size).toBe(0);
+  });
+
+  it("after a rollback (switch off): a stored hired reads as itself and can be moved OUT, not deeper", async () => {
+    const d = make({ outcomeStages: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    d.rollout.isEnabledFor.mockResolvedValue(false);
+
+    const board = await d.svc.stagesForOwnedPosting(POSTING_A, KEY_A);
+    expect([...board!.company_posting]).toEqual([[APPLICANT, "hired"]]);
+
+    await expect(
+      rejection(d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW)),
+    ).resolves.toBeInstanceOf(BadRequestException);
+
+    const out = await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW);
+    expect(out).toMatchObject({ stage: "shortlist", previousStage: "hired", changed: true });
+    // The move OUT of an outcome stage is v2: v1 cannot carry `hired`.
+    expect(d.emitted.at(-1)).toMatchObject({
+      event_name: "payer.applicant_stage_changed_v2",
+      payload: { stage: "shortlist", previous_stage: "hired" },
+    });
+  });
+
+  it("switch on before migration 0166: the CHECK's 23514 fails the request and the log names the migration", async () => {
+    const d = make({ outcomeStages: true });
+    d.spied.insertStage.mockRejectedValueOnce(
+      Object.assign(new Error("Failed query"), { cause: { code: "23514" } }),
+    );
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const err = await rejection(
+      d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW),
+    );
+    expect((err as Error).message).toBe("Failed query");
+    expect(error).toHaveBeenCalledOnce();
+    const line = String(error.mock.calls[0]![0]);
+    expect(line).toContain("migration 0166");
+    expect(line).toContain("23514");
+    expect(line).not.toContain(APPLICANT); // the posting id only; never the worker
+    error.mockRestore();
+    expect(d.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("#2747 item 8 — the RVM selection signal is queued IN the stage transaction", () => {
+  it("switch on: a real move into selected, then hired, queues one mark each, on the transaction", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    expect(d.outbound.signalsStateFor).toHaveBeenCalledWith(KEY_A);
+    expect(d.outbound.recordMark).toHaveBeenCalledTimes(2);
+    const [first, tx] = d.outbound.recordMark.mock.calls[0]!;
+    expect(first).toEqual({
+      postingKind: "company_posting",
+      postingId: POSTING_A,
+      workerId: APPLICANT,
+      stage: "selected",
+      at: NOW,
+    });
+    // The same transaction the stage row and its event are written in.
+    expect(tx).toBe(d.emitted[0]!.tx);
+    expect(d.outbound.recordMark.mock.calls[1]![0]).toMatchObject({ stage: "hired" });
+  });
+
+  it("the first move straight to hired (no stored row) queues it too", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.setStage(PAYER_A, JOB_A, APPLICANT, "hired", CTX, NOW);
+    expect(d.outbound.recordMark).toHaveBeenCalledOnce();
+    expect(d.outbound.recordMark.mock.calls[0]![0]).toMatchObject({
+      postingKind: "agency_job",
+      stage: "hired",
+    });
+  });
+
+  it("the company's signal switch off: the mark is saved and nothing is queued", async () => {
+    const d = make({ outcomeStages: true, signals: false });
+    await expect(
+      d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW),
+    ).resolves.toMatchObject({ changed: true });
+    expect(d.outbound.recordMark).not.toHaveBeenCalled();
+  });
+
+  it("a no-op re-send, a move out, and the first three stages queue nothing", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    d.outbound.recordMark.mockClear();
+    d.outbound.signalsStateFor.mockClear();
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW); // no-op
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW); // out
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "passed", CTX, NOW);
+    expect(d.outbound.recordMark).not.toHaveBeenCalled();
+    // Only the no-op is an outcome stage, so only it read the switch.
+    expect(d.outbound.signalsStateFor).toHaveBeenCalledTimes(1);
+  });
+
+  it("the outcome switch off refuses the mark before the signal switch is even read", async () => {
+    const d = make({ outcomeStages: false, signals: true });
+    await rejection(d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW));
+    expect(d.outbound.signalsStateFor).not.toHaveBeenCalled();
+    expect(d.outbound.recordMark).not.toHaveBeenCalled();
+  });
+
+  it("the signal switch cannot be read: the mark is refused (503) and nothing is written", async () => {
+    const d = make({ outcomeStages: true, signals: "unavailable" });
+    const err = await rejection(d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW));
+    expect(httpOutcome(err).status).toBe(503);
+    expect(d.spied.withTransaction).not.toHaveBeenCalled();
+    expect(d.repo.rows.size).toBe(0);
+    expect(d.emit).not.toHaveBeenCalled();
+  });
+
+  it("a failure to queue fails the whole move (the transaction rolls the stage back with it)", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    d.outbound.recordMark.mockRejectedValueOnce(new Error("relation does not exist"));
+    await expect(
+      d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW),
+    ).rejects.toThrow("relation does not exist");
+  });
+});
+
+describe("#2753 item 9 — the hire record is written IN the stage transaction", () => {
+  it("switch on: a real move INTO hired confirms the record (company mark), keyed by the tenant", async () => {
+    const d = make({ outcomeStages: true, hires: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    expect(d.hires.recordCompanyMark).toHaveBeenCalledOnce();
+    expect(d.hires.undoCompanyMark).not.toHaveBeenCalled();
+    const [key, at, tx, by] = d.hires.recordCompanyMark.mock.calls[0]!;
+    expect(key).toEqual({
+      tenantPayerId: KEY_A,
+      postingKind: "company_posting",
+      postingId: POSTING_A,
+      workerId: APPLICANT,
+    });
+    expect(at).toBe(NOW);
+    // The same transaction the stage row and its event are written in.
+    expect(tx).toBe(d.emitted[0]!.tx);
+    expect(by).toEqual({
+      actor: { actor_type: "payer", actor_id: PAYER_A },
+      correlationId: CTX.correlationId,
+      requestId: CTX.requestId,
+    });
+  });
+
+  it("selected → hired on an agency job: the mark is recorded once, for the agency job", async () => {
+    const d = make({ outcomeStages: true, hires: true });
+    await d.svc.setStage(PAYER_A, JOB_A, APPLICANT, "selected", CTX, NOW);
+    expect(d.hires.recordCompanyMark).not.toHaveBeenCalled();
+    await d.svc.setStage(PAYER_A, JOB_A, APPLICANT, "hired", CTX, NOW);
+    expect(d.hires.recordCompanyMark).toHaveBeenCalledOnce();
+    expect(d.hires.recordCompanyMark.mock.calls[0]![0]).toMatchObject({
+      postingKind: "agency_job",
+    });
+  });
+
+  it("a real move OUT of hired runs the undo rule, on the same transaction", async () => {
+    const d = make({ outcomeStages: true, hires: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW);
+    expect(d.hires.undoCompanyMark).toHaveBeenCalledOnce();
+    const [key, , tx] = d.hires.undoCompanyMark.mock.calls[0]!;
+    expect(key).toMatchObject({ tenantPayerId: KEY_A, postingId: POSTING_A, workerId: APPLICANT });
+    expect(tx).toBe(d.emitted[1]!.tx);
+    // Moving back in is a re-mark.
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    expect(d.hires.recordCompanyMark).toHaveBeenCalledTimes(2);
+  });
+
+  it("a no-op (hired again) and moves that never touch hired call nothing", async () => {
+    const d = make({ outcomeStages: true, hires: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "passed", CTX, NOW);
+    expect(d.hires.recordCompanyMark).not.toHaveBeenCalled();
+    expect(d.hires.undoCompanyMark).not.toHaveBeenCalled();
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    d.hires.recordCompanyMark.mockClear();
+    const again = await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    expect(again).toMatchObject({ changed: false });
+    expect(d.hires.recordCompanyMark).not.toHaveBeenCalled();
+    expect(d.hires.undoCompanyMark).not.toHaveBeenCalled();
+  });
+
+  it("switch off: into and out of hired call nothing", async () => {
+    const d = make({ outcomeStages: true, hires: false });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW);
+    expect(d.repo.rows.size).toBe(1);
+    expect(d.hires.recordCompanyMark).not.toHaveBeenCalled();
+    expect(d.hires.undoCompanyMark).not.toHaveBeenCalled();
+  });
+
+  it("a failure to record the hire fails the whole move (the transaction rolls back with it)", async () => {
+    const d = make({ outcomeStages: true, hires: true });
+    d.hires.recordCompanyMark.mockRejectedValueOnce(new Error('relation "hires" does not exist'));
+    await expect(d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW)).rejects.toThrow(
+      'relation "hires" does not exist',
+    );
+  });
+});
+
+describe("#2747 / #2852 — stageOptions: what this company's board may do now", () => {
+  const V1 = ["new", "shortlist", "passed"];
+  const ALL = ["new", "shortlist", "passed", "selected", "hired"];
+
+  it("both switches off: the first three stages, no outcome stages, no signal", async () => {
+    const d = make();
+    await expect(d.svc.stageOptions(PAYER_A)).resolves.toEqual({
+      stages: V1,
+      outcomeStages: false,
+      rvmSignal: false,
+    });
+    expect(d.rollout.isEnabledFor).toHaveBeenCalledWith("outcome_stages", KEY_A);
+    // No mark without the outcome stages, so the signal switch is not read.
+    expect(d.outbound.signalsStateFor).not.toHaveBeenCalled();
+  });
+
+  it("outcome stages on, signal off: all five stages, no signal", async () => {
+    const d = make({ outcomeStages: true, signals: false });
+    await expect(d.svc.stageOptions(PAYER_A)).resolves.toEqual({
+      stages: ALL,
+      outcomeStages: true,
+      rvmSignal: false,
+    });
+    expect(d.outbound.signalsStateFor).toHaveBeenCalledWith(KEY_A);
+  });
+
+  it("both on: all five stages and the signal", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await expect(d.svc.stageOptions(PAYER_A)).resolves.toEqual({
+      stages: ALL,
+      outcomeStages: true,
+      rvmSignal: true,
+    });
+  });
+
+  it("the signal switch on while the outcome stages are off: no signal (nothing could be marked)", async () => {
+    const d = make({ outcomeStages: false, signals: true });
+    await expect(d.svc.stageOptions(PAYER_A)).resolves.toMatchObject({
+      outcomeStages: false,
+      rvmSignal: false,
+    });
+  });
+
+  it("a pilot list that cannot be read for the signal fails closed (false), never a 5xx", async () => {
+    const d = make({ outcomeStages: true, signals: "unavailable" });
+    await expect(d.svc.stageOptions(PAYER_A)).resolves.toMatchObject({ rvmSignal: false });
+  });
+
+  it("reads no posting, no stage row and no transaction", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.stageOptions(PAYER_A);
+    for (const spy of Object.values(d.spied)) expect(spy).not.toHaveBeenCalled();
+    expect(d.emit).not.toHaveBeenCalled();
+    expect(d.outbound.recordMark).not.toHaveBeenCalled();
+  });
+
+  it("each answer is a fresh array (a caller cannot change the shared stage list)", async () => {
+    const d = make();
+    const a = await d.svc.stageOptions(PAYER_A);
+    a.stages.push("hired");
+    await expect(d.svc.stageOptions(PAYER_A)).resolves.toMatchObject({ stages: V1 });
+  });
+
+  it("the board flag off: the same neutral 404 as setStage, and nothing is read", async () => {
+    const d = make({ enabled: false });
+    const err = await rejection(d.svc.stageOptions(PAYER_A));
+    expect(err).toBeInstanceOf(NotFoundException);
+    expect(d.rollout.isEnabledFor).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { outcomeStages: false, signals: false },
+    { outcomeStages: true, signals: false },
+    { outcomeStages: true, signals: true },
+    { outcomeStages: false, signals: true },
+  ] as const)(
+    "the forecast agrees with a real move (outcome=$outcomeStages, signal=$signals)",
+    async (sw) => {
+      const d = make(sw);
+      const options = await d.svc.stageOptions(PAYER_A);
+      const move = d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+      if (options.outcomeStages) {
+        await expect(move).resolves.toMatchObject({ stage: "selected", changed: true });
+      } else {
+        expect(httpOutcome(await rejection(move)).status).toBe(400);
+      }
+      expect(d.outbound.recordMark.mock.calls.length > 0).toBe(options.rvmSignal);
+    },
+  );
 });

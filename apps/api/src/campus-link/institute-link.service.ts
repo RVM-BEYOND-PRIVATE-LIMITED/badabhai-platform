@@ -180,6 +180,43 @@ export class InstituteLinkService {
         await this.repo.revokeGrantsOfWorker(tx, link.workerId, now);
       }
       await this.emitUnlinked(tx, link.workerId, reason, workerDeleted, now, ctx);
+      if (workerDeleted) await this.emitAccountDeleted(tx, link.workerId, ctx);
+    });
+  }
+
+  /**
+   * #2753 item 13 — every path that erases a workers row writes ONE `worker.account_deleted`, the
+   * durable erasure record (`AccountDeletionService` writes it for the sweep and the QA seam).
+   * `worker.institute_unlinked { worker_deleted: true }` says why the link ended; this says the row
+   * is gone, in the event every erasure reader already knows.
+   *
+   * The counts are facts of `deleteLinkCreatedPendingWorker`'s own predicate, not guesses: it
+   * deletes only a row with no PIN and no trusted device, and it sweeps no session or file (a
+   * never-used row has none). On the unlink's transaction, so the delete and its record commit
+   * together, whatever `ACCOUNT_DELETION_EVENT_IN_TX` says; keyed like `AccountDeletionService`'s
+   * event, so the worker is recorded once whichever path reaches him first.
+   */
+  private async emitAccountDeleted(
+    tx: Database,
+    workerId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    await this.events.emit({
+      event_name: "worker.account_deleted",
+      actor: { actor_type: "system", actor_id: null },
+      subject: { subject_type: "worker", subject_id: workerId },
+      payload: {
+        worker_id: workerId,
+        sessions_revoked: 0,
+        devices_revoked: 0,
+        storage_objects_deleted: 0,
+        storage_objects_failed: 0,
+        had_pin: false,
+      },
+      idempotencyKey: `worker.account_deleted:${workerId}`,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+      tx,
     });
   }
 

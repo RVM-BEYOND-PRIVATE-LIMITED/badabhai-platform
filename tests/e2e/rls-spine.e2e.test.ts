@@ -244,6 +244,36 @@ const LOCKED_TABLES = [
   "institute_applications",
   // 0163 (#2752): the companies Campus created (opaque payer ids) — the only ones it may post for.
   "institute_companies",
+  // 0164 (#2820): the pilot list for workers and admins (opaque worker / admin ids, no FK).
+  "feature_pilot_subjects",
+  // 0165 (#2819): one login's theme (opaque worker / payer login / admin ids, no FK).
+  "display_prefs",
+  // 0167 (#2747 item 8): marks owed to RVM (ids, closed codes and dates; the body is built at send
+  // time). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0167.
+  "outbound_signals",
+  // 0168 (#2753 items 4 and 7): the days a worker was active (an opaque worker id and an IST
+  // date, nothing else). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0168.
+  "worker_activity",
+  // 0169 (#2753 item 6): which workers left company search (an opaque worker id, a time and a
+  // closed code). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0169.
+  "worker_search_exits",
+  // 0170 (#2753 item 9): one hire record per company, worker and posting (ids, dates and closed
+  // codes). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0170.
+  "hires",
+  // 0171 (#2753 item 11): the pay-on-joining pilot's hire record (opaque factory / partner / worker
+  // / posting ids, dates, paise and an admin note). Worker FK cascade as the erasure coverage.
+  // RLS+FORCE+REVOKE in 0171.
+  "pay_on_joining_hires",
+  // 0172 (#2753 item 10): one follow-up answer per opened contact (ids, closed codes and dates).
+  // Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0172.
+  "unlock_outcomes",
+  // 0173 (#2753 item 5): the monthly "still looking?" check (an opaque worker id, two times and a
+  // closed answer). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0173.
+  "still_looking_checks",
+  // 0174 (#2749): a company's credits as expiring lots (opaque wallet key, a closed source, a pack
+  // code, integers and dates). Billing records, no FK to payers, never erased. RLS+FORCE+REVOKE in
+  // 0174.
+  "credit_lots",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

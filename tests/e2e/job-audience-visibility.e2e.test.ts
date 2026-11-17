@@ -13,6 +13,7 @@ import {
 } from "@badabhai/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { mintPayerSession } from "./helpers/payer-session";
+import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
 /**
  * #2746 — AN RVM-ONLY JOB NEVER REACHES A BADABHAI WORKER, end to end against a LIVE API + DB +
@@ -80,10 +81,8 @@ async function req(
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
-/** Inside the test-login seam's reserved range (`RESERVED_TEST_PHONE_PATTERN`: +91 00000 NNNNN). */
-function syntheticPhone(): string {
-  return `+9100000${String(Math.floor(Math.random() * 100_000)).padStart(5, "0")}`;
-}
+/** Inside the test-login seam's reserved range (`RESERVED_TEST_PHONE_PATTERN`), this suite's slot. */
+const syntheticPhone = syntheticPhoneMinter(62);
 
 describe.skipIf(!RUN)("#2746 an RVM-only job never reaches a BadaBhai worker (e2e)", () => {
   let client!: DbClient;

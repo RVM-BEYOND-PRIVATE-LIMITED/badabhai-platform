@@ -11,6 +11,8 @@ import type {
 } from "./agency-workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import { createHmac } from "node:crypto";
+import type { WorkerActivityRepository } from "../worker-activity/worker-activity.repository";
+import { WorkerActivityService } from "../worker-activity/worker-activity.service";
 
 /**
  * B5 — the agency ENGAGEMENT projection (ADR-0022 portal).
@@ -251,5 +253,83 @@ describe("AgencyWorkersService — the tenant key scopes the list and keys the p
     const { svc, repo } = setup([ROW], resolverOver(ON, twoTeams));
     await expect(svc.listReferred(MEMBER)).rejects.toBeInstanceOf(ForbiddenException);
     expect(repo.listReferredWithConsent).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #2753 item 4 — with WORKER_ACTIVITY_ENABLED on, `lastActiveOn` is the ONE definition of last
+ * active (the later of the newest `worker_activity` day and the newest device sighting, IST),
+ * read once for the whole list; off, the repository's UTC device day exactly as before.
+ */
+describe("AgencyWorkersService — the last-active day (#2753)", () => {
+  const OTHER = "22222222-2222-4222-8222-222222222222";
+
+  function withActivity(on: boolean, rows: AgencyWorkerEngagementRow[], days: Map<string, string>) {
+    const repo = { listReferredWithConsent: vi.fn(async () => rows) };
+    const activityRepo = { touch: vi.fn(), lastActiveDays: vi.fn(async () => days) };
+    const activity = new WorkerActivityService(
+      activityRepo as unknown as WorkerActivityRepository,
+      { WORKER_ACTIVITY_ENABLED: on, NOT_RECENTLY_ACTIVE_DAYS: 90 },
+    );
+    const svc = new AgencyWorkersService(
+      repo as unknown as AgencyWorkersRepository,
+      pii,
+      defaultModeResolver(),
+      activity,
+    );
+    return { svc, repo, activityRepo };
+  }
+
+  it("switch off: the repository's day, today's call, and worker_activity never read", async () => {
+    const { svc, repo, activityRepo } = withActivity(
+      false,
+      [ROW],
+      new Map([[WORKER, "2026-11-01"]]),
+    );
+    const [row] = (await svc.listReferred(AGENCY_A)).workers;
+    expect(row!.lastActiveOn).toBe("2026-07-29");
+    expect(repo.listReferredWithConsent).toHaveBeenCalledWith(
+      AGENCY_A,
+      AgencyWorkersService.MAX_ROWS,
+    );
+    expect(activityRepo.lastActiveDays).not.toHaveBeenCalled();
+  });
+
+  it("switch on: the unified day, read once for the list; the LIMIT's order counts activity too", async () => {
+    const rows = [ROW, { ...ROW, workerId: OTHER, lastActiveOn: null }];
+    const { svc, repo, activityRepo } = withActivity(
+      true,
+      rows,
+      new Map([[WORKER, "2026-11-14"]]), // OTHER: never seen
+    );
+    const { workers } = await svc.listReferred(AGENCY_A);
+    expect(workers.map((w) => w.lastActiveOn)).toEqual(["2026-11-14", null]);
+    expect(activityRepo.lastActiveDays).toHaveBeenCalledTimes(1);
+    expect(activityRepo.lastActiveDays).toHaveBeenCalledWith([WORKER, OTHER], expect.any(Date));
+    expect(repo.listReferredWithConsent).toHaveBeenCalledWith(
+      AGENCY_A,
+      AgencyWorkersService.MAX_ROWS,
+      { activityOrder: true },
+    );
+    // Still faceless: the uuid never leaves, and the day is a day.
+    expect(JSON.stringify(workers)).not.toContain(WORKER);
+  });
+
+  it("switch on: the list is re-sorted on the unified day, newest first, never-seen last", async () => {
+    const rows = [
+      { ...ROW, lastActiveOn: "2026-11-15" },
+      { ...ROW, workerId: OTHER, lastActiveOn: "2026-01-01" },
+    ];
+    // The device order says WORKER first; the table says OTHER used the app more recently.
+    const { svc } = withActivity(
+      true,
+      rows,
+      new Map([
+        [WORKER, "2026-11-15"],
+        [OTHER, "2026-11-16"],
+      ]),
+    );
+    const { workers } = await svc.listReferred(AGENCY_A);
+    expect(workers.map((w) => w.lastActiveOn)).toEqual(["2026-11-16", "2026-11-15"]);
   });
 });

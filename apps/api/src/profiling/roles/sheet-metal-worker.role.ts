@@ -36,7 +36,8 @@ export const SHEET_METAL_WORKER = {
   formEnabled: true,
   displayName: "Sheet Metal Worker",
   offerName: "sheet metal worker",
-  levelLadder: ["Helper", "Operator", "Skilled", "Senior / Programmer", "Supervisor"],
+  // #2753 item 1 (@3): "Senior / Programmer" is two rungs, programmer above senior.
+  levelLadder: ["Helper", "Operator", "Skilled", "Senior", "Programmer", "Supervisor"],
   tenureQuestionKey: "sheet_metal_experience",
   fresher: {
     // KEYED BY STORED `value_text`, read off `iti_workshop_machines` in qp_sheet_metal_fab@1. An

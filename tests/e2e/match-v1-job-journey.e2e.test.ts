@@ -14,6 +14,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { inArray } from "drizzle-orm";
 import { mintPayerSession } from "./helpers/payer-session";
+import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
 /**
  * THE CORE MATCHING-V1 JOB JOURNEY (e2e, ADR-0036 moments ③④⑤⑥) against a LIVE API +
@@ -106,11 +107,7 @@ async function req(
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
-let phoneSeq = Math.floor(Math.random() * 90_000);
-function syntheticPhone(): string {
-  phoneSeq = (phoneSeq + 1) % 100_000;
-  return `+9100000${String(phoneSeq).padStart(5, "0")}`;
-}
+const syntheticPhone = syntheticPhoneMinter(64);
 
 describe.skipIf(!RUN)("Matching V1 job journey (e2e, ADR-0036 moments ③-⑥)", () => {
   let client!: DbClient;

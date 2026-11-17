@@ -16,6 +16,11 @@ import { ReferralBonusProcessor } from "./referral-bonus.processor";
 import { WorkerActivityInterceptor } from "./worker-activity.interceptor";
 import { ReferralLinksModule } from "./referral-links.module";
 import { ReferralResolverController } from "./referral-resolver.controller";
+import { WorkerOriginRepository } from "./worker-origin.repository";
+import { ReferralHelperController } from "./referral-helper.controller";
+import { ReferralHelperNameService } from "./referral-helper-name.service";
+import { ReferralHelperNameRepository } from "./referral-helper-name.repository";
+import { WorkerActivityModule } from "../worker-activity/worker-activity.module";
 
 /**
  * Referral attribution (ADR-0020 + ADR-0022) — the worker-onboarding hook that finally
@@ -53,6 +58,13 @@ import { ReferralResolverController } from "./referral-resolver.controller";
  *    and create a cycle. The repository and the service themselves now live in
  *    {@link ReferralLinksModule} (#1800), imported above, so ResumeModule can reach the
  *    résumé-QR mint without importing this module.
+ *
+ * AND (#2753 item 12):
+ *  - {@link WorkerOriginRepository} — the came-from row (`worker_origins`) the attribution writes
+ *    after a successful worker or agency attribution.
+ *  - {@link ReferralHelperController} (`GET /referrals/helper`) + its service and repository —
+ *    the agency's company name for the pre-code screen, behind REFERRAL_HELPER_NAME_ENABLED
+ *    (off: a 404). Owner approval before it goes on.
  */
 @Module({
   imports: [
@@ -64,13 +76,23 @@ import { ReferralResolverController } from "./referral-resolver.controller";
     // #1800 — ReferralLinkRepository + ReferralLinkService (and the résumé-QR mint), extracted so
     // ResumeModule can reach the mint without importing this module. One instance each.
     ReferralLinksModule,
+    // #2753 - WorkerActivityService for the interceptor below (the IST-day write). A leaf module.
+    WorkerActivityModule,
     // The bonus-evaluation queue — consumed by ReferralBonusProcessor below, produced by
     // ProfilesService (confirm) and UnlocksService (grant).
     BullModule.registerQueue({ name: REFERRAL_BONUS_QUEUE }),
   ],
-  controllers: [ReferralAttributionController, ReferralBonusController, ReferralResolverController],
+  controllers: [
+    ReferralAttributionController,
+    ReferralBonusController,
+    ReferralResolverController,
+    ReferralHelperController,
+  ],
   providers: [
     ReferralAttributionService,
+    WorkerOriginRepository,
+    ReferralHelperNameService,
+    ReferralHelperNameRepository,
     ReferralBonusService,
     ReferralBonusRepository,
     ReferralBonusProcessor,

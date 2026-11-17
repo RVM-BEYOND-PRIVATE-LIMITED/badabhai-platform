@@ -144,6 +144,11 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   qp_conventional_machining: { skillId: "mskill_conventional_machinist", levelKey: "machining_level" },
   // Track B #5 — the sheet-metal operator (CEO Launch Plan Pack v1,
   // sheet 10). No union extension either. Supervisor by rule.
+  // #2753 item 1 (@3) — the @2 "Senior / Programmer" chip is split: `senior`
+  // and `programmer` are separate rungs (helper < operator < skilled < senior
+  // < programmer < supervisor). Still no union extension: `programmer` is a
+  // member (confirmed, Higher), and the shared labels print "Senior" and
+  // "Programmer". Stored @2 `senior` answers keep printing "Senior".
   qp_sheet_metal_fab: { skillId: "mskill_sheet_metal_worker", levelKey: "sheet_metal_level" },
   // Track B #6 — the assembly technician (CEO Launch Plan Pack v1,
   // sheet 11). Display name "Assembly Technician"; key unchanged. No union
@@ -516,9 +521,14 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   },
   // Track B #5 — the sheet-metal confirms (CEO Launch Plan Pack v1, sheet 10).
   // Confirmed from `skilled`: skilled, senior; supervisor by rule.
+  // #2753 item 1 (@3) — `programmer` is the rung above `senior` and has no sheet
+  // question of its own, so the standing owner rule (2026-11-03) asks it the
+  // senior's one question, which is the programmer's evidence anyway ("Nesting /
+  // press-brake program khud banate ho?").
   qp_sheet_metal_fab: {
     skilled: "sheet_skilled_confirm",
     senior: "sheet_senior_confirm",
+    programmer: "sheet_senior_confirm",
   },
   // Track B #6 — the assembly confirms (CEO Launch Plan Pack v1, sheet 11).
   // Confirmed from `skilled`: skilled, senior (team count); supervisor by rule.

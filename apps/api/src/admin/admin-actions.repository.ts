@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
   type Database,
@@ -7,10 +7,10 @@ import {
   type WorkerFlag,
   type WorkerFlagReasonCode,
   auditLogs,
-  creditLedger,
+  grantCreditsWithinTx,
   jobPostings,
   jobs,
-  payerCredits,
+  lotAlignmentWarning,
   payers,
   workerFlags,
   workers,
@@ -46,6 +46,13 @@ export interface GrantCreditsResult {
  */
 @Injectable()
 export class AdminActionsRepository {
+  /**
+   * #2749 — the one log line this repository writes, at ERROR: a wallet whose lots the
+   * credit-wallet helper re-aligned with its balance during a grant (ids and numbers only; the
+   * state of its own write). It should never fire after the 0174 apply-to-deploy window.
+   */
+  private readonly walletLog = new Logger("CreditWallet");
+
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /**
@@ -254,12 +261,16 @@ export class AdminActionsRepository {
    * the ledger row + balance (the SoR) — NEVER in the event. Returns the new balance + the
    * opaque ledger row id (the audit target). The CHECK (balance >= 0) holds (a grant is +ve).
    *
-   * EXACTLY-ONCE (H2): the ledger insert is `ON CONFLICT (idempotency_key) DO NOTHING` and the
-   * balance is bumped ONLY when a NEW ledger row was actually inserted. So a retry with the SAME
-   * `idempotencyKey` inserts NO second row and moves the balance ZERO times — `applied:false`,
-   * the existing balance + ledger id are returned. A genuinely new grant (new key) = one row +
-   * one balance move = `applied:true`. The order (ledger first, then balance) is what binds the
-   * dedup to the balance — there is no path where the balance moves without a new ledger row.
+   * #2749 — through `grantCreditsWithinTx` (packages/db credit-wallet.ts): the grant is a
+   * `goodwill` lot that never expires, ONE `grant` ledger line naming it, and the balance, all
+   * under the wallet row lock (wallet row → lots → ledger, the one lock order). The wallet is the
+   * payer id the admin route names (a named §4 exception, ADR-0053: ops address an account).
+   *
+   * EXACTLY-ONCE (H2): the key is checked UNDER THE WALLET LOCK — a retry with the SAME
+   * `idempotencyKey` finds its ledger line and writes nothing (no lot, no balance move):
+   * `applied:false`, the existing balance + ledger id are returned. A genuinely new grant (new
+   * key) = one lot + one line + one balance move = `applied:true`. `credit_ledger_idempotency_key_uq`
+   * stays the backstop: the same key on ANOTHER payer violates it and the transaction rolls back.
    *
    * `tx` lets a CALLER run this inside its own transaction (H3) so the SoR write + the event
    * emit commit atomically; default opens its own tx.
@@ -272,44 +283,19 @@ export class AdminActionsRepository {
   ): Promise<GrantCreditsResult> {
     const run = <T>(cb: (e: Database) => Promise<T>): Promise<T> =>
       tx ? cb(tx) : this.db.transaction(cb as (e: unknown) => Promise<T>);
-    return run(async (tx) => {
-      // 1) Append the ledger movement, deduped on the opaque idempotency key. A replay of the
-      //    same key inserts NO row and returns nothing (the SoR is the dedup authority).
-      const [ledger] = await tx
-        .insert(creditLedger)
-        .values({ payerId, delta: amount, reason: "grant", idempotencyKey })
-        .onConflictDoNothing({ target: creditLedger.idempotencyKey })
-        .returning({ id: creditLedger.id });
-
-      if (!ledger) {
-        // Idempotent replay: the row already exists. Do NOT touch the balance. Return the
-        // existing (already-applied) ledger id + the current balance.
-        const [existingLedger] = await tx
-          .select({ id: creditLedger.id })
-          .from(creditLedger)
-          .where(eq(creditLedger.idempotencyKey, idempotencyKey))
-          .limit(1);
-        const [cur] = await tx
-          .select({ balance: payerCredits.balance })
-          .from(payerCredits)
-          .where(eq(payerCredits.payerId, payerId))
-          .limit(1);
-        if (!existingLedger) throw new Error("Failed to resolve idempotent credit grant");
-        return { ledgerId: existingLedger.id, balance: cur?.balance ?? 0, applied: false };
-      }
-
-      // 2) A new ledger row WAS inserted → move the balance exactly once.
-      const [bal] = await tx
-        .insert(payerCredits)
-        .values({ payerId, balance: amount })
-        .onConflictDoUpdate({
-          target: payerCredits.payerId,
-          set: { balance: sql`${payerCredits.balance} + ${amount}`, updatedAt: sql`now()` },
-        })
-        .returning({ balance: payerCredits.balance });
-      if (!bal) throw new Error("Failed to grant credits");
-      return { ledgerId: ledger.id, balance: bal.balance, applied: true };
-    });
+    const grant = await run((e) =>
+      grantCreditsWithinTx(e, {
+        payerId,
+        credits: amount,
+        lot: { source: "goodwill", expiresAt: null },
+        ledger: { reason: "grant", idempotencyKey },
+      }),
+    );
+    // ERROR, not warn: after the 0174 apply-to-deploy window a realignment means some writer
+    // moved a balance without the wallet helpers (the self-heal stays; see credit-wallet.ts).
+    const realigned = lotAlignmentWarning(payerId, grant.alignment);
+    if (realigned !== null) this.walletLog.error(realigned);
+    return { ledgerId: grant.ledgerId, balance: grant.balanceAfter, applied: grant.applied };
   }
 
   // ----- job_postings.status (force close) ----------------------------------

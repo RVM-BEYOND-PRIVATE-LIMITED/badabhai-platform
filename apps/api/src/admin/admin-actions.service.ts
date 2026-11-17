@@ -31,6 +31,13 @@ import type {
 
 import { ADMIN_ACTION_CODES, type AdminActionCode } from "./admin-action-codes";
 import { isBarredPayerStatus } from "../payers/payer-barred-status";
+import { constraintOf, isUniqueViolation } from "../common/db-error";
+
+/**
+ * #2749 — the ledger's exactly-once key. A grant key already used for ANOTHER payer violates it
+ * (the same payer's replay is caught under the wallet lock and is a no-op, not an error).
+ */
+const LEDGER_IDEMPOTENCY_KEY_INDEX = "credit_ledger_idempotency_key_uq";
 export { ADMIN_ACTION_CODES } from "./admin-action-codes";
 export type { AdminActionCode } from "./admin-action-codes";
 
@@ -349,24 +356,34 @@ export class AdminActionsService {
     if (isBarredPayerStatus(payer.status)) {
       throw new ConflictException(`Payer is ${payer.status}; credits cannot be granted`);
     }
-    const result = await this.actions.withTransaction(async (tx) => {
-      const grant = await this.actions.grantCredits(payerId, dto.amount, dto.idempotency_key, tx);
-      // Emit ONLY when the grant actually applied (a new ledger row). A deduped replay
-      // (`applied:false`) emits nothing — and the event is keyed on the SAME value, so even if it
-      // were re-attempted the spine would dedup to ONE row. No divergence in any case.
-      if (grant.applied) {
-        await this.emitAction(
-          adminId,
-          ADMIN_ACTION_CODES.credits_granted,
-          "payer",
-          payerId,
-          ctx,
-          tx,
-          dto.idempotency_key,
-        );
-      }
-      return grant;
-    });
+    const result = await this.actions
+      .withTransaction(async (tx) => {
+        const grant = await this.actions.grantCredits(payerId, dto.amount, dto.idempotency_key, tx);
+        // Emit ONLY when the grant actually applied (a new ledger row). A deduped replay
+        // (`applied:false`) emits nothing — and the event is keyed on the SAME value, so even if it
+        // were re-attempted the spine would dedup to ONE row. No divergence in any case.
+        if (grant.applied) {
+          await this.emitAction(
+            adminId,
+            ADMIN_ACTION_CODES.credits_granted,
+            "payer",
+            payerId,
+            ctx,
+            tx,
+            dto.idempotency_key,
+          );
+        }
+        return grant;
+      })
+      .catch((err: unknown) => {
+        // #2749 — the key was already spent on a grant to a DIFFERENT payer: the transaction
+        // rolled back (no lot, no line, no balance, no event). A client bug, answered 409 like
+        // the module's other conflicts rather than as a 500.
+        if (isUniqueViolation(err) && constraintOf(err) === LEDGER_IDEMPOTENCY_KEY_INDEX) {
+          throw new ConflictException("idempotency_key was already used for another payer");
+        }
+        throw err;
+      });
     return {
       target_id: payerId,
       changed: result.applied,

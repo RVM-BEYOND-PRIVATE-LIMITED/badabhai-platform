@@ -17,6 +17,7 @@ import type { BadaBhaiEvent, EventName } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { EventsRepository } from "../events/events.repository";
 import { EventsService, type EmitParams } from "../events/events.service";
+import { FeaturePilotSubjectsRepository } from "../feature-rollout/feature-pilot-subjects.repository";
 import { FeaturePilotRepository } from "../feature-rollout/feature-pilot.repository";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import type { PayerCreateJobPostingWithAudienceDto } from "../job-postings/job-postings.dto";
@@ -205,7 +206,11 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     return new CampusPostingReviewService(
       new CampusPostingReviewRepository(client.db),
       new PostingAudienceRepository(client.db),
-      new FeatureRolloutService(config, new FeaturePilotRepository(client.db)),
+      new FeatureRolloutService(
+        config,
+        new FeaturePilotRepository(client.db),
+        new FeaturePilotSubjectsRepository(client.db),
+      ),
       tenancy,
       eventsImpl,
     );

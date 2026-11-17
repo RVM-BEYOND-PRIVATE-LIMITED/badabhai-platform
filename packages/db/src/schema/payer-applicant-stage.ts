@@ -58,7 +58,10 @@ export const payerApplicantStages = pgTable(
     workerId: uuid("worker_id")
       .notNull()
       .references(() => workers.id, { onDelete: "cascade" }),
-    /** One of `APPLICANT_STAGES`. `new` is stored only for a row moved back to New. */
+    /**
+     * One of `APPLICANT_STAGES`. `new` is stored only for a row moved back to New; `selected` and
+     * `hired` (#2747, migration 0166) only while the outcome switch is on for the company.
+     */
     stage: text("stage").$type<ApplicantStage>().notNull(),
     /** The acting login who made the CURRENT stage (ADR-0053 §3.1). No FK; never an access rule. */
     actorPayerId: uuid("actor_payer_id").notNull(),
@@ -79,7 +82,11 @@ export const payerApplicantStages = pgTable(
       "payer_applicant_stages_posting_kind_chk",
       sql`${t.postingKind} IN ('company_posting', 'agency_job')`,
     ),
-    check("payer_applicant_stages_stage_chk", sql`${t.stage} IN ('new', 'shortlist', 'passed')`),
+    // #2747 (migration 0166): widened with the outcome stages `selected` and `hired`.
+    check(
+      "payer_applicant_stages_stage_chk",
+      sql`${t.stage} IN ('new', 'shortlist', 'passed', 'selected', 'hired')`,
+    ),
   ],
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0134
 

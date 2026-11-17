@@ -391,6 +391,20 @@ export const serverEnvSchema = z.object({
   //
   // DEFAULT OFF = today's behaviour exactly: a typed tenure answer resolves no gate.
   FORM_TYPED_TENURE_DERIVE_ENABLED: booleanFromString,
+  // #2753 item 2 — a trade form's experience band becomes `worker_skill.months_bucketed`. A form
+  // worker has no profile row, so every skill he derives reads 0 months ("not recorded" to search)
+  // although the form asked him a band. ON gives each skill a form derived that form's band years
+  // (fresher 0, under one 0, 1–3 → 2, 3–5 → 4, 5–10 → 7, over 10 → 12) through the existing
+  // bucketing, so 3–5 years reads 48 months. A typed tenure counts only with
+  // FORM_TYPED_TENURE_DERIVE_ENABLED on too. FILL, NEVER OVERRIDE: a profile's own total_years
+  // keeps exactly today's months. Read by BOTH writers of worker_skill — the live rebuild and
+  // `db:backfill:worker-skills`, which reads this same name from its own environment.
+  //
+  // DEFAULT OFF = today's derivation byte for byte, and no extra query. It changes RANK INPUTS for
+  // every existing form worker (search order, new application snapshots, tier promotion at
+  // `tier_floor_months`), so switching it on waits for the owner's `engine_version` ruling
+  // (ADR-0036) and is followed by `db:backfill:worker-skills --apply` then `db:materialize:reach`.
+  FORM_TENURE_MONTHS_ENABLED: booleanFromString,
   // RÉSUMÉ SKINS (#1801, owner ruling 2026-09-28 "Plumbing, Neela only") — the per-worker colour
   // skin of the `bb_trade` sheet, chosen through GET/PUT /resume/skin.
   //
@@ -513,6 +527,17 @@ export const serverEnvSchema = z.object({
   // uncapped one lets an authed worker spam attribution reads (DB-load + a timing probe) —
   // bb-security-review LOW-MED. Same fail-closed idiom (Redis outage → 429, never uncapped).
   REFERRAL_ATTRIBUTE_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // THE HELPER'S NAME BEFORE SIGN-IN (#2753 item 12, brief 9). On, the unauthenticated
+  // `GET /referrals/helper?code=` answers `{ display_name }`: the agency's COMPANY name for a live
+  // agency code, null for every other code (a worker referrer's, unknown, expired, malformed),
+  // never a worker's name. It is capped per address with the attribute route's limiter and cap
+  // above, in its own bucket.
+  //
+  // DEFAULT OFF, AND OFF IS A 404 THAT READS NOTHING. NEEDS THE OWNER'S OK BEFORE IT GOES ON: it
+  // reverses the no-oracle rule of `POST /referrals/attribute` (a worker learns neither whether a
+  // code is valid nor who invited him) and opens a code-to-name lookup to anyone. The screen's
+  // copy waits for a lawyer's check. No migration.
+  REFERRAL_HELPER_NAME_ENABLED: booleanFromString,
   // B4 — per-IP cap / rolling UTC hour on the PUBLIC `POST /invites/:code/click`. That URL
   // is about to be printed on QR codes at factory gates and handed to ~450 agents, which
   // makes it the most-scanned UNAUTHENTICATED endpoint we own; uncapped, it is a free
@@ -666,12 +691,41 @@ export const serverEnvSchema = z.object({
   //   JOB_AUDIENCE_ROLLOUT — who-sees-this-job (BadaBhai workers / RVM students / both),
   //     branch and course targeting, and the placement team's review of RVM jobs.
   //   CAMPUS_DRIVE_REQUESTS_ROLLOUT — a company asks RVM for a campus drive.
+  //   APPLICANT_FACTS_ROLLOUT (#2747) — the facts a company sees before paying: first name, trade
+  //     line, expected salary, machines, area and last-active day on the applicant and search
+  //     cards. Off, those keys are not sent (every row still carries its `source` label).
+  //   CONTACT_RULES_ROLLOUT (#2747) — what a credit opens: the contact stays open for good (no
+  //     14-day lapse, never charged twice), GET /payer/unlocks/:id/contact shows the full name and
+  //     phone, and the résumé prints the full name. Off, the route answers 404 and the 14-day
+  //     window applies; a contact opened while it was on stays open.
+  //   THEME_ROLLOUT (#2820) — who may use a theme other than the app's default (Light), for
+  //     every kind of login: a company by its tenant key in `feature_pilot_payers`, a worker or
+  //     an admin by id in `feature_pilot_subjects` (migration 0164). Closed, the display
+  //     preference answers `light` and saves nothing; a stored choice is kept, not honoured.
+  //   OUTCOME_STAGES_ROLLOUT (#2747) — a company marks an applicant `selected` or `hired` on the
+  //     board. Off, the stage route refuses both with the 400 it has always given an unknown
+  //     stage; a stored one is still read back. Needs migration 0166 applied first.
+  //   OUTBOUND_SIGNALS_ROLLOUT (#2747) — a selected or hired mark on an RVM student is sent to
+  //     RVM once (POST /internal/campus/selection-events). Off for the company, the mark is saved
+  //     and nothing is queued; off everywhere, the sender idles and queued rows wait. Needs
+  //     migration 0167 and the RVM_STUDENT_API_* settings.
   // Off, the new payer fields are ignored and the new routes answer 404. Campus's own routes
   // additionally need CAMPUS_LINK_ENABLED. A switch gates CAPABILITIES only: stored state (the
   // worker-path audience filter, the RVM review gate) is honoured whatever it says, so switching
   // back to off can never expose an RVM-only job to BadaBhai workers.
   JOB_AUDIENCE_ROLLOUT: featureRolloutMode,
   CAMPUS_DRIVE_REQUESTS_ROLLOUT: featureRolloutMode,
+  APPLICANT_FACTS_ROLLOUT: featureRolloutMode,
+  CONTACT_RULES_ROLLOUT: featureRolloutMode,
+  // #2768 (risk R85) — how many OPEN campus-drive requests (`requested` or `scheduled`) one
+  // company may hold at once. A new request above it is 409 `drive_request_limit_reached`;
+  // cancelled, declined and completed requests do not count. Owner ruling 15 Nov 2026: 3. Each
+  // request already covers up to 50 branches, so 3 is three separate asks waiting on the
+  // placement team. Empty reads as the default. Counted per tenant (the org under tenancy `on`).
+  CAMPUS_DRIVE_MAX_OPEN_REQUESTS: positiveIntFromString(3),
+  THEME_ROLLOUT: featureRolloutMode,
+  OUTCOME_STAGES_ROLLOUT: featureRolloutMode,
+  OUTBOUND_SIGNALS_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER
@@ -835,6 +889,18 @@ export const serverEnvSchema = z.object({
   // under-18 answer is refused WHATEVER this says — the flag only decides whether a missing
   // answer still passes. Arm only once the worker-app release that sends the answer is live.
   SIGNUP_AGE_GATE_ENABLED: booleanFromString,
+  // #2753 item 13 — where the full worker privacy notice is published. `GET /consent/notice`
+  // serves it beside the notice version, so the worker app (#2748) links to it instead of
+  // hard-coding it. Unset/empty (the default) serves `notice_url: null`: there is no published
+  // link yet, and none is invented here. `optionalSecret`, because compose passes an unset
+  // variable as "". https only: it opens in the worker's browser. A malformed value refuses boot
+  // (the deploy preflight refuses it first).
+  CONSENT_NOTICE_URL: optionalSecret(
+    z
+      .string()
+      .url()
+      .refine((raw) => new URL(raw).protocol === "https:", "must be an https URL"),
+  ),
   // Cadence (hours) of the deletion sweep that erases overdue rows. The DB marker is
   // authoritative — a missed run only delays erasure until the next sweep. Fractional
   // hours allowed for tests/staging (cadence precedent: PACE_WAVE_INTERVAL_HOURS).
@@ -952,6 +1018,20 @@ export const serverEnvSchema = z.object({
   // Per-tick cap on postings processed — a backlog drains across ticks, never one
   // unbounded run (same posture as RETENTION_BATCH_LIMIT).
   REACH_WIDEN_EXPIRY_BATCH_LIMIT: z.coerce.number().int().positive().default(100),
+
+  // ── #2749 item 4: the credit-lot EXPIRY sweep (migration 0174) ──
+  // Cadence (minutes) of the tick that closes every open lot past its `expires_at` with one
+  // `expired` ledger line (the spend path also expires a due lot before it spends). The predicate
+  // over `credit_lots` is authoritative, so a missed/duplicated tick only delays an expiry until
+  // the next one (or the wallet's next spend). Fractional minutes allowed for tests.
+  //
+  // NO enable / dry-run gate, deliberately: nothing in #2749 PR 1 writes an `expires_at` (packs
+  // gain their validity with the catalogue in PR 2, and legacy lots their date at the switch-over),
+  // so the sweep has nothing to do until the data says so — the restriction lives in the data.
+  CREDIT_LOT_EXPIRY_SWEEP_INTERVAL_MINUTES: z.coerce.number().positive().default(15),
+  // Per-tick cap on WALLETS processed (each in its own transaction) — a backlog drains across
+  // ticks, never one unbounded run (same posture as REACH_WIDEN_EXPIRY_BATCH_LIMIT).
+  CREDIT_LOT_EXPIRY_BATCH_LIMIT: z.coerce.number().int().positive().default(200),
 
   // ── LEARN label producer (migration 0091): spine events → training labels ──
   // Cadence (hours) of the sweep tick. The cursor + UNIQUE impression key in the store
@@ -1358,6 +1438,117 @@ export const serverEnvSchema = z.object({
   // APPLY-BEFORE-DEPLOY regardless (the apply snapshot writes its columns with the flag off too:
   // history not captured is gone), so the flag gates the SORT only, never the capture.
   LEVEL_NEEDED_SORT_ENABLED: booleanFromString,
+  // THE FOUR AVAILABILITY ANSWERS OF THE BRIEF (#2753 item 3): "can join now", "15 days",
+  // "30 days", "working, open to a better offer". On, `GET /workers/me/work-preferences/options`
+  // serves them as `availability_status` (keys join_now / in_15_days / in_30_days / working_open)
+  // in place of today's four, and every client renders what it is served.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S OPTIONS EXACTLY. The flag never narrows a write: the worker
+  // PUT, admin corrections and the chat edit layer accept BOTH sets either way (installed builds
+  // keep sending the old keys), and every reader labels a stored key of either set in its own
+  // words. No migration: the answer lives in the `availability` json attribute. Turn on with the
+  // app release that renders the served chips.
+  AVAILABILITY_ANSWERS_V2_ENABLED: booleanFromString,
+  // LAST ACTIVE, ONE DEFINITION (#2753 items 4 and 7). With it on, every signed-in worker request
+  // and every Campus application records the worker's IST day in `worker_activity` (migration
+  // 0168), and the API's one last-active read is the later of that table's newest day and his
+  // newest device sighting: the #2747 pre-pay fact `lastActiveOn`, the agency referred-workers
+  // list, and `notRecentlyActive` on every applicant, inbox and company search row.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: nothing reads or writes `worker_activity`, no row
+  // carries `notRecentlyActive`, and `lastActiveOn` is the device sighting as before. That is what
+  // makes 0168 apply-before-the-switch rather than apply-before-the-deploy. On without the table,
+  // nothing answers 500: the writes are lost and the reads fall back to the device day (42P01,
+  // one warning per process). The card's activity band, the search order and the `worker.active`
+  // event never read this switch.
+  WORKER_ACTIVITY_ENABLED: booleanFromString,
+  // The "not recently active" mark (#2753 item 7, owner default): a worker whose last active day is
+  // MORE than this many days before today (IST) is marked; day 90 is not, day 91 is. A mark only:
+  // nobody is hidden or re-sorted (owner question 3). Read only while WORKER_ACTIVITY_ENABLED is on.
+  NOT_RECENTLY_ACTIVE_DAYS: z.coerce.number().int().min(1).default(90),
+  // LEAVE COMPANY SEARCH (#2753 item 6). With it on, a worker can turn "companies can find me" off
+  // (`PUT /workers/me/search-visibility`): one `worker_search_exits` row takes him out of every
+  // company's candidate search, and only a company he applied to (or one already holding an open
+  // contact) can still open him. His consent is untouched.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the two worker routes are a plain 404, the search
+  // statement is byte-identical, the unlock path reads nothing, and NOTHING reads or writes
+  // `worker_search_exits`. Migration 0169 is APPLY-BEFORE-THE-SWITCH, but on before it nothing
+  // 500s: search and the unlock gate fail open (everyone visible) and the worker routes answer 503.
+  SEARCH_EXIT_ENABLED: booleanFromString,
+  // HIRE RECORDS (#2753 item 9) — `hires`, one record per company, worker and posting. With it on,
+  // a company's real move of an applicant INTO `hired` on its board confirms the record in the
+  // stage transaction, a move OUT takes back a mark nothing else confirmed, and `GET /admin/hires`
+  // lists the records. The company's follow-up answer and the worker's own answer write the same
+  // row when they ship.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S API EXACTLY: nothing reads or writes `hires`, the stage move
+  // is unchanged, and `GET /admin/hires` is a 404. Migration `hires` is APPLY-BEFORE-THE-SWITCH:
+  // on without it, a move into or out of `hired` fails (42P01) and rolls back.
+  HIRE_RECORDS_ENABLED: booleanFromString,
+  // THE PAY-ON-JOINING PILOT'S RECORD (#2753 item 11): an admin records each hire of the pilot
+  // (factory, job, worker, partner, joining date, 30-day check, fee, invoice and payment dates)
+  // through `GET` / `POST /admin/pay-on-joining-hires` and `PATCH …/:id`. A RECORD ONLY: nothing
+  // invoices, pays or picks a factory.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: every route is a neutral 404 before any query, and
+  // nothing reads or writes `pay_on_joining_hires`. Needs migration 0171 applied first.
+  PAY_ON_JOINING_RECORDS_ENABLED: booleanFromString,
+  // The partner's share of a pay-on-joining fee, in whole percent (0..100; BadaBhai keeps the
+  // rest). Default 70 (the pilot's terms). COPIED onto each hire when it is created, so changing
+  // it never rewrites a recorded hire; the share in paise is floor(fee * percent / 100). Empty
+  // reads as the default, for the `${VAR:-70}` compose idiom; anything else outside 0..100 (or
+  // not a whole number) fails boot, and the deploy preflight refuses it first.
+  POJ_PARTNER_SHARE_PERCENT: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    // `.default()` on the INNER schema, for the reason written out on `positiveIntFromString`.
+    z.coerce.number().int().min(0).max(100).default(70),
+  ),
+  // THE COMPANY FOLLOW-UP (#2753 item 10) — `unlock_outcomes`, one answer per opened contact. With
+  // it on, `GET /payer/unlock-outcomes/due` lists the company's contacts opened at least
+  // UNLOCK_FOLLOWUP_AFTER_DAYS ago with no answer (or a `still_talking` that old), and
+  // `POST /payer/unlocks/:unlockId/outcome` stores `hired` / `not_hired` / `still_talking`. A
+  // `hired` answer also confirms the hire record when HIRE_RECORDS_ENABLED is on and the unlock
+  // names a posting.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S API EXACTLY: both routes are a 404 and nothing reads or writes
+  // `unlock_outcomes`. Migration `unlock_outcomes` is APPLY-BEFORE-THE-SWITCH: on without it, the
+  // due list and every answer fail (42P01) and nothing is written.
+  UNLOCK_FOLLOWUP_ENABLED: booleanFromString,
+  // How long after the grant an opened contact is due for the follow-up, and how long a
+  // `still_talking` answer waits before it is due again. Whole days of 24 hours, at least 1 (owner
+  // question 4 default: 7). Empty reads as the default.
+  UNLOCK_FOLLOWUP_AFTER_DAYS: positiveIntFromString(7),
+  // Per-PAYER hourly cap on the follow-up ANSWER route, the stage route's analogue: every real
+  // change writes a row and an event. Its own bucket (scope "payer_unlock_outcome"), never the
+  // disclosure budget, so answering a long due list cannot lock a company out of opening contacts.
+  // Fail-closed (Redis down rejects).
+  PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR: z.coerce.number().int().positive().default(600),
+  // THE MONTHLY "STILL LOOKING?" CHECK (#2753 item 5) — `still_looking_checks`. With it on, a
+  // daily sweep opens one check for each active, consented worker whose last check is more than
+  // STILL_LOOKING_EVERY_DAYS old (or who has none) and emits `worker.still_looking_prompted` (the
+  // in-app card and the Alerts entry); `GET /workers/me/still-looking` says whether one is due and
+  // `POST` stores yes / not_now / hired in one transaction. "not now" takes him out of company
+  // search and "yes" brings him back, when SEARCH_EXIT_ENABLED is on.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: both routes are a 404, the sweep reads nothing, and
+  // nothing reads or writes `still_looking_checks`. Migration `still_looking_checks` is
+  // APPLY-BEFORE-THE-SWITCH: on without it, both routes answer 503 and the sweep opens nothing.
+  STILL_LOOKING_CHECK_ENABLED: booleanFromString,
+  // The monthly prompt's PUSH (#2753 item 5). Pushes only while STILL_LOOKING_CHECK_ENABLED is on
+  // as well; with this off the check still opens and the card and the Alerts entry still show,
+  // but nothing buzzes a phone. DEFAULT OFF, and it must stay off until the owner widens the
+  // ADR-0034 push ruling: it is a non-security push (it falls under PUSH_GLOBAL_MAX_SENDS_PER_DAY
+  // and the worker's own notifications toggle; security pushes stay exempt from both).
+  STILL_LOOKING_PUSH_ENABLED: booleanFromString,
+  // How often a worker is asked, in whole days of 24 hours, counted from his last check (the later
+  // of when it was opened and when he answered it). Default 30 ("check every 30 days"); at least 7,
+  // so a typo cannot turn the monthly prompt into a daily one. Empty reads as the default.
+  STILL_LOOKING_EVERY_DAYS: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    // `.default()` on the INNER schema, for the reason written out on `positiveIntFromString`.
+    z.coerce.number().int().min(7).default(30),
+  ),
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable

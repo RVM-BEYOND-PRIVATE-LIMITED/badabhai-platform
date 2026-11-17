@@ -35,6 +35,19 @@ describe("ReferralAttributionController — no-oracle + session-scoped id", () =
     await expect(ctrl.attribute(WORKER, { code: CODE }, IP)).resolves.toEqual({ ok: true });
   });
 
+  // #2753 item 12 — the came-from write happens inside the (un-awaited) service call, so the wire
+  // body stays byte-identical whatever the outcome: an attribution that wrote an origin, one that
+  // did not, and a no-op.
+  it.each([
+    { attributed: true, kind: "worker" },
+    { attributed: true, kind: "agency" },
+    { attributed: false, kind: "none" },
+  ])("the body is byte-identical {\"ok\":true} for %o (came-from, #2753 item 12)", async (outcome) => {
+    const { ctrl } = make(outcome);
+    const body = await ctrl.attribute(WORKER, { code: CODE }, IP);
+    expect(JSON.stringify(body)).toBe('{"ok":true}');
+  });
+
   it("dispatches the SESSION worker id (not any body id) + the code to the service", async () => {
     const { ctrl, service } = make({ attributed: true, kind: "agency" });
     await ctrl.attribute(WORKER, { code: CODE }, IP);

@@ -20,6 +20,7 @@
  */
 
 import { z } from "zod";
+import type { ServerConfig } from "@badabhai/config";
 import type { LanguageCode } from "@badabhai/types";
 
 /** Coarse notification type the client maps to an icon/tone. NOT the event name. */
@@ -35,6 +36,8 @@ export type NotificationType =
   // E0 item 5 — an inbound relay message. ADDITIVE on the wire: a client that does not
   // know this type must fall back to a default icon, not crash (see the FE issue).
   | "new_message"
+  // #2753 item 5 — the monthly "still looking?" prompt. ADDITIVE on the wire, like new_message.
+  | "still_looking"
   | "security";
 
 /** Static copy for one language — title + body, never interpolated. */
@@ -62,6 +65,29 @@ interface NotificationTemplate {
    * quiet start is the right posture for a channel that buzzes a worker's phone.
    */
   push: boolean;
+  /**
+   * #2753 item 5 — config switches the push ALSO needs, each `true` at delivery time. It can only
+   * NARROW `push`, never widen it: a template with `push: false` never pushes whatever its switches
+   * say, so the static map below stays the one allowlist. Absent means no switch (the security
+   * alerts and the correction notices push whenever `push` says so).
+   */
+  pushRequires?: readonly PushSwitch[];
+}
+
+/** The config switches a template may make its push depend on (booleans in ServerConfig). */
+export type PushSwitch = "STILL_LOOKING_CHECK_ENABLED" | "STILL_LOOKING_PUSH_ENABLED";
+
+/**
+ * Does this template push NOW? `push` (the static allowlist) AND every switch in `pushRequires` on.
+ * The consumer (`PushService.deliver`) asks this, so a queued job whose switch went off after it
+ * was enqueued is refused too. A missing config object counts every switch as off.
+ */
+export function templatePushes(
+  template: NotificationTemplate,
+  config: Partial<Pick<ServerConfig, PushSwitch>> | undefined,
+): boolean {
+  if (!template.push) return false;
+  return (template.pushRequires ?? []).every((key) => config?.[key] === true);
 }
 
 /** Select the best available copy for a language. Falls back: requested → en → first. */
@@ -243,6 +269,25 @@ export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplat
       en: { title: "Profile updated", body: "Your profile has been updated — view it." },
     },
     push: true,
+  },
+  // #2753 item 5 — worker.still_looking_prompted: the monthly check opened a card for him.
+  // actor=system, subject=worker, worker_id in payload. Faceless and static like every entry
+  // here; it names no job, company or pay. THE FIRST NON-SECURITY PUSH OUTSIDE ADR-0062, so it
+  // pushes only with BOTH switches on, and STILL_LOOKING_PUSH_ENABLED stays off until the owner
+  // widens the ADR-0034 ruling. Not security-typed: it falls under the numeric daily ceiling and
+  // the worker's own notifications toggle (security pushes stay exempt from both). The Alerts
+  // entry follows the feed's rules whatever the push switch says.
+  "worker.still_looking_prompted": {
+    type: "still_looking",
+    copy: {
+      hi: {
+        title: "Kya aap abhi bhi kaam dhoondh rahe hain?",
+        body: "Ek tap mein batayein.",
+      },
+      en: { title: "Still looking for work?", body: "Tell us in one tap." },
+    },
+    push: true,
+    pushRequires: ["STILL_LOOKING_CHECK_ENABLED", "STILL_LOOKING_PUSH_ENABLED"],
   },
 };
 

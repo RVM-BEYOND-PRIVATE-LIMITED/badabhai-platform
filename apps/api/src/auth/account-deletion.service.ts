@@ -639,6 +639,14 @@ export class AccountDeletionService {
       },
     };
     const eventInTx = this.config.ACCOUNT_DELETION_EVENT_IN_TX === true;
+    // #2753 item 13 — ONE record per erased worker, on both paths. The sweep's claim
+    // (`claimDueDeletion`) touches a timestamp and locks nothing, so two runs can both pass the
+    // `findById` above for the same worker: two ticks, or the sweep beside the QA seam. Each then
+    // reaches its emit with its own counts. Unkeyed, the switch-off path wrote one event per run;
+    // keyed, the second insert is a no-op at the events table (`ON CONFLICT DO NOTHING`). The
+    // key is the switch-on path's own, so a flip between two runs cannot double it either. A
+    // worker id is never reused, so "once per worker" loses nothing.
+    const deletedEventKey = `worker.account_deleted:${workerId}`;
 
     // 3. Hard-delete the workers row (transactional cascade). This is the atomic PII removal.
     // A false return means a concurrent run already deleted it — still proceed to tombstone +
@@ -651,11 +659,7 @@ export class AccountDeletionService {
     const deleted = eventInTx
       ? await this.workers.hardDelete(workerId, {
           inTx: async (tx) => {
-            await this.events.emit({
-              ...deletedEvent,
-              tx,
-              idempotencyKey: `worker.account_deleted:${workerId}`,
-            });
+            await this.events.emit({ ...deletedEvent, tx, idempotencyKey: deletedEventKey });
           },
         })
       : await this.workers.hardDelete(workerId);
@@ -726,9 +730,10 @@ export class AccountDeletionService {
     }
 
     // 5. Emit the durable, PII-FREE deletion record AFTER the DB delete (actor_id is opaque,
-    // no FK to the gone row) — today's path. With ACCOUNT_DELETION_EVENT_IN_TX it was already
-    // written at step 3, on the delete's own transaction, so nothing is written here.
-    if (!eventInTx) await this.events.emit(deletedEvent);
+    // no FK to the gone row) — today's path, keyed (see `deletedEventKey`). With
+    // ACCOUNT_DELETION_EVENT_IN_TX it was already written at step 3, on the delete's own
+    // transaction, so nothing is written here.
+    if (!eventInTx) await this.events.emit({ ...deletedEvent, idempotencyKey: deletedEventKey });
 
     // "COMPLETE" IS NO LONGER UNCONDITIONAL (#712). This line read `account deletion complete …
     // storage_failed=2` — the word a reader scans for, asserting success, beside the number that

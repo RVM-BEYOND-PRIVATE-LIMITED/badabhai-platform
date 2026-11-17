@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { APPLICANT_POSTING_KINDS, APPLICANT_STAGES } from "@badabhai/types";
+import {
+  APPLICANT_OUTCOME_STAGES,
+  APPLICANT_POSTING_KINDS,
+  APPLICANT_STAGES,
+  APPLICANT_STAGES_V1,
+} from "@badabhai/types";
 
 import { createEvent, EVENT_REGISTRY, isEventName, validateEvent } from "./index";
 
@@ -60,8 +65,8 @@ describe("payer.applicant_stage_changed", () => {
   it("validates every real transition, for both posting kinds", () => {
     let validated = 0;
     for (const posting_kind of APPLICANT_POSTING_KINDS) {
-      for (const stage of APPLICANT_STAGES) {
-        for (const previous_stage of APPLICANT_STAGES) {
+      for (const stage of APPLICANT_STAGES_V1) {
+        for (const previous_stage of APPLICANT_STAGES_V1) {
           if (stage === previous_stage) continue;
           const payload = { posting_kind, stage, previous_stage };
           const parsed = stageChangedEvent(payload);
@@ -79,7 +84,7 @@ describe("payer.applicant_stage_changed", () => {
   });
 
   it("refuses a non-change — an unchanged stage is never an event", () => {
-    for (const stage of APPLICANT_STAGES) {
+    for (const stage of APPLICANT_STAGES_V1) {
       const result = validateEvent(stageChangedEvent({ stage, previous_stage: stage }));
       expect(result.success, stage).toBe(false);
       if (!result.success) expect(result.error.stage).toBe("payload");
@@ -95,9 +100,11 @@ describe("payer.applicant_stage_changed", () => {
       "worker_id",
     ]);
     expect(SHAPE.posting_kind!.options).toEqual([...APPLICANT_POSTING_KINDS]);
-    expect(SHAPE.stage!.options).toEqual([...APPLICANT_STAGES]);
-    expect(SHAPE.previous_stage!.options).toEqual([...APPLICANT_STAGES]);
+    expect(SHAPE.stage!.options).toEqual([...APPLICANT_STAGES_V1]);
+    expect(SHAPE.previous_stage!.options).toEqual([...APPLICANT_STAGES_V1]);
+    // FROZEN (#2747): widening APPLICANT_STAGES never changes v1; the outcome stages are v2.
     expect(SHAPE.stage!.options).toEqual(["new", "shortlist", "passed"]);
+    expect(SHAPE.previous_stage!.options).toEqual(["new", "shortlist", "passed"]);
   });
 
   it("is STRICT — a payer id, a title, a note or any value cannot ride along", () => {
@@ -124,6 +131,9 @@ describe("payer.applicant_stage_changed", () => {
       { stage: "Shortlist" },
       { stage: "" },
       { previous_stage: "hired" },
+      { stage: "selected" },
+      { stage: "hired" },
+      { previous_stage: "selected" },
       { previous_stage: null },
       { posting_kind: "job" },
       { posting_kind: "posting" },
@@ -153,6 +163,97 @@ describe("payer.applicant_stage_changed", () => {
 
   it("rejects the event under any version but 1", () => {
     const result = validateEvent({ ...stageChangedEvent(), event_version: 2 });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.stage).toBe("version");
+  });
+});
+
+/**
+ * `payer.applicant_stage_changed_v2` (#2747 item 7): the same move on the board widened with the
+ * outcome stages. v2 exactly when either stage is `selected` or `hired`, so v1 and v2 never report
+ * the same move.
+ */
+function stageChangedV2Event(over: Record<string, unknown> = {}): Record<string, unknown> {
+  const base = stageChangedEvent({ stage: "selected", previous_stage: "shortlist", ...over });
+  return { ...base, event_name: "payer.applicant_stage_changed_v2", event_version: 2 };
+}
+
+const SHAPE_V2 = (
+  EVENT_REGISTRY["payer.applicant_stage_changed_v2"].payload as unknown as {
+    shape: Record<string, { options: readonly unknown[] }>;
+  }
+).shape;
+
+describe("payer.applicant_stage_changed_v2", () => {
+  it("is registered as a version-2 payer-domain event", () => {
+    expect(isEventName("payer.applicant_stage_changed_v2")).toBe(true);
+    expect(EVENT_REGISTRY["payer.applicant_stage_changed_v2"]).toMatchObject({
+      version: 2,
+      domain: "payer",
+    });
+  });
+
+  it("validates every move to or from an outcome stage, for both posting kinds", () => {
+    let validated = 0;
+    for (const posting_kind of APPLICANT_POSTING_KINDS) {
+      for (const stage of APPLICANT_STAGES) {
+        for (const previous_stage of APPLICANT_STAGES) {
+          if (stage === previous_stage) continue;
+          const outcome =
+            (APPLICANT_OUTCOME_STAGES as readonly string[]).includes(stage) ||
+            (APPLICANT_OUTCOME_STAGES as readonly string[]).includes(previous_stage);
+          if (!outcome) continue;
+          const payload = { posting_kind, stage, previous_stage };
+          const parsed = stageChangedV2Event(payload);
+          expect(validateEvent(parsed).success, JSON.stringify(payload)).toBe(true);
+          expect(createEvent(parsed as never).payload).toEqual({
+            posting_id: POSTING,
+            worker_id: WORKER,
+            ...payload,
+          });
+          validated += 1;
+        }
+      }
+    }
+    // 5 stages = 20 ordered pairs, 6 of them between the first three: 14 per kind.
+    expect(validated).toBe(28);
+  });
+
+  it("refuses a move between the first three stages: that is v1", () => {
+    for (const stage of APPLICANT_STAGES_V1) {
+      for (const previous_stage of APPLICANT_STAGES_V1) {
+        if (stage === previous_stage) continue;
+        const result = validateEvent(stageChangedV2Event({ stage, previous_stage }));
+        expect(result.success, `${previous_stage}→${stage}`).toBe(false);
+        if (!result.success) expect(result.error.stage).toBe("payload");
+      }
+    }
+  });
+
+  it("refuses a non-change", () => {
+    for (const stage of APPLICANT_OUTCOME_STAGES) {
+      const result = validateEvent(stageChangedV2Event({ stage, previous_stage: stage }));
+      expect(result.success, stage).toBe(false);
+    }
+  });
+
+  it("pins the payload SHAPE: v1's fields, with both stages over the wide set", () => {
+    expect(Object.keys(SHAPE_V2).sort()).toEqual(Object.keys(SHAPE).sort());
+    expect(SHAPE_V2.stage!.options).toEqual([...APPLICANT_STAGES]);
+    expect(SHAPE_V2.previous_stage!.options).toEqual([...APPLICANT_STAGES]);
+    expect(SHAPE_V2.stage!.options).toEqual(["new", "shortlist", "passed", "selected", "hired"]);
+  });
+
+  it("is STRICT — a payer id, a note or a name cannot ride along", () => {
+    for (const smuggled of ["payer_id", "note", "full_name", "phone", "student_ref"]) {
+      const result = validateEvent(stageChangedV2Event({ [smuggled]: "x" }));
+      expect(result.success, smuggled).toBe(false);
+      if (!result.success) expect(result.error.stage).toBe("payload");
+    }
+  });
+
+  it("rejects the event under any version but 2", () => {
+    const result = validateEvent({ ...stageChangedV2Event(), event_version: 1 });
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.stage).toBe("version");
   });
