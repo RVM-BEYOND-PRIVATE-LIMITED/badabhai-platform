@@ -400,6 +400,9 @@ export const financeSummarySchema = z.object({
   paid_orders: z.object({ count: z.number(), credits: z.number(), amount_inr: z.number() }),
   unsettled_orders: z.object({ count: z.number(), amount_inr: z.number() }),
   failed_orders: z.object({ count: z.number() }),
+  // #2749 — captured but not granted (amount mismatch), parked for ops. Optional: an API build
+  // from before it sends none.
+  held_orders: z.object({ count: z.number(), amount_inr: z.number() }).optional(),
   top_balances: z.array(topBalanceRowSchema),
 });
 export type FinanceSummary = z.infer<typeof financeSummarySchema>;
@@ -421,11 +424,15 @@ export const orderRowSchema = z.object({
   id: z.string(),
   payer_id: z.string(),
   payer_role: payerRoleRefSchema,
-  pack_code: z.string(),
+  // Nullable since migration 0175 (a non-pack order, #2751); every credit-pack order names one.
+  pack_code: z.string().nullable(),
   amount_inr: z.number(),
+  // #2749 — the same total in paise; null before 0175, absent from an older API build.
+  total_paise: z.number().nullable().optional(),
   credits_granted: z.number(),
   provider: z.string(),
-  status: z.enum(["created", "paid", "failed"]),
+  // #2749 adds `held`: the capture did not match the order total; nothing was granted.
+  status: z.enum(["created", "paid", "failed", "held"]),
   created_at: z.string(),
   updated_at: z.string(),
 });
