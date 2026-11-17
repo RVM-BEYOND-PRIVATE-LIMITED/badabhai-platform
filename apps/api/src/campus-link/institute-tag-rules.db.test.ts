@@ -12,6 +12,7 @@ import {
   workerInstituteLinks,
   workerSkills,
   workers,
+  materializeJobReachWithin,
   type DbClient,
 } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
@@ -28,6 +29,13 @@ import { InstituteAiGate, InstituteAiRefusedError } from "./institute-ai-gate.se
 import { InstituteLinkRepository } from "./institute-link.repository";
 import { InstituteLinkService } from "./institute-link.service";
 import { InstituteOpenGate } from "./institute-open-gate.service";
+import { WorkerSkillsRepository } from "../match/worker-skills.repository";
+import { consentAcceptedFrom } from "../consent/consent-flag";
+import { recordImportedConsent } from "../student-move/imported-consent";
+import {
+  markWorkerEditedWithin,
+  WorkerFieldSourcesRepository,
+} from "../student-move/worker-field-sources";
 import {
   RvmStudentApiUnavailableError,
   type RvmStudentApiClient,
@@ -589,5 +597,149 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
       await links.unlinkStudent(ref, "campus_request", CTX);
       expect(await search.findCardRow(own.id)).not.toBeNull();
     });
+  });
+});
+
+/**
+ * #2887 — moved students against real Postgres: a hidden one is reached by no posting (always, once the
+ * table exists) and is out of company search (STUDENT_MOVE_ENABLED on); one an admin made visible is reached and searchable like
+ * any worker; a worker who was never moved is untouched. Plus the field marker and the imported
+ * consent row.
+ */
+describe.skipIf(!RUN)("#2887 moved students — reach, search, markers, consent", () => {
+  let client: ReturnType<typeof createDbClient>;
+  const SKILL = "mskill_cnc_turner";
+  const MFG = "ind_industrial_manufacturing";
+  const T = randomUUID().slice(0, 8);
+  const COMPANY = randomUUID();
+  const POSTING = randomUUID();
+  const HIDDEN = randomUUID();
+  const VISIBLE = randomUUID();
+  const NEVER = randomUUID();
+  const workersAll = [HIDDEN, VISIBLE, NEVER];
+  let batchId: string;
+  const on = { STUDENT_MOVE_ENABLED: true };
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL, { max: 4 });
+    const { sql } = client;
+    await sql`
+      INSERT INTO skill (skill_id, label_en, domain_id, source, status, kind, industry_id)
+      VALUES (${SKILL}, 'CNC Turner', 'cnc-machining', 'rvm', 'active', 'match_skill', ${MFG})
+      ON CONFLICT (skill_id) DO NOTHING`;
+    await sql`
+      INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+      VALUES (${COMPANY}::uuid, 'employer', ${`enc:2887-${T}`}, ${`hash:2887-${T}`},
+              ${`enc:co-${T}`}, 'active')`;
+    await sql`
+      INSERT INTO job_postings
+        (id, created_by, payer_id, org_label, role_title, vacancy_band, status, verification_status,
+         match_skill_ids, reach_skill_ids)
+      VALUES (${POSTING}::uuid, ${COMPANY}::uuid, ${COMPANY}::uuid, 'Move Co', 'CNC Turner', '1',
+              'open', 'verified', ${JSON.stringify([SKILL])}::jsonb, ${JSON.stringify([SKILL])}::jsonb)`;
+    const [batch] = await sql<{ id: string }[]>`
+      INSERT INTO student_import_batches (source, label) VALUES ('campus', ${`test ${T}`})
+      RETURNING id`;
+    batchId = batch!.id;
+    for (const id of workersAll) {
+      await sql`
+        INSERT INTO workers (id, phone_e164, phone_hash, status)
+        VALUES (${id}::uuid, ${`enc:2887-${T}-${id}`}, ${`hash:2887-${T}-${id}`}, 'pending')`;
+      await sql`
+        INSERT INTO worker_skill (worker_id, skill_id, industry_id, months_bucketed, wants, source)
+        VALUES (${id}::uuid, ${SKILL}, ${MFG}, 24, true, 'ops')`;
+      await client.db.transaction((tx) =>
+        recordImportedConsent(tx as never, id, {
+          campusConsentVersion: "v3",
+          campusConsentedAt: new Date("2026-08-01T10:00:00Z"),
+        }),
+      );
+    }
+    await sql`
+      INSERT INTO student_visibility (worker_id, visible, batch_id)
+      VALUES (${HIDDEN}::uuid, false, ${batchId}::uuid), (${VISIBLE}::uuid, true, ${batchId}::uuid)`;
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      const { sql } = client;
+      await sql`DELETE FROM job_reach WHERE job_posting_id = ${POSTING}::uuid`;
+      await sql`DELETE FROM job_postings WHERE id = ${POSTING}::uuid`;
+      await sql`DELETE FROM workers WHERE phone_hash LIKE ${`hash:2887-${T}-%`}`;
+      await sql`DELETE FROM student_import_batches WHERE id = ${batchId}::uuid`;
+      await sql`DELETE FROM payers WHERE id = ${COMPANY}::uuid`;
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  const reached = async (): Promise<string[]> => {
+    const rows = await client.sql<{ worker_id: string }[]>`
+      SELECT worker_id FROM job_reach WHERE job_posting_id = ${POSTING}::uuid ORDER BY worker_id`;
+    return rows.map((r) => r.worker_id).filter((w) => (workersAll as string[]).includes(w));
+  };
+
+  it("publish: the hidden student is not reached; the visible and never-moved are", async () => {
+    await client.db.transaction((tx) =>
+      materializeJobReachWithin(tx as never, POSTING, [SKILL], [SKILL]),
+    );
+    expect(await reached()).toEqual([VISIBLE, NEVER].sort());
+  });
+
+  it("an admin turns him visible: his reconcile reaches him; hidden again: his row goes", async () => {
+    const repo = new WorkerSkillsRepository(client.db);
+    await client.sql`UPDATE student_visibility SET visible = true WHERE worker_id = ${HIDDEN}::uuid`;
+    await repo.reconcileReachForWorker(HIDDEN, [SKILL]);
+    expect(await reached()).toContain(HIDDEN);
+    await client.sql`UPDATE student_visibility SET visible = false WHERE worker_id = ${HIDDEN}::uuid`;
+    await repo.reconcileReachForWorker(HIDDEN, [SKILL]);
+    expect(await reached()).not.toContain(HIDDEN);
+    // The posting side agrees: made visible, a re-materialization reaches him; hidden again, the
+    // next one purges his row.
+    await client.sql`UPDATE student_visibility SET visible = true WHERE worker_id = ${HIDDEN}::uuid`;
+    await client.db.transaction((tx) =>
+      materializeJobReachWithin(tx as never, POSTING, [SKILL], [SKILL]),
+    );
+    expect(await reached()).toContain(HIDDEN);
+    await client.sql`UPDATE student_visibility SET visible = false WHERE worker_id = ${HIDDEN}::uuid`;
+    await client.db.transaction((tx) =>
+      materializeJobReachWithin(tx as never, POSTING, [SKILL], [SKILL]),
+    );
+    expect(await reached()).not.toContain(HIDDEN);
+  });
+
+  it("company search with the switch on: hidden out, visible in (his imported consent shares him)", async () => {
+    const search = new CandidateSearchRepository(client.db, { ...on, SEARCH_EXIT_ENABLED: false });
+    expect(await search.findCardRow(HIDDEN)).toBeNull();
+    expect(await search.findCardRow(VISIBLE)).not.toBeNull();
+    expect(await search.findCardRow(NEVER)).not.toBeNull();
+    // Off: nothing about the move is read — the hidden student is an ordinary consenting worker.
+    expect(await new CandidateSearchRepository(client.db).findCardRow(HIDDEN)).not.toBeNull();
+  });
+
+  it("the field marker: his own edit makes a field his; the import may still write the rest", async () => {
+    await client.db.transaction((tx) => markWorkerEditedWithin(tx as never, VISIBLE, ["skills"]));
+    const sources = new WorkerFieldSourcesRepository(client.db);
+    await client.db.transaction((tx) =>
+      sources.markImported(tx as never, VISIBLE, ["skills", "experience"], batchId),
+    );
+    expect([...(await sources.importableFields(VISIBLE, ["skills", "experience"]))]).toEqual([
+      "experience",
+    ]);
+    const rows = await client.sql<{ field_key: string; source: string }[]>`
+      SELECT field_key, source FROM worker_field_sources WHERE worker_id = ${VISIBLE}::uuid
+      ORDER BY field_key`;
+    expect(rows.map((r) => [r.field_key, r.source])).toEqual([
+      ["experience", "campus_import"],
+      ["skills", "worker"],
+    ]);
+  });
+
+  it("the imported consent is his latest, active, and reads as not yet accepted at sign-in", async () => {
+    const latest = await new ConsentRepository(client.db).findLatestByWorker(HIDDEN);
+    expect(latest).toMatchObject({ consentVersion: "campus_import:v3", revokedAt: null });
+    expect(latest!.purposes).toContain("employer_sharing");
+    expect(consentAcceptedFrom(latest)).toBe(false);
   });
 });

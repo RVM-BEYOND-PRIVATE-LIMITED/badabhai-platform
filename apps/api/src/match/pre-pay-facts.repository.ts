@@ -1,8 +1,16 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { sql as dsql } from "drizzle-orm";
-import { CURRENT_PROFILE_ORDER, type Database } from "@badabhai/db";
+import {
+  CURRENT_PROFILE_ORDER,
+  isVisibleStudent,
+  studentVisibilityPresent,
+  type Database,
+} from "@badabhai/db";
 import { BRIEF_CONTACT_NOTICE_VERSIONS } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
+import { SERVER_CONFIG } from "../config/config.module";
+import { studentMoveEnabled, type StudentMoveConfig } from "../student-move/student-move.flag";
+import { warnStudentVisibilityMissingOnce } from "../student-move/student-visibility-missing";
 
 /** The salary attributes the card reads (`worker_attributes`, one live row per key). */
 const SALARY_ATTRIBUTE_KEYS = [
@@ -58,12 +66,33 @@ export interface PrePayFactsRawRow {
  */
 @Injectable()
 export class PrePayFactsRepository {
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  /** #2887 — STUDENT_MOVE_ENABLED, read once. Off (or no config at all) is today. */
+  private readonly studentMove: boolean;
 
-  /** Active links only — an unlinked or withdrawn student is a BadaBhai worker again. */
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    // Optional only so the hand-built instances keep compiling; absent reads as off.
+    @Optional() @Inject(SERVER_CONFIG) config?: StudentMoveConfig,
+  ) {
+    this.studentMove = studentMoveEnabled(config);
+  }
+
+  /**
+   * Active links only — an unlinked or withdrawn student is a BadaBhai worker again. #2887: so is a
+   * moved student an admin made visible (switch on, table present), whatever his link.
+   */
   async listActiveInstituteLinks(workerIds: readonly string[]): Promise<ActiveInstituteLinkRow[]> {
     const ids = [...new Set(workerIds)];
     if (ids.length === 0) return [];
+    let visibleOut = dsql``;
+    if (this.studentMove) {
+      if (await studentVisibilityPresent(this.db)) {
+        visibleOut = dsql`
+        AND NOT ${isVisibleStudent(dsql`il.worker_id`)}`;
+      } else {
+        warnStudentVisibilityMissingOnce();
+      }
+    }
     const rows = await this.db.execute<{
       worker_id: string;
       institute_code: string;
@@ -73,7 +102,7 @@ export class PrePayFactsRepository {
       SELECT il.worker_id, il.institute_code, il.course, il.branch
       FROM worker_institute_links il
       WHERE il.worker_id = ANY(${dsql.param(ids)}::uuid[])
-        AND il.status = 'active'
+        AND il.status = 'active'${visibleOut}
     `);
     return (rows as unknown as Array<Record<string, unknown>>).map((r) => ({
       workerId: String(r.worker_id),

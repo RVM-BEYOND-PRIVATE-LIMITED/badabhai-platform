@@ -211,6 +211,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     manage_credit_rules: ["super_admin"],
     // #2750 items 5 and 12 - the placement team's waivers. super_admin only.
     manage_waivers: ["super_admin"],
+    // #2887 - the moved students' visibility switch. super_admin and ops_admin.
+    manage_student_visibility: ["super_admin", "ops_admin"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -273,6 +275,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "manage_credit_rules",
       // #2750 - setting or clearing a waiver is a write.
       "manage_waivers",
+      // #2887 - turning a moved student's visibility on or off is a write.
+      "manage_student_visibility",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }
@@ -385,6 +389,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "edit_candidates",
       // #2755 — the business numbers screen.
       "read_business_numbers",
+      // #2887 — the moved students' visibility switch.
+      "manage_student_visibility",
     ]);
     // super_admin holds everything — the one role for which the list is the whole vocabulary.
     expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);

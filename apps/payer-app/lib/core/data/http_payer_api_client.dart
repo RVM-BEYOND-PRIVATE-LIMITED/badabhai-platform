@@ -831,6 +831,15 @@ class HttpPayerApiClient implements PayerApiClient {
       }
       return const UnlockResult.unavailable();
     }
+    if (res.body['status'] == 'worker_unavailable_this_week') {
+      return const UnlockResult.weekLimit();
+    }
+    if (res.body['status'] == 'daily_limit_reached') {
+      final Object? limit = res.body['daily_limit'];
+      return UnlockResult.dailyLimitReached(
+        limit is num && limit.isFinite && limit > 0 ? limit.toInt() : 0,
+      );
+    }
     // Money denials come back as HTTP 200 {status:"unavailable"} — never trust
     // the status/HTTP code alone: a grant MUST carry a real unlock_id.
     final String? unlockId = res.body['unlock_id'] as String?;

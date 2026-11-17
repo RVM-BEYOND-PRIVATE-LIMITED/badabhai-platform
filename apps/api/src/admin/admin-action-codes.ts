@@ -127,6 +127,12 @@ export const ADMIN_ACTION_CODES = {
   // admin's reason; the spine records it as `payer.rvm_waiver_set|cleared` (actor = the admin),
   // ids and codes only.
   rvm_waiver_changed: "rvm_waiver_changed",
+  // ── #2887 — a moved RVM student's visibility turned on or off ──────────────────────────
+  // One student: target the worker (`entity_type: "worker"`); a bulk call (one import run, branch
+  // or course): its own operation id (`entity_type: "student_visibility_bulk"`). The reason and
+  // the selector live on the `audit_logs` row; the spine records `admin.student_visibility_*`.
+  student_visibility_changed: "student_visibility_changed",
+  student_visibility_bulk_changed: "student_visibility_bulk_changed",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];
