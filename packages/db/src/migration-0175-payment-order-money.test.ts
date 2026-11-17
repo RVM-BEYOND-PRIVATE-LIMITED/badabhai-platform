@@ -5,7 +5,7 @@
  * The drizzle model and CI's drift check cover the table-vs-model half. What this file pins is
  * the half they do not see:
  *
- *   1. ADDITIVE — ten new columns, every one nullable or defaulted; `pack_code` relaxed, two CHECKs
+ *   1. ADDITIVE — nine new columns, every one nullable or defaulted; `pack_code` relaxed, two CHECKs
  *      relaxed / widened; nothing dropped, no row rewritten.
  *   2. THE RULES — the CHECK copies of PAYMENT_ORDER_STATUSES / _PRODUCT_KINDS / _ORIGINS; the
  *      money all-or-none and its sum; a credit-pack order still names its pack and grants credits.

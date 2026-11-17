@@ -24,11 +24,11 @@ A pack is off sale when its catalogue entry has `offered: false`, or before 00:0
 
 > **The GST price line is what a company pays (since #2749 part 3).** The catalogue shows each
 > pack's `price.totalPaise` and `price.display` (`₹999 plus GST (₹1,179)`); an order is created for
-> `price.totalPaise` (₹1,179), and the mock route stamps the same total on the ledger.
-> `expected_price_inr` is still the list price before GST (₹999). Note what this changes for the
-> **default** packs production serves today: `pack_50` / `pack_200` / `pack_1000` now charge
-> ₹2,360 / ₹9,440 / ₹37,760 (₹2,000 / ₹8,000 / ₹32,000 plus GST) on the real route and stamp those
-> totals on the mock route's ledger lines.
+> `price.totalPaise` (₹1,179). `expected_price_inr` is still the list price before GST (₹999). For
+> the **default** packs production serves today, a real order for `pack_50` / `pack_200` /
+> `pack_1000` now charges ₹2,360 / ₹9,440 / ₹37,760 (₹2,000 / ₹8,000 / ₹32,000 plus GST). The mock
+> `POST /payer/credits` (no money taken; retired at switch-on, hardening item 1) is unchanged: it
+> still stamps the list price on its ledger line.
 
 ## This is a go-live decision
 
@@ -51,6 +51,12 @@ Check these first:
   after the settle — both counted by the database clock. So publishing this row is what starts credit
   expiry (the default packs set no validity). `windowDays: 14` is the old contact-access window.
   Every pack keeps it because older readers still require it.
+- **Owner question — expiry to the instant, or to the end of the day?** Today a lot expires at the
+  exact grant (or settle) instant plus N days: bought at 15:42 IST on 1 May, a 30-day lot ends at
+  15:42 IST on 31 May. The company terms say "Credits expire on the date shown at purchase", which a
+  company may read as "usable all of that date". The alternative is to expire at the end of that IST
+  day (23:59:59 IST). The current behaviour stays until the owner decides; changing it is a small
+  code change in the wallet's expiry expression, not a catalogue edit.
 - **The ops console** (`apps/web` → Pricing → credits top-up) lists every credit-pack entry in the
   catalogue, including Annual. Before 1 April 2027 a top-up of Annual returns `404`.
 - **Owner question — Annual's validity: 365 days, or a calendar year?** The brief says "12 months";
@@ -220,9 +226,18 @@ the pilot:
   compare its `amount` (paise) with that pack's `price.totalPaise` (₹999 → `117900`). Since part 3
   of #2749 they match by construction (`apps/api/src/unlocks/razorpay-payments.test.ts` pins it for
   every pack on sale); do not switch on if any differs.
-- **A wrong capture is held, not granted.** A webhook whose captured `amount` is not the order total
-  (or carries none, or is not INR) moves the order to `held` and grants nothing, with one
-  `payment.held` event; no replay or verify can settle it. Until a refund path exists (BB-D-05), each
+- **The purchase screen shows the GST total before checkout.** payer-web's purchase confirmation
+  must show the pack's `price.display` (`₹999 plus GST (₹1,179)`) before Razorpay opens, because the
+  Razorpay checkout now asks for the GST total. That is BB-R-03 (Rishi). Do not switch on while the
+  confirmation still shows only the list price.
+- **The GST invoice path is live.** This PR charges GST, and every payment needs a GST invoice
+  (item 8, #2749 part 4: `seller_tax_config`, `invoices`, the numbered PDF). Do not switch on real
+  payments before part 4 is merged, its migration applied and the seller row filled.
+- **A wrong capture is held, not granted.** A capture whose amount is not the order total (or
+  carries none, or is not INR) — reported by the webhook, or read back from Razorpay by the browser
+  verify — moves the order to `held` and grants nothing, with one `payment.held` event
+  (`order_status: "held"`); no replay or verify can settle it. The same mismatch reported for an
+  order already paid changes nothing but records `payment.held` with `order_status: "paid"`. Until a refund path exists (BB-D-05), each
   held order is a refund in the Razorpay dashboard: watch `payment.held` (or
   `SELECT id FROM payment_orders WHERE status = 'held'`) from the first pilot payment.
 - The rest of the issue's switch-on list (hardening items, pilot gating) still applies.

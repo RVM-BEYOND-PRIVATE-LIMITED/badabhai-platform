@@ -53,7 +53,7 @@
 -- `amount_inr` x 100, exactly what the old build asked Razorpay for.
 --
 -- LOCKS, AND THE HAND-WRITTEN STATEMENT ORDER. Every lock below is held until COMMIT:
---   1. the ten ADD COLUMNs and the DROP NOT NULL - ACCESS EXCLUSIVE on `payment_orders` (every
+--   1. the nine ADD COLUMNs and the DROP NOT NULL - ACCESS EXCLUSIVE on `payment_orders` (every
 --      order read and write waits) - catalog-only (nullable, or a constant default), no rewrite.
 --   2. DROP + re-ADD `payment_orders_credits_pos_chk` (relaxed) and `payment_orders_status_chk`
 --      (widened), then the six new CHECKs - each re-ADD VALIDATES EXISTING ROWS with one scan of
