@@ -131,6 +131,10 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase"; sms?: boo
   };
   const freeTier = { grantQuietly: vi.fn().mockResolvedValue(undefined) };
   const notice = { notify: vi.fn(async () => undefined) };
+  // #2754 item 3 — which account PROVED a phone. Default: none (every phone unproven).
+  const phoneProofs = {
+    findProvenAccount: vi.fn(async (): Promise<Record<string, unknown> | undefined> => undefined),
+  };
   // Per-account password-attempt lockout (Redis). Defaults: no lockout recorded.
   const redis = {
     incr: vi.fn(async () => 1),
@@ -153,8 +157,23 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase"; sms?: boo
     tenancy as never,
     queue as never,
     notice as never,
+    phoneProofs as never,
   );
-  return { svc, payers, orgs, tenancy, otp, sessions, events, freeTier, queue, redis, pii, notice };
+  return {
+    svc,
+    payers,
+    orgs,
+    tenancy,
+    otp,
+    sessions,
+    events,
+    freeTier,
+    queue,
+    redis,
+    pii,
+    notice,
+    phoneProofs,
+  };
 }
 
 /** Every string the raw contact PII could be — must NEVER appear in an emitted event. */
@@ -1048,6 +1067,7 @@ describe("login heals a missing org ONCE, through the resolver (ADR-0053 R4; rev
       r.tenancy,
       d.queue as never,
       d.notice as never,
+      d.phoneProofs as never,
     );
     return { svc, d };
   }
@@ -1337,6 +1357,7 @@ describe("PayerAuthService — OTP suppression for a suspended account (ADR-0037
 describe("#2754 — a company signs in with an SMS code to its phone", () => {
   const PHONE_KEY = `phone<${PHONE}>`;
   const ONE = [{ id: PAYER_ID, role: "employer", status: "active", mustChangePassword: false }];
+  const PROVEN = { ...ONE[0], phoneHash: PHONE_KEY };
   const names = (d: ReturnType<typeof setup>) =>
     d.events.emit.mock.calls.map(([e]) => (e as { event_name: string }).event_name);
 
@@ -1348,13 +1369,18 @@ describe("#2754 — a company signs in with an SMS code to its phone", () => {
       expect.objectContaining({ emailHash: PHONE_KEY, route: "default" }),
     );
     expect(names(d)).toEqual(["payer.login_requested"]);
+    // The proof table is not read at all while the switch is off.
+    expect(d.phoneProofs.findProvenAccount).not.toHaveBeenCalled();
   });
 
-  it("on: a phone naming ONE account gets its code by SMS, recorded as sms_otp on the v2 event", async () => {
+  it("on: a PROVEN phone gets its code by SMS, recorded as sms_otp on the v2 event", async () => {
     const d = setup({ sms: true });
     d.payers.findByPhone.mockResolvedValue(ONE);
+    d.phoneProofs.findProvenAccount.mockResolvedValue(PROVEN);
     const res = await d.svc.requestLogin({ phone: PHONE }, CTX);
     expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
+    // The proof lookup keys on the phone's keyed hash, never the number.
+    expect(d.phoneProofs.findProvenAccount).toHaveBeenCalledWith(PHONE_KEY);
     expect(d.otp.issueAndSend).toHaveBeenCalledWith(
       expect.objectContaining({
         emailHash: PHONE_KEY,
@@ -1370,17 +1396,32 @@ describe("#2754 — a company signs in with an SMS code to its phone", () => {
     assertNoPiiInEvents(d.events);
   });
 
-  it("on: a phone two companies share gets NO code, the same neutral answer, and no login event", async () => {
+  it("#2754 item 3 — on: an UNPROVEN phone on one account gets NO code, the neutral answer and no event", async () => {
     const d = setup({ sms: true });
-    d.payers.findByPhone.mockResolvedValue([
-      ...ONE,
-      { id: "bbbbbbbb-0000-4000-8000-000000000002" },
-    ]);
+    d.payers.findByPhone.mockResolvedValue(ONE);
+    // No proof (typed at sign-up or in PATCH /payer/me, maybe mistyped or planted).
     const res = await d.svc.requestLogin({ phone: PHONE }, CTX);
     expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
     expect(d.otp.issueAndSend).not.toHaveBeenCalled();
     expect(d.otp.issueWithoutDelivery).toHaveBeenCalledWith(PHONE_KEY, "sms");
     expect(names(d)).toEqual([]);
+  });
+
+  it("#2754 item 3 — on: a phone two companies share reaches ONLY the one that proved it (a planted duplicate locks nobody out)", async () => {
+    const d = setup({ sms: true });
+    const OTHER = "bbbbbbbb-0000-4000-8000-000000000002";
+    // The planted, unproven duplicate is the FIRST phone row; the proof names the real holder.
+    d.payers.findByPhone.mockResolvedValue([{ id: OTHER, status: "active" }, ...ONE]);
+    d.phoneProofs.findProvenAccount.mockResolvedValue(PROVEN);
+    await d.svc.requestLogin({ phone: PHONE }, CTX);
+    expect(d.otp.issueAndSend).toHaveBeenCalledWith(
+      expect.objectContaining({ payerId: PAYER_ID, route: "sms" }),
+    );
+    expect(JSON.stringify(d.otp.issueAndSend.mock.calls)).not.toContain(OTHER);
+    expect(d.events.emit.mock.calls[0]![0]).toMatchObject({
+      event_name: "payer.login_requested_v2",
+      payload: { payer_id: PAYER_ID },
+    });
   });
 
   it("on: an unknown phone reserves on the SMS route too, so the ceiling it counts is the same", async () => {
@@ -1397,23 +1438,25 @@ describe("#2754 — a company signs in with an SMS code to its phone", () => {
       expect.objectContaining({ emailHash: `hmac<${EMAIL}>`, route: "default" }),
     );
     expect(names(d)).toEqual(["payer.login_requested"]);
+    expect(d.phoneProofs.findProvenAccount).not.toHaveBeenCalled();
   });
 
-  it("on: a suspended company's phone is reserved on the SMS route and sent nothing", async () => {
+  it("on: a suspended company's PROVEN phone is reserved on the SMS route and sent nothing", async () => {
     const d = setup({ sms: true });
     d.payers.findByPhone.mockResolvedValue(ONE);
-    d.payers.findById.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    d.phoneProofs.findProvenAccount.mockResolvedValue({ ...PROVEN, status: "suspended" });
     await d.svc.requestLogin({ phone: PHONE }, CTX);
     expect(d.otp.issueWithoutDelivery).toHaveBeenCalledWith(PHONE_KEY, "sms");
     expect(d.otp.issueAndSend).not.toHaveBeenCalled();
     expect(names(d)).toEqual(["payer.otp_suppressed"]);
   });
 
-  it("on: verify signs in the ONE account the phone names, as session_started_v2 with sms_otp", async () => {
+  it("on: verify signs in the account that PROVED the phone, as session_started_v2 with sms_otp", async () => {
     const d = setup({ sms: true });
-    d.payers.findByPhone.mockResolvedValue(ONE);
+    d.phoneProofs.findProvenAccount.mockResolvedValue(PROVEN);
     const res = await d.svc.verifyLogin({ phone: PHONE, code: "123456" }, CTX);
     expect(d.otp.verify).toHaveBeenCalledWith(PHONE_KEY, "123456");
+    expect(d.phoneProofs.findProvenAccount).toHaveBeenCalledWith(PHONE_KEY);
     expect(res.payer_id).toBe(PAYER_ID);
     expect(names(d)).toEqual(["payer.session_started_v2"]);
     expect(d.events.emit.mock.calls[0]![0]).toMatchObject({
@@ -1422,16 +1465,15 @@ describe("#2754 — a company signs in with an SMS code to its phone", () => {
     assertNoPiiInEvents(d.events);
   });
 
-  it("on: verify refuses a phone two companies share (the same 401), and starts no session", async () => {
+  it("#2754 item 3 — on: verify refuses an UNPROVEN phone (the same 401) even when one account names it", async () => {
     const d = setup({ sms: true });
-    d.payers.findByPhone.mockResolvedValue([
-      ...ONE,
-      { id: "bbbbbbbb-0000-4000-8000-000000000002" },
-    ]);
+    d.payers.findByPhone.mockResolvedValue(ONE);
     await expect(d.svc.verifyLogin({ phone: PHONE, code: "123456" }, CTX)).rejects.toThrow(
       "Incorrect or expired code",
     );
     expect(d.sessions.create).not.toHaveBeenCalled();
+    // The phone lookup that takes a shared phone's FIRST row is never the SMS door's resolver.
+    expect(d.payers.findByPhone).not.toHaveBeenCalled();
   });
 
   it("on: the company-SMS ceiling reports its own event and answers the neutral body", async () => {
@@ -1454,6 +1496,7 @@ describe("#2754 — a company signs in with an SMS code to its phone", () => {
 describe("#2754 — SMS sign-in, the security review's cases", () => {
   const PHONE_KEY = `phone<${PHONE}>`;
   const ONE = [{ id: PAYER_ID, role: "employer", status: "active", mustChangePassword: false }];
+  const PROVEN = { ...ONE[0], phoneHash: PHONE_KEY };
   const SHARED = [...ONE, { id: "bbbbbbbb-0000-4000-8000-000000000002" }];
 
   it.each([["+15551234567"], ["+447911123456"], ["+919876543"]])(
@@ -1461,43 +1504,47 @@ describe("#2754 — SMS sign-in, the security review's cases", () => {
     async (phone) => {
       const d = setup({ sms: true });
       d.payers.findByPhone.mockResolvedValue(ONE);
+      d.phoneProofs.findProvenAccount.mockResolvedValue(PROVEN);
       await d.svc.requestLogin({ phone }, CTX);
       const calls = [...d.otp.issueAndSend.mock.calls, ...d.otp.issueWithoutDelivery.mock.calls];
       expect(JSON.stringify(calls)).not.toContain('"sms"');
     },
   );
 
-  it("signup with a phone (SMS on) sends by SMS to a phone that names one account", async () => {
+  it("#2754 item 3 — a phone-only SIGN-UP (SMS on) gets no code: a brand-new account's phone is unproven", async () => {
     const d = setup({ sms: true });
-    d.payers.findByPhone.mockResolvedValue(ONE);
-    await d.svc.signup({ role: "employer", org_name: ORG, phone: PHONE }, CTX);
-    expect(d.otp.issueAndSend).toHaveBeenCalledWith(
-      expect.objectContaining({ emailHash: PHONE_KEY, route: "sms" }),
-    );
-  });
-
-  it("signup with a phone two accounts already share sends nothing (neutral)", async () => {
-    const d = setup({ sms: true });
-    d.payers.createOrGet.mockResolvedValueOnce({ id: PAYER_ID, created: false });
-    d.payers.findByPhone.mockResolvedValue(SHARED);
     const res = await d.svc.signup({ role: "employer", org_name: ORG, phone: PHONE }, CTX);
     expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
     expect(d.otp.issueAndSend).not.toHaveBeenCalled();
     expect(d.otp.issueWithoutDelivery).toHaveBeenCalledWith(PHONE_KEY, "sms");
   });
 
-  it("an ARCHIVED company's phone is reserved on the SMS route and sent nothing", async () => {
+  it("signup with a phone a company has PROVEN sends that company's code by SMS (the same as sign-in)", async () => {
+    const d = setup({ sms: true });
+    d.payers.createOrGet.mockResolvedValueOnce({
+      id: "bbbbbbbb-0000-4000-8000-000000000002",
+      created: false,
+    });
+    d.phoneProofs.findProvenAccount.mockResolvedValue(PROVEN);
+    await d.svc.signup({ role: "employer", org_name: ORG, phone: PHONE }, CTX);
+    expect(d.otp.issueAndSend).toHaveBeenCalledWith(
+      expect.objectContaining({ emailHash: PHONE_KEY, route: "sms", payerId: PAYER_ID }),
+    );
+  });
+
+  it("an ARCHIVED company's proven phone is reserved on the SMS route and sent nothing", async () => {
     const d = setup({ sms: true });
     d.payers.findByPhone.mockResolvedValue(ONE);
-    d.payers.findById.mockResolvedValue({ id: PAYER_ID, status: "archived" });
+    d.phoneProofs.findProvenAccount.mockResolvedValue({ ...PROVEN, status: "archived" });
     await d.svc.requestLogin({ phone: PHONE }, CTX);
     expect(d.otp.issueWithoutDelivery).toHaveBeenCalledWith(PHONE_KEY, "sms");
     expect(d.otp.issueAndSend).not.toHaveBeenCalled();
   });
 
-  it("a KNOWN phone at the company-SMS ceiling answers the neutral body and reports the breach", async () => {
+  it("a PROVEN phone at the company-SMS ceiling answers the neutral body and reports the breach", async () => {
     const d = setup({ sms: true });
     d.payers.findByPhone.mockResolvedValue(ONE);
+    d.phoneProofs.findProvenAccount.mockResolvedValue(PROVEN);
     d.otp.issueAndSend.mockRejectedValueOnce(
       new PayerSmsSendCapExceededException({ limit: 500, window: "20261115" }),
     );
@@ -1508,17 +1555,19 @@ describe("#2754 — SMS sign-in, the security review's cases", () => {
     );
   });
 
-  it("the response body is identical for a known, an unknown, a shared and a barred phone", async () => {
+  it("the response body is identical for a proven, an unproven, an unknown, a shared and a barred phone", async () => {
     const bodies: unknown[] = [];
-    for (const [rows, status] of [
-      [ONE, "active"],
-      [[], "active"],
-      [SHARED, "active"],
-      [ONE, "suspended"],
+    for (const [rows, proven] of [
+      [ONE, PROVEN],
+      [ONE, undefined],
+      [[], undefined],
+      [SHARED, undefined],
+      [SHARED, PROVEN],
+      [ONE, { ...PROVEN, status: "suspended" }],
     ] as const) {
       const d = setup({ sms: true });
       d.payers.findByPhone.mockResolvedValue([...rows]);
-      d.payers.findById.mockResolvedValue({ id: PAYER_ID, status });
+      d.phoneProofs.findProvenAccount.mockResolvedValue(proven);
       bodies.push(await d.svc.requestLogin({ phone: PHONE }, CTX));
     }
     for (const body of bodies) expect(body).toEqual(bodies[0]);

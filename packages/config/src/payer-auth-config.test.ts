@@ -218,13 +218,28 @@ describe("#2754 — company sign-in by SMS code", () => {
     ).not.toThrow();
   });
 
-  it("refuses to boot ARMED in production, fully configured, until #2754 item 3 (proven, unique phones)", () => {
+  it("#2754 item 3 — boots ARMED in production when fully configured (phones are now proven)", () => {
+    // The production refusal is gone: an SMS code signs in only the account that PROVED the phone
+    // (`payer_phone_proofs`). What still refuses is the missing account or template (above).
     expect(() =>
       assertPayerAuthConfig(
         cfg({ JWT_SECRET: REAL_JWT, ...ZEPTO_CREDS, ...SMS_CREDS, PAYER_SMS_OTP_ENABLED: "true" }),
         "production",
       ),
-    ).toThrow(/stays off in production until #2754 item 3/);
+    ).not.toThrow();
+    // …and the template check still bites in production, so arming can never ship half-configured.
+    expect(() =>
+      assertPayerAuthConfig(
+        cfg({
+          JWT_SECRET: REAL_JWT,
+          ...ZEPTO_CREDS,
+          ...SMS_CREDS,
+          FAST2SMS_PAYER_DLT_TEMPLATE_ID: "",
+          PAYER_SMS_OTP_ENABLED: "true",
+        }),
+        "production",
+      ),
+    ).toThrow(/FAST2SMS_PAYER_DLT_TEMPLATE_ID is not set/);
   });
 
   it("treats a blank template id as unset, and refuses a whitespace-only one at boot", () => {

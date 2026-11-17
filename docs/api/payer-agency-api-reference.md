@@ -197,7 +197,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Body:** `{ email: string }` or `{ phone: string }` (E.164, `+91…`; email wins when both are sent).
 - **Response:** `{ status: 'code_sent', resend_in_seconds: number }`.
 - **Events:** `payer.login_requested` (only if the contact matches an existing account; unknown → nothing emitted). A code sent by SMS emits `payer.login_requested_v2` with `method: 'sms_otp'` instead (#2754).
-- **Phone sign-in by SMS (#2754, `PAYER_SMS_OTP_ENABLED`, default off):** with it on, an Indian mobile (`+91` followed by 10 digits starting 6–9) that names **exactly one** company account gets its code by SMS on the company DLT template; any other phone never gets an SMS. **It cannot be armed in production yet:** the deploy preflight and the boot guard refuse it until #2754 item 3 makes a phone proven and unique before it can sign anyone in. A phone that names none, or that two accounts share, gets the same neutral response and no message (those companies keep email sign-in). With it off, a phone gets no SMS. Company SMS has its own daily ceiling (`PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY`, default 500; a breach is the same neutral 429 plus `payer.sms_send_cap_exceeded`).
+- **Phone sign-in by SMS (#2754, `PAYER_SMS_OTP_ENABLED`, default off):** with it on, an Indian mobile (`+91` followed by 10 digits starting 6–9) gets its code by SMS on the company DLT template **only if a company has PROVEN it** (#2754 item 3: `POST /payer/me/phone-proof`, below). The code goes to the ONE account that proved the phone (one account per proven phone), whichever other accounts also have it typed in. Any other phone never gets an SMS. A phone nobody has proven (typed at sign-up or in `PATCH /payer/me`), an unknown phone, a suspended or archived company's phone, and every phone while the proof table is not migrated get the same neutral response and no message; those companies keep email sign-in. A phone-only **sign-up** therefore gets no SMS code: a brand-new account's phone is unproven. With the switch off, a phone gets no SMS. Company SMS has its own daily ceiling (`PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY`, default 500; a breach is the same neutral 429 plus `payer.sms_send_cap_exceeded`). Arming it needs `FAST2SMS_PAYER_DLT_TEMPLATE_ID`: the deploy preflight and the boot guard both refuse the switch without it.
 - **Mobile gotchas:** No enumeration — unknown contacts get the identical timing/response.
 
 #### `POST /payer/login/verify`
@@ -205,7 +205,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Auth:** none (public, IP rate-limited).
 - **Body:** `{ email: string, code: string (4–8 digits) }` or `{ phone: string, code }` — the same contact the request carried.
 - **Response:** `{ access_token, token_type: 'Bearer', expires_in_seconds, payer_id (UUID), role: 'employer'|'agent', is_new_payer (always false) }`.
-- **Events:** `payer.session_started`; an SMS-code sign-in emits `payer.session_started_v2` with `method: 'sms_otp'` instead (#2754). With SMS on, a phone signs in only the one account it names.
+- **Events:** `payer.session_started`; an SMS-code sign-in emits `payer.session_started_v2` with `method: 'sms_otp'` instead (#2754). With SMS on, a phone signs in only the one account that PROVED it and still holds it (#2754 item 3); any other phone is the same `401`.
 - **Mobile gotchas:** Token is in the **body**, not `Set-Cookie`. Failure = single neutral `401`. **`is_new_payer` is always `false` — do not branch on it** (verified correction). Single-use code (deleted on success).
 
 #### `POST /payer/refresh`
@@ -238,7 +238,21 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Body:** `{ orgName?: string (2–120 graphemes), phone?: E.164 }` — at least one field; `.strict()` rejects unknown keys and any `email`/`role`/`status`/`payer_id`.
 - **Response:** same shape as `GET /payer/me` (including `postingOrgName`: an org founder who renames their org gets the new name back, and their teammates read it on their next `GET`).
 - **Events:** `payer.account_updated` (carries `changed_fields` = field **keys** only, never values).
+- **A new phone starts unproven (#2754 item 3):** changing `phone` drops the account's phone proof in the same write, so the new number cannot sign in by SMS code until the company proves it again (`POST /payer/me/phone-proof`). Saving the same number again keeps the proof. A real change also emails the account's own address the security notice used for password changes ("The phone number on your BadaBhai account was changed"; no number in it); a phone-only account gets none.
 - **Mobile gotchas:** `email`/`role`/`status` are immutable. Empty patch → `400`. `no-store`.
+
+#### `GET /payer/me/phone-proof` · `POST /payer/me/phone-proof` · `POST /payer/me/phone-proof/verify` (#2754 item 3)
+
+The signed-in company proves the phone on its account, so that phone signs it in by SMS code. One account per proven phone.
+
+- **Auth:** `PayerAuthGuard` (Bearer), `employer` and `agent` alike. The account is the token's; no id in the path or body. The two `POST`s carry the per-IP cap of the public sign-in routes.
+- **The switch:** all three routes are a plain `404` while `PAYER_SMS_OTP_ENABLED` is off.
+- **`GET /payer/me/phone-proof`:** **Response:** `{ proven: boolean }`. `true` only while a proof names the account's CURRENT phone; `false` for no phone, a phone not yet proven, a phone changed since its proof, and while the proof table is not migrated (never a `503`), so the screen simply offers to prove the number. A read: no per-IP cap, no events.
+- **`POST /payer/me/phone-proof`** (no body): sends a code by SMS to the account's CURRENT stored phone (company template). **Response:** `{ status: 'code_sent', resend_in_seconds: number }`. The same bounds as an SMS sign-in code: a resend cooldown, the per-number hourly cap (shared with sign-in codes to that number) and the company-SMS daily ceiling (`429`, plus `payer.sms_send_cap_exceeded`). `409 { reason: 'no_phone_on_account' }`: add a phone with `PATCH /payer/me` first. `409 { reason: 'phone_not_provable' }`: only an Indian mobile (`+91`, 10 digits from 6–9) can be confirmed by SMS. `502`: the SMS could not be sent; retry. `503`: Redis down, or the proof table not migrated yet (no SMS goes out).
+- **`POST /payer/me/phone-proof/verify`:** body `{ code: string (4–8 digits) }`, `.strict()`. **Response:** `{ status: 'proven' }`. `401` wrong or expired code (one message). `429` too many attempts. `409 { reason: 'phone_changed' }`: the phone changed after the code was sent; request a new one. `409 { reason: 'phone_linked_to_another_account' }`: another BadaBhai account already holds this phone's proof; the company contacts support, who move it by hand. `503` Redis or the table. **Send an `Idempotency-Key`**: a retry with the same key replays the first answer (the code is single-use, so a re-run would otherwise answer `401` to a company whose phone was in fact proven). A duplicate while the first is still running is `409 { reason: 'in_flight' }`.
+- **A proof code is not a sign-in code**, and a sign-in code is not a proof code: each fails the other door with the same `401`.
+- **Events:** `payer.phone_proven` v1 (`payer_id`, `method: 'sms_code'`) on a successful verify, in the same transaction as the proof. Never the number, its hash or the code.
+- **Mobile gotchas:** `no-store` on all three. Read `GET /payer/me/phone-proof` to decide whether to show "Confirm your number" (a `404` means the switch is off: show nothing). After `PATCH /payer/me` changes the phone, `proven` goes back to `false` and the company must confirm again.
 
 #### `GET /payer/me/display-prefs` · `PATCH /payer/me/display-prefs` (#2819)
 

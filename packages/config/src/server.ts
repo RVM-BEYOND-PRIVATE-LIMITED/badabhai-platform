@@ -1324,7 +1324,9 @@ export const serverEnvSchema = z.object({
   // #2754 item 1 — a COMPANY signs in with an SMS code to the phone on its account, through the
   // same Fast2SMS DLT account as workers but its own approved template. Default off: a phone on
   // `POST /payer/login/request` then gets today's neutral answer and no message. On, a phone that
-  // names exactly one company account gets a code by SMS; an email still goes by email.
+  // the company has PROVEN (#2754 item 3, `payer_phone_proofs`: one account per proven phone) gets a
+  // code by SMS; an unproven phone gets the neutral answer; an email still goes by email. The proof
+  // routes (`POST /payer/me/phone-proof`, `/verify`) exist only while it is on.
   // `assertPayerAuthConfig` refuses to boot it on without the company template id.
   PAYER_SMS_OTP_ENABLED: booleanFromString,
   // The DLT template id approved for the COMPANY sign-in message (#2754 item 2). Separate from
@@ -3154,18 +3156,12 @@ export function assertPayerAuthConfig(
   // #2754 — company SMS codes ride the worker's Fast2SMS account with their OWN approved
   // template. Armed without one, every company code would go out on the worker template (wrong
   // text, a DLT rejection) or not at all, so refuse to boot instead.
+  //
+  // #2754 item 3 lifted the production refusal that used to sit here: an SMS code now signs in
+  // only the ONE account that PROVED the phone (`payer_phone_proofs`, unique per phone; a phone
+  // change drops the proof), so an unproven, mistyped or planted number is never a credential.
+  // Armed before that table is migrated, every SMS sign-in fails closed (no phone is proven).
   if (config.PAYER_SMS_OTP_ENABLED) {
-    // NOT YET IN PRODUCTION (security review of #2754 items 1-2): the phone on a company account
-    // is stored unproven (signup, PATCH /payer/me) and is not unique, so an SMS code to it would
-    // make an unproven number a sign-in credential. Development, test and staging only until item
-    // 3 (proven, unique phones) lands; staging-deploy.sh refuses the deploy first.
-    const env = (rawNodeEnv ?? "").trim();
-    if (env !== "development" && env !== "test" && env !== "staging") {
-      problems.push(
-        `PAYER_SMS_OTP_ENABLED is true but NODE_ENV is "${env || "unset"}" — company SMS sign-in ` +
-          "stays off in production until #2754 item 3 (proven, unique phones) lands (fail closed)",
-      );
-    }
     const missing = [
       ["FAST2SMS_API_KEY", config.FAST2SMS_API_KEY],
       ["FAST2SMS_SENDER_ID", config.FAST2SMS_SENDER_ID],

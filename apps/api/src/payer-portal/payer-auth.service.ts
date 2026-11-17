@@ -28,6 +28,7 @@ import {
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { PayersRepository, CURRENT_PASSWORD_PEPPER_VERSION } from "../payers/payers.repository";
+import { PayerPhoneProofsRepository } from "../payers/payer-phone-proofs.repository";
 import { PayerOrgsRepository, type ResolvedOrg } from "../payers/payer-orgs.repository";
 import { PayerSessionService } from "../payers/payer-session.service";
 import { barredPayerMessage, isBarredPayerStatus } from "../payers/payer-barred-status";
@@ -61,7 +62,7 @@ import type {
 type PayerLoginContact = { kind: "email"; value: string } | { kind: "phone"; value: string };
 
 /** #2754 — the only numbers a company SMS code may go to: an Indian mobile, in E.164. */
-const INDIAN_MOBILE_E164 = /^\+91[6-9]\d{9}$/;
+export const INDIAN_MOBILE_E164 = /^\+91[6-9]\d{9}$/;
 
 /** Minimal typed view of the raw Redis commands the password lockout needs. */
 interface RedisPasswordClient {
@@ -109,6 +110,8 @@ export class PayerAuthService {
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
     // #2563 — the credential-change security notice (best-effort, after commit).
     private readonly notice: PayerSecurityNoticeService,
+    // #2754 item 3 — which account PROVED a phone: the only way an SMS code resolves an account.
+    private readonly phoneProofs: PayerPhoneProofsRepository,
   ) {}
 
   private get method(): PayerLoginMethodEnum {
@@ -294,12 +297,13 @@ export class PayerAuthService {
 
     // A reserved code for an UNKNOWN contact (issued for timing parity) can verify, but a
     // session is minted ONLY for a real account — otherwise return the SAME 401 (no oracle).
-    // #2754 — an SMS code signs in only the ONE account its phone names (a phone two companies
-    // share was never sent a code, and must not be resolved to whichever row comes first).
+    // #2754 item 3 — an SMS code signs in ONLY the account that PROVED this phone (and still holds
+    // it): never the first row of a phone two companies share, never an unproven typed number.
+    // An unproven, stale or unknown phone (or the proof table missing, 42P01) is the same 401.
     const route = this.routeFor(contact);
     const account =
       route === "sms"
-        ? await this.findOnlyByPhone(contact.value)
+        ? await this.phoneProofs.findProvenAccount(this.contactHash(contact))
         : await this.findByContact(contact);
     if (!account) throw new UnauthorizedException("Incorrect or expired code");
 
@@ -427,13 +431,11 @@ export class PayerAuthService {
    * `payer.login_requested` (login path) — never on the signup path (it has `payer.created`).
    */
   private async issueForExistingAccount(
-    payerId: string,
+    candidateId: string,
     supplied: { email?: string; phone?: string },
     ctx: RequestContext,
     emitRequested: boolean,
   ): Promise<PayerOtpIssued> {
-    const row = await this.payers.findById(payerId);
-
     // The OTP key is the keyed hash of the SUPPLIED contact (#2497 — the same key the
     // request/verify doors reserve under, whether it is an email or a phone).
     const contact = PayerAuthService.mustContact(supplied);
@@ -441,6 +443,29 @@ export class PayerAuthService {
     // #2754 — a phone contact goes by SMS while PAYER_SMS_OTP_ENABLED is on; anything else by
     // the configured channel. Every reserve below runs on this route, so its ceiling is the same.
     const route = this.routeFor(contact);
+
+    // #2754 item 3 — ON THE SMS ROUTE THE ACCOUNT IS THE ONE THAT PROVED THE PHONE, never the
+    // caller's candidate (the first row of a phone lookup, or a sign-up's create-or-get). A phone
+    // nobody has proven — typed at sign-up or in PATCH /payer/me, possibly mistyped or planted —
+    // gets no code: the same neutral reserve as an unknown phone. The unique index on the proof
+    // makes "the account that proved it" one account at most, so a phone two companies share
+    // reaches the one that proved it (a planted duplicate no longer locks it out) and a typo'd
+    // number reaches nobody. Checked here, the chokepoint sign-up and sign-in share, BEFORE any
+    // contact is decrypted. The proof table missing (42P01) reads as unproven: fail closed.
+    let payerId = candidateId;
+    let row: Awaited<ReturnType<PayersRepository["findById"]>>;
+    if (route === "sms") {
+      row = await this.phoneProofs.findProvenAccount(contactHash);
+      if (row === undefined) {
+        this.logger.log(
+          `payer sms login: no proven account for the phone candidate=${candidateId.slice(0, 8)}…`,
+        );
+        return await this.otp.issueWithoutDelivery(contactHash, route);
+      }
+      payerId = row.id;
+    } else {
+      row = await this.payers.findById(candidateId);
+    }
 
     // ADR-0037 Decision 5 — RESERVE but do NOT DELIVER for a suspended account.
     //
@@ -480,17 +505,6 @@ export class PayerAuthService {
         requestId: ctx.requestId,
       });
       return issued;
-    }
-
-    // #2754 — ONE ACCOUNT PER PHONE for an SMS code (issue question 4, default): a phone that two
-    // companies share gets no code at all, the same neutral path as an unknown phone, and those
-    // companies keep their email sign-in until the placement team resolves them by hand. Checked
-    // here, the chokepoint signup and sign-in share, BEFORE any contact is decrypted.
-    if (route === "sms" && (await this.findOnlyByPhone(contact.value)) === undefined) {
-      this.logger.warn(
-        `payer sms login: the phone names more than one account payer=${payerId.slice(0, 8)}…`,
-      );
-      return await this.otp.issueWithoutDelivery(contactHash, route);
     }
 
     const contactRow = row ? this.payers.decryptContact(row) : null;
@@ -649,16 +663,6 @@ export class PayerAuthService {
       INDIAN_MOBILE_E164.test(contact.value)
       ? "sms"
       : "default";
-  }
-
-  /**
-   * The ONE account a phone names, or undefined when it names none or more than one (the
-   * password door's rule). The SMS path signs a company in only through this, so a phone two
-   * companies share never resolves to whichever row happens to come first.
-   */
-  private async findOnlyByPhone(phone: string) {
-    const matches = await this.payers.findByPhone(phone);
-    return matches.length === 1 ? matches[0] : undefined;
   }
 
   /**

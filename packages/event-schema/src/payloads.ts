@@ -2565,6 +2565,26 @@ export const PayerSessionStartedV2Payload = z
 export type PayerSessionStartedV2Payload = z.infer<typeof PayerSessionStartedV2Payload>;
 
 /**
+ * #2754 item 3 — how a company proved the phone on its account. Mirrors
+ * `PAYER_PHONE_PROOF_METHODS` (packages/db, the `payer_phone_proofs_method_chk` CHECK): `sms_code`
+ * = the signed-in company entered a code sent to the phone; `campus_import` = an imported Campus
+ * company's sign-in phone, which Campus verified by its own OTP. A new value is a new version.
+ */
+export const PayerPhoneProofMethodEnum = z.enum(["sms_code", "campus_import"]);
+export type PayerPhoneProofMethodEnum = z.infer<typeof PayerPhoneProofMethodEnum>;
+
+/**
+ * `payer.phone_proven` (#2754 item 3) — a company proved the phone on its account, so that phone
+ * now signs it in by SMS code (while `PAYER_SMS_OTP_ENABLED` is on). FACELESS: the opaque payer id
+ * and the closed method only — never the number, its hash or the code. Emitted in the transaction
+ * that writes the proof.
+ */
+export const PayerPhoneProvenPayload = z
+  .object({ payer_id: uuidSchema, method: PayerPhoneProofMethodEnum })
+  .strict();
+export type PayerPhoneProvenPayload = z.infer<typeof PayerPhoneProvenPayload>;
+
+/**
  * A payer session was minted through the TEST-LOGIN seam rather than a real OTP verification
  * (Phase 2.1). It is a SEPARATE event, not a flag on `payer.session_started`, so a synthetic
  * session can never be mistaken for a real one when reading the spine — the audit trail has to
