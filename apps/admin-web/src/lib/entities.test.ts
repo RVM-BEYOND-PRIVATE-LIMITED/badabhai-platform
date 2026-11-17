@@ -361,6 +361,30 @@ describe("finance schemas — money never arrives without its provenance", () =>
     ).toBe(false);
   });
 
+  it("#2749 — a `held` order (captured, nothing granted), its paise total and the held summary bucket parse", () => {
+    const held = { ...ORDER_ROW, status: "held", amount_inr: 1179, total_paise: 117900 };
+    const page = ordersPageSchema.safeParse({
+      items: [held, { ...ORDER_ROW, total_paise: null }],
+      nextCursor: null,
+      payments: MOCK_POSTURE,
+    });
+    expect(page.success).toBe(true);
+    if (page.success) expect(page.data.items[0]?.total_paise).toBe(117900);
+    const summary = financeSummarySchema.parse({
+      payments: MOCK_POSTURE,
+      window_days: 30,
+      outstanding_credits: 0,
+      payers_with_balance: 0,
+      by_reason: [],
+      paid_orders: { count: 0, credits: 0, amount_inr: 0 },
+      unsettled_orders: { count: 0, amount_inr: 0 },
+      failed_orders: { count: 0 },
+      held_orders: { count: 1, amount_inr: 1179 },
+      top_balances: [],
+    });
+    expect(summary.held_orders).toEqual({ count: 1, amount_inr: 1179 });
+  });
+
   it("an unknown order status is rejected", () => {
     expect(
       ordersPageSchema.safeParse({

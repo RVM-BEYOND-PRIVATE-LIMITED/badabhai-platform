@@ -95,8 +95,9 @@ number** — it is the only source that cannot lag.
 | `0171`        | Divyanshu | **ON BRANCH `feat/2753-pay-on-joining`, regenerated on top of 0170 (`0170_hires`, #2753 part H) — NOT YET APPLIED anywhere.** #2753 item 11: new table `pay_on_joining_hires`, the pay-on-joining pilot's record, one row per hire, written by hand by an admin. Ids (factory and partner payers, worker, optional posting), calendar dates, the fee, the partner's percent (COPIED from `POJ_PARTNER_SHARE_PERCENT` at create) and the share (the server's floor, pinned by `pay_on_joining_hires_share_math_chk`) in integer paise (bigint), and one capped admin `note`. UNIQUE NULLS NOT DISTINCT (factory, worker, posting). Factory FK CASCADE, partner and posting SET NULL, worker CASCADE (indexed). RLS ENABLE plus hand-appended FORCE and the four REVOKEs. **APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY**: nothing names the table while `PAY_ON_JOINING_RECORDS_ENABLED` is off (every route a 404). With the switch on before 0171, the list and both writes fail (42P01) and answer 500; nothing is written. Hand-apply in ONE `BEGIN; SET LOCAL lock_timeout = '3s'; … COMMIT;` (four FKs lock `payers`, `job_postings`, `workers`). `when` = `1794816818877`. Registered as `0171-pay-on-joining-hires-rls` in `schema-contract.ts` and listed in the e2e RLS guard. Ledger adoption order: 0164 to 0170 in slot order, then 0171. Rollback in the header (`DROP TABLE`, switch off first, export the records before) |
 | `0172`        | Divyanshu | **Branch `feat/2753-unlock-outcomes` (PR pending), regenerated on top of 0171 (`0171_pay_on_joining_hires`, #2753 part I) — NOT YET APPLIED anywhere.** #2753 item 10, the company follow-up: new table `unlock_outcomes`, one answer per opened contact: `unlock_id` (PRIMARY KEY, FK `unlocks` ON DELETE CASCADE), `tenant_payer_id` (the unlock's own `payer_id`, the tenant key; no FK, as on `unlocks.payer_id`), `worker_id` (FK `workers` ON DELETE CASCADE, indexed), `outcome` (`hired`/`not_hired`/`still_talking`/`not_reached`, `unlock_outcomes_outcome_chk`), `answered_by` (`company`/`desk`, `unlock_outcomes_answered_by_chk`), `answered_at`, `updated_at`; index `unlock_outcomes_tenant_answered_idx` (tenant_payer_id, answered_at). A later answer replaces the earlier one; the history is the `unlock.outcome_recorded` events. "Due" is computed at read time, so nothing is backfilled. Ids, dates and closed codes only. RLS ENABLE plus hand-appended FORCE and the four REVOKEs. **APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY**: nothing names the table while `UNLOCK_FOLLOWUP_ENABLED` is off. With the switch on before 0172, the due list and every answer fail (42P01) and answer 500; nothing is written. Two FKs: hand-apply in ONE `BEGIN; SET LOCAL lock_timeout = '3s'; … COMMIT;` and retry on 55P03 (SHARE ROW EXCLUSIVE on `unlocks` and `workers`). Registered as `0172-unlock-outcomes-rls` in `schema-contract.ts` and listed in the e2e RLS guard. Ledger adoption order: 0164 to 0171, then 0172. Rollback in the header (`DROP TABLE`, switch off first) |
 | `0173`        | Divyanshu | **Branch `feat/2753-still-looking` (stacked on `feat/2753-unlock-outcomes`, PR pending), on top of 0172 (`0172_unlock_outcomes`, #2753 part L) — NOT YET APPLIED anywhere.** #2753 item 5, the monthly "still looking?" check: new table `still_looking_checks`, one row per prompt: `id` uuid PK, `worker_id` (FK `workers` ON DELETE CASCADE), `prompted_at` timestamptz NOT NULL, `answered_at` timestamptz, `answer` (`yes`/`not_now`/`hired`, `still_looking_checks_answer_chk`), `created_at`; `still_looking_checks_answered_chk` keeps `answer` and `answered_at` together; partial UNIQUE `still_looking_checks_open_uq` (worker_id WHERE answered_at IS NULL: one open check per worker, the sweep's insert guard); index `still_looking_checks_worker_prompted_idx` (worker_id, prompted_at), which also backs the cascade. Ids, times and a closed code only. RLS ENABLE plus hand-appended FORCE and the four REVOKEs. `when` = `1794818158596` (> 0172's `1794817356838`). **APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY**: nothing names the table while `STILL_LOOKING_CHECK_ENABLED` is off (both routes 404, the daily sweep reads nothing). With the switch on before 0173, both routes answer 503 and the sweep logs one warning per process and opens nothing; nothing is written. One FK: hand-apply in ONE `BEGIN; SET LOCAL lock_timeout = '3s'; … COMMIT;` and retry on 55P03 (SHARE ROW EXCLUSIVE on `workers`). Registered as `0173-still-looking-checks-rls` in `schema-contract.ts` and listed in the e2e RLS guard. Ledger adoption order: 0164 to 0172, then 0173. Rollback in the header (`DROP TABLE`, switch off first) |
-| `0174`        | Divyanshu | **ON BRANCH `feat/2749-credit-lots` (#2749 PR 1) — NOT YET APPLIED anywhere.** New table `credit_lots` (a wallet's balance as lots: `source` behind `credit_lots_source_chk` = `CREDIT_LOT_SOURCES`, granted > 0, 0 ≤ remaining ≤ granted, expired ⇒ empty, partial UNIQUE one lot per paid order, two partial open-lot indexes; RLS ENABLE plus hand-appended FORCE and the four REVOKEs) + `credit_ledger.lot_id` (nullable FK, indexed) + an in-file backfill of one `legacy` lot per positive balance. **APPLY BEFORE DEPLOY, FROM THE PR BRANCH BEFORE THE MERGE** — Drizzle names `lot_id` in every ledger insert. **Adopt with `--only <tag>`, or after the pending lower migrations** (see the section: an unpinned adoption silently skips any of 0164–0173 still pending). Statement order is hand-written (payment_orders FK and backfill before the credit_ledger statements). Registered as `0174-credit-lots-table`, `0174-credit-ledger-lot-id`, `0174-credit-ledger-lot-fk`, `0174-credit-lots-rls`; listed in the e2e RLS guard. See the `0174` section below |
+| `0174`        | Divyanshu | **APPLIED IN PRODUCTION 2026-11-17 by hand before #2863 merged (read-back: 4 wallets with credits = 4 legacy lots, 197 credits in balances = 197 in lots), and recorded in the ledger by `owner-db-ledger.yml` run 44020951255 (0164–0174, 0174 last).** New table `credit_lots` (a wallet's balance as lots: `source` behind `credit_lots_source_chk` = `CREDIT_LOT_SOURCES`, granted > 0, 0 ≤ remaining ≤ granted, expired ⇒ empty, partial UNIQUE one lot per paid order, two partial open-lot indexes; RLS ENABLE plus hand-appended FORCE and the four REVOKEs) + `credit_ledger.lot_id` (nullable FK, indexed) + an in-file backfill of one `legacy` lot per positive balance. **APPLY BEFORE DEPLOY, FROM THE PR BRANCH BEFORE THE MERGE** — Drizzle names `lot_id` in every ledger insert. **Adopt with `--only <tag>`, or after the pending lower migrations** (see the section: an unpinned adoption silently skips any of 0164–0173 still pending). Statement order is hand-written (payment_orders FK and backfill before the credit_ledger statements). Registered as `0174-credit-lots-table`, `0174-credit-ledger-lot-id`, `0174-credit-ledger-lot-fk`, `0174-credit-lots-rls`; listed in the e2e RLS guard. See the `0174` section below |
 | `0175`        | Divyanshu | **MERGED (#2873, #2754 item 3, after #2816) — NOT YET APPLIED to production. Kept at 0175: it merged first (main and the production ledger both ended at `0174_credit_lots` on 2026-11-17), so #2872's `0175_payment_order_money` (#2749 part 3) regenerates above it as the next free slot.** New table `payer_phone_proofs`, a company proved the phone on its account: `payer_id` uuid PRIMARY KEY (FK `payers` ON DELETE CASCADE: one proof per account, erased with it), `phone_hash` text NOT NULL (the same keyed `hashPhone` HMAC as `payers.phone_hash`; never the number), `method` (`sms_code`/`campus_import`, `payer_phone_proofs_method_chk`), `proven_at` timestamptz default now(); UNIQUE `payer_phone_proofs_phone_hash_uq` (phone_hash): only ONE account can ever hold a proven phone, so an SMS sign-in never lands in the wrong account. A phone is a sign-in credential only while a proof holds the account's CURRENT `payers.phone_hash`; a phone change drops the proof in the same transaction. Nothing is backfilled; NO unique index on `payers.phone_hash` (production may hold duplicates: run the read-only `report:shared-payer-phones`, resolve each by hand, then add the payers-level index as a later owner step). RLS ENABLE plus hand-appended FORCE and the four REVOKEs. **APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY**: every read fails closed on 42P01 (no phone counts as proven, SMS sign-in sends nothing, the proof routes answer 503, a phone change still succeeds). One FK: hand-apply in ONE `BEGIN; SET LOCAL lock_timeout = '3s'; … COMMIT;` and retry on 55P03 (SHARE ROW EXCLUSIVE on `payers`). Registered as `0175-payer-phone-proofs-rls` in `schema-contract.ts` (renumber with the slot) and listed in the e2e RLS guard. Ledger adoption order: every lower slot first. Rollback in the header (`DROP TABLE`, switch off first) |
+| `0176`        | Divyanshu | **ON BRANCH `feat/2749-checkout` (#2749 PR 3) — NOT YET APPLIED anywhere.** `payment_orders` gains, all additive: `product_kind` (NOT NULL DEFAULT `credit_pack`, `payment_orders_product_kind_chk` = `PAYMENT_ORDER_PRODUCT_KINDS`), the GST line in paise `taxable_paise` / `gst_paise` / `round_off_paise` / `total_paise` / `gst_rate_bps` (nullable: all five or none, `payment_orders_money_set_chk`; total = taxable + GST + round-off, a positive whole rupee equal to `amount_inr` × 100, `payment_orders_money_sum_chk`), `credit_validity_days` (nullable, > 0), `origin` (nullable, `payment_orders_origin_chk` = `PAYMENT_ORDER_ORIGINS`) and `origin_job_posting_id` (nullable FK `job_postings` ON DELETE SET NULL, partial index). Relaxed: `pack_code` NOT NULL → `payment_orders_pack_code_chk` (a credit-pack order still names its pack) and `payment_orders_credits_pos_chk` (binds credit packs only). Widened: `payment_orders_status_chk` gains `held`. `when` = `1794891953223` (> 0174's `1794829712236`). **APPLY BEFORE DEPLOY, FROM THE PR BRANCH BEFORE THE MERGE** — the repository's bare `.select()` / `.returning()` on `payment_orders` name every new column. **Adopt with `--only <tag>`, or after the pending lower migrations.** Statement order is hand-written (the `job_postings` FK last). Registered as the nine `0176-payment-orders-<column>` columns, `0176-payment-orders-money-sum-chk`, `0176-payment-orders-pack-code-chk`, `0176-payment-orders-origin-posting-fk`. No new table, RLS unchanged. See the `0176` section below |
 
 ### The journal is five files behind, and what that actually costs — corrected 2026-08-20
 
@@ -323,6 +324,78 @@ trusting any migration to have applied it.
 recorded?"_. It now also asks _"is each recorded row a file?"_. A row with no journal entry means
 production has applied a migration this checkout does not contain — which is exactly how `0081`
 was found to be taken while a second branch was minting its own.
+
+### `0176` — additive, APPLY BEFORE DEPLOY (from the PR branch, before the merge), no backfill — 2026-11-17
+
+#2749 item 9 (checkout) and the storage half of item 7 (GST). An order now charges the pack's
+GST-inclusive **total**, so `payment_orders` stamps the whole `gstPriceLine(price)` it was charged
+from, in integer paise, beside `amount_inr` — which keeps the whole-rupee total (the issue's
+money-unit default). Also stamped at order time: the pack's credit validity (`credit_validity_days`,
+so the settle never re-reads the catalogue), where the purchase started (`origin`, and
+`origin_job_posting_id` when the posting is the buyer tenant's own), and the `product_kind` #2751
+will widen. A new status, `held`: a webhook capture whose amount is not the order's total grants
+nothing and parks the order there for ops (hardening 5).
+
+| Column                                                                         | Type                                | Rule                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------ | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `product_kind`                                                                 | text NOT NULL DEFAULT `credit_pack` | `payment_orders_product_kind_chk` IN (`credit_pack`)                                                                                                                                   |
+| `taxable_paise`, `gst_paise`, `round_off_paise`, `total_paise`, `gst_rate_bps` | integer, nullable                   | all five or none (`payment_orders_money_set_chk`); total = taxable + GST + round-off, > 0, a multiple of 100, = `amount_inr` × 100; rate 0–10,000 bps (`payment_orders_money_sum_chk`) |
+| `credit_validity_days`                                                         | integer, nullable                   | > 0 (`payment_orders_validity_pos_chk`)                                                                                                                                                |
+| `origin`                                                                       | text, nullable                      | `payment_orders_origin_chk` = `PAYMENT_ORDER_ORIGINS`                                                                                                                                  |
+| `origin_job_posting_id`                                                        | uuid, nullable                      | FK `job_postings` ON DELETE SET NULL; partial index `payment_orders_origin_job_posting_idx`                                                                                            |
+
+Relaxed, not removed: `pack_code` NOT NULL becomes `payment_orders_pack_code_chk` (only a
+`credit_pack` order needs one) and `payment_orders_credits_pos_chk` binds a `credit_pack` order
+only. Widened in place: `payment_orders_status_chk` gains `held`. Every pre-0176 row reads
+`credit_pack`, no money columns, no validity, no origin, and satisfies every new CHECK.
+
+**APPLY BEFORE DEPLOY, and from the PR branch before merging it** — merging auto-deploys.
+`UnlocksRepository` reads and writes `payment_orders` with bare `.select()` / `.returning()`, and
+Drizzle 0.45 names every model column there, so against a database without this file every order
+creation, browser verify and Razorpay webhook fails (`42703`; the webhook 5xxs and Razorpay
+redelivers). These routes are dark in production while `PAYMENTS_ENABLE_REAL` is off; the mock
+`POST /payer/credits` does not touch the table. Readiness:
+
+```bash
+pnpm --filter @badabhai/db db:audit:schema-contract   # read-only; exits 1 if the DB is behind
+```
+
+The column entries also answer for the two CHECKs widened under their old names (one transaction:
+if the columns are there, so are they).
+
+**Adoption order** — the same rule as `0174`: apply and record every pending lower migration first,
+or adopt **only** this one with `--only <this tag>` and do the lower ones by hand afterwards. Never
+an unpinned adoption over this slot.
+
+**The window between apply and deploy is safe.** The old build names none of the new columns: its
+order insert gets `credit_pack` and null money, it never writes `held` or a null `pack_code`, and
+its orders (`amount_inr` = the list price, no `total_paise`) are settled by the new build against
+`amount_inr` × 100 — exactly what the old build asked Razorpay for.
+
+**Locks, and a hand-written statement order.** Every lock is held until `COMMIT`:
+
+1. the nine `ADD COLUMN`s and `pack_code DROP NOT NULL` — `ACCESS EXCLUSIVE` on `payment_orders`
+   (every order read and write waits); catalog-only.
+2. DROP + re-ADD the two relaxed / widened CHECKs, then the six new ones — each ADD validates the
+   existing rows with one scan; cheap on a small table.
+3. `payment_orders_origin_job_posting_idx` — partial, over an all-NULL column, so empty.
+4. the `job_postings` FK **last** — `SHARE ROW EXCLUSIVE` on `job_postings` (posting writes wait;
+   reads, the feed included, do not), held only until the `COMMIT` that follows.
+
+No request locks `job_postings` and then `payment_orders`, so step 4 cannot deadlock with one.
+**drizzle-kit generates the DROPs first and the FK in the middle: after any regenerate or renumber,
+re-apply this order by hand** — `migration-0176-payment-order-money.test.ts` pins it. Apply in one
+`BEGIN; SET LOCAL lock_timeout = '3s'; … COMMIT;` and retry on `55P03`.
+
+**RLS.** Unchanged: `payment_orders` is already ENABLE + FORCE + REVOKE (0058); no new table.
+
+**Rollback.** An **app-only** rollback is safe on this schema except for `held` orders: the old
+build's settle claim is `status <> 'paid'`, so it would grant a held order on a webhook replay or a
+verify, and its failure handler would overwrite `held` with `failed`. Resolve every held order
+first (`SELECT id FROM payment_orders WHERE status = 'held'` returns nothing). Reverting the schema
+too drops production columns (the paise record, the validity and the origin of every order since
+this file), so it is an incident fix only; the statements are in the file header, ending with
+`DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1794900885026;`.
 
 ### `0174` — additive, APPLY BEFORE DEPLOY (from the PR branch, before the merge), with backfill — 2026-11-16
 
