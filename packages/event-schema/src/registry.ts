@@ -513,6 +513,9 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerSessionStartedV2Payload,
   },
+  // #2754 item 3 — a company proved the phone on its account (it now signs in by SMS code).
+  // FACELESS: payer_id and the closed method only.
+  "payer.phone_proven": { version: 1, domain: "payer", payload: p.PayerPhoneProvenPayload },
   // The test-login seam mints a session WITHOUT an OTP verification — a distinct event so a
   // synthetic session is never indistinguishable from a real login on the spine (Phase 2.1).
   "payer.test_login": { version: 1, domain: "payer", payload: p.PayerTestLoginPayload },

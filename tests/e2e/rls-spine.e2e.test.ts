@@ -274,6 +274,10 @@ const LOCKED_TABLES = [
   // code, integers and dates). Billing records, no FK to payers, never erased. RLS+FORCE+REVOKE in
   // 0174.
   "credit_lots",
+  // #2754 item 3: a company proved the phone on its account (an opaque payer id, a keyed phone
+  // hash, a closed method and a time). Payer FK cascade as the erasure coverage. RLS+FORCE+REVOKE
+  // in the hand-written tail of `*_payer_phone_proofs`.
+  "payer_phone_proofs",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

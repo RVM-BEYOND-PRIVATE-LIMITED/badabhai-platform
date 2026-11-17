@@ -412,3 +412,173 @@ describe("#2754 — the SMS ceiling fails closed", () => {
     expect(sms.deliver).not.toHaveBeenCalled();
   });
 });
+
+describe("#2754 item 3 — a PHONE-PROOF code: its own slot, the SMS bounds, never a sign-in code", () => {
+  const PAYER = "aaaaaaaa-0000-4000-8000-000000000001";
+  const OTHER = "bbbbbbbb-0000-4000-8000-000000000002";
+  const PHONE = "+919876543210";
+  const PHONE_HASH = "e".repeat(64);
+  const today = (): string => new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const smsKey = (): string => `payer_otp:global_sms_sendcount:${today()}`;
+
+  function proofSetup(over: Partial<ServerConfig> = {}) {
+    const redis = makeRedis();
+    const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
+    const channel: PayerLoginChannel = {
+      method: "email_otp",
+      mock: false,
+      deliver: vi.fn().mockResolvedValue(undefined),
+    };
+    const sms = smsStub();
+    const svc = new PayerOtpService(
+      { ...config, PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY: 500, ...over } as ServerConfig,
+      pii,
+      channel,
+      queue,
+      sms,
+    );
+    return { svc, redis, channel, sms };
+  }
+  const smsCode = (sms: SmsLoginChannel, call = 0): string =>
+    (vi.mocked(sms.deliver).mock.calls[call]?.[0] as { code: string }).code;
+
+  it("sends by SMS to the given phone, keyed by the ACCOUNT, bound to the phone hash, counting the SMS ceiling", async () => {
+    const { svc, redis, channel, sms } = proofSetup();
+    const res = await svc.issuePhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, phone: PHONE });
+    expect(res).toEqual({ resendInSeconds: 30 });
+    expect(sms.deliver).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sms.deliver).mock.calls[0]![0]).toMatchObject({
+      phone: PHONE,
+      payerId: PAYER,
+    });
+    expect(channel.deliver).not.toHaveBeenCalled();
+    const code = smsCode(sms);
+    // Its own namespace — never the sign-in key of that phone.
+    expect(redis.store.get(`payer_otp:phone_proof:code:${PAYER}`)).toBe(
+      `hmac<phone_proof:${PHONE_HASH}:${code}>`,
+    );
+    expect(redis.store.has(`payer_otp:code:${PHONE_HASH}`)).toBe(false);
+    // The company-SMS ceiling counts it.
+    expect(redis.store.get(smsKey())).toBe("1");
+  });
+
+  it("verifies its own code once (single-use), then refuses a replay", async () => {
+    const { svc, sms } = proofSetup();
+    await svc.issuePhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, phone: PHONE });
+    const code = smsCode(sms);
+    await expect(
+      svc.verifyPhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, code }),
+    ).resolves.toBeUndefined();
+    await expect(
+      svc.verifyPhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, code }),
+    ).rejects.toMatchObject({ status: HttpStatus.UNAUTHORIZED });
+  });
+
+  it("PURPOSES DON'T CROSS: a proof code is not a sign-in code for that phone", async () => {
+    const { svc, sms } = proofSetup();
+    await svc.issuePhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, phone: PHONE });
+    await expect(svc.verify(PHONE_HASH, smsCode(sms))).rejects.toMatchObject({
+      status: HttpStatus.UNAUTHORIZED,
+    });
+  });
+
+  it("PURPOSES DON'T CROSS: a sign-in code for that phone is not a proof code", async () => {
+    const { svc, sms } = proofSetup();
+    await svc.issueAndSend({
+      emailHash: PHONE_HASH,
+      email: "",
+      phone: PHONE,
+      payerId: PAYER,
+      route: "sms",
+    });
+    await expect(
+      svc.verifyPhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, code: smsCode(sms) }),
+    ).rejects.toMatchObject({ status: HttpStatus.UNAUTHORIZED });
+    // …and the sign-in code is untouched by the failed proof attempt: it still signs in.
+    await expect(svc.verify(PHONE_HASH, smsCode(sms))).resolves.toBeUndefined();
+  });
+
+  it("a code sent before a PHONE CHANGE is void after it (bound to the old hash)", async () => {
+    const { svc, sms } = proofSetup();
+    await svc.issuePhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, phone: PHONE });
+    await expect(
+      svc.verifyPhoneProof({ payerId: PAYER, phoneHash: "d".repeat(64), code: smsCode(sms) }),
+    ).rejects.toMatchObject({ status: HttpStatus.UNAUTHORIZED });
+  });
+
+  it("another account cannot verify this account's proof code (keyed by the account)", async () => {
+    const { svc, sms } = proofSetup();
+    await svc.issuePhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, phone: PHONE });
+    await expect(
+      svc.verifyPhoneProof({ payerId: OTHER, phoneHash: PHONE_HASH, code: smsCode(sms) }),
+    ).rejects.toMatchObject({ status: HttpStatus.UNAUTHORIZED });
+  });
+
+  it("has its own resend cooldown (a second immediate send is a 429)", async () => {
+    const { svc, sms } = proofSetup();
+    await svc.issuePhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, phone: PHONE });
+    await expect(
+      svc.issuePhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, phone: PHONE }),
+    ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+    expect(sms.deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it("SHARES the per-number hourly cap with sign-in codes to the same phone", async () => {
+    const { svc, sms } = proofSetup({ OTP_MAX_SENDS_PER_HOUR: 1 } as Partial<ServerConfig>);
+    await svc.issueAndSend({
+      emailHash: PHONE_HASH,
+      email: "",
+      phone: PHONE,
+      payerId: PAYER,
+      route: "sms",
+    });
+    await expect(
+      svc.issuePhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, phone: PHONE }),
+    ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+    expect(sms.deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it("at the company-SMS ceiling it refuses with its own exception and leaves no code behind", async () => {
+    const { svc, redis, sms } = proofSetup({
+      PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY: 0,
+    } as Partial<ServerConfig>);
+    await expect(
+      svc.issuePhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, phone: PHONE }),
+    ).rejects.toBeInstanceOf(PayerSmsSendCapExceededException);
+    expect(sms.deliver).not.toHaveBeenCalled();
+    expect(redis.store.has(`payer_otp:phone_proof:code:${PAYER}`)).toBe(false);
+    expect(redis.store.has(`payer_otp:phone_proof:cooldown:${PAYER}`)).toBe(false);
+  });
+
+  it("a delivery failure rolls the code back and is a 502 (the caller's own account: no oracle)", async () => {
+    const { svc, redis, sms } = proofSetup();
+    vi.mocked(sms.deliver).mockRejectedValueOnce(new Error("provider down"));
+    await expect(
+      svc.issuePhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, phone: PHONE }),
+    ).rejects.toMatchObject({ status: HttpStatus.BAD_GATEWAY });
+    expect(redis.store.has(`payer_otp:phone_proof:code:${PAYER}`)).toBe(false);
+  });
+
+  it("FAILS CLOSED (503) on a Redis error, sending nothing", async () => {
+    const redis = makeRedis("exists");
+    const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
+    const sms = smsStub();
+    const svc = new PayerOtpService(
+      config,
+      pii,
+      { method: "email_otp", mock: false, deliver: vi.fn() },
+      queue,
+      sms,
+    );
+    await expect(
+      svc.issuePhoneProof({ payerId: PAYER, phoneHash: PHONE_HASH, phone: PHONE }),
+    ).rejects.toMatchObject({ status: HttpStatus.SERVICE_UNAVAILABLE });
+    expect(sms.deliver).not.toHaveBeenCalled();
+  });
+
+  it("a sign-in code issued before this change (the raw-code HMAC, the old keys) still verifies", async () => {
+    const { svc, redis } = proofSetup();
+    redis.store.set(`payer_otp:code:${EMAIL_HASH}`, "hmac<123456>");
+    await expect(svc.verify(EMAIL_HASH, "123456")).resolves.toBeUndefined();
+  });
+});

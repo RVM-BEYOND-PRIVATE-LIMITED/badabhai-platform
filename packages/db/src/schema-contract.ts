@@ -1473,6 +1473,26 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. The table is every company's credit holdings and their expiry dates; an open " +
       "grant lets any PostgREST role read them, or write a lot that the next spend would honour",
   },
+  // #2754 item 3: proven company sign-in phones. Every read of `payer_phone_proofs` fails CLOSED on
+  // 42P01 (no phone counts as proven, so SMS sign-in sends nothing; the proof routes answer 503;
+  // a phone change's proof drop runs in a savepoint that tolerates the missing table), so a deploy
+  // ahead of the migration breaks no request and the table is NOT a `table` entry. Listed for its
+  // lock (the 0134 rule). APPLY BEFORE THE SWITCH (PAYER_SMS_OTP_ENABLED; migration header).
+  // The id and tag carry the slot number: regenerated with the migration when the slot moves.
+  {
+    id: "0175-payer-phone-proofs-rls",
+    migration: "0175_payer_phone_proofs",
+    kind: "rls",
+    table: "payer_phone_proofs",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides which company an SMS code signs in: an open grant lets any " +
+      "PostgREST role write a proof for its own account against a victim's phone hash and so " +
+      "take over that company's SMS sign-in, or read which accounts hold a proven phone",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's
