@@ -60,6 +60,8 @@ import { stillLookingChecks } from "./still-looking";
 import { payerPhoneProofs } from "./payer-phone-proof";
 import { numbersRecomputeLog, numbersWeekly } from "./numbers-weekly";
 import { creditCallLog } from "./credit-call-log";
+import { creditRulesConfig } from "./credit-rules";
+import { launchTestCohort, launchTestShares } from "./launch-test";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -195,6 +197,9 @@ export * from "./payer-phone-proof";
 export * from "./numbers-weekly";
 // #2755 item 8 — the out-of-credits call log (one row per call, a closed result code).
 export * from "./credit-call-log";
+export * from "./credit-rules";
+// #2755 item 9 — launch test A: the factories, what each was sent, its payment link and result.
+export * from "./launch-test";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -527,4 +532,9 @@ export const schema = {
   numbersRecomputeLog,
   // #2755 item 8 - the out-of-credits call log (behind ADMIN_NUMBERS_ENABLED).
   creditCallLog,
+  // #2750 item 1 - the credit rules settings, one row per revision (read only while CREDIT_RULES_ROLLOUT is on).
+  creditRulesConfig,
+  // #2755 item 9 - launch test A records (read and written only while ADMIN_NUMBERS_ENABLED is on).
+  launchTestCohort,
+  launchTestShares,
 };

@@ -347,6 +347,10 @@ export class AdminIdentityService {
         // Same column as `workers` (`workers.full_name`) — a separate surface
         // because it spends the separate Candidates budget (ADR-0062 §3.7).
         return this.repo.workerNames(list);
+      case "launch_test_factories":
+        // #2755 item 9 — launch test A's factory names: the desk's own record (`launch_test_cohort`
+        // rows), on the entity budget. The factory's phone is never projected.
+        return this.repo.launchTestFactoryNames(list);
     }
   }
 

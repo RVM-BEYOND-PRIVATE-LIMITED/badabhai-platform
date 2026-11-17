@@ -1,3 +1,4 @@
+import { CreditRulesModule } from "../credit-rules/credit-rules.module";
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { CampusLinkModule } from "../campus-link/campus-link.module";
@@ -52,6 +53,8 @@ import { CreditLotExpirySweepProcessor } from "./credit-lot-expiry-sweep.process
     CampusLinkModule,
     // #2747 — the `contact_rules` switch (open for good, the contact read). No dependency back.
     FeatureRolloutModule,
+    // #2750 — the credit rules (what a contact costs). CreditRulesModule has no dependency back.
+    CreditRulesModule,
   ],
   // RazorpayWebhookController is the PUBLIC capture surface (ADR-0010 real-payments
   // stream). It lives here, beside the money chokepoint it drives, so the whole payment

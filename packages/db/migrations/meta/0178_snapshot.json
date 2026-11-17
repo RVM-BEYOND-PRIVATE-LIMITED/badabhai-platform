@@ -1,5 +1,5 @@
 {
-  "id": "ac4335e8-0009-46b8-a391-f51544afde41",
+  "id": "870ca823-8841-4b9b-8125-4e9ebf088395",
   "prevId": "aecce2be-6c44-42bb-80e0-799da1ef39d0",
   "version": "7",
   "dialect": "postgresql",
@@ -19880,8 +19880,8 @@
       },
       "isRLSEnabled": true
     },
-    "public.credit_call_log": {
-      "name": "credit_call_log",
+    "public.credit_rules_config": {
+      "name": "credit_rules_config",
       "schema": "",
       "columns": {
         "id": {
@@ -19891,77 +19891,84 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "payer_id": {
-          "name": "payer_id",
+        "rules": {
+          "name": "rules",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "updated_by": {
+          "name": "updated_by",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "called_by_admin_id": {
-          "name": "called_by_admin_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "called_at": {
-          "name": "called_at",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "result": {
-          "name": "result",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
         }
       },
       "indexes": {
-        "credit_call_log_payer_called_idx": {
-          "name": "credit_call_log_payer_called_idx",
+        "credit_rules_config_active_uq": {
+          "name": "credit_rules_config_active_uq",
           "columns": [
             {
-              "expression": "payer_id",
+              "expression": "is_active",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
-            },
+            }
+          ],
+          "isUnique": true,
+          "where": "\"credit_rules_config\".\"is_active\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credit_rules_config_revision_uq": {
+          "name": "credit_rules_config_revision_uq",
+          "columns": [
             {
-              "expression": "called_at",
+              "expression": "revision",
               "isExpression": false,
-              "asc": false,
+              "asc": true,
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
         }
       },
-      "foreignKeys": {
-        "credit_call_log_payer_id_payers_id_fk": {
-          "name": "credit_call_log_payer_id_payers_id_fk",
-          "tableFrom": "credit_call_log",
-          "tableTo": "payers",
-          "columnsFrom": [
-            "payer_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "credit_call_log_result_chk": {
-          "name": "credit_call_log_result_chk",
-          "value": "\"credit_call_log\".\"result\" IN ('reached_will_buy', 'reached_not_now', 'reached_declined', 'no_answer', 'wrong_number')"
+        "credit_rules_config_revision_pos_chk": {
+          "name": "credit_rules_config_revision_pos_chk",
+          "value": "\"credit_rules_config\".\"revision\" > 0"
+        },
+        "credit_rules_config_rules_object_chk": {
+          "name": "credit_rules_config_rules_object_chk",
+          "value": "jsonb_typeof(\"credit_rules_config\".\"rules\") = 'object'"
         }
       },
       "isRLSEnabled": true
