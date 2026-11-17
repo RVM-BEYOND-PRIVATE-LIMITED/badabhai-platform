@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { areRealPaymentsEnabled } from "@badabhai/config";
 import type { CreditPack, ExpiredCreditLot, PaymentOrder } from "@badabhai/db";
@@ -10,7 +10,7 @@ import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PricingService } from "../pricing/pricing.service";
 import { creditPackSale, findCreditPackTier } from "../pricing/credit-pack-sale";
 import { UnlocksRepository, type Tx } from "./unlocks.repository";
-import { RazorpayClient } from "./razorpay.client";
+import { RAZORPAY_CURRENCY, RazorpayClient } from "./razorpay.client";
 import {
   captureMismatch,
   expectedOrderPaise,
@@ -255,23 +255,26 @@ export class PaymentGateway {
    * credits GRANTED and ₹ STAMPED are both that one resolved tier — never a second,
    * possibly-drifted lookup.
    *
-   * #2749 PR 3: the ₹ stamped (and returned as `priceInr`) is the GST-inclusive TOTAL, the same
-   * amount a real order charges; and the pack lot expires `validityDays` after this grant when the
-   * pack sets one (database clock), else never. Production's default packs set no validity.
+   * #2749 PR 3 — THE ₹ STAMPED STAYS THE LIST PRICE (`pack.priceInr`, before GST), deliberately
+   * NOT the GST total a real order charges. This route is live in production, grants packs with
+   * no money taken, and is retired when real payments switch on (hardening 1); restamping it at
+   * the total now would only mix two conventions into the company's payment history for credits
+   * nobody paid for. The pack lot DOES expire `validityDays` after this grant when the pack sets
+   * one (database clock), else never; production's default packs set no validity.
    */
   async purchasePackMock(
     tenant: TenantKey,
     pack: ResolvedPack,
   ): Promise<{ balanceAfter: number; credits: number; priceInr: number; realCall: false }> {
-    const priceInr = chargedInr(pack);
+    const priceInr = pack.priceInr; // the list price: see the header
     const balanceAfter = await this.repo.creditPack({
       payerId: tenant,
       credits: pack.credits,
       reason: "pack_purchase",
       packCode: pack.code,
       paymentRef: null, // no external order id in the mock path
-      // D-6: stamp the amount CHARGED onto the ledger row so History shows what this
-      // purchase actually cost, immune to any later ops price edit.
+      // D-6: stamp the pack's price onto the ledger row so History shows what this purchase
+      // was sold at, immune to any later ops price edit.
       priceInr,
       validityDays: pack.validityDays,
     });
@@ -325,13 +328,16 @@ export class PaymentGateway {
       receipt: orderRowId,
       notes: { pack_code: pack.code, payment_order_id: orderRowId },
     });
-    if (created.amountPaise !== line.totalPaise) {
-      // The provider order is for a different amount than the line we would stamp. Persist
-      // nothing: the unpaid provider order expires harmlessly, and no checkout is handed out.
+    // RAZORPAY'S echo (the amount and currency its response names), not the number we sent: if
+    // the provider's order is not for exactly the total we are about to stamp, in INR, persist
+    // NOTHING — the unpaid provider order expires harmlessly and no checkout is handed out.
+    if (created.amountPaise !== line.totalPaise || created.currency !== RAZORPAY_CURRENCY) {
       this.logger.error(
-        `provider order amount differs from the pack total; refusing the order pack=${pack.code} expected_paise=${line.totalPaise} provider_paise=${created.amountPaise}`,
+        `provider order does not match the pack total; refusing the order pack=${pack.code} expected_paise=${line.totalPaise} provider_paise=${created.amountPaise} provider_currency_ok=${created.currency === RAZORPAY_CURRENCY}`,
       );
-      throw new Error("payment provider order amount mismatch");
+      throw new ServiceUnavailableException(
+        "Checkout is unavailable right now; nothing was charged. Please try again.",
+      );
     }
 
     const row = await this.repo.createPaymentOrder({
@@ -402,11 +408,13 @@ export class PaymentGateway {
    * granted: the order moves `created`/`failed` → `held` in one compare-and-set, `onHeld` runs on
    * that transaction (the service's `payment.held` event), and the outcome is `held`. A held order
    * can never be settled afterwards — every later call (a replay, a verify) reads `on_hold` — so
-   * ops resolve it by hand. The VERIFY path passes no `captured`: it carries no amount, and it does
-   * not need one, because a Razorpay order is fixed-amount (partial payments off) and the verified
-   * signature binds the payment to THIS order, whose provider amount `createRealOrder` checked
-   * against the stamped total. A mismatched capture reported for an order ALREADY paid changes
-   * nothing (the grant stands) and is logged at ERROR for ops.
+   * ops resolve it by hand. BOTH channels pass `captured`: the webhook from the delivery's payment
+   * entity, the browser VERIFY from the payment it fetched back from Razorpay
+   * ({@link fetchCapturedAmount}) — so neither can grant on a payment of the wrong amount.
+   * (`createRealOrder` also refused, up front, any provider order whose echoed amount was not the
+   * stamped total.) A mismatched capture reported for an order ALREADY paid changes nothing — the
+   * grant stands — but is logged at ERROR and handed to `onPaidMismatch` (the service records a
+   * `payment.held` with `order_status: "paid"`).
    */
   async settleOrder(
     input: {
@@ -417,6 +425,8 @@ export class PaymentGateway {
     },
     hooks: {
       onHeld?: (tx: Tx, held: PaymentOrder, mismatch: CaptureMismatch) => Promise<void>;
+      /** A mismatched capture for an order already PAID (nothing changes; the caller records it). */
+      onPaidMismatch?: (paid: PaymentOrder, mismatch: CaptureMismatch) => Promise<void>;
     } = {},
   ): Promise<SettleResult> {
     const existing = await this.repo.findPaymentOrder(input.providerOrderId);
@@ -429,7 +439,10 @@ export class PaymentGateway {
     const mismatch = input.captured ? captureMismatch(existing, input.captured) : null;
     // Fast path: already settled by the other channel. Skips the write entirely.
     if (existing.status === "paid") {
-      if (mismatch) this.logMismatch("capture reported for a SETTLED order", existing, mismatch);
+      if (mismatch) {
+        this.logMismatch("capture reported for a SETTLED order", existing, mismatch);
+        if (hooks.onPaidMismatch) await hooks.onPaidMismatch(existing, mismatch);
+      }
       return { outcome: "already_settled", order: existing };
     }
 
@@ -479,6 +492,33 @@ export class PaymentGateway {
       credits: settled.order.creditsGranted,
       priceInr: settled.order.amountInr,
     };
+  }
+
+  /**
+   * #2749 hardening 5 — what Razorpay says was paid on `paymentId`, for the browser VERIFY path:
+   * the payment fetched back from the provider (`GET /payments/:id`), reduced to the amount and
+   * currency the settle checks. Null — and the caller settles NOTHING — when the fetch fails
+   * (network, a provider 5xx) or the payment does not belong to `providerOrderId`; the webhook
+   * remains the other channel. Never logs the payment entity.
+   */
+  async fetchCapturedAmount(
+    paymentId: string,
+    providerOrderId: string,
+  ): Promise<CapturedAmount | null> {
+    try {
+      const payment = await this.razorpay.fetchPayment(paymentId);
+      if (payment.orderId !== providerOrderId) {
+        this.logger.warn("verify: the fetched payment names another order; not settling");
+        return null;
+      }
+      return { amountPaise: payment.amountPaise, currency: payment.currency };
+    } catch {
+      // The client already logged the error class. Not settling is the safe answer.
+      this.logger.warn(
+        "verify: the payment could not be read back from the provider; not settling",
+      );
+      return null;
+    }
   }
 
   /** The state a settle that lost a race reports: held stays held, anything else is settled. */

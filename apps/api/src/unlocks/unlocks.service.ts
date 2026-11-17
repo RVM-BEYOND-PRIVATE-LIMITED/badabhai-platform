@@ -1084,8 +1084,9 @@ export class UnlockService {
     if (!pack) return null; // unknown or off-sale pack → 404 (NOT the unlock no-oracle path)
     // #2085: the ₹ the payer confirmed must be the pack's price — refused (409) BEFORE the
     // ledger write, so a mismatch grants and records nothing. It is the LIST price before GST
-    // (what the catalogue's `priceInr` and the client's confirmation are); the purchase charges
-    // that price's GST-inclusive total (#2749 PR 3), which `purchasePackMock` stamps.
+    // (the catalogue's `priceInr`). This MOCK route also stamps that list price on the ledger and
+    // its two events (#2749 PR 3 leaves it unchanged; see `purchasePackMock`), while a real order
+    // charges the GST-inclusive total.
     assertExpectedPrice(expectedPriceInr, pack.priceInr);
 
     const result = await this.payments.purchasePackMock(scope.tenantKey, pack);
@@ -1201,11 +1202,13 @@ export class UnlockService {
    * NO-ORACLE: an invalid signature, an unknown order, and another tenant's order all
    * return the same `{ verified: false }` shape — the caller learns nothing about which.
    *
-   * A HELD ORDER (#2749 hardening 5) is `{ verified: false }` too, and grants nothing: a webhook
-   * capture of the wrong amount parked it for ops, and no verify can settle it. Verify carries no
-   * amount of its own, so it never holds an order; one it settles first is checked by the
-   * webhook that follows (a mismatch there is logged for ops, the grant stands — see
-   * `PaymentGateway.settleOrder`).
+   * THE AMOUNT CHECK (#2749 hardening 5). After the signature, the payment is READ BACK from
+   * Razorpay (`GET /payments/:id`) and its amount and currency go through the SAME check the
+   * webhook runs: a payment of the wrong amount HOLDS the order (one `payment.held`, nothing
+   * granted) and answers `{ verified: false }`. If the payment cannot be read (network, a
+   * provider 5xx) nothing is settled and the answer is the same neutral `{ verified: false }`:
+   * the client may retry, and the webhook remains the other channel. A HELD order is
+   * `{ verified: false }` too — no verify can settle it.
    */
   async verifyCheckoutPayment(
     payerId: string,
@@ -1233,6 +1236,9 @@ export class UnlockService {
 
     // ADR-0053 — resolved after the two pure checks above (no DB read before them), once.
     const scope = await this.tenancy.resolve(payerId);
+    // #2749 hardening 5 — what Razorpay says this payment is for. Unreadable → settle nothing.
+    const captured = await this.payments.fetchCapturedAmount(input.paymentId, input.orderId);
+    if (captured === null) return { verified: false };
     const result = await this.settleAndEmit(
       {
         providerOrderId: input.orderId,
@@ -1240,6 +1246,7 @@ export class UnlockService {
         // Ownership is enforced INSIDE settle: a mismatch is indistinguishable from
         // "no such order", so this endpoint is not an order-id oracle for other tenants.
         expectedTenantKey: scope.tenantKey,
+        captured,
       },
       ctx,
       scope.actorPayerId,
@@ -1365,8 +1372,12 @@ export class UnlockService {
     actorPayerId?: string,
   ): Promise<SettleResult> {
     const result = await this.payments.settleOrder(input, {
-      // #2749 hardening 5 — `payment.held`, on the hold's own transaction (one per order).
-      onHeld: (tx, held, mismatch) => this.emitPaymentHeld(held, mismatch, ctx, tx),
+      // #2749 hardening 5 — `payment.held`, on the hold's own transaction (one per order)…
+      onHeld: (tx, held, mismatch) => this.emitPaymentHeld(held, mismatch, "held", ctx, tx),
+      // …or, for a mismatch reported AFTER the order was paid, the same event with
+      // `order_status: "paid"` (nothing changed; under the same per-order key).
+      onPaidMismatch: (paid, mismatch) =>
+        this.emitPaymentHeld(paid, mismatch, "paid", ctx, undefined),
     });
     if (result.outcome === "granted") {
       const wallet = result.order.payerId;
@@ -2062,15 +2073,18 @@ export class UnlockService {
   }
 
   /**
-   * #2749 hardening 5 — a capture held for its amount, written on the hold's transaction (`tx`) so
-   * the two commit together. Razorpay is speaking, not a login: the actor is `system` and the
-   * subject is the wallet the order was stamped with. Keyed on the order row: one per order.
+   * #2749 hardening 5 — a capture whose amount is not the order total. `held`: written on the
+   * hold's transaction (`tx`) so the two commit together. `paid`: a late mismatch on an order
+   * already paid, nothing changed, written on its own. The provider is speaking, not a login: the
+   * actor is `system` and the subject is the wallet the order was stamped with. Keyed on the order
+   * row: one per order (a held order is never paid, and a paid one never held).
    */
   private async emitPaymentHeld(
     order: PaymentOrder,
     mismatch: CaptureMismatch,
+    orderStatus: "held" | "paid",
     ctx: RequestContext,
-    tx: Tx,
+    tx: Tx | undefined,
   ): Promise<void> {
     const payload: PayloadInputOf<"payment.held"> = {
       payment_order_id: order.id,
@@ -2079,6 +2093,7 @@ export class UnlockService {
       expected_paise: mismatch.expectedPaise,
       captured_paise: mismatch.capturedPaise,
       reason: mismatch.reason,
+      order_status: orderStatus,
       real_call: this.payments.realCall,
     };
     await this.events.emit({
@@ -2089,7 +2104,7 @@ export class UnlockService {
       idempotencyKey: `payment.held:order:${order.id}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
-      tx: tx as unknown as Database,
+      ...(tx ? { tx: tx as unknown as Database } : {}),
     });
   }
 

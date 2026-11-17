@@ -2022,13 +2022,27 @@ describe.skipIf(!RUN)(
           source: "db" as const,
         }),
       };
+      // The fake provider remembers each order it created, so the browser verify's read-back of a
+      // payment (#2749 hardening 5) reports a captured payment of that order's own amount. The
+      // payment ids this suite uses carry no order, so the fake binds a payment to the order last
+      // created — every verify below follows its own order's creation.
+      const created = new Map<string, number>();
+      let lastOrder = "";
       const razorpay = {
         isLive: true,
         keyId: "rzp_test_p2b",
-        createOrder: async ({ amountInr }: { amountInr: number }) => ({
-          orderId: `order_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
-          amountPaise: amountInr * 100,
+        createOrder: async ({ amountInr }: { amountInr: number }) => {
+          const orderId = `order_${randomUUID().replace(/-/g, "").slice(0, 14)}`;
+          created.set(orderId, amountInr * 100);
+          lastOrder = orderId;
+          return { orderId, amountPaise: amountInr * 100, currency: "INR" };
+        },
+        fetchPayment: async (paymentId: string) => ({
+          id: paymentId,
+          orderId: lastOrder,
+          amountPaise: created.get(lastOrder) ?? 0,
           currency: "INR",
+          status: "captured",
         }),
       };
       const gateway = new PaymentGateway(repo, config, pricing as never, razorpay as never);

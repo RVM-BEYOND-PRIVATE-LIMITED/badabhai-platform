@@ -1708,6 +1708,14 @@ export const PAYMENT_HOLD_REASONS = Object.freeze([
 ] as const);
 export type PaymentHoldReason = (typeof PAYMENT_HOLD_REASONS)[number];
 
+/**
+ * The order's status after a mismatched capture (`payment.held.order_status`): `held` = the capture
+ * held the order and granted nothing; `paid` = the order was already paid (the browser verify
+ * settled it first), so nothing changed and the grant stands. FROZEN with the event's v1 enum.
+ */
+export const PAYMENT_HELD_ORDER_STATUSES = Object.freeze(["held", "paid"] as const);
+export type PaymentHeldOrderStatus = (typeof PAYMENT_HELD_ORDER_STATUSES)[number];
+
 // ---- Display preferences: the theme (#2819, migration 0165) ----
 //
 // HERE FOR THE SAME REASON AS THE SKINS ABOVE: `packages/db` spells both sets into CHECK

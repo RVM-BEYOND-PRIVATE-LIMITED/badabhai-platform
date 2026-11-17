@@ -327,7 +327,7 @@ describe("PaymentGateway.resolvePack — LIVE catalog, on-sale packs only (D-6 +
 });
 
 describe("PaymentGateway.purchasePackMock — stamps the CHARGED ₹ on the ledger (D-6 MEDIUM-2)", () => {
-  it("grants the resolved tier's credits and stamps its GST-inclusive total onto the ledger row", async () => {
+  it("grants the resolved tier's credits and stamps its LIST price onto the ledger row", async () => {
     const { gw, repo } = makeGateway(
       catalogWithUnlockTiers([{ code: "pack_50", priceInr: 1500, credits: 60, windowDays: 14 }]),
     );
@@ -340,12 +340,13 @@ describe("PaymentGateway.purchasePackMock — stamps the CHARGED ₹ on the ledg
       reason: "pack_purchase",
       packCode: "pack_50",
       paymentRef: null,
-      // The LIVE charge, STAMPED so History can never be re-priced — since #2749 PR 3 the
-      // GST-inclusive total (₹1,500 + 18% = ₹1,770), the same amount a real order charges.
-      priceInr: 1770,
+      // The LIVE price, STAMPED so History can never be re-priced. The LIST price, before GST:
+      // this mock route takes no money and is retired at switch-on, so #2749 PR 3 leaves it as it
+      // was (a real order charges the GST total, ₹1,770 here).
+      priceInr: 1500,
       validityDays: null, // the tier sets none: the lot never expires
     });
-    expect(res).toEqual({ balanceAfter: 60, credits: 60, priceInr: 1770, realCall: false });
+    expect(res).toEqual({ balanceAfter: 60, credits: 60, priceInr: 1500, realCall: false });
   });
 
   it("#2749 PR 3: passes the tier's validityDays to the lot", async () => {
@@ -357,7 +358,7 @@ describe("PaymentGateway.purchasePackMock — stamps the CHARGED ₹ on the ledg
     const pack = (await gw.resolvePack("pack_starter"))!;
     await gw.purchasePackMock(WALLET, pack);
     expect(repo.creditPack).toHaveBeenCalledWith(
-      expect.objectContaining({ priceInr: 1179, validityDays: 30 }),
+      expect.objectContaining({ priceInr: 999, validityDays: 30 }),
     );
   });
 

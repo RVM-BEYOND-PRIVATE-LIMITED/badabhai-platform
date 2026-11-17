@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PAYMENT_HOLD_REASONS } from "@badabhai/types";
+import { PAYMENT_HELD_ORDER_STATUSES, PAYMENT_HOLD_REASONS } from "@badabhai/types";
 
 import { createEvent, EVENT_REGISTRY, isEventName, validateEvent } from "./index";
 
@@ -32,6 +32,7 @@ function heldEvent(over: Record<string, unknown> = {}): Record<string, unknown> 
       expected_paise: 117900,
       captured_paise: 99900,
       reason: "amount_mismatch",
+      order_status: "held",
       real_call: true,
       ...over,
     },
@@ -54,11 +55,12 @@ describe("payment.held", () => {
     expect(createEvent(event as never).payload).toMatchObject({ reason, expected_paise: 117900 });
   });
 
-  it("pins the payload SHAPE and the reason set", () => {
+  it("pins the payload SHAPE, the reason set and the order-status set", () => {
     const def = EVENT_REGISTRY["payment.held"];
     expect(Object.keys(def.payload.shape).sort()).toEqual([
       "captured_paise",
       "expected_paise",
+      "order_status",
       "pack_code",
       "payer_id",
       "payment_order_id",
@@ -66,6 +68,15 @@ describe("payment.held", () => {
       "reason",
     ]);
     expect(def.payload.shape.reason.options).toEqual([...PAYMENT_HOLD_REASONS]);
+    expect(def.payload.shape.order_status.options).toEqual([...PAYMENT_HELD_ORDER_STATUSES]);
+  });
+
+  it("records a LATE mismatch on an order already paid (order_status paid), and needs the field", () => {
+    expect(validateEvent(heldEvent({ order_status: "paid" })).success).toBe(true);
+    const missing = heldEvent();
+    delete (missing.payload as Record<string, unknown>).order_status;
+    expect(validateEvent(missing).success).toBe(false);
+    expect(validateEvent(heldEvent({ order_status: "created" })).success).toBe(false);
   });
 
   it("is STRICT: a provider payment id, a contact, a signature or a balance cannot ride along", () => {

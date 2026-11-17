@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  PAYMENT_HELD_ORDER_STATUSES,
   PAYMENT_HOLD_REASONS,
   PAYMENT_ORDER_ORIGINS,
   PAYMENT_ORDER_PRODUCT_KINDS,
@@ -44,6 +45,11 @@ describe("payment order sets", () => {
       "currency_mismatch",
     ]);
     expect(Object.isFrozen(PAYMENT_HOLD_REASONS)).toBe(true);
+  });
+
+  it("a mismatched capture leaves the order held, or finds it already paid (payment.held v1)", () => {
+    expect(PAYMENT_HELD_ORDER_STATUSES).toEqual(["held", "paid"]);
+    expect(Object.isFrozen(PAYMENT_HELD_ORDER_STATUSES)).toBe(true);
   });
 
   it("the guards admit their set and nothing else", () => {

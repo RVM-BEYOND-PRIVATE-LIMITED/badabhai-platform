@@ -93,6 +93,12 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
   let svc: UnlockService;
   let ctrl: PayerUnlocksController;
   const createOrder = vi.fn();
+  /**
+   * The fake `GET /payments/:id` (#2749 hardening 5): `payments` maps a payment id to what
+   * Razorpay would report for it; an id that is not there is a provider failure.
+   */
+  const payments = new Map<string, { orderId: string; amountPaise: number; currency: string }>();
+  const fetchPayment = vi.fn();
   const wallets: string[] = [];
   const postings: string[] = [];
   const TAG = randomUUID().slice(0, 8);
@@ -123,7 +129,7 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
     const pricing = {
       getActiveCatalog: async () => ({ catalog: CATALOG, revision: 1, source: "db" as const }),
     };
-    const razorpay = { isLive: true, keyId: "rzp_test_dbgate", createOrder };
+    const razorpay = { isLive: true, keyId: "rzp_test_dbgate", createOrder, fetchPayment };
     const gateway = new PaymentGateway(repo, config, pricing as never, razorpay as never);
     svc = new UnlockService(
       repo,
@@ -159,6 +165,15 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
         amountPaise: amountInr * 100,
         currency: "INR",
       };
+    });
+  });
+
+  beforeEach(() => {
+    fetchPayment.mockReset();
+    fetchPayment.mockImplementation(async (paymentId: string) => {
+      const p = payments.get(paymentId);
+      if (!p) throw new Error("payment provider payment fetch failed");
+      return { id: paymentId, status: "captured", ...p };
     });
   });
 
@@ -471,7 +486,7 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
     expect(lot).toEqual({ expires_at: null });
   });
 
-  it("(c) the MOCK purchase stamps the total and gives its lot the pack's validity from the grant", async () => {
+  it("(c) the MOCK purchase stamps the LIST price (unchanged) and gives its lot the pack's validity from the grant", async () => {
     const w = wallet();
     await svc.purchaseCredits(w, "pack_starter", CTX, 999);
     const [lot] = await client.sql<{ exact: boolean; pack_code: string }[]>`
@@ -480,7 +495,8 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
     expect(lot).toEqual({ exact: true, pack_code: "pack_starter" });
     const [line] = await client.sql<{ price_inr: number }[]>`
       SELECT price_inr FROM credit_ledger WHERE payer_id = ${w}::uuid`;
-    expect(Number(line!.price_inr)).toBe(1179);
+    // The live mock route takes no money and is retired at switch-on: it keeps the list price.
+    expect(Number(line!.price_inr)).toBe(999);
   });
 
   // -------------------------------------------------------------------------------------------
@@ -512,11 +528,14 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
         expected_paise: 117900,
         captured_paise: 99900,
         reason: "amount_mismatch",
+        order_status: "held",
         real_call: true,
       },
     ]);
 
-    // A matching capture, a payment.failed and a signed browser verify: none of them moves it.
+    // A matching capture, a payment.failed and a signed browser verify (whose read-back reports
+    // the RIGHT amount, so it reaches the settle): none of them moves it.
+    payments.set(pay, { orderId: order!.providerOrderId, amountPaise: 117900, currency: "INR" });
     expect(
       await svc.handleRazorpayEvent(capture(order!.providerOrderId, 117900, pay), CTX),
     ).toEqual({
@@ -580,5 +599,119 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
       expect(await countWhere("credit_lots", raced!.orderRowId)).toBe(0);
       expect(await heldEvents(raced!.orderRowId)).toHaveLength(1);
     }
+  });
+  // -------------------------------------------------------------------------------------------
+  // (e) Razorpay's own numbers: the order echo, the verify read-back, a late mismatch
+  // -------------------------------------------------------------------------------------------
+
+  it("(e) an order Razorpay echoes for another amount is refused (503) and NOTHING is stored", async () => {
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const w = wallet();
+    createOrder.mockImplementationOnce(async () => ({
+      orderId: `order_${TAG}_echo`,
+      amountPaise: 99900, // the list price, not the ₹1,179 total
+      currency: "INR",
+    }));
+    await expect(svc.createCreditOrder(w, "pack_starter", CTX)).rejects.toMatchObject({
+      status: 503,
+    });
+    const [rows] = await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM payment_orders WHERE payer_id = ${w}::uuid`;
+    expect(Number(rows!.n)).toBe(0);
+  });
+
+  it("(e) the verify reads the payment back: a matching one settles, with the lot's validity", async () => {
+    const w = wallet();
+    const order = await svc.createCreditOrder(w, "pack_starter", CTX);
+    const pay = `pay_${TAG}_vm`;
+    payments.set(pay, { orderId: order!.providerOrderId, amountPaise: 117900, currency: "INR" });
+    const out = await svc.verifyCheckoutPayment(
+      w,
+      {
+        orderId: order!.providerOrderId,
+        paymentId: pay,
+        signature: signCheckoutForTest(order!.providerOrderId, pay, KEY_SECRET),
+      },
+      CTX,
+    );
+    expect(out).toMatchObject({ verified: true, balance: 20, credits: 20 });
+    expect(fetchPayment).toHaveBeenCalledWith(pay);
+    expect((await orderRow(order!.providerOrderId)).status).toBe("paid");
+    expect(await countWhere("credit_lots", order!.orderRowId)).toBe(1);
+  });
+
+  it("(e) the verify of a MISMATCHED payment holds the order (payment.held, order_status held) and grants nothing", async () => {
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const w = wallet();
+    const order = await svc.createCreditOrder(w, "pack_starter", CTX);
+    const pay = `pay_${TAG}_vx`;
+    payments.set(pay, { orderId: order!.providerOrderId, amountPaise: 99900, currency: "INR" });
+    const out = await svc.verifyCheckoutPayment(
+      w,
+      {
+        orderId: order!.providerOrderId,
+        paymentId: pay,
+        signature: signCheckoutForTest(order!.providerOrderId, pay, KEY_SECRET),
+      },
+      CTX,
+    );
+    expect(out).toEqual({ verified: false });
+    expect(await orderRow(order!.providerOrderId)).toMatchObject({
+      status: "held",
+      provider_payment_ref: pay,
+    });
+    expect(await countWhere("credit_lots", order!.orderRowId)).toBe(0);
+    expect(await heldEvents(order!.orderRowId)).toEqual([
+      expect.objectContaining({
+        expected_paise: 117900,
+        captured_paise: 99900,
+        reason: "amount_mismatch",
+        order_status: "held",
+      }),
+    ]);
+  });
+
+  it("(e) a verify whose payment CANNOT be read settles nothing; the webhook still can", async () => {
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const w = wallet();
+    const order = await svc.createCreditOrder(w, "pack_starter", CTX);
+    const pay = `pay_${TAG}_vf`; // not in `payments`: the fetch fails
+    const out = await svc.verifyCheckoutPayment(
+      w,
+      {
+        orderId: order!.providerOrderId,
+        paymentId: pay,
+        signature: signCheckoutForTest(order!.providerOrderId, pay, KEY_SECRET),
+      },
+      CTX,
+    );
+    expect(out).toEqual({ verified: false });
+    expect((await orderRow(order!.providerOrderId)).status).toBe("created");
+    expect(await countWhere("credit_lots", order!.orderRowId)).toBe(0);
+    expect(
+      await svc.handleRazorpayEvent(capture(order!.providerOrderId, 117900, pay), CTX),
+    ).toEqual({
+      result: "granted",
+    });
+  });
+
+  it("(e) a mismatched capture on an order ALREADY PAID records ONE payment.held (order_status paid); the grant stands", async () => {
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const w = wallet();
+    const order = await svc.createCreditOrder(w, "pack_starter", CTX);
+    const pay = `pay_${TAG}_late`;
+    await svc.handleRazorpayEvent(capture(order!.providerOrderId, 117900, pay), CTX);
+    for (let i = 0; i < 2; i += 1) {
+      expect(await svc.handleRazorpayEvent(capture(order!.providerOrderId, 1, pay), CTX)).toEqual({
+        result: "no_op",
+      });
+    }
+    expect((await orderRow(order!.providerOrderId)).status).toBe("paid");
+    expect(await countWhere("credit_lots", order!.orderRowId)).toBe(1);
+    expect(await heldEvents(order!.orderRowId)).toEqual([
+      expect.objectContaining({ captured_paise: 1, order_status: "paid" }),
+    ]);
   });
 });

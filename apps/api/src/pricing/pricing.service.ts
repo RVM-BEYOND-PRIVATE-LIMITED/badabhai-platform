@@ -48,9 +48,10 @@ export interface PayerTierPrice {
  * A credit pack's price with GST (#2749): integer paise, plus the brief's display line.
  *
  * THIS IS WHAT A PURCHASE CHARGES (#2749 PR 3): `POST /payer/credits/order` creates the Razorpay
- * order for `totalPaise`, and the mock `POST /payer/credits` stamps `totalPaise / 100` on the
- * ledger — both from the same `creditPackSale` line this is built from, so shown == charged.
- * `expected_price_inr` is still compared with the tier's `priceInr`, the list price before GST.
+ * order for `totalPaise`, from the same `creditPackSale` line this is built from, so shown ==
+ * charged. `expected_price_inr` is still compared with the tier's `priceInr`, the list price
+ * before GST. (The MOCK `POST /payer/credits`, which takes no money and is retired when real
+ * payments switch on, still stamps `priceInr` on its ledger line, as it always has.)
  */
 export interface PayerPackPrice extends GstPriceLine {
   /** e.g. `₹999 plus GST (₹1,179)` (B4C-06). */

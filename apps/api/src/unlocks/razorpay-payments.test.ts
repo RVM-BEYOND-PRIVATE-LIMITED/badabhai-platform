@@ -351,11 +351,21 @@ function makeService(
   const razorpay = {
     isLive: true,
     keyId: "rzp_test_keyid",
-    // Echoes the amount it was asked for in paise, exactly as RazorpayClient computes it.
+    // Razorpay's echo of the order it created: by default the amount it was asked for, in paise,
+    // in INR. A case makes it echo something else to prove the gateway refuses (#2749).
     createOrder: vi.fn(async ({ amountInr }: { amountInr: number }) => ({
       orderId: PROVIDER_ORDER,
       amountPaise: amountInr * 100,
       currency: "INR",
+    })),
+    // `GET /payments/:id` for the browser verify (#2749): by default a captured payment of the
+    // seeded order's amount (₹2,000 = 200000 paise) on PROVIDER_ORDER.
+    fetchPayment: vi.fn(async (paymentId: string) => ({
+      id: paymentId,
+      orderId: PROVIDER_ORDER as string | null,
+      amountPaise: 200000,
+      currency: "INR",
+      status: "captured",
     })),
   };
   const events = { emit: vi.fn(async (p: Record<string, unknown>) => p) };
@@ -1581,6 +1591,7 @@ describe("#2749 hardening 5 — a capture of the wrong amount HOLDS the order an
         expected_paise: 236000,
         captured_paise: 200000,
         reason: "amount_mismatch",
+        order_status: "held",
         real_call: true,
       },
     });
@@ -1670,22 +1681,51 @@ describe("#2749 hardening 5 — a capture of the wrong amount HOLDS the order an
     ).toEqual({ result: "granted" });
   });
 
-  it("a mismatch reported for an order ALREADY PAID changes nothing (logged for ops)", async () => {
+  it("a mismatch reported for an order ALREADY PAID changes nothing, but RECORDS payment.held (order_status paid)", async () => {
+    d.razorpay.fetchPayment.mockResolvedValue({
+      id: PAYMENT_ID,
+      orderId: PROVIDER_ORDER,
+      amountPaise: 236000, // the verify read the right amount and settled
+      currency: "INR",
+      status: "captured",
+    });
     await d.svc.verifyCheckoutPayment(
       PAYER,
       { orderId: PROVIDER_ORDER, paymentId: PAYMENT_ID, signature },
       CTX,
     );
     expect(d.balances.get(PAYER)).toBe(50);
-    expect(
-      await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 1), CTX),
-    ).toEqual({ result: "no_op" });
-    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("paid");
-    expect(d.balances.get(PAYER)).toBe(50);
-    expect(emitted(d.events)).toEqual(["payment.captured"]);
+    for (let i = 0; i < 2; i += 1) {
+      expect(
+        await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 1), CTX),
+      ).toEqual({ result: "no_op" });
+    }
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("paid"); // unchanged
+    expect(d.balances.get(PAYER)).toBe(50); // the grant stands
+    expect(emitted(d.events)).toEqual(["payment.captured", "payment.held", "payment.held"]);
+    const late = heldPayload();
+    expect(late).toMatchObject({
+      actor: { actor_type: "system", actor_id: null },
+      // The same per-order key: the events table keeps ONE however many deliveries report it.
+      idempotencyKey: `payment.held:order:${ORDER_ROW}`,
+      payload: {
+        payment_order_id: ORDER_ROW,
+        expected_paise: 236000,
+        captured_paise: 1,
+        reason: "amount_mismatch",
+        order_status: "paid",
+      },
+    });
+    expect(late).not.toHaveProperty("tx"); // nothing to share a transaction with
     expect(Logger.prototype.error).toHaveBeenCalledWith(
       expect.stringMatching(/SETTLED order.*captured_paise=1/),
     );
+  });
+
+  it("a matching capture on a paid order records nothing (only a mismatch is an event)", async () => {
+    await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 236000), CTX);
+    await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 236000), CTX);
+    expect(emitted(d.events)).toEqual(["payment.captured"]);
   });
 
   it("an event that cannot be written ROLLS BACK the hold (5xx), and the redelivery holds it then", async () => {
@@ -1724,7 +1764,7 @@ describe("#2749 PR 3 — the credits' validity: the mock pack's live tier, the o
     expect(d.ledger[0]).toMatchObject({ validityDays: null });
   });
 
-  it("the MOCK purchase stamps the GST total on the ledger and passes the pack's validity to its lot", async () => {
+  it("the MOCK purchase stamps the LIST price (unchanged by PR 3) and passes the pack's validity to its lot", async () => {
     const d = makeService();
     d.repo.creditPack = vi.fn(async () => 20);
     d.pricing.getActiveCatalog.mockResolvedValue({
@@ -1739,22 +1779,162 @@ describe("#2749 PR 3 — the credits' validity: the mock pack's live tier, the o
         payerId: PAYER,
         credits: 20,
         packCode: "pack_starter",
-        priceInr: 1179,
+        // The live mock route takes no money and is retired at switch-on: it keeps the list price.
+        priceInr: 999,
         validityDays: 30,
       }),
     );
     const amounts = d.events.emit.mock.calls.map(
       (c) => (c[0] as { payload: { amount_inr: number } }).payload.amount_inr,
     );
-    expect(amounts).toEqual([1179, 1179]); // payment.authorized + payment.captured
+    expect(amounts).toEqual([999, 999]); // payment.authorized + payment.captured
   });
 
-  it("the MOCK purchase of a default pack (no validity) stamps ₹2,360 and no expiry", async () => {
+  it("the MOCK purchase of a default pack (no validity) stamps its ₹2,000 list price and no expiry", async () => {
     const d = makeService();
     d.repo.creditPack = vi.fn(async () => 50);
     await d.svc.purchaseCredits(PAYER, "pack_50", CTX, 2000);
     expect(d.repo.creditPack).toHaveBeenCalledWith(
-      expect.objectContaining({ priceInr: 2360, validityDays: null }),
+      expect.objectContaining({ priceInr: 2000, validityDays: null }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2749 hardening 5 — Razorpay's OWN numbers: the order it echoes, the payment verify reads back
+// ---------------------------------------------------------------------------
+
+describe("#2749 — an order whose Razorpay echo is not the stamped total is refused, nothing persisted", () => {
+  it("a different echoed AMOUNT → 503, no row, no event", async () => {
+    const d = makeService();
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    d.razorpay.createOrder.mockResolvedValueOnce({
+      orderId: PROVIDER_ORDER,
+      amountPaise: 200000, // Razorpay says ₹2,000; the stamped total is ₹2,360
+      currency: "INR",
+    });
+    await expect(d.svc.createCreditOrder(PAYER, "pack_50", CTX)).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(d.repo.createPaymentOrder).not.toHaveBeenCalled();
+    expect(emitted(d.events)).toEqual([]);
+    expect(Logger.prototype.error).toHaveBeenCalledWith(
+      expect.stringMatching(/expected_paise=236000 provider_paise=200000/),
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("a different echoed CURRENCY → the same 503, no row", async () => {
+    const d = makeService();
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    d.razorpay.createOrder.mockResolvedValueOnce({
+      orderId: PROVIDER_ORDER,
+      amountPaise: 236000,
+      currency: "USD",
+    });
+    await expect(d.svc.createCreditOrder(PAYER, "pack_50", CTX)).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(d.repo.createPaymentOrder).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+});
+
+describe("#2749 — the browser verify reads the payment back and runs the webhook's amount check", () => {
+  const STAMPED = {
+    amountInr: 2360,
+    taxablePaise: 200000,
+    gstPaise: 36000,
+    roundOffPaise: 0,
+    totalPaise: 236000,
+    gstRateBps: 1800,
+  };
+  const signature = signCheckoutForTest(PROVIDER_ORDER, PAYMENT_ID, KEY_SECRET);
+  const payment = (over: Record<string, unknown> = {}) => ({
+    id: PAYMENT_ID,
+    orderId: PROVIDER_ORDER,
+    amountPaise: 236000,
+    currency: "INR",
+    status: "captured",
+    ...over,
+  });
+  let d: ReturnType<typeof makeService>;
+  beforeEach(() => {
+    d = makeService();
+    d.seedOrder(STAMPED);
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  const verify = () =>
+    d.svc.verifyCheckoutPayment(
+      PAYER,
+      { orderId: PROVIDER_ORDER, paymentId: PAYMENT_ID, signature },
+      CTX,
+    );
+
+  it("a MATCHING payment settles (one grant, the provider asked about THIS payment id)", async () => {
+    d.razorpay.fetchPayment.mockResolvedValue(payment());
+    expect(await verify()).toMatchObject({ verified: true, balance: 50, credits: 50 });
+    expect(d.razorpay.fetchPayment).toHaveBeenCalledWith(PAYMENT_ID);
+    expect(d.ledger).toHaveLength(1);
+    expect(emitted(d.events)).toEqual(["payment.captured"]);
+  });
+
+  it("a MISMATCHED payment HOLDS the order: payment.held (order_status held), no grant, a neutral refusal", async () => {
+    d.razorpay.fetchPayment.mockResolvedValue(payment({ amountPaise: 200000 }));
+    expect(await verify()).toEqual({ verified: false });
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("held");
+    expect(d.ledger).toHaveLength(0);
+    expect(emitted(d.events)).toEqual(["payment.held"]);
+    const held = d.events.emit.mock.calls[0]?.[0] as { payload: Record<string, unknown> };
+    expect(held.payload).toMatchObject({
+      reason: "amount_mismatch",
+      expected_paise: 236000,
+      captured_paise: 200000,
+      order_status: "held",
+    });
+    // …and a later, matching webhook cannot settle it.
+    expect(
+      await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 236000), CTX),
+    ).toEqual({ result: "no_op" });
+    expect(d.ledger).toHaveLength(0);
+  });
+
+  it("a payment in another CURRENCY holds too", async () => {
+    d.razorpay.fetchPayment.mockResolvedValue(payment({ currency: "USD" }));
+    expect(await verify()).toEqual({ verified: false });
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("held");
+  });
+
+  it("a FETCH FAILURE settles nothing: the neutral refusal, the order still open for the webhook", async () => {
+    d.razorpay.fetchPayment.mockRejectedValue(new Error("payment provider payment fetch failed"));
+    expect(await verify()).toEqual({ verified: false });
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("created");
+    expect(d.ledger).toHaveLength(0);
+    expect(emitted(d.events)).toEqual([]);
+    // The webhook remains the other channel and settles it.
+    expect(
+      await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 236000), CTX),
+    ).toEqual({ result: "granted" });
+  });
+
+  it("a fetched payment that names ANOTHER order settles nothing", async () => {
+    d.razorpay.fetchPayment.mockResolvedValue(payment({ orderId: "order_SOMETHING_ELSE" }));
+    expect(await verify()).toEqual({ verified: false });
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("created");
+    expect(d.ledger).toHaveLength(0);
+  });
+
+  it("a FORGED signature never reaches the provider", async () => {
+    const out = await d.svc.verifyCheckoutPayment(
+      PAYER,
+      { orderId: PROVIDER_ORDER, paymentId: PAYMENT_ID, signature: "forged" },
+      CTX,
+    );
+    expect(out).toEqual({ verified: false });
+    expect(d.razorpay.fetchPayment).not.toHaveBeenCalled();
   });
 });
