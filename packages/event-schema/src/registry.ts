@@ -432,6 +432,9 @@ export const EVENT_REGISTRY = {
   "payment.authorized": { version: 1, domain: "payment", payload: p.PaymentAuthorizedPayload },
   "payment.captured": { version: 1, domain: "payment", payload: p.PaymentCapturedPayload },
   "payment.failed": { version: 1, domain: "payment", payload: p.PaymentFailedPayload },
+  // #2749 hardening 5 — a capture whose amount is not the order total: nothing granted, the order
+  // parked in `held` for ops. One per order; ids + paise + a closed reason, strict. v1.
+  "payment.held": { version: 1, domain: "payment", payload: p.PaymentHeldPayload },
 
   // Monetization + Pricing Engine (ADR-0013) — PII-FREE: ids + codes + enums + integer
   // ₹ amounts + counts only. `payment.*` above is reused for the money movement of every

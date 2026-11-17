@@ -20,7 +20,8 @@ const ID_BATCH_MAX = 2000;
 /** A company's last real paid order. */
 export interface LastPurchase {
   readonly at: Date;
-  readonly packCode: string;
+  /** The pack bought; null for an order that sells no credit pack (#2749 part 3). */
+  readonly packCode: string | null;
 }
 
 /** One logged call, as the list and the POST read it. */

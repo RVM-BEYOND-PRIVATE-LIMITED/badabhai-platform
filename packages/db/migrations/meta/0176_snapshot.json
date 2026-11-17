@@ -1,5 +1,5 @@
 {
-  "id": "c6cf7bb2-0ca2-424a-b649-f4bbb5880ae4",
+  "id": "7c910991-2168-4bf6-8307-9add09b68516",
   "prevId": "e91af572-7e8f-4da7-a84b-dce3a35e934a",
   "version": "7",
   "dialect": "postgresql",
@@ -10739,11 +10739,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "product_kind": {
+          "name": "product_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'credit_pack'"
+        },
         "pack_code": {
           "name": "pack_code",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "amount_inr": {
           "name": "amount_inr",
@@ -10780,6 +10787,54 @@
         "provider_payment_ref": {
           "name": "provider_payment_ref",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "taxable_paise": {
+          "name": "taxable_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gst_paise": {
+          "name": "gst_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "round_off_paise": {
+          "name": "round_off_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_paise": {
+          "name": "total_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gst_rate_bps": {
+          "name": "gst_rate_bps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "credit_validity_days": {
+          "name": "credit_validity_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "origin_job_posting_id": {
+          "name": "origin_job_posting_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -10861,9 +10916,39 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "payment_orders_origin_job_posting_idx": {
+          "name": "payment_orders_origin_job_posting_idx",
+          "columns": [
+            {
+              "expression": "origin_job_posting_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"payment_orders\".\"origin_job_posting_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "payment_orders_origin_job_posting_id_job_postings_id_fk": {
+          "name": "payment_orders_origin_job_posting_id_job_postings_id_fk",
+          "tableFrom": "payment_orders",
+          "tableTo": "job_postings",
+          "columnsFrom": [
+            "origin_job_posting_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -10874,11 +10959,35 @@
         },
         "payment_orders_credits_pos_chk": {
           "name": "payment_orders_credits_pos_chk",
-          "value": "\"payment_orders\".\"credits_granted\" > 0"
+          "value": "\"payment_orders\".\"credits_granted\" > 0 OR \"payment_orders\".\"product_kind\" <> 'credit_pack'"
         },
         "payment_orders_status_chk": {
           "name": "payment_orders_status_chk",
-          "value": "\"payment_orders\".\"status\" IN ('created', 'paid', 'failed')"
+          "value": "\"payment_orders\".\"status\" IN ('created', 'paid', 'failed', 'held')"
+        },
+        "payment_orders_product_kind_chk": {
+          "name": "payment_orders_product_kind_chk",
+          "value": "\"payment_orders\".\"product_kind\" IN ('credit_pack')"
+        },
+        "payment_orders_pack_code_chk": {
+          "name": "payment_orders_pack_code_chk",
+          "value": "\"payment_orders\".\"product_kind\" <> 'credit_pack' OR \"payment_orders\".\"pack_code\" IS NOT NULL"
+        },
+        "payment_orders_money_set_chk": {
+          "name": "payment_orders_money_set_chk",
+          "value": "(\"payment_orders\".\"taxable_paise\" IS NULL AND \"payment_orders\".\"gst_paise\" IS NULL AND \"payment_orders\".\"round_off_paise\" IS NULL AND \"payment_orders\".\"total_paise\" IS NULL AND \"payment_orders\".\"gst_rate_bps\" IS NULL) OR (\"payment_orders\".\"taxable_paise\" IS NOT NULL AND \"payment_orders\".\"gst_paise\" IS NOT NULL AND \"payment_orders\".\"round_off_paise\" IS NOT NULL AND \"payment_orders\".\"total_paise\" IS NOT NULL AND \"payment_orders\".\"gst_rate_bps\" IS NOT NULL)"
+        },
+        "payment_orders_money_sum_chk": {
+          "name": "payment_orders_money_sum_chk",
+          "value": "\"payment_orders\".\"total_paise\" IS NULL OR (\"payment_orders\".\"total_paise\" = \"payment_orders\".\"taxable_paise\" + \"payment_orders\".\"gst_paise\" + \"payment_orders\".\"round_off_paise\" AND \"payment_orders\".\"total_paise\" > 0 AND \"payment_orders\".\"total_paise\" % 100 = 0 AND \"payment_orders\".\"total_paise\" = \"payment_orders\".\"amount_inr\" * 100 AND \"payment_orders\".\"taxable_paise\" >= 0 AND \"payment_orders\".\"gst_paise\" >= 0 AND \"payment_orders\".\"gst_rate_bps\" BETWEEN 0 AND 10000)"
+        },
+        "payment_orders_validity_pos_chk": {
+          "name": "payment_orders_validity_pos_chk",
+          "value": "\"payment_orders\".\"credit_validity_days\" IS NULL OR \"payment_orders\".\"credit_validity_days\" > 0"
+        },
+        "payment_orders_origin_chk": {
+          "name": "payment_orders_origin_chk",
+          "value": "\"payment_orders\".\"origin\" IS NULL OR \"payment_orders\".\"origin\" IN ('credits_page', 'unlock_prompt', 'candidate_search', 'posting_flow', 'dashboard', 'other')"
         }
       },
       "isRLSEnabled": true
@@ -19580,193 +19689,6 @@
         "payer_phone_proofs_method_chk": {
           "name": "payer_phone_proofs_method_chk",
           "value": "\"payer_phone_proofs\".\"method\" IN ('sms_code', 'campus_import')"
-        }
-      },
-      "isRLSEnabled": true
-    },
-    "public.numbers_recompute_log": {
-      "name": "numbers_recompute_log",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "run_at": {
-          "name": "run_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "actor": {
-          "name": "actor",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "from_week": {
-          "name": "from_week",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "to_week": {
-          "name": "to_week",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "definition_version": {
-          "name": "definition_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "rows_changed": {
-          "name": "rows_changed",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "numbers_recompute_log_actor_chk": {
-          "name": "numbers_recompute_log_actor_chk",
-          "value": "\"numbers_recompute_log\".\"actor\" IN ('cli')"
-        },
-        "numbers_recompute_log_weeks_chk": {
-          "name": "numbers_recompute_log_weeks_chk",
-          "value": "\"numbers_recompute_log\".\"from_week\" <= \"numbers_recompute_log\".\"to_week\""
-        },
-        "numbers_recompute_log_reason_chk": {
-          "name": "numbers_recompute_log_reason_chk",
-          "value": "char_length(\"numbers_recompute_log\".\"reason\") BETWEEN 1 AND 500"
-        },
-        "numbers_recompute_log_rows_changed_chk": {
-          "name": "numbers_recompute_log_rows_changed_chk",
-          "value": "\"numbers_recompute_log\".\"rows_changed\" >= 0"
-        },
-        "numbers_recompute_log_definition_version_chk": {
-          "name": "numbers_recompute_log_definition_version_chk",
-          "value": "\"numbers_recompute_log\".\"definition_version\" >= 1"
-        }
-      },
-      "isRLSEnabled": true
-    },
-    "public.numbers_weekly": {
-      "name": "numbers_weekly",
-      "schema": "",
-      "columns": {
-        "week_start": {
-          "name": "week_start",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "metric": {
-          "name": "metric",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "city_group": {
-          "name": "city_group",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "trade_group": {
-          "name": "trade_group",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "value": {
-          "name": "value",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "numerator": {
-          "name": "numerator",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "denominator": {
-          "name": "denominator",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "suppressed": {
-          "name": "suppressed",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "definition_version": {
-          "name": "definition_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "computed_at": {
-          "name": "computed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "frozen_at": {
-          "name": "frozen_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "numbers_weekly_pkey": {
-          "name": "numbers_weekly_pkey",
-          "columns": [
-            "week_start",
-            "metric",
-            "city_group",
-            "trade_group"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "numbers_weekly_week_start_chk": {
-          "name": "numbers_weekly_week_start_chk",
-          "value": "extract(isodow from \"numbers_weekly\".\"week_start\") = 1"
-        },
-        "numbers_weekly_suppressed_chk": {
-          "name": "numbers_weekly_suppressed_chk",
-          "value": "NOT \"numbers_weekly\".\"suppressed\" OR (\"numbers_weekly\".\"value\" IS NULL AND \"numbers_weekly\".\"numerator\" IS NULL AND \"numbers_weekly\".\"denominator\" IS NULL)"
-        },
-        "numbers_weekly_definition_version_chk": {
-          "name": "numbers_weekly_definition_version_chk",
-          "value": "\"numbers_weekly\".\"definition_version\" >= 1"
         }
       },
       "isRLSEnabled": true

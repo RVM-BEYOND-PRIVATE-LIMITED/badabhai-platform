@@ -199,6 +199,22 @@ const GAP_DB_21_RLS_REQUIREMENTS: readonly SchemaRequirement[] = [
 }));
 
 /**
+ * 0176 (#2749): the nine columns it adds to `payment_orders`, in the migration's order. Every one
+ * is named by the repository's bare `.select()` / `.returning()`, so each is its own requirement.
+ */
+const PAYMENT_ORDER_0176_COLUMNS = [
+  "product_kind",
+  "taxable_paise",
+  "gst_paise",
+  "round_off_paise",
+  "total_paise",
+  "gst_rate_bps",
+  "credit_validity_days",
+  "origin",
+  "origin_job_posting_id",
+] as const;
+
+/**
  * The apply-before-deploy set.
  *
  * `unresolved_phrase_scope_uq` is listed as its own requirement rather than being folded into
@@ -1520,6 +1536,73 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "PostgREST role write a proof for its own account against a victim's phone hash and so " +
       "take over that company's SMS sign-in, or read which accounts hold a proven phone",
   },
+  // 0176 (#2749 item 9 + the storage half of item 7): payment_orders' money in paise, product
+  // kind, credit validity, purchase origin, and the `held` status. Unconditional - no flag -
+  // because UnlocksRepository reads and writes payment_orders with bare `.select()` /
+  // `.returning()` and Drizzle 0.45 names every model column there. APPLY BEFORE DEPLOY, from the
+  // PR branch before the merge (header). The file applies in ONE transaction, so its column
+  // entries also answer for the two CHECKs it widens in place under the same names
+  // (`payment_orders_status_chk` gains `held`, `payment_orders_credits_pos_chk` binds credit packs
+  // only), which a by-name probe cannot tell from the old ones.
+  ...PAYMENT_ORDER_0176_COLUMNS.map(
+    (column): SchemaRequirement => ({
+      id: `0176-payment-orders-${column.replace(/_/g, "-")}`,
+      migration: "0176_payment_order_money",
+      kind: "column",
+      table: "payment_orders",
+      object: column,
+      requiredBy:
+        "UnlocksRepository.findPaymentOrder / createPaymentOrder / the settle claim / " +
+        "holdPaymentOrder / markPaymentOrderFailed (bare `.select()` and `.returning()`, Drizzle " +
+        "0.45 names every model column) — POST /payer/credits/order, POST /payer/credits/verify, " +
+        "POST /payments/razorpay/webhook",
+      failureMode:
+        "every order creation, browser verify and Razorpay webhook fails (column does not exist); " +
+        "the webhook 5xxs so Razorpay redelivers until the column exists. Dark in production " +
+        "while PAYMENTS_ENABLE_REAL is off; the mock POST /payer/credits does not read the table",
+    }),
+  ),
+  {
+    id: "0176-payment-orders-money-sum-chk",
+    migration: "0176_payment_order_money",
+    kind: "constraint",
+    table: "payment_orders",
+    object: "payment_orders_money_sum_chk",
+    requiredBy:
+      "no code path names it - PaymentGateway.createRealOrder stamps the gstPriceLine it computed; " +
+      "this is the database's half of 'taxable + GST + round-off = total = amount_inr x 100, a " +
+      "whole rupee', which the settle's amount check relies on",
+    failureMode:
+      "SILENT. An order could carry a total that is not the sum of its parts or not the rupee " +
+      "column, so the settle would compare a capture with a wrong expectation and hold (or " +
+      "grant) on bad data",
+  },
+  {
+    id: "0176-payment-orders-pack-code-chk",
+    migration: "0176_payment_order_money",
+    kind: "constraint",
+    table: "payment_orders",
+    object: "payment_orders_pack_code_chk",
+    requiredBy:
+      "no code path names it - `pack_code` NOT NULL became nullable for #2751's products, and " +
+      "this CHECK is what still requires a credit-pack order to name its pack",
+    failureMode:
+      "SILENT. A credit-pack order without a pack code could be stored; its grant would then " +
+      "carry no pack on the ledger and the lot",
+  },
+  {
+    id: "0176-payment-orders-origin-posting-fk",
+    migration: "0176_payment_order_money",
+    kind: "constraint",
+    table: "payment_orders",
+    object: "payment_orders_origin_job_posting_id_job_postings_id_fk",
+    requiredBy:
+      "no code path names it - UnlockService stores only a posting the buyer tenant owns; the " +
+      "FK keeps the id a real posting and nulls it when the posting is deleted",
+    failureMode:
+      "SILENT. An order could name a posting that does not exist, and the purchase-origin " +
+      "numbers (#2781) would count it",
+  },
   // #2755 part B: the numbers screen's weekly snapshot and its recompute log. Nothing names either
   // table while ADMIN_NUMBERS_ENABLED is off; with it on and the tables missing, the weekly route
   // answers 503 (42P01) and the sweep logs and writes nothing, so a deploy ahead of the migration
@@ -1527,8 +1610,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
   // APPLY BEFORE THE SWITCH (migration header). The ids and tag carry the slot number:
   // regenerated with the migration when the slot moves.
   {
-    id: "0176-numbers-weekly-rls",
-    migration: "0176_numbers_weekly",
+    id: "0177-numbers-weekly-rls",
+    migration: "0177_numbers_weekly",
     kind: "rls",
     table: "numbers_weekly",
     requiredBy:
@@ -1541,8 +1624,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "the CEO screen and the investor numbers are read from",
   },
   {
-    id: "0176-numbers-recompute-log-rls",
-    migration: "0176_numbers_weekly",
+    id: "0177-numbers-recompute-log-rls",
+    migration: "0177_numbers_weekly",
     kind: "rls",
     table: "numbers_recompute_log",
     requiredBy:
@@ -1561,8 +1644,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
   // THE SWITCH (migration header). The id and tag carry the slot number: regenerated with the
   // migration when the slot moves.
   {
-    id: "0177-credit-call-log-rls",
-    migration: "0177_credit_call_log",
+    id: "0178-credit-call-log-rls",
+    migration: "0178_credit_call_log",
     kind: "rls",
     table: "credit_call_log",
     requiredBy:

@@ -54,7 +54,11 @@ export type NumbersDimsLookup = (id: string) => NumbersDims;
 /** A paid order of a countable company, settled before the week's end. */
 export interface NumbersPaidOrderRow {
   readonly payerId: string;
-  readonly packCode: string;
+  /**
+   * The pack bought. Nullable since #2749 part 3 (a product other than a credit pack carries none;
+   * a credit-pack order always does, `payment_orders_pack_code_chk`): none reads as `other`.
+   */
+  readonly packCode: string | null;
   /** Whole rupees, as `payment_orders.amount_inr` stores it. */
   readonly amountInr: number;
   /** `updated_at` at the move to paid. */

@@ -69,6 +69,8 @@ import {
   CREDIT_LOT_SOURCES,
   CREDIT_LOT_EXPIRY_TRIGGERS,
   CREDIT_CALL_RESULTS,
+  PAYMENT_HOLD_REASONS,
+  PAYMENT_HELD_ORDER_STATUSES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -2012,6 +2014,45 @@ export const PaymentFailedPayload = z.object({
   reason: PaymentFailureReason,
   real_call: z.boolean().default(false),
 });
+
+/**
+ * #2749 hardening 5 — a verified Razorpay capture whose amount is NOT the order total: NOTHING was
+ * granted and the order moved to `held` (from `created` or `failed`, never from `paid`), where no
+ * webhook replay or browser verify can settle it. Ops resolve it (a refund in the Razorpay
+ * dashboard until BB-D-05). ONE PER ORDER (idempotency key `payment.held:order:<order id>`),
+ * emitted by whichever delivery moved the order.
+ *
+ * ALSO A LATE MISMATCH: the same kind of capture reported for an order ALREADY `paid` (the browser
+ * verify settled it first) changes nothing — the grant stands — but is recorded here with
+ * `order_status: "paid"`, under the same per-order key. `order_status: "held"` is the hold itself.
+ *
+ * A NEW EVENT, NOT A `payment.failed` REASON: the money WAS captured, so readers that treat
+ * `payment.failed` as "no money moved" must never see this; and `payment.failed` v1 carries no
+ * amounts. FACELESS: opaque ids, a pack code, integer paise and a closed reason. No provider payment
+ * id, no buyer contact, no secret.
+ */
+export const PaymentHeldPayload = z
+  .object({
+    /** Our order row (`payment_orders.id`). */
+    payment_order_id: uuidSchema,
+    /** The wallet the order was stamped with (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    pack_code: z.string().min(1).max(64).nullable(),
+    /** What the order expected: `total_paise`, or `amount_inr` × 100 on a pre-0176 row. */
+    expected_paise: z.number().int().positive(),
+    /** What the provider reported as captured, in paise; null when the capture carried none. */
+    captured_paise: z.number().int().nonnegative().nullable(),
+    reason: z.enum(PAYMENT_HOLD_REASONS),
+    /**
+     * The order's status after this capture: `held` = this capture held it (nothing granted);
+     * `paid` = it was already paid, so nothing changed and the grant stands (ops reconcile).
+     */
+    order_status: z.enum(PAYMENT_HELD_ORDER_STATUSES),
+    /** Always true: only the real Razorpay path can hold an order. */
+    real_call: z.boolean(),
+  })
+  .strict();
+export type PaymentHeldPayload = z.infer<typeof PaymentHeldPayload>;
 
 // ---------------------------------------------------------------------------
 // Monetization + Pricing Engine (ADR-0013) — PII-FREE: ids + CODES + enums +

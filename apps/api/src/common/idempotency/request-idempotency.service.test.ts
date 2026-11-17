@@ -186,3 +186,73 @@ describe("#2103 — backward compatibility: everything else replays exactly as b
     expect(JSON.stringify(renderedError(replay))).not.toContain("ECONNREFUSED");
   });
 });
+
+describe("#2749 — a fingerprint binds the key to the request", () => {
+  it("the same key AND the same fingerprint replays the first outcome; the work runs once", async () => {
+    const { seam } = make();
+    const work = vi.fn(async () => ({ order_id: "order_1" }));
+    const first = await run(seam, work, { fingerprint: "fp-a" });
+    const replay = await run(seam, work, { fingerprint: "fp-a" });
+    expect(replay).toEqual(first);
+    expect(work).toHaveBeenCalledTimes(1);
+  });
+
+  it("the same key with ANOTHER fingerprint is a 422 idempotency_key_reused — never the first outcome, never run", async () => {
+    const { seam } = make();
+    const work = vi.fn(async () => ({ order_id: "order_1" }));
+    await run(seam, work, { fingerprint: "fp-a" });
+    const reused = await caught(run(seam, work, { fingerprint: "fp-b" }));
+    expect((reused as HttpException).getStatus()).toBe(422);
+    expect(renderedError(reused)).toMatchObject({ reason: "idempotency_key_reused" });
+    expect(work).toHaveBeenCalledTimes(1);
+    // …and the 422 was not stored: the original request still replays.
+    expect(await run(seam, work, { fingerprint: "fp-a" })).toEqual({ order_id: "order_1" });
+  });
+
+  it("a STORED FAILURE is bound too: another request under its key is the 422, not the failure", async () => {
+    const { seam } = make();
+    const work = vi.fn(async () => {
+      throw new NotFoundException("Unknown credit pack: pack_x");
+    });
+    await caught(run(seam, work, { fingerprint: "fp-a" }));
+    expect(
+      ((await caught(run(seam, work, { fingerprint: "fp-a" }))) as HttpException).getStatus(),
+    ).toBe(404);
+    expect(
+      ((await caught(run(seam, work, { fingerprint: "fp-b" }))) as HttpException).getStatus(),
+    ).toBe(422);
+    expect(work).toHaveBeenCalledTimes(1);
+  });
+
+  it("WHILE IN FLIGHT: the same request gets the route's in-flight answer, another one the 422", async () => {
+    const { seam, store } = make();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const work = vi.fn(async () => {
+      await gate;
+      return "done";
+    });
+    const first = run(seam, work, { fingerprint: "fp-a" });
+    await new Promise((r) => setImmediate(r));
+    // The reservation names its request; a digest, never request data.
+    expect([...store.values()]).toEqual(["in_flight:fp-a"]);
+    expect(await caught(run(seam, work, { fingerprint: "fp-a" }))).toBeInstanceOf(
+      ConflictException,
+    );
+    expect(
+      ((await caught(run(seam, work, { fingerprint: "fp-b" }))) as HttpException).getStatus(),
+    ).toBe(422);
+    release();
+    await first;
+    expect(work).toHaveBeenCalledTimes(1);
+  });
+
+  it("no fingerprint on either side keeps the old rule: the key alone names the request", async () => {
+    const { seam, store } = make();
+    const work = vi.fn(async () => "first");
+    await run(seam, work); // a route without fingerprints
+    expect(await run(seam, work, { fingerprint: "fp-b" })).toBe("first"); // stored without one
+    expect([...store.values()][0]).not.toContain("fingerprint");
+    expect(work).toHaveBeenCalledTimes(1);
+  });
+});

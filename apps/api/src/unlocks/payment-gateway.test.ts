@@ -2,7 +2,12 @@ import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
-import { DEFAULT_CATALOG, type Catalog, type CreditPackTier } from "@badabhai/pricing";
+import {
+  DEFAULT_CATALOG,
+  gstPriceLine,
+  type Catalog,
+  type CreditPackTier,
+} from "@badabhai/pricing";
 import { PaymentGateway } from "./payment-gateway";
 import type { UnlocksRepository } from "./unlocks.repository";
 import type { RazorpayClient } from "./razorpay.client";
@@ -71,9 +76,17 @@ describe("PaymentGateway.resolvePack — LIVE catalog, on-sale packs only (D-6 +
     const { gw } = makeGateway();
     await expect(gw.resolvePack("pack_50")).resolves.toEqual({
       code: "pack_50",
-      priceInr: 2000,
+      priceInr: 2000, // the LIST price, before GST (what expected_price_inr is compared with)
       credits: 50,
       validityDays: null, // DEFAULT_CATALOG sets none
+      // #2749 PR 3: what the purchase charges — ₹2,000 + 18% = ₹2,360.
+      priceLine: {
+        taxablePaise: 200000,
+        gstPaise: 36000,
+        roundOffPaise: 0,
+        totalPaise: 236000,
+        gstRateBps: 1800,
+      },
     });
   });
 
@@ -84,7 +97,13 @@ describe("PaymentGateway.resolvePack — LIVE catalog, on-sale packs only (D-6 +
     );
     const pack = await gw.resolvePack("pack_50");
     // Both the ₹ AND the grant follow the catalog — the compile-time constant says 2000/50.
-    expect(pack).toEqual({ code: "pack_50", priceInr: 1500, credits: 60, validityDays: null });
+    expect(pack).toEqual({
+      code: "pack_50",
+      priceInr: 1500,
+      credits: 60,
+      validityDays: null,
+      priceLine: gstPriceLine(1500),
+    });
   });
 
   it("a LIVE-ONLY new tier resolves, with its validityDays", async () => {
@@ -98,6 +117,14 @@ describe("PaymentGateway.resolvePack — LIVE catalog, on-sale packs only (D-6 +
       priceInr: 999,
       credits: 20,
       validityDays: 30,
+      // The issue's worked example: 99,900 + 17,982 + 18 = 1,17,900 paise (₹1,179).
+      priceLine: {
+        taxablePaise: 99900,
+        gstPaise: 17982,
+        roundOffPaise: 18,
+        totalPaise: 117900,
+        gstRateBps: 1800,
+      },
     });
   });
 
@@ -128,6 +155,7 @@ describe("PaymentGateway.resolvePack — LIVE catalog, on-sale packs only (D-6 +
       priceInr: 777,
       credits: 11,
       validityDays: null,
+      priceLine: gstPriceLine(777),
     });
   });
 
@@ -158,6 +186,7 @@ describe("PaymentGateway.resolvePack — LIVE catalog, on-sale packs only (D-6 +
       priceInr: 9999,
       credits: 360,
       validityDays: 365,
+      priceLine: gstPriceLine(9999), // ₹11,799
     });
     // The other pack is unaffected either side of the boundary.
     await expect(
@@ -298,7 +327,7 @@ describe("PaymentGateway.resolvePack — LIVE catalog, on-sale packs only (D-6 +
 });
 
 describe("PaymentGateway.purchasePackMock — stamps the CHARGED ₹ on the ledger (D-6 MEDIUM-2)", () => {
-  it("grants the resolved tier's credits and stamps its priceInr onto the ledger row", async () => {
+  it("grants the resolved tier's credits and stamps its LIST price onto the ledger row", async () => {
     const { gw, repo } = makeGateway(
       catalogWithUnlockTiers([{ code: "pack_50", priceInr: 1500, credits: 60, windowDays: 14 }]),
     );
@@ -311,9 +340,26 @@ describe("PaymentGateway.purchasePackMock — stamps the CHARGED ₹ on the ledg
       reason: "pack_purchase",
       packCode: "pack_50",
       paymentRef: null,
-      priceInr: 1500, // the LIVE charge, STAMPED so History can never be re-priced
+      // The LIVE price, STAMPED so History can never be re-priced. The LIST price, before GST:
+      // this mock route takes no money and is retired at switch-on, so #2749 PR 3 leaves it as it
+      // was (a real order charges the GST total, ₹1,770 here).
+      priceInr: 1500,
+      validityDays: null, // the tier sets none: the lot never expires
     });
     expect(res).toEqual({ balanceAfter: 60, credits: 60, priceInr: 1500, realCall: false });
+  });
+
+  it("#2749 PR 3: passes the tier's validityDays to the lot", async () => {
+    const { gw, repo } = makeGateway(
+      catalogWithUnlockTiers([
+        { code: "pack_starter", priceInr: 999, credits: 20, windowDays: 14, validityDays: 30 },
+      ]),
+    );
+    const pack = (await gw.resolvePack("pack_starter"))!;
+    await gw.purchasePackMock(WALLET, pack);
+    expect(repo.creditPack).toHaveBeenCalledWith(
+      expect.objectContaining({ priceInr: 999, validityDays: 30 }),
+    );
   });
 
   it("money stays MOCK — real_call is the honest false", async () => {

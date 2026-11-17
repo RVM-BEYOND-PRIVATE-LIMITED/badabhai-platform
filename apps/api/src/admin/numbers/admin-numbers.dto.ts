@@ -284,8 +284,11 @@ export interface AdminNumbersOutOfCreditsRow {
    * the `expires_at` of the last lot that expired holding credits.
    */
   ran_out_at: string;
-  /** Its last real paid order: the settle time and the pack. Null when it never paid. */
-  last_purchase: { at: string; pack_code: string } | null;
+  /**
+   * Its last real paid order: the settle time and the pack (null for an order that sells no credit
+   * pack, #2749 part 3). Null when it never paid.
+   */
+  last_purchase: { at: string; pack_code: string | null } | null;
   /** When it last opened a contact (an unlock granted). Null when it never did. */
   last_open_at: string | null;
   /** The latest call logged for it, or null (none, or the call log not applied yet). */

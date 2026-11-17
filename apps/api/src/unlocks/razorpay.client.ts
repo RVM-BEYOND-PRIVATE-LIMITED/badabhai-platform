@@ -20,7 +20,7 @@ import { SERVER_CONFIG } from "../config/config.module";
  *    message can echo request contents, and this call carries an amount + our order id).
  */
 
-/** What the money path needs from the provider. Deliberately tiny — one call. */
+/** What the money path needs from the provider. Deliberately tiny — two calls. */
 export interface RazorpayOrderClient {
   /** Whether a REAL provider is wired (flag + full credential set). */
   readonly isLive: boolean;
@@ -28,6 +28,11 @@ export interface RazorpayOrderClient {
   readonly keyId: string | null;
   /** Create an order server-to-server. Throws on any provider failure — money never guesses. */
   createOrder(input: CreateOrderInput): Promise<CreatedOrder>;
+  /**
+   * Read one payment back from the provider (`GET /payments/:id`, #2749 hardening 5): the browser
+   * verify path checks its captured amount before settling. Throws on any provider failure.
+   */
+  fetchPayment(paymentId: string): Promise<FetchedPayment>;
 }
 
 export interface CreateOrderInput {
@@ -42,9 +47,42 @@ export interface CreateOrderInput {
 export interface CreatedOrder {
   /** The provider's `order_*` id — half of the payment idempotency key. */
   orderId: string;
-  /** Echoed amount in the provider's subunit (paise), for the checkout handoff. */
+  /**
+   * The amount RAZORPAY's response says the order is for, in its subunit (paise) — the provider's
+   * own number, never the one we sent (#2749): the gateway refuses the order unless it equals the
+   * total it is about to stamp.
+   */
+  amountPaise: number;
+  /** The currency Razorpay's response names. */
+  currency: string;
+}
+
+/**
+ * The fields of a provider payment the verify path acts on. Opaque ids, an integer amount, a
+ * currency and a status; the entity's buyer contact, card and VPA fields are never read.
+ */
+export interface FetchedPayment {
+  /** `pay_*`. */
+  id: string;
+  /** `order_*` the payment belongs to, or null when the provider names none. */
+  orderId: string | null;
+  /** Captured / authorized amount in paise, as the provider reports it. */
   amountPaise: number;
   currency: string;
+  /** `created` | `authorized` | `captured` | `refunded` | `failed`. */
+  status: string;
+}
+
+/**
+ * A provider amount as an integer number of paise, or a thrown error. Razorpay types amounts as
+ * `number | string`; anything that is not a non-negative safe integer is refused, never coerced.
+ */
+export function providerPaise(value: unknown): number {
+  const n = typeof value === "string" && /^[0-9]+$/.test(value) ? Number(value) : value;
+  if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 0) {
+    throw new Error("provider returned a non-integer amount");
+  }
+  return n;
 }
 
 /** Razorpay bills in paise. ONE conversion, at the provider boundary, nowhere else. */
@@ -93,7 +131,13 @@ export class RazorpayClient implements RazorpayOrderClient {
       if (orderId.length === 0) {
         throw new Error("provider returned an order without an id");
       }
-      return { orderId, amountPaise, currency: RAZORPAY_CURRENCY };
+      // RAZORPAY'S echoed amount and currency (#2749), not `amountPaise` above: the gateway
+      // compares them with the total it stamps, which only means something if they are theirs.
+      return {
+        orderId,
+        amountPaise: providerPaise(order.amount),
+        currency: typeof order.currency === "string" ? order.currency : "",
+      };
     } catch (err) {
       // CLASS + pack code only. A provider error body can echo the request (amount, notes)
       // and, on some error paths, buyer contact details — none of that may reach a log.
@@ -104,6 +148,28 @@ export class RazorpayClient implements RazorpayOrderClient {
         }`,
       );
       throw new Error("payment provider order creation failed");
+    }
+  }
+
+  async fetchPayment(paymentId: string): Promise<FetchedPayment> {
+    const sdk = this.resolveClient();
+    try {
+      const payment = await sdk.payments.fetch(paymentId);
+      // Only these five fields are read. The entity also carries the buyer's email, contact, card
+      // and VPA; none of it is copied, returned or logged.
+      return {
+        id: typeof payment.id === "string" ? payment.id : "",
+        orderId: typeof payment.order_id === "string" ? payment.order_id : null,
+        amountPaise: providerPaise(payment.amount),
+        currency: typeof payment.currency === "string" ? payment.currency : "",
+        status: typeof payment.status === "string" ? payment.status : "",
+      };
+    } catch (err) {
+      // CLASS only, as for createOrder: a provider error body can echo payment details.
+      this.logger.error(
+        `payment fetch failed error_class=${err instanceof Error ? err.constructor.name : typeof err}`,
+      );
+      throw new Error("payment provider payment fetch failed");
     }
   }
 

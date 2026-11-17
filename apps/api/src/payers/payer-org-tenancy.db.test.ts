@@ -5,7 +5,7 @@ import { ConflictException, NotFoundException } from "@nestjs/common";
 import { loadServerConfig, type ServerConfig } from "@badabhai/config";
 import { CREDIT_PACKS, createDbClient, type DbClient } from "@badabhai/db";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
-import { DEFAULT_CATALOG, parseCatalog } from "@badabhai/pricing";
+import { DEFAULT_CATALOG, gstPriceLine, parseCatalog } from "@badabhai/pricing";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsRepository } from "../events/events.repository";
@@ -104,7 +104,13 @@ const EMAIL_B = `tenancy-b-${TAG}@e2e.badabhai.invalid`;
 /** One worker for the anchor's control unlock, a different one for B's (no idempotent replay). */
 const WORKER_FOR_A = randomUUID();
 const WORKER_FOR_B = randomUUID();
-const PACK = CREDIT_PACKS["pack_10"]!;
+// A mock grant of the constant pack, shaped as the gateway resolves one (#2749 PR 3: its GST line
+// and no validity, so the lot never expires).
+const PACK = {
+  ...CREDIT_PACKS["pack_10"]!,
+  validityDays: null,
+  priceLine: gstPriceLine(CREDIT_PACKS["pack_10"]!.priceInr),
+};
 
 describe.skipIf(!RUN)(
   "ADR-0053 T0 — A invites B; B sees A's postings + credits (Postgres, mode on)",
@@ -2016,13 +2022,27 @@ describe.skipIf(!RUN)(
           source: "db" as const,
         }),
       };
+      // The fake provider remembers each order it created, so the browser verify's read-back of a
+      // payment (#2749 hardening 5) reports a captured payment of that order's own amount. The
+      // payment ids this suite uses carry no order, so the fake binds a payment to the order last
+      // created — every verify below follows its own order's creation.
+      const created = new Map<string, number>();
+      let lastOrder = "";
       const razorpay = {
         isLive: true,
         keyId: "rzp_test_p2b",
-        createOrder: async ({ amountInr }: { amountInr: number }) => ({
-          orderId: `order_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
-          amountPaise: amountInr * 100,
+        createOrder: async ({ amountInr }: { amountInr: number }) => {
+          const orderId = `order_${randomUUID().replace(/-/g, "").slice(0, 14)}`;
+          created.set(orderId, amountInr * 100);
+          lastOrder = orderId;
+          return { orderId, amountPaise: amountInr * 100, currency: "INR" };
+        },
+        fetchPayment: async (paymentId: string) => ({
+          id: paymentId,
+          orderId: lastOrder,
+          amountPaise: created.get(lastOrder) ?? 0,
           currency: "INR",
+          status: "captured",
         }),
       };
       const gateway = new PaymentGateway(repo, config, pricing as never, razorpay as never);
@@ -2333,6 +2353,9 @@ describe.skipIf(!RUN)(
             eventName: "payment.captured",
             paymentId: `pay_${W_TAG}1`,
             orderId: order1!.providerOrderId,
+            // #2749 hardening 5: the capture carries the order total (₹2,000 + GST = ₹2,360).
+            amountPaise: order1!.amountPaise,
+            currency: "INR",
           },
           W_CTX,
         ),
@@ -2370,6 +2393,8 @@ describe.skipIf(!RUN)(
             eventName: "payment.captured",
             paymentId: `pay_${W_TAG}3`,
             orderId: preFlip!.providerOrderId,
+            amountPaise: preFlip!.amountPaise,
+            currency: "INR",
           },
           W_CTX,
         ),
