@@ -200,6 +200,7 @@ export class AdminPaymentHistoryRepository {
       // is never counted as credits USED (the totals sum only `credit_spend`).
       // #2750 item 4 — `welcome` is a free grant too: it is never credits USED.
       // #2754 item 9 — so is `campus_conversion`, a moved company's unused Campus balance.
+      // #2750 item 7 — `returned` (a couldn't-reach case gave the credits back) is a refund.
       // #2754 item 14 — `campus_conversion_reversed` (a rollback took that balance back unspent)
       // is a removal like `expired`, never credits used.
       const type =
@@ -207,7 +208,7 @@ export class AdminPaymentHistoryRepository {
           ? "credit_purchase"
           : l.reason === "grant" || l.reason === "welcome" || l.reason === "campus_conversion"
             ? "credit_grant"
-            : l.reason === "refund"
+            : l.reason === "refund" || l.reason === "returned"
               ? "credit_refund"
               : l.reason === "expired" || l.reason === "campus_conversion_reversed"
                 ? "credit_expired"

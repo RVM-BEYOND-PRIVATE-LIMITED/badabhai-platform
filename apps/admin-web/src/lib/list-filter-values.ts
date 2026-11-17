@@ -31,6 +31,7 @@ export const LEDGER_REASONS = [
   "welcome",
   "waived",
   "campus_conversion",
+  "returned",
   "campus_conversion_reversed",
 ] as const;
 

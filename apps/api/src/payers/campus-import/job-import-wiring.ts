@@ -75,13 +75,11 @@ export function buildJobImportDeps(db: Database, config: ServerConfig, events: E
   const campusPostings = new CampusPostingsRepository(db);
   return {
     db,
-    // #2903 adds `createForCampus`'s `opts` (the hold origin). Called through Reflect.apply so this
-    // file compiles on either side of #2903 with no type assertion on a tenant scope; once #2903 is
-    // on main this becomes a plain call. Without #2903 the origin is ignored, and the jobs step is
-    // gated on --worker-hold-live and checks every posting's hold.
+    // #2891 — the posting is written with its worker visibility `off`, origin `campus_imported`,
+    // in the creator's own transaction (#2903); the jobs step still checks every posting's hold.
     creator: {
       createForCampus: (scope, dto, targeting, ctx, opts) =>
-        Reflect.apply(postings.createForCampus, postings, [scope, dto, targeting, ctx, opts]),
+        postings.createForCampus(scope, dto, targeting, ctx, opts),
     },
     ownerScope: async (companyId) =>
       (await tenancy.resolveReadOnly(companyId)) ?? (await tenancy.resolve(companyId)),

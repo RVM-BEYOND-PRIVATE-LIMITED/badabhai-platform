@@ -236,8 +236,10 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
 
   // Event envelopes need a uuid correlation id (the CLI passes the batch id).
   const ctx = { requestId: `campus-import-db-${TAG}`, correlationId: randomUUID() };
+  /** The real wiring (its own hold check); `held: false` stands in a creator that forgot the hold. */
   function jobDeps(held: boolean): JobImportDeps {
-    return { ...buildJobImportDeps(client.db, config, deps.events), isHeld: async () => held };
+    const real = buildJobImportDeps(client.db, config, deps.events);
+    return held ? real : { ...real, isHeld: async () => false };
   }
 
   it("imports each live job once as an open, RVM-approved posting of its company; a rerun adds nothing", async () => {
@@ -262,6 +264,13 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
       expect(r).toMatchObject({ status: "open", review: "approved", reviewer: batch.id });
       expect([...placed.values()]).toContain(r.payer_id);
     }
+    // #2891 — each imported posting is held from BadaBhai workers, as an imported Campus job.
+    const holds = await sql<{ state: string; origin: string }[]>`
+      SELECT state, origin FROM job_posting_worker_visibility WHERE job_posting_id = ANY(${postingIds}::uuid[])`;
+    expect(holds).toEqual([
+      { state: "off", origin: "campus_imported" },
+      { state: "off", origin: "campus_imported" },
+    ]);
     const again = await importJobs(jobDeps(true), batch, bundle, placed, ctx);
     expect(again).toMatchObject({ created: 0, alreadyDone: 2 });
     const count = (await sql<{ n: number }[]>`

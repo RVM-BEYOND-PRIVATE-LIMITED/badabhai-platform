@@ -202,7 +202,7 @@ async function main(): Promise<void> {
                min(jr.job_posting_id::text) FILTER (WHERE jp.status NOT IN (${liveStatuses})) AS other_example
         FROM job_reach jr
         JOIN job_postings jp ON jp.id = jr.job_posting_id
-        WHERE NOT (${reachesBadaBhaiWorkers(dsql`jp.audience`)})
+        WHERE NOT (${reachesBadaBhaiWorkers("jp")})
       `),
     )[0];
     if ((offAudience?.rows ?? 0) > 0) {
@@ -235,7 +235,7 @@ async function main(): Promise<void> {
         FROM job_postings jp
         WHERE jp.status = 'open'
           AND jsonb_array_length(jp.match_skill_ids) > 0
-          AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
+          AND ${reachesBadaBhaiWorkers("jp")}
           AND NOT EXISTS (SELECT 1 FROM job_reach jr WHERE jr.job_posting_id = jp.id)
         LIMIT 50
       `),
