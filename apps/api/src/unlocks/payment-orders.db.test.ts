@@ -28,11 +28,11 @@ import { UnlockService } from "./unlocks.service";
 import { UnlocksRepository } from "./unlocks.repository";
 
 /**
- * #2749 PR 3 — CHECKOUT against real Postgres (migration 0175).
+ * #2749 PR 3 — CHECKOUT against real Postgres (migration 0176).
  *
  *   RUN_DB_TESTS=1 pnpm --filter @badabhai/api test payment-orders.db
  *
- * What only a real database proves: the 0175 CHECKs and the origin FK, the `held` compare-and-set
+ * What only a real database proves: the 0176 CHECKs and the origin FK, the `held` compare-and-set
  * racing a settle, the lot's expiry computed by the database clock from the order's stamped
  * `credit_validity_days`, the events written on the hold's transaction, and — through the REAL
  * controller, idempotency seam, service, gateway and repository — that two concurrent order
@@ -213,7 +213,7 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
     throw new Error("the statement was expected to fail");
   }
 
-  /** A raw post-0175 order row; `over` replaces any column (raw SQL, so every CHECK is exercised). */
+  /** A raw post-0176 order row; `over` replaces any column (raw SQL, so every CHECK is exercised). */
   async function insertOrder(over: Record<string, unknown> = {}): Promise<string> {
     const w = wallet();
     const row: Record<string, unknown> = {
@@ -295,10 +295,10 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
   }
 
   // -------------------------------------------------------------------------------------------
-  // (a) the 0175 CHECKs and the FK
+  // (a) the 0176 CHECKs and the FK
   // -------------------------------------------------------------------------------------------
 
-  it("(a) a well-formed order and a pre-0175-shaped one both insert; the defaults read credit_pack and nulls", async () => {
+  it("(a) a well-formed order and a pre-0176-shaped one both insert; the defaults read credit_pack and nulls", async () => {
     await insertOrder();
     const w = wallet();
     const providerOrderId = `order_${TAG}_old`;
@@ -476,7 +476,7 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
     expect(Number(captured!.n)).toBe(1);
   });
 
-  it("(c) an order stamped with NO validity (a default pack, or a pre-0175 row) grants a lot that never expires", async () => {
+  it("(c) an order stamped with NO validity (a default pack, or a pre-0176 row) grants a lot that never expires", async () => {
     const w = wallet();
     const order = await svc.createCreditOrder(w, "pack_50", CTX);
     expect(order).toMatchObject({ amountInr: 2360, validityDays: null });

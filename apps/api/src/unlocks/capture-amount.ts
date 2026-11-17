@@ -28,7 +28,7 @@ export interface CaptureMismatch {
 }
 
 /**
- * The paise an order expects to be captured: its stamped `total_paise` (#2749, migration 0175), or
+ * The paise an order expects to be captured: its stamped `total_paise` (#2749, migration 0176), or
  * `amount_inr` × 100 for an order created before the paise columns existed — exactly what the build
  * that created it asked Razorpay for (`inrToPaise(amount_inr)`).
  */

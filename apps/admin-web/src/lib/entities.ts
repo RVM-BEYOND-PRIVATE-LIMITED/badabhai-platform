@@ -424,10 +424,10 @@ export const orderRowSchema = z.object({
   id: z.string(),
   payer_id: z.string(),
   payer_role: payerRoleRefSchema,
-  // Nullable since migration 0175 (a non-pack order, #2751); every credit-pack order names one.
+  // Nullable since migration 0176 (a non-pack order, #2751); every credit-pack order names one.
   pack_code: z.string().nullable(),
   amount_inr: z.number(),
-  // #2749 — the same total in paise; null before 0175, absent from an older API build.
+  // #2749 — the same total in paise; null before 0176, absent from an older API build.
   total_paise: z.number().nullable().optional(),
   credits_granted: z.number(),
   provider: z.string(),

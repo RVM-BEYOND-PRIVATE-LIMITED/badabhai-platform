@@ -1,6 +1,6 @@
 /**
  * #2749 item 9 — the payment-order sets. `packages/db` spells the product kinds, statuses and
- * origins into CHECKs on `payment_orders` (its migration-0175 test pins those copies to these), and
+ * origins into CHECKs on `payment_orders` (its migration-0176 test pins those copies to these), and
  * `payment.held` takes its reason enum from the hold reasons, so this file pins the sets themselves.
  */
 import { describe, expect, it } from "vitest";

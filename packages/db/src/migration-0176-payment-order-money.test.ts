@@ -1,5 +1,5 @@
 /**
- * Migration 0175 — `payment_orders`: the money in paise, the product kind, the credit validity,
+ * Migration 0176 — `payment_orders`: the money in paise, the product kind, the credit validity,
  * the purchase origin, and the `held` status (#2749 item 9, the storage half of item 7, hardening 5).
  *
  * The drizzle model and CI's drift check cover the table-vs-model half. What this file pins is
@@ -30,7 +30,7 @@ import {
 import { SCHEMA_REQUIREMENTS } from "./schema-contract";
 import { paymentOrders } from "./schema";
 
-const TAG = "0175_payment_order_money";
+const TAG = "0176_payment_order_money";
 const T = "payment_orders";
 const RAW = readFileSync(join(__dirname, "..", "migrations", `${TAG}.sql`), "utf8");
 /** Statements with comments stripped, so the header's prose cannot satisfy a DDL assertion. */
@@ -75,7 +75,7 @@ describe("the fixture is real (no assertion below is vacuous)", () => {
   });
 });
 
-describe("0175 is additive only", () => {
+describe("0176 is additive only", () => {
   it("adds exactly the nine columns, each nullable except the defaulted product_kind", () => {
     const added = [...FLAT.matchAll(/ADD COLUMN "([a-z_]+)" ([a-z]+)([^;]*)/g)];
     expect(added.map((m) => m[1])).toEqual([...NEW_COLUMNS]);
@@ -245,7 +245,7 @@ describe("the LIVE model carries the same objects", () => {
     expect(config.indexes.map((i) => i.config.name)).toContain(
       "payment_orders_origin_job_posting_idx",
     );
-    expect(config.foreignKeys).toHaveLength(1); // origin_job_posting_id (0175); payer_id has none
+    expect(config.foreignKeys).toHaveLength(1); // origin_job_posting_id (0176); payer_id has none
   });
 });
 
@@ -290,18 +290,18 @@ describe("the operator instructions, the manifest and the slot", () => {
   });
 
   // Located by TAG, not `.at(-1)`, so a later migration cannot fail this file (the 0126 lesson).
-  it("holds the only 0175 slot, after 0174, with a later `when`", () => {
-    expect(entry?.idx).toBe(175);
-    expect(JOURNAL.entries.filter((e) => e.idx === 175)).toHaveLength(1);
+  it("holds the only 0176 slot, after 0175, with a later `when`", () => {
+    expect(entry?.idx).toBe(176);
+    expect(JOURNAL.entries.filter((e) => e.idx === 176)).toHaveLength(1);
     const at = JOURNAL.entries.findIndex((e) => e.tag === TAG);
     const previous = JOURNAL.entries[at - 1]!;
-    expect(previous.tag).toBe("0174_credit_lots");
+    expect(previous.tag).toBe("0175_payer_phone_proofs");
     expect(entry!.when).toBeGreaterThan(previous.when);
   });
 
-  it("0175's snapshot builds on 0174's and records the new columns", () => {
-    const next = snapshot("0175");
-    expect(next.prevId).toBe(snapshot("0174").id);
+  it("0176's snapshot builds on 0175's and records the new columns", () => {
+    const next = snapshot("0176");
+    expect(next.prevId).toBe(snapshot("0175").id);
     const table = next.tables[`public.${T}`] as { columns: Record<string, unknown> };
     for (const c of NEW_COLUMNS) expect(table.columns, c).toHaveProperty(c);
   });

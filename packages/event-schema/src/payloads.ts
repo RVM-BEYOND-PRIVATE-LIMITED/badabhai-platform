@@ -595,6 +595,21 @@ export type WorkerOtpSendCapExceededPayload = z.infer<typeof WorkerOtpSendCapExc
 export const PayerOtpSendCapExceededPayload = z.object(otpSendCapExceededShape);
 export type PayerOtpSendCapExceededPayload = z.infer<typeof PayerOtpSendCapExceededPayload>;
 
+/**
+ * #2754 item 2 — the company sign-in SMS path's own daily ceiling tripped
+ * (`PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY`). Its own event, not a third `channel` on the shape
+ * above: that enum is closed. The same aggregate, PII-free facts: the cap kind, the limit and the
+ * UTC day. No payer id, phone, IP or code.
+ */
+export const PayerSmsSendCapExceededPayload = z
+  .object({
+    cap: otpSendCapExceededShape.cap,
+    limit: otpSendCapExceededShape.limit,
+    window: otpSendCapExceededShape.window,
+  })
+  .strict();
+export type PayerSmsSendCapExceededPayload = z.infer<typeof PayerSmsSendCapExceededPayload>;
+
 // ---------------------------------------------------------------------------
 // worker.otp_send_failed — F4 (#168): provider-side SMS send-failure signal on the
 // worker OTP path. Fast2SMS is the ONLY send path (real-only, no console/mock), so a
@@ -2022,7 +2037,7 @@ export const PaymentHeldPayload = z
     /** The wallet the order was stamped with (the tenant key, ADR-0053). */
     payer_id: uuidSchema,
     pack_code: z.string().min(1).max(64).nullable(),
-    /** What the order expected: `total_paise`, or `amount_inr` × 100 on a pre-0175 row. */
+    /** What the order expected: `total_paise`, or `amount_inr` × 100 on a pre-0176 row. */
     expected_paise: z.number().int().positive(),
     /** What the provider reported as captured, in paise; null when the capture carried none. */
     captured_paise: z.number().int().nonnegative().nullable(),
@@ -2564,6 +2579,51 @@ export const PayerSessionStartedPayload = z.object({
   is_new_payer: z.boolean().default(false),
 });
 export type PayerSessionStartedPayload = z.infer<typeof PayerSessionStartedPayload>;
+
+/**
+ * #2754 item 1 — the login methods of the v2 login events: every v1 method plus `sms_otp`, a
+ * one-time code sent by SMS to a company's phone. A NEW enum rather than a wider v1 one: v1
+ * payloads keep their closed set, and only an SMS sign-in emits a v2 event (every other method
+ * stays on v1), so a reader of the login funnel unions the two names.
+ */
+export const PayerLoginMethodV2Enum = z.enum([...PayerLoginMethodEnum.options, "sms_otp"]);
+export type PayerLoginMethodV2Enum = z.infer<typeof PayerLoginMethodV2Enum>;
+
+/** `payer.login_requested` for an SMS code (#2754): the same facts, the v2 method set. */
+export const PayerLoginRequestedV2Payload = z
+  .object({ payer_id: uuidSchema, method: PayerLoginMethodV2Enum })
+  .strict();
+export type PayerLoginRequestedV2Payload = z.infer<typeof PayerLoginRequestedV2Payload>;
+
+/** `payer.session_started` for an SMS code (#2754): the same facts, the v2 method set. */
+export const PayerSessionStartedV2Payload = z
+  .object({
+    payer_id: uuidSchema,
+    method: PayerLoginMethodV2Enum,
+    is_new_payer: z.boolean().default(false),
+  })
+  .strict();
+export type PayerSessionStartedV2Payload = z.infer<typeof PayerSessionStartedV2Payload>;
+
+/**
+ * #2754 item 3 — how a company proved the phone on its account. Mirrors
+ * `PAYER_PHONE_PROOF_METHODS` (packages/db, the `payer_phone_proofs_method_chk` CHECK): `sms_code`
+ * = the signed-in company entered a code sent to the phone; `campus_import` = an imported Campus
+ * company's sign-in phone, which Campus verified by its own OTP. A new value is a new version.
+ */
+export const PayerPhoneProofMethodEnum = z.enum(["sms_code", "campus_import"]);
+export type PayerPhoneProofMethodEnum = z.infer<typeof PayerPhoneProofMethodEnum>;
+
+/**
+ * `payer.phone_proven` (#2754 item 3) — a company proved the phone on its account, so that phone
+ * now signs it in by SMS code (while `PAYER_SMS_OTP_ENABLED` is on). FACELESS: the opaque payer id
+ * and the closed method only — never the number, its hash or the code. Emitted in the transaction
+ * that writes the proof.
+ */
+export const PayerPhoneProvenPayload = z
+  .object({ payer_id: uuidSchema, method: PayerPhoneProofMethodEnum })
+  .strict();
+export type PayerPhoneProvenPayload = z.infer<typeof PayerPhoneProvenPayload>;
 
 /**
  * A payer session was minted through the TEST-LOGIN seam rather than a real OTP verification

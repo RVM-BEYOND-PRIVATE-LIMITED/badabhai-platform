@@ -199,10 +199,10 @@ const GAP_DB_21_RLS_REQUIREMENTS: readonly SchemaRequirement[] = [
 }));
 
 /**
- * 0175 (#2749): the nine columns it adds to `payment_orders`, in the migration's order. Every one
+ * 0176 (#2749): the nine columns it adds to `payment_orders`, in the migration's order. Every one
  * is named by the repository's bare `.select()` / `.returning()`, so each is its own requirement.
  */
-const PAYMENT_ORDER_0175_COLUMNS = [
+const PAYMENT_ORDER_0176_COLUMNS = [
   "product_kind",
   "taxable_paise",
   "gst_paise",
@@ -1516,7 +1516,27 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. The table is every company's credit holdings and their expiry dates; an open " +
       "grant lets any PostgREST role read them, or write a lot that the next spend would honour",
   },
-  // 0175 (#2749 item 9 + the storage half of item 7): payment_orders' money in paise, product
+  // #2754 item 3: proven company sign-in phones. Every read of `payer_phone_proofs` fails CLOSED on
+  // 42P01 (no phone counts as proven, so SMS sign-in sends nothing; the proof routes answer 503;
+  // a phone change's proof drop runs in a savepoint that tolerates the missing table), so a deploy
+  // ahead of the migration breaks no request and the table is NOT a `table` entry. Listed for its
+  // lock (the 0134 rule). APPLY BEFORE THE SWITCH (PAYER_SMS_OTP_ENABLED; migration header).
+  // The id and tag carry the slot number: regenerated with the migration when the slot moves.
+  {
+    id: "0175-payer-phone-proofs-rls",
+    migration: "0175_payer_phone_proofs",
+    kind: "rls",
+    table: "payer_phone_proofs",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides which company an SMS code signs in: an open grant lets any " +
+      "PostgREST role write a proof for its own account against a victim's phone hash and so " +
+      "take over that company's SMS sign-in, or read which accounts hold a proven phone",
+  },
+  // 0176 (#2749 item 9 + the storage half of item 7): payment_orders' money in paise, product
   // kind, credit validity, purchase origin, and the `held` status. Unconditional - no flag -
   // because UnlocksRepository reads and writes payment_orders with bare `.select()` /
   // `.returning()` and Drizzle 0.45 names every model column there. APPLY BEFORE DEPLOY, from the
@@ -1524,10 +1544,10 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
   // entries also answer for the two CHECKs it widens in place under the same names
   // (`payment_orders_status_chk` gains `held`, `payment_orders_credits_pos_chk` binds credit packs
   // only), which a by-name probe cannot tell from the old ones.
-  ...PAYMENT_ORDER_0175_COLUMNS.map(
+  ...PAYMENT_ORDER_0176_COLUMNS.map(
     (column): SchemaRequirement => ({
-      id: `0175-payment-orders-${column.replace(/_/g, "-")}`,
-      migration: "0175_payment_order_money",
+      id: `0176-payment-orders-${column.replace(/_/g, "-")}`,
+      migration: "0176_payment_order_money",
       kind: "column",
       table: "payment_orders",
       object: column,
@@ -1543,8 +1563,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     }),
   ),
   {
-    id: "0175-payment-orders-money-sum-chk",
-    migration: "0175_payment_order_money",
+    id: "0176-payment-orders-money-sum-chk",
+    migration: "0176_payment_order_money",
     kind: "constraint",
     table: "payment_orders",
     object: "payment_orders_money_sum_chk",
@@ -1558,8 +1578,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "grant) on bad data",
   },
   {
-    id: "0175-payment-orders-pack-code-chk",
-    migration: "0175_payment_order_money",
+    id: "0176-payment-orders-pack-code-chk",
+    migration: "0176_payment_order_money",
     kind: "constraint",
     table: "payment_orders",
     object: "payment_orders_pack_code_chk",
@@ -1571,8 +1591,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "carry no pack on the ledger and the lot",
   },
   {
-    id: "0175-payment-orders-origin-posting-fk",
-    migration: "0175_payment_order_money",
+    id: "0176-payment-orders-origin-posting-fk",
+    migration: "0176_payment_order_money",
     kind: "constraint",
     table: "payment_orders",
     object: "payment_orders_origin_job_posting_id_job_postings_id_fk",

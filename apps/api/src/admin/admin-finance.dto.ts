@@ -169,11 +169,11 @@ export interface AdminOrderRow {
    * legacy opaque id can be orphaned.
    */
   payer_role: PayerRole | null;
-  /** Set on every credit-pack order (the only kind today); nullable since 0175 for #2751. */
+  /** Set on every credit-pack order (the only kind today); nullable since 0176 for #2751. */
   pack_code: string | null;
   /** Whole ₹ charged — since #2749 PR 3 the GST-inclusive total. */
   amount_inr: number;
-  /** #2749 — the same total in paise (additive); null on an order from before migration 0175. */
+  /** #2749 — the same total in paise (additive); null on an order from before migration 0176. */
   total_paise: number | null;
   credits_granted: number;
   provider: string;

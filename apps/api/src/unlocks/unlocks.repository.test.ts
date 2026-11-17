@@ -808,7 +808,7 @@ describe("UnlocksRepository.claimAndCreditPaymentOrderWithinTx — settlement cr
         source: "pack",
         packCode: "pack_50",
         paymentOrderId: "order-row-1",
-        validityDays: null, // the order stamped none (every pre-0175 order): never expires
+        validityDays: null, // the order stamped none (every pre-0176 order): never expires
       },
       ledger: {
         reason: "pack_purchase",
@@ -964,7 +964,7 @@ describe("UnlocksRepository.createPaymentOrder — persist a freshly-created pro
       providerOrderId: "rzp_order_1",
     });
     expect(captured.insertTable).toBe(paymentOrders);
-    // A caller with no money line (a fixture) writes what a pre-0175 order held.
+    // A caller with no money line (a fixture) writes what a pre-0176 order held.
     expect(captured.insertValues).toEqual({
       payerId: PAYER_ID,
       productKind: "credit_pack",

@@ -116,7 +116,7 @@ function makeFakeRepo() {
   const owned = new Map<string, { kind: "job" | "posting"; id: string }>();
 
   const seedOrder = (over: Partial<PaymentOrder> = {}): PaymentOrder => {
-    // By default an order shaped like a pre-0175 row (no paise columns): it expects
+    // By default an order shaped like a pre-0176 row (no paise columns): it expects
     // amount_inr × 100 = 200000 paise, which is what `captureEvent()` reports.
     const row: PaymentOrder = {
       id: ORDER_ROW,
@@ -406,7 +406,7 @@ function emitted(events: { emit: { mock: { calls: unknown[][] } } }): string[] {
   return events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
 }
 
-/** A verified capture. 200000 paise = the default seeded (pre-0175) order's ₹2,000. */
+/** A verified capture. 200000 paise = the default seeded (pre-0176) order's ₹2,000. */
 const captureEvent = (
   orderId: string = PROVIDER_ORDER,
   paymentId: string = PAYMENT_ID,
@@ -1540,7 +1540,7 @@ describe("#2749 item 9 — the purchase origin is stored; a posting only when it
 // ---------------------------------------------------------------------------
 
 describe("#2749 hardening 5 — a capture of the wrong amount HOLDS the order and grants nothing", () => {
-  /** A post-0175 order: ₹2,000 + GST, stamped total 236000 paise. */
+  /** A post-0176 order: ₹2,000 + GST, stamped total 236000 paise. */
   const STAMPED = {
     amountInr: 2360,
     taxablePaise: 200000,
@@ -1668,7 +1668,7 @@ describe("#2749 hardening 5 — a capture of the wrong amount HOLDS the order an
     expect(emitted(d.events)).toEqual(["payment.captured"]);
   });
 
-  it("a pre-0175 order (no paise columns) is checked against amount_inr × 100", async () => {
+  it("a pre-0176 order (no paise columns) is checked against amount_inr × 100", async () => {
     const old = makeService();
     old.seedOrder(); // ₹2,000, no total_paise
     expect(
@@ -1757,7 +1757,7 @@ describe("#2749 PR 3 — the credits' validity: the mock pack's live tier, the o
     expect(d.ledger[0]).toMatchObject({ delta: 50, validityDays: 30 });
   });
 
-  it("a pre-0175 order (no validity) grants a lot that never expires", async () => {
+  it("a pre-0176 order (no validity) grants a lot that never expires", async () => {
     const d = makeService();
     d.seedOrder();
     await d.svc.handleRazorpayEvent(captureEvent(), CTX);

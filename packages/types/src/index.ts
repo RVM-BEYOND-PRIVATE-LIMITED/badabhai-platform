@@ -1646,7 +1646,7 @@ export interface PayerCreditsResponse {
   readonly lots: readonly PayerCreditLot[];
 }
 
-// ---- Payment orders: checkout (#2749 item 9, migration 0175) ----
+// ---- Payment orders: checkout (#2749 item 9, migration 0176) ----
 //
 // HERE FOR THE SAME REASON AS THE LOT SOURCES ABOVE: `packages/db` spells these sets into CHECK
 // constraints on `payment_orders`, the api writes and validates them, `packages/event-schema` puts

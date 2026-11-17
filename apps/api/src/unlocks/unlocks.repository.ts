@@ -104,7 +104,7 @@ export interface WalletCredit {
 }
 
 /**
- * The money a payment order is stamped with at creation (#2749, migration 0175): the pack's GST
+ * The money a payment order is stamped with at creation (#2749, migration 0176): the pack's GST
  * price line, in integer paise (`gstPriceLine`). taxable + gst + roundOff = total, a whole rupee.
  */
 export interface PaymentOrderMoney {
@@ -886,10 +886,10 @@ export class UnlocksRepository {
    * settlement credits that wallet and never re-resolves — an order created before the flip
    * settles into the wallet it was created for.
    *
-   * #2749 (migration 0175): the GST price line in paise (`money`; `amountInr` is then its
+   * #2749 (migration 0176): the GST price line in paise (`money`; `amountInr` is then its
    * whole-rupee total — the CHECKs refuse anything else), the pack's credit validity, and the
    * purchase origin are stamped in the same insert. All optional here so a caller that has none
-   * (a test fixture) writes what a pre-0175 order held; the gateway always passes them.
+   * (a test fixture) writes what a pre-0176 order held; the gateway always passes them.
    * `originJobPostingId` must already be proven the tenant's own (the service does it).
    */
   async createPaymentOrder(input: {
@@ -985,7 +985,7 @@ export class UnlocksRepository {
       priceInr: claimed.amountInr,
       idempotencyKey: `payment_order:${claimed.id}`,
       // #2749 PR 3: the validity STAMPED at order time (hazard 8: the catalogue is not re-read),
-      // counted from this settle on the DB clock. Null (every pre-0175 order) = never expires.
+      // counted from this settle on the DB clock. Null (every pre-0176 order) = never expires.
       validityDays: claimed.creditValidityDays,
     });
     // Already credited under this order's key: nothing was granted now (the caller re-reads).
@@ -1001,7 +1001,7 @@ export class UnlocksRepository {
    * call, or all three arriving concurrently.
    *
    * #2749 hardening 5: a `held` order (a capture of the wrong amount) matches nothing here, so
-   * neither a webhook replay nor a verify can ever grant it. (Before 0175 this matched any status
+   * neither a webhook replay nor a verify can ever grant it. (Before 0176 this matched any status
    * but `paid`; the two it now matches are the same two that existed then.)
    *
    * WHY THIS IS SAFE UNDER CONCURRENCY (READ COMMITTED, the Postgres default): two

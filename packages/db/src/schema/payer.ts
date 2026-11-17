@@ -924,7 +924,7 @@ export const planQuotaTopups = pgTable(
 
 /**
  * Payment order lifecycle (`PAYMENT_ORDER_STATUSES`, @badabhai/types): `created` at intent →
- * `paid` on a verified provider capture → `failed`; `held` (#2749, migration 0175) when the
+ * `paid` on a verified provider capture → `failed`; `held` (#2749, migration 0176) when the
  * captured amount is not the order's total — nothing granted, never settleable.
  */
 export type PaymentOrderStatus = TypesPaymentOrderStatus;
@@ -937,14 +937,14 @@ export const paymentOrders = pgTable(
     // Opaque payer ref — the "faceless-rails" pattern, NO FK (mirrors payer_credits /
     // credit_ledger, which this sits in front of).
     payerId: uuid("payer_id").notNull(),
-    // What the order sells (`PAYMENT_ORDER_PRODUCT_KINDS`, #2749 / migration 0175). Defaulted, so
-    // every pre-0175 row and an old build's insert read `credit_pack`. #2751 widens the CHECK.
+    // What the order sells (`PAYMENT_ORDER_PRODUCT_KINDS`, #2749 / migration 0176). Defaulted, so
+    // every pre-0176 row and an old build's insert read `credit_pack`. #2751 widens the CHECK.
     productKind: text("product_kind")
       .$type<PaymentOrderProductKind>()
       .notNull()
       .default("credit_pack"),
     // Which credit pack was bought (e.g. 'pack_10'); resolved against @badabhai/pricing.
-    // NULLABLE since 0175 so a non-pack product (#2751) can be ordered; a `credit_pack` order still
+    // NULLABLE since 0176 so a non-pack product (#2751) can be ordered; a `credit_pack` order still
     // requires it (`payment_orders_pack_code_chk`).
     packCode: text("pack_code"),
     // Whole ₹, never paise (house convention — see credit_ledger.price_inr). Since #2749 PR 3 this
@@ -969,9 +969,9 @@ export const paymentOrders = pgTable(
     status: text("status").$type<PaymentOrderStatus>().notNull().default("created"),
     // The provider's payment reference, stamped when the order settles (or is held). Opaque.
     providerPaymentRef: text("provider_payment_ref"),
-    // ── THE MONEY, IN PAISE (#2749 item 7, migration 0175) ─────────────────────
+    // ── THE MONEY, IN PAISE (#2749 item 7, migration 0176) ─────────────────────
     // `gstPriceLine(price)` stamped at order creation: taxable + gst + round_off = total, and the
-    // total is a whole rupee. NULL on every pre-0175 order (it carried only `amount_inr`); all
+    // total is a whole rupee. NULL on every pre-0176 order (it carried only `amount_inr`); all
     // five are written together (`payment_orders_money_set_chk`). The settle path compares the
     // captured amount with `total_paise` (or `amount_inr` × 100 on an old row).
     taxablePaise: integer("taxable_paise"),
@@ -1009,15 +1009,15 @@ export const paymentOrders = pgTable(
     // A zero/negative-amount order is always a bug, never a real purchase.
     check("payment_orders_amount_pos_chk", sql`${t.amountInr} > 0`),
     // Same reasoning for the grant side: an order that buys zero (or negative) credits is
-    // a resolver bug, and a DB constraint is the only place it cannot be forgotten. Since 0175
+    // a resolver bug, and a DB constraint is the only place it cannot be forgotten. Since 0176
     // it binds a `credit_pack` order only (#2751's products may grant no credits).
     check(
       "payment_orders_credits_pos_chk",
       sql`${t.creditsGranted} > 0 OR ${t.productKind} <> 'credit_pack'`,
     ),
-    // `PAYMENT_ORDER_STATUSES`, spelled out because a CHECK is static SQL (0175's test pins it).
+    // `PAYMENT_ORDER_STATUSES`, spelled out because a CHECK is static SQL (0176's test pins it).
     check("payment_orders_status_chk", sql`${t.status} IN ('created', 'paid', 'failed', 'held')`),
-    // ── 0175 (#2749 item 9) ────────────────────────────────────────────────────
+    // ── 0176 (#2749 item 9) ────────────────────────────────────────────────────
     // `PAYMENT_ORDER_PRODUCT_KINDS`. #2751 widens it.
     check("payment_orders_product_kind_chk", sql`${t.productKind} IN ('credit_pack')`),
     // A credit-pack order names its pack.
@@ -1025,7 +1025,7 @@ export const paymentOrders = pgTable(
       "payment_orders_pack_code_chk",
       sql`${t.productKind} <> 'credit_pack' OR ${t.packCode} IS NOT NULL`,
     ),
-    // The five money columns are written together or not at all (a pre-0175 row has none).
+    // The five money columns are written together or not at all (a pre-0176 row has none).
     check(
       "payment_orders_money_set_chk",
       sql`(${t.taxablePaise} IS NULL AND ${t.gstPaise} IS NULL AND ${t.roundOffPaise} IS NULL AND ${t.totalPaise} IS NULL AND ${t.gstRateBps} IS NULL) OR (${t.taxablePaise} IS NOT NULL AND ${t.gstPaise} IS NOT NULL AND ${t.roundOffPaise} IS NOT NULL AND ${t.totalPaise} IS NOT NULL AND ${t.gstRateBps} IS NOT NULL)`,
@@ -1040,7 +1040,7 @@ export const paymentOrders = pgTable(
       "payment_orders_validity_pos_chk",
       sql`${t.creditValidityDays} IS NULL OR ${t.creditValidityDays} > 0`,
     ),
-    // `PAYMENT_ORDER_ORIGINS`, spelled out (0175's test pins the copy).
+    // `PAYMENT_ORDER_ORIGINS`, spelled out (0176's test pins the copy).
     check(
       "payment_orders_origin_chk",
       sql`${t.origin} IS NULL OR ${t.origin} IN ('credits_page', 'unlock_prompt', 'candidate_search', 'posting_flow', 'dashboard', 'other')`,

@@ -1,5 +1,5 @@
 -- ==============================================================================
--- 0175 - payment_orders: the money in paise, the product kind, the validity, the origin, `held`
+-- 0176 - payment_orders: the money in paise, the product kind, the validity, the origin, `held`
 -- ==============================================================================
 --
 -- #2749 item 9 (checkout) and the storage half of item 7 (GST). An order now charges the pack's
@@ -11,7 +11,7 @@
 -- (#2751 widens it). A new status, `held`: a capture whose amount is not the order's total grants
 -- nothing and parks the order there (hardening 5).
 --
--- ALL ADDITIVE. Every new column is nullable or defaulted, so every pre-0175 row and every insert
+-- ALL ADDITIVE. Every new column is nullable or defaulted, so every pre-0176 row and every insert
 -- from the OLD build keep working: an old row reads product_kind 'credit_pack', no money columns,
 -- no validity, no origin; an old insert names none of the new columns and gets the same. Relaxed,
 -- not removed: `pack_code` NOT NULL becomes a CHECK that only a `credit_pack` order needs one, and
@@ -39,7 +39,7 @@
 --
 -- ADOPTION ORDER - DO NOT LIFT THE WATERMARK OVER A PENDING LOWER MIGRATION. drizzle's migrator
 -- replays only files whose journal `when` is above the newest recorded row. If any LOWER
--- migration is still unapplied (any of 0164-0174, or whatever sits below this slot on main when it
+-- migration is still unapplied (e.g. 0175_payer_phone_proofs, or whatever sits below this slot on main when it
 -- merges), recording this one first lifts the watermark above it and `db:migrate` then skips it
 -- SILENTLY, for good. Preferred: apply the pending lower migrations first, in journal order, and
 -- record them, then this one. Otherwise: adopt ONLY this migration, pinned
@@ -99,7 +99,7 @@
 --     DROP COLUMN "credit_validity_days", DROP COLUMN "gst_rate_bps", DROP COLUMN "total_paise",
 --     DROP COLUMN "round_off_paise", DROP COLUMN "gst_paise", DROP COLUMN "taxable_paise",
 --     DROP COLUMN "product_kind";
---   DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1794891953223;
+--   DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1794900885026;
 -- (the row whose created_at is this entry's journal `when`).
 --
 -- SAFE TO RE-RUN: no (plain ADD COLUMN / ADD CONSTRAINT). Apply once.
