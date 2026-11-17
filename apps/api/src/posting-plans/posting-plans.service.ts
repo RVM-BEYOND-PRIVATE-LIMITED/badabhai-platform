@@ -6,7 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
-import type { Quote } from "@badabhai/pricing";
+import type { ProductKind, Quote } from "@badabhai/pricing";
 import { areRealPaymentsEnabled, isCapacityEnforcementEnabled, type ServerConfig } from "@badabhai/config";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { PostingPlan, PostingBoost, PostingPlanTier } from "@badabhai/db";
@@ -15,6 +15,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { PricingService } from "../pricing/pricing.service";
 import { assertExpectedPrice, chargeQuote } from "../pricing/charge-price";
+import { isProductKindOffSale, retiredProductNotFound } from "../pricing/retired-products";
 import { MatchConfigService } from "../match/match-config.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
@@ -220,6 +221,7 @@ export class PostingPlansService {
    * check here, exactly as before (the ops route never had one).
    */
   async buyPlan(jobPostingId: string, dto: BuyPlanDto, ctx: RequestContext): Promise<BuyPlanResult> {
+    this.assertOnSale("posting"); // #2749 item 11 — before the tenancy resolution
     const { payer_id: actorPayerId, ...purchase } = dto;
     return this.buyPlanInScope(jobPostingId, await this.tenancy.resolve(actorPayerId), purchase, ctx);
   }
@@ -235,6 +237,7 @@ export class PostingPlansService {
     dto: PayerBuyPlanDto,
     ctx: RequestContext,
   ): Promise<BuyPlanResult> {
+    this.assertOnSale("posting"); // #2749 item 11 — before any read
     const syncSource = await this.repo.findPostingSyncSource(jobPostingId);
     if (syncSource === undefined) {
       throw new NotFoundException(`Job posting ${jobPostingId} not found`);
@@ -321,6 +324,7 @@ export class PostingPlansService {
    * exactly as {@link buyPlan}.
    */
   async buyBoost(jobPostingId: string, dto: BuyBoostDto, ctx: RequestContext): Promise<BuyBoostResult> {
+    this.assertOnSale("boost"); // #2749 item 11 — before the tenancy resolution
     const { payer_id: actorPayerId, ...purchase } = dto;
     return this.buyBoostInScope(jobPostingId, await this.tenancy.resolve(actorPayerId), purchase, ctx);
   }
@@ -332,6 +336,7 @@ export class PostingPlansService {
     dto: PayerBuyBoostDto,
     ctx: RequestContext,
   ): Promise<BuyBoostResult> {
+    this.assertOnSale("boost"); // #2749 item 11 — before any read (the overlap check included)
     const syncSource = await this.repo.findPostingSyncSource(jobPostingId);
     if (syncSource === undefined) {
       throw new NotFoundException(`Job posting ${jobPostingId} not found`);
@@ -428,6 +433,7 @@ export class PostingPlansService {
     dto: PayerTopUpQuotaDto,
     ctx: RequestContext,
   ): Promise<TopUpQuotaResult> {
+    this.assertOnSale("quota_topup"); // #2749 item 11 — before any read
     const tenant = scope.tenantKey;
     const quote = await this.resolve(QUOTA_TOPUP_PRODUCT, dto.tier, dto.coupon, tenant, dto.expected_price_inr);
     if (quote.grants.kind !== "quota_topup") {
@@ -507,6 +513,7 @@ export class PostingPlansService {
    * purchase raises the ORG's one allowance and resumes the org's paused plans.
    */
   async buyCapacity(actorPayerId: string, dto: BuyCapacityDto, ctx: RequestContext): Promise<BuyCapacityResult> {
+    this.assertOnSale("capacity"); // #2749 item 11 — before the tenancy resolution
     const scope = await this.tenancy.resolve(actorPayerId);
     const tenant = scope.tenantKey;
     const quote = await this.resolve(CAPACITY_PRODUCT, dto.tier, dto.coupon, tenant, dto.expected_price_inr);
@@ -697,8 +704,21 @@ export class PostingPlansService {
     const usage = coupon ? await this.repo.couponUsage(coupon, tenant) : undefined;
     const result = chargeQuote(catalog, { productCode: product, tierCode: tier, couponCode: coupon, couponUsage: usage });
     if (!result.ok) throw new BadRequestException(`${product}/${tier} is not available`);
+    // #2749 item 11 — the backstop: every purchase here prices through this method, so a retired
+    // product cannot be sold even by an entry point that forgot its own first-line check.
+    this.assertOnSale(result.quote.kind);
     assertExpectedPrice(expectedPriceInr, result.quote.finalInr);
     return result.quote;
+  }
+
+  /**
+   * #2749 item 11 (ADR-0065) — refuse the purchase of a product the brief drops while
+   * `RETIRED_PRODUCTS_OFF_SALE` is on: the bare 404 of a route that does not exist. Every public
+   * purchase method calls it FIRST, before any read, lock, price or payment event, so a refusal
+   * leaves nothing behind. Never called by a read: what was bought stays readable and runs on.
+   */
+  private assertOnSale(kind: ProductKind): void {
+    if (isProductKindOffSale(this.config, kind)) throw retiredProductNotFound();
   }
 
   /**

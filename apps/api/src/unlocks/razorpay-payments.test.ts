@@ -1381,6 +1381,7 @@ function realPricing(catalog: typeof DEFAULT_CATALOG | null): PricingService {
   return new PricingService(
     { getActive: vi.fn(async () => (catalog ? { catalog, revision: 7 } : null)) } as never,
     {} as never,
+    { RETIRED_PRODUCTS_OFF_SALE: false },
   );
 }
 

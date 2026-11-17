@@ -1,4 +1,5 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import type { ServerConfig } from "@badabhai/config";
 import {
   safeParseCatalog,
   resolvePrice,
@@ -12,11 +13,13 @@ import {
 } from "@badabhai/pricing";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
+import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { PricingRepository } from "./pricing.repository";
 import type { UpdateCatalogDto, QuoteQueryDto } from "./pricing.dto";
 import { chargeQuote } from "./charge-price";
 import { CREDIT_PACK_PRODUCT, creditPackSale, type SellablePack } from "./credit-pack-sale";
+import { isProductKindOffSale } from "./retired-products";
 
 /** The active catalog + provenance (fail-closed: falls back to the typed default). */
 export interface ActiveCatalog {
@@ -85,7 +88,8 @@ export interface PayerCreditPackProduct {
 
 /**
  * A product in the payer catalogue. Credit packs are projected ({@link PayerCreditPackProduct});
- * every other kind still ships as the catalogue holds it (item 11 of #2749 retires them).
+ * every other kind ships as the catalogue holds it while it is on sale, and not at all once
+ * `RETIRED_PRODUCTS_OFF_SALE` retires it (#2749 item 11, `retired-products.ts`).
  */
 export type PayerProduct = Exclude<Product, { kind: "credit_pack" }> | PayerCreditPackProduct;
 
@@ -95,7 +99,9 @@ export type PayerProduct = Exclude<Product, { kind: "credit_pack" }> | PayerCred
  * Credit packs (#2749): only `contact_unlock` (the one product the purchase path sells), and only
  * its tiers that can be sold now, appear, in `products` AND in `prices`, each built from a
  * whitelist with its GST price line; with nothing sellable the product is left out. Other
- * products are unchanged. Coupons, coupon caps and `floorPriceInr` never ship.
+ * products are unchanged while on sale, and absent (from `products` and `prices`) once
+ * `RETIRED_PRODUCTS_OFF_SALE` retires them (#2749 item 11). Coupons, coupon caps and
+ * `floorPriceInr` never ship.
  */
 export interface PayerCatalogView {
   readonly revision: number;
@@ -143,6 +149,9 @@ export class PricingService {
   constructor(
     private readonly repo: PricingRepository,
     private readonly events: EventsService,
+    // #2749 item 11 — RETIRED_PRODUCTS_OFF_SALE, read through `retired-products.ts` only.
+    @Inject(SERVER_CONFIG)
+    private readonly config: Pick<ServerConfig, "RETIRED_PRODUCTS_OFF_SALE">,
   ) {}
 
   /** Load + validate the active catalog, failing closed to the typed default. */
@@ -180,6 +189,12 @@ export class PricingService {
    * The GST `price` on each pack is what a purchase of it charges (#2749 PR 3; see
    * {@link PayerPackPrice}): the order total equals `price.totalPaise`.
    *
+   * RETIRED PRODUCTS (#2749 item 11): while `RETIRED_PRODUCTS_OFF_SALE` is on, every product kind
+   * but the credit pack (posting plans, boosts, capacity, quota top-ups) is left out of BOTH
+   * `products` and `prices` — the same switch that makes their purchase routes 404. So the
+   * catalogue then lists credit packs only, and no offer can reach a payer (a credit pack's
+   * `prices[].offer` is always null: it is charged at list price).
+   *
    * Read-only, emits no event.
    */
   async getPayerCatalog(now: Date = new Date()): Promise<PayerCatalogView> {
@@ -207,6 +222,8 @@ export class PricingService {
     };
 
     for (const product of catalog.products) {
+      // #2749 item 11 — a retired kind is not shown: no product, no price row.
+      if (isProductKindOffSale(this.config, product.kind)) continue;
       if (product.kind === "credit_pack") {
         // Shown only if sold: resolvePack sells `contact_unlock` alone.
         if (product.code !== CREDIT_PACK_PRODUCT) continue;
@@ -230,7 +247,7 @@ export class PricingService {
         if (tiers.length > 0) products.push({ kind: "credit_pack", code: product.code, tiers });
         continue;
       }
-      products.push(product); // unchanged (#2749 item 11 retires these kinds)
+      products.push(product); // unchanged while on sale (#2749 item 11 retires these kinds)
       for (const tier of product.tiers) {
         const quote = charge(product.code, tier.code);
         if (quote) prices.push(priceRow(product.code, tier.code, quote));

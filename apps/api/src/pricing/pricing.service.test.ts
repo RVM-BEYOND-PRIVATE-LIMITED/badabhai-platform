@@ -14,10 +14,9 @@ function make(activeRow?: { catalog: unknown; revision: number; id?: string }) {
     id: "11111111-1111-4111-8111-111111111111",
     revision: input.revision,
   }));
-  const service = new PricingService(
-    { getActive, publish } as never,
-    { emit } as never,
-  );
+  const service = new PricingService({ getActive, publish } as never, { emit } as never, {
+    RETIRED_PRODUCTS_OFF_SALE: false,
+  });
   return { service, emit, getActive, publish };
 }
 

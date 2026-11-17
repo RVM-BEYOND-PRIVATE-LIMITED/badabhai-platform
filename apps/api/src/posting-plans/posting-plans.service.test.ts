@@ -51,6 +51,8 @@ function make(
     reachThrows?: boolean; // an unreadable reach count must FAIL OPEN (sale proceeds)
     /** ADR-0053 — the REAL resolver; the default mode (`off`) keys every payer to themself. */
     tenancy?: PayerTenantScopeService;
+    /** #2749 item 11 — RETIRED_PRODUCTS_OFF_SALE (default false: the products stay on sale). */
+    retiredOffSale?: boolean;
   } = {},
 ) {
   const emit = vi.fn().mockResolvedValue(undefined);
@@ -114,6 +116,7 @@ function make(
       PAYMENTS_ENABLE_REAL: false,
       CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: opts.capacityDefault ?? 1,
       CAPACITY_ENFORCEMENT_ENABLED: opts.enforceCapacity ?? false,
+      RETIRED_PRODUCTS_OFF_SALE: opts.retiredOffSale ?? false,
     } as never,
     // ADR-0036 §7 boost supply gate. The floor defaults to 0 here (gate DISABLED) so
     // the pre-existing boost cases keep testing what they were written to test; the
@@ -149,6 +152,7 @@ function make(
     listPausedPlansForPayer,
     findActiveBoost,
     findPostingSyncSource,
+    getActiveCatalog,
   };
 }
 
@@ -849,6 +853,7 @@ describe("#2085 — expected_price_inr guards every posting-plans purchase", () 
     const pricing = new PricingService(
       { getActive: vi.fn().mockResolvedValue({ catalog: cat, revision: 7 }) } as never,
       { emit: vi.fn() } as never,
+      { RETIRED_PRODUCTS_OFF_SALE: false },
     );
     const view = await pricing.getPayerCatalog();
     const shown = view.prices.find(
@@ -1290,5 +1295,97 @@ describe("ADR-0053 P2c — the ops purchases fail CLOSED when the resolver refus
     const d = make({ tenancy: defaultModeResolver() });
     await d.service.buyPlan(POSTING, { payer_id: NOBODY, tier: "standard" }, CTX);
     expect(d.insertPlan).toHaveBeenCalledWith(expect.objectContaining({ payerId: NOBODY }), expect.anything());
+  });
+});
+
+// ─── #2749 item 11 — the dropped products, behind RETIRED_PRODUCTS_OFF_SALE ──
+
+describe("#2749 item 11 — RETIRED_PRODUCTS_OFF_SALE takes every non-credit purchase off sale", () => {
+  const SESSION = "66666666-6666-4666-8666-666666666666";
+
+  /** Every purchase PostingPlansService sells, as its route reaches it. */
+  type Purchase = readonly [string, (s: PostingPlansService) => Promise<unknown>];
+  const PURCHASES: readonly Purchase[] = [
+    [
+      "ops plan (POST /job-postings/:id/plan)",
+      (s) => s.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX),
+    ],
+    [
+      "ops boost (POST /job-postings/:id/boost)",
+      (s) => s.buyBoost(POSTING, { payer_id: PAYER, tier: "boost_7" }, CTX),
+    ],
+    [
+      "payer plan (POST /payer/job-postings/:id/plan)",
+      async (s) =>
+        s.buyPlanInScope(POSTING, await ownScope(SESSION), { tier: "pro", coupon: "ANY" }, CTX),
+    ],
+    [
+      "payer boost (POST /payer/job-postings/:id/boost)",
+      async (s) =>
+        s.buyBoostInScope(POSTING, await ownScope(SESSION), { tier: "all_candidates" }, CTX),
+    ],
+    [
+      "payer quota top-up (POST /payer/job-postings/:id/quota-topup)",
+      async (s) => s.topUpQuotaInScope(POSTING, await ownScope(SESSION), { tier: "topup_10" }, CTX),
+    ],
+    [
+      "payer capacity (POST /payer/capacity)",
+      (s) => s.buyCapacity(SESSION, { tier: "cap_5" }, CTX),
+    ],
+  ];
+
+  it.each(PURCHASES)(
+    "%s: switch ON is the bare 404 of a missing route, before any read, write or event",
+    async (_route, buy) => {
+      const d = make({ retiredOffSale: true });
+      const refused = await buy(d.service).then(
+        () => null,
+        (err: unknown) => err,
+      );
+      expect(refused).toBeInstanceOf(NotFoundException);
+      // The bare body: no posting id, no tier, no word about a switch.
+      expect((refused as NotFoundException).getResponse()).toEqual({
+        statusCode: 404,
+        message: "Not Found",
+      });
+      for (const read of [
+        d.findPostingSyncSource,
+        d.findActiveBoost,
+        d.findActivePlanForPostingAndPayer,
+        d.getActiveCatalog,
+        d.couponUsage,
+        d.withTransaction,
+      ]) {
+        expect(read).not.toHaveBeenCalled();
+      }
+      expect(d.insertPlan).not.toHaveBeenCalled();
+      expect(d.insertBoost).not.toHaveBeenCalled();
+      expect(d.addQuotaTopup).not.toHaveBeenCalled();
+      expect(d.upsertCapacity).not.toHaveBeenCalled();
+      expect(d.emit).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(PURCHASES)(
+    "%s: switch OFF (the default) still sells, exactly as before",
+    async (route, buy) => {
+      // The payer plan carries a coupon the default catalogue does not know: a coupon that does not
+      // apply is ignored (full price), which is today's behaviour too.
+      const d = make({ retiredOffSale: false });
+      await expect(buy(d.service), route).resolves.toBeDefined();
+      expect(d.emit).toHaveBeenCalled();
+    },
+  );
+
+  it("switch ON never touches a READ of what was bought: posting stats and the capacity view still answer", async () => {
+    const d = make({
+      retiredOffSale: true,
+      activeBoost: true,
+      capacity: { maxActiveVacancies: 5 },
+    });
+    const stats = await d.service.getPostingStats(POSTING, await ownTenantKey(PAYER));
+    expect(stats.boosted).toBe(true); // a boost bought before the switch still shows, to its end
+    expect(d.findActivePlanForPostingAndPayer).toHaveBeenCalled();
+    await expect(d.service.getCapacity(PAYER)).resolves.toMatchObject({ max_active_vacancies: 5 });
   });
 });
