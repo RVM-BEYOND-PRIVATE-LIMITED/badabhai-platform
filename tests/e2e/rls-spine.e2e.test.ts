@@ -283,6 +283,10 @@ const LOCKED_TABLES = [
   // per person (no person in them). RLS+FORCE+REVOKE in the hand-written tail of `*_numbers_weekly`.
   "numbers_weekly",
   "numbers_recompute_log",
+  // #2750 item 1: the credit rules' settings, one row per revision (integers in jsonb, an admin
+  // id, times). No worker or company data. RLS+FORCE+REVOKE in the hand-written tail of
+  // `*_credit_rules_config`.
+  "credit_rules_config",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

@@ -677,6 +677,10 @@ describe("isLiveForServiceCaller is a SERVICE-caller check, used only where it w
     // everywhere → it claims nothing. Which marks are QUEUED is decided per company, with
     // `stateFor` and the tenant key, in OutboundSignalsService.signalsStateFor.
     "outbound-signals/outbound-signals.sender.ts",
+    // #2750 item 1 — the admin credit-rules settings routes act for no company: `credit_rules`
+    // off everywhere → 404 and nothing reads `credit_rules_config`. Whether a COMPANY gets the
+    // rules is asked per company, with the tenant key, on the company paths.
+    "credit-rules/credit-rules.service.ts",
   ];
 
   it("its call sites are exactly the allow-list", () => {

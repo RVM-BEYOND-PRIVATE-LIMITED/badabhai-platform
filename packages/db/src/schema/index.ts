@@ -59,6 +59,7 @@ import { unlockOutcomes } from "./unlock-outcome";
 import { stillLookingChecks } from "./still-looking";
 import { payerPhoneProofs } from "./payer-phone-proof";
 import { numbersRecomputeLog, numbersWeekly } from "./numbers-weekly";
+import { creditRulesConfig } from "./credit-rules";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -192,6 +193,7 @@ export * from "./still-looking";
 export * from "./payer-phone-proof";
 // #2755 items 4 and 11 — the numbers screen's weekly snapshot and its recompute log.
 export * from "./numbers-weekly";
+export * from "./credit-rules";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -522,4 +524,6 @@ export const schema = {
   // #2755 - the numbers screen's weekly snapshot and its recompute log (behind ADMIN_NUMBERS_ENABLED).
   numbersWeekly,
   numbersRecomputeLog,
+  // #2750 item 1 - the credit rules settings, one row per revision (read only while CREDIT_RULES_ROLLOUT is on).
+  creditRulesConfig,
 };

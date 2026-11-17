@@ -490,6 +490,12 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /RETIRED_PRODUCTS_OFF_SALE:\s*\$\{\{\s*secrets\.RETIRED_PRODUCTS_OFF_SALE\s*\}\}/,
       /envs:[^\n]*\bRETIRED_PRODUCTS_OFF_SALE\b/,
     ],
+    // #2750 — the brief's credit rules: the settings table, and later the cost, limits and grants.
+    [
+      "CREDIT_RULES_ROLLOUT",
+      /CREDIT_RULES_ROLLOUT:\s*\$\{\{\s*secrets\.CREDIT_RULES_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bCREDIT_RULES_ROLLOUT\b/,
+    ],
     // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
     // secret in the confidentiality sense, but bridged through `secrets.*` like the other
     // numbers so a deploy does not depend on the box's shell state; absent, compose holds

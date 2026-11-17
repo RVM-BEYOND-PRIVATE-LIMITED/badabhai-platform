@@ -715,6 +715,12 @@ export const serverEnvSchema = z.object({
   //     (POST /payers/:payerId/credits) refuses it with a 409. Off, every route behaves as before
   //     the switch existed. Orders, lots and the webhook are never gated: an order created while it
   //     was on still settles after it goes back to off.
+  //   CREDIT_RULES_ROLLOUT (#2750) — the brief's credit rules for a company: the settings in
+  //     `credit_rules_config` (edited on PUT /admin/credit-rules) and, as later parts land, the
+  //     cost per contact, welcome credits, waivers, limits and the couldn't-reach guarantee.
+  //     Off everywhere, the admin settings routes answer 404 and nothing reads the table; off for
+  //     a company, it keeps one credit per open and the env caps. Needs the credit_rules_config
+  //     migration applied first.
   // Off, the new payer fields are ignored and the new routes answer 404. Campus's own routes
   // additionally need CAMPUS_LINK_ENABLED. A switch gates CAPABILITIES only: stored state (the
   // worker-path audience filter, the RVM review gate) is honoured whatever it says, so switching
@@ -733,6 +739,7 @@ export const serverEnvSchema = z.object({
   OUTCOME_STAGES_ROLLOUT: featureRolloutMode,
   OUTBOUND_SIGNALS_ROLLOUT: featureRolloutMode,
   CREDIT_CHECKOUT_ROLLOUT: featureRolloutMode,
+  CREDIT_RULES_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER
