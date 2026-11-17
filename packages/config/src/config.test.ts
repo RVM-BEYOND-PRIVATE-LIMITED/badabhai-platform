@@ -980,6 +980,16 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ ADMIN_NUMBERS_ENABLED: "yes" })).toThrow();
   });
 
+  it("NUMBERS_FREEZE_AFTER_DAYS (#2755 part B) defaults to 3 (also when empty) and is at least 1", () => {
+    expect(loadServerConfig({}).NUMBERS_FREEZE_AFTER_DAYS).toBe(3);
+    expect(loadServerConfig({ NUMBERS_FREEZE_AFTER_DAYS: "" }).NUMBERS_FREEZE_AFTER_DAYS).toBe(3);
+    expect(loadServerConfig({ NUMBERS_FREEZE_AFTER_DAYS: "7" }).NUMBERS_FREEZE_AFTER_DAYS).toBe(7);
+    expect(loadServerConfig({ NUMBERS_FREEZE_AFTER_DAYS: "1" }).NUMBERS_FREEZE_AFTER_DAYS).toBe(1);
+    for (const bad of ["0", "-3", "2.5", "three"]) {
+      expect(() => loadServerConfig({ NUMBERS_FREEZE_AFTER_DAYS: bad }), bad).toThrow();
+    }
+  });
+
   it("PAY_ON_JOINING_RECORDS_ENABLED (#2753 item 11) is OFF by default and for the empty string", () => {
     // Off is today exactly: every pay-on-joining route is a 404 and nothing touches the table.
     expect(loadServerConfig({}).PAY_ON_JOINING_RECORDS_ENABLED).toBe(false);

@@ -851,7 +851,7 @@ So a screen can draw the Selected and Hired controls only when a move would be a
 
 #### The numbers screen — **Admin Portal** (#2755)
 
-- `GET /admin/numbers/definitions` (the catalogue of the weekly figures) and `PUT|DELETE /admin/numbers/test-accounts/:payerId` (mark or unmark a test company, `payers.is_test_account`). Capability `read_business_numbers` (super_admin, ops_admin), NOT the `read_entities` floor that `GET /admin/finance/summary` uses; a neutral 404 while `ADMIN_NUMBERS_ENABLED` is off. Contract: [admin-numbers-api-reference.md](./admin-numbers-api-reference.md).
+- `GET /admin/numbers/definitions` (the catalogue of the weekly figures), `PUT|DELETE /admin/numbers/test-accounts/:payerId` (mark or unmark a test company, `payers.is_test_account`) and `GET /admin/numbers/weekly?city=&trade=&weeks=` (every figure with this week, last week, the change and the series, read only from the `numbers_weekly` snapshot a nightly sweep keeps; 503 before its migration). Capability `read_business_numbers` (super_admin, ops_admin), NOT the `read_entities` floor that `GET /admin/finance/summary` uses; a neutral 404 while `ADMIN_NUMBERS_ENABLED` is off. Contract: [admin-numbers-api-reference.md](./admin-numbers-api-reference.md).
 
 ### 4.7 Admin posting detail (NOT a payer/mobile route — for reference)
 

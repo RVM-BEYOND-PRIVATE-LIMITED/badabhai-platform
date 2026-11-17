@@ -260,6 +260,19 @@ case "${STILL_LOOKING_EVERY_DAYS-}" in
     ;;
 esac
 
+# #2755 part B: NUMBERS_FREEZE_AFTER_DAYS — how many days after a week ends the numbers sweep freezes
+# it, whole days. The api parses it as a positive integer at boot (positiveIntFromString), so "0",
+# "3d" or "three" would crash-loop it with no automatic rollback. Only empty or 1..999 pass,
+# checked here before any prune, pull or recreate. Empty means 3 through compose's
+# `${NUMBERS_FREEZE_AFTER_DAYS:-3}`.
+case "${NUMBERS_FREEZE_AFTER_DAYS-}" in
+  "" | [1-9] | [1-9][0-9] | [1-9][0-9][0-9]) ;;
+  *)
+    echo "::error::NUMBERS_FREEZE_AFTER_DAYS must be a whole number from 1 to 999, or empty (empty means 3). Fix the production secret (gh secret set NUMBERS_FREEZE_AFTER_DAYS --env production --body 3) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
 # EVERY OTHER BRIDGED BOOLEAN — the same boot-time grammar, the same reason. Each name below is
 # in the deploy job's `envs:` list in ci.yml AND parsed by the api's `booleanFromString`
 # (packages/config/src/server.ts), which throws at boot on anything but true/false/1/0/empty.

@@ -1,5 +1,10 @@
 import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
-import { isSampleWorkerId, sampleWorkerIdLikePatterns } from "@badabhai/db";
+import {
+  isSampleWorkerId,
+  samplePayerIdLikePatterns,
+  samplePostingIdLikePatterns,
+  sampleWorkerIdLikePatterns,
+} from "@badabhai/db";
 import { awaitingFirstSignIn } from "../admin-worker-scope";
 
 /**
@@ -17,7 +22,9 @@ import { awaitingFirstSignIn } from "../admin-worker-scope";
  * explicit ops act"). The marks are written by `PUT /admin/numbers/test-accounts/:payerId` and by
  * the `mark-synthetic-test-payers` backfill. The column is the ONE company test marker: the rows a
  * test company creates copy it (`campus_drive_requests.is_test`, `credit_lots.is_test`), so a mark
- * here is the same mark every other report reads.
+ * here is the same mark every other report reads. A SAMPLE company (the synthetic workforce seed's
+ * employers and their postings, on production since 2026-10-07) is told by its seeded id instead,
+ * and {@link countablePayer} leaves out both (part B).
  *
  * ── WORKERS ─────────────────────────────────────────────────────────────────────────────────
  * Three rules, each its own function: a test account (`workers.is_test_account`, set for the
@@ -50,6 +57,63 @@ export function excludeTestPayers(payerId: SQLWrapper): SQL {
 /** The same rule over a row already in memory. */
 export function isTestPayer(row: { readonly isTestAccount: boolean }): boolean {
   return row.isTestAccount === true;
+}
+
+/**
+ * SQL: the company behind `payerId` is NOT a SAMPLE company — one of the synthetic workforce
+ * seed's employers (`face10…` ids, `samplePayerIdLikePatterns`), written to production beside the
+ * real companies so search had employers. It is not a customer, so no company figure counts it. A
+ * NULL `payerId` is left out, as in {@link excludeTestPayers}.
+ */
+export function excludeSamplePayers(payerId: SQLWrapper): SQL {
+  return sql.join(
+    samplePayerIdLikePatterns().map((pattern) => sql`(${payerId}::text NOT LIKE ${pattern})`),
+    sql` AND `,
+  );
+}
+
+/** The same rule over an id already in memory (Postgres prints a uuid in lower case). */
+export function isSamplePayerId(payerId: string): boolean {
+  const id = payerId.toLowerCase();
+  return samplePayerIdLikePatterns().some((pattern) => id.startsWith(pattern.slice(0, -1)));
+}
+
+/** SQL: a company every company figure counts — neither a test company nor a sample one. */
+export function countablePayer(payerId: SQLWrapper): SQL {
+  return sql`(${excludeTestPayers(payerId)} AND ${excludeSamplePayers(payerId)})`;
+}
+
+/** SQL: the posting `postingId` is not one of the workforce seed's sample postings (`face30…`). */
+export function excludeSamplePostings(postingId: SQLWrapper): SQL {
+  return sql.join(
+    samplePostingIdLikePatterns().map((pattern) => sql`(${postingId}::text NOT LIKE ${pattern})`),
+    sql` AND `,
+  );
+}
+
+/**
+ * SQL: a contact open is NOT one carried over by the company-move import of #2754. NAMED HOOK, NO
+ * RULE YET: no import exists, so no open is left out today (`TRUE`). When #2754 lands its import
+ * ledger, this is the ONE place that learns to recognise an imported open, and contacts-per-hire
+ * leaves it out without any other change (a definition-version bump, since the figure moves).
+ */
+export function excludeImportedOpens(_unlockId: SQLWrapper): SQL {
+  return sql`TRUE`;
+}
+
+/**
+ * SQL: the worker `workerId` names (a hire's or an unlock's, in the OUTER query) is neither a test
+ * account nor a sample worker, so a company figure built on workers (hires, contacts opened) never
+ * counts a test or seeded row. A NULL `workerId` (a worker erased since: `unlocks.worker_id` is
+ * SET NULL on erasure) is KEPT: the company really opened that contact. The linked-identity rule is
+ * not applied: a Campus student a company opened or hired is a real person.
+ */
+export function excludeTestAndSampleWorkerRefs(workerId: SQLWrapper): SQL {
+  const notSample = sql.join(
+    sampleWorkerIdLikePatterns().map((pattern) => sql`(${workerId}::text NOT LIKE ${pattern})`),
+    sql` AND `,
+  );
+  return sql`(${workerId} IS NULL OR (${workerId} NOT IN (SELECT "tw"."id" FROM "workers" "tw" WHERE "tw"."is_test_account") AND ${notSample}))`;
 }
 
 // -----------------------------------------------------------------------------------------------
