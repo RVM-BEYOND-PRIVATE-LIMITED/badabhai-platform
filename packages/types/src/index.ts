@@ -1585,6 +1585,25 @@ export type UnlockCompanyOutcome = (typeof UNLOCK_COMPANY_OUTCOMES)[number];
 export const UNLOCK_OUTCOME_ANSWERERS = Object.freeze(["company", "desk"] as const);
 export type UnlockOutcomeAnswerer = (typeof UNLOCK_OUTCOME_ANSWERERS)[number];
 
+// ---- Launch test A: what each factory did with its payment link (#2755 item 9) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells it into
+// `launch_test_cohort_result_chk`, `packages/event-schema` puts it on the spine
+// (`admin.launch_test_factory_updated`), and `apps/api` writes and lists it.
+
+/**
+ * The result the desk records for one factory of launch test A. `pending` until the desk knows;
+ * `paid` (it paid the link: `paid_at` is set exactly then), `declined` (it said no) or
+ * `no_response` (it never answered).
+ */
+export const LAUNCH_TEST_RESULTS = Object.freeze([
+  "pending",
+  "paid",
+  "declined",
+  "no_response",
+] as const);
+export type LaunchTestResult = (typeof LAUNCH_TEST_RESULTS)[number];
+
 // ---- Credit lots: a company's balance, as expiring lots (#2749, migration 0174) ----
 //
 // HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells the sources into
@@ -1636,14 +1655,29 @@ export interface PayerCreditLot {
 }
 
 /**
+ * How the caller's company can buy credits right now (#2749 item 10, ADR-0065), from the same
+ * gates the purchase routes apply (`PAYMENTS_ENABLE_REAL` and `CREDIT_CHECKOUT_ROLLOUT` for the
+ * company's tenant key):
+ *  - `real` — Razorpay checkout: `POST /payer/credits/order` is open for it;
+ *  - `free` — the mock packs: `POST /payer/credits` grants with no money taken;
+ *  - `none` — neither route is open (a company outside the pilot while real payments are live,
+ *    or a pilot list that could not be read).
+ * A front end shows its buy button from this, never from its own copy of a payment switch.
+ */
+export const PAYER_CHECKOUT_MODES = Object.freeze(["real", "free", "none"] as const);
+export type PayerCheckoutMode = (typeof PAYER_CHECKOUT_MODES)[number];
+
+/**
  * The reply of `GET /payer/credits` (and the ops `GET /payers/:payerId/credits`). `payer_id`
  * echoes the caller, `balance` is the wallet the caller spends from (the org wallet under org
  * tenancy `on`, ADR-0053), and `balance` equals the sum of `lots[].credits_remaining`.
+ * `checkout` (#2749, additive) is how that company can buy credits now ({@link PayerCheckoutMode}).
  */
 export interface PayerCreditsResponse {
   readonly payer_id: string;
   readonly balance: number;
   readonly lots: readonly PayerCreditLot[];
+  readonly checkout: PayerCheckoutMode;
 }
 
 // ---- Payment orders: checkout (#2749 item 9, migration 0176) ----

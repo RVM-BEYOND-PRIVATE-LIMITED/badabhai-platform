@@ -85,4 +85,6 @@ export const EVENT_SUBJECT_TYPES = [
   "referral_bonus",
   "referral_link",
   "skill_candidate",
+  // #2750 — a revision of the credit rules settings (the target of `credit_rules_changed`).
+  "credit_rules_config",
 ] as const;

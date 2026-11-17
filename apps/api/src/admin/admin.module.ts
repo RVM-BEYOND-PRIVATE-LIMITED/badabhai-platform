@@ -109,6 +109,8 @@ import { NameTokenService } from "./candidate-index/name-token.service";
 import { AdminCompaniesRepository } from "./companies/admin-companies.repository";
 import { AdminCompaniesService } from "./companies/admin-companies.service";
 import { AdminCompaniesController } from "./companies/admin-companies.controller";
+import { AdminCreditRulesController } from "./credit-rules/admin-credit-rules.controller";
+import { CreditRulesModule } from "../credit-rules/credit-rules.module";
 import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerPreferencesService } from "../profiles/worker-preferences.service";
@@ -224,6 +226,9 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // The Engine view reads through the match module's OWN read paths (feed composition,
     // candidate list), never a copy of their ORDER BY.
     MatchModule,
+    // #2750 item 1 - the credit rules settings routes read and write through CreditRulesService.
+    // CreditRulesModule does not import AdminModule, so no cycle.
+    CreditRulesModule,
     // The Engine view's demo-worker gate resolves demo phones to worker ids through the workers
     // domain (`WorkersRepository.findLiveIdsByPhoneHashes`), so nothing under admin/** names a
     // phone column. WorkersModule does not import AdminModule.
@@ -273,6 +278,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminCandidatesController,
     // #2564 (B10) — the company record (create / edit / archive / restore / list / detail).
     AdminCompaniesController,
+    AdminCreditRulesController,
     // #2561 — admin corrections of candidate fields (ADR-0062).
     AdminCorrectionsController,
   ],
@@ -520,6 +526,14 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     ProfileSkillsRepository,
     WorkerEmploymentRepository,
   ],
-  exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
+  // #2755 part D — AdminIdentityService is exported for the launch-test cohort list's factory names
+  // (the ONE audited name path; `AdminLaunchTestsModule` sits above this module, not inside it).
+  exports: [
+    AdminAuthGuard,
+    AdminRolesGuard,
+    AdminSessionService,
+    AdminRepository,
+    AdminIdentityService,
+  ],
 })
 export class AdminModule {}

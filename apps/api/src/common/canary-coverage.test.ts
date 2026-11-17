@@ -166,7 +166,9 @@ describe("prod-canary covers every InternalServiceGuard route", () => {
     // Guard against the list being trivially satisfied by an empty discovery pass — if the
     // metadata walk ever stops finding routes, the assertion above would vacuously succeed.
     expect(routes.length).toBeGreaterThanOrEqual(40);
-  });
+    // Imports every controller: ~5 s alone, past the 30 s default when the whole suite runs at
+    // once, so the sweep carries its own timeout.
+  }, 120_000);
 
   it("does not probe routes that no longer exist (the list stays honest in both directions)", async () => {
     const { routes } = await collectGuardedRoutes();
@@ -185,5 +187,5 @@ describe("prod-canary covers every InternalServiceGuard route", () => {
         `Either the route moved to a different guard (update OPS_ROUTES) or it lost its guard ` +
         `entirely, which is a security regression.`,
     ).toEqual([]);
-  });
+  }, 120_000);
 });

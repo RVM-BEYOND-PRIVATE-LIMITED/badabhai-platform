@@ -758,6 +758,7 @@ services:
       THEME_ROLLOUT: ${THEME_ROLLOUT:-off}
       OUTCOME_STAGES_ROLLOUT: ${OUTCOME_STAGES_ROLLOUT:-off}
       OUTBOUND_SIGNALS_ROLLOUT: ${OUTBOUND_SIGNALS_ROLLOUT:-off}
+      CREDIT_RULES_ROLLOUT: ${CREDIT_RULES_ROLLOUT:-off}
       # #2749 item 10 (ADR-0065) — the new money rules, company by company. Off is today's credit
       # routes exactly (free mock packs, the ops grant; the real checkout also needs
       # PAYMENTS_ENABLE_REAL). Same `:-off` grammar and preflight as the switches above.

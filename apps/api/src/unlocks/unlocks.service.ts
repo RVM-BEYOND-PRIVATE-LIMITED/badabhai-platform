@@ -15,7 +15,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { PayloadInputOf } from "@badabhai/event-schema";
-import type { PayerCreditsResponse, PaymentOrderOrigin } from "@badabhai/types";
+import type { PayerCheckoutMode, PayerCreditsResponse, PaymentOrderOrigin } from "@badabhai/types";
 import {
   normalizeTradeLevelKey,
   priceTierForTradeRows,
@@ -73,7 +73,11 @@ import {
   openUntilOf,
 } from "./open-grant";
 import { onBriefNotice } from "./brief-notice";
-import { creditGrantPilotListUnavailable, creditGrantRefused } from "./credit-grant-refused";
+import {
+  creditGrantPilotListUnavailable,
+  creditGrantRefused,
+  creditGrantRefusedRealPaymentsLive,
+} from "./credit-grant-refused";
 import { searchExitRefuses } from "../search-exit/search-exit-gate";
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
@@ -266,8 +270,15 @@ export class UnlockService {
    * An absent rollout service (a hand-built unit instance) reads as off.
    */
   private creditCheckoutState(payerId: string): Promise<"on" | "off" | "unavailable"> {
+    return this.creditCheckoutStateIn(() => this.tenancy.resolve(payerId));
+  }
+
+  /** {@link creditCheckoutState} for a caller that already resolved (or will lazily resolve) the scope. */
+  private creditCheckoutStateIn(
+    resolveScope: () => Promise<Pick<PayerTenantScope, "tenantKey">>,
+  ): Promise<"on" | "off" | "unavailable"> {
     if (this.rollout === undefined) return Promise.resolve("off");
-    return this.rollout.stateForPayer("credit_checkout", () => this.tenancy.resolve(payerId));
+    return this.rollout.stateForPayer("credit_checkout", resolveScope);
   }
 
   /**
@@ -282,10 +293,12 @@ export class UnlockService {
   }
 
   /**
-   * `POST /payer/credits/order` and `/verify`, the real checkout: open only while real payments
-   * are live AND the new rules apply to the company. A pilot list that cannot be read closes it
-   * (no order, no money). The webhook is NOT gated: it settles only orders that exist, and every
-   * one was created through this gate; an order created before a rollback still settles.
+   * `POST /payer/credits/order`, a NEW real order: open only while real payments are live AND the
+   * new rules apply to the company. A pilot list that cannot be read closes it (no order, no
+   * money). Settling an order that exists is not gated here: `/verify` needs only real payments
+   * live (the signature and the tenant ownership bind it to its buyer), and the webhook needs the
+   * Razorpay webhook secret, which is configured only while real payments are live. So taking a
+   * company out of the rollout stops its new orders and still settles the ones it already paid.
    */
   async isRealCheckoutOpen(payerId: string): Promise<boolean> {
     if (!this.realPaymentsLive) return false;
@@ -293,22 +306,38 @@ export class UnlockService {
   }
 
   /**
-   * The ops grant `POST /payers/:payerId/credits` (InternalServiceGuard, hardening 2): the same
-   * mock pack grant as before for every company the new rules do not apply to. A company they do
-   * apply to is refused with a 409 (`reason: credit_checkout_rollout`): its credits come from a
-   * real purchase or, from #2750, the capped goodwill path. A pilot list that cannot be read is a
-   * 503 and grants nothing. No real-payments gate here, deliberately (today's behaviour): with the
-   * switch `on` every company is refused, which retires the route.
+   * The ops grant `POST /payers/:payerId/credits` (InternalServiceGuard, hardening 2), the same
+   * mock pack grant as before only while BOTH hold:
+   *  - real payments are off. Once money is real the shared-token route hands out no free pack to
+   *    anyone: a 409 `reason: real_payments_live`, without reading the rollout;
+   *  - the new rules do not apply to the company. Otherwise a 409 `reason: credit_checkout_rollout`:
+   *    its credits come from a real purchase or, from #2750, the capped goodwill path.
+   * A pilot list that cannot be read is a 503 and grants nothing.
    */
   async grantPackForOps(
     payerId: string,
     packCode: string,
     ctx: RequestContext,
   ): Promise<{ payer_id: string; balance: number; credits: number; pack_code: string } | null> {
+    if (this.realPaymentsLive) throw creditGrantRefusedRealPaymentsLive();
     const state = await this.creditCheckoutState(payerId);
     if (state === "on") throw creditGrantRefused();
     if (state === "unavailable") throw creditGrantPilotListUnavailable();
     return this.purchaseCredits(payerId, packCode, ctx);
+  }
+
+  /**
+   * How the company can buy credits now (`GET /payer/credits`'s `checkout`), from the SAME gates
+   * the purchase routes apply, for a scope the caller already resolved: `real` when the real
+   * checkout is open for it, `free` when the mock packs are, `none` otherwise (a company outside
+   * the pilot while money is real, or a pilot list that could not be read).
+   */
+  private async checkoutModeIn(
+    scope: Pick<PayerTenantScope, "tenantKey">,
+  ): Promise<PayerCheckoutMode> {
+    const state = await this.creditCheckoutStateIn(async () => scope);
+    if (this.realPaymentsLive) return state === "on" ? "real" : "none";
+    return state === "off" ? "free" : "none";
   }
 
   // ===========================================================================
@@ -1087,14 +1116,21 @@ export class UnlockService {
    * last): source, what is left, what it granted, when it ends and its pack. Additive: a reader
    * that knows only `{ payer_id, balance }` is unaffected. Two non-tx reads, so a purchase landing
    * between them can show a lot the balance does not include yet (the next read agrees).
+   *
+   * #2749 item 10 — plus `checkout` (`real` | `free` | `none`): how this company can buy credits
+   * now, from the purchase routes' own gates. With `CREDIT_CHECKOUT_ROLLOUT` off or on it reads no
+   * pilot list; in `pilot` one list read, never a second tenancy resolution.
    */
   async getCredits(payerId: string): Promise<PayerCreditsResponse> {
     const scope = await this.tenancy.resolve(payerId);
-    const [balance, lots] = await Promise.all([
+    const [balance, lots, checkout] = await Promise.all([
       this.repo.getBalance(scope.tenantKey),
       this.repo.listOpenLots(scope.tenantKey),
+      // #2749 — how this company can buy now, from the purchase routes' own gates (no second
+      // tenancy resolution: the scope above is reused).
+      this.checkoutModeIn(scope),
     ]);
-    return { payer_id: payerId, balance, lots };
+    return { payer_id: payerId, balance, lots, checkout };
   }
 
   // R21 / LC-7: latency-normalisation helper. Pads the response to
@@ -1270,7 +1306,9 @@ export class UnlockService {
    * granted) and answers `{ verified: false }`. If the payment cannot be read (network, a
    * provider 5xx) nothing is settled and the answer is the same neutral `{ verified: false }`:
    * the client may retry, and the webhook remains the other channel. A HELD order is
-   * `{ verified: false }` too — no verify can settle it.
+   * `{ verified: false }` too — no verify can settle it. So is a payment Razorpay does not yet
+   * report `captured` (#2749 review: `authorized`, `failed`, …): nothing settles here, and the
+   * webhook settles it on `payment.captured`.
    */
   async verifyCheckoutPayment(
     payerId: string,

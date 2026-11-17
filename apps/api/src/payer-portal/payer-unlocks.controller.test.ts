@@ -822,14 +822,15 @@ describe("PayerUnlocksController — the credit_checkout gates (#2749 item 10)",
     razorpay_signature: "sig",
   };
 
-  it("each route asks its gate with the SESSION payer id", async () => {
+  it("each route asks its gate with the SESSION payer id; verify asks no rollout gate", async () => {
     await d.ctrl.buyPack({ pack_code: "pack_50" }, PAYER_A, NO_KEY, CTX);
     expect(d.unlocks.isMockPackPurchaseOpen).toHaveBeenCalledWith(PAYER_A.id);
 
     d.unlocks.realPaymentsLive = true;
     await d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, NO_KEY, CTX);
     await d.ctrl.verifyPayment(VERIFY, PAYER_A, CTX);
-    expect(d.unlocks.isRealCheckoutOpen.mock.calls).toEqual([[PAYER_A.id], [PAYER_A.id]]);
+    // Only the ORDER asks the rollout; the verify is gated on real payments alone (#2749 review).
+    expect(d.unlocks.isRealCheckoutOpen.mock.calls).toEqual([[PAYER_A.id]]);
   });
 
   it("a company the rules apply to: the free pack is the neutral 404 and nothing is granted", async () => {
@@ -841,17 +842,27 @@ describe("PayerUnlocksController — the credit_checkout gates (#2749 item 10)",
     expect(d.idempotency.runOnce).not.toHaveBeenCalled(); // decided before the seam
   });
 
-  it("a company the rules do not apply to yet: order and verify are the neutral 404, no provider call", async () => {
+  it("a company the rules do not apply to (or no longer apply to): no NEW order, but a paid order still verifies", async () => {
     d.unlocks.realPaymentsLive = true;
     d.unlocks.isRealCheckoutOpen.mockResolvedValue(false);
     await expect(
       d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, NO_KEY, CTX),
     ).rejects.toBeInstanceOf(NotFoundException);
+    expect(d.unlocks.createCreditOrder).not.toHaveBeenCalled();
+    expect(d.idempotency.runOnce).not.toHaveBeenCalled();
+    // After a rollback (or a pilot row deleted) the buyer who already paid is still settled.
+    await expect(d.ctrl.verifyPayment(VERIFY, PAYER_A, CTX)).resolves.toMatchObject({
+      payer_id: PAYER_A.id,
+    });
+    expect(d.unlocks.verifyCheckoutPayment).toHaveBeenCalledTimes(1);
+  });
+
+  it("real payments off: verify is the neutral 404 whatever the rollout says", async () => {
+    d.unlocks.realPaymentsLive = false;
+    d.unlocks.isRealCheckoutOpen.mockResolvedValue(true);
     await expect(d.ctrl.verifyPayment(VERIFY, PAYER_A, CTX)).rejects.toBeInstanceOf(
       NotFoundException,
     );
-    expect(d.unlocks.createCreditOrder).not.toHaveBeenCalled();
     expect(d.unlocks.verifyCheckoutPayment).not.toHaveBeenCalled();
-    expect(d.idempotency.runOnce).not.toHaveBeenCalled();
   });
 });
