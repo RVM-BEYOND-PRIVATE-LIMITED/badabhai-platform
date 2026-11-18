@@ -13,6 +13,7 @@ import '../../../router.dart';
 import 'cubit/consent_cubit.dart';
 import 'widgets/consent_notice_parts.dart';
 import 'widgets/employer_sharing_notice.dart';
+import 'widgets/free_for_workers_line.dart';
 import 'widgets/privacy_chrome.dart';
 
 /// Handed to `/consent` as go_router `extra` when the screen is PUSHED over a
@@ -135,6 +136,13 @@ class _ConsentView extends StatelessWidget {
                           onAnswer: (bool value) =>
                               _answerAge(context, cubit, value),
                         ),
+                        // #2748 item 7a — OUTSIDE both notice cards and below
+                        // the tick, so it is never read as notice text: no
+                        // consent wording or version changes. Off by default.
+                        if (FreeForWorkersLine.isVisible) ...const <Widget>[
+                          SizedBox(height: 12),
+                          FreeForWorkersLine(),
+                        ],
                         // Honest failure text — say what happened, in red,
                         // instead of a silently un-pressed button.
                         if (state.status == ConsentStatus.failure &&

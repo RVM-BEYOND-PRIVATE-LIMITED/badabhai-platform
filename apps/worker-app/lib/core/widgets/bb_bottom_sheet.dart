@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 import '../theme/app_spacing.dart';
@@ -20,12 +21,18 @@ import 'kit/kit_content_column.dart';
 /// tablet the shell is full-bleed by design, but a 728dp-wide paragraph and a
 /// 728dp-wide CTA inside it were a second sheet grammar in one app: the
 /// onboarding picker sheet already caps its own column at 440.
+///
+/// Pass [dismissible] to hold the sheet open while it reads `false` (a save in
+/// flight, say): system back, a tap on the scrim and a swipe down then all
+/// leave it where it is, and only the sheet itself can close it. Null (the
+/// default) keeps the sheet dismissible the whole time.
 Future<T?> showBbBottomSheet<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   bool isScrollControlled = true,
   double maxWidth = OnboardingLayout.maxContentWidth,
   WidgetBuilder? footer,
+  ValueListenable<bool>? dismissible,
 }) {
   return showModalBottomSheet<T>(
     context: context,
@@ -44,7 +51,7 @@ Future<T?> showBbBottomSheet<T>({
       // CALLER's MediaQuery at show time and then never re-read, so a rotation
       // or a font-size change left the sheet capped at a height that no longer
       // existed.
-      return ConstrainedBox(
+      final Widget sheet = ConstrainedBox(
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.8,
         ),
@@ -77,8 +84,44 @@ Future<T?> showBbBottomSheet<T>({
           ),
         ),
       );
+      if (dismissible == null) return sheet;
+      return _BbSheetHold(dismissible: dismissible, child: sheet);
     },
   );
+}
+
+/// Holds a [showBbBottomSheet] open while [dismissible] reads `false`.
+///
+/// System back and a scrim tap ask the route to MAYBE pop, which the
+/// [PopScope] refuses. A swipe down is different: the modal sheet pops its
+/// route outright, past any [PopScope], so while the sheet is held a vertical
+/// drag anywhere on it is claimed here first and never reaches the sheet's own
+/// drag handler. The detector is always in the tree and only armed while held,
+/// so the sheet's content keeps its state when the hold changes.
+class _BbSheetHold extends StatelessWidget {
+  const _BbSheetHold({required this.dismissible, required this.child});
+
+  final ValueListenable<bool> dismissible;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: dismissible,
+      child: child,
+      builder: (BuildContext context, bool canDismiss, Widget? sheet) {
+        return PopScope(
+          canPop: canDismiss,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            excludeFromSemantics: true,
+            onVerticalDragStart: canDismiss ? null : (_) {},
+            child: sheet,
+          ),
+        );
+      },
+    );
+  }
 }
 
 /// The drag handle for a [showBbBottomSheet] — a 40x4 rounded hairline pill
