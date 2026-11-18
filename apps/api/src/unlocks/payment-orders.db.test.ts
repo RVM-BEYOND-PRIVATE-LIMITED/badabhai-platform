@@ -15,6 +15,9 @@ import { EventsRepository } from "../events/events.repository";
 import { EventsService } from "../events/events.service";
 import { InstituteLinkRepository } from "../campus-link/institute-link.repository";
 import { InstituteOpenGate } from "../campus-link/institute-open-gate.service";
+import { FeaturePilotRepository } from "../feature-rollout/feature-pilot.repository";
+import { FeaturePilotSubjectsRepository } from "../feature-rollout/feature-pilot-subjects.repository";
+import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import { PayerUnlocksController } from "../payer-portal/payer-unlocks.controller";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
@@ -119,6 +122,9 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
     const base = loadServerConfig({ NODE_ENV: "test", UNLOCK_LATENCY_TARGET_MS: "0" });
     const config = {
       ...base,
+      // #2749 item 10 — the real checkout opens only for a company the new rules apply to; `on`
+      // applies them to every company without a pilot-list read.
+      CREDIT_CHECKOUT_ROLLOUT: "on",
       PAYMENTS_ENABLE_REAL: true,
       PAYMENTS_PROVIDER_KEY: "rzp_test_dbgate",
       PAYMENTS_PROVIDER_SECRET: KEY_SECRET,
@@ -144,6 +150,11 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
       new PayersRepository(client.db, pii),
       new PayerTenantScopeService(config, new PayerOrgsRepository(client.db)),
       new InstituteOpenGate(new InstituteLinkRepository(client.db), {} as never),
+      new FeatureRolloutService(
+        config,
+        new FeaturePilotRepository(client.db),
+        new FeaturePilotSubjectsRepository(client.db),
+      ),
     );
     const seam = new RequestIdempotency(pii, { client: Promise.resolve(memoryRedis()) } as never);
     ctrl = new PayerUnlocksController(

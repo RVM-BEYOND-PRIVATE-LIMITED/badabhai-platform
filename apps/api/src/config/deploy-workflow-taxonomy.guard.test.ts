@@ -490,6 +490,20 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /OUTBOUND_SIGNALS_ROLLOUT:\s*\$\{\{\s*secrets\.OUTBOUND_SIGNALS_ROLLOUT\s*\}\}/,
       /envs:[^\n]*\bOUTBOUND_SIGNALS_ROLLOUT\b/,
     ],
+    // #2749 item 10 — the new money rules, company by company (real checkout in, free packs and
+    // the ops grant out). The environment secret is its one arming path; absent, it is off.
+    [
+      "CREDIT_CHECKOUT_ROLLOUT",
+      /CREDIT_CHECKOUT_ROLLOUT:\s*\$\{\{\s*secrets\.CREDIT_CHECKOUT_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bCREDIT_CHECKOUT_ROLLOUT\b/,
+    ],
+    // #2749 item 11 — the dropped products off sale. A plain boolean on the api only, turned on in
+    // production ONLY by the environment secret, no later than PAYMENTS_ENABLE_REAL.
+    [
+      "RETIRED_PRODUCTS_OFF_SALE",
+      /RETIRED_PRODUCTS_OFF_SALE:\s*\$\{\{\s*secrets\.RETIRED_PRODUCTS_OFF_SALE\s*\}\}/,
+      /envs:[^\n]*\bRETIRED_PRODUCTS_OFF_SALE\b/,
+    ],
     // #2750 — the brief's credit rules: the settings table, and later the cost, limits and grants.
     [
       "CREDIT_RULES_ROLLOUT",
@@ -633,6 +647,11 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["CAMPUS_DRIVE_MAX_OPEN_REQUESTS", "3"],
     // #2820 — off is today's apps: every display preference answers `light` and nothing is saved.
     ["THEME_ROLLOUT", "off"],
+    // #2749 item 10 — off is today's credit routes: free mock packs and the ops grant open, the
+    // real checkout closed (it also needs PAYMENTS_ENABLE_REAL); no extra read on any of them.
+    ["CREDIT_CHECKOUT_ROLLOUT", "off"],
+    // #2749 item 11 — false keeps plans, boosts, capacity, top-ups, offers and coupons on sale.
+    ["RETIRED_PRODUCTS_OFF_SALE", "false"],
     // #2509 — the zod default: 20/hour/IP until the secret (or a box export) says otherwise.
     ["PAYER_AUTH_MAX_PER_IP_PER_HOUR", "20"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's

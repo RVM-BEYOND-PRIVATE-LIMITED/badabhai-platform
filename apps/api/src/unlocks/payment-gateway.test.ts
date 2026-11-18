@@ -255,6 +255,7 @@ describe("PaymentGateway.resolvePack — LIVE catalog, on-sale packs only (D-6 +
           {
             emit: vi.fn(),
           } as never,
+          { RETIRED_PRODUCTS_OFF_SALE: false },
         ),
         offlineRazorpay(),
       );

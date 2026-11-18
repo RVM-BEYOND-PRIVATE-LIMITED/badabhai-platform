@@ -198,6 +198,10 @@ export class PayerUnlocksController {
    * So the two are now mutually exclusive by construction: with real payments live this
    * answers the same NEUTRAL 404 that `/credits/order` gives when they are off. Neither
    * route ever leaks which mode the deployment is in.
+   *
+   * #2749 hardening 1 (ADR-0065): the same 404 for a company the new money rules apply to
+   * (`CREDIT_CHECKOUT_ROLLOUT`), whatever the global switch says, so its free packs stop the
+   * moment the rules start for it. With the rollout `off` this route is exactly as before.
    */
   @Post("credits")
   @HttpCode(201)
@@ -207,11 +211,11 @@ export class PayerUnlocksController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ) {
-    // OUTSIDE THE GUARD, deliberately. This is a deployment-mode gate, not a side effect, and
-    // storing a 404 under an idempotency key would pin that answer for the whole window — so a
-    // payer who happened to tap during a config flip would keep being told the route does not
-    // exist for three minutes after it did.
-    if (this.unlocks.realPaymentsLive) throw new NotFoundException();
+    // OUTSIDE THE GUARD, deliberately. This is a deployment-mode (and, #2749, rollout) gate, not a
+    // side effect, and storing a 404 under an idempotency key would pin that answer for the whole
+    // window — so a payer who happened to tap during a config flip would keep being told the
+    // route does not exist for three minutes after it did.
+    if (!(await this.unlocks.isMockPackPurchaseOpen(payer.id))) throw new NotFoundException();
 
     return this.idempotency.runOnce({
       namespace: "payer_idem",
@@ -259,6 +263,8 @@ export class PayerUnlocksController {
    * 404 — identical to a route that does not exist. It is not a 501/503, because "real
    * payments exist but are switched off here" is configuration state a caller has no need
    * to learn. The MOCK path (`POST /payer/credits`) is untouched and remains the default.
+   * #2749 item 10 (ADR-0065): the same 404 for a company the new money rules do not apply to
+   * yet (`CREDIT_CHECKOUT_ROLLOUT`): real checkout opens company by company, pilot first.
    *
    * The response carries the `rzp_*` KEY ID, which is public by design (checkout.js needs
    * it in the browser). The key SECRET and the webhook secret never appear in any response.
@@ -288,9 +294,9 @@ export class PayerUnlocksController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ) {
-    // OUTSIDE THE GUARD, for the same reason as `POST /payer/credits`: a deployment-mode 404 must
-    // never be pinned under a key for the window.
-    if (!this.unlocks.realPaymentsLive) throw new NotFoundException();
+    // OUTSIDE THE GUARD, for the same reason as `POST /payer/credits`: a deployment-mode (or
+    // rollout) 404 must never be pinned under a key for the window.
+    if (!(await this.unlocks.isRealCheckoutOpen(payer.id))) throw new NotFoundException();
 
     return this.idempotency.runOnce({
       namespace: "payer_idem",
@@ -352,6 +358,11 @@ export class PayerUnlocksController {
    * XB-A: the payer is the SESSION payer; the order must belong to them. A bad signature, an
    * unknown order, and another tenant's order all return the SAME neutral 404 — this route
    * is not an order-id oracle. HTTP 200 only on a genuinely verified payment.
+   *
+   * Gated on real payments being live ONLY, not on the `credit_checkout` rollout (#2749 review):
+   * a verify creates no order, and the signature plus the order's stamped tenant already bind it
+   * to the buyer. So a company taken out of the pilot (or a rollout set back to `off`) after
+   * paying is still settled here, not only by the webhook. New orders stay rollout-gated.
    */
   @Post("credits/verify")
   @HttpCode(200)

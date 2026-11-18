@@ -65,7 +65,9 @@ describe("PayerPricingController — GET /payer/pricing/catalog (D-6 + #2085)", 
     revision: 3,
   }) {
     const getActive = vi.fn().mockResolvedValue(row ?? undefined);
-    const pricing = new PricingService({ getActive } as never, { emit: vi.fn() } as never);
+    const pricing = new PricingService({ getActive } as never, { emit: vi.fn() } as never, {
+      RETIRED_PRODUCTS_OFF_SALE: false,
+    });
     return { ctrl: new PayerPricingController(pricing), getActive, pricing };
   }
 
@@ -306,7 +308,9 @@ describe("GET /payer/pricing/catalog — credit packs on sale only, with GST (#2
   /** A controller over a stored row holding `tiers` as its packs. */
   function makeCtrl(tiers: CreditPackTier[]) {
     const getActive = vi.fn().mockResolvedValue({ catalog: withPackTiers(tiers), revision: 9 });
-    const pricing = new PricingService({ getActive } as never, { emit: vi.fn() } as never);
+    const pricing = new PricingService({ getActive } as never, { emit: vi.fn() } as never, {
+      RETIRED_PRODUCTS_OFF_SALE: false,
+    });
     return { ctrl: new PayerPricingController(pricing), pricing };
   }
   const BEFORE_ANNUAL = new Date("2027-03-31T18:29:59Z");
@@ -421,6 +425,7 @@ describe("GET /payer/pricing/catalog — credit packs on sale only, with GST (#2
     new PricingService(
       { getActive: vi.fn().mockResolvedValue(row) } as never,
       { emit: vi.fn() } as never,
+      { RETIRED_PRODUCTS_OFF_SALE: false },
     );
   const gatewayOver = (pricing: PricingService) =>
     new PaymentGateway(
@@ -564,5 +569,110 @@ describe("GET /payer/pricing/catalog — credit packs on sale only, with GST (#2
     expect(
       Reflect.getMetadata("__guards__", PayerPricingController.prototype.getCatalog),
     ).toBeUndefined();
+  });
+});
+
+/**
+ * #2749 item 11 (ADR-0065) — RETIRED_PRODUCTS_OFF_SALE and the payer catalogue (B4G-11/12).
+ *
+ * On: posting plans, boosts (the retired `all_candidates` tier included), hiring capacity and
+ * quota top-ups are absent from `products` AND `prices`, and no offer reaches a payer. Credit
+ * packs are untouched. Off (the default): the catalogue is exactly what it was.
+ */
+describe("GET /payer/pricing/catalog — the dropped products and their switch (#2749 item 11)", () => {
+  const OFFER_UNTIL = "2099-01-01T00:00:00.000Z";
+  /** DEFAULT_CATALOG plus an automatic offer on a plan tier and a coupon, as ops could store. */
+  const WITH_OFFER = parseCatalog({
+    ...DEFAULT_CATALOG,
+    offers: [
+      {
+        code: "launch10",
+        scope: { productCode: "job_posting", tierCode: "standard" },
+        kind: "percent",
+        value: 10,
+        from: "2026-01-01T00:00:00.000Z",
+        until: OFFER_UNTIL,
+      },
+    ],
+    coupons: [
+      {
+        code: "welcome100",
+        scope: { productCode: "job_boost" },
+        kind: "flat",
+        value: 100,
+        from: "2026-01-01T00:00:00.000Z",
+        until: OFFER_UNTIL,
+        totalUsageCap: 100,
+        perPayerLimit: 1,
+      },
+    ],
+  });
+
+  const catalogWith = async (retiredOffSale: boolean, catalog: Catalog = WITH_OFFER) => {
+    const pricing = new PricingService(
+      { getActive: vi.fn().mockResolvedValue({ catalog, revision: 4 }) } as never,
+      { emit: vi.fn() } as never,
+      { RETIRED_PRODUCTS_OFF_SALE: retiredOffSale },
+    );
+    return new PayerPricingController(pricing).getCatalog();
+  };
+
+  it("switch ON: only the credit pack is listed, in products and in prices", async () => {
+    const view = await catalogWith(true);
+    expect(view.products.map((p) => p.kind)).toEqual(["credit_pack"]);
+    expect(new Set(view.prices.map((p) => p.product_code))).toEqual(new Set(["contact_unlock"]));
+    // The packs themselves are exactly what the switch-off catalogue lists.
+    const off = await catalogWith(false);
+    expect(creditPackOf(view.products)).toEqual(creditPackOf(off.products));
+    expect(view.prices).toEqual(off.prices.filter((p) => p.product_code === "contact_unlock"));
+  });
+
+  it("switch ON: no plan, boost (all_candidates included), capacity or top-up code, offer or coupon is anywhere in the body", async () => {
+    const body = JSON.stringify(await catalogWith(true));
+    for (const code of [
+      "job_posting",
+      "job_boost",
+      "all_candidates",
+      "boost_7",
+      "hiring_capacity",
+      "cap_5",
+      "quota_topup",
+      "topup_10",
+      "launch10",
+      "welcome100",
+    ]) {
+      expect(body, code).not.toContain(code);
+    }
+    // No price row carries an offer: credit packs are charged at list price.
+    expect((await catalogWith(true)).prices.every((p) => p.offer === null)).toBe(true);
+  });
+
+  it("switch OFF (the default): every product and its offer ship exactly as before", async () => {
+    const view = await catalogWith(false);
+    expect(view.products.map((p) => p.kind)).toEqual(DEFAULT_CATALOG.products.map((p) => p.kind));
+    const plan = view.prices.find(
+      (p) => p.product_code === "job_posting" && p.tier_code === "standard",
+    );
+    expect(plan?.offer).toEqual({ code: "launch10", ends_at: OFFER_UNTIL });
+    expect(view.prices.some((p) => p.tier_code === "all_candidates")).toBe(true);
+    // A coupon never ships, switch or no switch.
+    expect(JSON.stringify(view)).not.toContain("welcome100");
+  });
+
+  it("switch ON with no credit pack on sale: an empty catalogue, never a retired product as filler", async () => {
+    const view = await catalogWith(
+      true,
+      withPackTiers([
+        {
+          code: "pack_later",
+          priceInr: 999,
+          credits: 20,
+          windowDays: 14,
+          onSaleFrom: "2099-01-01",
+        },
+      ]),
+    );
+    expect(view.products).toEqual([]);
+    expect(view.prices).toEqual([]);
   });
 });

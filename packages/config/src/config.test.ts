@@ -116,6 +116,24 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(realPaymentsBlockedReason(config)).toBe("PAYMENTS_ENABLE_REAL is false");
   });
 
+  it("#2749 item 11: RETIRED_PRODUCTS_OFF_SALE defaults to false (the dropped products stay on sale)", () => {
+    expect(loadServerConfig({}).RETIRED_PRODUCTS_OFF_SALE).toBe(false);
+    expect(loadServerConfig({ RETIRED_PRODUCTS_OFF_SALE: "" }).RETIRED_PRODUCTS_OFF_SALE).toBe(
+      false,
+    );
+    expect(loadServerConfig({ RETIRED_PRODUCTS_OFF_SALE: "false" }).RETIRED_PRODUCTS_OFF_SALE).toBe(
+      false,
+    );
+    expect(loadServerConfig({ RETIRED_PRODUCTS_OFF_SALE: "true" }).RETIRED_PRODUCTS_OFF_SALE).toBe(
+      true,
+    );
+    expect(loadServerConfig({ RETIRED_PRODUCTS_OFF_SALE: "1" }).RETIRED_PRODUCTS_OFF_SALE).toBe(
+      true,
+    );
+    // A typo must not boot (the deploy preflight refuses it before a container moves).
+    expect(() => loadServerConfig({ RETIRED_PRODUCTS_OFF_SALE: "yes" })).toThrow();
+  });
+
   it("exposes config-driven cap defaults (not hard-coded)", () => {
     const config = loadServerConfig({});
     expect(config.UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY).toBe(5);
@@ -1336,8 +1354,13 @@ describe("loadServerConfig", () => {
     }
   });
 
-  it.each(["JOB_AUDIENCE_ROLLOUT", "CAMPUS_DRIVE_REQUESTS_ROLLOUT", "THEME_ROLLOUT"] as const)(
-    "%s (#2746, #2820) is 'off' when unset, empty or blank, and refuses anything but off/pilot/on",
+  it.each([
+    "JOB_AUDIENCE_ROLLOUT",
+    "CAMPUS_DRIVE_REQUESTS_ROLLOUT",
+    "THEME_ROLLOUT",
+    "CREDIT_CHECKOUT_ROLLOUT",
+  ] as const)(
+    "%s (#2746, #2820, #2749) is 'off' when unset, empty or blank, and refuses anything but off/pilot/on",
     (name) => {
       const mode = (value?: string) =>
         loadServerConfig(value === undefined ? {} : { [name]: value })[name];

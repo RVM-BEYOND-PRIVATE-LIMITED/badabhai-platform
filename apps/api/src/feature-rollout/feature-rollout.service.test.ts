@@ -108,6 +108,73 @@ describe("the feature keys fit the pilot table", () => {
   });
 });
 
+// ─── #2749: stateForPayer, the company answer with a LAZY tenancy resolve ────
+
+describe("stateForPayer — a company's answer, resolving the tenant only in pilot (#2749)", () => {
+  const resolverFor = (tenantKey: TenantKey = TENANT) => vi.fn(async () => ({ tenantKey }));
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each<Record<string, string>>([
+    {},
+    { CREDIT_CHECKOUT_ROLLOUT: "off" },
+    { CREDIT_CHECKOUT_ROLLOUT: "" },
+  ])("off (%o) answers off with no resolve and no list read", async (env) => {
+    const { service, pilots } = serviceWith(env, async () => true);
+    const resolve = resolverFor();
+    expect(await service.stateForPayer("credit_checkout", resolve)).toBe("off");
+    expect(resolve).not.toHaveBeenCalled();
+    expect(pilots.isListed).not.toHaveBeenCalled();
+  });
+
+  it("on answers on with no resolve and no list read", async () => {
+    const { service, pilots } = serviceWith({ CREDIT_CHECKOUT_ROLLOUT: "on" }, async () => false);
+    const resolve = resolverFor();
+    expect(await service.stateForPayer("credit_checkout", resolve)).toBe("on");
+    expect(resolve).not.toHaveBeenCalled();
+    expect(pilots.isListed).not.toHaveBeenCalled();
+  });
+
+  it("pilot resolves once and asks the list by the RESOLVED tenant key", async () => {
+    const listed = serviceWith({ CREDIT_CHECKOUT_ROLLOUT: "pilot" }, async () => true);
+    const resolve = resolverFor();
+    expect(await listed.service.stateForPayer("credit_checkout", resolve)).toBe("on");
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(listed.pilots.isListed).toHaveBeenCalledWith("credit_checkout", TENANT);
+
+    const unlisted = serviceWith({ CREDIT_CHECKOUT_ROLLOUT: "pilot" }, async () => false);
+    expect(await unlisted.service.stateForPayer("credit_checkout", resolverFor())).toBe("off");
+  });
+
+  it("pilot with a failed list read is unavailable (the caller decides which way is safe)", async () => {
+    const { service } = serviceWith({ CREDIT_CHECKOUT_ROLLOUT: "pilot" }, async () => {
+      throw missingTable("feature_pilot_payers");
+    });
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    expect(await service.stateForPayer("credit_checkout", resolverFor())).toBe("unavailable");
+  });
+
+  it("a resolver that throws propagates (the route answers what the resolution always did)", async () => {
+    const { service, pilots } = serviceWith({ CREDIT_CHECKOUT_ROLLOUT: "pilot" }, async () => true);
+    const refused = new ForbiddenException("Not permitted for this organization");
+    await expect(
+      service.stateForPayer("credit_checkout", async () => {
+        throw refused;
+      }),
+    ).rejects.toBe(refused);
+    expect(pilots.isListed).not.toHaveBeenCalled();
+  });
+
+  it("reads CREDIT_CHECKOUT_ROLLOUT only: the other switches neither open nor close it", async () => {
+    const others = Object.fromEntries(
+      Object.values(FEATURE_ROLLOUT_CONFIG)
+        .filter((name) => name !== "CREDIT_CHECKOUT_ROLLOUT")
+        .map((name) => [name, "on"]),
+    );
+    const { service } = serviceWith(others, async () => true);
+    expect(await service.stateForPayer("credit_checkout", resolverFor())).toBe("off");
+  });
+});
+
 // ─── #2820: isThemeOpenFor, one answer per login ─────────────────────────────
 
 /** What the guards attach: `@CurrentWorker()` and `@CurrentAdmin()`. */
@@ -587,11 +654,12 @@ describe("the rollout switches and the pilot list have ONE reader each", () => {
     // `isEnabledFor("theme", …)` would answer for a company only, and `isLiveForServiceCaller`
     // for nobody in particular; every app's theme question is a per-login method (#2819 adds the
     // lazy company-login one; its call sites are pinned in rollout-caller-arguments.static.test.ts).
-    // `stateFor` (#2747) is the same company-only answer. The service itself is the one place that
-    // may name the key: `isThemeOpenForPayer` asks `stateFor` once the company is resolved.
+    // `stateFor` (#2747) and `stateForPayer` (#2749) are the same company-only answer. The service
+    // itself is the one place that may name the key: `isThemeOpenForPayer` asks `stateFor` once
+    // the company is resolved.
     expect(
       filesMatching(
-        /\.(?:isEnabledFor|stateFor|isLiveForServiceCaller)\(\s*["'`]theme["'`]/,
+        /\.(?:isEnabledFor|stateFor|stateForPayer|isLiveForServiceCaller)\(\s*["'`]theme["'`]/,
       ).filter((file) => file !== "feature-rollout/feature-rollout.service.ts"),
     ).toEqual([]);
   });

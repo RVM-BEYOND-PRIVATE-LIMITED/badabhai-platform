@@ -215,10 +215,16 @@ async function runGuardChain(method: string, membership: Membership): Promise<Re
   return req;
 }
 
-/** The controller over stubbed seams; `realPaymentsLive` picks the posture the route serves in. */
+/**
+ * The controller over stubbed seams; `realPaymentsLive` picks the posture the route serves in.
+ * #2749 item 10: the route gates are modelled for a company the `credit_checkout` rollout applies
+ * to whenever real payments are live (the gates' own matrix is `credit-checkout-gates.test.ts`).
+ */
 function makeCtrl(realPaymentsLive: boolean) {
   const unlocks = {
     realPaymentsLive,
+    isMockPackPurchaseOpen: vi.fn(async (_payerId: string) => !realPaymentsLive),
+    isRealCheckoutOpen: vi.fn(async (_payerId: string) => realPaymentsLive),
     purchaseCredits: vi.fn(async (payerId: string) => ({
       payer_id: payerId,
       balance: 50,

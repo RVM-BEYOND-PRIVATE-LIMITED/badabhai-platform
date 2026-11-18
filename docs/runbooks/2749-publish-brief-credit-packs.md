@@ -40,7 +40,9 @@ Check these first:
 
 - **Free packs.** With `PAYMENTS_ENABLE_REAL` off, `POST /payer/credits` grants any on-sale pack
   with no money taken. After the publish, that means the brief's packs (hardening list item 1 in the
-  issue's private notes).
+  issue's private notes). Since #2749 PR 5a the route also closes for every company the new money
+  rules apply to (`CREDIT_CHECKOUT_ROLLOUT`), so free packs stop company by company as the pilot
+  starts (`docs/runbooks/2749-switch-on.md`).
 - **Pack codes are permanent.** Once a pack is sold, its code is on ledger and order rows for good.
   The codes below (`pack_starter`, `pack_standard`, `pack_big`, `pack_annual`) are a proposal; rename
   them before the first publish if you want different ones. Codes are lowercase letters, digits and
@@ -164,7 +166,9 @@ On a credit-pack tier this write also refuses, with a `400` that names the field
 ```
 
 The posting, boost, capacity and top-up products are carried over exactly as `DEFAULT_CATALOG` holds
-them today. Taking them off sale is item 11 of #2749, a separate switch. Do not drop them here.
+them today. Taking them off sale is item 11 of #2749, a separate switch
+(`RETIRED_PRODUCTS_OFF_SALE`, `docs/runbooks/2749-switch-on.md` step 3): it hides them from the payer
+catalogue and refuses their purchase without editing this row. Do not drop them here.
 
 ### The Annual pack: entered at publish time, database row only
 
@@ -240,7 +244,10 @@ the pilot:
   order already paid changes nothing but records `payment.held` with `order_status: "paid"`. Until a refund path exists (BB-D-05), each
   held order is a refund in the Razorpay dashboard: watch `payment.held` (or
   `SELECT id FROM payment_orders WHERE status = 'held'`) from the first pilot payment.
-- The rest of the issue's switch-on list (hardening items, pilot gating) still applies.
+- The switch-on order itself (test keys → one pilot company → `CREDIT_CHECKOUT_ROLLOUT=pilot` with
+  live keys → one staff test purchase marked `is_test` → everyone), the dropped products' switch
+  (`RETIRED_PRODUCTS_OFF_SALE`, no later than real payments) and the rollback are in
+  `docs/runbooks/2749-switch-on.md` (ADR-0065).
 
 ## The same go-live change: make `DEFAULT_CATALOG` the brief's three packs
 

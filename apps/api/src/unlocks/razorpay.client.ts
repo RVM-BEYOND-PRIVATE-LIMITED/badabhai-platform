@@ -108,6 +108,23 @@ export function inrToPaise(amountInr: number): number {
 /** Currency is fixed for this market; it is not a client-supplied field. */
 export const RAZORPAY_CURRENCY = "INR";
 
+/** The one payment status the browser verify may settle on (#2749): money actually taken. */
+export const RAZORPAY_CAPTURED_STATUS = "captured";
+
+/** The payment statuses Razorpay documents; anything else is logged as `other`. */
+const RAZORPAY_PAYMENT_STATUSES: readonly string[] = [
+  "created",
+  "authorized",
+  "captured",
+  "refunded",
+  "failed",
+];
+
+/** A payment status safe to log: one of Razorpay's documented words, else `other`. */
+export function capturedStatusLabel(status: string): string {
+  return RAZORPAY_PAYMENT_STATUSES.includes(status) ? status : "other";
+}
+
 @Injectable()
 export class RazorpayClient implements RazorpayOrderClient {
   private readonly logger = new Logger(RazorpayClient.name);

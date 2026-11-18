@@ -10,7 +10,12 @@ import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PricingService } from "../pricing/pricing.service";
 import { creditPackSale, findCreditPackTier } from "../pricing/credit-pack-sale";
 import { UnlocksRepository, type Tx } from "./unlocks.repository";
-import { RAZORPAY_CURRENCY, RazorpayClient } from "./razorpay.client";
+import {
+  RAZORPAY_CAPTURED_STATUS,
+  RAZORPAY_CURRENCY,
+  RazorpayClient,
+  capturedStatusLabel,
+} from "./razorpay.client";
 import {
   captureMismatch,
   expectedOrderPaise,
@@ -540,6 +545,12 @@ export class PaymentGateway {
    * currency the settle checks. Null — and the caller settles NOTHING — when the fetch fails
    * (network, a provider 5xx) or the payment does not belong to `providerOrderId`; the webhook
    * remains the other channel. Never logs the payment entity.
+   *
+   * ONLY A CAPTURED PAYMENT SETTLES (#2749 review). A checkout's success callback can fire while
+   * the payment is only `authorized` (money held, not taken), and a `failed` payment carries an
+   * amount too. Any status but `captured` is null here — nothing settles and the verify answers its
+   * neutral refusal — and the webhook settles the order once Razorpay reports `payment.captured`
+   * (automatic capture must be on in the Razorpay account). Only the status word is logged.
    */
   async fetchCapturedAmount(
     paymentId: string,
@@ -549,6 +560,12 @@ export class PaymentGateway {
       const payment = await this.razorpay.fetchPayment(paymentId);
       if (payment.orderId !== providerOrderId) {
         this.logger.warn("verify: the fetched payment names another order; not settling");
+        return null;
+      }
+      if (payment.status !== RAZORPAY_CAPTURED_STATUS) {
+        this.logger.warn(
+          `verify: the payment is not captured yet (status=${capturedStatusLabel(payment.status)}); not settling, the webhook will`,
+        );
         return null;
       }
       return { amountPaise: payment.amountPaise, currency: payment.currency };

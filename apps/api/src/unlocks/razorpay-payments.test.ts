@@ -1413,6 +1413,7 @@ function realPricing(catalog: typeof DEFAULT_CATALOG | null): PricingService {
   return new PricingService(
     { getActive: vi.fn(async () => (catalog ? { catalog, revision: 7 } : null)) } as never,
     {} as never,
+    { RETIRED_PRODUCTS_OFF_SALE: false },
   );
 }
 
@@ -1958,6 +1959,41 @@ describe("#2749 — the browser verify reads the payment back and runs the webho
     expect(await verify()).toEqual({ verified: false });
     expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("created");
     expect(d.ledger).toHaveLength(0);
+  });
+
+  // #2749 review — only money actually TAKEN settles on the browser path. An `authorized` payment
+  // (held, not captured) and a `failed` one both carry the right amount; neither may grant.
+  it.each(["authorized", "failed", "created", "refunded", "something_new"])(
+    "a payment with status %s settles nothing: neutral refusal, order still open, no event",
+    async (status) => {
+      d.razorpay.fetchPayment.mockResolvedValue(payment({ status }));
+      expect(await verify()).toEqual({ verified: false });
+      expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("created");
+      expect(d.ledger).toHaveLength(0);
+      expect(emitted(d.events)).toEqual([]);
+    },
+  );
+
+  it("authorized now, captured later: the webhook settles it once, and a second verify reports it", async () => {
+    d.razorpay.fetchPayment.mockResolvedValue(payment({ status: "authorized" }));
+    expect(await verify()).toEqual({ verified: false });
+    expect(
+      await d.svc.handleRazorpayEvent(captureEvent(PROVIDER_ORDER, PAYMENT_ID, 236000), CTX),
+    ).toEqual({ result: "granted" });
+    expect(d.ledger).toHaveLength(1);
+    d.razorpay.fetchPayment.mockResolvedValue(payment({ status: "captured" }));
+    expect(await verify()).toMatchObject({ verified: true, credits: 0 }); // already settled
+    expect(d.ledger).toHaveLength(1);
+  });
+
+  it("the not-captured log names the status word only (an unknown word is `other`)", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    d.razorpay.fetchPayment.mockResolvedValue(payment({ status: "pay_secret_looking_value" }));
+    await verify();
+    const lines = warn.mock.calls.map((c) => String(c[0]));
+    expect(lines.some((l) => l.includes("status=other"))).toBe(true);
+    expect(lines.join(" ")).not.toContain("pay_secret_looking_value");
+    expect(lines.join(" ")).not.toContain(PAYMENT_ID);
   });
 
   it("a FORGED signature never reaches the provider", async () => {
