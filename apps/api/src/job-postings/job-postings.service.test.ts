@@ -168,6 +168,8 @@ function make(
     postingTrades?: unknown;
     /** #2746 — the audience service (default: inert, no field is ever requested). */
     audience?: PostingAudienceService;
+    /** #2751 — the posting choice recorder (default: absent, as a hand-built instance). */
+    postingChoice?: unknown;
   } = {},
 ) {
   const emit = vi.fn().mockResolvedValue(undefined);
@@ -318,6 +320,10 @@ function make(
     opts.tenancy ?? defaultModeResolver(),
     // #2746 — inert unless a case passes the real service (the audience cases do).
     opts.audience ?? inertPostingAudience(),
+    // #2750 item 4 — welcome credits (not exercised here).
+    undefined,
+    // #2751 — the posting choice recorder.
+    opts.postingChoice as never,
   );
   return {
     svc,
@@ -2775,5 +2781,86 @@ describe("JobPostingsService — #2750 welcome credits after an ops approval", (
     const welcome = withWelcome(d);
     await d.svc.reject(POSTING_ID, CTX as never);
     expect(welcome.afterPostingApproved).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #2751 items 1 to 3 — the posting choice rides on the company publish. It is recorded only on the
+ * publish (draft -> open), only AFTER the publish committed, and nothing it does can fail it.
+ */
+describe("JobPostingsService — the posting choice on the company publish (#2751)", () => {
+  const OUTCOME = { choice: "free_plus_pack", surface: "web", recorded: true, checkout: null };
+
+  function publishable(status: "draft" | "open" = "draft") {
+    const current = row({ status });
+    const recordAfterPublish = vi.fn().mockResolvedValue(OUTCOME);
+    const d = make(current, { postingChoice: { recordAfterPublish } });
+    d.findByIdAndPayer.mockResolvedValue({
+      ...toApi(current),
+      payer_id: PAYER_ID,
+      role_kind: "vmc_milling",
+    });
+    d.updateOwned.mockResolvedValue({
+      ...toApi(row({ status: "open" })),
+      payer_id: PAYER_ID,
+      role_kind: "vmc_milling",
+    });
+    return { ...d, recordAfterPublish };
+  }
+
+  it("a publish with a choice records it after the commit and answers the outcome", async () => {
+    const d = publishable();
+    const out = await d.svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      { status: "open", posting_choice: "free_plus_pack", surface: "web" },
+      CTX as never,
+    );
+    expect(d.recordAfterPublish).toHaveBeenCalledTimes(1);
+    const [input] = d.recordAfterPublish.mock.calls[0]! as [
+      { jobPostingId: string; choice: string; surface: string; scope: { tenantKey: string } },
+    ];
+    expect(input).toMatchObject({ jobPostingId: POSTING_ID, choice: "free_plus_pack", surface: "web" });
+    expect(input.scope.tenantKey).toBe(PAYER_ID);
+    // After the publish transaction committed, never inside it.
+    expect(d.withTransaction.mock.invocationCallOrder[0]!).toBeLessThan(
+      d.recordAfterPublish.mock.invocationCallOrder[0]!,
+    );
+    expect(out.posting_choice).toEqual(OUTCOME);
+    expect(out.status).toBe("open");
+  });
+
+  it("a publish without a choice records nothing and answers no block", async () => {
+    const d = publishable();
+    const out = await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { status: "open" }, CTX as never);
+    expect(d.recordAfterPublish).not.toHaveBeenCalled();
+    expect(out).not.toHaveProperty("posting_choice");
+  });
+
+  it("the switch off (the recorder answers null) leaves the answer exactly as before", async () => {
+    const d = publishable();
+    d.recordAfterPublish.mockResolvedValue(null);
+    const out = await d.svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      { status: "open", posting_choice: "free", surface: "app" },
+      CTX as never,
+    );
+    expect(out).not.toHaveProperty("posting_choice");
+    expect(out.status).toBe("open");
+  });
+
+  it("A RECORDER THAT THROWS NEVER FAILS THE PUBLISH", async () => {
+    const d = publishable();
+    d.recordAfterPublish.mockRejectedValue(Object.assign(new Error("boom"), { code: "42P01" }));
+    const out = await d.svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      { status: "open", posting_choice: "free", surface: "web" },
+      CTX as never,
+    );
+    expect(out.status).toBe("open");
+    expect(out).not.toHaveProperty("posting_choice");
+    expect(d.materializeReach).toHaveBeenCalledTimes(1);
   });
 });

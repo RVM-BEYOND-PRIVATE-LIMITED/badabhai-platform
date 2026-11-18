@@ -75,6 +75,8 @@ import {
   PAYMENT_REFUND_RULES,
   PAYMENT_REFUND_STATUSES,
   LAUNCH_TEST_RESULTS,
+  POSTING_CHOICES,
+  POSTING_SURFACES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -4193,6 +4195,26 @@ export const JobPostingAudienceSetPayload = z
   })
   .strict();
 export type JobPostingAudienceSetPayload = z.infer<typeof JobPostingAudienceSetPayload>;
+
+/**
+ * #2751 items 1 to 3 (brief 4B.7) — a company published a job with one of the two posting buttons:
+ * `free` ("Post free") or `free_plus_pack` ("Post free + Starter"), on `web` or the `app`. Emitted
+ * ONCE PER POSTING, in the transaction that wrote its `job_posting_choices` row (keyed on the
+ * posting), so the numbers screen can count the share per button. The job is live either way;
+ * whether a paid tap then bought a pack is on `payment_orders.origin_job_posting_id`.
+ *
+ * IDS AND ENUMS ONLY: no label, no price, no company data.
+ */
+export const JobPostingPostingChoiceRecordedPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    choice: z.enum(POSTING_CHOICES),
+    surface: z.enum(POSTING_SURFACES),
+  })
+  .strict();
+export type JobPostingPostingChoiceRecordedPayload = z.infer<
+  typeof JobPostingPostingChoiceRecordedPayload
+>;
 
 /** #2746 PR 5 — the RVM review's institute (`job_posting_institute_reviews.institute_code`). */
 const RVM_REVIEW_INSTITUTE_VALUES = ["rvm"] as const;

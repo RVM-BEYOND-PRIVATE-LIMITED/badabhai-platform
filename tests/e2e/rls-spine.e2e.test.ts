@@ -311,6 +311,10 @@ const LOCKED_TABLES = [
   // closed rule, status and failure codes, integers, an opaque provider refund id and times).
   // RLS+FORCE+REVOKE in the hand-written tail of `*_payment_refunds`.
   "payment_refunds",
+  // #2751 items 1 to 3: which posting button a company tapped (an opaque posting id, the tenant
+  // key, two closed codes and a time). RLS+FORCE+REVOKE in the hand-written tail of
+  // `*_job_posting_choices`.
+  "job_posting_choices",
   // #2887: the bulk student move - the import ledger (runs, per-candidate rows, the candidate ->
   // worker map), the per-field source markers and the visibility switch. Ids, closed codes,
   // counts, hashes and times. RLS+FORCE+REVOKE in the hand-written tail of `*_student_move`.

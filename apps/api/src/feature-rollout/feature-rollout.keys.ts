@@ -18,6 +18,7 @@ export const FEATURE_ROLLOUT_KEYS = [
   "outcome_stages",
   "outbound_signals",
   "credit_rules",
+  "posting_choice",
 ] as const;
 export type FeatureRolloutKey = (typeof FEATURE_ROLLOUT_KEYS)[number];
 
@@ -34,4 +35,5 @@ export const FEATURE_ROLLOUT_CONFIG = {
   outcome_stages: "OUTCOME_STAGES_ROLLOUT",
   outbound_signals: "OUTBOUND_SIGNALS_ROLLOUT",
   credit_rules: "CREDIT_RULES_ROLLOUT",
+  posting_choice: "POSTING_CHOICE_ROLLOUT",
 } as const satisfies Record<FeatureRolloutKey, keyof ServerConfig>;
