@@ -14,7 +14,8 @@ import type { CampusBundle } from "./bundle.schema";
 import { importCompanies, type CompanyImportDeps } from "./import-companies";
 import { importBalances } from "./import-balances";
 import { importJobs, UnheldPostingError, type JobImportDeps } from "./import-jobs";
-import { buildJobImportDeps, buildRollbackDeps } from "./job-import-wiring";
+import { buildJobImportDeps, buildRollbackDeps, buildWelcomeCredits } from "./job-import-wiring";
+import { offerWelcomeCredits } from "./import-welcome";
 import { rollbackCompanyImport } from "./rollback";
 import { writeRow } from "./import-ledger.repository";
 import { importApplications } from "./import-applications";
@@ -541,6 +542,33 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
     expect(a).toMatchObject({ postings: { closed: 1 }, accounts: { archived: 0, keptInUse: 1 } });
     const [acct] = await client.sql<{ status: string }[]>`SELECT status FROM payers WHERE id = ${payerId}::uuid`;
     expect(acct!.status).not.toBe("archived");
+  });
+
+  it("a moved company with a live job approved on Campus gets its welcome credits once, on move day", async () => {
+    const bundle = bundleOf(`welcome-${TAG}`, 1);
+    const batch = await open("welcome", bundle);
+    const companies = (await importCompanies(deps, batch, bundle, opts)).placed;
+    const payerId = [...companies.values()][0]!;
+    const on = buildWelcomeCredits(client.db, loadServerConfig({ NODE_ENV: "test", CREDIT_RULES_ROLLOUT: "on" }), deps.events);
+    const off = buildWelcomeCredits(client.db, config, deps.events);
+    const wctx = { requestId: `welcome-${TAG}`, correlationId: randomUUID() };
+
+    // Verified on Campus with a proven phone, but no approved posting yet.
+    expect(await offerWelcomeCredits(on, companies, wctx)).toEqual({ not_eligible: 1 });
+    await importJobs(jobDeps(true), batch, bundle, companies, ctx);
+    // The switch decides first: off, nothing is read or granted.
+    expect(await offerWelcomeCredits(off, companies, wctx)).toEqual({ rules_off: 1 });
+    expect(await offerWelcomeCredits(on, companies, wctx)).toEqual({ granted: 1 });
+    expect(await offerWelcomeCredits(on, companies, wctx)).toEqual({ already_granted: 1 });
+
+    const lines = await client.sql<{ reason: string; delta: number }[]>`
+      SELECT reason, delta FROM credit_ledger WHERE payer_id = ${payerId}::uuid ORDER BY created_at`;
+    // The welcome grant once, and never the sign-up grant.
+    expect(lines).toEqual([{ reason: "welcome", delta: 5 }]);
+    const [lot] = await client.sql<{ source: string; days: number }[]>`
+      SELECT source, round(extract(epoch FROM (expires_at - created_at)) / 86400)::int AS days
+        FROM credit_lots WHERE payer_id = ${payerId}::uuid`;
+    expect(lot).toEqual({ source: "welcome", days: 30 });
   });
 
   it("a new batch over the same phones matches the accounts instead of creating new ones", async () => {
