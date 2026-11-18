@@ -10,8 +10,10 @@
  * none). Those are given a FAIL-CLOSED stand-in: any call throws, so a future change that reaches
  * one stops the import loudly instead of doing work nobody reviewed for it.
  */
+import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import type { ServerConfig } from "@badabhai/config";
-import type { Database } from "@badabhai/db";
+import { jobPostings, type Database } from "@badabhai/db";
 import type { TenantKey } from "../payer-tenant-scope";
 import type { EventsService } from "../../events/events.service";
 import { JobPostingsService } from "../../job-postings/job-postings.service";
@@ -24,6 +26,7 @@ import { CampusPostingsRepository } from "../../campus-link/campus-postings.repo
 import { PayerTenantScopeService } from "../payer-tenant-scope.service";
 import { PayerOrgsRepository } from "../payer-orgs.repository";
 import { postingIsHeld, type JobImportDeps } from "./import-jobs";
+import type { RollbackDeps } from "./rollback";
 
 /** A collaborator the import must never reach: every property is a function that throws. */
 export function unavailableInImport(name: string): never {
@@ -41,7 +44,7 @@ export function unavailableInImport(name: string): never {
   ) as never;
 }
 
-export function buildJobImportDeps(db: Database, config: ServerConfig, events: EventsService): JobImportDeps {
+function buildPostings(db: Database, config: ServerConfig, events: EventsService) {
   const tenancy = new PayerTenantScopeService(config, new PayerOrgsRepository(db));
   const audienceRepo = new PostingAudienceRepository(db);
   const audience = new PostingAudienceService(
@@ -64,6 +67,11 @@ export function buildJobImportDeps(db: Database, config: ServerConfig, events: E
     tenancy,
     audience,
   );
+  return { tenancy, audienceRepo, jobsRepo, postings };
+}
+
+export function buildJobImportDeps(db: Database, config: ServerConfig, events: EventsService): JobImportDeps {
+  const { tenancy, audienceRepo, jobsRepo, postings } = buildPostings(db, config, events);
   const campusPostings = new CampusPostingsRepository(db);
   return {
     db,
@@ -81,5 +89,32 @@ export function buildJobImportDeps(db: Database, config: ServerConfig, events: E
       await jobsRepo.transitionOwned(id, tenant, "open", "closed");
     },
     isHeld: (id) => postingIsHeld(db, id),
+  };
+}
+
+/**
+ * #2754 item 14 — the rollback's posting close: the posting service's own ops close (it stamps
+ * `closed_at` and writes `job_posting.closed`). A posting its company paused since the import is
+ * resumed first so it can be closed; one frozen by a payer suspension is left frozen and counted.
+ */
+export function buildRollbackDeps(db: Database, config: ServerConfig, events: EventsService): RollbackDeps {
+  const { tenancy, jobsRepo, postings } = buildPostings(db, config, events);
+  return {
+    db,
+    events,
+    closePosting: async (postingId) => {
+      const [row] = await db
+        .select({ status: jobPostings.status, payerId: jobPostings.payerId })
+        .from(jobPostings)
+        .where(eq(jobPostings.id, postingId));
+      if (!row || row.status === "closed") return "already_closed";
+      if (row.status === "suspended" || row.payerId === null) return "not_closeable";
+      if (row.status === "paused") {
+        const scope = (await tenancy.resolveReadOnly(row.payerId)) ?? (await tenancy.resolve(row.payerId));
+        await jobsRepo.transitionOwned(postingId, scope.tenantKey, "paused", "open");
+      }
+      await postings.close(postingId, { requestId: `campus-rollback:${postingId}`, correlationId: randomUUID() });
+      return "closed";
+    },
   };
 }

@@ -14,7 +14,8 @@ import type { CampusBundle } from "./bundle.schema";
 import { importCompanies, type CompanyImportDeps } from "./import-companies";
 import { importBalances } from "./import-balances";
 import { importJobs, UnheldPostingError, type JobImportDeps } from "./import-jobs";
-import { buildJobImportDeps } from "./job-import-wiring";
+import { buildJobImportDeps, buildRollbackDeps } from "./job-import-wiring";
+import { rollbackCompanyImport } from "./rollback";
 import { writeRow } from "./import-ledger.repository";
 import { importApplications } from "./import-applications";
 import { CampusImportRefusal, importLedgerExists, openBatch, type OpenBatch } from "./import-ledger.repository";
@@ -425,6 +426,121 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
     expect(after.differences.filter((d) => !d.explained)).toEqual([
       expect.objectContaining({ scope: "job", code: "posting_closed", badabhai: `posting:${postingId}` }),
     ]);
+  });
+
+  it("the rollback rehearsal returns the stack to its starting counts, once, and spends the key", async () => {
+    const bundle = bundleOf(`rollback-${TAG}`, 1);
+    const external = bundle.applications.find((a) => a.candidate.kind === "external")!;
+    const student = bundle.applications.find((a) => a.candidate.kind === "rvm_student")!;
+    const externalWorker = await seedWorker((external.candidate as { phone: string }).phone);
+    const studentWorker = await seedWorker(`9${String(Date.now()).slice(-9)}`);
+    await client.sql`
+      INSERT INTO worker_institute_links (worker_id, institute_code, student_ref, status, synced_at)
+      VALUES (${studentWorker}::uuid, 'rvm', ${(student.candidate as { student_ref: string }).student_ref.toLowerCase()}, 'active', now())`;
+    const hashes = bundle.companies
+      .map((c) => c.proven_phone.value)
+      .filter((p): p is string => p !== null)
+      .map((p) => pii.hashPhone(`+91${p}`));
+    const workerIds = [externalWorker, studentWorker];
+    // Scoped to this test's companies and workers: CI runs every DB gate on one database at once.
+    const counts = async () => {
+      const [row] = await client.sql<Record<string, number>[]>`
+        WITH acct AS (SELECT id, status FROM payers WHERE phone_hash = ANY(${hashes}::text[]))
+        SELECT
+          (SELECT count(*)::int FROM acct WHERE status <> 'archived') AS active_accounts,
+          (SELECT count(*)::int FROM job_postings WHERE payer_id IN (SELECT id FROM acct) AND status = 'open') AS open_postings,
+          (SELECT coalesce(sum(balance), 0)::int FROM payer_credits WHERE payer_id IN (SELECT id FROM acct)) AS credits,
+          (SELECT count(*)::int FROM applications WHERE worker_id = ANY(${workerIds}::uuid[])) AS applications,
+          (SELECT count(*)::int FROM institute_applications WHERE worker_id = ANY(${workerIds}::uuid[])) AS campus_records,
+          (SELECT count(*)::int FROM unlocks WHERE worker_id = ANY(${workerIds}::uuid[]) AND status = 'granted' AND expires_at > now()) AS opened`;
+      return row!;
+    };
+    const before = await counts();
+
+    const batch = await open("rollback", bundle);
+    const companies = (await importCompanies(deps, batch, bundle, opts)).placed;
+    await importBalances(client.db, batch, bundle, companies, { planQuota: {}, validityDays: 30 });
+    const jobs = (await importJobs(jobDeps(true), batch, bundle, companies, ctx)).placed;
+    expect(await importApplications(client.db, pii, batch, bundle, companies, jobs)).toMatchObject({ moved: 2, carriedAccess: 1 });
+    expect(await counts()).toEqual({ active_accounts: 1, open_postings: 1, credits: 18, applications: 2, campus_records: 1, opened: 1 });
+    // The company spends one converted credit before the rollback: it stays spent.
+    const payerId = [...companies.values()][0]!;
+    await client.sql`UPDATE credit_lots SET credits_remaining = credits_remaining - 1 WHERE payer_id = ${payerId}::uuid`;
+    await client.sql`UPDATE payer_credits SET balance = balance - 1 WHERE payer_id = ${payerId}::uuid`;
+
+    const rollbackDeps = buildRollbackDeps(client.db, config, deps.events);
+    const summary = await rollbackCompanyImport(rollbackDeps, `rollback-${TAG}`, "db-test");
+    expect(summary).toMatchObject({
+      alreadyRolledBack: false,
+      access: { ended: 1, keptExisting: 0 },
+      applications: { removed: 2, keptExisting: 0 },
+      postings: { closed: 1, alreadyClosed: 0, notCloseable: 0 },
+      balances: { reversed: 1, creditsTakenBack: 17, creditsAlreadySpent: 1, notReversed: {} },
+      accounts: { archived: 1, alreadyArchived: 0, keptExisting: 0, keptInUse: 0 },
+    });
+    expect(await counts()).toEqual(before);
+
+    const { sql } = client;
+    const postingId = [...jobs.values()][0]!;
+    const events = await sql<{ name: string; subject: string }[]>`
+      SELECT event_name AS name, subject_id AS subject FROM events
+       WHERE (event_name = 'payer.archived' AND subject_id = ${payerId})
+          OR (event_name = 'job_posting.closed' AND subject_id = ${postingId})`;
+    expect(events.map((e) => e.name).sort()).toEqual(["job_posting.closed", "payer.archived"]);
+    const reversal = await sql<{ delta: number; reason: string }[]>`
+      SELECT delta, reason FROM credit_ledger WHERE payer_id = ${payerId}::uuid AND reason = 'campus_conversion_reversed'`;
+    expect(reversal).toEqual([{ delta: -17, reason: "campus_conversion_reversed" }]);
+    const ledger = await sql<{ state: string; n: number }[]>`
+      SELECT state, count(*)::int AS n FROM company_import_rows WHERE batch_id = ${batch.id} AND target_id IS NOT NULL GROUP BY state`;
+    expect(ledger).toEqual([{ state: "rolled_back", n: 6 }]);
+    const [b] = await sql<{ state: string; by: string }[]>`
+      SELECT state, rolled_back_by AS by FROM company_import_batches WHERE id = ${batch.id}`;
+    expect(b).toEqual({ state: "rolled_back", by: "db-test" });
+
+    // Run again: nothing to do. The key is spent, and a new batch finds the archived account.
+    expect((await rollbackCompanyImport(rollbackDeps, `rollback-${TAG}`, "db-test")).alreadyRolledBack).toBe(true);
+    await expect(open("rollback", bundle)).rejects.toThrow(CampusImportRefusal);
+    const again = await importCompanies(deps, await open("rollback-again", bundle), bundle, opts);
+    expect(again).toMatchObject({ created: 0, matched: 0, exceptions: { matched_account_archived: 1 } });
+  });
+
+  it("a rollback keeps an account the batch only matched, and one in use on its own", async () => {
+    const first = bundleOf(`keep-a-${TAG}`, 1);
+    const batchA = await open("keep-a", first);
+    const companiesA = (await importCompanies(deps, batchA, first, opts)).placed;
+    const jobsA = (await importJobs(jobDeps(true), batchA, first, companiesA, ctx)).placed;
+    const payerId = [...companiesA.values()][0]!;
+    // The company posts a job of its own on BadaBhai (a copy of the imported one, as a draft;
+    // every stored column but the id, the status and the generated ones).
+    const cols = (
+      await client.sql<{ name: string }[]>`
+        SELECT column_name AS name FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'job_postings' AND is_generated = 'NEVER'
+           AND column_name NOT IN ('id', 'status')`
+    ).map((c) => `"${c.name}"`);
+    await client.sql.unsafe(
+      `INSERT INTO job_postings (${cols.join(", ")}, status)
+       SELECT ${cols.join(", ")}, 'draft' FROM job_postings WHERE id = $1::uuid`,
+      [[...jobsA.values()][0]!],
+    );
+
+    const phones = first.companies.map((c) => c.proven_phone.value).filter((p): p is string => p !== null);
+    const second = bundleOf(`keep-b-${TAG}`, 1, phones);
+    const batchB = await open("keep-b", second);
+    const companiesB = (await importCompanies(deps, batchB, second, opts)).placed;
+    expect(companiesB.get(second.companies[0]!.source_id)).toBe(payerId);
+    await importBalances(client.db, batchB, second, companiesB, { planQuota: {}, validityDays: 30 });
+
+    const rollbackDeps = buildRollbackDeps(client.db, config, deps.events);
+    const b = await rollbackCompanyImport(rollbackDeps, `keep-b-${TAG}`, "db-test");
+    expect(b).toMatchObject({
+      accounts: { archived: 0, keptExisting: 1, keptInUse: 0 },
+      balances: { reversed: 1, creditsTakenBack: 18, creditsAlreadySpent: 0 },
+    });
+    const a = await rollbackCompanyImport(rollbackDeps, `keep-a-${TAG}`, "db-test");
+    expect(a).toMatchObject({ postings: { closed: 1 }, accounts: { archived: 0, keptInUse: 1 } });
+    const [acct] = await client.sql<{ status: string }[]>`SELECT status FROM payers WHERE id = ${payerId}::uuid`;
+    expect(acct!.status).not.toBe("archived");
   });
 
   it("a new batch over the same phones matches the accounts instead of creating new ones", async () => {
