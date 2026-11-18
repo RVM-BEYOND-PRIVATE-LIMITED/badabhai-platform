@@ -503,6 +503,11 @@ services:
       # switching it on (on without it: the routes answer 503, the hot reads fall back). `:-false`
       # because this bool rejects "".
       STUDENT_MOVE_ENABLED: ${STUDENT_MOVE_ENABLED:-false}
+      # THE ADMIN AI-CALLS TAB (#2739). Off is today exactly: GET /admin/ai-traces and
+      # /admin/ai-traces/:id are a neutral 404 for every admin role. On, super_admin alone
+      # (read_ai_traces) reads the list and the per-call detail. Armed only by the production
+      # secret of the same name, with the owner's sign-off. `:-false` because this bool rejects "".
+      ADMIN_AI_TRACE_READ_ENABLED: ${ADMIN_AI_TRACE_READ_ENABLED:-false}
       # THE CAMPUS LINK (#2752). Off: every /internal/campus/v1 route is a neutral 404 and nothing
       # else runs. `:-false` because this bool rejects "". The two lists are empty when unset, and
       # empty refuses every caller (fail closed): token HASHES (sha256 hex, two during a rotation)
