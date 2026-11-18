@@ -31,6 +31,9 @@ export const LEDGER_REASONS = [
   "waived",
   "campus_conversion",
   "returned",
+  // #2750 item 11 — an admin grant under the credit rules.
+  "goodwill",
+  "correction",
 ] as const;
 
 /**

@@ -335,7 +335,12 @@ export type CreditReason =
   | "welcome"
   | "waived"
   | "returned"
-  | "campus_conversion";
+  | "campus_conversion"
+  // #2750 item 11 — an admin grant to a company under the credit rules: `goodwill` (capped per
+  // quarter, a lot valid `goodwillValidityDays`) or `correction` (super admin, names the ledger row
+  // it corrects). Every other admin grant keeps `grant`.
+  | "goodwill"
+  | "correction";
 
 /**
  * Routed-channel kind (ADR-0010 §D2). Alpha ships `in_app_relay` ONLY — it

@@ -204,7 +204,12 @@ export class AdminPaymentHistoryRepository {
       const type =
         l.reason === "pack_purchase"
           ? "credit_purchase"
-          : l.reason === "grant" || l.reason === "welcome" || l.reason === "campus_conversion"
+          : l.reason === "grant" ||
+              l.reason === "welcome" ||
+              l.reason === "campus_conversion" ||
+              // #2750 item 11 — an admin grant under the credit rules is a grant too.
+              l.reason === "goodwill" ||
+              l.reason === "correction"
             ? "credit_grant"
             : l.reason === "refund" || l.reason === "returned"
               ? "credit_refund"

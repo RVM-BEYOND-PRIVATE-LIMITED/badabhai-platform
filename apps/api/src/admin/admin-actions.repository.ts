@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
   type Database,
   type JobPosting,
@@ -7,6 +7,7 @@ import {
   type WorkerFlag,
   type WorkerFlagReasonCode,
   auditLogs,
+  creditLedger,
   grantCreditsWithinTx,
   jobPostings,
   jobs,
@@ -280,6 +281,9 @@ export class AdminActionsRepository {
     amount: number,
     idempotencyKey: string,
     tx?: Database,
+    // #2750 item 11 — under the credit rules: the ledger reason and the lot's validity. Absent,
+    // the grant is today's (`grant`, a lot that never expires).
+    opts: { reason?: "grant" | "goodwill" | "correction"; validityDays?: number | null } = {},
   ): Promise<GrantCreditsResult> {
     const run = <T>(cb: (e: Database) => Promise<T>): Promise<T> =>
       tx ? cb(tx) : this.db.transaction(cb as (e: unknown) => Promise<T>);
@@ -287,8 +291,11 @@ export class AdminActionsRepository {
       grantCreditsWithinTx(e, {
         payerId,
         credits: amount,
-        lot: { source: "goodwill", expiresAt: null },
-        ledger: { reason: "grant", idempotencyKey },
+        lot:
+          opts.validityDays != null
+            ? { source: "goodwill", validityDays: opts.validityDays }
+            : { source: "goodwill", expiresAt: null },
+        ledger: { reason: opts.reason ?? "grant", idempotencyKey },
       }),
     );
     // ERROR, not warn: after the 0174 apply-to-deploy window a realignment means some writer
@@ -296,6 +303,73 @@ export class AdminActionsRepository {
     const realigned = lotAlignmentWarning(payerId, grant.alignment);
     if (realigned !== null) this.walletLog.error(realigned);
     return { ledgerId: grant.ledgerId, balance: grant.balanceAfter, applied: grant.applied };
+  }
+
+  /**
+   * #2750 item 11 — serialise one company's goodwill grants for the rest of the transaction, so two
+   * grants at once cannot both pass the quarter's cap. Taken before the wallet lock the grant takes.
+   */
+  async lockGoodwill(tx: Database, payerId: string): Promise<void> {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`goodwill:${payerId}`}, 0))`,
+    );
+  }
+
+  /** #2750 item 11 — goodwill credits granted to this wallet since `since` (the quarter's start). */
+  async goodwillGrantedSince(tx: Database, payerId: string, since: Date): Promise<number> {
+    const [row] = await tx
+      .select({ n: sql<number>`coalesce(sum(${creditLedger.delta}), 0)::int` })
+      .from(creditLedger)
+      .where(
+        and(
+          eq(creditLedger.payerId, payerId),
+          eq(creditLedger.reason, "goodwill"),
+          gte(creditLedger.createdAt, since),
+        ),
+      );
+    return Number(row?.n ?? 0);
+  }
+
+  /** #2750 item 11 — is this idempotency key already on the ledger (a replayed grant)? */
+  async ledgerKeyExists(tx: Database, idempotencyKey: string): Promise<boolean> {
+    const rows = await tx
+      .select({ id: creditLedger.id })
+      .from(creditLedger)
+      .where(eq(creditLedger.idempotencyKey, idempotencyKey))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /** #2750 item 11 — is `ledgerId` one of this wallet's ledger rows (what a correction names)? */
+  async ledgerRowOfPayer(payerId: string, ledgerId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: creditLedger.id })
+      .from(creditLedger)
+      .where(and(eq(creditLedger.id, ledgerId), eq(creditLedger.payerId, payerId)))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /**
+   * #2750 item 11 — the grant's audit row, in the grant's own transaction: who granted it, the
+   * reason code and the staff member's words, the ledger row, and what it corrects.
+   */
+  async insertGrantAudit(
+    tx: Database,
+    input: {
+      adminId: string;
+      payerId: string;
+      metadata: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    await tx.insert(auditLogs).values({
+      actorType: "admin",
+      actorId: input.adminId,
+      action: "credits_granted",
+      entityType: "payer",
+      entityId: input.payerId,
+      metadata: input.metadata,
+    });
   }
 
   // ----- job_postings.status (force close) ----------------------------------

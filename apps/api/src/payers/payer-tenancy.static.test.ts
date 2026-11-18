@@ -141,6 +141,10 @@ const NAMED_EXCEPTIONS: readonly string[] = [
   "match/free-tier.service.ts FreeTierService.grantForPayer",
   // Ops address an account literally (admin actions, entity views, finance).
   "admin/admin-actions.repository.ts AdminActionsRepository.grantCredits",
+  // #2750 item 11 — the goodwill cap's quarter sum and the corrected row: the same wallet key the
+  // admin grant above credits (the account id it names).
+  "admin/admin-actions.repository.ts AdminActionsRepository.goodwillGrantedSince",
+  "admin/admin-actions.repository.ts AdminActionsRepository.ledgerRowOfPayer",
   "admin/admin-actions.repository.ts AdminActionsRepository.reinstatePayerInventory",
   "admin/admin-actions.repository.ts AdminActionsRepository.suspendPayerInventory",
   "admin/admin-entities.repository.ts AdminEntitiesRepository.getCreditBalance",

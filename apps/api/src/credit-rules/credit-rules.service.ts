@@ -19,6 +19,7 @@ import { isUniqueViolation, sqlStateOf } from "../common/db-error";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 import { ADMIN_ACTION_CODES } from "../admin/admin-action-codes";
 import { CreditRulesRepository } from "./credit-rules.repository";
 
@@ -81,6 +82,15 @@ export class CreditRulesService {
   /** 404 unless the `credit_rules` switch is pilot or on: the admin routes do not exist while off. */
   assertLive(): void {
     if (!this.rollout.isLiveForServiceCaller("credit_rules")) throw new NotFoundException();
+  }
+
+  /**
+   * #2750 item 11 — is THIS company under the credit rules? For the admin paths that act on one
+   * company (the credit grant): its tenant key, through the pilot list. `unavailable` when the
+   * pilot list cannot be read (the caller refuses rather than guess which rules apply).
+   */
+  async stateFor(tenantKey: TenantKey): Promise<"on" | "off" | "unavailable"> {
+    return this.rollout.stateFor("credit_rules", tenantKey);
   }
 
   /** Just the rules — the call every consumer makes. Never throws. */
