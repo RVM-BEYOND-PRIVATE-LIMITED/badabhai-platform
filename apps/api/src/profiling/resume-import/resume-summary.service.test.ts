@@ -48,7 +48,12 @@ function setup(
     ),
     saveIdentitySummary: vi.fn().mockResolvedValue(opts.staged ?? true),
   };
-  const svc = new ResumeSummaryService(ai as never, aiCost as never, imports as never);
+  const svc = new ResumeSummaryService(
+    ai as never,
+    aiCost as never,
+    imports as never,
+    { assertMayRunAi: vi.fn(async () => undefined) } as never, // #2752 institute AI gate
+  );
   return { svc, ai, aiCost, imports };
 }
 

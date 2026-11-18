@@ -24,6 +24,7 @@ import '../../../router.dart';
 import '../../auth/domain/auth_session_manager.dart';
 import '../../consent/presentation/cubit/consent_withdraw_cubit.dart';
 import '../../consent/presentation/cubit/employer_contact_cubit.dart';
+import '../../consent/presentation/widgets/free_for_workers_line.dart';
 import '../../../core/widgets/feedback_fab.dart';
 import '../domain/notification_prefs_repository.dart';
 import 'cubit/account_delete_cubit.dart';
@@ -291,6 +292,12 @@ class _SettingsView extends StatelessWidget {
                     },
                   ),
                 ),
+                // #2748 item 7a — the same line the sign-up screen shows, off
+                // by default.
+                if (FreeForWorkersLine.isVisible) ...const <Widget>[
+                  SizedBox(height: 16),
+                  FreeForWorkersLine(),
+                ],
                 const SizedBox(height: 20),
                 // Version + BUILD id (#966). The build id is shown inline so a tester
                 // can READ and quote exactly which build their device runs — the only

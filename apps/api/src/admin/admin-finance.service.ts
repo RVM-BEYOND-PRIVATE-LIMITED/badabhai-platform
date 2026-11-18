@@ -82,6 +82,7 @@ export class AdminFinanceService {
     const paid = forStatus("paid");
     const created = forStatus("created");
     const failed = forStatus("failed");
+    const held = forStatus("held");
 
     return {
       payments: this.posture(),
@@ -98,6 +99,8 @@ export class AdminFinanceService {
       // Reported separately rather than folded into "revenue", which it is not.
       unsettled_orders: { count: created?.count ?? 0, amount_inr: created?.amountInr ?? 0 },
       failed_orders: { count: failed?.count ?? 0 },
+      // Captured, not granted (#2749): money held for ops, never revenue and never "failed".
+      held_orders: { count: held?.count ?? 0, amount_inr: held?.amountInr ?? 0 },
       top_balances: topBalances,
     };
   }

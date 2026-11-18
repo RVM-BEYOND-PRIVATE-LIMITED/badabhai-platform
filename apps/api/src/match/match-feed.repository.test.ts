@@ -606,6 +606,7 @@ describe("listCandidates — row mapping", () => {
       createdAt: new Date("2026-07-20T08:00:00.000Z"),
       engineVersion: "v1.0",
       matchedSkillId: "mskill_cnc_turner",
+      instituteCode: null,
       // Middle Way P5 — the mock row carries no trade_levels, so the badge is empty.
       tradeLevels: [],
       // v1.1 — no frozen rung on the mock row: null, never a guessed rung.
@@ -632,6 +633,8 @@ describe("listFeed — ADR-0050 §4.4 read fences for an agency TWIN", () => {
     // The posting-side gate is unchanged, plus #2566's hidden state (separate from status).
     expect(sql).toContain("AND jp.status = 'open'");
     expect(sql).toContain("AND jp.hidden_at IS NULL");
+    // #2746 — and the audience read lock, on the aliased posting, beside hidden_at.
+    expect(sql).toContain(`AND (jp.audience IN ('badabhai_workers', 'both') AND NOT EXISTS (SELECT 1 FROM job_posting_worker_visibility jpwv WHERE jpwv.job_posting_id = jp.id AND jpwv.state <> 'on'))`);
   });
 
   it("hides a twin from a worker who already decided on its SOURCE job (applications.job_id)", async () => {
@@ -771,6 +774,7 @@ describe("listRankedCandidatesByApplication — the posting rank, from the ONE r
       createdAt: new Date("2026-07-20T08:00:00.000Z"),
       engineVersion: "v1.0",
       matchedSkillId: null,
+      instituteCode: null,
       // Middle Way P5 — the mock row carries no trade_levels, so the badge is empty.
       tradeLevels: [],
       frozenTradeLevel: null,

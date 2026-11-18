@@ -18,7 +18,10 @@ export interface MaterializeResult {
   reachTotal: number;
   reachTier1: number;
   reachTier2: number;
-  /** E13 — the posting reaches nobody. Publishing into a void. */
+  /**
+   * E13 — the posting reaches nobody. Publishing into a void. Always false for a posting outside
+   * the BadaBhai audience (#2746): its empty reach is what its company asked for, not a void.
+   */
   zeroReach: boolean;
 }
 
@@ -129,7 +132,7 @@ export class PublishReachService {
       reachTotal: counts.total,
       reachTier1: counts.tier1,
       reachTier2: counts.total - counts.tier1,
-      zeroReach: counts.total === 0,
+      zeroReach: existing.reachesBadaBhaiWorkers && counts.total === 0,
     };
 
     const materialized: PayloadInputOf<"job_posting.reach_materialized"> = {
@@ -152,8 +155,31 @@ export class PublishReachService {
     });
 
     await this.emitScopedIfDropped(jobPostingId, input, resolved, ctx);
-    await this.emitAlertIfShort(result, ctx);
+    if (existing.reachesBadaBhaiWorkers) await this.emitAlertIfShort(result, ctx);
     return result;
+  }
+
+  /**
+   * #2746 — a company moved a posting OUTSIDE the BadaBhai audience (or changed an RVM-only
+   * posting's targeting) and no publish / skill rebuild ran for that edit: re-run the one reach
+   * core over the posting's STORED sets, WHATEVER ITS STATUS. D5's full run visits `open`
+   * postings only and `--job-posting-id` refuses a non-live one, so nothing else cleans a draft,
+   * closed or suspended posting's rows, and nothing else cleans a paused one without an operator.
+   *
+   * The core reads the audience itself, under `FOR SHARE`: an RVM-only posting is purged, and one
+   * whose audience moved back meanwhile is rebuilt rather than wiped. Nothing is resolved, no
+   * `job_postings` column is written, and no event or alert is emitted — the change that caused
+   * this is `job_posting.audience_set`; the rows are a rebuildable cache. Returns the rows left.
+   */
+  async reconcileAudience(jobPostingId: string): Promise<number> {
+    const existing = await this.repo.findPostingSkillSets(jobPostingId);
+    if (!existing) return 0; // gone: its rows went with it (FK cascade)
+    await this.repo.materializeReachForPosting(
+      jobPostingId,
+      existing.matchSkillIds,
+      existing.reachSkillIds,
+    );
+    return (await this.repo.countReachForPosting(jobPostingId)).total;
   }
 
   /**
@@ -298,9 +324,9 @@ export class PublishReachService {
       reachTotal: after.total,
       reachTier1: after.tier1,
       reachTier2: after.total - after.tier1,
-      zeroReach: after.total === 0,
+      zeroReach: existing.reachesBadaBhaiWorkers && after.total === 0,
     };
-    await this.emitAlertIfShort(result, ctx);
+    if (existing.reachesBadaBhaiWorkers) await this.emitAlertIfShort(result, ctx);
     return result;
   }
 
@@ -438,12 +464,14 @@ export class PublishReachService {
           reachTotal: after.total,
           reachTier1: after.tier1,
           reachTier2: after.total - after.tier1,
-          zeroReach: after.total === 0,
+          zeroReach: existing.reachesBadaBhaiWorkers && after.total === 0,
         };
-        await this.emitAlertIfShort(result, {
-          correlationId: randomUUID(),
-          requestId: "reach-widen-expiry-sweep",
-        } as RequestContext);
+        if (existing.reachesBadaBhaiWorkers) {
+          await this.emitAlertIfShort(result, {
+            correlationId: randomUUID(),
+            requestId: "reach-widen-expiry-sweep",
+          } as RequestContext);
+        }
       }
 
       await this.widenRepo.markRetracted(rows.map((r) => r.id));
@@ -463,6 +491,11 @@ export class PublishReachService {
    *
    * Keyed idempotently on (posting, reason) so a republish of a still-thin posting
    * does not spam the spine with the same alert.
+   *
+   * #2746 — NOT CALLED for a posting whose audience excludes BadaBhai workers (`rvm_students`):
+   * its reach is empty by design, so the alert (and its warn line) would page someone for a
+   * posting doing exactly what its company asked. `job_posting.reach_materialized` still records
+   * the zero. Every caller gates on `findPostingSkillSets().reachesBadaBhaiWorkers`.
    */
   private async emitAlertIfShort(result: MaterializeResult, ctx: RequestContext): Promise<void> {
     const reason: "zero_reach" | "no_tier1_reach" | null =

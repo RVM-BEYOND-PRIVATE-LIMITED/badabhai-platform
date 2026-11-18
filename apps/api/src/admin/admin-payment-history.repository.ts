@@ -93,6 +93,7 @@ export class AdminPaymentHistoryRepository {
       this.db
         .select({
           id: paymentOrders.id,
+          productKind: paymentOrders.productKind,
           packCode: paymentOrders.packCode,
           amountInr: paymentOrders.amountInr,
           creditsGranted: paymentOrders.creditsGranted,
@@ -179,7 +180,8 @@ export class AdminPaymentHistoryRepository {
         id: `payment_order:${o.id}`,
         date: o.createdAt,
         type: "payment_order",
-        item: o.packCode,
+        // A credit-pack order always names its pack; a non-pack order (#2751) its product kind.
+        item: o.packCode ?? o.productKind,
         credits: o.creditsGranted,
         amount_inr: o.amountInr,
         status: o.status,
@@ -191,14 +193,36 @@ export class AdminPaymentHistoryRepository {
       });
     }
     for (const l of ledger) {
+      // #2750 item 5 — a `waived` line moved no credit and took no payment (a free open the
+      // placement team's waiver paid for): it is not part of a payment history.
+      if (l.reason === "waived") continue;
+      // #2749 — `expired` (a lot's unspent credits removed at its date) is its own kind, so it
+      // is never counted as credits USED (the totals sum only `credit_spend`).
+      // #2750 item 4 — `welcome` is a free grant too: it is never credits USED.
+      // #2754 item 9 — so is `campus_conversion`, a moved company's unused Campus balance.
+      // #2750 item 7 — `returned` (a couldn't-reach case gave the credits back) is a refund.
+      // #2754 item 14 — `campus_conversion_reversed` (a rollback took that balance back unspent)
+      // is a removal like `expired`, never credits used.
       const type =
         l.reason === "pack_purchase"
           ? "credit_purchase"
-          : l.reason === "grant"
+          : l.reason === "grant" ||
+              l.reason === "welcome" ||
+              l.reason === "campus_conversion" ||
+              // #2750 item 11 — an admin grant under the credit rules is a grant too.
+              l.reason === "goodwill" ||
+              l.reason === "correction" ||
+              // #2750 item 9 — expired credits given back with the next paid pack: a grant.
+              l.reason === "pack_return"
             ? "credit_grant"
-            : l.reason === "refund"
+            : l.reason === "refund" || l.reason === "returned"
               ? "credit_refund"
-              : "credit_spend";
+              : l.reason === "expired" ||
+                  l.reason === "campus_conversion_reversed" ||
+                  // #2750 item 10 — a refund took the pack's unused credits back: a removal.
+                  l.reason === "pack_refund"
+                ? "credit_expired"
+                : "credit_spend";
       items.push({
         id: `${type}:${l.id}`,
         date: l.createdAt,

@@ -478,6 +478,9 @@ importers:
       '@badabhai/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@badabhai/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(gel@2.2.0)(postgres@3.4.9)

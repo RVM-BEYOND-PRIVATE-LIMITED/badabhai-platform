@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import type { Worker } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { OtpSendCapExceededException } from "../common/otp-send-cap";
@@ -358,6 +359,69 @@ export class AuthService {
   }
 
   /**
+   * The worker who holds this phone's keyed hash, created on a read-miss. Atomic insert-or-get:
+   * two concurrent first-time logins can both miss, so a plain insert would 23505 on the unique
+   * phone_hash (TD23). `isNew` is true only for the request that actually inserted, so the
+   * one-time worker.created event can't be double-emitted on a race.
+   */
+  private async findOrCreateForPhone(
+    phone: string,
+    phoneHash: string,
+    ctx: RequestContext,
+  ): Promise<{ worker: Worker; isNew: boolean }> {
+    const existing = await this.workers.findByPhoneHash(phoneHash);
+    if (existing) return { worker: existing, isNew: false };
+
+    const result = await this.workers.createOrGetByPhoneHash({
+      // Stored encrypted at rest (AES-256-GCM); key lives only in backend config.
+      phoneE164: this.pii.encrypt(phone),
+      phoneHash,
+      status: "active",
+      // A5 — the plaintext number is in hand only here, so the test-traffic
+      // marker is decided here: reserved synthetic range ⇒ test account.
+      isTestAccount: isSyntheticTestPhone(phone),
+    });
+    if (result.created) {
+      await this.events.emit({
+        event_name: "worker.created",
+        actor: { actor_type: "worker", actor_id: result.worker.id },
+        subject: { subject_type: "worker", subject_id: result.worker.id },
+        payload: { worker_id: result.worker.id, phone_hash: phoneHash, status: "active" },
+        idempotencyKey: `worker.created:${result.worker.id}`,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    }
+    return { worker: result.worker, isNew: result.created };
+  }
+
+  /**
+   * Activates a `pending` row that still holds this phone and emits its `worker.created`, in one
+   * transaction (#2752). Undefined when the row is no longer pending on this phone.
+   */
+  private async activatePending(
+    pendingId: string,
+    phoneHash: string,
+    ctx: RequestContext,
+  ): Promise<Worker | undefined> {
+    return this.workers.withTransaction(async (tx) => {
+      const row = await this.workers.activatePending(pendingId, phoneHash, tx);
+      if (!row) return undefined;
+      await this.events.emit({
+        event_name: "worker.created",
+        actor: { actor_type: "worker", actor_id: row.id },
+        subject: { subject_type: "worker", subject_id: row.id },
+        payload: { worker_id: row.id, phone_hash: phoneHash, status: "active" },
+        idempotencyKey: `worker.created:${row.id}`,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+        tx,
+      });
+      return row;
+    });
+  }
+
+  /**
    * The POST-VERIFICATION login mint for a PHONE — the seam both {@link verifyOtp} (after a
    * real OTP verify) and {@link testLogin} (after the TestLoginGuard gate) drive.
    * Create-or-get the worker for the phone's keyed hash (TD23 race-safe, emitting
@@ -377,36 +441,29 @@ export class AuthService {
   }> {
     const phoneHash = this.pii.hashPhone(phone);
 
-    let worker = await this.workers.findByPhoneHash(phoneHash);
-    let isNew = false;
+    let { worker, isNew } = await this.findOrCreateForPhone(phone, phoneHash, ctx);
 
-    if (!worker) {
-      // Read-miss → atomic insert-or-get. Two concurrent first-time logins can
-      // both reach here, so a plain insert would 23505 on the unique phone_hash
-      // (TD23). `created` is true only for the request that actually inserted,
-      // so the one-time worker.created event can't be double-emitted on a race.
-      const result = await this.workers.createOrGetByPhoneHash({
-        // Stored encrypted at rest (AES-256-GCM); key lives only in backend config.
-        phoneE164: this.pii.encrypt(phone),
-        phoneHash,
-        status: "active",
-        // A5 — the plaintext number is in hand only here, so the test-traffic
-        // marker is decided here: reserved synthetic range ⇒ test account.
-        isTestAccount: isSyntheticTestPhone(phone),
-      });
-      worker = result.worker;
-      isNew = result.created;
-
-      if (result.created) {
-        await this.events.emit({
-          event_name: "worker.created",
-          actor: { actor_type: "worker", actor_id: worker.id },
-          subject: { subject_type: "worker", subject_id: worker.id },
-          payload: { worker_id: worker.id, phone_hash: phoneHash, status: "active" },
-          idempotencyKey: `worker.created:${worker.id}`,
-          correlationId: ctx.correlationId,
-          requestId: ctx.requestId,
-        });
+    // #2752 — a row the Campus link created for an RVM student is `pending`: he has never signed
+    // in, so `worker.created` never fired. His first sign-in makes him active and emits it, once,
+    // in one transaction, so the funnel and the journey count him from today. The consent gate is
+    // untouched: no `worker_consents` row exists for him, so BadaBhai's own notice still shows.
+    if (!isNew && worker.status === "pending") {
+      const activated = await this.activatePending(worker.id, phoneHash, ctx);
+      if (activated) {
+        worker = activated;
+      } else {
+        // The row changed between the read above and the activation: a concurrent sign-in
+        // activated it, the Campus link moved it to RVM's new number, or a Campus unlink deleted
+        // it (#2752). Resolve THIS phone again, so the session names the row that holds it now and
+        // never the stale one: a moved row belongs to the new number, not to whoever proved the
+        // old one.
+        ({ worker, isNew } = await this.findOrCreateForPhone(phone, phoneHash, ctx));
+        if (!isNew && worker.status === "pending") {
+          const again = await this.activatePending(worker.id, phoneHash, ctx);
+          // Two misses in a row is churn nothing legitimate causes; refuse rather than guess.
+          if (!again) throw new ServiceUnavailableException("sign-in could not be completed");
+          worker = again;
+        }
       }
     }
 

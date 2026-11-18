@@ -47,8 +47,8 @@ export interface AttentionInput {
   health: { environment: string; checks: Record<string, string> } | null;
   /** false when the operator has no read_events capability. */
   mayReadEvents: boolean;
-  /** false when the operator has no read_entities capability — i.e. cannot open /feedback. */
-  mayReadEntities: boolean;
+  /** false when the operator has no read_identity capability — i.e. cannot open /feedback (#2926). */
+  mayReadFeedback: boolean;
   /** true when the metrics read was attempted and rejected (as opposed to not attempted). */
   metricsFailed: boolean;
   /** true when the recent-events read was attempted and rejected. */
@@ -170,7 +170,7 @@ export function buildAdminAttention(input: AttentionInput): AttentionItem[] {
   const arrived = eventCount("feedback.submitted");
   // Gated on the capability the Feedback screen itself declares: an item whose entire content
   // is "go and read this" is noise to an operator the route would turn away.
-  if (input.mayReadEntities && arrived > 0 && eventCount("admin.feedback_viewed") === 0) {
+  if (input.mayReadFeedback && arrived > 0 && eventCount("admin.feedback_viewed") === 0) {
     items.push({
       id: "feedback-unread",
       tone: "info",

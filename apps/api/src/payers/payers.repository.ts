@@ -1,9 +1,11 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { type Database, payers, type Payer, type PayerRole, type PayerStatus } from "@badabhai/db";
+import { restampCompanyDriveRequests } from "../campus-drives/campus-drive-feed-stamp";
 import { DATABASE } from "../database/database.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { NameTokenService } from "../admin/candidate-index/name-token.service";
+import { dropStalePhoneProof } from "./payer-phone-proofs.repository";
 
 /**
  * The pepper version that produced a row's `password_hash` (#2497). Defined once in
@@ -321,14 +323,23 @@ export class PayersRepository {
    *
    * Returns the row ONLY when it actually moved, so the caller emits `payer.activated`
    * exactly once per payer and every subsequent login is a silent no-op.
+   *
+   * #2746 PR 6 — `active` is part of a company's standing on Campus's drive feed (owner ruling
+   * R2), so a moved row re-stamps the drive requests keyed on it, in the same transaction (the
+   * caller's, or one of its own when it passes none).
    */
   async activate(id: string, tx?: Database): Promise<{ id: string } | undefined> {
-    const [row] = await (tx ?? this.db)
-      .update(payers)
-      .set({ status: "active", updatedAt: new Date() })
-      .where(and(eq(payers.id, id), eq(payers.status, "pending")))
-      .returning({ id: payers.id });
-    return row;
+    const run = async (executor: Database): Promise<{ id: string } | undefined> => {
+      const [row] = await executor
+        .update(payers)
+        .set({ status: "active", updatedAt: new Date() })
+        .where(and(eq(payers.id, id), eq(payers.status, "pending")))
+        .returning({ id: payers.id });
+      if (row) await restampCompanyDriveRequests(executor, row.id);
+      return row;
+    };
+    if (tx !== undefined) return run(tx);
+    return this.db.transaction((own) => run(own as unknown as Database));
   }
 
   /**
@@ -342,12 +353,36 @@ export class PayersRepository {
    * never write another payer's row. An unknown id matches no row and returns `undefined`
    * (the service maps that to a neutral 404 — no existence oracle). Returns the UPDATED row
    * (ciphertext; decrypt via {@link decryptContact}) so the caller re-derives the masked DTO.
+   *
+   * #2754 item 3 — a phone in `patch` also drops the account's phone PROOF in the same transaction
+   * ({@link updateContact}); this is that method without the changed-phone bit.
    */
   async update(
     id: string,
     patch: { orgName?: string; phone?: string },
     tx?: Database,
   ): Promise<Payer | undefined> {
+    return (await this.updateContact(id, patch, tx))?.row;
+  }
+
+  /**
+   * {@link update}, also saying whether the PHONE actually changed (its keyed hash moved), so the
+   * caller can send the security notice for a real change and not for the same number saved again.
+   *
+   * #2754 item 3 — A PHONE CHANGE DROPS THE PROOF. This is the ONE writer of `payers.phone_hash`
+   * on an existing account (the inserts in {@link create} / {@link createOrGet} make a NEW row,
+   * which has no proof). With a phone in `patch` it runs in ONE transaction (the caller's, or its
+   * own): lock the row `FOR UPDATE` (the lock a phone-proof write takes, so the two serialise) and
+   * read the old hash, write the new phone, then {@link dropStalePhoneProof} — the proof survives
+   * only if it still names the new hash, i.e. the same number. So a new number starts unproven and
+   * cannot sign anyone in by SMS until the company proves it again. The drop runs in a savepoint
+   * that tolerates a missing `payer_phone_proofs` (deploy ahead of its migration).
+   */
+  async updateContact(
+    id: string,
+    patch: { orgName?: string; phone?: string },
+    tx?: Database,
+  ): Promise<{ row: Payer; phoneChanged: boolean } | undefined> {
     const set: Partial<typeof payers.$inferInsert> = { updatedAt: new Date() };
     if (patch.orgName !== undefined) {
       set.orgNameEnc = this.pii.encrypt(patch.orgName);
@@ -357,16 +392,35 @@ export class PayersRepository {
       // #2564 - and so do the company-name search tokens.
       Object.assign(set, this.orgNameTokens(patch.orgName));
     }
-    if (patch.phone !== undefined) {
-      set.phoneEnc = this.pii.encrypt(patch.phone);
-      set.phoneHash = this.pii.hashPhone(patch.phone);
+    if (patch.phone === undefined) {
+      const [row] = await (tx ?? this.db)
+        .update(payers)
+        .set(set)
+        .where(eq(payers.id, id))
+        .returning();
+      return row ? { row, phoneChanged: false } : undefined;
     }
-    const [row] = await (tx ?? this.db)
-      .update(payers)
-      .set(set)
-      .where(eq(payers.id, id))
-      .returning();
-    return row;
+    set.phoneEnc = this.pii.encrypt(patch.phone);
+    set.phoneHash = this.pii.hashPhone(patch.phone);
+    const work = async (db: Database) => {
+      const [before] = await db
+        .select({ phoneHash: payers.phoneHash })
+        .from(payers)
+        .where(eq(payers.id, id))
+        .limit(1)
+        .for("update");
+      if (!before) return undefined;
+      const [row] = await db.update(payers).set(set).where(eq(payers.id, id)).returning();
+      if (!row) return undefined;
+      // Unconditional on purpose: a proof that names any other hash is stale whoever left it.
+      await dropStalePhoneProof(db, id, row.phoneHash);
+      return { row, phoneChanged: before.phoneHash !== row.phoneHash };
+    };
+    return tx
+      ? work(tx)
+      : this.db.transaction(
+          work as (tx: unknown) => Promise<{ row: Payer; phoneChanged: boolean } | undefined>,
+        );
   }
 
   /** Look up a payer by login email via the keyed hash (never scans plaintext). */

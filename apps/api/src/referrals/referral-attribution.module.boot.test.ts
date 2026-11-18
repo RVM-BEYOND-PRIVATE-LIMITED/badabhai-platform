@@ -139,6 +139,19 @@ describe("ReferralAttributionModule wiring (attribution seam DI regression guard
     expect(getMeta("exports", AgencyModule)).toContain(AgencyService);
   });
 
+  it("#2753 item 12 — declares the came-from repository and GET /referrals/helper with its providers", () => {
+    const controllers = getMeta("controllers", ReferralAttributionModule).map((c) =>
+      typeof c === "function" ? c.name : c,
+    );
+    expect(controllers).toContain("ReferralHelperController");
+    const providers = getMeta("providers", ReferralAttributionModule).map((p) =>
+      typeof p === "function" ? p.name : p,
+    );
+    expect(providers).toContain("WorkerOriginRepository");
+    expect(providers).toContain("ReferralHelperNameService");
+    expect(providers).toContain("ReferralHelperNameRepository");
+  });
+
   it("POST /referrals/attribute is guarded by WorkerAuthGuard (session worker id, not body)", () => {
     const guards = getMeta("__guards__", ReferralAttributionController.prototype.attribute);
     expect(guards).toEqual([WorkerAuthGuard]);

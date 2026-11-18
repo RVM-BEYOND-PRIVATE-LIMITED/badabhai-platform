@@ -6,6 +6,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { DatabaseModule } from "../database/database.module";
 import { PayersRepository } from "./payers.repository";
+import { PayerPhoneProofsRepository } from "./payer-phone-proofs.repository";
 import { NameTokenService } from "../admin/candidate-index/name-token.service";
 import { PayerOrgsRepository } from "./payer-orgs.repository";
 import { PayerTenantScopeService } from "./payer-tenant-scope.service";
@@ -22,6 +23,7 @@ import { PayerOrgRoleGuard } from "./payer-org-role.guard";
 import { PayerAccountService } from "./payer-account.service";
 import { PayerAccountDeletionService } from "./payer-account-deletion.service";
 import { PayerAccountController } from "./payer-account.controller";
+import { CampusDriveContactErasureRepository } from "../campus-drives/campus-drive-contact-erasure.repository";
 
 /**
  * Payer portal — IDENTITY + TENANCY FOUNDATION (ADR-0019 Phase 1, mock/staging-only).
@@ -77,10 +79,16 @@ import { PayerAccountController } from "./payer-account.controller";
     PayerOrgRoleGuard,
     PayerAccountService,
     PayerAccountDeletionService,
+    // #2746 PR 6 — the account deletion erases the campus-drive contacts the login entered.
+    // Provided here, not imported: CampusDrivesModule imports this module.
+    CampusDriveContactErasureRepository,
     PayerTenantScopeService,
+    // #2754 item 3 — which company proved which phone (the SMS sign-in rule and the proof routes).
+    PayerPhoneProofsRepository,
   ],
   exports: [
     PayersRepository,
+    PayerPhoneProofsRepository,
     PayerOrgsRepository,
     PayerSessionService,
     PayerPasswordStateService,

@@ -37,6 +37,8 @@ describe("#2562 — suspension exemptions are wired to the exact DPDP routes", (
     ["AuthController.session", AuthController.prototype.session],
     ["ConsentController.accept", ConsentController.prototype.accept],
     ["ConsentController.mine", ConsentController.prototype.mine],
+    // #2753 item 13 — a read of the notice facts, not a DPDP exit.
+    ["ConsentController.notice", ConsentController.prototype.notice],
   ] as const;
 
   it.each(refused)("%s does NOT carry @AllowSuspended (stays refused)", (_name, handler) => {

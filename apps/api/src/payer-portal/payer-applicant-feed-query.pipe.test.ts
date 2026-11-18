@@ -45,9 +45,12 @@ describe("PayerApplicantFeedQueryPipe — flag ON adds the optional stage filter
     expect(pipe(true).transform({})).toEqual({ stage: "new" });
   });
 
-  it.each(["new", "shortlist", "passed", "all"] as const)("?stage=%s parses", (stage) => {
-    expect(pipe(true).transform({ stage })).toEqual({ stage });
-  });
+  it.each(["new", "shortlist", "passed", "selected", "hired", "all"] as const)(
+    "?stage=%s parses",
+    (stage) => {
+      expect(pipe(true).transform({ stage })).toEqual({ stage });
+    },
+  );
 
   it.each([
     [{ stage: "contacted" }],

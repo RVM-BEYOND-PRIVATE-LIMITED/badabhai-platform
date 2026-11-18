@@ -813,16 +813,62 @@ class HttpPayerApiClient implements PayerApiClient {
     // Same rule disclose() already states: a non-2xx must NOT decode to the
     // neutral-deny copy.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    // #2750 — the honest, distinguishable refusal for a company under the credit
+    // rules. Nothing was opened or debited; it says nothing about the worker.
+    if (res.body['status'] == 'insufficient_credits') {
+      final Object? needed = res.body['credits_needed'];
+      final Object? available = res.body['credits_available'];
+      if (needed is num &&
+          needed.isFinite &&
+          needed >= 0 &&
+          available is num &&
+          available.isFinite &&
+          available >= 0) {
+        return UnlockResult.insufficient(
+          creditsNeeded: needed.toInt(),
+          creditsAvailable: available.toInt(),
+        );
+      }
+      return const UnlockResult.unavailable();
+    }
+    if (res.body['status'] == 'worker_unavailable_this_week') {
+      return const UnlockResult.weekLimit();
+    }
+    if (res.body['status'] == 'daily_limit_reached') {
+      final Object? limit = res.body['daily_limit'];
+      return UnlockResult.dailyLimitReached(
+        limit is num && limit.isFinite && limit > 0 ? limit.toInt() : 0,
+      );
+    }
     // Money denials come back as HTTP 200 {status:"unavailable"} — never trust
     // the status/HTTP code alone: a grant MUST carry a real unlock_id.
     final String? unlockId = res.body['unlock_id'] as String?;
     if (unlockId == null || unlockId.isEmpty) {
       return const UnlockResult.unavailable();
     }
+    final Object? charged = res.body['credits_charged'];
     return UnlockResult.granted(
       unlockId: unlockId,
       expiresAt: res.body['expires_at'] as String?,
+      creditsCharged:
+          charged is num && charged.isFinite && charged >= 0 ? charged.toInt() : null,
     );
+  }
+
+  @override
+  Future<UnlockQuotes?> fetchUnlockQuotes(List<String> workerIds) async {
+    if (workerIds.isEmpty) return null;
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/unlocks/quotes',
+      body: <String, dynamic>{'worker_ids': workerIds},
+    );
+    // 404 is the documented "this company is outside the credit rules": keep today's button.
+    if (res.statusCode == 404) return null;
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final UnlockQuotes? quotes = UnlockQuotes.tryFromJson(res.body);
+    if (quotes == null) throw PayerApiException(res.statusCode);
+    return quotes;
   }
 
   @override

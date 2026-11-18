@@ -36,9 +36,16 @@ abstract final class TabIndex {
 /// that boundary is exactly the kind of thing that breaks quietly.
 class TabFocus extends ValueNotifier<int> {
   TabFocus([super.initialIndex = TabIndex.jobs]);
+
+  /// Re-announces the visible tab without changing it, so its
+  /// [TabFocusRefetch] roots refetch exactly as on a return to it — for a
+  /// write made OVER the visible tab (a bottom sheet) that changed what it
+  /// shows.
+  void refocus() => notifyListeners();
 }
 
-/// Calls [onFocused] whenever [index] becomes the active tab.
+/// Calls [onFocused] whenever [index] becomes the active tab, or is
+/// re-announced while active ([TabFocus.refocus]).
 ///
 /// Wrap a tab ROOT with this to refetch on tab switch. It fires on CHANGE only,
 /// never on mount: a branch's first build already loads via its `create:`, and

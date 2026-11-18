@@ -18,8 +18,9 @@ describe("readAccountSecurity's parsing", () => {
         has_password: true,
         must_change_password: false,
         mfa_enabled: true,
+        mfa_required: true,
       }),
-    ).toEqual({ hasPassword: true, mustChangePassword: false, mfaEnabled: true });
+    ).toEqual({ hasPassword: true, mustChangePassword: false, mfaEnabled: true, mfaRequired: true });
   });
 
   it("an older API (fields absent) is 'not reported', never a guessed false", () => {
@@ -27,6 +28,8 @@ describe("readAccountSecurity's parsing", () => {
       hasPassword: null,
       mustChangePassword: false,
       mfaEnabled: null,
+      // #2924 — absent reads as not required; the server still refuses a switch-off on its own.
+      mfaRequired: false,
     });
   });
 
@@ -35,6 +38,7 @@ describe("readAccountSecurity's parsing", () => {
       hasPassword: true,
       mustChangePassword: true,
       mfaEnabled: false,
+      mfaRequired: false,
     });
   });
 

@@ -5,7 +5,9 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
+  Optional,
 } from "@nestjs/common";
+import { WelcomeCreditsService } from "../../credit-rules/welcome-credits.service";
 import type { CompanyChangedField, PayloadInputOf } from "@badabhai/event-schema";
 import type { Database, PayerRole } from "@badabhai/db";
 import type { RequestContext } from "../../common/request-context";
@@ -74,6 +76,9 @@ export class AdminCompaniesService {
     private readonly sessions: PayerSessionService,
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
+    // #2750 item 4 — an approval or a GSTIN can make the company eligible for welcome credits.
+    // Optional only so hand-built unit instances keep compiling; Nest always injects it.
+    @Optional() private readonly welcome?: WelcomeCreditsService,
   ) {}
 
   // ----- reads -----------------------------------------------------------------
@@ -270,7 +275,17 @@ export class AdminCompaniesService {
         ctx,
       );
       await this.emitAction(tx, admin.id, ADMIN_ACTION_CODES.company_updated, id, ctx);
+      if ("verification_status" in profileChanges || "gst_number" in profileChanges) {
+        // #2746 PR 6 (security re-check L1) — LAST statement before the commit: re-stamp the
+        // company's drive requests so the changed_at Campus sees is taken after everything above
+        // (Campus re-reads a two-minute window behind its last changed_at).
+        await this.repo.restampDriveRequests(tx, id);
+      }
     });
+    // #2750 item 4 — AFTER the edit committed; never fails it (the service logs and returns).
+    if ("verification_status" in profileChanges || "gst_number" in profileChanges) {
+      await this.welcome?.afterCompanyUpdated(id, ctx);
+    }
     return { company_id: id, changed: true };
   }
 
@@ -299,6 +314,8 @@ export class AdminCompaniesService {
       const locked = await this.repo.lockRoot(id, tx);
       if (!locked || locked.status === "archived") return;
       const logins = [id, ...(await this.repo.teamLoginIds(id, tx))];
+      // #2746 PR 6 (migration re-check F1) — every login's row, in id order, before any write.
+      await this.repo.lockLogins(logins, tx);
       for (const payerId of logins) {
         const moved = await this.repo.archiveLogin(payerId, tx);
         if (!moved) continue;
@@ -334,6 +351,10 @@ export class AdminCompaniesService {
         metadata: { logins_archived: archived.length, previous_status: company.status },
       });
       await this.emitAction(tx, admin.id, ADMIN_ACTION_CODES.company_archived, id, ctx);
+      // #2746 PR 6 (security re-check L1) — LAST statement before the commit: re-stamp the
+      // company's drive requests so the changed_at Campus sees is taken after everything above
+      // (Campus re-reads a two-minute window behind its last changed_at).
+      for (const payerId of archived) await this.repo.restampDriveRequests(tx, payerId);
     });
 
     if (archived.length === 0) return { company_id: id, changed: false };
@@ -357,15 +378,17 @@ export class AdminCompaniesService {
     if (!company) throw new NotFoundException("Company not found");
     if (company.status !== "archived") return { company_id: id, changed: false };
 
-    let restored = 0;
+    const restored: string[] = [];
     await this.repo.withTransaction(async (tx) => {
       const locked = await this.repo.lockRoot(id, tx);
       if (!locked || locked.status !== "archived") return;
       const logins = [id, ...(await this.repo.teamLoginIds(id, tx))];
+      // #2746 PR 6 (migration re-check F1) — every login's row, in id order, before any write.
+      await this.repo.lockLogins(logins, tx);
       for (const payerId of logins) {
         const moved = await this.repo.restoreLogin(payerId, tx);
         if (!moved) continue;
-        restored += 1;
+        restored.push(payerId);
         await this.emitDomain(
           tx,
           "payer.restored",
@@ -396,11 +419,15 @@ export class AdminCompaniesService {
         action: ADMIN_ACTION_CODES.company_restored,
         reasonCode: dto.reason_code,
         reasonText: dto.reason_text,
-        metadata: { logins_restored: restored },
+        metadata: { logins_restored: restored.length },
       });
       await this.emitAction(tx, admin.id, ADMIN_ACTION_CODES.company_restored, id, ctx);
+      // #2746 PR 6 (security re-check L1) — LAST statement before the commit: re-stamp the
+      // company's drive requests so the changed_at Campus sees is taken after everything above
+      // (Campus re-reads a two-minute window behind its last changed_at).
+      for (const payerId of restored) await this.repo.restampDriveRequests(tx, payerId);
     });
-    return { company_id: id, changed: restored > 0 };
+    return { company_id: id, changed: restored.length > 0 };
   }
 
   // ----- helpers ---------------------------------------------------------------

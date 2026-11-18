@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import {
   GUARDS_METADATA,
+  HEADERS_METADATA,
   HTTP_CODE_METADATA,
   METHOD_METADATA,
   PATH_METADATA,
@@ -28,6 +29,7 @@ import {
 import {
   ApplicantStageParamsSchema,
   SetApplicantStageSchema,
+  type ApplicantStageOptionsDto,
   type SetApplicantStageResponseDto,
 } from "./payer-applicant-stage.dto";
 
@@ -53,11 +55,19 @@ function makeCtrl() {
     previousStage: "new",
     changed: true,
   };
-  const stages = { setStage: vi.fn(async () => out) };
+  const options: ApplicantStageOptionsDto = {
+    stages: ["new", "shortlist", "passed", "selected", "hired"],
+    outcomeStages: true,
+    rvmSignal: false,
+  };
+  const stages = {
+    setStage: vi.fn(async () => out),
+    stageOptions: vi.fn(async (_payerId: string) => options),
+  };
   const rateLimit = { assertWithinHourlyCap: vi.fn(async () => undefined) };
   const config = { PAYER_APPLICANT_STAGE_MAX_PER_HOUR: 600 } as unknown as ServerConfig;
   const ctrl = new PayerApplicantStageController(stages as never, rateLimit as never, config);
-  return { ctrl, stages, rateLimit, out };
+  return { ctrl, stages, rateLimit, out, options };
 }
 
 /**
@@ -175,9 +185,9 @@ describe("the route's validation (the pipes the decorators run)", () => {
   const params = new ZodValidationPipe(ApplicantStageParamsSchema);
   const body = new ZodValidationPipe(SetApplicantStageSchema);
 
-  it("accepts the two uuids and each of the three stages", () => {
+  it("accepts the two uuids and each of the five stages (the outcome switch is the service check, #2747)", () => {
     expect(params.transform(PARAMS)).toEqual(PARAMS);
-    for (const stage of ["new", "shortlist", "passed"]) {
+    for (const stage of ["new", "shortlist", "passed", "selected", "hired"]) {
       expect(body.transform({ stage })).toEqual({ stage });
     }
   });
@@ -229,5 +239,33 @@ describe("the route's validation is WIRED: both decorators carry their ZodValida
     expect(pipes).toHaveLength(1);
     expect(pipes[0]).toBeInstanceOf(ZodValidationPipe);
     expect(Reflect.get(pipes[0] as object, "schema")).toBe(SetApplicantStageSchema);
+  });
+});
+
+describe("GET payer/reach/applicant-stages (#2747, #2852) — the board's options for this company", () => {
+  it("is GET payer/reach/applicant-stages, behind the same two guards, sent no-store", () => {
+    const handler = PayerApplicantStageController.prototype.stageOptions;
+    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe("applicant-stages");
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(RequestMethod.GET);
+    expect(Reflect.getMetadata(HEADERS_METADATA, handler)).toEqual([
+      { name: "Cache-Control", value: "no-store" },
+    ]);
+    // Class-level: 401 first, then 404 while the board is off.
+    expect(Reflect.getMetadata(GUARDS_METADATA, PayerApplicantStageController)).toEqual([
+      PayerAuthGuard,
+      PayerApplicantStagesEnabledGuard,
+    ]);
+  });
+
+  it("delegates with the SESSION payer id only, and returns the answer verbatim", async () => {
+    const d = makeCtrl();
+    await expect(d.ctrl.stageOptions(PAYER_A)).resolves.toBe(d.options);
+    expect(d.stages.stageOptions).toHaveBeenCalledWith(PAYER_A.id);
+  });
+
+  it("is not charged to the write cap (a read, like GET payer/me/display-prefs)", async () => {
+    const d = makeCtrl();
+    await d.ctrl.stageOptions(PAYER_A);
+    expect(d.rateLimit.assertWithinHourlyCap).not.toHaveBeenCalled();
   });
 });

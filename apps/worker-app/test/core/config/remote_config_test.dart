@@ -167,6 +167,8 @@ void main() {
         BbRemoteConfig.kKeyFreeQuotaCopy,
         BbRemoteConfig.kKeyChatCompanionEnabled,
         BbRemoteConfig.kKeyChatCompanionV2Enabled,
+        BbRemoteConfig.kKeyAvailabilityPromptEnabled,
+        BbRemoteConfig.kKeyFreeForWorkersLineVisible,
       ];
       for (final String key in declared) {
         expect(BbRemoteConfig.kDefaults.containsKey(key), isTrue,
@@ -193,6 +195,34 @@ void main() {
           BbRemoteConfig.kDefaultChatCompanionEnabled);
       expect(BbRemoteConfig.kDefaults[BbRemoteConfig.kKeyChatCompanionV2Enabled],
           BbRemoteConfig.kDefaultChatCompanionV2Enabled);
+      expect(
+          BbRemoteConfig.kDefaults[BbRemoteConfig.kKeyAvailabilityPromptEnabled],
+          BbRemoteConfig.kDefaultAvailabilityPromptEnabled);
+      expect(
+          BbRemoteConfig.kDefaults[BbRemoteConfig.kKeyFreeForWorkersLineVisible],
+          BbRemoteConfig.kDefaultFreeForWorkersLineVisible);
+    });
+
+    test('#2748: the availability prompt and the free line ship DARK', () {
+      BbRemoteConfig.instance.debugReset();
+      expect(BbRemoteConfig.instance.availabilityPromptEnabled, isFalse,
+          reason: 'never fetched — the shell must not ask');
+      expect(BbRemoteConfig.instance.freeForWorkersLineVisible, isFalse,
+          reason: 'never fetched — no free line');
+      BbRemoteConfig.instance.debugSetSnapshot(<String, Object>{
+        BbRemoteConfig.kKeyAvailabilityPromptEnabled: true,
+        BbRemoteConfig.kKeyFreeForWorkersLineVisible: true,
+      });
+      expect(BbRemoteConfig.instance.availabilityPromptEnabled, isTrue);
+      expect(BbRemoteConfig.instance.freeForWorkersLineVisible, isTrue);
+      // A console value of the wrong type must not read as ON.
+      BbRemoteConfig.instance.debugSetSnapshot(<String, Object>{
+        BbRemoteConfig.kKeyAvailabilityPromptEnabled: 'true',
+        BbRemoteConfig.kKeyFreeForWorkersLineVisible: 1,
+      });
+      expect(BbRemoteConfig.instance.availabilityPromptEnabled, isFalse);
+      expect(BbRemoteConfig.instance.freeForWorkersLineVisible, isFalse);
+      BbRemoteConfig.instance.debugReset();
     });
 
     test('companion v2 ships DARK — no edit card, no task chips, no mic', () {

@@ -27,6 +27,7 @@ import { ProfilesRepository } from "../profiles/profiles.repository";
 import { AiService } from "../ai/ai.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
+import { InstituteAiGate } from "../campus-link/institute-ai-gate.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { StorageService } from "../storage/storage.service";
 import {
@@ -180,6 +181,10 @@ export class ResumeService {
     // the same processor, as the profile.confirmed auto-generate). Registered by ResumeModule.
     @InjectQueue(RESUME_GENERATE_QUEUE)
     private readonly generateQueue: Queue<ResumeGenerateJobData>,
+    // #2752 item 13 — no résumé generation for an institute student without BadaBhai's own
+    // consent. `generate` is also reached off the worker's request (the ops regenerate, an admin
+    // correction, the queue). CampusLinkModule, a one-way edge.
+    private readonly instituteAi: InstituteAiGate,
   ) {}
 
   /**
@@ -384,6 +389,8 @@ export class ResumeService {
         ? await this.resumes.now()
         : null;
 
+    // #2752 item 13 — refused before the model call, whoever asked for this generation.
+    await this.instituteAi.assertMayRunAi(dto.worker_id);
     // The AI service receives ONLY the structured profile (no name/phone).
     const result = await this.ai.generateResume({ profile: draft }, ctx);
 

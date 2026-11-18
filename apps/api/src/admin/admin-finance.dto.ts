@@ -63,7 +63,31 @@ export const AdminLedgerQuerySchema = z
   .object({
     ...pageShape,
     payerId: z.string().uuid().optional(),
-    reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant"]).optional(),
+    // #2749 adds `expired` (a lot's credits removed at its date) — the ledger's own reason set.
+    // #2750 item 4 adds `welcome` (a verified company's welcome credits, once); item 5 adds
+    // `waived` (an open the placement team's waiver paid for: a zero-credit line); item 7 adds
+    // `returned` (credits a couldn't-reach case gave back).
+    reason: z
+      .enum([
+        "pack_purchase",
+        "unlock_debit",
+        "refund",
+        "grant",
+        "expired",
+        "welcome",
+        "waived",
+        "returned",
+        "campus_conversion",
+        // #2750 item 11 — an admin grant under the credit rules.
+        "goodwill",
+        "correction",
+        "campus_conversion_reversed",
+        // #2750 item 9 — credits returned with the next real paid pack.
+        "pack_return",
+        // #2750 item 10 — an admin refund took the pack's credits back.
+        "pack_refund",
+      ])
+      .optional(),
   })
   .strict();
 export type AdminLedgerQueryDto = z.infer<typeof AdminLedgerQuerySchema>;
@@ -73,7 +97,8 @@ export const AdminOrdersQuerySchema = z
   .object({
     ...pageShape,
     payerId: z.string().uuid().optional(),
-    status: z.enum(["created", "paid", "failed"]).optional(),
+    // #2749 adds `held` (a capture of the wrong amount, parked for ops) — PAYMENT_ORDER_STATUSES.
+    status: z.enum(["created", "paid", "failed", "held"]).optional(),
   })
   .strict();
 export type AdminOrdersQueryDto = z.infer<typeof AdminOrdersQuerySchema>;
@@ -130,6 +155,11 @@ export interface AdminFinanceSummary {
   /** Orders created but never settled — the abandoned-checkout signal. */
   unsettled_orders: { count: number; amount_inr: number };
   failed_orders: { count: number };
+  /**
+   * #2749 hardening 5 — orders whose capture did not match their total: the money was TAKEN and
+   * NOTHING was granted, so each needs ops (a refund in the Razorpay dashboard). Additive.
+   */
+  held_orders: { count: number; amount_inr: number };
   top_balances: AdminBalanceRow[];
 }
 
@@ -162,8 +192,12 @@ export interface AdminOrderRow {
    * legacy opaque id can be orphaned.
    */
   payer_role: PayerRole | null;
-  pack_code: string;
+  /** Set on every credit-pack order (the only kind today); nullable since 0176 for #2751. */
+  pack_code: string | null;
+  /** Whole ₹ charged — since #2749 PR 3 the GST-inclusive total. */
   amount_inr: number;
+  /** #2749 — the same total in paise (additive); null on an order from before migration 0176. */
+  total_paise: number | null;
   credits_granted: number;
   provider: string;
   status: PaymentOrderStatus;

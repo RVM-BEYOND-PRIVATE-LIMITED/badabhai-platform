@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { uuidSchema } from "@badabhai/validators";
-import { VACANCY_BANDS } from "@badabhai/types";
+import { POSTING_CHOICES, POSTING_SURFACES, VACANCY_BANDS } from "@badabhai/types";
+import { JOB_POSTING_AUDIENCES } from "@badabhai/db";
+import { BranchIdSchema, CourseIdSchema } from "../campus-link/campus-link.contract";
 import { clearFieldSchema, contradictoryClears } from "../common/clearable-fields";
 import { tradeAnswersSchema, tradeLevelSchema } from "../common/trade-fields.schemas";
 import {
@@ -342,6 +344,72 @@ export const UpdateJobPostingSchema = z
     path: ["max_experience_years"],
   });
 export type UpdateJobPostingDto = z.infer<typeof UpdateJobPostingSchema>;
+
+/**
+ * #2746 — WHO SEES THE POSTING: its audience and the RVM branch / course targeting. PAYER-ONLY.
+ *
+ * Spread into the two COMPANY schemas below and nowhere else. The ops register and ops PATCH
+ * (`/job-postings`, one shared token) parse {@link CreateJobPostingSchema} /
+ * {@link UpdateJobPostingSchema}, the admin edit parses the latter, and the AI posting chat parses
+ * {@link PayerCreateJobPostingSchema}: none of them can carry an audience, so Zod strips it there
+ * and the posting keeps its stored audience (new postings the column default, BadaBhai workers).
+ *
+ * SHAPE ONLY. Whether the company may use them at all (the `job_audience` switch — off means the
+ * fields are ignored, never an error), whether each id is an ACTIVE targeting option, and that
+ * targeting needs an RVM audience are `PostingAudienceService`'s checks. The id shapes are the
+ * Campus contract's, so one value means one thing on both sides of the link.
+ */
+const audienceFields = {
+  audience: z.enum(JOB_POSTING_AUDIENCES).optional(),
+  // `[]` = every branch / every course. Bounds mirror `job_postings_rvm_targeting_chk`.
+  rvm_branch_ids: z.array(BranchIdSchema).max(50).optional(),
+  rvm_course_ids: z.array(CourseIdSchema).max(100).optional(),
+} as const;
+
+/**
+ * The company's create (`POST /payer/job-postings`): {@link PayerCreateJobPostingSchema} plus the
+ * audience fields, with every one of its rules. `safeExtend` keeps the refinements.
+ */
+export const PayerCreateJobPostingWithAudienceSchema =
+  PayerCreateJobPostingSchema.safeExtend(audienceFields);
+export type PayerCreateJobPostingWithAudienceDto = z.infer<
+  typeof PayerCreateJobPostingWithAudienceSchema
+>;
+
+/**
+ * #2751 items 1 to 3 — WHICH POSTING BUTTON THE COMPANY TAPPED. PAYER PATCH ONLY, and only on the
+ * publish (`status: "open"`): `posting_choice` (`free` / `free_plus_pack`) and the client it was
+ * tapped on (`surface`: `web` / `app`), both or neither. SHAPE ONLY: whether the company records
+ * one at all is the `posting_choice` switch (off, the fields are ignored, never an error), and the
+ * job goes live whatever the choice — recording it can never fail the publish.
+ */
+const postingChoiceFields = {
+  posting_choice: z.enum(POSTING_CHOICES).optional(),
+  surface: z.enum(POSTING_SURFACES).optional(),
+} as const;
+
+/**
+ * The company's PATCH (`PATCH /payer/job-postings/:id`): {@link UpdateJobPostingSchema} plus the
+ * audience fields and (#2751) the posting choice. An audience-only body is a real edit ("no fields
+ * to update" counts them). Not clearable through `clear`: the audience is NOT NULL, and `[]`
+ * already means "every branch". The posting choice rides only on a publish, both fields together.
+ */
+export const PayerUpdateJobPostingSchema = UpdateJobPostingSchema.safeExtend({
+  ...audienceFields,
+  ...postingChoiceFields,
+})
+  .refine((o) => (o.posting_choice === undefined) === (o.surface === undefined), {
+    message: "posting_choice and surface go together",
+    path: ["posting_choice"],
+  })
+  .refine((o) => o.posting_choice === undefined || o.status === "open", {
+    message: "posting_choice is sent only with status open (the publish)",
+    path: ["posting_choice"],
+  });
+export type PayerUpdateJobPostingDto = z.infer<typeof PayerUpdateJobPostingSchema>;
+
+/** The audience half of either company body, as `PostingAudienceService` reads it. */
+export type PostingAudienceInput = Pick<PayerUpdateJobPostingDto, keyof typeof audienceFields>;
 
 /**
  * Optional `?status=` filter for the list endpoint (includes `paused` — B1, and

@@ -5,6 +5,7 @@ import { getCompany, type CompanyDetail } from "../lib/companies";
 import { getPaymentHistory } from "../lib/payment-history";
 import { getPayerCredits, listCompanyJobPostings, type CreditsView, type JobPostingListItem } from "../lib/entities";
 import { getEntityTimeline, type EntityTimeline } from "../lib/events";
+import { getWaivers } from "../lib/waivers";
 import { isAdminRequestError } from "../lib/admin-http";
 import { customerHref } from "../lib/customer";
 import { CompanyDetailView, type CompanyTab } from "./company-detail";
@@ -68,6 +69,18 @@ export async function CompanyDetailRoute({
     }).catch(() => null);
   }
 
+  let companyWaiver: { active: boolean; setBy: string | null } | undefined;
+  const mayManageWaivers = can(session.capabilities, "manage_waivers");
+  if (mayManageWaivers) {
+    try {
+      const page = await getWaivers({ companyId: id });
+      const waiver = page.waivers.find((w) => w.scope === "company" && w.active);
+      companyWaiver = { active: Boolean(waiver), setBy: waiver?.set_by_label ?? null };
+    } catch {
+      companyWaiver = undefined;
+    }
+  }
+
   let timeline: EntityTimeline | null = null;
   let timelineRefused = false;
   let timelineFailed = false;
@@ -100,6 +113,8 @@ export async function CompanyDetailRoute({
       mayGrantCredits={can(session.capabilities, "grant_credits")}
       mayReadIdentity={can(session.capabilities, "read_identity")}
       mayOpenAccounts={can(session.capabilities, "manage_payer_credentials")}
+      companyWaiver={companyWaiver}
+      mayManageWaivers={mayManageWaivers}
       cursors={{ ledger: ledgerCursor, payments: paymentsCursor, events: eventsCursor }}
     />
   );

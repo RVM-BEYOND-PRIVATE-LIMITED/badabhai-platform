@@ -44,6 +44,7 @@ const redirect = vi.fn((to: string) => {
 const getPostings = vi.fn();
 const getCapacity = vi.fn<() => Promise<Capacity>>();
 const getAgencyKyc = vi.fn();
+const getPhoneProofStatus = vi.fn();
 const getLiveCatalog = vi.fn();
 const listOrgMembers = vi.fn();
 
@@ -57,6 +58,7 @@ vi.mock("../../lib/payer-api", () => ({
   getPostings: () => getPostings(),
   getCapacity: () => getCapacity(),
   getAgencyKyc: () => getAgencyKyc(),
+  getPhoneProofStatus: () => getPhoneProofStatus(),
 }));
 vi.mock("../../lib/live-catalog", () => ({ getLiveCatalog: () => getLiveCatalog() }));
 vi.mock("../../lib/org-members", () => ({ listOrgMembers: () => listOrgMembers() }));
@@ -136,6 +138,7 @@ beforeEach(() => {
     getPostings,
     getCapacity,
     getAgencyKyc,
+    getPhoneProofStatus,
     getLiveCatalog,
     listOrgMembers,
   ]) {
@@ -150,6 +153,7 @@ beforeEach(() => {
   getPostings.mockResolvedValue([]);
   getCapacity.mockResolvedValue(cap());
   getAgencyKyc.mockResolvedValue(null);
+  getPhoneProofStatus.mockResolvedValue(null);
   getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, live: true });
   listOrgMembers.mockResolvedValue([]);
 });

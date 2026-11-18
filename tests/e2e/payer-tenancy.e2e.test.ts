@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDbClient, type DbClient } from "@badabhai/db";
 import { randomUUID } from "node:crypto";
+import { OTHER_SEED_PACK, SEED_PACK } from "./helpers/credit-packs";
 import { mintPayerSession } from "./helpers/payer-session";
+import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
 /**
  * Payer self-serve HORIZONTAL AUTHORIZATION (e2e, ADR-0019 R16 / XB-A) against a LIVE
@@ -90,14 +92,10 @@ async function req(
 
 /**
  * A phone in the ONLY range the D-3 mint will serve: `SYNTHETIC_TEST_PHONE_PATTERN`
- * (`/^\+910{5}\d{5}$/`, i.e. `+9100000` + 5 digits) — the reserved, unassignable block.
+ * (`/^\+910{5}\d{5}$/`) — the reserved, unassignable block, inside this suite's own slot.
  * `AuthService.testLogin` refuses anything else, mirrors contact-unlock.e2e.test.ts.
  */
-let phoneSeq = Math.floor(Math.random() * 90_000);
-function syntheticPhone(): string {
-  phoneSeq = (phoneSeq + 1) % 100_000;
-  return `+9100000${String(phoneSeq).padStart(5, "0")}`;
-}
+const syntheticPhone = syntheticPhoneMinter(65);
 
 /**
  * Login a fresh worker via the D-3 test-login mint seam (`POST /auth/test-login`); returns
@@ -152,14 +150,14 @@ describe.skipIf(!RUN)("Payer self-serve horizontal authz (e2e, ADR-0019 R16 / XB
     // Seed credits for BOTH, against their SERVER-ASSIGNED ids (ops route).
     const seedA = await req("POST", `/payers/${A.payerId}/credits`, {
       ops: true,
-      body: { pack_code: "pack_10" },
+      body: { pack_code: SEED_PACK.code },
     });
     const seedB = await req("POST", `/payers/${B.payerId}/credits`, {
       ops: true,
-      body: { pack_code: "pack_10" },
+      body: { pack_code: SEED_PACK.code },
     });
-    expect(seedA.json.balance).toBe(10);
-    expect(seedB.json.balance).toBe(10);
+    expect(seedA.json.balance).toBe(SEED_PACK.credits);
+    expect(seedB.json.balance).toBe(SEED_PACK.credits);
 
     // A worker B will unlock (consented for employer_sharing).
     const w = await loginWorker();
@@ -196,7 +194,7 @@ describe.skipIf(!RUN)("Payer self-serve horizontal authz (e2e, ADR-0019 R16 / XB
     const aCredits = await req("GET", "/payer/credits", { token: A.token });
     expect(aCredits.status).toBe(200);
     expect(aCredits.json.payer_id).toBe(A.payerId);
-    expect(aCredits.json.balance).toBe(10);
+    expect(aCredits.json.balance).toBe(SEED_PACK.credits);
     expect(JSON.stringify(aCredits.json)).not.toContain(B.payerId);
 
     // 3. A cannot reveal B's unlock — identical NEUTRAL body, no relay_handle, no PII (no-oracle).
@@ -210,14 +208,14 @@ describe.skipIf(!RUN)("Payer self-serve horizontal authz (e2e, ADR-0019 R16 / XB
     // 4. The debit bound to B (its own reveal/grant), never A.
     const bCredits = await req("GET", "/payer/credits", { token: B.token });
     expect(bCredits.json.payer_id).toBe(B.payerId);
-    expect(bCredits.json.balance).toBe(9);
+    expect(bCredits.json.balance).toBe(SEED_PACK.credits - 1);
   });
 
   it("the self-serve unlock surface ignores a forged body payer_id — only the session is charged", async () => {
     const A = await mintPayerSession({ role: "employer" });
     await req("POST", `/payers/${A.payerId}/credits`, {
       ops: true,
-      body: { pack_code: "pack_10" },
+      body: { pack_code: SEED_PACK.code },
     });
     const w = await loginWorker();
     await consent(w.token, ["profiling", "employer_sharing"]);
@@ -234,7 +232,7 @@ describe.skipIf(!RUN)("Payer self-serve horizontal authz (e2e, ADR-0019 R16 / XB
 
     const aCredits = await req("GET", "/payer/credits", { token: A.token });
     expect(aCredits.json.payer_id).toBe(A.payerId);
-    expect(aCredits.json.balance).toBe(9);
+    expect(aCredits.json.balance).toBe(SEED_PACK.credits - 1);
   });
 });
 
@@ -302,9 +300,9 @@ describe.skipIf(!RUN)(
       postingOfA = created.json.id as string;
       const seeded = await req("POST", `/payers/${A.payerId}/credits`, {
         ops: true,
-        body: { pack_code: "pack_10" },
+        body: { pack_code: SEED_PACK.code },
       });
-      expect(seeded.json.balance).toBe(10);
+      expect(seeded.json.balance).toBe(SEED_PACK.credits);
     });
 
     afterAll(async () => {
@@ -343,7 +341,7 @@ describe.skipIf(!RUN)(
       expect(list.status).toBe(200);
       expect((list.json as { id: string }[]).map((p) => p.id)).toContain(postingOfA);
       const credits = await req("GET", "/payer/credits", { token: A.token });
-      expect(credits.json.balance).toBe(10);
+      expect(credits.json.balance).toBe(SEED_PACK.credits);
     });
 
     // RED IN P1 as `it.fails`; GREEN since P2b landed beside P2a (ORG_TENANCY_PLAN §1, §2.5).
@@ -698,20 +696,20 @@ describe.skipIf(!RUN)("Payer ORG tenancy P2b — one org wallet over HTTP (e2e, 
       (
         await req("POST", `/payers/${B.payerId}/credits`, {
           ops: true,
-          body: { pack_code: "pack_10" },
+          body: { pack_code: SEED_PACK.code },
         })
       ).json.balance,
-    ).toBe(10);
+    ).toBe(SEED_PACK.credits);
     // The org wallet: A's existing row — a DIFFERENT size from B's pack, so reading one where the
     // other was meant can never pass by coincidence.
     expect(
       (
         await req("POST", `/payers/${A.payerId}/credits`, {
           ops: true,
-          body: { pack_code: "pack_25" },
+          body: { pack_code: OTHER_SEED_PACK.code },
         })
       ).json.balance,
-    ).toBe(25);
+    ).toBe(OTHER_SEED_PACK.credits);
 
     // What a successful accept writes: B, active recruiter in A's org.
     const [org] =
@@ -733,12 +731,19 @@ describe.skipIf(!RUN)("Payer ORG tenancy P2b — one org wallet over HTTP (e2e, 
   it("B reads the ORG wallet (A's balance), never B's personal pack; `payer_id` echoes B", async () => {
     const credits = await req("GET", "/payer/credits", { token: B.token });
     expect(credits.status).toBe(200);
-    expect(credits.json).toEqual({ payer_id: B.payerId, balance: await walletRow(A.payerId) });
-    expect(await walletRow(B.payerId)).toBe(10); // still there, still B's (O-2)
-    // The outsider reads only their own (empty) wallet.
+    expect(credits.json).toMatchObject({
+      payer_id: B.payerId,
+      balance: await walletRow(A.payerId),
+    });
+    // #2749: the reply also lists the ORG wallet's open lots, which carry no ids at all.
+    expect(Array.isArray(credits.json.lots)).toBe(true);
+    for (const lot of credits.json.lots) expect(lot).not.toHaveProperty("id");
+    expect(await walletRow(B.payerId)).toBe(SEED_PACK.credits); // still there, still B's (O-2)
+    // The outsider reads only their own (empty) wallet: no balance and no lots.
     expect((await req("GET", "/payer/credits", { token: C.token })).json).toEqual({
       payer_id: C.payerId,
       balance: 0,
+      lots: [],
     });
   });
 
@@ -758,7 +763,7 @@ describe.skipIf(!RUN)("Payer ORG tenancy P2b — one org wallet over HTTP (e2e, 
     const replay = await buy();
     expect(replay).toEqual(first);
     expect(await walletRow(A.payerId)).toBe(before + 50);
-    expect(await walletRow(B.payerId)).toBe(10);
+    expect(await walletRow(B.payerId)).toBe(SEED_PACK.credits);
 
     // The ledger B reads is the org wallet's, and it reconciles with the balance.
     const ledger = await req("GET", "/payer/credits/ledger?limit=50", { token: B.token });
@@ -778,7 +783,7 @@ describe.skipIf(!RUN)("Payer ORG tenancy P2b — one org wallet over HTTP (e2e, 
     expect(grant.json).toMatchObject({ ok: true, status: "granted" });
     const unlockId = grant.json.unlock_id as string;
     expect(await walletRow(A.payerId)).toBe(before - 1);
-    expect(await walletRow(B.payerId)).toBe(10);
+    expect(await walletRow(B.payerId)).toBe(SEED_PACK.credits);
 
     expect(JSON.stringify((await req("GET", "/payer/unlocks", { token: A.token })).json)).toContain(
       unlockId,

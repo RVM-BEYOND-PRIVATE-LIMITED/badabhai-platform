@@ -12,6 +12,7 @@ import {
   AcceptConsentSchema,
   GrantEmployerContactSchema,
   type AcceptConsentDto,
+  type ConsentNoticeResponse,
   type GrantEmployerContactDto,
 } from "./consent.dto";
 
@@ -105,5 +106,25 @@ export class ConsentController {
   @UseGuards(WorkerAuthGuard)
   async mine(@CurrentWorker() worker: AuthenticatedWorker) {
     return this.consent.getLatestForWorker(worker.id);
+  }
+
+  /**
+   * #2753 item 13 — the notice version, the employer-sharing notice versions and the published
+   * notice link, so the worker app (#2748) reads them instead of hard-coding them.
+   *
+   * WORKER-AUTHED, NOT OPEN, because of where the screens that need it sit: the app reaches the
+   * consent screen only AFTER sign-in (OTP verify → authenticated → `consent_accepted: false` →
+   * `/consent`), and Settings is inside the shell. So `WorkerAuthGuard` alone, the posture of
+   * every route here — and no `ConsentGuard`, since the worker reading it may not have
+   * consented yet. With no open route, nothing here needs a rate limit.
+   *
+   * `no-store`, like `GET /consent/me`: after a version bump the next read must see the new
+   * version, never a cached copy of the old one.
+   */
+  @Get("notice")
+  @Header("Cache-Control", "no-store")
+  @UseGuards(WorkerAuthGuard)
+  notice(): ConsentNoticeResponse {
+    return this.consent.notice();
   }
 }

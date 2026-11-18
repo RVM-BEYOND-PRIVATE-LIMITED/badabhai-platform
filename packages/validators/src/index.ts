@@ -3,6 +3,9 @@ import {
   LANGUAGE_CODES,
   MAX_VOICE_NOTE_SECONDS,
   CONSENT_PURPOSES,
+  DISPLAY_THEMES,
+  type DisplayPrefsResponse,
+  type UpdateDisplayPrefsRequest,
   type VacancyBand,
 } from "@badabhai/types";
 
@@ -671,6 +674,30 @@ export function bandForCount(n: number): VacancyBand {
   if (n <= 25) return "11-25";
   return "25+";
 }
+
+// ---------------------------------------------------------------------------
+// Display preferences: the theme (#2819) — every realm's `me/display-prefs`
+// ---------------------------------------------------------------------------
+
+/** One of `DISPLAY_THEMES` (`light`, `dark`, `system`); anything else, `"Dark"` included, fails. */
+export const displayThemeSchema = z.enum(DISPLAY_THEMES);
+
+/**
+ * The PATCH body of `workers/me/display-prefs`, `payer/me/display-prefs` and
+ * `admin/me/display-prefs`. STRICT: the login is the token's, so a `worker_id`, a `payer_id`, an
+ * `admin_id` or any other key is refused (400), never read. An empty body is refused too.
+ */
+export const updateDisplayPrefsSchema = z
+  .object({ theme: displayThemeSchema })
+  .strict() satisfies z.ZodType<UpdateDisplayPrefsRequest>;
+
+/**
+ * The reply of the same six routes. Strict, so a client that parses it notices a renamed or
+ * added field instead of dropping it. `theme_open: false` → show no choice and use light.
+ */
+export const displayPrefsResponseSchema = z
+  .object({ theme: displayThemeSchema, theme_open: z.boolean() })
+  .strict() satisfies z.ZodType<DisplayPrefsResponse>;
 
 // ---------------------------------------------------------------------------
 // Title-casing worker-typed labels — the worker app's rule, ported exactly (#1432)

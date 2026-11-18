@@ -35,6 +35,7 @@ import {
   type Database,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import { signedUpWorker } from "./admin-worker-scope";
 import type { KeysetCursor } from "./admin-events.cursor";
 import {
   ADMIN_JOURNEY_DETAIL_ROWS_MAX,
@@ -116,7 +117,9 @@ export class AdminWorkerJourneyRepository {
    *
    * `has_photo` is derived by an `IS NOT NULL` test IN POSTGRES — the storage key addresses a
    * face photo and is never fetched. Returns undefined for an unknown id, which the service
-   * turns into a 404.
+   * turns into a 404 — and for a row the Campus link created that its student never signed in to
+   * (#2752): he has no journey yet, and the login step's "a row exists ⇒ a login completed" does
+   * not hold for him until his first sign-in.
    */
   async findWorkerCore(
     id: string,
@@ -128,7 +131,7 @@ export class AdminWorkerJourneyRepository {
         createdAt: workers.createdAt,
       })
       .from(workers)
-      .where(eq(workers.id, id))
+      .where(and(eq(workers.id, id), signedUpWorker))
       .limit(1);
     return rows[0];
   }

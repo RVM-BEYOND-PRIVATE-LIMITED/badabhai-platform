@@ -15,7 +15,8 @@ import {
   PASSWORD_SIGNIN_UNAVAILABLE,
   TEMPORARY_PASSWORD_REQUIRED,
 } from "./messages";
-import { normalizeLoginIdentifier } from "./identifier";
+import { normalizeLoginIdentifier, normalizeLoginContact } from "./identifier";
+import type { LoginContact } from "./identifier";
 import { NEW_PASSWORD_ERRORS, newPasswordRefusal } from "./password-rules";
 
 /**
@@ -56,15 +57,27 @@ export type RequestCodeActionResult =
   | { ok: true; resendInSeconds: number }
   | { ok: false; error: string };
 
-export async function requestCodeAction(input: {
-  email: string;
-}): Promise<RequestCodeActionResult> {
-  const parsed = emailSchema.safeParse(input.email);
+/** The contact a code sign-in carries: exactly one of `email` / E.164 `phone` (#2754). */
+export type CodeSignInInput = { email: string } | { phone: string };
+
+/**
+ * Normalize what the door was handed. A phone is normalized with the SAME identifier helper the
+ * password door uses, so `98765 43210` becomes `+919876543210`. A malformed contact is null and
+ * collapses to the neutral send/verify copy — never a "which field" oracle.
+ */
+function normalizeContact(input: CodeSignInInput): LoginContact | null {
+  return normalizeLoginContact("phone" in input ? input.phone : input.email);
+}
+
+export async function requestCodeAction(
+  input: CodeSignInInput,
+): Promise<RequestCodeActionResult> {
+  const contact = normalizeContact(input);
   // Same neutral copy as a send/limit failure — no enumeration via validation.
-  if (!parsed.success) return { ok: false, error: NEUTRAL_SEND_ERROR };
-  const res = await payerAuth().requestCode({ email: parsed.data });
+  if (!contact) return { ok: false, error: NEUTRAL_SEND_ERROR };
+  const res = await payerAuth().requestCode(contact);
   if (!res.ok) return { ok: false, error: NEUTRAL_SEND_ERROR };
-  // The code is NEVER returned to the client — the payer reads it from their real email.
+  // The code is NEVER returned to the client — the payer reads it from their email or SMS.
   return { ok: true, resendInSeconds: res.resendInSeconds };
 }
 
@@ -121,17 +134,16 @@ export type VerifyCodeActionResult =
   | { ok: true; isNewPayer: boolean }
   | { ok: false; error: string; usePassword?: true };
 
-export async function verifyCodeAction(input: {
-  email: string;
-  code: string;
-}): Promise<VerifyCodeActionResult> {
-  const email = emailSchema.safeParse(input.email);
+export async function verifyCodeAction(
+  input: CodeSignInInput & { code: string },
+): Promise<VerifyCodeActionResult> {
+  const contact = normalizeContact(input);
   const code = codeSchema.safeParse(input.code);
-  if (!email.success || !code.success) {
+  if (!contact || !code.success) {
     // Same neutral copy as a code mismatch — no enumeration via validation.
     return { ok: false, error: NEUTRAL_VERIFY_ERROR };
   }
-  const res = await payerAuth().verifyCode({ email: email.data, code: code.data });
+  const res = await payerAuth().verifyCode({ ...contact, code: code.data });
   if (!res.ok) {
     if (res.reason === "password_change_required") {
       return { ok: false, error: TEMPORARY_PASSWORD_REQUIRED, usePassword: true };

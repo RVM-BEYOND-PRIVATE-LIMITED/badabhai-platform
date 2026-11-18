@@ -324,11 +324,17 @@ guard's fail-closed `role: null`).
 | Export (PII-free events / aggregates) | ✅ | ✅ | ❌ | ❌ |
 | Suspend / reinstate a payer | ✅ | ✅ | ❌ | ❌ |
 | Grant / adjust credits | ✅ | ✅ | ❌ | ❌ |
+| **Edit the credit rules (what a contact costs, the limits, welcome credits, the couldn't-reach windows, returned credits, refund rules, the goodwill cap)** — `manage_credit_rules`, #2750 item 12. Changes every company's price at once, with no deploy, so it is narrower than a grant | ✅ | ❌ | ❌ | ❌ |
+| **Set or clear the placement team's waiver (RVM applicants of one company or one job open for no credit), and read every waiver with who set it** — `manage_waivers`, #2750 items 5 and 12 (`/admin/waivers`). A waiver is a price decision for that company, so it sits with the credit rules; Campus's placement team sets waivers through its own service route, not this capability | ✅ | ❌ | ❌ | ❌ |
+| **Work the worker desk: read the couldn't-reach queue, log call attempts, close a case as reached or not reached (not reached returns the company's credits)** — `work_reach_desk`, #2750 items 7 and 12 (`/admin/desk/reach-cases`). Owner ruling 2026-11-17. Calling the worker still needs `reveal_pii` through the existing reveal, with the case id as the reason | ✅ | ✅ | ✅ | ❌ |
+| **Turn a moved RVM student's visibility on or off, one student or in bulk (one import run, branch or course), and list the moved students** — `manage_student_visibility`, #2887 (`/admin/students/*`). On, the student is an ordinary BadaBhai worker, matched and shown to companies: an access decision about a person, held by the operations roles | ✅ | ✅ | ❌ | ❌ |
+| **Refund a company's real paid credit pack in full through Razorpay, under the two refund rules (unused within 7 days; unused within 30 days when its job drew fewer than 3 applicants), removing the pack's credits** — `refund_payments`, #2750 items 10 and 12 (`/admin/payment-orders/:id/refund`, `/admin/payment-refunds/*`). Owner ruling 2026-11-18: money leaving the business, super admin only | ✅ | ❌ | ❌ | ❌ |
 | Force-close a job posting | ✅ | ✅ | ❌ | ❌ |
 | Flag / unflag a worker | ✅ | ✅ | ❌ | ❌ |
 | Toggle a feature flag / kill-switch | ✅ | ❌ | ❌ | ❌ |
 | **Reveal worker PII (reason-gated, single-subject)** | ✅ | ❌ | ✅ | ❌ |
 | **Read AI call traces (the prompt + completion of one AI call, and the list of them)** — `read_ai_traces`, migration 0083, owner ruling 2026-08-20 | ✅ | ❌ | ❌ | ❌ |
+| **Read business numbers (the weekly numbers screen and its call list) and mark or unmark a test company** — `read_business_numbers`, #2755, owner question 1 default (pending Akshit's word to add `support` or `analyst`) | ✅ | ✅ | ❌ | ❌ |
 | Manage admin users (invite / change role / suspend) | ✅ | ❌ | ❌ | ❌ |
 
 ✅ = allow, ❌ = deny. **Every cell not marked ✅ is denied.** (Export-for-`support` is denied so
@@ -339,6 +345,20 @@ is the payer's email, else phone. `super_admin`, `ops_admin` and `support` may s
 the User accounts surface (`payer_logins`), through `AdminIdentityService` (capability check, name
 budget charged, `admin.identity_viewed` committed before decrypt). No entity list, payer detail,
 directory response or event carries it.
+
+**`read_business_numbers` (#2755) is a gate on every `/admin/numbers/*` route.** The weekly
+numbers are the company's own commercial performance (paying companies, revenue by pack, repeat
+buying, the out-of-credits call list), so they are NOT on the `read_entities` floor even though
+`GET /admin/finance/summary` already shows revenue to all four roles. Default (owner question 1):
+`super_admin` and `ops_admin` only; `support` is added if telecallers sign in as support, `analyst`
+only on the owner's word. The test-company mark (`PUT|DELETE /admin/numbers/test-accounts/:payerId`)
+rides the same row: it exists only to decide what these figures count. The routes also sit behind
+the default-off `ADMIN_NUMBERS_ENABLED` switch, a guard ordered AHEAD of `AdminRolesGuard`, so with
+it off every role gets the same neutral 404. The launch-test records (`/admin/launch-tests/*`,
+#2755 items 9 and 10) ride the same capability and switch. Their factory names are decrypted only
+through `AdminIdentityService` on the `launch_test_factories` surface (`read_identity`, the entity
+name budget, `admin.identity_viewed` committed before the decrypt); a factory's phone is never
+returned by any route.
 
 **`read_ai_traces` IS a gate on the route, and on BOTH legs of it.** Unlike `read_identity`
 above, this capability does not decide whether a field appears — it decides whether

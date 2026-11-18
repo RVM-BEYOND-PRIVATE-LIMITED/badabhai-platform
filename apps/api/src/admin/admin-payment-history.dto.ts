@@ -73,6 +73,8 @@ export type AdminPaymentHistoryItemType =
   | "credit_grant"
   | "credit_refund"
   | "credit_spend"
+  /** #2749 — a lot's unspent credits removed at its `expires_at` (ledger reason `expired`). */
+  | "credit_expired"
   | "posting_plan"
   | "boost"
   | "capacity_purchase"

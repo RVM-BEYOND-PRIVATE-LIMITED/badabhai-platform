@@ -315,12 +315,186 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /LEVEL_NEEDED_SORT_ENABLED:\s*\$\{\{\s*secrets\.LEVEL_NEEDED_SORT_ENABLED\s*\}\}/,
       /envs:[^\n]*\bLEVEL_NEEDED_SORT_ENABLED\b/,
     ],
+    // #2753 item 12 — the helper's name before sign-in (GET /referrals/helper). A plain boolean on
+    // the api only, turned on in production ONLY by the environment secret, after the owner's OK.
+    [
+      "REFERRAL_HELPER_NAME_ENABLED",
+      /REFERRAL_HELPER_NAME_ENABLED:\s*\$\{\{\s*secrets\.REFERRAL_HELPER_NAME_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bREFERRAL_HELPER_NAME_ENABLED\b/,
+    ],
+    // #2753 item 3 — the brief's four availability answers on the options route. A plain boolean
+    // on the api only, turned on in production ONLY by the environment secret.
+    [
+      "AVAILABILITY_ANSWERS_V2_ENABLED",
+      /AVAILABILITY_ANSWERS_V2_ENABLED:\s*\$\{\{\s*secrets\.AVAILABILITY_ANSWERS_V2_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bAVAILABILITY_ANSWERS_V2_ENABLED\b/,
+    ],
+    // #2753 — last active, one definition (worker_activity, migration 0168). A plain boolean on
+    // the api only, turned on in production ONLY by the environment secret, after 0168.
+    [
+      "WORKER_ACTIVITY_ENABLED",
+      /WORKER_ACTIVITY_ENABLED:\s*\$\{\{\s*secrets\.WORKER_ACTIVITY_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bWORKER_ACTIVITY_ENABLED\b/,
+    ],
+    // #2753 item 6 — leave company search. A plain boolean on the api only, turned on in
+    // production ONLY by the environment secret, after migration 0169.
+    [
+      "SEARCH_EXIT_ENABLED",
+      /SEARCH_EXIT_ENABLED:\s*\$\{\{\s*secrets\.SEARCH_EXIT_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bSEARCH_EXIT_ENABLED\b/,
+    ],
+    // #2753 item 2 — a trade form's experience band fills `worker_skill.months_bucketed`. A plain
+    // boolean on the api only (the backfill reads the same name from its operator's shell), turned
+    // on in production ONLY by the environment secret, after the `engine_version` ruling.
+    [
+      "FORM_TENURE_MONTHS_ENABLED",
+      /FORM_TENURE_MONTHS_ENABLED:\s*\$\{\{\s*secrets\.FORM_TENURE_MONTHS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bFORM_TENURE_MONTHS_ENABLED\b/,
+    ],
+    // #2753 item 9 — hire records. A plain boolean on the api only, turned on in production ONLY
+    // by the environment secret, after the `hires` migration is applied.
+    [
+      "HIRE_RECORDS_ENABLED",
+      /HIRE_RECORDS_ENABLED:\s*\$\{\{\s*secrets\.HIRE_RECORDS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bHIRE_RECORDS_ENABLED\b/,
+    ],
+    // #2753 item 11 — the pay-on-joining pilot's hire record. A plain boolean on the api only,
+    // turned on in production ONLY by the environment secret, after migration 0171.
+    [
+      "PAY_ON_JOINING_RECORDS_ENABLED",
+      /PAY_ON_JOINING_RECORDS_ENABLED:\s*\$\{\{\s*secrets\.PAY_ON_JOINING_RECORDS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bPAY_ON_JOINING_RECORDS_ENABLED\b/,
+    ],
+    // #2753 item 11 — the partner's share (whole percent). A plain tuning number, bridged like
+    // CAMPUS_DRIVE_MAX_OPEN_REQUESTS: absent, compose's `:-70` holds it at the pilot's terms.
+    [
+      "POJ_PARTNER_SHARE_PERCENT",
+      /POJ_PARTNER_SHARE_PERCENT:\s*\$\{\{\s*secrets\.POJ_PARTNER_SHARE_PERCENT\s*\}\}/,
+      /envs:[^\n]*\bPOJ_PARTNER_SHARE_PERCENT\b/,
+    ],
+    // #2753 item 10 — the company follow-up. A plain boolean on the api only, turned on in production
+    // ONLY by the environment secret, after the `unlock_outcomes` migration is applied.
+    [
+      "UNLOCK_FOLLOWUP_ENABLED",
+      /UNLOCK_FOLLOWUP_ENABLED:\s*\$\{\{\s*secrets\.UNLOCK_FOLLOWUP_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bUNLOCK_FOLLOWUP_ENABLED\b/,
+    ],
+    // #2753 item 10 — the follow-up wait in days, a tuning number like the drive-request cap below;
+    // absent, compose holds it at the owner's 7.
+    [
+      "UNLOCK_FOLLOWUP_AFTER_DAYS",
+      /UNLOCK_FOLLOWUP_AFTER_DAYS:\s*\$\{\{\s*secrets\.UNLOCK_FOLLOWUP_AFTER_DAYS\s*\}\}/,
+      /envs:[^\n]*\bUNLOCK_FOLLOWUP_AFTER_DAYS\b/,
+    ],
+    // #2753 item 5 — the monthly "still looking?" check and its push. Plain booleans on the api
+    // only, each turned on in production ONLY by its environment secret: the check after the
+    // `still_looking_checks` migration is applied, the push after the owner widens ADR-0034.
+    [
+      "STILL_LOOKING_CHECK_ENABLED",
+      /STILL_LOOKING_CHECK_ENABLED:\s*\$\{\{\s*secrets\.STILL_LOOKING_CHECK_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bSTILL_LOOKING_CHECK_ENABLED\b/,
+    ],
+    [
+      "STILL_LOOKING_PUSH_ENABLED",
+      /STILL_LOOKING_PUSH_ENABLED:\s*\$\{\{\s*secrets\.STILL_LOOKING_PUSH_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bSTILL_LOOKING_PUSH_ENABLED\b/,
+    ],
+    // #2753 item 5 — how often the check asks, a tuning number like the follow-up wait above;
+    // absent, compose holds it at the owner's 30.
+    [
+      "STILL_LOOKING_EVERY_DAYS",
+      /STILL_LOOKING_EVERY_DAYS:\s*\$\{\{\s*secrets\.STILL_LOOKING_EVERY_DAYS\s*\}\}/,
+      /envs:[^\n]*\bSTILL_LOOKING_EVERY_DAYS\b/,
+    ],
+    // #2755 — the numbers screen (/admin/numbers/*). A plain boolean on the api only, turned on in
+    // production ONLY by the environment secret, once the weekly figures ship.
+    [
+      "ADMIN_NUMBERS_ENABLED",
+      /ADMIN_NUMBERS_ENABLED:\s*\$\{\{\s*secrets\.ADMIN_NUMBERS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bADMIN_NUMBERS_ENABLED\b/,
+    ],
+    // #2887 — the bulk student move. A plain boolean on the api only, turned on in production
+    // ONLY by the environment secret, after the `student_move` migration is applied.
+    [
+      "STUDENT_MOVE_ENABLED",
+      /STUDENT_MOVE_ENABLED:\s*\$\{\{\s*secrets\.STUDENT_MOVE_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bSTUDENT_MOVE_ENABLED\b/,
+    ],
+    // #2739 — the admin AI-calls tab (/admin/ai-traces). A plain boolean on the api only, turned on
+    // in production ONLY by the environment secret, with the owner's sign-off.
+    [
+      "ADMIN_AI_TRACE_READ_ENABLED",
+      /ADMIN_AI_TRACE_READ_ENABLED:\s*\$\{\{\s*secrets\.ADMIN_AI_TRACE_READ_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bADMIN_AI_TRACE_READ_ENABLED\b/,
+    ],
+    // #2755 part B — how many days after a week ends the numbers sweep freezes it, a tuning number
+    // like the follow-up wait above; absent, compose holds it at 3.
+    [
+      "NUMBERS_FREEZE_AFTER_DAYS",
+      /NUMBERS_FREEZE_AFTER_DAYS:\s*\$\{\{\s*secrets\.NUMBERS_FREEZE_AFTER_DAYS\s*\}\}/,
+      /envs:[^\n]*\bNUMBERS_FREEZE_AFTER_DAYS\b/,
+    ],
     // ADR-0053 (PAY-DB-01) — payer org tenancy (off | shadow | on), api only. The environment
     // secret is its one arming path (owner decision O-8); absent, the bridge holds it off.
     [
       "PAYER_ORG_TENANCY_MODE",
       /PAYER_ORG_TENANCY_MODE:\s*\$\{\{\s*secrets\.PAYER_ORG_TENANCY_MODE\s*\}\}/,
       /envs:[^\n]*\bPAYER_ORG_TENANCY_MODE\b/,
+    ],
+    // #2746 — the rollout switches (off | pilot | on), api only. The environment secret is each
+    // one's arming path; absent, the bridge holds it off.
+    [
+      "JOB_AUDIENCE_ROLLOUT",
+      /JOB_AUDIENCE_ROLLOUT:\s*\$\{\{\s*secrets\.JOB_AUDIENCE_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bJOB_AUDIENCE_ROLLOUT\b/,
+    ],
+    [
+      "CAMPUS_DRIVE_REQUESTS_ROLLOUT",
+      /CAMPUS_DRIVE_REQUESTS_ROLLOUT:\s*\$\{\{\s*secrets\.CAMPUS_DRIVE_REQUESTS_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bCAMPUS_DRIVE_REQUESTS_ROLLOUT\b/,
+    ],
+    // #2747 — the pre-pay facts on the company's applicant and search cards.
+    [
+      "APPLICANT_FACTS_ROLLOUT",
+      /APPLICANT_FACTS_ROLLOUT:\s*\$\{\{\s*secrets\.APPLICANT_FACTS_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bAPPLICANT_FACTS_ROLLOUT\b/,
+    ],
+    // #2747 — what a credit opens: open for good, the contact read, the full name on the résumé.
+    [
+      "CONTACT_RULES_ROLLOUT",
+      /CONTACT_RULES_ROLLOUT:\s*\$\{\{\s*secrets\.CONTACT_RULES_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bCONTACT_RULES_ROLLOUT\b/,
+    ],
+    // #2768 — open campus-drive requests per company. A tuning number like the one below;
+    // absent, compose holds it at the owner's 3.
+    [
+      "CAMPUS_DRIVE_MAX_OPEN_REQUESTS",
+      /CAMPUS_DRIVE_MAX_OPEN_REQUESTS:\s*\$\{\{\s*secrets\.CAMPUS_DRIVE_MAX_OPEN_REQUESTS\s*\}\}/,
+      /envs:[^\n]*\bCAMPUS_DRIVE_MAX_OPEN_REQUESTS\b/,
+    ],
+    // #2820 — the theme switch: the same grammar and the same arming path.
+    [
+      "THEME_ROLLOUT",
+      /THEME_ROLLOUT:\s*\$\{\{\s*secrets\.THEME_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bTHEME_ROLLOUT\b/,
+    ],
+    // #2747 — the outcome stages (`selected` / `hired`) on the applicant board.
+    [
+      "OUTCOME_STAGES_ROLLOUT",
+      /OUTCOME_STAGES_ROLLOUT:\s*\$\{\{\s*secrets\.OUTCOME_STAGES_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bOUTCOME_STAGES_ROLLOUT\b/,
+    ],
+    // #2747 — the outbound signal: a selected or hired mark on an RVM student, sent to RVM once.
+    [
+      "OUTBOUND_SIGNALS_ROLLOUT",
+      /OUTBOUND_SIGNALS_ROLLOUT:\s*\$\{\{\s*secrets\.OUTBOUND_SIGNALS_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bOUTBOUND_SIGNALS_ROLLOUT\b/,
+    ],
+    // #2750 — the brief's credit rules: the settings table, and later the cost, limits and grants.
+    [
+      "CREDIT_RULES_ROLLOUT",
+      /CREDIT_RULES_ROLLOUT:\s*\$\{\{\s*secrets\.CREDIT_RULES_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bCREDIT_RULES_ROLLOUT\b/,
     ],
     // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
     // secret in the confidentiality sense, but bridged through `secrets.*` like the other
@@ -414,8 +588,51 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["PAYER_APPLICANT_STAGES_ENABLED", "true"],
     // ADR-0061 — off is today's applicant list: the v1.0 ORDER BY, no level read, levelFit null.
     ["LEVEL_NEEDED_SORT_ENABLED", "false"],
+    // #2753 item 12 — off is a 404 on GET /referrals/helper that reads nothing.
+    ["REFERRAL_HELPER_NAME_ENABLED", "false"],
+    // #2753 item 3 — off is today's availability options; writes accept both sets either way.
+    ["AVAILABILITY_ANSWERS_V2_ENABLED", "false"],
+    // #2753 — off is today: nothing reads or writes worker_activity, no `notRecentlyActive`.
+    ["WORKER_ACTIVITY_ENABLED", "false"],
+    // #2753 item 6 — off is today: the worker routes 404 and nothing reads worker_search_exits.
+    ["SEARCH_EXIT_ENABLED", "false"],
+    // #2753 item 2 — off is today's derivation: a form worker's skills read 0 months, no extra read.
+    ["FORM_TENURE_MONTHS_ENABLED", "false"],
+    // #2753 item 9 — off is today's API: nothing reads or writes `hires`; GET /admin/hires 404s.
+    ["HIRE_RECORDS_ENABLED", "false"],
+    // #2753 item 11 — off is no pay-on-joining route at all (a 404 before any query); 70 is the
+    // pilot's partner share, copied onto each hire when it is recorded.
+    ["PAY_ON_JOINING_RECORDS_ENABLED", "false"],
+    ["POJ_PARTNER_SHARE_PERCENT", "70"],
+    // #2753 item 10 — off is today's API: both follow-up routes 404; nothing names unlock_outcomes.
+    ["UNLOCK_FOLLOWUP_ENABLED", "false"],
+    // #2753 item 10 — the zod default: the follow-up is due 7 days after the grant.
+    ["UNLOCK_FOLLOWUP_AFTER_DAYS", "7"],
+    // #2753 item 5 — off is today's API: both still-looking routes 404, the sweep reads nothing,
+    // and the prompt never pushes; 30 is "check every 30 days".
+    ["STILL_LOOKING_CHECK_ENABLED", "false"],
+    ["STILL_LOOKING_PUSH_ENABLED", "false"],
+    ["STILL_LOOKING_EVERY_DAYS", "30"],
+    // #2755 — off is no numbers route at all: a neutral 404 before any query.
+    ["ADMIN_NUMBERS_ENABLED", "false"],
+    // #2755 part B — the zod default: a week freezes 3 days after it ends.
+    ["NUMBERS_FREEZE_AFTER_DAYS", "3"],
+    // #2887 — off is today: nothing names the student-move tables, /admin/students/* is a 404.
+    ["STUDENT_MOVE_ENABLED", "false"],
+    // #2739 — off is today: both /admin/ai-traces routes are a neutral 404 for every role.
+    ["ADMIN_AI_TRACE_READ_ENABLED", "false"],
+    // #2752 — off is no Campus route at all: a neutral 404 before any token, address or audit.
+    ["CAMPUS_LINK_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.
     ["PAYER_ORG_TENANCY_MODE", "off"],
+    // #2746 — off accepts no new field and mounts no new route; stored audience and review state
+    // are honoured whatever the switch says (a switch gates capabilities, never restrictions).
+    ["JOB_AUDIENCE_ROLLOUT", "off"],
+    ["CAMPUS_DRIVE_REQUESTS_ROLLOUT", "off"],
+    // #2768 — the zod default: 3 open drive requests per company until the secret says otherwise.
+    ["CAMPUS_DRIVE_MAX_OPEN_REQUESTS", "3"],
+    // #2820 — off is today's apps: every display preference answers `light` and nothing is saved.
+    ["THEME_ROLLOUT", "off"],
     // #2509 — the zod default: 20/hour/IP until the secret (or a box export) says otherwise.
     ["PAYER_AUTH_MAX_PER_IP_PER_HOUR", "20"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's

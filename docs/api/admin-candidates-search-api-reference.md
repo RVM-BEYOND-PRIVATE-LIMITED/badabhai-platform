@@ -38,6 +38,7 @@ The Candidates data-bank list: one universal search box over every field, 16 fil
     flagged?: boolean;
     is_test_account?: boolean;
     form_level?: ("easy" | "medium" | "hard")[]; // ≤ 3
+    institute_linked?: boolean; // #2752: true = actively linked institute (Campus) students only
   };
   sort?: CandidateSearchSort;      // default "last_active_at" — 20 listed columns, anything else 400s
   dir?: "asc" | "desc";            // default "desc"
@@ -112,7 +113,7 @@ Recorded 2026-11-06, local Postgres, 21 runs × 6-query battery (text, text+filt
 
 ## Field shape
 
-One faceless candidate row — `worker_id`, `status`, `flagged`, `is_test_account`, `deletion_scheduled_at`, `employer_sharing_consent`, city/state, trade/role/domain ids + labels, experience, salary band + period, availability, shift, `form_level`, `skills[]`, `languages[]`, `education_level`, resume count/status/version, `profile_status`, `profile_source`, `app_version`, `last_active_at`, `created_at`, `updated_at`, `ai_cost_inr`, `referral_source`, and optional `name` (identity rules above). Never projected: `phone_hash`, `name_token_hashes`, `name_token_key_id`, `search_doc` — filter-only (pinned by `admin-static-guards.test.ts`).
+One faceless candidate row — `worker_id`, `status`, `flagged`, `is_test_account`, `deletion_scheduled_at`, `employer_sharing_consent`, city/state, trade/role/domain ids + labels, experience, salary band + period, availability, shift, `form_level`, `skills[]`, `languages[]`, `education_level`, resume count/status/version, `profile_status`, `profile_source`, `app_version`, `last_active_at`, `created_at`, `updated_at`, `ai_cost_inr`, `referral_source`, `institute_code` (`"rvm"` while he is actively linked to an institute through BadaBhai Campus, else `null`; read live, so an unlink shows at once; #2752), and optional `name` (identity rules above). Never projected: `phone_hash`, `name_token_hashes`, `name_token_key_id`, `search_doc` — filter-only (pinned by `admin-static-guards.test.ts`).
 
 The full typed contract is `AdminCandidateSearchSchema` / `AdminCandidateSearchResponse` in `apps/api/src/admin/admin-candidates.dto.ts`.
 

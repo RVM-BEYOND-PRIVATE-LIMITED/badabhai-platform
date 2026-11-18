@@ -1,4 +1,5 @@
 import { Module, forwardRef } from "@nestjs/common";
+import { CampusLinkModule } from "../campus-link/campus-link.module";
 import { BullModule } from "@nestjs/bullmq";
 
 import {
@@ -90,6 +91,9 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
  */
 @Module({
   imports: [
+    // #2752 item 13 — InstituteAiGate for OtherAnswerPolishService and the three résumé-import
+    // AI services. ACYCLIC: CampusLinkModule imports no module.
+    CampusLinkModule,
     // M1 — `TradeFormService` enqueues the match rebuild when a form completes, so this module
     // needs `WorkerSkillsService`, which `MatchModule` exports. NOT a forwardRef: `MatchModule`
     // imports `PayersModule` and a Bull queue and reaches nothing here, so the edge is acyclic.

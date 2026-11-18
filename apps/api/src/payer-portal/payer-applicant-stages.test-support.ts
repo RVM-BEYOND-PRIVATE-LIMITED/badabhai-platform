@@ -41,6 +41,26 @@ export function stagesOff(): PayerApplicantStagesService {
     {} as never,
     { PAYER_APPLICANT_STAGES_ENABLED: false },
     tenancy,
+    // Off answers before any switch is read, so a read here is a defect too.
+    {
+      isEnabledFor: () => {
+        throw new Error("the stages service must not read a rollout switch while its flag is off");
+      },
+    } as never,
+    {
+      signalsStateFor: () => {
+        throw new Error("the stages service must not read the signal switch while its flag is off");
+      },
+      recordMark: () => {
+        throw new Error("the stages service must not queue a signal while its flag is off");
+      },
+    } as never,
+    // #2753 item 9 — off answers before any move, so asking about hire records is a defect too.
+    {
+      get enabled(): boolean {
+        throw new Error("the stages service must not read the hire switch while its flag is off");
+      },
+    } as never,
   );
 }
 

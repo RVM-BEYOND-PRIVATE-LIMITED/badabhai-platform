@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { inArray, sql } from "drizzle-orm";
-import { adminUsers, payers, workers, type Database } from "@badabhai/db";
+import { adminUsers, launchTestCohort, payers, workers, type Database } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
 /**
@@ -85,6 +85,21 @@ export class AdminIdentityRepository {
       .select({ id: adminUsers.id, nameCipher: adminUsers.nameEnc })
       .from(adminUsers)
       .where(inArray(adminUsers.id, ids));
+    return rows;
+  }
+
+  /**
+   * #2755 item 9 — `launch_test_cohort.factory_name_enc` (AES token) for a caller-held id set: the
+   * names of launch test A's factories, which the desk recorded by hand (a factory need not have a
+   * BadaBhai account, so this is not `payers.org_name_enc`). The factory's phone ciphertext on the
+   * same row is NEVER projected: no surface discloses it.
+   */
+  async launchTestFactoryNames(ids: string[]): Promise<AdminIdentityRow[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db
+      .select({ id: launchTestCohort.id, nameCipher: launchTestCohort.factoryNameEnc })
+      .from(launchTestCohort)
+      .where(inArray(launchTestCohort.id, ids));
     return rows;
   }
 

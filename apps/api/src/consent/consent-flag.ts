@@ -1,6 +1,7 @@
 import { Logger } from "@nestjs/common";
 
 import type { ConsentRepository } from "./consent.repository";
+import { isImportedConsent } from "../student-move/imported-consent";
 
 /** The only thing the compose needs — kept structural so a caller can pass a double. */
 type ConsentReader = Pick<ConsentRepository, "findLatestByWorker">;
@@ -33,7 +34,7 @@ export async function withConsentAccepted<T extends { worker_id: string }>(
 ): Promise<T & { consent_accepted?: boolean }> {
   try {
     const latest = await consents.findLatestByWorker(login.worker_id);
-    return { ...login, consent_accepted: latest != null && latest.revokedAt === null };
+    return { ...login, consent_accepted: consentAcceptedFrom(latest) };
   } catch (err) {
     // Swallowed BUT NEVER SILENT. Every mint path now shares this catch, so an unlogged
     // failure would degrade consent routing platform-wide with no signal anywhere — the
@@ -47,4 +48,16 @@ export async function withConsentAccepted<T extends { worker_id: string }>(
     );
     return { ...login };
   }
+}
+
+/**
+ * The `consent_accepted` boolean from the latest consent row: one exists and is not revoked —
+ * AND (#2887) it is not a moved student's imported Campus consent. That one is real and active for
+ * every server-side gate, but the app must still show BadaBhai's own consent screen (with the 18+
+ * tick) once, so it reads as not yet accepted here. Accepting writes a newer, ordinary row.
+ */
+export function consentAcceptedFrom(
+  latest: { readonly revokedAt: Date | null; readonly consentVersion?: string | null } | null | undefined,
+): boolean {
+  return latest != null && latest.revokedAt === null && !isImportedConsent(latest.consentVersion);
 }

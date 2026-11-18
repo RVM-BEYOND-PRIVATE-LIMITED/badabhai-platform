@@ -204,6 +204,19 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     manage_companies: ["super_admin", "ops_admin"],
     // #2561 / ADR-0062 §3.8 - candidate-field corrections. `analyst` denied.
     edit_candidates: ["super_admin", "ops_admin", "support"],
+    // #2755 - the business numbers screen + its test-company marks. ADR-0025 §3.1 row added with
+    // the owner question 1 default; `support`/`analyst` denied.
+    read_business_numbers: ["super_admin", "ops_admin"],
+    // #2750 item 12 - the credit rules settings: every company's price and limits. super_admin only.
+    manage_credit_rules: ["super_admin"],
+    // #2750 items 5 and 12 - the placement team's waivers. super_admin only.
+    manage_waivers: ["super_admin"],
+    // #2887 - the moved students' visibility switch. super_admin and ops_admin.
+    manage_student_visibility: ["super_admin", "ops_admin"],
+    // #2750 items 7 and 12 - the worker desk. Owner ruling 2026-11-17.
+    work_reach_desk: ["super_admin", "ops_admin", "support"],
+    // #2750 items 10 and 12 - refunds of real paid packs. Owner ruling 2026-11-18: super_admin only.
+    refund_payments: ["super_admin"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -262,6 +275,16 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "manage_companies",
       // #2561 - candidate-field corrections are a write.
       "edit_candidates",
+      // #2750 - the credit rules settings are a write.
+      "manage_credit_rules",
+      // #2750 - setting or clearing a waiver is a write.
+      "manage_waivers",
+      // #2887 - turning a moved student's visibility on or off is a write.
+      "manage_student_visibility",
+      // #2750 - closing a desk case returns credits: a write.
+      "work_reach_desk",
+      // #2750 - a refund sends money back: a write.
+      "refund_payments",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }
@@ -347,6 +370,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "manage_worker_account",
       // #2561 - candidate-field corrections.
       "edit_candidates",
+      // #2750 - the worker desk (owner ruling 2026-11-17). Tail-appended.
+      "work_reach_desk",
     ]);
     expect(capabilitiesFor("ops_admin")).toEqual([
       "read_events",
@@ -372,6 +397,12 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "manage_companies",
       // #2561 — candidate-field corrections.
       "edit_candidates",
+      // #2755 — the business numbers screen.
+      "read_business_numbers",
+      // #2887 — the moved students' visibility switch.
+      "manage_student_visibility",
+      // #2750 — the worker desk (owner ruling 2026-11-17). Tail-appended.
+      "work_reach_desk",
     ]);
     // super_admin holds everything — the one role for which the list is the whole vocabulary.
     expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);
@@ -381,6 +412,10 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
     for (const role of ["ops_admin", "support", "analyst"] as AdminRole[]) {
       expect(capabilitiesFor(role)).not.toContain("toggle_kill_switch");
       expect(capabilitiesFor(role)).not.toContain("manage_admins");
+      // #2750 - every company's price and limits at once: super_admin only.
+      expect(capabilitiesFor(role)).not.toContain("manage_credit_rules");
+      // #2750 - a waiver frees a company's RVM applicants: super_admin only.
+      expect(capabilitiesFor(role)).not.toContain("manage_waivers");
     }
   });
 });

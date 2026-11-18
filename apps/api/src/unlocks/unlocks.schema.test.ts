@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getTableColumns } from "drizzle-orm";
-import { unlocks, payerCredits, creditLedger, unlockRouting } from "@badabhai/db";
+import { unlocks, payerCredits, creditLedger, creditLots, unlockRouting } from "@badabhai/db";
 
 /**
  * F-5 / T1 control 3 / T9-a (SCHEMA-LEVEL, BUILD-BLOCKER-adjacent): no unlock-family
@@ -27,6 +27,8 @@ const TABLES = {
   unlocks,
   payer_credits: payerCredits,
   credit_ledger: creditLedger,
+  // #2749 (migration 0174) — the lots a balance is made of.
+  credit_lots: creditLots,
   unlock_routing: unlockRouting,
 };
 

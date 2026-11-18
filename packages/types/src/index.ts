@@ -688,6 +688,21 @@ export const EMPLOYER_CONTACT_PURPOSES = ["employer_sharing", "employer_messagin
  */
 export const EMPLOYER_CONTACT_NOTICE_VERSIONS: readonly string[] = ["2026-11-04"];
 
+/**
+ * #2747 (ADR-0064 §3.8) — the employer-sharing notice versions whose copy DESCRIBES the brief's
+ * rules: his first name and expected salary shown BEFORE a company pays; his full name and phone
+ * number on screen AFTER it opens him; and a contact that stays open for good. The 2026-11-04 notice
+ * says the opposite ("naam, phone number aur photo nahi dikhta"; "14 din tak"; "poora naam … nahi"),
+ * so a BadaBhai worker whose latest consent is on it keeps exactly those rules, whatever a
+ * company's pilot switches say.
+ *
+ * EMPTY until that notice is approved and shipped. Then append its version here AND to
+ * {@link EMPLOYER_CONTACT_NOTICE_VERSIONS} in the same change as the worker app's copy (the rule
+ * above). Never remove one. An actively linked RVM student is decided by the institute rule instead
+ * (#2752: RVM's own consent line, brief 9).
+ */
+export const BRIEF_CONTACT_NOTICE_VERSIONS: readonly string[] = [];
+
 // ---- Chat ----
 /**
  * `active` → running. `ended` → the worker finished the interview. `abandoned` → the interview did
@@ -1449,14 +1464,34 @@ export const APPLICANT_POSTING_KINDS = Object.freeze(["company_posting", "agency
 export type ApplicantPostingKind = (typeof APPLICANT_POSTING_KINDS)[number];
 
 /**
- * Where an applicant sits on a posting's New / Shortlist / Passed board in payer-web.
+ * The board's first three stages: New / Shortlist / Passed (owner ruling 2026-10-07, migration
+ * 0134). FROZEN: `payer.applicant_stage_changed` v1 takes its enum from this list, and a shipped
+ * payload never changes. A move between two of these stages is still reported as v1.
+ */
+export const APPLICANT_STAGES_V1 = Object.freeze(["new", "shortlist", "passed"] as const);
+export type ApplicantStageV1 = (typeof APPLICANT_STAGES_V1)[number];
+
+/**
+ * #2747 item 7 (brief 4B.8): the outcome stages. A company marks an applicant selected, then
+ * hired. Accepted on a write only while `OUTCOME_STAGES_ROLLOUT` is on for the company (and
+ * migration 0166 widened the CHECK). A stored one is always read back as itself.
+ */
+export const APPLICANT_OUTCOME_STAGES = Object.freeze(["selected", "hired"] as const);
+export type ApplicantOutcomeStage = (typeof APPLICANT_OUTCOME_STAGES)[number];
+
+/**
+ * Where an applicant sits on a posting's board: {@link APPLICANT_STAGES_V1}, then
+ * {@link APPLICANT_OUTCOME_STAGES}.
  *
  * `new` IS THE DEFAULT: an applicant nobody has moved has no stored row and reads `new`. A row
  * moved back to New stores `new` explicitly (it records who moved it and when), so "no row" and
  * "`new`" mean the same thing to every reader. A stage is the payer's own triage — never a match,
  * rank or visibility input.
  */
-export const APPLICANT_STAGES = Object.freeze(["new", "shortlist", "passed"] as const);
+export const APPLICANT_STAGES = Object.freeze([
+  ...APPLICANT_STAGES_V1,
+  ...APPLICANT_OUTCOME_STAGES,
+] as const);
 export type ApplicantStage = (typeof APPLICANT_STAGES)[number];
 
 /** The stage of an applicant with no stored row. */
@@ -1464,6 +1499,369 @@ export const DEFAULT_APPLICANT_STAGE: ApplicantStage = "new";
 
 export function isApplicantStage(value: unknown): value is ApplicantStage {
   return typeof value === "string" && (APPLICANT_STAGES as readonly string[]).includes(value);
+}
+
+/** One of the board's first three stages, the ones `payer.applicant_stage_changed` v1 carries. */
+export function isApplicantStageV1(value: unknown): value is ApplicantStageV1 {
+  return typeof value === "string" && (APPLICANT_STAGES_V1 as readonly string[]).includes(value);
+}
+
+/** `selected` or `hired`. */
+export function isApplicantOutcomeStage(value: unknown): value is ApplicantOutcomeStage {
+  return (
+    typeof value === "string" && (APPLICANT_OUTCOME_STAGES as readonly string[]).includes(value)
+  );
+}
+
+// ---- Hire records (#2753 item 9, migration `hires`) ----
+//
+// HERE FOR THE SAME REASON AS THE STAGES ABOVE: `packages/db` spells the statuses into a CHECK on
+// `hires`, `packages/event-schema` puts both sets on the spine (`hire.recorded`), and `apps/api`
+// writes and lists them. Declared once so the three cannot drift.
+
+/**
+ * Where one hire record (one company, worker and posting) stands.
+ *  - `reported`: one side said so and nobody who can confirm it has agreed (today: the worker's
+ *    own "hired" answer, owner question 2 default).
+ *  - `confirmed`: the company marked or answered "hired", or the worker desk confirmed it. Only a
+ *    confirmed hire counts toward the target.
+ *  - `rejected`: the desk rejected it, or the company took back its only confirming mark.
+ */
+export const HIRE_STATUSES = Object.freeze(["reported", "confirmed", "rejected"] as const);
+export type HireStatus = (typeof HIRE_STATUSES)[number];
+
+/**
+ * What moved a hire record: the `source` of `hire.recorded`. Four sources say "hired" and each
+ * stamps its own column on the row (so "how it was confirmed" is readable); two take it back.
+ *  - `company_mark`: the company moved the applicant INTO `hired` on its board;
+ *  - `company_unmark`: the company moved him OUT of `hired` again (the undo rule);
+ *  - `company_answer`: the company's follow-up answer was "hired";
+ *  - `worker_answer`: the worker's own monthly-check answer was "hired";
+ *  - `desk_confirm` / `desk_reject`: the worker desk confirmed or rejected it.
+ */
+export const HIRE_RECORD_SOURCES = Object.freeze([
+  "company_mark",
+  "company_unmark",
+  "company_answer",
+  "worker_answer",
+  "desk_confirm",
+  "desk_reject",
+] as const);
+export type HireRecordSource = (typeof HIRE_RECORD_SOURCES)[number];
+
+// ---- Unlock outcomes: the company follow-up (#2753 item 10, migration `unlock_outcomes`) ----
+//
+// HERE FOR THE SAME REASON AS THE HIRE STATUSES ABOVE: `packages/db` spells both sets into CHECKs
+// on `unlock_outcomes`, `packages/event-schema` puts them on the spine (`unlock.outcome_recorded`),
+// and `apps/api` writes and lists them. Declared once so the three cannot drift.
+
+/**
+ * What became of one opened contact (one unlock). One answer per unlock; a later answer replaces
+ * the earlier one (`still_talking` → `hired`), and the history is on the spine.
+ *  - `hired`: the company hired him (it also confirms the hire record when the unlock names a
+ *    posting and `HIRE_RECORDS_ENABLED` is on);
+ *  - `not_hired`: they spoke and did not hire him;
+ *  - `still_talking`: no decision yet; the contact is asked about again after the follow-up wait;
+ *  - `not_reached`: the company could not reach him. Written by the desk (#2750), never by the
+ *    company's own answer.
+ */
+export const UNLOCK_OUTCOMES = Object.freeze([
+  "hired",
+  "not_hired",
+  "still_talking",
+  "not_reached",
+] as const);
+export type UnlockOutcome = (typeof UNLOCK_OUTCOMES)[number];
+
+/** The outcomes a company may give itself (`POST /payer/unlocks/:unlockId/outcome`). */
+export const UNLOCK_COMPANY_OUTCOMES = Object.freeze([
+  "hired",
+  "not_hired",
+  "still_talking",
+] as const satisfies readonly UnlockOutcome[]);
+export type UnlockCompanyOutcome = (typeof UNLOCK_COMPANY_OUTCOMES)[number];
+
+/** Who gave the stored answer: the company itself, or the desk on its behalf (#2750). */
+export const UNLOCK_OUTCOME_ANSWERERS = Object.freeze(["company", "desk"] as const);
+export type UnlockOutcomeAnswerer = (typeof UNLOCK_OUTCOME_ANSWERERS)[number];
+
+// ---- Launch test A: what each factory did with its payment link (#2755 item 9) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells it into
+// `launch_test_cohort_result_chk`, `packages/event-schema` puts it on the spine
+// (`admin.launch_test_factory_updated`), and `apps/api` writes and lists it.
+
+/**
+ * The result the desk records for one factory of launch test A. `pending` until the desk knows;
+ * `paid` (it paid the link: `paid_at` is set exactly then), `declined` (it said no) or
+ * `no_response` (it never answered).
+ */
+export const LAUNCH_TEST_RESULTS = Object.freeze([
+  "pending",
+  "paid",
+  "declined",
+  "no_response",
+] as const);
+export type LaunchTestResult = (typeof LAUNCH_TEST_RESULTS)[number];
+
+// ---- Credit lots: a company's balance, as expiring lots (#2749, migration 0174) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells the sources into
+// `credit_lots_source_chk` and writes them from its wallet helpers, and the api returns them on
+// `GET /payer/credits`. Declared once so the CHECK, the writers and the readers cannot drift.
+
+/**
+ * Where a lot's credits came from (brief 4C.1). `pack` = a pack bought (mock or Razorpay);
+ * `welcome` = the one-time welcome credits; `goodwill` = an ops grant; `returned` = credits given
+ * back after a refund; `migrated` = moved from another wallet; `legacy` = what a wallet held before
+ * lots existed (migration 0174's backfill), and the free-tier signup grant. A new value is a
+ * migration widening `credit_lots_source_chk`.
+ */
+export const CREDIT_LOT_SOURCES = Object.freeze([
+  "pack",
+  "welcome",
+  "goodwill",
+  "returned",
+  "migrated",
+  "legacy",
+] as const);
+export type CreditLotSource = (typeof CREDIT_LOT_SOURCES)[number];
+
+export function isCreditLotSource(value: unknown): value is CreditLotSource {
+  return typeof value === "string" && (CREDIT_LOT_SOURCES as readonly string[]).includes(value);
+}
+
+/**
+ * What closed an expired lot (`payer.credits_expired.trigger`): `spend` = a contact open found the
+ * lot past its date before it spent, `sweep` = the `credit-lot-expiry` sweep. FROZEN: the event's
+ * v1 enum is taken from this list, and a shipped payload never changes.
+ */
+export const CREDIT_LOT_EXPIRY_TRIGGERS = Object.freeze(["spend", "sweep"] as const);
+export type CreditLotExpiryTrigger = (typeof CREDIT_LOT_EXPIRY_TRIGGERS)[number];
+
+/**
+ * One open lot on `GET /payer/credits` (`credits_remaining > 0`), in the order credits are spent:
+ * the soonest `expires_at` first, a lot that never expires last. No lot id and no payment
+ * reference: what a company can see is how many credits it holds and when they end.
+ */
+export interface PayerCreditLot {
+  readonly source: CreditLotSource;
+  readonly credits_remaining: number;
+  readonly credits_granted: number;
+  /** ISO 8601 instant the lot expires, or `null` when it never does. */
+  readonly expires_at: string | null;
+  /** The pack a `pack` lot came from; `null` for every other source. */
+  readonly pack_code: string | null;
+}
+
+/**
+ * The reply of `GET /payer/credits` (and the ops `GET /payers/:payerId/credits`). `payer_id`
+ * echoes the caller, `balance` is the wallet the caller spends from (the org wallet under org
+ * tenancy `on`, ADR-0053), and `balance` equals the sum of `lots[].credits_remaining`.
+ */
+export interface PayerCreditsResponse {
+  readonly payer_id: string;
+  readonly balance: number;
+  readonly lots: readonly PayerCreditLot[];
+}
+
+// ---- The out-of-credits call log (#2755 item 8, the telecaller list) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells the results into
+// `credit_call_log_result_chk`, `packages/event-schema` puts one on the spine
+// (`admin.credit_call_logged`), and the api parses the route body with them. Declared once so the
+// CHECK, the event and the route cannot drift.
+
+/**
+ * What a call to a company whose credits ran out came to. CLOSED CODES ONLY, never free text:
+ * `reached_will_buy` = reached, says it will buy; `reached_not_now` = reached, not now;
+ * `reached_declined` = reached, does not want to buy; `no_answer` = nobody picked up;
+ * `wrong_number` = the number is not the company's. FROZEN: the event's v1 enum is taken from this
+ * list; a new value is a migration widening the CHECK and a new event version.
+ */
+export const CREDIT_CALL_RESULTS = Object.freeze([
+  "reached_will_buy",
+  "reached_not_now",
+  "reached_declined",
+  "no_answer",
+  "wrong_number",
+] as const);
+export type CreditCallResult = (typeof CREDIT_CALL_RESULTS)[number];
+
+// ---- Payment orders: checkout (#2749 item 9, migration 0176) ----
+//
+// HERE FOR THE SAME REASON AS THE LOT SOURCES ABOVE: `packages/db` spells these sets into CHECK
+// constraints on `payment_orders`, the api writes and validates them, `packages/event-schema` puts
+// the hold reasons on the spine (`payment.held`), and admin-web parses the statuses. Declared once
+// so none of them can drift. A new value in any of them is a migration widening its CHECK.
+
+/**
+ * What a payment order sells. `credit_pack` is the only kind today; #2751 widens it (a pack code
+ * and a positive credit grant are then required only of a `credit_pack` order).
+ */
+export const PAYMENT_ORDER_PRODUCT_KINDS = Object.freeze(["credit_pack"] as const);
+export type PaymentOrderProductKind = (typeof PAYMENT_ORDER_PRODUCT_KINDS)[number];
+
+/**
+ * A payment order's lifecycle. `created` at intent → `paid` once a verified capture granted it, or
+ * `failed` after a provider failure (a later capture may still settle a `failed` order: Razorpay
+ * lets a buyer retry on the same order). `held` (#2749 hardening 5): the provider captured an
+ * amount that is NOT the order's total, so nothing was granted and the order can never be settled
+ * — ops resolve it (a refund in the Razorpay dashboard until BB-D-05).
+ */
+export const PAYMENT_ORDER_STATUSES = Object.freeze(["created", "paid", "failed", "held"] as const);
+export type PaymentOrderStatus = (typeof PAYMENT_ORDER_STATUSES)[number];
+
+export function isPaymentOrderStatus(value: unknown): value is PaymentOrderStatus {
+  return typeof value === "string" && (PAYMENT_ORDER_STATUSES as readonly string[]).includes(value);
+}
+
+/**
+ * Where a purchase started (the button a company pressed; #2749 item 9, #2781's numbers screen).
+ * `credits_page` = the Credits page itself; `unlock_prompt` = an "out of credits" prompt on a
+ * contact open; `candidate_search` = the candidate search list; `posting_flow` = a job posting's
+ * screens (its applicants, posting a job); `dashboard` = a dashboard tile; `other` = anything else.
+ * Optional on the order: an older client sends none and the order stores null.
+ */
+export const PAYMENT_ORDER_ORIGINS = Object.freeze([
+  "credits_page",
+  "unlock_prompt",
+  "candidate_search",
+  "posting_flow",
+  "dashboard",
+  "other",
+] as const);
+export type PaymentOrderOrigin = (typeof PAYMENT_ORDER_ORIGINS)[number];
+
+export function isPaymentOrderOrigin(value: unknown): value is PaymentOrderOrigin {
+  return typeof value === "string" && (PAYMENT_ORDER_ORIGINS as readonly string[]).includes(value);
+}
+
+// ---- The posting choice (#2751 items 1 to 3, migration 0187) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells them into the
+// `job_posting_choices` CHECKs, `packages/event-schema` puts them on the spine
+// (`job_posting.posting_choice_recorded`) and the api parses the publish body with them. FROZEN:
+// the event's v1 enums are taken from these lists.
+
+/**
+ * Which of the two posting buttons a company tapped (brief 4B.7). `free` = "Post free";
+ * `free_plus_pack` = "Post free + Starter". The job goes live either way; the choice is recorded,
+ * not enforced.
+ */
+export const POSTING_CHOICES = Object.freeze(["free", "free_plus_pack"] as const);
+export type PostingChoice = (typeof POSTING_CHOICES)[number];
+
+/** The client the button was tapped on: payer-web or the payer app. */
+export const POSTING_SURFACES = Object.freeze(["web", "app"] as const);
+export type PostingSurface = (typeof POSTING_SURFACES)[number];
+
+// ---- Refunds of real paid packs (#2750 item 10, migration 0186) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells them into the
+// `payment_refunds` CHECKs, `packages/event-schema` puts them on the spine
+// (`payment.refund_requested`, `payment.refund_status_changed`) and the api parses the admin
+// route with them. FROZEN: each event's v1 enum is taken from these lists.
+
+/**
+ * The refund rule a refund was granted under (brief 4C.12): `unused` = the pack is unused, within
+ * `refundUnusedWithinDays` of its purchase; `low_match` = unused, within `refundLowMatchWithinDays`,
+ * and its job drew fewer than `refundLowMatchMinWorkers` applicants.
+ */
+export const PAYMENT_REFUND_RULES = Object.freeze(["unused", "low_match"] as const);
+export type PaymentRefundRuleCode = (typeof PAYMENT_REFUND_RULES)[number];
+
+/** Where a refund stands with Razorpay: `requested` → `pending` → `processed`, or `failed`. */
+export const PAYMENT_REFUND_STATUSES = Object.freeze([
+  "requested",
+  "pending",
+  "processed",
+  "failed",
+] as const);
+export type PaymentRefundStatusCode = (typeof PAYMENT_REFUND_STATUSES)[number];
+
+/** Why a refund failed: the provider call errored, or Razorpay reported the refund failed. */
+export const PAYMENT_REFUND_FAILURES = Object.freeze(["provider_error", "provider_failed"] as const);
+export type PaymentRefundFailureCode = (typeof PAYMENT_REFUND_FAILURES)[number];
+
+/**
+ * Why a captured payment was HELD instead of granted (`payment.held.reason`). `amount_mismatch` =
+ * the captured paise are not the order's total; `amount_missing` = the capture carried no amount;
+ * `currency_mismatch` = the capture was not in INR. FROZEN: the event's v1 enum is taken from this
+ * list, and a shipped payload never changes.
+ */
+export const PAYMENT_HOLD_REASONS = Object.freeze([
+  "amount_mismatch",
+  "amount_missing",
+  "currency_mismatch",
+] as const);
+export type PaymentHoldReason = (typeof PAYMENT_HOLD_REASONS)[number];
+
+/**
+ * The order's status after a mismatched capture (`payment.held.order_status`): `held` = the capture
+ * held the order and granted nothing; `paid` = the order was already paid (the browser verify
+ * settled it first), so nothing changed and the grant stands. FROZEN with the event's v1 enum.
+ */
+export const PAYMENT_HELD_ORDER_STATUSES = Object.freeze(["held", "paid"] as const);
+export type PaymentHeldOrderStatus = (typeof PAYMENT_HELD_ORDER_STATUSES)[number];
+
+// ---- Display preferences: the theme (#2819, migration 0165) ----
+//
+// HERE FOR THE SAME REASON AS THE SKINS ABOVE: `packages/db` spells both sets into CHECK
+// constraints on `display_prefs`, `packages/event-schema` puts them on the spine
+// (`display_prefs.changed`), `packages/validators` parses the route bodies and replies with them,
+// and the apps (worker app, payer app, payer-web, admin-web) build their models from them. Declared
+// once so none of them can drift.
+
+/**
+ * The theme a login may choose. `system` follows the phone's or the browser's setting, live.
+ * A new value is a migration widening `display_prefs_theme_chk` AND a new `display_prefs.changed`
+ * version, because the event's enums are frozen once shipped.
+ */
+export const DISPLAY_THEMES = Object.freeze(["light", "dark", "system"] as const);
+export type DisplayTheme = (typeof DISPLAY_THEMES)[number];
+
+/**
+ * The theme of a login with no stored row, and the theme every route answers while the
+ * `THEME_ROLLOUT` switch is closed for that login: what every app shows today.
+ */
+export const DEFAULT_DISPLAY_THEME: DisplayTheme = "light";
+
+export function isDisplayTheme(value: unknown): value is DisplayTheme {
+  return typeof value === "string" && (DISPLAY_THEMES as readonly string[]).includes(value);
+}
+
+/**
+ * Whose preference a `display_prefs` row is: a worker (`workers.id`), a company or agency LOGIN
+ * (`payers.id` — the person, never the tenant, so two teammates keep two themes) or an admin
+ * (`admin_users.id`). Always the id the realm's auth guard attached, never one from a body.
+ */
+export const DISPLAY_PREFS_SUBJECT_KINDS = Object.freeze([
+  "worker",
+  "payer_user",
+  "admin",
+] as const);
+export type DisplayPrefsSubjectKind = (typeof DISPLAY_PREFS_SUBJECT_KINDS)[number];
+
+/**
+ * The body of `PATCH workers/me/display-prefs`, `PATCH payer/me/display-prefs` and
+ * `PATCH admin/me/display-prefs`. Exactly this key (`updateDisplayPrefsSchema` is strict): an id,
+ * or anything else, is a 400.
+ */
+export interface UpdateDisplayPrefsRequest {
+  readonly theme: DisplayTheme;
+}
+
+/**
+ * The reply of all six routes (`GET` and `PATCH`, in the three realms).
+ *
+ * `theme_open: false` means the `THEME_ROLLOUT` switch is closed for this login (or the server
+ * cannot read preferences yet): show no theme choice and use light. `theme` is then always
+ * `light`, whatever is stored; a stored choice waits for the switch to open again.
+ */
+export interface DisplayPrefsResponse {
+  readonly theme: DisplayTheme;
+  readonly theme_open: boolean;
 }
 
 // ---- Résumé import (ADR-0041) ----

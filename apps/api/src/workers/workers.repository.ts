@@ -15,6 +15,7 @@ import {
   type WorkerProfile,
   type GeneratedResume,
 } from "@badabhai/db";
+import { eraseLoginKeyedRows } from "../common/login-keyed-rows";
 import { DATABASE } from "../database/database.module";
 import { NEWEST_RESUME_FIRST } from "../resume/resume-order";
 
@@ -195,8 +196,11 @@ export class WorkersRepository {
     return rows.map((r) => r.id);
   }
 
-  async findByPhoneHash(phoneHash: string): Promise<Worker | undefined> {
-    const rows = await this.db
+  async findByPhoneHash(
+    phoneHash: string,
+    executor: Database = this.db,
+  ): Promise<Worker | undefined> {
+    const rows = await executor
       .select()
       .from(workers)
       .where(eq(workers.phoneHash, phoneHash))
@@ -221,9 +225,15 @@ export class WorkersRepository {
    *
    * `created` is true only when THIS call inserted the row — the caller uses it
    * to gate the one-time `worker.created` event so a race can't double-emit it.
+   *
+   * `executor` (#2752): a transaction, so the Campus link writes the worker row, its link row and
+   * the link event together. Omitted, it is the standalone insert every sign-in uses.
    */
-  async createOrGetByPhoneHash(input: NewWorker): Promise<{ worker: Worker; created: boolean }> {
-    const inserted = await this.db
+  async createOrGetByPhoneHash(
+    input: NewWorker,
+    executor: Database = this.db,
+  ): Promise<{ worker: Worker; created: boolean }> {
+    const inserted = await executor
       .insert(workers)
       .values(input)
       .onConflictDoNothing({ target: workers.phoneHash })
@@ -231,7 +241,7 @@ export class WorkersRepository {
     if (inserted[0]) return { worker: inserted[0], created: true };
 
     // Lost the insert race — the concurrent winner's row is now committed.
-    const existing = await this.findByPhoneHash(input.phoneHash);
+    const existing = await this.findByPhoneHash(input.phoneHash, executor);
     if (!existing) throw new Error("worker insert hit a conflict but no row was found");
     return { worker: existing, created: false };
   }
@@ -242,6 +252,27 @@ export class WorkersRepository {
    * the table). Idempotent: only flips false → true. Returns the updated row,
    * or undefined if no worker matched.
    */
+  /**
+   * #2752 — a `pending` row (the Campus link made it; he has never signed in) becomes `active` at
+   * his first sign-in. Only a pending row that STILL HOLDS the phone being signed in with moves,
+   * so a race with the link moving his phone, or a repeat, is a no-op. Returns the updated row, or
+   * undefined when nothing moved.
+   */
+  async activatePending(
+    id: string,
+    phoneHash: string,
+    tx: Database = this.db,
+  ): Promise<Worker | undefined> {
+    const rows = await tx
+      .update(workers)
+      .set({ status: "active", updatedAt: new Date() })
+      .where(
+        and(eq(workers.id, id), eq(workers.status, "pending"), eq(workers.phoneHash, phoneHash)),
+      )
+      .returning();
+    return rows[0];
+  }
+
   async markTestAccount(id: string): Promise<Worker | undefined> {
     const rows = await this.db
       .update(workers)
@@ -609,6 +640,12 @@ export class WorkersRepository {
    * downloads, flags) and SET-NULLs the three billing/intent FKs (unlocks/resume_disclosures/
    * invites.inviter_worker_id) per migration 0030. Returns true if a row was deleted, false if
    * the worker was already gone (idempotent — a re-run is a no-op).
+   *
+   * #2837 — then, on the same transaction, the two rows keyed on his id that NO cascade reaches
+   * (`display_prefs`, `feature_pilot_subjects`: no FK, by design), via {@link eraseLoginKeyedRows}.
+   * AFTER the row delete, which waits for any theme PATCH holding the row, so a choice committed
+   * mid-erasure is seen and deleted. Run whether or not this call removed the row: a re-run
+   * clears what an out-of-band delete left, and removes nothing when there is nothing.
    */
   async hardDelete(
     id: string,
@@ -628,7 +665,9 @@ export class WorkersRepository {
         .returning({ id: workers.id });
       // A drizzle transaction handle exposes the same query API; writers take it typed as
       // `Database` (the codebase's tx convention).
-      if (deleted.length > 0 && opts.inTx !== undefined) await opts.inTx(tx as unknown as Database);
+      const executor = tx as unknown as Database;
+      await eraseLoginKeyedRows(executor, { kind: "worker", id });
+      if (deleted.length > 0 && opts.inTx !== undefined) await opts.inTx(executor);
       return deleted.length > 0;
     });
   }

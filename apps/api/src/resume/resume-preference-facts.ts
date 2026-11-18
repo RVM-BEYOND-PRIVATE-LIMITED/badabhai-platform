@@ -1,5 +1,7 @@
 import {
-  AVAILABILITY_STATUSES,
+  AVAILABILITY_STATUSES_ALL,
+  AVAILABILITY_STATUSES_V1,
+  AVAILABILITY_STATUSES_V2,
   DOCUMENTS_READY,
   EDUCATION_COUNCILS,
   EDUCATION_CREDENTIALS,
@@ -109,13 +111,17 @@ export interface ResumePreferenceFacts {
   readonly commuteMaxKm: number | null;
   /** Undefined means UNANSWERED; only `true` ever prints. Never derived from `commuteMaxKm`. */
   readonly willingToTravel: boolean | undefined;
-  /** The printed status ("Within a week"), from the worker's own answer or the model's. */
+  /**
+   * The printed status ("Within a week", "Can join now"), from the worker's own answer or the
+   * model's. Either availability set (#2753 item 3), each key in its own words.
+   */
   readonly availabilityStatusLabel: string | null;
   /**
-   * The same status as its SLUG (`immediate`, `serving_notice`, …), or null — narrowed to the
-   * vocabulary, so an unknown slug reads as null exactly as its label does. For a rule that must
-   * branch on the answer (the general road's "Available from", {@link formAvailabilityLabel}):
-   * branching on the printed label would make a copy edit a behaviour change.
+   * The same status as its SLUG (`immediate`, `serving_notice`, `join_now`, …), or null —
+   * narrowed to the vocabulary, so an unknown slug reads as null exactly as its label does. For a
+   * rule that must branch on the answer (the general road's "Available from",
+   * {@link formAvailabilityLabel}): branching on the printed label would make a copy edit a
+   * behaviour change.
    */
   readonly availabilityStatus: string | null;
   /** `YYYY-MM-DD`, as the worker stated it. Null unless the structured answer carries one. */
@@ -249,9 +255,11 @@ export function readPreferenceFacts(
         : labelFor(SALARY_PERIODS, salaryPeriod),
     commuteMaxKm: nonNegativeNumber(attributes.commute_max_km),
     willingToTravel: flag(attributes.willing_to_travel),
-    availabilityStatusLabel: labelFor(AVAILABILITY_STATUSES, availability.status ?? ""),
+    // EITHER SET, WHATEVER THE FLAG SAYS (#2753 item 3): an old answer keeps its own words and a
+    // key of the brief's four, stored while the flag was off, still prints.
+    availabilityStatusLabel: labelFor(AVAILABILITY_STATUSES_ALL, availability.status ?? ""),
     availabilityStatus:
-      labelFor(AVAILABILITY_STATUSES, availability.status ?? "") === null
+      labelFor(AVAILABILITY_STATUSES_ALL, availability.status ?? "") === null
         ? null
         : availability.status,
     availableFrom: availability.availableFrom,
@@ -289,6 +297,13 @@ function nonNegativeNumber(value: unknown): number | null {
  *   - a date on or before it, or `immediate` → "Immediately" (the vocabulary's own label)
  *   - `serving_notice` with a day count      → "Serving notice (30 days)"; without one, the label
  *   - `within_week` / `within_month`         → "Within a week" / "Within a month"
+ *   - `join_now`                             → "Can join now" (#2753 item 3, the brief's four)
+ *   - `in_15_days` / `in_30_days`            → "Can join in 15 days" / "Can join in 30 days"
+ *   - `working_open`                         → "Working, open to a better offer"
+ *
+ * THE BRIEF'S FOUR CARRY NO DAY COUNT OF THEIR OWN beyond the one their key names, so a
+ * `notice_period_days` beside one is not read; and a past date still prints "Immediately", the
+ * first set's label, because that rule is the date's and not the status's.
  *
  * THE DATE WINS OVER THE STATUS, because it is the more specific statement — "serving notice"
  * with an `available_from` has already told us the day. A PAST date prints "Immediately" rather
@@ -314,6 +329,12 @@ export function formAvailabilityLabel(
 const WITHIN_DAYS: Readonly<Record<string, number>> = { within_week: 7, within_month: 30 };
 
 /**
+ * The brief's two day-count answers as a day count (#2753 item 3) — the number each key names,
+ * never a guess. Kept apart from {@link WITHIN_DAYS} so the first set's table stays as it was.
+ */
+const JOIN_IN_DAYS: Readonly<Record<string, number>> = { in_15_days: 15, in_30_days: 30 };
+
+/**
  * The worker's own availability answer (preferences page / résumé-menu walk) as the sheet's
  * {@link SheetAvailability}, or null when he answered none of it — the caller then falls back to
  * the interview's. Same rules, same label as {@link formAvailabilityLabel}; this adds the start the
@@ -325,7 +346,7 @@ export function formAvailability(
 ): SheetAvailability | null {
   const from = facts.availableFrom === null ? null : calendarDate(facts.availableFrom);
   const today = asOf === null ? null : indiaCalendarDay(asOf);
-  const immediately = labelFor(AVAILABILITY_STATUSES, "immediate");
+  const immediately = labelFor(AVAILABILITY_STATUSES_V1, "immediate");
   const immediate =
     immediately === null ? null : ({ label: immediately, start: { kind: "immediate" } } as const);
   if (from !== null && today !== null) {
@@ -338,7 +359,7 @@ export function formAvailability(
     case "immediate":
       return immediate;
     case "serving_notice": {
-      const label = labelFor(AVAILABILITY_STATUSES, "serving_notice");
+      const label = labelFor(AVAILABILITY_STATUSES_V1, "serving_notice");
       if (label === null) return null;
       const days = facts.noticePeriodDays;
       if (days === null || days <= 0) return { label, start: { kind: "on_notice" } };
@@ -349,9 +370,21 @@ export function formAvailability(
     }
     case "within_week":
     case "within_month": {
-      const label = labelFor(AVAILABILITY_STATUSES, status);
+      const label = labelFor(AVAILABILITY_STATUSES_V1, status);
       return label === null ? null : { label, start: startInDays(WITHIN_DAYS[status]!) };
     }
+    // ── #2753 item 3 — the brief's four, each printed in its own words ──
+    case "join_now":
+      // The same start as `immediate`; only the words differ.
+      return { label: AVAILABILITY_STATUSES_V2.join_now, start: { kind: "immediate" } };
+    case "in_15_days":
+    case "in_30_days":
+      return {
+        label: AVAILABILITY_STATUSES_V2[status],
+        start: startInDays(JOIN_IN_DAYS[status]!),
+      };
+    case "working_open":
+      return { label: AVAILABILITY_STATUSES_V2.working_open, start: { kind: "open_to_offer" } };
     default:
       return null;
   }

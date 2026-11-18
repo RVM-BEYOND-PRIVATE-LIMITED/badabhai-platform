@@ -126,6 +126,9 @@ export class ReachService {
    *      rank, so an applicant hidden by the payer's saved board is neither listed nor given a
    *      `feed.shown` impression, and the visible rows stay contiguously ranked. Absent, the
    *      result is exactly the unfiltered list.
+   *  (4) DECORATE (#2747): the optional `decorate` hook (the payer service's source label and
+   *      pre-pay facts) runs on the ranked rows BEFORE the emit, so a decoration read that fails
+   *      fails the request with nothing emitted. It may add keys; it never drops or reorders rows.
    *
    * `scope` is the caller's ONE resolution of the session payer (ADR-0053 §5.2 rule 1).
    * (The 404-throwing wrapper `applicantsForOwnedJob` had no production caller and was removed
@@ -136,6 +139,7 @@ export class ReachService {
     scope: PayerTenantScope,
     ctx: RequestContext,
     visible?: (workerId: string) => boolean,
+    decorate?: (rows: ApplicantRowDto[]) => Promise<ApplicantRowDto[]>,
   ): Promise<ApplicantListResponseDto | undefined> {
     const ownedRow = await this.repo.findOwnedJobSignalRowById(jobId, scope.tenantKey);
     if (!ownedRow) return undefined;
@@ -146,7 +150,9 @@ export class ReachService {
     const visibleRows = visible ? rows.filter((row) => visible(row.workerId)) : rows;
     const ranked = ReachService.rankAppliers(ownedRow, visibleRows, new Date());
     // #2736 - the non-contact card facts, grafted after the rank (never a rank input).
-    const applicants = await this.withProfileFacts(ranked);
+    const withFacts = await this.withProfileFacts(ranked);
+    // #2747 - the payer's own decoration, before anything is emitted.
+    const applicants = decorate ? await decorate(withFacts) : withFacts;
 
     // One feed.shown per row, UNKEYED (D7), with the PAYER as the actor (actor_id is the
     // verified session login — never the route/body, never the tenant). payer_id stays opaque

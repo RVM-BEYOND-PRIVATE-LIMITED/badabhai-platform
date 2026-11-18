@@ -85,6 +85,7 @@ function makeService(
     aiCost as never,
     events as never,
     packs as never,
+    { assertMayRunAi: vi.fn(async () => undefined) } as never, // #2752 institute AI gate
   );
   return { service, ai, repo, aiCost, events, emitted, packs };
 }

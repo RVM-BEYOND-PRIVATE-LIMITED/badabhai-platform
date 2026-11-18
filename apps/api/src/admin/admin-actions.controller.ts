@@ -102,7 +102,7 @@ export class AdminActionsController {
     @Body(new ZodValidationPipe(AdminGrantCreditsSchema)) dto: AdminGrantCreditsDto,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.service.grantCredits(admin.id, params.id, dto, ctx);
+    return this.service.grantCredits(admin.id, params.id, dto, ctx, admin.role);
   }
 
   // ----- job postings -------------------------------------------------------

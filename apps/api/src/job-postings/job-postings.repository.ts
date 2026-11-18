@@ -4,6 +4,7 @@ import {
   type Database,
   jobPostings,
   type JobPosting,
+  type JobPostingAudience,
   type JobNeededBy,
   type JobPayType,
   type JobShift,
@@ -124,6 +125,17 @@ interface JobPostingApi {
   hidden: boolean;
   hidden_at: Date | null;
   hidden_reason_code: string | null;
+  /**
+   * #2746 — who sees the posting, and the RVM targeting (`[]` = every branch / course). READ-ONLY
+   * on this projection for every surface but the company's own PATCH/POST (`PostingAudienceService`
+   * decides those). The ops and admin surfaces read them and can never write them: their edit
+   * schemas carry no audience field and `JobPostingUpdate` has no audience column. The company's
+   * own reads project them through `PostingAudienceService.payerViews` (shown while the switch is
+   * on for the company, or whenever the stored audience is not the default).
+   */
+  audience: JobPostingAudience;
+  rvm_branch_ids: number[];
+  rvm_course_ids: string[];
 }
 
 /** Map a Drizzle camelCase row to the snake_case API shape. */
@@ -172,6 +184,9 @@ function toJobPostingApi(row: JobPosting): JobPostingApi {
     hidden: row.hiddenAt !== null,
     hidden_at: row.hiddenAt,
     hidden_reason_code: row.hiddenReasonCode,
+    audience: row.audience,
+    rvm_branch_ids: Array.isArray(row.rvmBranchIds) ? row.rvmBranchIds : [],
+    rvm_course_ids: Array.isArray(row.rvmCourseIds) ? row.rvmCourseIds : [],
   };
 }
 
@@ -226,6 +241,16 @@ export type JobPostingUpdate = Partial<
     | "tradeAnswers"
   >
 > & { updatedAt: Date };
+
+/**
+ * #2746 — the audience columns. Written ONLY by the company's own create/PATCH, through
+ * `PostingAudienceService` and {@link JobPostingsRepository.updateOwned}; deliberately NOT part of
+ * {@link JobPostingUpdate}, which the ops and admin edits build, so neither can express one.
+ */
+export type PostingAudienceColumns = Pick<
+  NewJobPosting,
+  "audience" | "rvmBranchIds" | "rvmCourseIds"
+>;
 
 /**
  * A posting insert (ADR-0053 §5.2 rule 3, hand-converted: the Drizzle `NewJobPosting` types
@@ -367,13 +392,38 @@ export class JobPostingsRepository {
   async updateOwned(
     id: string,
     tenant: TenantKey,
-    patch: JobPostingUpdate,
+    patch: JobPostingUpdate & Partial<PostingAudienceColumns>,
+    executor: Database = this.db,
   ): Promise<JobPostingApi | undefined> {
-    const rows = await this.db
+    const rows = await executor
       .update(jobPostings)
       .set(patch)
       .where(and(eq(jobPostings.id, id), eq(jobPostings.payerId, tenant)))
       .returning();
+    return rows[0] ? toJobPostingApi(rows[0]) : undefined;
+  }
+
+  /**
+   * #2746 — the owner-scoped read under `SELECT … FOR NO KEY UPDATE`, inside the caller's
+   * transaction: an audience write decides against the row as it is while no other write can move
+   * it. It conflicts with another audience write, with the Campus decision (#2746 PR 5) and with
+   * the reach core's `FOR SHARE` (which then waits for this commit and runs against the committed
+   * audience). It does NOT conflict with `FOR KEY SHARE`, the lock a foreign-key check takes, so
+   * an application or a `job_reach` insert referencing the posting is not held up. The posting row
+   * is locked here BEFORE the review row (the house lock order, `@badabhai/db` `job-review.ts`).
+   * Same no-oracle miss as {@link findByIdAndPayer}.
+   */
+  async findOwnedForUpdate(
+    id: string,
+    tenant: TenantKey,
+    executor: Database,
+  ): Promise<JobPostingApi | undefined> {
+    const rows = await executor
+      .select()
+      .from(jobPostings)
+      .where(and(eq(jobPostings.id, id), eq(jobPostings.payerId, tenant)))
+      .limit(1)
+      .for("no key update");
     return rows[0] ? toJobPostingApi(rows[0]) : undefined;
   }
 

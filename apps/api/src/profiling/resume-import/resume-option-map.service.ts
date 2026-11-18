@@ -5,6 +5,7 @@ import type { ResumeImportFailureName } from "@badabhai/types";
 
 import { AiService } from "../../ai/ai.service";
 import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
+import { InstituteAiGate } from "../../campus-link/institute-ai-gate.service";
 import type { RequestContext } from "../../common/request-context";
 import { SERVER_CONFIG } from "../../config/config.module";
 
@@ -44,6 +45,9 @@ export class ResumeOptionMapService {
       ServerConfig,
       "RESUME_AUTOFILL_ENABLED" | "RESUME_OPTION_MAP_REQUIRES_AUTOFILL"
     >,
+    // #2752 item 13 — no AI for an institute student without BadaBhai's own consent; import
+    // jobs and the import sweep run off his request. CampusLinkModule, a one-way edge.
+    private readonly instituteAi: InstituteAiGate,
   ) {}
 
   /**
@@ -68,6 +72,7 @@ export class ResumeOptionMapService {
       return [];
     }
 
+    await this.instituteAi.assertMayRunAi(workerId); // #2752 item 13, before the model call
     const out = await this.ai.mapResumeOptions(
       {
         schema_version: "resume.v1",

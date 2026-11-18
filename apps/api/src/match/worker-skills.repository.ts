@@ -1,11 +1,17 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, eq, inArray, isNull, notInArray, sql as dsql } from "drizzle-orm";
+import type { FormTenureFill } from "@badabhai/match-engine";
 import {
   CURRENT_PROFILE_ORDER,
   type Database,
+  type FormTenureSwitches,
   jobPostings,
+  loadFormTenureFills,
   materializeJobReachWithin,
+  notHiddenStudent,
+  studentVisibilityPresent,
   PROFILE_SOURCE_SESSION_ANSWERS,
+  reachesBadaBhaiWorkers,
   skills,
   workerAttributes,
   workerIndustryTenure,
@@ -69,6 +75,20 @@ export type Tx = Database;
 @Injectable()
 export class WorkerSkillsRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
+
+  /**
+   * #2887 — is this worker a moved student whose visibility is OFF? A hidden student is reached by
+   * nothing: his wanted set reads as empty. Keyed on the TABLE, never on a switch (reach depends on
+   * none, #2746 M2): before the `student_move` migration there is no table and no student is hidden.
+   */
+  private async isHiddenStudentWithin(executor: Tx, workerId: string): Promise<boolean> {
+    if (!(await studentVisibilityPresent(executor as unknown as Database))) return false;
+    const rows = (await executor.execute(dsql`
+      SELECT 1 AS hidden FROM student_visibility
+      WHERE worker_id = ${workerId}::uuid AND NOT visible
+    `)) as unknown as unknown[];
+    return rows.length > 0;
+  }
 
   /**
    * The worker's CURRENT profile signals, or undefined when he has no profile yet.
@@ -169,6 +189,23 @@ export class WorkerSkillsRepository {
       const answer = packAnswerFromStoredRow(row);
       return answer === null ? [] : [answer];
     });
+  }
+
+  /**
+   * #2753 item 2 — the years each trade form's experience band states, for a batch of workers.
+   *
+   * THE SHARED READ, NOT A SECOND ONE. `loadFormTenureFills` (@badabhai/db) is the statement and the
+   * band/typed rule `db:backfill:worker-skills` runs too: ONE query for all `workerIds`, against
+   * `worker_pack_answer` (the record of what he answered), and a typed answer only with
+   * `switches.typed` on. With `switches.months` off it issues no query and returns an empty map.
+   *
+   * PRIVACY: ids, a status and a number leave this method — never the typed words it may parse.
+   */
+  async findFormTenureFills(
+    workerIds: readonly string[],
+    switches: FormTenureSwitches,
+  ): Promise<Map<string, FormTenureFill[]>> {
+    return loadFormTenureFills(this.db, workerIds, switches);
   }
 
   /**
@@ -504,10 +541,15 @@ export class WorkerSkillsRepository {
     `);
 
     if (wantedSkillIds.length === 0) return; // he supplies nothing: reaches nobody.
+    // #2887 — a hidden moved student reaches nobody until an admin turns his visibility on.
+    if (await this.isHiddenStudentWithin(tx, workerId)) return;
 
     const skills = dsql.param([...wantedSkillIds]);
     // 2. Re-insert. The GROUP BY is per posting (the materializer groups per worker for
     //    one posting; here it is one worker across postings) — same MIN/ARRAY_AGG rule.
+    //    #2746 — and the same audience rule as `materializeJobReachWithin`: the worker side of
+    //    reach must not hand him a row the publish side would never write. Step 1 already
+    //    removed any row he held on an RVM-only posting.
     await tx.execute(dsql`
       INSERT INTO job_reach (job_posting_id, worker_id, match_tier, matched_skill_id)
       SELECT jp.id,
@@ -521,6 +563,7 @@ export class WorkerSkillsRepository {
        AND ws.wants
        AND jp.reach_skill_ids @> to_jsonb(ws.skill_id)
       WHERE jp.status IN ('open', 'paused')
+        AND ${reachesBadaBhaiWorkers("jp")}
         AND jp.reach_skill_ids ?| ${skills}::text[]
       GROUP BY jp.id
       ON CONFLICT (job_posting_id, worker_id) DO UPDATE
@@ -541,10 +584,15 @@ export class WorkerSkillsRepository {
   async countWorkersReachedBy(skillIds: readonly string[]): Promise<number> {
     if (skillIds.length === 0) return 0;
     const ids = dsql.param([...skillIds]);
+    // #2887 — a hidden moved student is in no reach total (once `student_visibility` exists).
+    const hidden =
+      (await studentVisibilityPresent(this.db))
+        ? dsql` AND ${notHiddenStudent(dsql`ws.worker_id`)}`
+        : dsql``;
     const rows = await this.db.execute<{ n: number }>(dsql`
       SELECT count(DISTINCT ws.worker_id)::int AS n
       FROM worker_skill ws
-      WHERE ws.skill_id = ANY(${ids}::text[]) AND ws.wants
+      WHERE ws.skill_id = ANY(${ids}::text[]) AND ws.wants${hidden}
     `);
     const list = rows as unknown as { n: number }[];
     return list[0]?.n ?? 0;
@@ -579,7 +627,8 @@ export class WorkerSkillsRepository {
   ): Promise<void> {
     // THE STATEMENT LIVES IN `@badabhai/db` (`materializeJobReachWithin`) since ADR-0050: the
     // agency-twin sync must run the SAME materialization inside ITS transaction, and one SQL text
-    // cannot drift from itself. This method keeps its own transaction, exactly as before.
+    // cannot drift from itself. This method keeps its own transaction, exactly as before. The
+    // core reads the posting's audience itself (#2746): an RVM-only posting gets no rows here.
     await this.db.transaction(async (tx) =>
       materializeJobReachWithin(tx as unknown as Tx, jobPostingId, postedSkillIds, reachSkillIds),
     );
@@ -605,7 +654,14 @@ export class WorkerSkillsRepository {
       .where(eq(jobPostings.id, jobPostingId));
   }
 
-  /** The stored match/reach id arrays + publish state for one posting. */
+  /**
+   * The stored match/reach id arrays + publish state for one posting.
+   *
+   * `reachesBadaBhaiWorkers` (#2746) is the shared audience fragment evaluated on the row: false
+   * for an RVM-only posting, whose empty reach set is by design. The publish path reads it only to
+   * keep the E13 zero-reach alert for postings that could reach somebody; the reach core still
+   * decides the rows itself.
+   */
   async findPostingSkillSets(jobPostingId: string): Promise<
     | {
         matchSkillIds: string[];
@@ -613,6 +669,7 @@ export class WorkerSkillsRepository {
         publishedAt: Date | null;
         payerId: string | null;
         createdBy: string;
+        reachesBadaBhaiWorkers: boolean;
       }
     | undefined
   > {
@@ -623,6 +680,7 @@ export class WorkerSkillsRepository {
         publishedAt: jobPostings.publishedAt,
         payerId: jobPostings.payerId,
         createdBy: jobPostings.createdBy,
+        reachesBadaBhaiWorkers: dsql<boolean>`${reachesBadaBhaiWorkers()}`,
       })
       .from(jobPostings)
       .where(eq(jobPostings.id, jobPostingId))
@@ -635,6 +693,8 @@ export class WorkerSkillsRepository {
       publishedAt: row.publishedAt,
       payerId: row.payerId,
       createdBy: row.createdBy,
+      // Only an explicit `false` from Postgres means "by design": anything else keeps the alert.
+      reachesBadaBhaiWorkers: row.reachesBadaBhaiWorkers !== false,
     };
   }
 
@@ -649,7 +709,13 @@ export class WorkerSkillsRepository {
    * holding an id apply to a posting no feed would show him (#1904). `paused` is excluded
    * here even though the reconcile above keeps it in scope: that keeps the reach set warm for
    * a resume, but a paused posting is on no feed. A resume restores apply with no write.
-   * `worker-skills.repository.test.ts` pins this predicate to the feed's.
+   * The same holds for `jp.hidden_at IS NULL` (#2566): an admin hide keeps the reach rows, so
+   * the gate repeats the feed's hidden test. `worker-skills.repository.test.ts` pins both
+   * predicates to the feed's.
+   *
+   * #2746 — AND THE FEED'S AUDIENCE TEST, the same shared fragment. Reach never materializes an
+   * RVM-only posting, but a row left over from before an audience change must not let a worker
+   * holding the id apply. It is the same neutral 404.
    *
    * A predicate, not a decision: what an absent row MEANS (the neutral 404, no event) is
    * decided in `MatchApplyService.buildSnapshot`.
@@ -665,6 +731,10 @@ export class WorkerSkillsRepository {
       WHERE jr.worker_id = ${workerId}::uuid
         AND jr.job_posting_id = ${jobPostingId}::uuid
         AND jp.status = 'open'
+        -- #2566 — hidden leaves every worker surface, apply included. Hiding keeps the reach
+        -- rows, so without this a worker holding a card could still apply to a hidden job.
+        AND jp.hidden_at IS NULL
+        AND ${reachesBadaBhaiWorkers("jp")}
       LIMIT 1
     `);
     const list = rows as unknown as { match_tier: number; matched_skill_id: string }[];
@@ -717,6 +787,9 @@ export class WorkerSkillsRepository {
           inArray(jobPostings.status, ["open", "paused"]),
           // #2566 — a hidden posting must not appear in this discovery aid either.
           isNull(jobPostings.hiddenAt),
+          // #2746 — nor an RVM-only one: the reconcile writes it no reach row, so counting it
+          // would report reach the worker does not have.
+          reachesBadaBhaiWorkers(),
           dsql`${jobPostings.reachSkillIds} ?| ${dsql.param([...skillIds])}::text[]`,
         ),
       );

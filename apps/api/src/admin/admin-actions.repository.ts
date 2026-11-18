@@ -1,5 +1,5 @@
-import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import { and, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
   type Database,
   type JobPosting,
@@ -8,13 +8,15 @@ import {
   type WorkerFlagReasonCode,
   auditLogs,
   creditLedger,
+  grantCreditsWithinTx,
   jobPostings,
   jobs,
-  payerCredits,
+  lotAlignmentWarning,
   payers,
   workerFlags,
   workers,
 } from "@badabhai/db";
+import { restampCompanyDriveRequests } from "../campus-drives/campus-drive-feed-stamp";
 import { DATABASE } from "../database/database.module";
 import type { WorkerStatus } from "@badabhai/types";
 
@@ -45,6 +47,13 @@ export interface GrantCreditsResult {
  */
 @Injectable()
 export class AdminActionsRepository {
+  /**
+   * #2749 — the one log line this repository writes, at ERROR: a wallet whose lots the
+   * credit-wallet helper re-aligned with its balance during a grant (ids and numbers only; the
+   * state of its own write). It should never fire after the 0174 apply-to-deploy window.
+   */
+  private readonly walletLog = new Logger("CreditWallet");
+
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /**
@@ -82,11 +91,18 @@ export class AdminActionsRepository {
    * transition — reading the status first and passing it back in would be a TOCTOU.
    *
    * Returns the new status only when the row actually changed. `tx` runs the write on a
-   * caller-provided transaction (H3) so it commits with the event atomically.
+   * caller-provided transaction (H3) so it commits with the event atomically; it is REQUIRED
+   * (#2746 PR 6, security re-check L4): the status and the drive-request re-stamp below must commit
+   * together, never as two autocommits.
+   *
+   * #2746 PR 6 — a suspended company is withdrawn from Campus's drive feed (owner ruling R2), so
+   * the moved row re-stamps the company's drive requests on the same `tx`
+   * (`restampCompanyDriveRequests`), as {@link reinstatePayer} does. The service re-stamps once more
+   * as its transaction's last statement ({@link restampDriveRequests}).
    */
   async suspendPayer(
     id: string,
-    tx: Database = this.db,
+    tx: Database,
   ): Promise<{ status: PayerStatus; previousStatus: PayerStatus | null } | undefined> {
     const [row] = await tx
       .update(payers)
@@ -97,6 +113,7 @@ export class AdminActionsRepository {
       })
       .where(and(eq(payers.id, id), inArray(payers.status, ["pending", "active"])))
       .returning({ status: payers.status, previousStatus: payers.previousStatus });
+    if (row) await restampCompanyDriveRequests(tx, id);
     return row;
   }
 
@@ -111,11 +128,12 @@ export class AdminActionsRepository {
    *
    * `COALESCE(previous_status, 'pending')` covers rows suspended before the column existed:
    * the unknown case resolves to the LESS privileged state, not the more privileged one.
-   * `previous_status` is cleared so it only ever describes the current suspension.
+   * `previous_status` is cleared so it only ever describes the current suspension. `tx` is
+   * REQUIRED, as for {@link suspendPayer}.
    */
   async reinstatePayer(
     id: string,
-    tx: Database = this.db,
+    tx: Database,
   ): Promise<{ status: PayerStatus } | undefined> {
     const [row] = await tx
       .update(payers)
@@ -126,7 +144,17 @@ export class AdminActionsRepository {
       })
       .where(and(eq(payers.id, id), eq(payers.status, "suspended")))
       .returning({ status: payers.status });
+    if (row) await restampCompanyDriveRequests(tx, id);
     return row;
+  }
+
+  /**
+   * #2746 PR 6 (security re-check L1) — re-stamp the drive requests keyed on `payerId`, as the LAST
+   * statement of a suspend or reinstate transaction, so the `changed_at` Campus sees is taken just
+   * before the commit, after the inventory freeze, the events and the audit row.
+   */
+  async restampDriveRequests(tx: Database, payerId: string): Promise<void> {
+    await restampCompanyDriveRequests(tx, payerId);
   }
 
   // ----- payer inventory cascade (ADR-0037 Decision 1) ----------------------
@@ -234,12 +262,16 @@ export class AdminActionsRepository {
    * the ledger row + balance (the SoR) — NEVER in the event. Returns the new balance + the
    * opaque ledger row id (the audit target). The CHECK (balance >= 0) holds (a grant is +ve).
    *
-   * EXACTLY-ONCE (H2): the ledger insert is `ON CONFLICT (idempotency_key) DO NOTHING` and the
-   * balance is bumped ONLY when a NEW ledger row was actually inserted. So a retry with the SAME
-   * `idempotencyKey` inserts NO second row and moves the balance ZERO times — `applied:false`,
-   * the existing balance + ledger id are returned. A genuinely new grant (new key) = one row +
-   * one balance move = `applied:true`. The order (ledger first, then balance) is what binds the
-   * dedup to the balance — there is no path where the balance moves without a new ledger row.
+   * #2749 — through `grantCreditsWithinTx` (packages/db credit-wallet.ts): the grant is a
+   * `goodwill` lot that never expires, ONE `grant` ledger line naming it, and the balance, all
+   * under the wallet row lock (wallet row → lots → ledger, the one lock order). The wallet is the
+   * payer id the admin route names (a named §4 exception, ADR-0053: ops address an account).
+   *
+   * EXACTLY-ONCE (H2): the key is checked UNDER THE WALLET LOCK — a retry with the SAME
+   * `idempotencyKey` finds its ledger line and writes nothing (no lot, no balance move):
+   * `applied:false`, the existing balance + ledger id are returned. A genuinely new grant (new
+   * key) = one lot + one line + one balance move = `applied:true`. `credit_ledger_idempotency_key_uq`
+   * stays the backstop: the same key on ANOTHER payer violates it and the transaction rolls back.
    *
    * `tx` lets a CALLER run this inside its own transaction (H3) so the SoR write + the event
    * emit commit atomically; default opens its own tx.
@@ -249,46 +281,94 @@ export class AdminActionsRepository {
     amount: number,
     idempotencyKey: string,
     tx?: Database,
+    // #2750 item 11 — under the credit rules: the ledger reason and the lot's validity. Absent,
+    // the grant is today's (`grant`, a lot that never expires).
+    opts: { reason?: "grant" | "goodwill" | "correction"; validityDays?: number | null } = {},
   ): Promise<GrantCreditsResult> {
     const run = <T>(cb: (e: Database) => Promise<T>): Promise<T> =>
       tx ? cb(tx) : this.db.transaction(cb as (e: unknown) => Promise<T>);
-    return run(async (tx) => {
-      // 1) Append the ledger movement, deduped on the opaque idempotency key. A replay of the
-      //    same key inserts NO row and returns nothing (the SoR is the dedup authority).
-      const [ledger] = await tx
-        .insert(creditLedger)
-        .values({ payerId, delta: amount, reason: "grant", idempotencyKey })
-        .onConflictDoNothing({ target: creditLedger.idempotencyKey })
-        .returning({ id: creditLedger.id });
+    const grant = await run((e) =>
+      grantCreditsWithinTx(e, {
+        payerId,
+        credits: amount,
+        lot:
+          opts.validityDays != null
+            ? { source: "goodwill", validityDays: opts.validityDays }
+            : { source: "goodwill", expiresAt: null },
+        ledger: { reason: opts.reason ?? "grant", idempotencyKey },
+      }),
+    );
+    // ERROR, not warn: after the 0174 apply-to-deploy window a realignment means some writer
+    // moved a balance without the wallet helpers (the self-heal stays; see credit-wallet.ts).
+    const realigned = lotAlignmentWarning(payerId, grant.alignment);
+    if (realigned !== null) this.walletLog.error(realigned);
+    return { ledgerId: grant.ledgerId, balance: grant.balanceAfter, applied: grant.applied };
+  }
 
-      if (!ledger) {
-        // Idempotent replay: the row already exists. Do NOT touch the balance. Return the
-        // existing (already-applied) ledger id + the current balance.
-        const [existingLedger] = await tx
-          .select({ id: creditLedger.id })
-          .from(creditLedger)
-          .where(eq(creditLedger.idempotencyKey, idempotencyKey))
-          .limit(1);
-        const [cur] = await tx
-          .select({ balance: payerCredits.balance })
-          .from(payerCredits)
-          .where(eq(payerCredits.payerId, payerId))
-          .limit(1);
-        if (!existingLedger) throw new Error("Failed to resolve idempotent credit grant");
-        return { ledgerId: existingLedger.id, balance: cur?.balance ?? 0, applied: false };
-      }
+  /**
+   * #2750 item 11 — serialise one company's goodwill grants for the rest of the transaction, so two
+   * grants at once cannot both pass the quarter's cap. Taken before the wallet lock the grant takes.
+   */
+  async lockGoodwill(tx: Database, payerId: string): Promise<void> {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`goodwill:${payerId}`}, 0))`,
+    );
+  }
 
-      // 2) A new ledger row WAS inserted → move the balance exactly once.
-      const [bal] = await tx
-        .insert(payerCredits)
-        .values({ payerId, balance: amount })
-        .onConflictDoUpdate({
-          target: payerCredits.payerId,
-          set: { balance: sql`${payerCredits.balance} + ${amount}`, updatedAt: sql`now()` },
-        })
-        .returning({ balance: payerCredits.balance });
-      if (!bal) throw new Error("Failed to grant credits");
-      return { ledgerId: ledger.id, balance: bal.balance, applied: true };
+  /** #2750 item 11 — goodwill credits granted to this wallet since `since` (the quarter's start). */
+  async goodwillGrantedSince(tx: Database, payerId: string, since: Date): Promise<number> {
+    const [row] = await tx
+      .select({ n: sql<number>`coalesce(sum(${creditLedger.delta}), 0)::int` })
+      .from(creditLedger)
+      .where(
+        and(
+          eq(creditLedger.payerId, payerId),
+          eq(creditLedger.reason, "goodwill"),
+          gte(creditLedger.createdAt, since),
+        ),
+      );
+    return Number(row?.n ?? 0);
+  }
+
+  /** #2750 item 11 — is this idempotency key already on the ledger (a replayed grant)? */
+  async ledgerKeyExists(tx: Database, idempotencyKey: string): Promise<boolean> {
+    const rows = await tx
+      .select({ id: creditLedger.id })
+      .from(creditLedger)
+      .where(eq(creditLedger.idempotencyKey, idempotencyKey))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /** #2750 item 11 — is `ledgerId` one of this wallet's ledger rows (what a correction names)? */
+  async ledgerRowOfPayer(payerId: string, ledgerId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: creditLedger.id })
+      .from(creditLedger)
+      .where(and(eq(creditLedger.id, ledgerId), eq(creditLedger.payerId, payerId)))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /**
+   * #2750 item 11 — the grant's audit row, in the grant's own transaction: who granted it, the
+   * reason code and the staff member's words, the ledger row, and what it corrects.
+   */
+  async insertGrantAudit(
+    tx: Database,
+    input: {
+      adminId: string;
+      payerId: string;
+      metadata: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    await tx.insert(auditLogs).values({
+      actorType: "admin",
+      actorId: input.adminId,
+      action: "credits_granted",
+      entityType: "payer",
+      entityId: input.payerId,
+      metadata: input.metadata,
     });
   }
 

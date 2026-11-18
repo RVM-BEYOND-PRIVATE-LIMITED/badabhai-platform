@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
 import { JobPostingsService } from "../job-postings/job-postings.service";
-import type { JobPostingApi } from "../job-postings/job-postings.repository";
+import type { PayerJobPostingApi } from "../job-postings/posting-audience.service";
 import type { ListJobPostingsQueryDto } from "../job-postings/job-postings.dto";
 import {
   PostingPlansService,
@@ -23,7 +23,8 @@ import { ResumeDisclosureService } from "../disclosures/resume-disclosure.servic
  * read in ONE tenant resolution.
  */
 export interface PostingWithStats {
-  readonly posting: JobPostingApi;
+  /** The company's own posting, with its #2746 audience block when shown. */
+  readonly posting: PayerJobPostingApi;
   readonly stats: PostingStats;
   /** Résumés the tenant downloaded for this posting (completed disclosures only). */
   readonly disclosuresCount: number;
@@ -102,7 +103,9 @@ export class PayerPostingPlansService {
   ): Promise<PostingWithStats[]> {
     const scope = await this.tenancy.resolve(actorPayerId);
     const postings = await this.jobPostings.listInScope(scope, query);
-    const [stats, downloads] = await Promise.all([
+    // #2746 — the audience blocks for the whole page in the same scope: one switch read and one
+    // review read, beside the stats, never per posting.
+    const [stats, downloads, shown] = await Promise.all([
       Promise.all(
         postings.map((posting) => this.plans.getPostingStats(posting.id, scope.tenantKey)),
       ),
@@ -110,8 +113,9 @@ export class PayerPostingPlansService {
         postings.map((posting) => posting.id),
         scope,
       ),
+      this.jobPostings.toPayerPostings(scope, postings),
     ]);
-    return postings.map((posting, i) => ({
+    return shown.map((posting, i) => ({
       posting,
       stats: stats[i]!,
       disclosuresCount: downloads.get(posting.id) ?? 0,
@@ -125,10 +129,11 @@ export class PayerPostingPlansService {
   async getOneWithStats(jobPostingId: string, actorPayerId: string): Promise<PostingWithStats> {
     const scope = await this.tenancy.resolve(actorPayerId);
     const posting = await this.jobPostings.getOneInScope(jobPostingId, scope);
-    const [stats, disclosuresCount] = await Promise.all([
+    const [stats, disclosuresCount, shown] = await Promise.all([
       this.plans.getPostingStats(posting.id, scope.tenantKey),
       this.disclosures.countDownloadsForPostingInScope(posting.id, scope),
+      this.jobPostings.toPayerPostings(scope, [posting]),
     ]);
-    return { posting, stats, disclosuresCount };
+    return { posting: shown[0]!, stats, disclosuresCount };
   }
 }

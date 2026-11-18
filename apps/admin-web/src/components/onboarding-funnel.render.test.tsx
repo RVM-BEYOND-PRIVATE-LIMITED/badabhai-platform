@@ -44,7 +44,7 @@ describe("OnboardingFunnel", () => {
     expect(out).toContain("not a cohort");
   });
 
-  it("staggers only the first eight rows, so a long list enters together after them", () => {
+  it("staggers the first eight bars a step apart; every later bar enters with the eighth (#2580)", () => {
     const many = Array.from({ length: 10 }, (_, i) => ({
       key: `step_${i}`,
       order: i + 1,
@@ -53,6 +53,22 @@ describe("OnboardingFunnel", () => {
       not_done: 0,
     }));
     const out = html(<OnboardingFunnel steps={many} total={10} />);
-    expect(out.match(/animation-delay/g)).toHaveLength(8);
+    const delays = [...out.matchAll(/animation-delay:([^;"]+)/g)].map((m) => m[1]!.trim());
+    expect(delays).toHaveLength(10);
+    expect(delays.slice(0, 8)).toEqual(
+      Array.from({ length: 8 }, (_, i) => `calc(var(--stagger-step) * ${Math.min(i, 7)})`),
+    );
+    expect(new Set(delays.slice(7))).toEqual(new Set(["calc(var(--stagger-step) * 7)"]));
+  });
+
+  it("puts the delay on the FILL, the element that animates, not on the track (#2580)", () => {
+    const out = html(
+      <OnboardingFunnel
+        steps={[{ key: "login", order: 1, done: 5, in_progress: 0, not_done: 0 }]}
+        total={5}
+      />,
+    );
+    expect(out).toMatch(/class="funnel__fill"[^>]*style="[^"]*animation-delay/);
+    expect(out).not.toMatch(/class="funnel__bar"[^>]*style=/);
   });
 });
