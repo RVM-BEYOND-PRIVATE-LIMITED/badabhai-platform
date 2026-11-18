@@ -49,6 +49,11 @@ import { STAGING_COMPOSE_PATH, environmentOfFile } from "../common/testing/compo
  * crashing every boot on this box. This guard asserts they STAY absent, so nobody "generalizes"
  * this pattern onto them by copying a line from below without reading this comment (#858 tracks
  * wiring them properly, schema-first).
+ *
+ * FOUR HAVE GRADUATED, each schema-first: SKILLS_INTERNAL_TOKEN (#858) and, in #2749 part 5b, the
+ * three Razorpay values (PAYMENTS_PROVIDER_KEY, PAYMENTS_PROVIDER_SECRET, RAZORPAY_WEBHOOK_SECRET),
+ * now `optionalSecret()` and declared `${NAME:-}` on the api — and ONLY the api. The other 10 stay
+ * deferred.
  */
 
 /** The `${VAR:-default}` form: a committed default the BOX can still override, both ways. */
@@ -81,9 +86,8 @@ const DEFERRED_UNTIL_COMPANION_ENV = ["MEMBER_INVITES_ENABLE_REAL"] as const;
 
 /** Deliberately NOT wired here — see the file header's "WHAT THIS DELIBERATELY DOES NOT COVER". */
 const DEFERRED_STRING_SECRETS = [
-  "PAYMENTS_PROVIDER_KEY",
-  "PAYMENTS_PROVIDER_SECRET",
-  "RAZORPAY_WEBHOOK_SECRET",
+  // PAYMENTS_PROVIDER_KEY, PAYMENTS_PROVIDER_SECRET and RAZORPAY_WEBHOOK_SECRET GRADUATED in
+  // #2749 part 5b (`optionalSecret()` first, then the pass-through) — see GRADUATED_SECRETS.
   "WHATSAPP_API_KEY",
   "WHATSAPP_PHONE_NUMBER_ID",
   "FCM_SERVICE_ACCOUNT_B64",
@@ -99,6 +103,26 @@ const DEFERRED_STRING_SECRETS = [
   "GEMINI_FLASH_API_KEY",
   "ANTHROPIC_API_KEY",
   "LITELLM_API_KEY",
+] as const;
+
+/**
+ * The string secrets that have been converted to `optionalSecret()` and THEN declared as `${VAR:-}`
+ * pass-throughs on the api — in that order, which is the rule this file enforces.
+ */
+const GRADUATED_SECRETS = [
+  "SKILLS_INTERNAL_TOKEN",
+  "AI_INTERNAL_TOKEN",
+  // #2749 part 5b — the Razorpay credential set, bridged from the `production` environment.
+  "PAYMENTS_PROVIDER_KEY",
+  "PAYMENTS_PROVIDER_SECRET",
+  "RAZORPAY_WEBHOOK_SECRET",
+] as const;
+
+/** The three Razorpay secrets: the api's alone, never declared on any other service. */
+const RAZORPAY_SECRETS = [
+  "PAYMENTS_PROVIDER_KEY",
+  "PAYMENTS_PROVIDER_SECRET",
+  "RAZORPAY_WEBHOOK_SECRET",
 ] as const;
 
 describe("docker-compose.staging.yml — the 12 real-provider/feature boolean gates (BL-22)", () => {
@@ -150,7 +174,7 @@ describe("docker-compose.staging.yml — the 12 real-provider/feature boolean ga
     },
   );
 
-  it.each([["SKILLS_INTERNAL_TOKEN"], ["AI_INTERNAL_TOKEN"]])(
+  it.each(GRADUATED_SECRETS)(
     "THE ONES THAT GRADUATED: %s is declared, because its schema was converted first",
     (name) => {
       // The ORDER is the rule this file enforces, and it was followed: the schema became
@@ -178,6 +202,31 @@ describe("docker-compose.staging.yml — the 12 real-provider/feature boolean ga
       expect(api.get(name)!.endsWith(":-}"), `${name} must fall back to EMPTY`).toBe(true);
     }
   });
+
+  it("declaring the three Razorpay secrets did NOT arm real payments", () => {
+    // Same property, money edition (#2749 part 5b). With no GitHub secret created, each resolves
+    // to "" -> undefined, and PAYMENTS_ENABLE_REAL still falls back to false, so
+    // `getRazorpayCredentials` answers null and the mock path runs exactly as before.
+    for (const name of RAZORPAY_SECRETS) {
+      expect(api.get(name), `${name} must fall back to EMPTY`).toBe(`\${${name}:-}`);
+    }
+    expect(api.get("PAYMENTS_ENABLE_REAL")).toBe(
+      overridableDefault("PAYMENTS_ENABLE_REAL", "false"),
+    );
+  });
+
+  it.each(["ai-service", "payer-web", "admin-web"])(
+    "%s never receives a Razorpay secret — they are the api's alone",
+    (service) => {
+      // payer-web gets the rzp_ key id on the order RESPONSE (server-config.ts); nothing else
+      // needs any of the three. A declaration elsewhere would copy a money credential into a
+      // container with no reason to hold it.
+      const env = environmentOfFile(STAGING_COMPOSE_PATH, service);
+      expect(env.size, `${service}'s environment did not parse`).toBeGreaterThan(0);
+      for (const name of RAZORPAY_SECRETS)
+        expect(env.has(name), `${name} on ${service}`).toBe(false);
+    },
+  );
 
   it.each(DEFERRED_STRING_SECRETS)(
     "%s stays undeclared — a bare `.optional()` schema, not optionalSecret()",

@@ -1913,23 +1913,35 @@ export const serverEnvSchema = z.object({
   // alpha — there is NO real money movement. PAYMENTS_ENABLE_REAL is the master gate
   // (mirrors AI_ENABLE_REAL_CALLS) and DEFAULTS FALSE; flipping it true requires a
   // real gateway key AND is human-gated + staging-first (CLAUDE.md §7). A real-enabled
-  // flag without the key fails CLOSED at boot via assertPaymentsConfig.
+  // flag without the key fails CLOSED at boot via assertPaymentsConfig. In production it and
+  // the three values below are the `production` environment secrets of the same names
+  // (#2749 part 5b); unset, it resolves to false through compose's `${PAYMENTS_ENABLE_REAL:-false}`.
   PAYMENTS_ENABLE_REAL: booleanFromString,
+  // THE THREE RAZORPAY VALUES ARE `optionalSecret()` (#2749 part 5b), NOT a bare `.optional()`.
+  // docker-compose.staging.yml declares each as a `${NAME:-}` pass-through bridged from the
+  // GitHub `production` environment secret of the same name, so an UNSET secret arrives as "".
+  // A bare `.optional()` rejects "" and would stop the api booting on every deploy; here "" reads
+  // as unset, exactly like an absent variable. A non-empty value is still held to `.min(1)`.
+  // BLANK STILL NEVER ARMS ANYTHING (TD67): with PAYMENTS_ENABLE_REAL true, an empty or
+  // whitespace-only value is "not set" to `assertPaymentsConfig`, which refuses to boot, and the
+  // deploy preflight (scripts/deploy/staging-deploy.sh) refuses that combination before a
+  // container moves. With PAYMENTS_ENABLE_REAL false the three are inert: nothing reads them
+  // except through `getRazorpayCredentials`, which answers null.
+  //
   // Razorpay KEY ID (`rzp_test_*` / `rzp_live_*`). PUBLIC BY DESIGN — it is handed to the
   // browser checkout in the order response; it is an identifier, not a credential. NEVER
-  // committed; supplied staging-first behind PAYMENTS_ENABLE_REAL. `.min(1)` means a BLANK
-  // value is a boot-time parse failure, never a vacuously-armed gate (TD67 lesson).
-  PAYMENTS_PROVIDER_KEY: z.string().min(1).optional(),
+  // committed; supplied only by the `production` environment secret, behind PAYMENTS_ENABLE_REAL.
+  PAYMENTS_PROVIDER_KEY: optionalSecret(z.string().min(1)),
   // Razorpay KEY SECRET — the server-side half of the API credential. It signs the
   // server-to-server order call AND is the HMAC key for the browser-returned
   // `razorpay_signature` (checkout verify). It MUST NEVER leave the server: not in a
   // response body, not in a log line, not in an event payload, never a NEXT_PUBLIC_* var.
-  PAYMENTS_PROVIDER_SECRET: z.string().min(1).optional(),
+  PAYMENTS_PROVIDER_SECRET: optionalSecret(z.string().min(1)),
   // Razorpay WEBHOOK secret — a SEPARATE secret from the key secret (configured per-webhook
   // in the Razorpay dashboard) and the HMAC key for `x-razorpay-signature` over the RAW
   // webhook bytes. Deliberately distinct so rotating the webhook secret never invalidates
   // the API credential (and vice versa). Same never-leaves-the-server rule.
-  RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),
+  RAZORPAY_WEBHOOK_SECRET: optionalSecret(z.string().min(1)),
   // #2749 item 11 (ADR-0065) — the paid products the brief drops: posting plans, boosts (the
   // retired `all_candidates` tier included), hiring capacity, quota top-ups, and with them every
   // offer and coupon. True takes them all off sale: they leave GET /payer/pricing/catalog and every

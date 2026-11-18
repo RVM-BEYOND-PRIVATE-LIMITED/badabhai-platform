@@ -440,9 +440,24 @@ describe("real Razorpay payments — fail-closed boot gate (all three secrets)",
     });
 
     it(`refuses to boot when ${name} is an EMPTY STRING (never arms vacuously — TD67)`, () => {
-      // A blank is rejected at PARSE time by z.string().min(1) — the earliest possible
-      // failure. The process dies at loadServerConfig, long before any money path exists.
-      expect(() => loadServerConfig({ ...FULL, [name]: "" })).toThrow(new RegExp(name));
+      // #2749 part 5b: "" now PARSES, as unset. Compose's `${NAME:-}` pass-through hands an
+      // unset production secret over as "", so a parse failure on "" would stop EVERY boot,
+      // armed or not. The refusal moved one step later, not away: with the flag on, the boot
+      // guard names the missing secret, and the api still never starts.
+      const parsed = loadServerConfig({ ...FULL, [name]: "" });
+      expect(parsed[name]).toBeUndefined();
+      expect(realPaymentsBlockedReason(parsed)).toBe(`${name} is not set`);
+      expect(areRealPaymentsEnabled(parsed)).toBe(false);
+      expect(getRazorpayCredentials(parsed)).toBeNull();
+      expect(() => assertPaymentsConfig(parsed)).toThrow(new RegExp(name));
+
+      // Whitespace is a non-empty value to the parser, so it reaches the gate as itself, and the
+      // gate treats it as NOT configured just the same.
+      for (const blank of ["   ", "\t\n"]) {
+        const fromEnv = loadServerConfig({ ...FULL, [name]: blank });
+        expect(realPaymentsBlockedReason(fromEnv)).toBe(`${name} is not set`);
+        expect(() => assertPaymentsConfig(fromEnv)).toThrow(new RegExp(name));
+      }
 
       // …and if a ServerConfig is built by any OTHER means (fixture / partial object), the
       // gate still treats blank + whitespace-only as NOT configured (structural backstop).
@@ -493,6 +508,108 @@ describe("real Razorpay payments — fail-closed boot gate (all three secrets)",
       keyId: "rzp_test_keyid",
       keySecret: "rzp_key_secret",
       webhookSecret: "rzp_webhook_secret",
+    });
+  });
+});
+
+/**
+ * #2749 part 5b — THE FOUR PAYMENT VALUES, AS THE PRODUCTION BRIDGE DELIVERS THEM.
+ *
+ * docker-compose.staging.yml passes `PAYMENTS_ENABLE_REAL` as `${…:-false}` and the three Razorpay
+ * values as `${…:-}`, each fed from the GitHub `production` environment secret of the same name.
+ * An unset secret therefore arrives as "" (the flag as "false"). Every combination the bridge can
+ * produce must either boot as today's mock or be refused, by name, before any money path exists.
+ */
+describe("real payments — every combination the production bridge can deliver (#2749 part 5b)", () => {
+  // Obviously fake: none of these is, or looks like, a usable credential.
+  const KEY = "rzp_test_FAKEKEYID000";
+  const SECRET = "FAKE_KEY_SECRET_not_real";
+  const WEBHOOK = "FAKE_WEBHOOK_SECRET_not_real";
+  const NAMES = [
+    "PAYMENTS_PROVIDER_KEY",
+    "PAYMENTS_PROVIDER_SECRET",
+    "RAZORPAY_WEBHOOK_SECRET",
+  ] as const;
+  const VALUES: Record<(typeof NAMES)[number], string> = {
+    PAYMENTS_PROVIDER_KEY: KEY,
+    PAYMENTS_PROVIDER_SECRET: SECRET,
+    RAZORPAY_WEBHOOK_SECRET: WEBHOOK,
+  };
+  /** Exactly what the box hands the api: every name present, an unset secret as "". */
+  const bridged = (flag: string, set: ReadonlyArray<(typeof NAMES)[number]>) => ({
+    PAYMENTS_ENABLE_REAL: flag,
+    PAYMENTS_PROVIDER_KEY: set.includes("PAYMENTS_PROVIDER_KEY") ? KEY : "",
+    PAYMENTS_PROVIDER_SECRET: set.includes("PAYMENTS_PROVIDER_SECRET") ? SECRET : "",
+    RAZORPAY_WEBHOOK_SECRET: set.includes("RAZORPAY_WEBHOOK_SECRET") ? WEBHOOK : "",
+  });
+  /** Every subset of the three names. */
+  const SUBSETS = [0, 1, 2, 3, 4, 5, 6, 7].map((mask) => NAMES.filter((_, i) => mask & (1 << i)));
+
+  it.each(NAMES)("%s: an ABSENT secret and an EMPTY pass-through are both unset", (name) => {
+    expect(loadServerConfig({})[name]).toBeUndefined();
+    expect(loadServerConfig({ [name]: "" })[name]).toBeUndefined();
+    // A real value arrives intact; only "" was reclassified.
+    expect(loadServerConfig({ [name]: VALUES[name] })[name]).toBe(VALUES[name]);
+  });
+
+  it("PRODUCTION TODAY: all four secrets unset boots, and real payments stay off", () => {
+    // The flag's compose fallback is `:-false`; the three are `:-`.
+    for (const env of [
+      bridged("false", []),
+      { ...bridged("false", []), PAYMENTS_ENABLE_REAL: "" },
+    ]) {
+      const config = loadServerConfig(env);
+      expect(config.PAYMENTS_ENABLE_REAL).toBe(false);
+      for (const name of NAMES) expect(config[name]).toBeUndefined();
+      expect(() => assertPaymentsConfig(config)).not.toThrow();
+      expect(realPaymentsBlockedReason(config)).toBe("PAYMENTS_ENABLE_REAL is false");
+      expect(areRealPaymentsEnabled(config)).toBe(false);
+      expect(getRazorpayCredentials(config)).toBeNull();
+    }
+  });
+
+  it.each(SUBSETS.map((set) => [set.join("+") || "none", set] as const))(
+    "flag false, secrets set: %s — boots, inert (the flag is the master gate)",
+    (_label, set) => {
+      const config = loadServerConfig(bridged("false", set));
+      expect(() => assertPaymentsConfig(config)).not.toThrow();
+      expect(areRealPaymentsEnabled(config)).toBe(false);
+      expect(getRazorpayCredentials(config)).toBeNull();
+    },
+  );
+
+  it.each(
+    SUBSETS.filter((set) => set.length < NAMES.length).map(
+      (set) => [set.join("+") || "none", set] as const,
+    ),
+  )("flag true, secrets set: %s — refuses to boot, naming every missing one", (_label, set) => {
+    for (const flag of ["true", "1"]) {
+      const config = loadServerConfig(bridged(flag, set));
+      expect(areRealPaymentsEnabled(config)).toBe(false);
+      expect(getRazorpayCredentials(config)).toBeNull();
+      let message = "";
+      try {
+        assertPaymentsConfig(config);
+      } catch (e) {
+        message = e instanceof Error ? e.message : String(e);
+      }
+      for (const name of NAMES) {
+        if (set.includes(name)) expect(message).not.toContain(name);
+        else expect(message).toContain(name);
+      }
+      // Names only: no configured value is ever in the boot error.
+      for (const value of [KEY, SECRET, WEBHOOK]) expect(message).not.toContain(value);
+    }
+  });
+
+  it("flag true with all three set: live, and the credentials are exactly the secrets", () => {
+    const config = loadServerConfig(bridged("true", NAMES));
+    expect(() => assertPaymentsConfig(config)).not.toThrow();
+    expect(areRealPaymentsEnabled(config)).toBe(true);
+    expect(getRazorpayCredentials(config)).toEqual({
+      keyId: KEY,
+      keySecret: SECRET,
+      webhookSecret: WEBHOOK,
     });
   });
 });

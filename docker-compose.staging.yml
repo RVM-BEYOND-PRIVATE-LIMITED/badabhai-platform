@@ -686,17 +686,20 @@ services:
       # guarantee holds only for a box exporting nothing for the name — MEMBER_INVITES_ENABLE_REAL
       # above is the counter-example: a box that already exports `true` gets exactly that.)
       #
-      # 14 STRING-SECRET SIBLINGS THE SAME AUDIT FOUND ARE DELIBERATELY NOT HERE:
-      # PAYMENTS_PROVIDER_KEY/SECRET, RAZORPAY_WEBHOOK_SECRET, WHATSAPP_API_KEY/PHONE_NUMBER_ID,
+      # 14 STRING-SECRET SIBLINGS THE SAME AUDIT FOUND WERE DELIBERATELY LEFT OUT OF THIS BLOCK.
+      # FOUR HAVE SINCE GRADUATED, each schema-first: SKILLS_INTERNAL_TOKEN (#858, declared
+      # above) and the three Razorpay values PAYMENTS_PROVIDER_KEY, PAYMENTS_PROVIDER_SECRET and
+      # RAZORPAY_WEBHOOK_SECRET (#2749 part 5b, declared just below PAYMENTS_ENABLE_REAL).
+      # THE OTHER 10 ARE STILL NOT HERE: WHATSAPP_API_KEY/PHONE_NUMBER_ID,
       # FCM_SERVICE_ACCOUNT_B64/PROJECT_ID, MEMBER_INVITE_ACCEPT_URL, TEST_LOGIN_TOKEN,
-      # PAYER_TEST_LOGIN_TOKEN, SKILLS_INTERNAL_TOKEN, GEMINI_FLASH_API_KEY, ANTHROPIC_API_KEY,
-      # LITELLM_API_KEY. Every one is a bare `.optional()` / `.min(1).optional()` in the schema,
-      # NOT the `optionalSecret()` helper (.env.example / BL-21) that treats an empty string as
-      # unset — so a `${VAR:-}` pass-through for any of them would make the box set it to a
-      # DECLARED EMPTY STRING the moment this file merges, which `.optional()` REJECTS (only
-      # `undefined` passes, not `""`), crashing every boot on this box. Wiring those 14 needs
-      # each field converted to `optionalSecret()` FIRST, in its own reviewed change — not a
-      # mechanical batch like this one (see #858 for the tracking issue).
+      # PAYER_TEST_LOGIN_TOKEN, GEMINI_FLASH_API_KEY, ANTHROPIC_API_KEY, LITELLM_API_KEY. Each is
+      # still a bare `.optional()` / `.min(1).optional()` in the schema, NOT the `optionalSecret()`
+      # helper (.env.example / BL-21) that treats an empty string as unset — so a `${VAR:-}`
+      # pass-through for any of them would make the box set it to a DECLARED EMPTY STRING the
+      # moment this file merges, which `.optional()` REJECTS (only `undefined` passes, not `""`),
+      # crashing every boot on this box. Wiring one needs its field converted to
+      # `optionalSecret()` FIRST, in its own reviewed change — not a mechanical batch like this
+      # one (see #858 for the tracking issue).
       #
       # TEST_LOGIN_ENABLED / PAYER_TEST_LOGIN_ENABLED SPECIFICALLY: reachable here does NOT arm
       # the seam. Both guards (apps/api/src/auth/test-login.guard.ts,
@@ -715,6 +718,18 @@ services:
       # actual gate AND its own health observability — instead of `ai_posture` staying stuck on
       # "mock" forever regardless of ai-service's real, correctly-wired posture.
       PAYMENTS_ENABLE_REAL: ${PAYMENTS_ENABLE_REAL:-false}
+      # THE RAZORPAY CREDENTIAL SET (#2749 part 5b). All four payment values are bridged from the
+      # GitHub `production` environment secrets of the same names (ci.yml `env:` + `envs:`), so a
+      # box-level export no longer survives a deploy. `optionalSecret()` in the schema since this
+      # change, so the `:-` EMPTY fallback of an unset secret reads as unset instead of failing
+      # the parse. INERT while PAYMENTS_ENABLE_REAL is false: the api reads them only through
+      # `getRazorpayCredentials`, which answers null. With the flag true, all three must be
+      # non-empty or `assertPaymentsConfig` refuses to boot; staging-deploy.sh refuses that pair
+      # (and, armed, a key not starting rzp_test_/rzp_live_) before a container moves. API ONLY:
+      # payer-web gets the rzp_ key id on the order response and never holds any of the three.
+      PAYMENTS_PROVIDER_KEY: ${PAYMENTS_PROVIDER_KEY:-}
+      PAYMENTS_PROVIDER_SECRET: ${PAYMENTS_PROVIDER_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
       MESSAGING_ENABLE_REAL: ${MESSAGING_ENABLE_REAL:-false}
       PUSH_ENABLE_REAL: ${PUSH_ENABLE_REAL:-false}
       AGENCY_PAYOUTS_ENABLED: ${AGENCY_PAYOUTS_ENABLED:-false}
@@ -1456,6 +1471,10 @@ services:
       # Both stay `false` by default — payer-web ships MOCK-only (payments) and
       # SUPPLY-PARKED (agency) exactly as today; this line only makes those flags REACHABLE
       # if a human ever exports them, it does not change what they currently read.
+      # #2749 part 5b: PAYMENTS_ENABLE_REAL is now the `production` environment secret, bridged by
+      # ci.yml, so one secret switches the api's gate and this container's checkout together.
+      # payer-web reads only a literal `true` (server-config.ts) where the api also takes `1`, so
+      # staging-deploy.sh refuses `1` for this flag. No Razorpay secret is declared here, ever.
       PAYMENTS_ENABLE_REAL: ${PAYMENTS_ENABLE_REAL:-false}
       AGENCY_SUPPLY_ENABLED: ${AGENCY_SUPPLY_ENABLED:-false}
 

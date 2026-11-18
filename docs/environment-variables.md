@@ -256,13 +256,49 @@ NestJS boot assertion).
   **refused attempts consume the quota too**. Free-tier operators should set
   `AI_EMBED_TEXTS_PER_MINUTE=90`; leaving it at 0 preserves today's behaviour so a paid tier is
   never throttled to a free-tier number.
-- **Payments** — `PAYMENTS_ENABLE_REAL` + the three Razorpay vars, all-or-nothing per
-  `assertPaymentsConfig` above. ⚠ None of the four is bridged from a GitHub secret today:
-  `PAYMENTS_ENABLE_REAL` is declared in `docker-compose.staging.yml` (`:-false`) but is not in
-  `ci.yml`'s `env:` / `envs:`, and the three Razorpay secrets are not declared on the `api` service
-  at all (they are bare `.optional()` fields, so a `${VAR:-}` pass-through would crash boot; they
-  need `optionalSecret()` first, #858). Arming real payments in production needs that bridge in its
-  own reviewed PR first (`docs/runbooks/2749-switch-on.md`).
+- **Payments (Razorpay, #2749 part 5b)** — four values, all-or-nothing per `assertPaymentsConfig`
+  above:
+
+  | Variable                   | What it is                                                                                                                         | Services           | Unset / empty                 |
+  | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ----------------------------- |
+  | `PAYMENTS_ENABLE_REAL`     | The master gate (`booleanFromString`)                                                                                              | `api`, `payer-web` | `false`: today's mock credits |
+  | `PAYMENTS_PROVIDER_KEY`    | The Razorpay key ID, `rzp_live_…` (or `rzp_test_…` for the rehearsal). Public by design: the browser gets it on the order response | `api` only         | unset                         |
+  | `PAYMENTS_PROVIDER_SECRET` | The Razorpay key secret: signs the order call and verifies the checkout signature                                                  | `api` only         | unset                         |
+  | `RAZORPAY_WEBHOOK_SECRET`  | The webhook signing secret from the Razorpay dashboard (a different secret from the key secret)                                    | `api` only         | unset                         |
+
+  **How they are supplied.** In production, only as GitHub **`production`-environment secrets**,
+  set by Prakash with `gh secret set NAME --env production` (the value typed at the prompt, never
+  on the command line, in chat or in an issue). `ci.yml`'s deploy job bridges all four (`env:` +
+  the appleboy `envs:` list) into `docker-compose.staging.yml`: `${PAYMENTS_ENABLE_REAL:-false}` on
+  `api` and `payer-web`, `${NAME:-}` for the three on `api` only. A box-level export no longer
+  survives a deploy. Actions masks every `${{ secrets.* }}` value in the job log, and nothing in
+  the deploy echoes one.
+
+  **Empty means unset.** The three Razorpay fields are `optionalSecret(z.string().min(1))`: an
+  unset secret arrives as `""` and reads as unset, so the api boots as today. A non-empty value is
+  kept as given. With `PAYMENTS_ENABLE_REAL` false the three are inert (the api reads them only
+  through `getRazorpayCredentials`, which answers null). With it true, an empty or whitespace-only
+  value still counts as missing and the api refuses to boot, naming it.
+
+  **The deploy preflight** (`scripts/deploy/staging-deploy.sh`, before any prune, pull or
+  recreate; it prints names, never values, and ends "Nothing was deployed"):
+  - `PAYMENTS_ENABLE_REAL` is in the bridged-boolean list (`true`/`false`/`1`/`0`/empty), and `1`
+    is refused on top: the api reads `1` as on, but payer-web reads only a literal `true`.
+  - `PAYMENTS_ENABLE_REAL=true` with any of the three empty: refused, naming each missing one.
+  - `PAYMENTS_ENABLE_REAL=true` while `RETIRED_PRODUCTS_OFF_SALE` is not `true`/`1`: refused
+    (ADR-0065 hardening 7: the dropped products have no real-payments path, so they go off sale no
+    later than real money).
+  - `PAYMENTS_PROVIDER_KEY` set but not the key ID alone, `rzp_test_` or `rzp_live_` followed by
+    letters and digits only (most likely the key secret pasted into the key slot, or a
+    `key-id:key-secret` pair): refused when
+    `PAYMENTS_ENABLE_REAL` is `true`; otherwise a `::warning::` naming the variable, and the deploy
+    goes on (nothing reads the key yet, but arming will be refused until it is fixed).
+  - Armed with a `rzp_test_` key: a `::warning::`, no refusal. `rzp_live_` is what production
+    expects; `rzp_test_` is for the test-key rehearsal only.
+
+  Unset in production today, so deploying the bridge changes nothing. The switch-on order is
+  `docs/runbooks/2749-switch-on.md`.
+
 - **Credit checkout rollout (#2749 item 10, ADR-0065)** — `CREDIT_CHECKOUT_ROLLOUT` (`off` |
   `pilot` | `on`, key `credit_checkout`): do the new money rules apply to this company? Same
   grammar, wiring and preflight as the rollout switches above (`${CREDIT_CHECKOUT_ROLLOUT:-off}` on

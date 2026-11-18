@@ -11,11 +11,12 @@ below is an owner act.
 
 | Switch                      | Value            | What it means                                                                                                                                        |
 | --------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PAYMENTS_ENABLE_REAL`      | off              | Real checkout (`POST /payer/credits/order`, `/verify`) answers 404 for everyone; the Razorpay webhook answers 401.                                   |
+| `PAYMENTS_ENABLE_REAL`      | absent = `false` | Real checkout (`POST /payer/credits/order`, `/verify`) answers 404 for everyone; the Razorpay webhook answers 401.                                   |
+| The three Razorpay secrets  | absent           | `PAYMENTS_PROVIDER_KEY`, `PAYMENTS_PROVIDER_SECRET`, `RAZORPAY_WEBHOOK_SECRET`: bridged since part 5b, inert while `PAYMENTS_ENABLE_REAL` is off.    |
 | `CREDIT_CHECKOUT_ROLLOUT`   | absent = `off`   | The new money rules apply to no company: free mock packs (`POST /payer/credits`) and the ops grant (`POST /payers/:payerId/credits`) work as before. |
 | `RETIRED_PRODUCTS_OFF_SALE` | absent = `false` | Posting plans, boosts, capacity, top-ups, offers and coupons are still on sale (mock-paid).                                                          |
 
-Deploying this PR changes none of it.
+Deploying part 5a (the two switches) or part 5b (the payment bridge) changes none of it.
 
 ## The gates, once switched (ADR-0065 §3.6)
 
@@ -44,15 +45,16 @@ the prerequisites before step 6.
 
 ## Before anything: prerequisites
 
-Do not start step 4 until every box in this section is ticked.
+Do not start step 4 until every box in this section is ticked. One exception: steps 4a and 4b move
+no money and may go ahead of "Invoices are live" (4b says what that costs).
 
-- [ ] **The Razorpay secrets reach the container.** Today they do not: `PAYMENTS_ENABLE_REAL` is
-      declared in `docker-compose.staging.yml` but not bridged in `ci.yml`, and
-      `PAYMENTS_PROVIDER_KEY`, `PAYMENTS_PROVIDER_SECRET` and `RAZORPAY_WEBHOOK_SECRET` are not
-      declared on the `api` service at all. They are bare `.optional()` fields, so a `${VAR:-}`
-      pass-through would stop the api booting; they need `optionalSecret()` first (#858). That is
-      its own reviewed PR (config + compose + `ci.yml` `env:`/`envs:` + the deploy preflight + the
-      taxonomy guard). Setting the GitHub secrets alone does nothing.
+- [ ] **The Razorpay secrets reach the container: done by #2749 part 5b**, once it is merged and
+      deployed. It bridges `PAYMENTS_ENABLE_REAL`, `PAYMENTS_PROVIDER_KEY`,
+      `PAYMENTS_PROVIDER_SECRET` and `RAZORPAY_WEBHOOK_SECRET` from the GitHub `production`
+      environment secrets of the same names (`ci.yml` `env:` + `envs:`; compose
+      `${PAYMENTS_ENABLE_REAL:-false}` on `api` and `payer-web`, `${NAME:-}` for the three on `api`
+      only), makes the three Razorpay fields `optionalSecret()` so an absent secret boots as today,
+      and adds the deploy preflight below. With the secrets absent it changes nothing.
 - [ ] **The Razorpay account captures automatically** (Razorpay dashboard → payment capture
       settings). The browser verify settles a payment only once Razorpay reports it `captured`; an
       `authorized` payment is left for the webhook's `payment.captured`. With manual capture no
@@ -89,7 +91,8 @@ Do not start step 4 until every box in this section is ticked.
     ORDER BY created_at;
     ```
 
-    Look each row up in the Razorpay dashboard. Not paid: leave it. Captured: it must be settled
+    Look each row up in the Razorpay dashboard. A row created before step 4c is a rehearsal order:
+    look it up in **Test Mode**; it carries no money. Not paid: leave it. Captured: it must be settled
     while real payments are live (a webhook redelivery, or the buyer's `/verify` again); if that
     cannot happen, refund it in the dashboard.
 
@@ -115,7 +118,46 @@ Do not start step 4 until every box in this section is ticked.
 - [ ] **Hardening 6 and 11** are fixed (#2773 nightly reconciliation; catalogue edits behind the
       admin sign-in with an audit row), or the owner accepts each again, in writing, for everyone.
 
-## Step 1 — test keys, on a test stack (never production)
+## How the payment secrets are set (read before steps 3 and 4)
+
+**Every deploy reads the secrets as they stand when it runs**: a teammate's merge to `main`, or a
+re-run. So set them in the order step 4 gives, where every state in between is safe, with
+`PAYMENTS_ENABLE_REAL` **last**.
+
+- **Values never go on a command line, in chat, in an issue or in a log.** For the three Razorpay
+  values run `gh secret set NAME --env production` with no `--body` and paste the value at the
+  prompt. Only the switches (`true`, `false`, `pilot`, `on`, `off`) take `--body`.
+- **The `production` environment, not the repository.** A repository secret of the same name is
+  shadowed and does nothing.
+- **Redeploy** = re-run the deploy job of the LATEST `main` run (an older run deploys older code):
+
+  ```bash
+  RUN=$(gh run list --workflow ci.yml --branch main --event push --limit 1 --json databaseId -q '.[0].databaseId')
+  JOB=$(gh run view "$RUN" --json jobs -q '.jobs[] | select(.name=="Deploy to AWS Lightsail") | .databaseId')
+  gh run rerun "$RUN" --job "$JOB" && gh run watch "$RUN"
+  ```
+
+**The deploy preflight** (`scripts/deploy/staging-deploy.sh`) runs before any container moves. It
+refuses the deploy, prints `::error::` naming the variable (never its value) and ends "Nothing was
+deployed", when:
+
+- `PAYMENTS_ENABLE_REAL` is `true` and any of the three Razorpay secrets is empty or blank;
+- `PAYMENTS_ENABLE_REAL` is `true` and `RETIRED_PRODUCTS_OFF_SALE` is not on (`true` or `1`)
+  (hardening 7);
+- `PAYMENTS_ENABLE_REAL` is `true` and `PAYMENTS_PROVIDER_KEY` is not the key ID alone,
+  `rzp_test_` or `rzp_live_` then letters and digits only (most likely the key secret pasted into
+  the key slot, or a `key-id:key-secret` pair). With the flag
+  not `true` the same key only prints a `::warning::` naming `PAYMENTS_PROVIDER_KEY` and the deploy
+  goes on, so a bad paste never blocks unrelated deploys, but it does block arming: fix it as soon
+  as the warning appears;
+- `PAYMENTS_ENABLE_REAL` is `1` (the api reads it as on, payer-web only reads `true`): use `true`.
+
+A refused deploy leaves production exactly as it was, but every later deploy is refused too until
+the secret is fixed, so fix it straight away. Armed with a `rzp_test_` key the deploy passes with a
+`::warning::`: **`rzp_live_` is what production expects; `rzp_test_` is for the rehearsal in step
+4b only.**
+
+## Step 1 — the route logic with test keys, on a test stack
 
 A local or test stack with its own database (there is no staging). Set `PAYMENTS_ENABLE_REAL=true`,
 the `rzp_test_*` key, its secret and a webhook secret, `CREDIT_CHECKOUT_ROLLOUT=pilot`, and list
@@ -155,10 +197,12 @@ FROM feature_pilot_payers WHERE feature = 'credit_checkout' ORDER BY created_at;
 the place; in `off` / `shadow` it is the login itself, so list each login that should buy. The list
 is read on every request; a row added or deleted counts from the next one.
 
-## Step 3 — the dropped products off sale (no later than step 4)
+## Step 3 — the dropped products off sale (no later than step 4b)
 
 Hardening 7: plans, boosts, capacity and top-ups have no real-payments path, so they must be off
-sale no later than the moment packs cost money. Do it now, or in the same redeploy as step 4:
+sale no later than the moment packs cost money. The deploy preflight enforces it: a deploy with
+`PAYMENTS_ENABLE_REAL=true` and this switch not `true` is refused. Do it now, or in the same
+redeploy as step 4b:
 
 ```sh
 gh secret set RETIRED_PRODUCTS_OFF_SALE --env production --body true
@@ -167,7 +211,8 @@ gh secret set RETIRED_PRODUCTS_OFF_SALE --env production --body true
 then redeploy. Check: `GET /payer/pricing/catalog` lists credit packs only (no `job_posting`,
 `job_boost`, `hiring_capacity`, `quota_topup`, no offer); `POST /payer/capacity` and
 `POST /payer/job-postings/<id>/plan` answer 404; an existing posting's stats and
-`GET /payer/capacity` still read. Undo: set it to `false` and redeploy.
+`GET /payer/capacity` still read. Undo: set it to `false` and redeploy (only while
+`PAYMENTS_ENABLE_REAL` is off; the preflight refuses the pair otherwise).
 
 **For Rishi (payer-web):** with this switch on and no credit pack on sale (a stored catalogue row
 that failed validation, or every pack held back), `GET /payer/pricing/catalog` returns
@@ -176,30 +221,103 @@ failure falls back to its built-in `DEFAULT_CATALOG`, which shows the retired pl
 again (display only; the server refuses every purchase). payer-web must accept an empty product
 list and show "no packs on sale".
 
-## Step 4 — pilot on, real payments on (one redeploy)
+## Step 4 — pilot on, real payments on: test keys first, then live keys
 
-With the bridge PR merged and the live keys in the `production` environment:
+Read "How the payment secrets are set" above first. Three parts, in this order. Never paste a
+secret value into a command line, an issue or a log.
+
+**The Razorpay webhook, in each mode:** URL `POST /payments/razorpay/webhook` on the api's public
+host, its own new secret (the one you then store as `RAZORPAY_WEBHOOK_SECRET`), subscribed exactly
+to **`payment.captured`** and **`payment.failed`** (the two events the api acts on; any other is
+answered 200 and ignored). Test Mode and Live Mode each have their own API key, webhook and
+capture setting: set capture to automatic in both.
+
+### 4a — stage the Razorpay test keys (nothing changes)
+
+In the Razorpay dashboard, in **Test Mode**: automatic capture, an API key (key ID `rzp_test_…` and
+its key secret) and the webhook above. These are the same kind of keys a staging stack would use;
+no real money moves on them. Then, with `PAYMENTS_ENABLE_REAL` still absent or `false`:
 
 ```sh
-gh secret set PAYMENTS_PROVIDER_KEY --env production       # rzp_live_*, entered at the prompt
-gh secret set PAYMENTS_PROVIDER_SECRET --env production    # entered at the prompt
-gh secret set RAZORPAY_WEBHOOK_SECRET --env production     # entered at the prompt
+gh secret set PAYMENTS_PROVIDER_KEY --env production       # rzp_test_…, pasted at the prompt
+gh secret set PAYMENTS_PROVIDER_SECRET --env production    # the test key secret, at the prompt
+gh secret set RAZORPAY_WEBHOOK_SECRET --env production     # the test webhook secret, at the prompt
+```
+
+then redeploy. The deploy passes; read its log for a `::warning::` naming `PAYMENTS_PROVIDER_KEY`
+(a malformed key: fix it now, or 4b's deploy is refused). Nothing changes for anyone: with the flag
+off the three are inert, and `GET /admin/finance/summary` (admin-web's finance page) still reports
+`payments.mode: "mock"` with `blocked_reason: "PAYMENTS_ENABLE_REAL is false"`.
+
+### 4b — the test-key rehearsal: pilot on, real payments on, test keys
+
+Needs steps 2 and 3 and every prerequisite above except "Invoices are live" (the rehearsal moves no
+money). **If invoices are already live, the rehearsal's payment takes the next number in the
+gap-free invoice series**: decide with the accountant beforehand whether that is acceptable or how
+it is voided.
+
+Set the rollout first and the master gate last, then one redeploy:
+
+```sh
 gh secret set CREDIT_CHECKOUT_ROLLOUT --env production --body pilot
 gh secret set PAYMENTS_ENABLE_REAL --env production --body true
 ```
 
-then redeploy, and check that `GET /admin/finance/summary` (admin-web's finance page) reports
-`payments.mode: "real"` with `blocked_reason: null`; `/health` does not report payments. Never
-paste a secret value into a command line, an issue or a log.
+The deploy log shows a `::warning::` that real payments are armed with a TEST key: expected here.
+Check that `GET /admin/finance/summary` reports `payments.mode: "real"` with
+`blocked_reason: null`; `/health` does not report payments.
 
-In the Razorpay dashboard, add the webhook: URL `POST /payments/razorpay/webhook` on the api's
-public host, the same secret as `RAZORPAY_WEBHOOK_SECRET`, and subscribe exactly to
-**`payment.captured`** and **`payment.failed`** (the two events the api acts on; any other is
-answered 200 and ignored).
-
-From the first request on the new container: the listed company can pay through Razorpay, and its
+From the first request on the new container, exactly as for the live pilot (so keep the window
+short): the listed company can pay through Razorpay's test checkout (`checkout: "real"`), and its
 free packs and the ops grant are closed; every other company can buy nothing (both credit routes
 404, `checkout: "none"`), and the ops grant refuses everyone (`real_payments_live`).
+
+As the staff test company, buy Starter with a Razorpay test card and run step 5's checks (the order
+`paid` with `total_paise = 117900`, one `payment.captured`, one lot of 20 credits, nothing `held`),
+then mark the lot `is_test` with step 5's SQL.
+
+If the live keys do not follow straight away, do **not** set `PAYMENTS_ENABLE_REAL` to `false` on
+its own: follow "Rollback" below (the rollout `off`, the open orders reconciled, then the flag).
+
+### 4c — the live keys
+
+In the Razorpay dashboard, in **Live Mode**: automatic capture, the live API key (`rzp_live_…` and
+its key secret) and the webhook above, with a new secret. Then:
+
+1. Stop new orders while the keys change, so no order is ever created on a mixed set (a live key ID
+   with a test secret passes the preflight, but Razorpay refuses the order):
+
+   ```sh
+   gh secret set CREDIT_CHECKOUT_ROLLOUT --env production --body off
+   ```
+
+   then redeploy, and allow open test checkouts to finish (at least an hour). Real payments stay
+   on, so no company can buy credits meanwhile. Test orders carry no money; one left `created` can
+   stay, but it keeps appearing in the daily check and in the Rollback list: anything created
+   before this step is looked up in Test Mode, not Live Mode.
+
+2. Swap all three:
+
+   ```sh
+   gh secret set PAYMENTS_PROVIDER_KEY --env production       # rzp_live_…, pasted at the prompt
+   gh secret set PAYMENTS_PROVIDER_SECRET --env production    # the live key secret, at the prompt
+   gh secret set RAZORPAY_WEBHOOK_SECRET --env production     # the live webhook secret, at the prompt
+   ```
+
+3. Open the pilot again, then redeploy:
+
+   ```sh
+   gh secret set CREDIT_CHECKOUT_ROLLOUT --env production --body pilot
+   ```
+
+   The deploy log shows **no** test-key warning. Check `GET /admin/finance/summary` again
+   (`payments.mode: "real"`, `blocked_reason: null`).
+
+4. **Delete or disable the Test Mode webhook** that points at production: its deliveries now fail
+   verification (401).
+
+From the first request on the new container the pilot takes real money from the listed company,
+with the same gates as 4b; step 5 proves it.
 
 ## Step 5 — one staff test purchase, marked `is_test`
 
@@ -270,7 +388,8 @@ Turn real payments off only after every open order is reconciled:
    (`failed` is listed too: Razorpay lets a buyer retry on the same order, and a later capture
    still settles it.)
 
-3. For each, look the order up in the Razorpay dashboard. Not paid: nothing to do. Captured: settle
+3. For each, look the order up in the Razorpay dashboard (Test Mode for one created before step
+   4c). Not paid: nothing to do. Captured: settle
    it while real payments are still live (a webhook redelivery, or the buyer's `/verify`), or
    refund it in the dashboard.
 4. Only when the list holds no captured payment: `gh secret set PAYMENTS_ENABLE_REAL --env
@@ -283,7 +402,19 @@ production --body false`, then redeploy. From then on the free mock packs reopen
 - Orders stay as they are (`paid`, `held`, `created`, `failed`).
 - Invoices, ledger lines and events stay.
 - `RETIRED_PRODUCTS_OFF_SALE` is separate: set it to `false` to put the dropped products back on
-  sale.
+  sale, but only once `PAYMENTS_ENABLE_REAL` is off (the deploy preflight refuses the pair).
+- The three Razorpay secrets stay. With `PAYMENTS_ENABLE_REAL` off they are inert; remove them, if
+  wanted, with `gh secret delete NAME --env production`.
+- A rotated Razorpay key or webhook secret follows 4c's order. The webhook guard holds one secret,
+  so from the dashboard change until the redeploy lands every delivery gets 401:
+  1. the rollout `off` (`PAYMENTS_ENABLE_REAL` stays on) and a redeploy, then wait for open
+     checkouts to finish;
+  2. change it in the dashboard and in the `production` secret together;
+  3. redeploy, and confirm the deploy succeeded (a refused deploy, or a red `main`, leaves the old
+     secret serving and the 401s going on);
+  4. run the daily check above: any captured order still `created` is settled by a webhook
+     redelivery or the buyer's `/verify`;
+  5. only then the rollout back to `pilot` or `on`.
 
 Never roll the code back below #2749 PR 2 while the catalogue row carries `onSaleFrom` or `offered`
 (`docs/runbooks/2749-publish-brief-credit-packs.md`).
@@ -293,7 +424,7 @@ Never roll the code back below #2749 PR 2 while the catalogue row carries `onSal
 - **payer-web (Rishi):** use `GET /payer/credits`'s `checkout` for the buy button; handle an empty
   `products` list (step 3); hide the retired products' buttons before step 3.
 - **The ops console (`apps/web`):** its credits top-up calls the ops grant and shows any refusal as
-  "Top-up failed (unknown pack…)". After step 4 every top-up is a 409 (`real_payments_live`, or
+  "Top-up failed (unknown pack…)". From step 4b every top-up is a 409 (`real_payments_live`, or
   `credit_checkout_rollout` for a pilot company while real payments are off); it needs its own
   message for those. `apps/web` is owned by Prakash (`.github/CODEOWNERS`), not Rishi, so this is
   a backend/ops follow-up, listed here and not built in this PR.
