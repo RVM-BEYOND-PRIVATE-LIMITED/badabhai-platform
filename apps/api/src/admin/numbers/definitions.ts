@@ -6,7 +6,7 @@ import { NUMBERS_DEFINITION_VERSION } from "./groups";
  * routes and the parity tests read their rule from here; `GET /admin/numbers/definitions` serves it.
  *
  * ── A METRIC WITH NO LIVE SOURCE IS `not_available`, NEVER ZERO ────────────────────────────
- * Five groups wait on work that has not shipped (#2749 part 3, #2750, #2751). Their figures are
+ * Some figures wait on work that has not shipped (#2749's GST split, #2751). Their figures are
  * listed with the reason and the issue they wait on, so the screen can say "not yet measured"
  * instead of drawing a zero that reads as "nobody did this". A zero is a measurement.
  *
@@ -38,7 +38,8 @@ export const NUMBERS_METRIC_KINDS = ["headline", "diagnostic"] as const;
 export type NumbersMetricKind = (typeof NUMBERS_METRIC_KINDS)[number];
 
 /** The issues a not-yet-measured figure waits on. */
-export const NUMBERS_WAITS_ON = ["#2749", "#2750", "#2751"] as const;
+// #2750 left the list in version 2: every figure that waited on it is live.
+export const NUMBERS_WAITS_ON = ["#2749", "#2751"] as const;
 export type NumbersWaitsOn = (typeof NUMBERS_WAITS_ON)[number];
 
 export type NumbersAvailability =
@@ -346,18 +347,27 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         title: "Used up the 5 welcome credits",
         unit: "count",
         kind: "headline",
-        source: "the welcome credit lot of #2750.",
-        rule: "Companies whose welcome lot reached zero in the week.",
-        availability: waitsOn("#2750", "the welcome credit lot does not exist yet"),
+        source:
+          "credit_lots with source welcome (#2750 item 4: one per company, never refilled) and " +
+          "their unlock_debit ledger lines.",
+        rule:
+          "Companies (test and sample companies left out) whose welcome lot ran out in the week: " +
+          "the moment the running sum of the lot's unlock_debit lines reached its size. A lot " +
+          "that expired with credits left did not run out. Split by the company's city and trade.",
+        availability: LIVE,
       },
       {
         id: "welcome_then_bought",
         title: "Then bought a pack",
         unit: "count",
         kind: "headline",
-        source: "the welcome lot of #2750 and the pack lots of #2749.",
-        rule: "Of those companies, the ones with a paid pack after the welcome lot ran out.",
-        availability: waitsOn("#2750", "the welcome credit lot does not exist yet"),
+        source:
+          "the welcome lots above and payment_orders with status paid (real money only: the mock " +
+          "purchase route writes no order row).",
+        rule:
+          "Of the companies counted in 'used up' for the week, the ones with a paid order settled " +
+          "after their welcome lot ran out and before the week's end.",
+        availability: LIVE,
       },
     ],
   },
@@ -371,18 +381,23 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         title: "'Couldn't reach' claims",
         unit: "count",
         kind: "headline",
-        source: "the couldn't-reach claim record of #2750.",
-        rule: "Claims made in the week.",
-        availability: waitsOn("#2750", "the couldn't-reach claim does not exist yet"),
+        source: "contact_reach_cases (#2750 item 7), one per open.",
+        rule:
+          "Cases reported in the week (reported_at), test and sample companies left out. Split by " +
+          "the company's city and trade.",
+        availability: LIVE,
       },
       {
         id: "couldnt_reach_credits_returned",
         title: "Credits returned",
         unit: "count",
         kind: "headline",
-        source: "the credit returns of #2750.",
-        rule: "Credits returned on accepted claims in the week.",
-        availability: waitsOn("#2750", "the couldn't-reach claim does not exist yet"),
+        source: "contact_reach_cases.credits_returned (#2750 items 7 and 8).",
+        rule:
+          "The credits returned by cases closed in the week (resolved_at): a case closed not " +
+          "reached, by the desk or at its deadline, returns what the open took; a reached case " +
+          "returns none.",
+        availability: LIVE,
       },
     ],
   },
@@ -396,9 +411,12 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         title: "Credits waived",
         unit: "count",
         kind: "headline",
-        source: "the waiver ledger rows of #2750.",
-        rule: "Credits waived in the week.",
-        availability: waitsOn("#2750", "the waiver ledger rows do not exist yet"),
+        source: "credit_ledger lines with reason waived (#2750 item 5): one per open a waiver paid for.",
+        rule:
+          "Opens a placement-team waiver paid for in the week, one credit each: a waiver frees only " +
+          "an RVM applicant, whose open costs the brief's one credit (the line records the open, " +
+          "not a price). Test and sample companies left out.",
+        availability: LIVE,
       },
     ],
   },
@@ -527,6 +545,12 @@ export const NUMBERS_SNAPSHOT_METRICS: Readonly<Record<string, NumbersSnapshotSu
   repeat_purchase_30d: "company",
   repeat_purchase_60d: "company",
   repeat_purchase_90d: "company",
+  // #2750 — groups 6 to 8 (version 2).
+  welcome_credits_used_up: "company",
+  welcome_then_bought: "company",
+  couldnt_reach_claims: "company",
+  couldnt_reach_credits_returned: "company",
+  credits_waived: "company",
 };
 
 // ---------------------------------------------------------------------------------------------

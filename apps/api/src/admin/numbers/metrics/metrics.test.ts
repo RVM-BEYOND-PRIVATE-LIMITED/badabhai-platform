@@ -322,6 +322,18 @@ describe("computeNumbersWeek", () => {
         calls.push("formCompletions");
         return [{ workerId: "w3", firstCompletedAt: MONDAY_START, profileConfirmed: false }];
       },
+      welcomeRunOuts: async () => {
+        calls.push("welcomeRunOuts");
+        return [];
+      },
+      reachCases: async () => {
+        calls.push("reachCases");
+        return [];
+      },
+      waivedOpens: async () => {
+        calls.push("waivedOpens");
+        return [];
+      },
       companyDims: async (ids) => {
         calls.push(`companyDims:${[...new Set(ids)].sort().join(",")}`);
         return new Map([["a", PUNE_CNC]]);
@@ -352,6 +364,12 @@ describe("computeNumbersWeek", () => {
       "repeat_purchase_30d",
       "repeat_purchase_60d",
       "repeat_purchase_90d",
+      // #2755 part E — groups 6 to 8.
+      "welcome_credits_used_up",
+      "welcome_then_bought",
+      "couldnt_reach_claims",
+      "couldnt_reach_credits_returned",
+      "credits_waived",
     ]);
     for (const m of out) expect(m.cells).toHaveLength(42);
     // As of the week's end every window is still open: the cohort of one is pending.

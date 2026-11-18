@@ -56,7 +56,10 @@ import type {
   NumbersHireRow,
   NumbersOpenedContactRow,
   NumbersPaidOrderRow,
+  NumbersReachCaseRow,
+  NumbersWaivedOpenRow,
   NumbersWeekWindow,
+  NumbersWelcomeRunOutRow,
 } from "./metrics/types";
 import { ACTIVE_WINDOW_DAYS } from "./metrics/active-workers";
 
@@ -410,6 +413,9 @@ export class NumbersWeeklyRepository {
       confirmedHires: (w) => this.confirmedHires(tx, w),
       openedContacts: (w) => this.openedContacts(tx, w),
       formCompletions: (w) => this.formCompletions(tx, w),
+      welcomeRunOuts: (w) => this.welcomeRunOuts(tx, w),
+      reachCases: (w) => this.reachCases(tx, w),
+      waivedOpens: (w) => this.waivedOpens(tx, w),
       companyDims: (ids) => this.companyDims(tx, ids),
       workerDims: (ids) => this.workerDims(tx, ids),
     };
@@ -540,6 +546,94 @@ export class NumbersWeeklyRepository {
       activeOn: typeof r.active_on === "string" ? r.active_on : null,
       lastSeenAt: msOf(r.last_seen_ms),
     }));
+  }
+
+  /**
+   * #2750 item 4 — the welcome lots of countable companies that RAN OUT by the week's end: the
+   * moment the running sum of the lot's `unlock_debit` lines reached its size, and the first real
+   * paid order (`payment_orders` paid; the mock route writes none) the company settled after it.
+   * The lot and the order are both keyed by the tenant key.
+   */
+  private async welcomeRunOuts(
+    tx: Database,
+    w: NumbersWeekWindow,
+  ): Promise<NumbersWelcomeRunOutRow[]> {
+    const rows = (await tx.execute(sql`
+      WITH spent AS (
+        SELECT l.id AS lot_id, l.payer_id, l.credits_granted, d.created_at,
+               sum(-d.delta) OVER (PARTITION BY l.id ORDER BY d.created_at, d.id) AS spent_so_far
+        FROM credit_lots l
+        JOIN credit_ledger d ON d.lot_id = l.id AND d.reason = 'unlock_debit'
+        WHERE l.source = 'welcome' AND ${countablePayer(sql.raw(`"l"."payer_id"`))}
+      ), ran_out AS (
+        SELECT payer_id, min(created_at) AS ran_out_at
+        FROM spent
+        WHERE spent_so_far >= credits_granted
+        GROUP BY lot_id, payer_id
+      )
+      SELECT r.payer_id,
+             (extract(epoch from r.ran_out_at) * 1000)::float8 AS ran_out_ms,
+             (SELECT extract(epoch from min(o.updated_at)) * 1000 FROM payment_orders o
+               WHERE o.payer_id = r.payer_id AND o.status = 'paid'
+                 AND o.updated_at > r.ran_out_at)::float8 AS paid_after_ms
+      FROM ran_out r
+      WHERE r.ran_out_at < ${ts(w.toUtcExclusive)}
+    `)) as unknown as Array<Record<string, unknown>>;
+    return rows.flatMap((r) => {
+      const ranOutAt = msOf(r.ran_out_ms);
+      return ranOutAt === null
+        ? []
+        : [{ payerId: String(r.payer_id), ranOutAt, firstPaidAfter: msOf(r.paid_after_ms) }];
+    });
+  }
+
+  /**
+   * #2750 items 7 and 8 — the couldn't-reach cases of countable companies reported or closed in the
+   * week. `contact_reach_cases` (0185) is written only while the credit rules are on; with none, the
+   * figures are real zeros.
+   */
+  private async reachCases(tx: Database, w: NumbersWeekWindow): Promise<NumbersReachCaseRow[]> {
+    const rows = (await tx.execute(sql`
+      SELECT c.payer_id,
+             (extract(epoch from c.reported_at) * 1000)::float8 AS reported_ms,
+             (extract(epoch from c.resolved_at) * 1000)::float8 AS resolved_ms,
+             c.credits_returned
+      FROM contact_reach_cases c
+      WHERE ${countablePayer(sql.raw(`"c"."payer_id"`))}
+        AND ((c.reported_at >= ${ts(w.fromUtc)} AND c.reported_at < ${ts(w.toUtcExclusive)})
+          OR (c.resolved_at >= ${ts(w.fromUtc)} AND c.resolved_at < ${ts(w.toUtcExclusive)}))
+    `)) as unknown as Array<Record<string, unknown>>;
+    return rows.flatMap((r) => {
+      const reportedAt = msOf(r.reported_ms);
+      return reportedAt === null
+        ? []
+        : [
+            {
+              payerId: String(r.payer_id),
+              reportedAt,
+              resolvedAt: msOf(r.resolved_ms),
+              creditsReturned: Number(r.credits_returned ?? 0),
+            },
+          ];
+    });
+  }
+
+  /**
+   * #2750 item 5 — the opens a placement-team waiver paid for in the week: the ledger's `waived`
+   * lines (one per open, zero credits moved) of countable companies.
+   */
+  private async waivedOpens(tx: Database, w: NumbersWeekWindow): Promise<NumbersWaivedOpenRow[]> {
+    const rows = (await tx.execute(sql`
+      SELECT d.payer_id, (extract(epoch from d.created_at) * 1000)::float8 AS at_ms
+      FROM credit_ledger d
+      WHERE d.reason = 'waived'
+        AND d.created_at >= ${ts(w.fromUtc)} AND d.created_at < ${ts(w.toUtcExclusive)}
+        AND ${countablePayer(sql.raw(`"d"."payer_id"`))}
+    `)) as unknown as Array<Record<string, unknown>>;
+    return rows.flatMap((r) => {
+      const at = msOf(r.at_ms);
+      return at === null ? [] : [{ payerId: String(r.payer_id), at }];
+    });
   }
 
   /** Confirmed hires of countable companies and workers, hired on or before the week's Sunday. */

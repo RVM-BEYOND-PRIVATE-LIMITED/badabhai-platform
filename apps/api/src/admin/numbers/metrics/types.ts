@@ -108,3 +108,31 @@ export interface NumbersFormCompletionRow {
   readonly firstCompletedAt: Date;
   readonly profileConfirmed: boolean;
 }
+
+/**
+ * #2750 / #2755 metric group 6 — one countable company's welcome lot that RAN OUT: the moment its
+ * spends reached the lot's size, and the first real paid order the company settled after that
+ * moment (null when none yet). A welcome lot never refilled (returns are new lots), so it runs
+ * out once at most.
+ */
+export interface NumbersWelcomeRunOutRow {
+  readonly payerId: string;
+  readonly ranOutAt: Date;
+  readonly firstPaidAfter: Date | null;
+}
+
+/** #2750 / #2755 metric group 7 — one couldn't-reach case of a countable company. */
+export interface NumbersReachCaseRow {
+  readonly payerId: string;
+  readonly reportedAt: Date;
+  /** Null while the case is open. */
+  readonly resolvedAt: Date | null;
+  /** Credits the close gave back (0 unless not reached). */
+  readonly creditsReturned: number;
+}
+
+/** #2750 / #2755 metric group 8 — one open a placement-team waiver paid for (its `waived` line). */
+export interface NumbersWaivedOpenRow {
+  readonly payerId: string;
+  readonly at: Date;
+}

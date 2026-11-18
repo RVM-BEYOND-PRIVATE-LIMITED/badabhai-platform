@@ -226,6 +226,9 @@ describe("computeCohortWeek", () => {
       confirmedHires: never,
       openedContacts: never,
       formCompletions: never,
+      welcomeRunOuts: never,
+      reachCases: never,
+      waivedOpens: never,
       workerDims: never,
       cohortOrders: async () => {
         calls.push("cohortOrders");
