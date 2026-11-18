@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
-import type { FacelessApplicant, TradeLevelBadgeWire } from "../../../../../lib/contracts";
+import type {
+  FacelessApplicant,
+  TradeLevelBadgeWire,
+  UnlockQuotes,
+} from "../../../../../lib/contracts";
 import type { ApplicantPosting } from "../../../../../lib/candidate-inbox";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
 import type { GrantedUnlock } from "../../../../../lib/unlock-history";
@@ -27,6 +31,8 @@ import {
   UNLOCK_GRANTED_TOAST,
   type UnlockResultKind,
 } from "../../../../../components/unlock";
+import { useUnlockQuotes } from "../../../../../components/unlock/use-unlock-quotes";
+import { quotedCredits, quotedWaived } from "../../../../../lib/unlock-quotes";
 import {
   maskedResumeAction,
   revealContactAction,
@@ -287,10 +293,12 @@ export type ApplicantActionsProps = FeedProps & {
    * server decides any Unlock pressed there; for a live grant it does not debit twice, F-6).
    */
   unlocked?: Record<string, GrantedUnlock>;
+  /** #2750 — pre-read quotes (tests / an SSR seed); the hook refreshes them after mount. */
+  unlockQuotes?: UnlockQuotes | null;
 };
 
 export function ApplicantActions(props: ApplicantActionsProps) {
-  const { header, balance, balanceAsOf, unlocked = {} } = props;
+  const { header, balance, balanceAsOf, unlocked = {}, unlockQuotes = null } = props;
   const feed = feedRows(props);
   // ONE posting's feed carries the New / Shortlist board; the inbox does not (see the top).
   const board = props.postingId !== undefined;
@@ -341,6 +349,11 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   // The portal's toast stack (#2583): a granted unlock is its one success pattern; the neutral
   // failure and a failed move stay in this card list's own region below.
   const toast = useToast();
+  // #2750 — the page's contact-cost quotes, read after the cards mount and re-read on return.
+  const { quotes, updateAvailable } = useUnlockQuotes(
+    feed.map((r) => r.applicant.workerId),
+    unlockQuotes,
+  );
 
   // A row's state before anything happened to it this session: granted when the payer already
   // holds a live grant on this worker (the page's unlock-history read), else locked. Derived from
@@ -440,12 +453,18 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     const res = await unlockAction({ postingId, workerId });
     if (res.ok) {
       patch(workerId, { busy: false, unlock: res.view, fresh: res.view.kind === "granted" });
-      // The server's balance after the grant (null: nothing granted, or the read failed).
-      if (res.readBack) publishBalance(res.readBack);
-      // A grant is the portal's one success toast (#2583); only the neutral failure stays here.
+      // The server's balance after the grant, or the refusal's own figure (null: unread).
+      if (res.readBack) {
+        publishBalance(res.readBack);
+        updateAvailable(res.readBack.balance);
+      }
+      // A grant is the portal's one success toast (#2583); the honest not-enough-credits
+      // answer is shown on the card itself (never a generic failure toast).
       if (res.view.kind === "granted") {
         setResult(null);
         toast.show(UNLOCK_GRANTED_TOAST);
+      } else if (res.view.kind === "insufficient") {
+        setResult(null);
       } else {
         setResult("unavailable");
       }
@@ -902,6 +921,9 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                   row,
                   unlockError,
                   balance: liveBalance,
+                  quoteCredits: quotedCredits(quotes, a.workerId),
+                  creditsAvailable: quotes?.creditsAvailable ?? null,
+                  quoteWaived: quotedWaived(quotes, a.workerId),
                   unlockHintId,
                   viewOnly: r.posting?.viewOnly === true,
                   onUnlock: () => onUnlock(r),
@@ -922,6 +944,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
         open={confirmWorker !== null}
         onCancel={onCancelUnlock}
         onConfirm={onConfirmUnlock}
+        credits={quotedCredits(quotes, confirmWorker ?? "") ?? 1}
       />
 
       {/* Transient unlock-RESULT toast — granted vs. the ONE neutral no-cause failure (XB-C).

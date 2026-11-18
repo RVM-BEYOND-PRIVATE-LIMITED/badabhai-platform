@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { uuidSchema } from "@badabhai/validators";
-import { VACANCY_BANDS } from "@badabhai/types";
+import { POSTING_CHOICES, POSTING_SURFACES, VACANCY_BANDS } from "@badabhai/types";
 import { JOB_POSTING_AUDIENCES } from "@badabhai/db";
 import { BranchIdSchema, CourseIdSchema } from "../campus-link/campus-link.contract";
 import { clearFieldSchema, contradictoryClears } from "../common/clearable-fields";
@@ -377,11 +377,35 @@ export type PayerCreateJobPostingWithAudienceDto = z.infer<
 >;
 
 /**
- * The company's PATCH (`PATCH /payer/job-postings/:id`): {@link UpdateJobPostingSchema} plus the
- * audience fields. An audience-only body is a real edit ("no fields to update" counts them).
- * Not clearable through `clear`: the audience is NOT NULL, and `[]` already means "every branch".
+ * #2751 items 1 to 3 — WHICH POSTING BUTTON THE COMPANY TAPPED. PAYER PATCH ONLY, and only on the
+ * publish (`status: "open"`): `posting_choice` (`free` / `free_plus_pack`) and the client it was
+ * tapped on (`surface`: `web` / `app`), both or neither. SHAPE ONLY: whether the company records
+ * one at all is the `posting_choice` switch (off, the fields are ignored, never an error), and the
+ * job goes live whatever the choice — recording it can never fail the publish.
  */
-export const PayerUpdateJobPostingSchema = UpdateJobPostingSchema.safeExtend(audienceFields);
+const postingChoiceFields = {
+  posting_choice: z.enum(POSTING_CHOICES).optional(),
+  surface: z.enum(POSTING_SURFACES).optional(),
+} as const;
+
+/**
+ * The company's PATCH (`PATCH /payer/job-postings/:id`): {@link UpdateJobPostingSchema} plus the
+ * audience fields and (#2751) the posting choice. An audience-only body is a real edit ("no fields
+ * to update" counts them). Not clearable through `clear`: the audience is NOT NULL, and `[]`
+ * already means "every branch". The posting choice rides only on a publish, both fields together.
+ */
+export const PayerUpdateJobPostingSchema = UpdateJobPostingSchema.safeExtend({
+  ...audienceFields,
+  ...postingChoiceFields,
+})
+  .refine((o) => (o.posting_choice === undefined) === (o.surface === undefined), {
+    message: "posting_choice and surface go together",
+    path: ["posting_choice"],
+  })
+  .refine((o) => o.posting_choice === undefined || o.status === "open", {
+    message: "posting_choice is sent only with status open (the publish)",
+    path: ["posting_choice"],
+  });
 export type PayerUpdateJobPostingDto = z.infer<typeof PayerUpdateJobPostingSchema>;
 
 /** The audience half of either company body, as `PostingAudienceService` reads it. */

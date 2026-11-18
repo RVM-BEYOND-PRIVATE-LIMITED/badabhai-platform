@@ -19,6 +19,10 @@ import type {
   CampusTargetingOptionsBodySchema,
   CampusTargetingOptionsResponseSchema,
   CampusUnlinkResponseSchema,
+  CampusWaiverBodySchema,
+  CampusWaiverPageSchema,
+  CampusWaiverResponseSchema,
+  CampusWaiverSchema,
 } from "./campus-link.contract";
 
 /**
@@ -154,6 +158,44 @@ export const SEARCH_GRANT_EXAMPLE: z.input<typeof CampusSearchGrantSchema> = {
   student_ref: STUDENT_REF,
   state: "active",
   changed_at: "2026-11-13T12:00:00.000+05:30",
+};
+
+export const WAIVER_BODY_EXAMPLE: z.input<typeof CampusWaiverBodySchema> = {
+  scope: "company",
+  company_id: COMPANY_ID,
+  active: true,
+  staff_ref: "7d0f6c1e-2b4a-4c8e-9f10-3a5b6c7d8e9f",
+  staff_label: "Placement desk, Pune",
+  reason: "Campus drive partner for the November batch",
+};
+
+export const WAIVER_EXAMPLE: z.input<typeof CampusWaiverSchema> = {
+  waiver_id: "0b6e2a4c-8d1f-4e3a-9b5c-7d2e1f0a3b4c",
+  scope: "company",
+  company_id: COMPANY_ID,
+  posting_id: null,
+  active: true,
+  source: "campus",
+  set_by_ref: "7d0f6c1e-2b4a-4c8e-9f10-3a5b6c7d8e9f",
+  set_by_label: "Placement desk, Pune",
+  reason: "Campus drive partner for the November batch",
+  set_at: "2026-11-17T12:00:00.000+05:30",
+  cleared_at: null,
+  cleared_by_ref: null,
+  cleared_by_label: null,
+  clear_reason: null,
+  waived_opens: 3,
+};
+
+export const WAIVER_RESPONSE_EXAMPLE: z.input<typeof CampusWaiverResponseSchema> = {
+  active: true,
+  changed: true,
+  waiver: WAIVER_EXAMPLE,
+};
+
+export const WAIVER_PAGE_EXAMPLE: z.input<typeof CampusWaiverPageSchema> = {
+  waivers: [WAIVER_EXAMPLE],
+  next_cursor: null,
 };
 
 export const UNLINK_RESPONSE_EXAMPLE: z.input<typeof CampusUnlinkResponseSchema> = {

@@ -55,6 +55,9 @@ const HELPER_MODULE = /\/campus-drive-feed-stamp$/;
 const HELPER_IMPORTERS = [
   "admin/admin-actions.repository.ts",
   "admin/companies/admin-companies.repository.ts",
+  // #2754 item 6 — the Campus company import writes a moved company's employer profile (its
+  // verification and GSTIN) and re-stamps in the same transaction.
+  "payers/campus-import/import-companies.ts",
   "payers/payers.repository.ts",
 ];
 

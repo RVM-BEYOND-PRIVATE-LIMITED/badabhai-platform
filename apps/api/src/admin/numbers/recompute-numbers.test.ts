@@ -157,10 +157,14 @@ function deps(stored: Record<string, NumbersSnapshotCellRow[]>) {
     insertRecomputeLog: vi.fn(async () => "log-1"),
   };
   const snapshot = {
-    computeWeekRows: vi.fn(async (_t: unknown, week: string) => [
+    computeWeekRows: vi.fn(async (_t: unknown, week: string, _h: boolean, _asOf: Date) => [
       cell("paying_companies", 7, { weekStart: week }),
+      cell("repeat_purchase_30d", null, { weekStart: week, denominator: 2 }),
     ]),
-    isDueToFreeze: vi.fn((week: string) => week < "2026-11-09"),
+    // The week rows of 2 Nov are due; no cohort row is (90 days after the week).
+    isDueToFreeze: vi.fn(
+      (week: string, _now: Date, cls: string) => cls === "week" && week < "2026-11-09",
+    ),
   };
   const d = {
     repo,
@@ -178,8 +182,14 @@ describe("recomputeNumbers", () => {
     apply,
   });
   const stored = {
-    "2026-11-02": [cell("paying_companies", 5)],
-    "2026-11-09": [cell("paying_companies", 7, { weekStart: "2026-11-09" })],
+    "2026-11-02": [
+      cell("paying_companies", 5),
+      cell("repeat_purchase_30d", null, { denominator: 2 }),
+    ],
+    "2026-11-09": [
+      cell("paying_companies", 7, { weekStart: "2026-11-09" }),
+      cell("repeat_purchase_30d", null, { weekStart: "2026-11-09", denominator: 2 }),
+    ],
   };
 
   it("a DRY RUN prints the per-metric diff, takes no lock, writes nothing and rolls back", async () => {
@@ -196,24 +206,31 @@ describe("recomputeNumbers", () => {
   });
 
   it("APPLY rewrites every week (frozen ones included) under its lock, re-freezes the due ones, and logs ONE row on the same transaction", async () => {
-    const { d, repo, tx, lines } = deps(stored);
+    const { d, repo, tx, lines, snapshot } = deps(stored);
     const out = await recomputeNumbers(d, parsed(true), NOW);
     expect(out).toMatchObject({ applied: true, rowsChanged: 1, logId: "log-1" });
     expect(repo.withTransaction).toHaveBeenCalledTimes(1);
     expect(repo.lockWeek.mock.calls.map((c) => c[1])).toEqual(["2026-11-02", "2026-11-09"]);
+    // Computed as of the run's clock (it decides which repeat windows are still pending).
+    expect(snapshot.computeWeekRows.mock.calls.map((c) => c[3])).toEqual([NOW, NOW]);
     const writes = (
-      repo.replaceWeek.mock.calls as unknown as Array<[unknown, string, unknown, Date, Date | null]>
-    ).map((c) => [c[0], c[1], c[3], c[4]]);
+      repo.replaceWeek.mock.calls as unknown as Array<
+        [unknown, string, string, Array<{ metric: string }>, Date, Date | null]
+      >
+    ).map((c) => [c[0], c[1], c[2], c[3].map((r) => r.metric), c[4], c[5]]);
+    // Each freeze class on its own: the cohort rows re-freeze only once their window has closed.
     expect(writes).toEqual([
-      [tx, "2026-11-02", NOW, NOW],
-      [tx, "2026-11-09", NOW, null],
+      [tx, "2026-11-02", "week", ["paying_companies"], NOW, NOW],
+      [tx, "2026-11-02", "cohort", ["repeat_purchase_30d"], NOW, null],
+      [tx, "2026-11-09", "week", ["paying_companies"], NOW, null],
+      [tx, "2026-11-09", "cohort", ["repeat_purchase_30d"], NOW, null],
     ]);
     expect(repo.insertRecomputeLog).toHaveBeenCalledTimes(1);
     expect(repo.insertRecomputeLog).toHaveBeenCalledWith(tx, {
       actor: "cli",
       fromWeek: "2026-11-02",
       toWeek: "2026-11-09",
-      definitionVersion: 1,
+      definitionVersion: 4,
       reason: REASON,
       rowsChanged: 1,
     });

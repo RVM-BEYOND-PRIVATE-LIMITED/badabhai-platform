@@ -873,12 +873,18 @@ describe.skipIf(!RUN)("expiring credit lots (#2749) — against real Postgres", 
       ],
     });
     const lines = await client.sql<{ lot_id: string; delta: number }[]>`
-      SELECT lot_id, delta FROM credit_ledger WHERE payer_id = ${w}::uuid AND reason = 'unlock_debit'
-      ORDER BY created_at, id`;
-    expect(lines.map((l) => [l.lot_id, Number(l.delta)])).toEqual([
-      [soon, -1],
-      [later, -1],
-    ]);
+      SELECT lot_id, delta FROM credit_ledger WHERE payer_id = ${w}::uuid AND reason = 'unlock_debit'`;
+    // Both lines are written in one transaction, so they share created_at and their row order is
+    // not defined; the spend order is asserted on `takes` above. Compare the lines as a set.
+    const byLot = (a: [string, number], b: [string, number]) => a[0].localeCompare(b[0]);
+    expect(lines.map((l): [string, number] => [l.lot_id, Number(l.delta)]).sort(byLot)).toEqual(
+      (
+        [
+          [soon, -1],
+          [later, -1],
+        ] as [string, number][]
+      ).sort(byLot),
+    );
     expect(await remaining(soon)).toBe(0);
     expect(await remaining(later)).toBe(2);
     await expectInvariant(w, { ledger: true });

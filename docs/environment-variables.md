@@ -602,6 +602,18 @@ NestJS boot assertion).
     `${STILL_LOOKING_EVERY_DAYS:-30}`, `ci.yml` `env:` + `envs:`); the deploy preflight refuses
     anything but empty or a whole number 7..999 before a container moves, because a bad value would
     stop the api booting.
+- **The bulk student move (#2887)** — api only.
+  - `STUDENT_MOVE_ENABLED` (`booleanFromString`, default off). Off: the company-search, open-gate
+    and pre-pay statements are byte-identical to before, a worker's own edit writes no field
+    marker, and every `/admin/students/*` route is a neutral 404. On: a moved student whose
+    visibility is off is kept from companies by #2752's rules; once an admin turns it on he is an
+    ordinary worker. (`job_reach` is not switched — reach depends on no switch, #2746 M2: a hidden
+    moved student is out of reach whenever the `student_visibility` table exists) (contract: `docs/api/admin-student-move-api-reference.md`). Needs the
+    `student_move` migration, APPLY BEFORE THE SWITCH (on without it: the routes answer 503 and
+    the hot reads fall back to their off text). Bridged through the GitHub `production`
+    environment secret of the same name (compose `${STUDENT_MOVE_ENABLED:-false}` on `api`,
+    `ci.yml` `env:` + `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`); values
+    lowercase `true`/`false`/`1`/`0`/empty only.
 - **The numbers screen (#2755)** — api only, two variables (contract:
   `docs/api/admin-numbers-api-reference.md`).
   - `ADMIN_NUMBERS_ENABLED` (`booleanFromString`, default off). Off is today exactly: every
@@ -615,6 +627,15 @@ NestJS boot assertion).
     and skips). Bridged through the GitHub `production` environment secret of the same name
     (compose `${ADMIN_NUMBERS_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
     `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+  - `ADMIN_AI_TRACE_READ_ENABLED` (`booleanFromString`, default off; #2739). Off is today exactly:
+    `GET /admin/ai-traces` and `GET /admin/ai-traces/:id` are a neutral 404 for every role, so the
+    admin portal's AI calls tab shows "unavailable". On, `read_ai_traces` (super_admin only) reads
+    the list and the per-call detail. Bridged through the GitHub `production` environment secret
+    of the same name (compose `${ADMIN_AI_TRACE_READ_ENABLED:-false}` on `api`, `ci.yml` `env:` +
+    `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`); values lowercase
+    `true`/`false`/`1`/`0`/empty only. Arm it only with the owner's sign-off. The prompt and reply
+    text are stored only while the ai-service's `AI_CALL_TRACE_TEXT_ENABLED` is on, which the box
+    does not declare, so until then each call's detail shows its metadata with no text.
   - `NUMBERS_FREEZE_AFTER_DAYS` (`positiveIntFromString`, default 3, at least 1; empty reads as
     the default): how many whole days after a week ends (Sunday 23:59:59 India time) the sweep
     freezes it. A frozen week is never recomputed by the sweep; only the logged recompute tool
@@ -694,7 +715,10 @@ NestJS boot assertion).
     `X-Forwarded-For $proxy_add_x_forwarded_for` (append), `X-Real-IP $remote_addr`,
     `X-Forwarded-Proto $scheme`, `Host $host`; no `real_ip` directives; port 80 is certbot
     redirects only. There is NO admin-web server block (admin-web is `127.0.0.1:3003`,
-    tunnel-only). The api and payer-web publish on loopback only (#2542), so nginx is the only
+    tunnel-only), and since 2026-11-18 (#2925, R89) the api host's block ALSO has
+    `location = /admin` and `location ^~ /admin/`, both `return 404`, before its `location /`:
+    the admin API is not public; admin-web reaches it at `http://api:3001`. A rebuilt box must
+    re-add them (backup of the edited file: `/etc/nginx/backup-2925/`). The api and payer-web publish on loopback only (#2542), so nginx is the only
     way in. payer-web forwards the visitor (the last entry nginx appended, public addresses only)
     as its own `X-Forwarded-For`, which the hop-1 api reads as `req.ip`.
   - **Not 2 or more** on this topology: Express would then trust an entry the client wrote. A CDN

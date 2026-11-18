@@ -102,17 +102,6 @@ export function findCreditPack(catalog: PricedCatalog, code: string): CreditPack
 }
 
 /**
- * The §3A per-unlock unit price, derived from the smallest offered pack's
- * ₹/credit ratio (config-derived, not hardcoded). Used only for display copy.
- */
-export function unlockUnitPriceInr(catalog: PricedCatalog): number | null {
-  const packs = offeredCreditPacks(catalog);
-  if (packs.length === 0) return null;
-  const smallest = packs.reduce((a, b) => (a.credits <= b.credits ? a : b));
-  return Math.round(smallest.priceInr / smallest.credits);
-}
-
-/**
  * Base job posting "free-through-launch" (§3A / ADR-0013 ESCALATION).
  *
  * The catalog cannot model ₹0 — `priceInrSchema = min(1)` rejects it — so "free"
@@ -287,25 +276,4 @@ export function lowBalanceThreshold(): number {
     if (Number.isInteger(n) && n >= 0) return n;
   }
   return DEFAULT_LOW_BALANCE_THRESHOLD;
-}
-
-/* ── Credit validity window (config, never hardcoded in the page) ─────────────────
- *
- * How long PURCHASED credits remain spendable after a top-up — the "use them within N
- * months" expiry shown on the credits page. This is DISTINCT from the catalog credit-pack
- * `windowDays` (the per-UNLOCK contact-access window, 14d, types.ts) — that governs how long
- * a granted unlock's routed relay stays valid, NOT how long unused credits last. There is no
- * catalog field for credit validity, so it is a config param here (env-overridable), default
- * 12 months. The page reads it from here — it never hardcodes the number.
- */
-const DEFAULT_CREDIT_VALIDITY_MONTHS = 12;
-
-/** Months after purchase that unused credits remain spendable (config-driven, default 12). */
-export function creditValidityMonths(): number {
-  const raw = (process.env.PAYER_CREDIT_VALIDITY_MONTHS ?? "").trim();
-  if (raw !== "") {
-    const n = Number(raw);
-    if (Number.isInteger(n) && n > 0) return n;
-  }
-  return DEFAULT_CREDIT_VALIDITY_MONTHS;
 }

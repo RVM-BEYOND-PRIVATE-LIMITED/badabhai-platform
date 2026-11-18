@@ -57,6 +57,7 @@ import {
   aiCallTraces,
   campusDriveRequests,
   launchTestCohort,
+  rvmApplicantWaivers,
   workerAdminOverrides,
   employerProfiles,
   payerMemberInvites,
@@ -430,6 +431,25 @@ function buildTargets(db: Database): PiiTarget[] {
       "launch_test_cohort",
       "factory_phone_enc",
       "factoryPhoneEnc",
+    ),
+    // #2750 item 5 — the staff names on the placement team's waivers (migration
+    // `*_rvm_applicant_waivers`). Added WITH the migration, while the table is empty, for the same
+    // reason as the entries above.
+    target(
+      rvmApplicantWaivers,
+      rvmApplicantWaivers.id,
+      rvmApplicantWaivers.setByLabelEnc,
+      "rvm_applicant_waivers",
+      "set_by_label_enc",
+      "setByLabelEnc",
+    ),
+    target(
+      rvmApplicantWaivers,
+      rvmApplicantWaivers.id,
+      rvmApplicantWaivers.clearedByLabelEnc,
+      "rvm_applicant_waivers",
+      "cleared_by_label_enc",
+      "clearedByLabelEnc",
     ),
   ];
 }

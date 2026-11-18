@@ -23,7 +23,10 @@ import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
  * The definition version of every list in this module and in `definitions.ts`. Start 1. Bump it
  * in the same pull request as any change to a member list or a metric rule.
  */
-export const NUMBERS_DEFINITION_VERSION = 1;
+// 2 (2026-11-18, #2755 part E): groups 6 to 8 (welcome credits, couldn't-reach, waivers) went live.
+// 3 (2026-11-18, #2755): the GST split of revenue went live (revenue_gst_split, revenue_gst).
+// 4 (2026-11-18, #2755): the posting-button shares went live from #2751's job_posting_choices.
+export const NUMBERS_DEFINITION_VERSION = 4;
 
 /** The roll-up label every group set includes. */
 export const NUMBERS_ALL_GROUP = "all" as const;

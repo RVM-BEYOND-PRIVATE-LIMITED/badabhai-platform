@@ -3,9 +3,16 @@ import type { ServerConfig } from "@badabhai/config";
 import type { Database } from "@badabhai/db";
 import { SERVER_CONFIG } from "../../config/config.module";
 import { adminNumbersEnabled, numbersFreezeAfterDays } from "./admin-numbers.flag";
-import { NUMBERS_BASELINE_FROM, NUMBERS_DEFINITION_VERSION } from "./definitions";
+import {
+  NUMBERS_BASELINE_FROM,
+  NUMBERS_DEFINITION_VERSION,
+  NUMBERS_FREEZE_CLASSES,
+  numbersFreezeClassOf,
+  numbersFreezeWindowDays,
+  type NumbersFreezeClass,
+} from "./definitions";
 import type { NumbersMetricCells } from "./metrics/cells";
-import { computeNumbersWeek } from "./metrics/compute-week";
+import { computeCohortWeek, computeNumbersWeek } from "./metrics/compute-week";
 import { NumbersWeeklyRepository, type NumbersSnapshotCellRow } from "./numbers-weekly.repository";
 import { weekRange, weekStartOf, weeksBetween } from "./week";
 
@@ -19,13 +26,21 @@ export interface NumbersSweepResult {
   readonly armed: boolean;
   /** Weeks recomputed and left open (the sweep comes back to them). */
   readonly computed: number;
-  /** Weeks recomputed one last time and frozen by this run. */
+  /** Weeks of which this run froze a class (recomputed one last time). */
   readonly frozen: number;
-  /** Weeks skipped because they were already frozen. */
+  /** Weeks skipped because both their classes were already frozen. */
   readonly skipped: number;
 }
 
 let missingTablesWarned = false;
+
+/** The rows of one freeze class. */
+export function rowsOfClass(
+  rows: readonly NumbersSnapshotCellRow[],
+  cls: NumbersFreezeClass,
+): NumbersSnapshotCellRow[] {
+  return rows.filter((r) => numbersFreezeClassOf(r.metric) === cls);
+}
 
 /** Flatten a week's metric cells into the rows `numbers_weekly` stores. */
 export function snapshotRowsOf(
@@ -63,6 +78,15 @@ export function snapshotRowsOf(
  * (`NUMBERS_FREEZE_AFTER_DAYS` after its Sunday ends) is written with `frozen_at` in that same
  * transaction, and the sweep never touches it again; only the logged recompute tool can.
  *
+ * TWO FREEZE CLASSES PER WEEK (part C). The repeat-buying rows of a week are a COHORT: they are
+ * complete only once the longest window (90 days) has elapsed after the week, so their freeze is
+ * keyed on that window's end — 90 days plus `NUMBERS_FREEZE_AFTER_DAYS` after the week ends —
+ * while the week's other rows freeze as above. Each class is replaced and frozen on its own
+ * (`replaceWeek` takes the class), so a week whose `week` rows are frozen keeps them byte for
+ * byte while its `cohort` rows are still recomputed nightly; a FROZEN ROW NEVER CHANGES. A week is
+ * skipped only when both classes are frozen. A week frozen before part C shipped (no cohort row)
+ * gets its cohort rows on the next run, frozen at once when their time has passed.
+ *
  * SAFE ACROSS PROCESSES: two sweeps on two processes serialise on each week's lock; the later one
  * sees the earlier one's commit (a frozen week it skips, or rows it replaces with the same
  * figures), so a week is always one set of rows.
@@ -81,25 +105,37 @@ export class NumbersSnapshotService {
     return adminNumbersEnabled(this.config);
   }
 
-  /** The instant a week freezes: `NUMBERS_FREEZE_AFTER_DAYS` days after its end. */
-  freezesAt(week: string): Date {
-    return new Date(
-      weekRange(week).toUtcExclusive.getTime() + numbersFreezeAfterDays(this.config) * DAY_MS,
-    );
+  /**
+   * The instant a week's rows of `cls` freeze: `NUMBERS_FREEZE_AFTER_DAYS` days after the week
+   * ends (`week`), or after its longest repeat window has elapsed (`cohort`, 90 days later).
+   */
+  freezesAt(week: string, cls: NumbersFreezeClass = "week"): Date {
+    const days = numbersFreezeWindowDays(cls) + numbersFreezeAfterDays(this.config);
+    return new Date(weekRange(week).toUtcExclusive.getTime() + days * DAY_MS);
   }
 
-  /** Is the week's freeze time reached at `now`? */
-  isDueToFreeze(week: string, now: Date): boolean {
-    return now.getTime() >= this.freezesAt(week).getTime();
+  /** Is the freeze time of the week's `cls` rows reached at `now`? */
+  isDueToFreeze(week: string, now: Date, cls: NumbersFreezeClass = "week"): boolean {
+    return now.getTime() >= this.freezesAt(week, cls).getTime();
   }
 
-  /** Every stored row of one week, computed now from the sources on `tx`. */
+  /**
+   * Every stored row of one week, computed from the sources on `tx` as of `asOf` (which decides
+   * whether a repeat-buying window is still pending). `only: "cohort"` computes the cohort rows
+   * alone (a week whose other rows are frozen).
+   */
   async computeWeekRows(
     tx: Database,
     week: string,
     hasActivityTable: boolean,
+    asOf: Date,
+    only?: "cohort",
   ): Promise<NumbersSnapshotCellRow[]> {
-    const metrics = await computeNumbersWeek(this.repo.sourcesFor(tx, hasActivityTable), week);
+    const sources = this.repo.sourcesFor(tx, hasActivityTable);
+    const metrics =
+      only === "cohort"
+        ? await computeCohortWeek(sources, week, asOf)
+        : await computeNumbersWeek(sources, week, asOf);
     return snapshotRowsOf(week, metrics);
   }
 
@@ -138,11 +174,30 @@ export class NumbersSnapshotService {
       // stay as committed.
       const outcome = await this.repo.withTransaction(async (tx) => {
         await this.repo.lockWeek(tx, week);
-        if (await this.repo.isWeekFrozen(tx, week)) return "skipped" as const;
-        const rows = await this.computeWeekRows(tx, week, hasActivityTable);
-        const freeze = this.isDueToFreeze(week, now);
-        await this.repo.replaceWeek(tx, week, rows, now, freeze ? now : null);
-        return freeze ? ("frozen" as const) : ("computed" as const);
+        const frozen = await this.repo.frozenClasses(tx, week);
+        const open = NUMBERS_FREEZE_CLASSES.filter((cls) => !frozen.has(cls));
+        if (open.length === 0) return "skipped" as const;
+        const rows = await this.computeWeekRows(
+          tx,
+          week,
+          hasActivityTable,
+          now,
+          frozen.has("week") ? "cohort" : undefined,
+        );
+        let froze = false;
+        for (const cls of open) {
+          const freeze = this.isDueToFreeze(week, now, cls);
+          await this.repo.replaceWeek(
+            tx,
+            week,
+            cls,
+            rowsOfClass(rows, cls),
+            now,
+            freeze ? now : null,
+          );
+          froze ||= freeze;
+        }
+        return froze ? ("frozen" as const) : ("computed" as const);
       });
       if (outcome === "skipped") skipped += 1;
       else if (outcome === "frozen") frozen += 1;

@@ -7,6 +7,7 @@ import {
   UNLOCK_WINDOW_DAYS,
   type Database,
   type ExpiredCreditLot,
+  type PackReturnResult,
   type PaymentOrder,
   type UnlockDenyReason,
   type UnlockRouting,
@@ -64,7 +65,9 @@ import {
   type UnlockGrantedResponse,
   type ContactRevealedResponse,
   type ContactReadResponse,
+  type DailyLimitReachedResponse,
   type InsufficientCreditsResponse,
+  type WorkerUnavailableThisWeekResponse,
   type ContactQuotesResponse,
 } from "./unlock-response";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
@@ -77,13 +80,15 @@ import {
 import { contactCost } from "@badabhai/pricing";
 import { CreditRulesService } from "../credit-rules/credit-rules.service";
 import { contactCostFactsOf } from "./contact-cost-facts";
+import { RvmWaiversRepository, type WaiverMatch } from "../rvm-waivers/rvm-waivers.repository";
 import { onBriefNotice } from "./brief-notice";
 import {
   creditGrantPilotListUnavailable,
   creditGrantRefused,
   creditGrantRefusedRealPaymentsLive,
 } from "./credit-grant-refused";
-import { searchExitRefuses } from "../search-exit/search-exit-gate";
+import { appliedToTenantStatement, searchExitRefuses } from "../search-exit/search-exit-gate";
+import type { CreditRules } from "@badabhai/pricing";
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
 const EMPLOYER_SHARING = "employer_sharing";
@@ -99,7 +104,9 @@ type UnlockOutcome =
   | UnlockGrantedResponse
   | NeutralUnavailableResponse
   // #2750 (ADR-0066) — only for a company under the credit rules.
-  | InsufficientCreditsResponse;
+  | InsufficientCreditsResponse
+  | WorkerUnavailableThisWeekResponse
+  | DailyLimitReachedResponse;
 type RevealOutcome = ContactRevealedResponse | NeutralUnavailableResponse;
 
 /**
@@ -119,6 +126,29 @@ export interface RelayResolution {
  * transaction commits — see {@link UnlockService} class doc (deadlock fix).
  */
 type DeferredEmit = () => Promise<void>;
+
+/** India has no daylight saving: IST is UTC+05:30 all year. */
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** #2750 item 6 — the start of `now`'s IST calendar day, as an instant (the agency limit's day). */
+export function istDayStart(now: Date): Date {
+  return new Date(Math.floor((now.getTime() + IST_OFFSET_MS) / DAY_MS) * DAY_MS - IST_OFFSET_MS);
+}
+
+/**
+ * #2750 — what the open's debit did: the lots it took from, and the balance after. A waived open
+ * (#2750 item 5) debits nothing: no takes, and `balanceAfter` null (the balance was not touched,
+ * so it can never be the `>0 → 0` transition the conversion signal fires on).
+ */
+type PricedDebit =
+  | {
+      ok: true;
+      balanceAfter: number | null;
+      takes: readonly { lotId: string; credits: number }[];
+      expiredLots: readonly ExpiredCreditLot[];
+    }
+  | { ok: false };
 
 /** #1899 — the job context an unlock may store, or a refusal (the reference is not the payer's). */
 /**
@@ -253,6 +283,9 @@ export class UnlockService {
     // #2750 — the credit rules' numbers (what a contact costs). Optional for the same reason as
     // `rollout`; absent, no company is under the credit rules. Nest always injects it.
     @Optional() private readonly creditRules?: CreditRulesService,
+    // #2750 item 5 — the placement team's waivers (which waiver frees a worker, and its use).
+    // Optional for the same reason; absent, no open is waived. Nest always injects it.
+    @Optional() private readonly waivers?: RvmWaiversRepository,
   ) {}
 
   /**
@@ -288,15 +321,31 @@ export class UnlockService {
    *
    * A global-pool read, so it runs BEFORE the advisory-locked transaction (the deadlock rule).
    */
-  private async priceOpen(tenant: TenantKey, workerId: string): Promise<number> {
-    const rules = await this.creditRules!.get();
+  private async priceOpen(
+    tenant: TenantKey,
+    workerId: string,
+    rules: CreditRules,
+  ): Promise<{ credits: number; waiverId: string | null }> {
     const facts = await this.repo.readContactCostFacts(tenant, [workerId]);
+    const waiver = (await this.waiversFor(tenant, [workerId])).get(workerId) ?? null;
     const row = facts.get(workerId)!;
-    const cost = contactCost(rules, contactCostFactsOf(row, { forOpen: true }));
+    const cost = contactCost(
+      rules,
+      contactCostFactsOf(row, { forOpen: true, waived: waiver !== null }),
+    );
     this.logger.log(
       `unlock price worker=${workerId} credits=${cost.credits} basis=${cost.basis} tenant=${tenant}`,
     );
-    return cost.credits;
+    // #2750 item 5 — the waiver is recorded as used only when it is what made the open free.
+    return { credits: cost.credits, waiverId: cost.basis === "waived" ? waiver!.waiverId : null };
+  }
+
+  /** #2750 item 5 — which waiver frees each worker for this company (none without the reader). */
+  private async waiversFor(
+    tenant: TenantKey,
+    workerIds: readonly string[],
+  ): Promise<Map<string, WaiverMatch>> {
+    return this.waivers ? this.waivers.waiversFor(tenant, workerIds) : new Map();
   }
 
   // ===========================================================================
@@ -452,7 +501,16 @@ export class UnlockService {
     // #2750 item 2 (ADR-0066) — under the credit rules the price is the cost rule's, from facts on
     // his card only (rungs, experience, the RVM label): never consent, a limit or deletion state.
     // Off, it is one credit, exactly as before.
-    const price = creditRules === "on" ? await this.priceOpen(tenant, workerId) : 1;
+    //
+    // #2750 item 5 — a placement-team waiver can make the price 0 (an RVM student who applied to a
+    // waived job or company): no credit is needed, so a company with none still opens him.
+    // #2750 — the rules' numbers, read once (cached 30 s); null while the company is off.
+    const rules = creditRules === "on" ? await this.creditRules!.get() : null;
+    const priced =
+      rules !== null
+        ? await this.priceOpen(tenant, workerId, rules)
+        : { credits: 1, waiverId: null };
+    const price = priced.credits;
     const balance = await this.repo.getSpendableBalance(tenant);
     if (balance < price) {
       // INSUFFICIENT CREDITS collapses into the neutral response (F-1 option (a)).
@@ -467,6 +525,20 @@ export class UnlockService {
       }
       return neutralUnavailable();
     }
+    // #2750 item 6 (brief 4C.8, B4C-18) — an AGENCY account under the credit rules opens at most
+    // `agencyDailyOpenLimit` new contacts per IST calendar day; an employer account is never
+    // stopped by it. Decided from the company's own count, before anything about the worker is
+    // read (no oracle), and re-checked under a per-company lock inside the transaction, so two
+    // opens at once cannot both pass the line.
+    const agencyDailyLimit = rules !== null ? await this.agencyDailyLimitOf(tenant, rules) : null;
+    if (
+      agencyDailyLimit !== null &&
+      (await this.repo.countTenantOpensSince(tenant, istDayStart(new Date()))) >= agencyDailyLimit
+    ) {
+      await this.emitLimitReached(party, null, "agency_daily_opens", agencyDailyLimit, ctx);
+      return { status: "daily_limit_reached", daily_limit: agencyDailyLimit };
+    }
+
     // #2750 — `credits_charged` rides a grant ONLY under the credit rules (off: the body as today).
     const charged = (credits: number): number | undefined =>
       creditRules === "on" ? credits : undefined;
@@ -561,6 +633,25 @@ export class UnlockService {
         }
         // else: none, or lapsed with the rule off — fall through to a (paid) grant below.
 
+        // #2750 item 6 — the agency daily limit, re-checked under the company's lock (taken after
+        // the worker lock: worker → company → wallet). Still before the consent gate, so the
+        // answer never depends on the worker.
+        if (agencyDailyLimit !== null) {
+          await this.repo.lockTenantOpens(tx, tenant);
+          if (
+            (await this.repo.countTenantOpensSince(tenant, istDayStart(new Date()), tx)) >=
+            agencyDailyLimit
+          ) {
+            events.push(() =>
+              this.emitLimitReached(party, null, "agency_daily_opens", agencyDailyLimit, ctx),
+            );
+            return {
+              response: { status: "daily_limit_reached", daily_limit: agencyDailyLimit },
+              events,
+            };
+          }
+        }
+
         // ---- [1] employer_sharing CONSENT gate (fail closed) ------------------
         // `consented`/`workerPresent` were resolved BEFORE the lock (deadlock fix above).
         if (!consented) {
@@ -611,8 +702,30 @@ export class UnlockService {
         }
 
         // ---- [2] worker CAPS (atomic, before payment) -------------------------
+        // #2750 item 6 (brief 4C.8, B4C-17, B7-12) — under the credit rules the brief's weekly
+        // limit REPLACES the env caps for this company: a worker opened `workerWeeklyOpenLimit`
+        // times in the rolling 7 days (by every company, pilot or not) is not opened again this
+        // week, except by a company he applied to. The company is told he is not available this
+        // week (ADR-0066 §2.7): it learns he is in demand, nothing else. Nothing is debited.
+        if (rules !== null) {
+          if (await this.weeklyLimitRefuses(tx, workerId, tenant, rules.workerWeeklyOpenLimit)) {
+            const row = await this.repo.recordDeny(tx, {
+              payerId: tenant,
+              workerId,
+              jobId: jobContext,
+              jobPostingId,
+              denyReason: "capped",
+            });
+            const max = rules.workerWeeklyOpenLimit;
+            events.push(() =>
+              this.emitLimitReached(party, workerId, "worker_weekly_opens", max, ctx),
+            );
+            events.push(() => this.emitDenied(row.id, party, workerId, jobContext, "capped", ctx));
+            return { response: { status: "worker_unavailable_this_week" }, events };
+          }
+        }
         // Counted over `unlocks.payer_id`, the tenant key: distinct ORGS in `on` (O-3).
-        const cap = await this.checkCaps(tx, workerId);
+        const cap = rules !== null ? null : await this.checkCaps(tx, workerId);
         if (cap) {
           const row = await this.repo.recordDeny(tx, {
             payerId: tenant,
@@ -651,12 +764,28 @@ export class UnlockService {
         // wallet's row lock inside this UPDATE, so the team can never overdraw it.
         // #2750 — under the credit rules the debit is the price (possibly from several lots: one
         // take per lot); off, one credit from one lot, as before.
-        const debit =
-          creditRules === "on"
-            ? await this.payments.debitCreditsWithinTx(tx, tenant, price)
-            : await this.payments
-                .debitOneCreditWithinTx(tx, tenant)
-                .then((d) => (d.ok ? { ...d, takes: [{ lotId: d.lotId, credits: 1 }] } : d));
+        //
+        // #2750 item 5 — a WAIVED open (price 0) debits nothing and touches no lot. The waiver is
+        // re-read here under a share lock: one cleared since the price was read refuses this open
+        // (neutral, nothing written), and a clear racing it waits for this open to commit, so the
+        // use recorded below names a waiver that was live.
+        if (
+          priced.waiverId !== null &&
+          !(await this.waivers!.isActiveForShare(tx as unknown as Database, priced.waiverId))
+        ) {
+          this.logger.log(
+            `unlock refused: waiver cleared since the price was read worker=${workerId.slice(0, 8)} tenant=${tenant.slice(0, 8)}`,
+          );
+          return { response: neutralUnavailable(), events };
+        }
+        const debit: PricedDebit =
+          price === 0
+            ? { ok: true, balanceAfter: null, takes: [], expiredLots: [] }
+            : creditRules === "on"
+              ? await this.payments.debitCreditsWithinTx(tx, tenant, price)
+              : await this.payments
+                  .debitOneCreditWithinTx(tx, tenant)
+                  .then((d) => (d.ok ? { ...d, takes: [{ lotId: d.lotId, credits: 1 }] } : d));
         if (!debit.ok) {
           // Lost a concurrent debit race after the precondition — or (#2749) a lot fell due
           // since the precondition read — collapse to neutral (still no worker-state oracle;
@@ -704,11 +833,31 @@ export class UnlockService {
           });
         }
 
+        // #2750 item 5 — a waived open: ONE zero-credit `waived` line naming the open (no lot:
+        // nothing moved; keyed `waived:<unlock id>`), and the waiver's use, in this transaction.
+        if (priced.waiverId !== null) {
+          await this.repo.appendLedger(tx, {
+            payerId: tenant,
+            delta: 0,
+            reason: "waived",
+            unlockId: granted.id,
+            idempotencyKey: `waived:${granted.id}`,
+          });
+          await this.waivers!.recordUse(tx as unknown as Database, {
+            waiverId: priced.waiverId,
+            unlockId: granted.id,
+            tenant,
+          });
+        }
+
         // Order preserved: payment.authorized → payment.captured → unlock.granted.
-        // #2750 — the credits this open took (one, unless the credit rules priced it).
+        // #2750 — the credits this open took (one, unless the credit rules priced it). A free open
+        // (#2750 item 5, waived) took no payment, so it emits no payment events.
         const amount = creditRules === "on" ? { amountCredits: price } : undefined;
-        events.push(() => this.emitPaymentAuthorized(granted.id, party, ctx, amount));
-        events.push(() => this.emitPaymentCaptured(granted.id, party, ctx, amount));
+        if (price > 0) {
+          events.push(() => this.emitPaymentAuthorized(granted.id, party, ctx, amount));
+          events.push(() => this.emitPaymentCaptured(granted.id, party, ctx, amount));
+        }
         events.push(() =>
           this.emitGranted(granted.id, party, workerId, jobContext, expiresAt, ctx),
         );
@@ -1187,10 +1336,17 @@ export class UnlockService {
     const rules = await this.creditRules!.get();
     const facts = await this.repo.readContactCostFacts(tenant, workerIds);
     const now = new Date();
-    const quotes = [...facts.entries()].map(([workerId, row]) => ({
-      worker_id: workerId,
-      credits: contactCost(rules, contactCostFactsOf(row, { forOpen: false, now })).credits,
-    }));
+    const waivers = await this.waiversFor(tenant, workerIds);
+    const quotes = [...facts.entries()].map(([workerId, row]) => {
+      const cost = contactCost(
+        rules,
+        contactCostFactsOf(row, { forOpen: false, now, waived: waivers.has(workerId) }),
+      );
+      // #2750 item 5 — `waived` (present only when true) lets the button say who made it free.
+      return cost.basis === "waived"
+        ? { worker_id: workerId, credits: cost.credits, waived: true as const }
+        : { worker_id: workerId, credits: cost.credits };
+    });
     return { quotes, credits_available: await this.repo.getSpendableBalance(tenant) };
   }
 
@@ -1428,6 +1584,11 @@ export class UnlockService {
         credits: number;
         /** Always set for a credit-pack order (`payment_orders_pack_code_chk`); typed as the column. */
         pack_code: string | null;
+        /**
+         * #2750 item 9 — credits that expired on earlier paid packs and came back with this one
+         * (already in `balance`). 0 when none, and when the webhook settled the order first.
+         */
+        credits_returned: number;
       }
     | { verified: false }
   > {
@@ -1466,6 +1627,7 @@ export class UnlockService {
           balance: result.balanceAfter,
           credits: result.credits,
           pack_code: result.order.packCode,
+          credits_returned: result.creditsReturned,
         };
       case "already_settled": {
         // The webhook won the race. This is a SUCCESS for the payer — report the real
@@ -1479,6 +1641,7 @@ export class UnlockService {
           balance,
           credits: 0, // already credited by the winning channel; nothing added here
           pack_code: result.order.packCode,
+          credits_returned: 0,
         };
       }
       case "held":
@@ -1584,6 +1747,9 @@ export class UnlockService {
       // `order_status: "paid"` (nothing changed; under the same per-order key).
       onPaidMismatch: (paid, mismatch) =>
         this.emitPaymentHeld(paid, mismatch, "paid", ctx, undefined),
+      // #2750 item 9 — credits that expired on earlier paid packs come back with this one.
+      packReturnFor: (order) => this.packReturnFor(order),
+      onPackReturn: (tx, order, returned) => this.emitPackCreditsReturned(tx, order, returned, ctx),
     });
     if (result.outcome === "granted") {
       const wallet = result.order.payerId;
@@ -1896,6 +2062,55 @@ export class UnlockService {
    * the check-and-write is atomic (F-2). Counts are derived from `unlocks`/grants, not
    * a side counter (no drift).
    */
+  /**
+   * #2750 item 6 — does the worker's weekly limit refuse this company? He was opened `max` times
+   * in the rolling 7 days by any company, and this company is not one he applied to (B7-12). Under
+   * the worker lock (`tx`), so concurrent opens of one worker count each other.
+   */
+  private async weeklyLimitRefuses(
+    tx: Tx,
+    workerId: string,
+    tenant: TenantKey,
+    max: number,
+  ): Promise<boolean> {
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    if ((await this.repo.countOpensSince(tx, workerId, weekAgo)) < max) return false;
+    const applied = await tx.execute(appliedToTenantStatement(workerId, tenant));
+    return (applied as unknown as unknown[]).length === 0;
+  }
+
+  /** #2750 item 6 — the agency daily limit for this company, or null (an employer: no limit). */
+  private async agencyDailyLimitOf(tenant: TenantKey, rules: CreditRules): Promise<number | null> {
+    const facts = await this.payers.findAuthFacts(tenant);
+    return facts?.role === "agent" ? rules.agencyDailyOpenLimit : null;
+  }
+
+  private async emitLimitReached(
+    party: EventParty,
+    workerId: string | null,
+    limit: "worker_weekly_opens" | "agency_daily_opens",
+    max: number,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const payload: PayloadInputOf<"unlock.limit_reached"> = {
+      payer_id: party.payerId,
+      worker_id: workerId,
+      limit,
+      max,
+    };
+    await this.events.emit({
+      event_name: "unlock.limit_reached",
+      actor: { actor_type: "payer", actor_id: party.actorId },
+      subject:
+        workerId === null
+          ? { subject_type: "payer", subject_id: party.payerId }
+          : { subject_type: "worker", subject_id: workerId },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
+
   private async checkCaps(
     tx: Tx,
     workerId: string,
@@ -2287,6 +2502,77 @@ export class UnlockService {
    * actor is `system` and the subject is the wallet the order was stamped with. Keyed on the order
    * row: one per order (a held order is never paid, and a paid one never held).
    */
+  /**
+   * #2750 item 9 — the returned-credits rule for a settling real order, or null (no return).
+   *
+   * The pilot list is keyed by the TENANT; the order names its WALLET (`payer_id`, stamped at
+   * intent and never re-resolved, ADR-0053 §6). They are the same key unless the company's tenancy
+   * moved since; then nothing is returned, never credits into a wallet the rules were not read for.
+   *
+   * FAILS SAFE TO NO RETURN, never to an error: by now the money has been taken, so no read here
+   * may turn a capture into a 5xx (Razorpay would redeliver a payment that must settle). An
+   * unreadable pilot list or settings row is logged at ERROR and the pack settles without its
+   * return. Note the owner's "only the next pack" rule: that purchase still counts as the next pack.
+   */
+  private async packReturnFor(
+    order: PaymentOrder,
+  ): Promise<{ max: number; windowMonths: number } | null> {
+    if (this.rollout === undefined || this.creditRules === undefined) return null;
+    try {
+      const scope = await this.tenancy.resolveReadOnly(order.payerId);
+      if (scope === null || scope.tenantKey !== order.payerId) return null;
+      const state = await this.rollout.stateFor("credit_rules", scope.tenantKey);
+      if (state === "unavailable") {
+        this.logger.error(
+          `returned credits skipped: the credit rules pilot list could not be read order_row=${order.id}`,
+        );
+        return null;
+      }
+      if (state !== "on") return null;
+      const rules = await this.creditRules.get();
+      if (rules.returnedCreditsMax <= 0) return null;
+      return { max: rules.returnedCreditsMax, windowMonths: rules.returnedCreditsWindowMonths };
+    } catch (err) {
+      this.logger.error(
+        `returned credits skipped: the credit rules could not be read order_row=${order.id} ` +
+          `(${err instanceof Error ? err.name : "UnknownError"})`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * #2750 item 9 — `payer.pack_credits_returned`, ONE per order, on the settle's transaction (it
+   * commits with the returned lots and their `pack_return` lines, or neither does).
+   */
+  private async emitPackCreditsReturned(
+    tx: Tx,
+    order: PaymentOrder,
+    returned: PackReturnResult,
+    ctx: RequestContext,
+  ): Promise<void> {
+    await this.events.emit({
+      event_name: "payer.pack_credits_returned",
+      actor: { actor_type: "system", actor_id: null },
+      subject: { subject_type: "payer", subject_id: order.payerId },
+      payload: {
+        payer_id: order.payerId,
+        payment_order_id: order.id,
+        credits: returned.credits,
+        lots: returned.lines.map((l) => ({
+          from_lot_id: l.fromLotId,
+          lot_id: l.lotId,
+          credits: l.credits,
+        })),
+        expires_at: returned.expiresAt === null ? null : returned.expiresAt.toISOString(),
+      },
+      idempotencyKey: `payer.pack_credits_returned:order:${order.id}`,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+      tx: tx as unknown as Database,
+    });
+  }
+
   private async emitPaymentHeld(
     order: PaymentOrder,
     mismatch: CaptureMismatch,

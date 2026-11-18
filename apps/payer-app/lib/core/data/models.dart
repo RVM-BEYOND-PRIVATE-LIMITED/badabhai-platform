@@ -507,23 +507,180 @@ class Applicant extends Equatable {
 /// without inventing a reason. A grant requires the real [unlockId] on the wire
 /// — the status string alone is never trusted.
 class UnlockResult extends Equatable {
-  const UnlockResult.granted({required this.unlockId, this.expiresAt})
-      : available = true;
+  const UnlockResult.granted({
+    required this.unlockId,
+    this.expiresAt,
+    this.creditsCharged,
+  })  : available = true,
+        creditsNeeded = null,
+        creditsAvailable = null,
+        limit = null,
+        dailyLimit = null;
+
+  /// #2750 — the honest refusal for a company under the credit rules. Nothing was
+  /// opened, debited or read about the worker; it says only what the payer cannot afford.
+  const UnlockResult.insufficient({
+    required this.creditsNeeded,
+    required this.creditsAvailable,
+  })  : available = false,
+        unlockId = null,
+        expiresAt = null,
+        creditsCharged = null,
+        limit = null,
+        dailyLimit = null;
+
+  /// #2750 part D — the worker hit his weekly opening limit; nothing was charged.
+  const UnlockResult.weekLimit()
+      : available = false,
+        unlockId = null,
+        expiresAt = null,
+        creditsCharged = null,
+        creditsNeeded = null,
+        creditsAvailable = null,
+        limit = 'week',
+        dailyLimit = null;
+
+  /// #2750 part D — an agency hit its IST-day opening limit; nothing was charged.
+  const UnlockResult.dailyLimitReached(this.dailyLimit)
+      : available = false,
+        unlockId = null,
+        expiresAt = null,
+        creditsCharged = null,
+        creditsNeeded = null,
+        creditsAvailable = null,
+        limit = 'day';
 
   const UnlockResult.unavailable()
       : available = false,
         unlockId = null,
-        expiresAt = null;
+        expiresAt = null,
+        creditsCharged = null,
+        creditsNeeded = null,
+        creditsAvailable = null,
+        limit = null,
+        dailyLimit = null;
 
   final bool available;
   final String? unlockId;
   final String? expiresAt;
 
+  /// #2750 — the credits the open took (0 on a re-open); null outside the rules.
+  final int? creditsCharged;
+
+  /// #2750 — the refusal's own counts (null on every other outcome).
+  final int? creditsNeeded;
+  final int? creditsAvailable;
+
+  /// #2750 part D — 'week' / 'day' when an opening limit refused it; null otherwise.
+  final String? limit;
+  final int? dailyLimit;
+
+  bool get weekLimitReached => limit == 'week';
+  bool get dailyLimitReached => limit == 'day';
+
   /// True only when the server granted a real unlock (carried an [unlockId]).
   bool get granted => available;
 
+  /// True only for the honest "not enough credits" answer.
+  bool get insufficient =>
+      !available && creditsNeeded != null && creditsAvailable != null;
+
   @override
-  List<Object?> get props => <Object?>[available, unlockId, expiresAt];
+  List<Object?> get props =>
+      <Object?>[
+        available,
+        unlockId,
+        expiresAt,
+        creditsCharged,
+        creditsNeeded,
+        creditsAvailable,
+        limit,
+        dailyLimit,
+      ];
+}
+
+/// #2750 — the contact price for one page of cards (`POST /payer/unlocks/quotes`).
+/// A worker absent from [creditsByWorker] has no quote; an API 404 means no rules
+/// at all and the caller keeps today's button. Nothing here describes a worker.
+class UnlockQuotes extends Equatable {
+  const UnlockQuotes({
+    required this.creditsByWorker,
+    required this.creditsAvailable,
+    this.waivedWorkers = const <String>{},
+  });
+
+  final Map<String, int> creditsByWorker;
+  final int creditsAvailable;
+
+  /// #2750 part C — workers whose open is free because RVM's placement team waived it.
+  final Set<String> waivedWorkers;
+
+  bool waivedFor(String workerId) => waivedWorkers.contains(workerId);
+
+  /// The quoted credits for [workerId], or null when there is no quote for him.
+  int? creditsFor(String workerId) => creditsByWorker[workerId];
+
+  /// True only when a price and the spendable balance are known and the price is beyond it.
+  bool unaffordableFor(String workerId) {
+    final int? credits = creditsFor(workerId);
+    return credits != null && credits > creditsAvailable;
+  }
+
+  /// Fold a grant / refusal into this page's quote without a second list read.
+  UnlockQuotes afterUnlock(String workerId, UnlockResult result) {
+    if (result.granted) {
+      return UnlockQuotes(
+        creditsByWorker: <String, int>{...creditsByWorker, workerId: 0},
+        creditsAvailable:
+            (creditsAvailable - (result.creditsCharged ?? 1)).clamp(0, creditsAvailable).toInt(),
+        waivedWorkers: waivedWorkers,
+      );
+    }
+    if (result.insufficient) {
+      return UnlockQuotes(
+        creditsByWorker: creditsByWorker,
+        creditsAvailable: result.creditsAvailable!,
+        waivedWorkers: waivedWorkers,
+      );
+    }
+    return this;
+  }
+
+  /// Null when the wire body is not the contract (a 2xx that is not a quote page).
+  static UnlockQuotes? tryFromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    final Object? rows = json['quotes'];
+    final Object? available = json['credits_available'];
+    if (rows is! List<dynamic> || available is! num || !available.isFinite) {
+      return null;
+    }
+    final Map<String, int> byWorker = <String, int>{};
+    final Set<String> waived = <String>{};
+    for (final Object? row in rows) {
+      if (row is! Map<String, dynamic>) return null;
+      final Object? id = row['worker_id'];
+      final Object? credits = row['credits'];
+      if (id is! String ||
+          id.isEmpty ||
+          credits is! num ||
+          !credits.isFinite ||
+          credits < 0) {
+        return null;
+      }
+      byWorker[id] = credits.toInt();
+      if (row['waived'] == true) waived.add(id);
+    }
+    final int spendable = available.toInt();
+    if (spendable < 0) return null;
+    return UnlockQuotes(
+      creditsByWorker: Map<String, int>.unmodifiable(byWorker),
+      creditsAvailable: spendable,
+      waivedWorkers: Set<String>.unmodifiable(waived),
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[creditsByWorker, creditsAvailable, waivedWorkers];
 }
 
 /// One row of `GET /payer/unlocks` — the caller's OWN unlocks (#2033 payer

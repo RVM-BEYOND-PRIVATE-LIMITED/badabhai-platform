@@ -39,6 +39,8 @@ import { CandidatesModule } from "./candidates/candidates.module";
 import { CampusJobsModule } from "./campus-link/campus-jobs.module";
 import { CampusLinkModule } from "./campus-link/campus-link.module";
 import { CampusReviewModule } from "./campus-link/campus-review.module";
+import { CampusWaiversModule } from "./campus-link/campus-waivers.module";
+import { ReachDeskModule } from "./reach-desk/reach-desk.module";
 import { AgencyModule } from "./agency/agency.module";
 import { AgencyTwinModule } from "./agency-twin/agency-twin.module";
 import { CampusDrivesModule } from "./campus-drives/campus-drives.module";
@@ -148,6 +150,11 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // #2746 PR 5 — Campus records the placement team's RVM review and sets the targeting options,
     // behind the same guard and flag. Its own module, so CampusLinkModule is imported, not edited.
     CampusReviewModule,
+    // #2750 item 5 - the placement team's waiver switch (404 while the credit rules are off).
+    CampusWaiversModule,
+    // #2750 item 7 - the couldn't-reach guarantee: the company's report route and the deadline
+    // sweep (404 / inert while the credit rules are off). The desk routes are AdminModule's.
+    ReachDeskModule,
     // Agency Supply Portal demand slice (ADR-0022): agent-only `/payer/agency/*` routes
     // (jobs CRUD + invites + referrals summary) + the consent-gated attribution seam.
     AgencyModule,

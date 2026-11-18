@@ -389,6 +389,8 @@ export class PayerUnlocksController {
       balance: result.balance,
       credits: result.credits,
       pack_code: result.pack_code,
+      // #2750 item 9 — expired credits that came back with this pack (already in `balance`).
+      credits_returned: result.credits_returned,
     };
   }
 }

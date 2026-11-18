@@ -24,18 +24,41 @@ export const BADABHAI_WORKER_AUDIENCES = [
 const AUDIENCE_LITERALS = BADABHAI_WORKER_AUDIENCES.map((audience) => `'${audience}'`).join(", ");
 
 /**
- * THE ONE SQL SPELLING of "a BadaBhai worker may see this posting": `<audience> IN
- * ('badabhai_workers', 'both')`. Every worker read that tests `hidden_at` / `status = 'open'`
- * puts this beside them, and the reach materialization (`materializeJobReachWithin`, the worker
- * reconcile) writes no `job_reach` row where it is false. No other file may spell an audience
- * literal (`job-visibility.static.test.ts`).
- *
- * The default renders `"job_postings"."audience"` and serves a drizzle `.where(and(...))` over
- * the unaliased table. A raw statement that aliases the table passes its own column:
- * ``reachesBadaBhaiWorkers(sql`jp.audience`)``.
+ * A SQL alias for `job_postings` in a raw statement (`jp`, or the bare table name). Checked, because
+ * it is spliced into the statement text.
  */
-export function reachesBadaBhaiWorkers(audience: SQLWrapper = jobPostings.audience): SQL {
-  return sql`${audience} IN (${sql.raw(AUDIENCE_LITERALS)})`;
+const SQL_ALIAS = /^[a-z_][a-z0-9_]*$/;
+
+/**
+ * THE ONE SQL SPELLING of "a BadaBhai worker may see this posting", in two parts that are BOTH
+ * required:
+ *
+ *   1. #2746, THE AUDIENCE: `<audience> IN ('badabhai_workers', 'both')`.
+ *   2. #2891, THE CAMPUS HOLD: no `job_posting_worker_visibility` row for the posting says other
+ *      than `on`. A Campus-origin posting is held there from the moment it exists until an admin
+ *      opens it (ruling of 17 Nov 2026); while held it behaves exactly as an RVM-students-only
+ *      posting. A posting with no row is not Campus-origin and passes this part. `<> 'on'`
+ *      rather than `= 'off'`, so a state added to the CHECK later holds, never opens.
+ *
+ * Every worker read that tests `hidden_at` / `status = 'open'` puts this beside them, and the
+ * reach materialization (`materializeJobReachWithin`, the worker reconcile) writes no
+ * `job_reach` row where it is false. No other file may spell an audience literal
+ * (`job-visibility.static.test.ts`). Like the audience, the hold has NO SWITCH: the table is read
+ * unconditionally, so the migration that creates it is applied before this code deploys.
+ *
+ * The default renders `"job_postings"."audience"` / `"job_postings"."id"` and serves a drizzle
+ * `.where(and(...))` over the unaliased table. A raw statement passes the alias it gave the table:
+ * `reachesBadaBhaiWorkers("jp")`, or `reachesBadaBhaiWorkers("job_postings")` when it is unaliased.
+ */
+export function reachesBadaBhaiWorkers(alias?: string): SQL {
+  const { audience, id } = postingColumns(alias);
+  return sql`(${audience} IN (${sql.raw(AUDIENCE_LITERALS)}) AND NOT EXISTS (SELECT 1 FROM job_posting_worker_visibility jpwv WHERE jpwv.job_posting_id = ${id} AND jpwv.state <> 'on'))`;
+}
+
+function postingColumns(alias: string | undefined): { audience: SQLWrapper; id: SQLWrapper } {
+  if (alias === undefined) return { audience: jobPostings.audience, id: jobPostings.id };
+  if (!SQL_ALIAS.test(alias)) throw new Error(`reachesBadaBhaiWorkers: bad SQL alias ${alias}`);
+  return { audience: sql.raw(`${alias}.audience`), id: sql.raw(`${alias}.id`) };
 }
 
 /** The column default: every posting before 0162, every agency twin, every chat-published job. */
@@ -67,8 +90,10 @@ export function reachesRvmStudents(audience: SQLWrapper = jobPostings.audience):
 }
 
 /**
- * The TypeScript twin of {@link reachesBadaBhaiWorkers}, for code that holds a row rather than a
- * statement (the write path, the zero-reach alert). Same list, so the two cannot disagree.
+ * The TypeScript twin of PART 1 of {@link reachesBadaBhaiWorkers} (the audience), for code that holds
+ * a row rather than a statement (the write path, the zero-reach alert). Same list, so the two cannot
+ * disagree. It does NOT see the Campus hold (#2891): it decides whether a reach REBUILD is worth
+ * running, and the rebuild itself goes through the SQL fragment, which does.
  */
 export function audienceReachesBadaBhaiWorkers(audience: JobPostingAudience): boolean {
   return (BADABHAI_WORKER_AUDIENCES as readonly JobPostingAudience[]).includes(audience);

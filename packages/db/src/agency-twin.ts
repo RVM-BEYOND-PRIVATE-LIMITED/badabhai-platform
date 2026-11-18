@@ -33,6 +33,7 @@ import { and, asc, eq, gt, inArray, sql as dsql } from "drizzle-orm";
 
 import type { Database } from "./client";
 import { reachesBadaBhaiWorkers } from "./job-visibility";
+import { isHiddenStudent, notHiddenStudent, studentVisibilityPresent } from "./student-visibility";
 import { screenJobTextForConversion } from "./match-v1-derive";
 import { jobPostings, jobs, payers, type JobStatus } from "./schema";
 
@@ -568,6 +569,19 @@ export async function materializeJobReachWithin(
   // `::text[]` then fails at runtime with 42846 (verified against a live Postgres in D5).
   const posted = dsql.param([...postedSkillIds]);
   const reach = dsql.param([...reachSkillIds]);
+  // #2887 — a moved student whose visibility is off is reached by nothing, and a row he already
+  // holds is removed. Keyed on the TABLE, never on a switch (this statement depends on none, #2746
+  // M2): before the `student_move` migration the table is absent and both statements are exactly
+  // today's; once it exists, only an imported student can have a row, and a hidden one is out.
+  const hide = await studentVisibilityPresent(executor);
+  const upsertHidden = hide
+    ? dsql`
+          AND ${notHiddenStudent(dsql`ws.worker_id`)}`
+    : dsql``;
+  const purgeHidden = hide
+    ? dsql`
+            OR ${isHiddenStudent(dsql`jr.worker_id`)}`
+    : dsql``;
 
   // `xmax = 0` is true only for a freshly inserted tuple, so one statement reports inserted vs
   // refreshed without a second probe. The EXISTS is uncorrelated with `ws`: Postgres evaluates it
@@ -582,11 +596,11 @@ export async function materializeJobReachWithin(
                (ARRAY_AGG(ws.skill_id ORDER BY (ws.skill_id = ANY(${posted}::text[])) DESC,
                                                ws.months_bucketed DESC))[1]
         FROM worker_skill ws
-        WHERE ws.skill_id = ANY(${reach}::text[]) AND ws.wants
+        WHERE ws.skill_id = ANY(${reach}::text[]) AND ws.wants${upsertHidden}
           AND EXISTS (
             SELECT 1 FROM job_postings jp
             WHERE jp.id = ${jobPostingId}::uuid
-              AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
+              AND ${reachesBadaBhaiWorkers("jp")}
           )
         GROUP BY ws.worker_id
         ON CONFLICT (job_posting_id, worker_id) DO UPDATE
@@ -614,14 +628,14 @@ export async function materializeJobReachWithin(
             NOT EXISTS (
               SELECT 1 FROM job_postings jp
               WHERE jp.id = ${jobPostingId}::uuid
-                AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
+                AND ${reachesBadaBhaiWorkers("jp")}
             )
             OR NOT EXISTS (
               SELECT 1 FROM worker_skill ws
               WHERE ws.worker_id = jr.worker_id
                 AND ws.skill_id = ANY(${reach}::text[])
                 AND ws.wants
-            )
+            )${purgeHidden}
           )
         RETURNING 1
       )

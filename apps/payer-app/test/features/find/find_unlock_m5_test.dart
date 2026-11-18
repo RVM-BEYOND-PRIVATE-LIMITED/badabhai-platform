@@ -192,6 +192,7 @@ class _M5Api extends MockPayerApiClient {
   /// While set, every unlock throws it — an outage.
   Object? unlockError;
   UnlockResult unlockResult = const UnlockResult.granted(unlockId: 'unl-m5');
+  UnlockQuotes? quotes;
 
   final List<CandidateSearchQuery> searches = <CandidateSearchQuery>[];
   final List<String> applicantFetches = <String>[];
@@ -231,6 +232,9 @@ class _M5Api extends MockPayerApiClient {
     applicantFetches.add(jobId);
     return applicantsByJob[jobId] ?? const <Applicant>[];
   }
+
+  @override
+  Future<UnlockQuotes?> fetchUnlockQuotes(List<String> workerIds) async => quotes;
 
   @override
   Future<UnlockResult> unlock({required String workerId, String? jobId}) async {
@@ -314,10 +318,15 @@ void main() {
     FindView view = FindView.allCandidates,
     String? jobId,
     bool reduced = false,
+    VoidCallback? onOpenCredits,
   }) async {
     await tester.pumpWidget(_host(
       FindScreen(
-          onReveal: revealed.add, initialView: view, initialJobId: jobId),
+        onReveal: revealed.add,
+        initialView: view,
+        initialJobId: jobId,
+        onOpenCredits: onOpenCredits,
+      ),
       reduced: reduced,
     ));
     await tester.pumpAndSettle();
@@ -608,6 +617,34 @@ void main() {
         expect(revealed.single.unlockId, 'unl-m5');
       });
     }
+  });
+
+  group('#2750 — the Applicants list shows the quoted contact cost', () {
+    testWidgets('shows the price and offers the Starter pack when short',
+        (WidgetTester tester) async {
+      final String worker = _applicant(0).workerId;
+      api.quotes = UnlockQuotes(
+        creditsByWorker: <String, int>{worker: 2},
+        creditsAvailable: 1,
+      );
+
+      await pumpFind(
+        tester,
+        view: FindView.applicants,
+        jobId: _jobA,
+        onOpenCredits: () {},
+      );
+
+      expect(find.text('Open for 2 credits'), findsOneWidget);
+      expect(find.text('Starter pack'), findsOneWidget);
+      final BbButton open = tester.widget<BbButton>(
+        find.ancestor(
+          of: find.text('Open for 2 credits'),
+          matching: find.byType(BbButton),
+        ),
+      );
+      expect(open.onPressed, isNull);
+    });
   });
 
   group('acceptance — Applicants opens the tapped job', () {

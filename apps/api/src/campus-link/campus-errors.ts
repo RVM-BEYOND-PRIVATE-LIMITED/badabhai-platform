@@ -12,6 +12,10 @@ import {
   GrantRefConflictError,
 } from "./institute-search-grants.service";
 import { RvmStudentApiUnavailableError } from "./rvm-student-api.client";
+import {
+  WaiverCompanyNotFoundError,
+  WaiverPostingNotFoundError,
+} from "../rvm-waivers/rvm-waivers.service";
 
 /** A Campus refusal with its contract code (`error.code` in the api's envelope). */
 export class CampusRefusal extends Error {
@@ -41,6 +45,10 @@ export function toCampusHttpError(err: unknown): unknown {
     return new ConflictException({ code: "EXTERNAL_REF_CONFLICT" });
   }
   if (err instanceof GrantCompanyNotFoundError || err instanceof GrantNotFoundError) {
+    return new NotFoundException();
+  }
+  // #2750 item 5: an unknown or barred company, or a job that is not that company's.
+  if (err instanceof WaiverCompanyNotFoundError || err instanceof WaiverPostingNotFoundError) {
     return new NotFoundException();
   }
   if (err instanceof CampusRefusal) {

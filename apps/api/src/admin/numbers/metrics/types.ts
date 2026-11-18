@@ -61,6 +61,12 @@ export interface NumbersPaidOrderRow {
   readonly packCode: string | null;
   /** Whole rupees, as `payment_orders.amount_inr` stores it. */
   readonly amountInr: number;
+  /**
+   * #2755 — the GST split stamped on the order by #2749 part 3 (migration 0176), in paise: the price
+   * before GST and the GST. Both null on an order from before 0176 (it carries no split).
+   */
+  readonly taxablePaise: number | null;
+  readonly gstPaise: number | null;
   /** `updated_at` at the move to paid. */
   readonly settledAt: Date;
 }
@@ -107,4 +113,42 @@ export interface NumbersFormCompletionRow {
   readonly workerId: string;
   readonly firstCompletedAt: Date;
   readonly profileConfirmed: boolean;
+}
+
+/**
+ * #2750 / #2755 metric group 6 — one countable company's welcome lot that RAN OUT: the moment its
+ * spends reached the lot's size, and the first real paid order the company settled after that
+ * moment (null when none yet). A welcome lot never refilled (returns are new lots), so it runs
+ * out once at most.
+ */
+export interface NumbersWelcomeRunOutRow {
+  readonly payerId: string;
+  readonly ranOutAt: Date;
+  readonly firstPaidAfter: Date | null;
+}
+
+/** #2750 / #2755 metric group 7 — one couldn't-reach case of a countable company. */
+export interface NumbersReachCaseRow {
+  readonly payerId: string;
+  readonly reportedAt: Date;
+  /** Null while the case is open. */
+  readonly resolvedAt: Date | null;
+  /** Credits the close gave back (0 unless not reached). */
+  readonly creditsReturned: number;
+}
+
+/** #2750 / #2755 metric group 8 — one open a placement-team waiver paid for (its `waived` line). */
+export interface NumbersWaivedOpenRow {
+  readonly payerId: string;
+  readonly at: Date;
+}
+
+/**
+ * #2751 / #2755 metric group 5 — one posting-button tap of a countable company: the button chosen
+ * when the job was published (`job_posting_choices`, one row per posting) and when.
+ */
+export interface NumbersPostingChoiceRow {
+  readonly payerId: string;
+  readonly choice: "free" | "free_plus_pack";
+  readonly recordedAt: Date;
 }

@@ -214,7 +214,7 @@ export interface AdminRefreshResponse {
 
 /**
  * The authenticated admin's own identity view (GET /admin/me). PII-FREE: id, role, the
- * server-resolved capability list and three account booleans — no name, no email, nothing
+ * server-resolved capability list and four account booleans — no name, no email, nothing
  * derived from one.
  *
  * `capabilities` is what the Admin Portal renders against so it never carries its own copy of
@@ -231,10 +231,15 @@ export interface AdminMeResponse {
   must_change_password: boolean;
   /** 0144 (Amendment 1) — the admin's own two-step switch. */
   mfa_enabled: boolean;
+  /**
+   * #2924 (Amendment 2) — the admin's ROLE requires two-step (super_admin, ops_admin): the
+   * Account page shows it as required and offers no way to switch it off.
+   */
+  mfa_required: boolean;
 }
 
 /** 0144 — the per-admin account flags `GET /admin/me` adds (read from the live row). */
 export type AdminAccountFlags = Pick<
   AdminMeResponse,
-  "has_password" | "must_change_password" | "mfa_enabled"
+  "has_password" | "must_change_password" | "mfa_enabled" | "mfa_required"
 >;

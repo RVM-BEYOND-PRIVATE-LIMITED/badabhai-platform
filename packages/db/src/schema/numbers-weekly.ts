@@ -30,6 +30,13 @@ import {
 // `numbers_recompute_log` row in the same transaction. `GET /admin/numbers/weekly` reads ONLY this
 // table, so a frozen figure cannot drift with the live tables under it.
 //
+// COHORT ROWS FREEZE LATER (#2755 part C). The repeat-buying rows (`repeat_purchase_30d/60d/90d`)
+// are keyed by the COHORT week (the week of the first payment) and are complete only once the
+// longest window (90 days) has elapsed after it, so their `frozen_at` is set 90 days plus
+// NUMBERS_FREEZE_AFTER_DAYS after the week ends; the sweep keeps recomputing them until then while
+// the week's other rows stay frozen. A frozen row never changes either way. A still-open window is
+// stored PENDING: `value` and `numerator` NULL, `denominator` the cohort's size.
+//
 // SMALL WORKER CELLS. A worker figure under the floor of 5 (the onboarding funnel's
 // `ADMIN_FUNNEL_K_ANON_FLOOR`) is stored `suppressed` with every number NULL, except the
 // `all × all` total (`numbers_weekly_suppressed_chk` keeps a suppressed row empty).

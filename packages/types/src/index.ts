@@ -1680,6 +1680,29 @@ export interface PayerCreditsResponse {
   readonly checkout: PayerCheckoutMode;
 }
 
+// ---- The out-of-credits call log (#2755 item 8, the telecaller list) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells the results into
+// `credit_call_log_result_chk`, `packages/event-schema` puts one on the spine
+// (`admin.credit_call_logged`), and the api parses the route body with them. Declared once so the
+// CHECK, the event and the route cannot drift.
+
+/**
+ * What a call to a company whose credits ran out came to. CLOSED CODES ONLY, never free text:
+ * `reached_will_buy` = reached, says it will buy; `reached_not_now` = reached, not now;
+ * `reached_declined` = reached, does not want to buy; `no_answer` = nobody picked up;
+ * `wrong_number` = the number is not the company's. FROZEN: the event's v1 enum is taken from this
+ * list; a new value is a migration widening the CHECK and a new event version.
+ */
+export const CREDIT_CALL_RESULTS = Object.freeze([
+  "reached_will_buy",
+  "reached_not_now",
+  "reached_declined",
+  "no_answer",
+  "wrong_number",
+] as const);
+export type CreditCallResult = (typeof CREDIT_CALL_RESULTS)[number];
+
 // ---- Payment orders: checkout (#2749 item 9, migration 0176) ----
 //
 // HERE FOR THE SAME REASON AS THE LOT SOURCES ABOVE: `packages/db` spells these sets into CHECK
@@ -1728,6 +1751,53 @@ export type PaymentOrderOrigin = (typeof PAYMENT_ORDER_ORIGINS)[number];
 export function isPaymentOrderOrigin(value: unknown): value is PaymentOrderOrigin {
   return typeof value === "string" && (PAYMENT_ORDER_ORIGINS as readonly string[]).includes(value);
 }
+
+// ---- The posting choice (#2751 items 1 to 3, migration 0187) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells them into the
+// `job_posting_choices` CHECKs, `packages/event-schema` puts them on the spine
+// (`job_posting.posting_choice_recorded`) and the api parses the publish body with them. FROZEN:
+// the event's v1 enums are taken from these lists.
+
+/**
+ * Which of the two posting buttons a company tapped (brief 4B.7). `free` = "Post free";
+ * `free_plus_pack` = "Post free + Starter". The job goes live either way; the choice is recorded,
+ * not enforced.
+ */
+export const POSTING_CHOICES = Object.freeze(["free", "free_plus_pack"] as const);
+export type PostingChoice = (typeof POSTING_CHOICES)[number];
+
+/** The client the button was tapped on: payer-web or the payer app. */
+export const POSTING_SURFACES = Object.freeze(["web", "app"] as const);
+export type PostingSurface = (typeof POSTING_SURFACES)[number];
+
+// ---- Refunds of real paid packs (#2750 item 10, migration 0186) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells them into the
+// `payment_refunds` CHECKs, `packages/event-schema` puts them on the spine
+// (`payment.refund_requested`, `payment.refund_status_changed`) and the api parses the admin
+// route with them. FROZEN: each event's v1 enum is taken from these lists.
+
+/**
+ * The refund rule a refund was granted under (brief 4C.12): `unused` = the pack is unused, within
+ * `refundUnusedWithinDays` of its purchase; `low_match` = unused, within `refundLowMatchWithinDays`,
+ * and its job drew fewer than `refundLowMatchMinWorkers` applicants.
+ */
+export const PAYMENT_REFUND_RULES = Object.freeze(["unused", "low_match"] as const);
+export type PaymentRefundRuleCode = (typeof PAYMENT_REFUND_RULES)[number];
+
+/** Where a refund stands with Razorpay: `requested` → `pending` → `processed`, or `failed`. */
+export const PAYMENT_REFUND_STATUSES = Object.freeze([
+  "requested",
+  "pending",
+  "processed",
+  "failed",
+] as const);
+export type PaymentRefundStatusCode = (typeof PAYMENT_REFUND_STATUSES)[number];
+
+/** Why a refund failed: the provider call errored, or Razorpay reported the refund failed. */
+export const PAYMENT_REFUND_FAILURES = Object.freeze(["provider_error", "provider_failed"] as const);
+export type PaymentRefundFailureCode = (typeof PAYMENT_REFUND_FAILURES)[number];
 
 /**
  * Why a captured payment was HELD instead of granted (`payment.held.reason`). `amount_mismatch` =

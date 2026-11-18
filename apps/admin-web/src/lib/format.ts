@@ -378,6 +378,29 @@ export function creditReasonLabel(reason: string): string {
     case "expired":
       // #2749 — a lot's unspent credits, removed when its date passed (one line per lot).
       return "Credits expired";
+    // #2750 — the credit rules' movements.
+    case "welcome":
+      return "Welcome credits";
+    case "goodwill":
+      return "Goodwill credits";
+    case "correction":
+      return "Correction";
+    case "returned":
+      return "Credits returned";
+    case "waived":
+      return "Waived by placement team";
+    // #2754 item 9 — a moved company's unused Campus balance.
+    case "campus_conversion":
+      return "Moved from Campus";
+    // #2754 item 14 — a batch rollback took that balance back unspent.
+    case "campus_conversion_reversed":
+      return "Campus move reversed";
+    // #2750 item 9 — expired credits of an earlier paid pack, given back with the next one.
+    case "pack_return":
+      return "Returned with new pack";
+    // #2750 item 10 — an admin refund of the pack took its unused credits back.
+    case "pack_refund":
+      return "Pack refunded";
     default:
       // An unmapped reason is shown RAW rather than hidden — a code nobody recognises is a
       // reason to look, not to render a blank cell.

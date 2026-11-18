@@ -6,9 +6,13 @@ import { NUMBERS_DEFINITION_VERSION } from "./groups";
  * routes and the parity tests read their rule from here; `GET /admin/numbers/definitions` serves it.
  *
  * ── A METRIC WITH NO LIVE SOURCE IS `not_available`, NEVER ZERO ────────────────────────────
- * Five groups wait on work that has not shipped (#2749 part 3, #2750, #2751). Their figures are
+ * Some figures wait on work that has not shipped (#2751's Managed Hiring). Their figures are
  * listed with the reason and the issue they wait on, so the screen can say "not yet measured"
  * instead of drawing a zero that reads as "nobody did this". A zero is a measurement.
+ *
+ * ── A LIST IS NOT A WEEKLY FIGURE ────────────────────────────────────────────────────────────
+ * Group 10 (the telecaller list) is live as a LIST, not a number per week: its one entry names the
+ * route that serves it (`list_route`), and the weekly snapshot never stores it.
  *
  * ── COMMON RULES (every figure) ─────────────────────────────────────────────────────────────
  *   - Weeks are `week.ts`'s: Monday to Sunday, India time. A "week" figure counts what happened
@@ -33,12 +37,9 @@ export type NumbersMetricUnit = (typeof NUMBERS_METRIC_UNITS)[number];
 export const NUMBERS_METRIC_KINDS = ["headline", "diagnostic"] as const;
 export type NumbersMetricKind = (typeof NUMBERS_METRIC_KINDS)[number];
 
-/**
- * The issues a not-yet-measured figure waits on. `#2755` is this screen's own later part (part C:
- * repeat buying and the out-of-credits call list), whose figures the weekly snapshot does not hold
- * yet.
- */
-export const NUMBERS_WAITS_ON = ["#2749", "#2750", "#2751", "#2755"] as const;
+/** The issues a not-yet-measured figure waits on. */
+// #2750 left the list in version 2 and #2749 in version 3: every figure that waited on them is live.
+export const NUMBERS_WAITS_ON = ["#2751"] as const;
 export type NumbersWaitsOn = (typeof NUMBERS_WAITS_ON)[number];
 
 export type NumbersAvailability =
@@ -67,6 +68,11 @@ export interface NumbersMetricDefinition {
   /** How it is counted, in words a reviewer can check against a hand-written query. */
   readonly rule: string;
   readonly availability: NumbersAvailability;
+  /**
+   * A live figure served as a LIST by its own route rather than as a weekly number (group 10, the
+   * call list): the route, e.g. `GET /admin/numbers/out-of-credits`. Absent on every weekly figure.
+   */
+  readonly list_route?: string;
 }
 
 export interface NumbersMetricGroupDefinition {
@@ -78,6 +84,18 @@ export interface NumbersMetricGroupDefinition {
 }
 
 const LIVE: NumbersAvailability = { status: "live" };
+
+/** #2755 item 7 — the repeat-buying windows, in days after a company's first payment. */
+export const NUMBERS_REPEAT_WINDOWS_DAYS = [30, 60, 90] as const;
+export type NumbersRepeatWindowDays = (typeof NUMBERS_REPEAT_WINDOWS_DAYS)[number];
+
+/** The longest window: a cohort week's repeat rows stay open until it has elapsed. */
+export const NUMBERS_REPEAT_LONGEST_WINDOW_DAYS = 90;
+
+/** The metric id of one repeat-buying window: `repeat_purchase_30d`. Never renamed. */
+export function repeatPurchaseMetricId(days: NumbersRepeatWindowDays): string {
+  return `repeat_purchase_${days}d`;
+}
 
 function waitsOn(waits_on: NumbersWaitsOn, reason: string): NumbersAvailability {
   return { status: "not_available", reason, waits_on };
@@ -118,22 +136,29 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
           "also what marks a week as before real payments: zero means no real payment yet.",
         availability: LIVE,
       },
-      ...([30, 60, 90] as const).map(
+      ...NUMBERS_REPEAT_WINDOWS_DAYS.map(
         (days): NumbersMetricDefinition => ({
-          id: `repeat_purchase_${days}d`,
+          id: repeatPurchaseMetricId(days),
           title: `Paid again within ${days} days`,
           unit: "share",
           kind: "headline",
-          source: "payment_orders with status paid, as above.",
+          source:
+            "payment_orders with status paid, as above (the same paid, real-money rule: the mock " +
+            "route writes no order row).",
           rule:
-            "Cohort: the companies whose FIRST paid order settled in the week. The share of that " +
-            `cohort with another paid order settled within ${days} days after the first. A cohort ` +
-            `younger than ${days} days is reported as still open, not as a share.`,
-          availability: waitsOn(
-            "#2755",
-            "repeat buying is computed in part C of this screen; the weekly snapshot does not " +
-              "hold it yet",
-          ),
+            "A COHORT per week: the companies (test and sample companies left out) whose FIRST " +
+            "paid order ever settled in the week. The denominator is the cohort's size; the " +
+            "numerator is how many of them have a second paid order settled within " +
+            `${days} days of their first (second settle time minus first settle time, ${days} × 24 ` +
+            "hours at most). The value is the share in hundredths, rounded half up. PENDING " +
+            `until the window has fully elapsed for every company in the cohort, i.e. until ${days} ` +
+            "days after the week ends: a pending cell holds the cohort size only (value and " +
+            "numerator null), never a partial share. Stored under the COHORT week, split by the " +
+            "company's city and trade (the city and role_kind of its latest posting). THE FREEZE " +
+            `IS KEYED ON THE LONGEST WINDOW: a cohort week's three rows stay open until ` +
+            `${NUMBERS_REPEAT_LONGEST_WINDOW_DAYS} days after the week ends, then freeze ` +
+            "NUMBERS_FREEZE_AFTER_DAYS later like any week, and a frozen row never changes.",
+          availability: LIVE,
         }),
       ),
     ],
@@ -297,18 +322,26 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         title: "Tapped 'Post free (5 contacts)'",
         unit: "share",
         kind: "headline",
-        source: "the posting-button tap record of #2751.",
-        rule: "Taps on the free button over all taps on the two buttons in the week.",
-        availability: waitsOn("#2751", "the posting-button tap record does not exist yet"),
+        source:
+          "job_posting_choices (#2751 items 1 to 3, migration 0187): the button tapped when a job " +
+          "was published, one row per posting.",
+        rule:
+          "Taps on 'Post free' over all taps on the two buttons in the week (recorded_at), test " +
+          "and sample companies and sample postings left out. The share in hundredths, rounded " +
+          "half up; numerator and denominator kept; null when the week has no tap, never zero. " +
+          "Split by the company's city and trade.",
+        availability: LIVE,
       },
       {
         id: "posting_choice_starter_share",
         title: "Tapped 'Post free + Starter ₹999 (20 contacts)'",
         unit: "share",
         kind: "headline",
-        source: "the posting-button tap record of #2751.",
-        rule: "Taps on the Starter button over all taps on the two buttons in the week.",
-        availability: waitsOn("#2751", "the posting-button tap record does not exist yet"),
+        source: "job_posting_choices (#2751 items 1 to 3, migration 0187).",
+        rule:
+          "Taps on 'Post free + Starter' over all taps on the two buttons in the week, the same " +
+          "way as the free share.",
+        availability: LIVE,
       },
     ],
   },
@@ -322,18 +355,27 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         title: "Used up the 5 welcome credits",
         unit: "count",
         kind: "headline",
-        source: "the welcome credit lot of #2750.",
-        rule: "Companies whose welcome lot reached zero in the week.",
-        availability: waitsOn("#2750", "the welcome credit lot does not exist yet"),
+        source:
+          "credit_lots with source welcome (#2750 item 4: one per company, never refilled) and " +
+          "their unlock_debit ledger lines.",
+        rule:
+          "Companies (test and sample companies left out) whose welcome lot ran out in the week: " +
+          "the moment the running sum of the lot's unlock_debit lines reached its size. A lot " +
+          "that expired with credits left did not run out. Split by the company's city and trade.",
+        availability: LIVE,
       },
       {
         id: "welcome_then_bought",
         title: "Then bought a pack",
         unit: "count",
         kind: "headline",
-        source: "the welcome lot of #2750 and the pack lots of #2749.",
-        rule: "Of those companies, the ones with a paid pack after the welcome lot ran out.",
-        availability: waitsOn("#2750", "the welcome credit lot does not exist yet"),
+        source:
+          "the welcome lots above and payment_orders with status paid (real money only: the mock " +
+          "purchase route writes no order row).",
+        rule:
+          "Of the companies counted in 'used up' for the week, the ones with a paid order settled " +
+          "after their welcome lot ran out and before the week's end.",
+        availability: LIVE,
       },
     ],
   },
@@ -347,18 +389,23 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         title: "'Couldn't reach' claims",
         unit: "count",
         kind: "headline",
-        source: "the couldn't-reach claim record of #2750.",
-        rule: "Claims made in the week.",
-        availability: waitsOn("#2750", "the couldn't-reach claim does not exist yet"),
+        source: "contact_reach_cases (#2750 item 7), one per open.",
+        rule:
+          "Cases reported in the week (reported_at), test and sample companies left out. Split by " +
+          "the company's city and trade.",
+        availability: LIVE,
       },
       {
         id: "couldnt_reach_credits_returned",
         title: "Credits returned",
         unit: "count",
         kind: "headline",
-        source: "the credit returns of #2750.",
-        rule: "Credits returned on accepted claims in the week.",
-        availability: waitsOn("#2750", "the couldn't-reach claim does not exist yet"),
+        source: "contact_reach_cases.credits_returned (#2750 items 7 and 8).",
+        rule:
+          "The credits returned by cases closed in the week (resolved_at): a case closed not " +
+          "reached, by the desk or at its deadline, returns what the open took; a reached case " +
+          "returns none.",
+        availability: LIVE,
       },
     ],
   },
@@ -372,9 +419,12 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         title: "Credits waived",
         unit: "count",
         kind: "headline",
-        source: "the waiver ledger rows of #2750.",
-        rule: "Credits waived in the week.",
-        availability: waitsOn("#2750", "the waiver ledger rows do not exist yet"),
+        source: "credit_ledger lines with reason waived (#2750 item 5): one per open a waiver paid for.",
+        rule:
+          "Opens a placement-team waiver paid for in the week, one credit each: a waiver frees only " +
+          "an RVM applicant, whose open costs the brief's one credit (the line records the open, " +
+          "not a price). Test and sample companies left out.",
+        availability: LIVE,
       },
     ],
   },
@@ -400,12 +450,24 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
       },
       {
         id: "revenue_gst_split",
-        title: "Revenue before GST, and the GST",
+        title: "Revenue before GST",
         unit: "paise",
         kind: "headline",
-        source: "the GST split of #2749 (part 3).",
-        rule: "The same orders, split into the price before GST and the GST, in paise.",
-        availability: waitsOn("#2749", "orders carry no GST split until #2749 part 3 lands"),
+        source: "payment_orders.taxable_paise: the GST split #2749 part 3 stamps on every order (0176).",
+        rule:
+          "The same paid orders as revenue by pack, the price before GST summed in paise. An order " +
+          "from before 0176 carries no split and is left out (real payments started after it). " +
+          "Before GST + GST + the order's round-off = as charged.",
+        availability: LIVE,
+      },
+      {
+        id: "revenue_gst",
+        title: "GST collected",
+        unit: "paise",
+        kind: "headline",
+        source: "payment_orders.gst_paise (0176).",
+        rule: "The same orders as revenue before GST, their GST summed in paise.",
+        availability: LIVE,
       },
       {
         id: "revenue_managed_hiring",
@@ -425,21 +487,25 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
     metrics: [
       {
         id: "out_of_credits_companies",
-        title: "Companies whose credits ran out",
+        title: "Companies whose credits ran out (the call list)",
         unit: "count",
         kind: "headline",
         source:
-          "the company's usable balance (zero after a spend or an expiry); payer.credits_exhausted " +
-          "gives the moment of the last spend.",
+          "the company's USABLE balance: payer_credits.balance minus what its credit_lots past " +
+          "expires_at still hold, never below zero (the unlock path's readSpendableCredits " +
+          "rule); payer.credits_exhausted gives the moment of the last spend, and credit_lots " +
+          "the moment a lot expired.",
         rule:
-          "Companies (test companies left out) whose usable balance reached zero in the week and " +
-          "is still zero at its end. The call list itself is GET /admin/numbers/out-of-credits " +
-          "(part C), newest first.",
-        availability: waitsOn(
-          "#2755",
-          "the out-of-credits figure is computed with the call list in part C of this screen; " +
-            "the weekly snapshot does not hold it yet",
-        ),
+          "A LIST, served live by GET /admin/numbers/out-of-credits, not a weekly figure. The " +
+          "companies (test, sample and archived companies left out) whose usable balance is zero " +
+          "now and that ran out: the moment they ran out is the later of their last " +
+          "payer.credits_exhausted and the expires_at of the last lot that expired holding " +
+          "credits; a company that never held a credit is not on it. Newest first by that " +
+          "moment, keyset paged. Each row: the last real paid order (time and pack), the last " +
+          "contact opened (an unlock granted) and the latest call logged (time, result, admin). " +
+          "The name only through AdminIdentityService (read_identity); never the phone.",
+        availability: LIVE,
+        list_route: "GET /admin/numbers/out-of-credits",
       },
     ],
   },
@@ -477,15 +543,20 @@ export type NumbersSnapshotSubject = "worker" | "company";
 
 /**
  * Every metric the nightly sweep writes to `numbers_weekly`, with whose figure it is. The live
- * catalogue entries above, exactly (a test pins the two lists together); a `not_available` metric
- * is never stored, so the screen can never draw it as a zero. `revenue_by_pack` is stored as the
- * all-packs total under its own id AND once per pack under `revenue_by_pack:<pack_code>`.
+ * WEEKLY catalogue entries above, exactly (a test pins the two lists together: every live entry
+ * but the one served as a list, `list_route`); a `not_available` metric is never stored, so the
+ * screen can never draw it as a zero. `revenue_by_pack` is stored as the all-packs total under its
+ * own id AND once per pack under `revenue_by_pack:<pack_code>`. The three repeat-buying windows
+ * are stored under their COHORT week (the week of the first payment).
  */
 export const NUMBERS_SNAPSHOT_METRICS: Readonly<Record<string, NumbersSnapshotSubject>> = {
   paying_companies: "company",
   paying_companies_cumulative: "company",
   companies_posted: "company",
   companies_posted_cumulative: "company",
+  // Version 4: the posting-button shares (#2751).
+  posting_choice_free_share: "company",
+  posting_choice_starter_share: "company",
   completed_profiles: "worker",
   completed_profiles_cumulative: "worker",
   active_workers_30d: "worker",
@@ -494,7 +565,52 @@ export const NUMBERS_SNAPSHOT_METRICS: Readonly<Record<string, NumbersSnapshotSu
   confirmed_hires_cumulative: "company",
   contacts_per_hire: "company",
   revenue_by_pack: "company",
+  // Version 3: the GST split of the same orders.
+  revenue_gst_split: "company",
+  revenue_gst: "company",
+  repeat_purchase_30d: "company",
+  repeat_purchase_60d: "company",
+  repeat_purchase_90d: "company",
+  // #2750 — groups 6 to 8 (version 2).
+  welcome_credits_used_up: "company",
+  welcome_then_bought: "company",
+  couldnt_reach_claims: "company",
+  couldnt_reach_credits_returned: "company",
+  credits_waived: "company",
 };
+
+// ---------------------------------------------------------------------------------------------
+// The freeze of a cohort metric (part C)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The COHORT metrics: stored under the week a cohort was formed in (the week of its first
+ * payment), and complete only once their window has elapsed. Today: the three repeat-buying
+ * windows.
+ */
+export const NUMBERS_COHORT_METRICS: readonly string[] =
+  NUMBERS_REPEAT_WINDOWS_DAYS.map(repeatPurchaseMetricId);
+
+/**
+ * When a stored row freezes. A `week` row (every metric but the cohort ones) freezes
+ * NUMBERS_FREEZE_AFTER_DAYS after its week ends. A `cohort` row freezes that many days after its
+ * LONGEST window has elapsed for every company of the cohort
+ * ({@link NUMBERS_REPEAT_LONGEST_WINDOW_DAYS} days after the week ends): until then the sweep keeps
+ * recomputing it, so a window that has not closed is never frozen as pending. Either way a FROZEN
+ * ROW NEVER CHANGES: the sweep skips it, and only the logged recompute rewrites it.
+ */
+export type NumbersFreezeClass = "week" | "cohort";
+export const NUMBERS_FREEZE_CLASSES: readonly NumbersFreezeClass[] = ["week", "cohort"];
+
+/** The freeze class of a stored metric id (a per-pack revenue id is a `week` row). */
+export function numbersFreezeClassOf(metric: string): NumbersFreezeClass {
+  return NUMBERS_COHORT_METRICS.includes(metric) ? "cohort" : "week";
+}
+
+/** How many days after its week ends a row of `cls` stops changing (before the freeze delay). */
+export function numbersFreezeWindowDays(cls: NumbersFreezeClass): number {
+  return cls === "cohort" ? NUMBERS_REPEAT_LONGEST_WINDOW_DAYS : 0;
+}
 
 /** The id prefix of one pack's revenue: `revenue_by_pack:pack_50`. */
 export const NUMBERS_REVENUE_PACK_PREFIX = "revenue_by_pack:";

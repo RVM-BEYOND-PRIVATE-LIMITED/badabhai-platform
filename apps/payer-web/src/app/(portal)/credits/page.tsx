@@ -1,25 +1,22 @@
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { getCreditTopUps, getDashboard } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
-import {
-  creditValidityMonths,
-  lowBalanceThreshold,
-  offeredCreditPacks,
-  unlockUnitPriceInr,
-} from "../../../lib/pricing-config";
-import { buildTransactionHistory, creditExpirySchedule } from "../../../lib/credit-history";
+import { lowBalanceThreshold, offeredCreditPacks } from "../../../lib/pricing-config";
+import { buildTransactionHistory } from "../../../lib/credit-history";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import { payerServerConfig } from "../../../lib/server-config";
 import { formatInr } from "../../../lib/format";
 import { opaqueId } from "../../../lib/masking";
 import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
 import { Badge, Card } from "../../../components/ds";
-import { CachedPricingNote } from "../../../components/cached-pricing-note";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { CreditsPanel } from "./credits-panel";
 
 export const dynamic = "force-dynamic";
+
+/** The Buy Credits section's id — what the out-of-credits notice links to (#2744). */
+const PACKS_ANCHOR = "packs";
 
 /** ISO → yyyy-mm-dd for display; echoes the input on a parse failure. */
 function day(ts: string): string {
@@ -32,11 +29,13 @@ function day(ts: string): string {
  * onto the UI-1 page spine (`page-head` / `stat-row` / `section` / `panel--table` / `alert` /
  * `state`). PRESENTATION ONLY: data + config + RBAC + copy semantics are unchanged.
  *
- * Packs and the per-unlock unit price are read from the LIVE catalog (D-6:
- * `getLiveCatalog` → GET /payer/pricing/catalog via pricing-config), never hardcoded —
- * an ops price edit shows here without a rebuild. On a catalog fetch failure the page
- * degrades to the compile-time defaults with the subtle cached-pricing note (fail-open
- * is safe: the server re-resolves the real price at purchase, XT5).
+ * Packs are read from the LIVE catalog (D-6: `getLiveCatalog` → GET /payer/pricing/catalog via
+ * pricing-config), never hardcoded — an ops price edit shows here without a rebuild. No
+ * per-unlock price shows anywhere on the page: not in the description, the balance hero or a
+ * tile (#2744). Pack tiles come from the catalogue API ONLY (#2744): on a catalog fetch failure
+ * the page renders no packs — an error state with a retry — and never the compile-time default
+ * packs. That reverses D-6's fail-open (defaults + a cached-pricing note) for this page only; the
+ * balance and the history still render.
  * All ₹ / counts render in mono tabular.
  *
  * MOCK vs REAL is decided SERVER-SIDE by `payerServerConfig().paymentsEnableReal` and
@@ -57,11 +56,10 @@ export default async function CreditsPage() {
 
   // Server-resolved payment mode. Fail-closed: anything but an explicit "true" is MOCK.
   const realPayments = payerServerConfig().paymentsEnableReal;
-  // Priced at what each pack is charged (#2085 — the catalog's `prices[]`).
+  // Priced at what each pack is charged (#2085 — the catalog's `prices[]`). Only a LIVE read
+  // yields packs (#2744): a failed one (`live:false`) is null, never the compile-time defaults.
   const catalog = await getLiveCatalog();
-  const { live } = catalog;
-  const packs = offeredCreditPacks(catalog);
-  const unit = unlockUnitPriceInr(catalog);
+  const packs = catalog.live ? offeredCreditPacks(catalog) : null;
   const threshold = lowBalanceThreshold();
 
   let dashboard: Dashboard | null = null;
@@ -83,30 +81,19 @@ export default async function CreditsPage() {
     topUps = [];
   }
 
-  // Credit validity window comes from config (default 12 months) — never a page literal.
-  const validityMonths = creditValidityMonths();
   const unlocks: UnlockHistoryItem[] = dashboard?.unlocks ?? [];
   const history = buildTransactionHistory({ unlocks, topUps });
-  const expiry = creditExpirySchedule(topUps, validityMonths);
   const balance = dashboard?.credits.balance ?? null;
+  // Out of credits outranks "running low" (the dashboard's rule too): one notice, never both. An
+  // unread balance (null) is neither.
+  const outOfCredits = balance !== null && balance <= 0;
   const lowBalance = balance !== null && balance < threshold;
-
-  const balanceValue = dashboard?.credits.balance ?? null;
-  const unlockValue =
-    balanceValue !== null && unit !== null ? balanceValue * unit : null;
-  const validUntil = new Date();
-  validUntil.setMonth(validUntil.getMonth() + validityMonths);
-  const validUntilLabel = validUntil.toLocaleDateString("en-US", {
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-  });
 
   return (
     <>
       <PageHeader
         title="Credits"
-        description={`1 credit = 1 verified contact unlock${unit !== null ? ` · Standard rate: ${formatInr(unit)} per unlock` : ""}${realPayments ? " — pay securely via Razorpay; credits are added as soon as the payment is confirmed." : ""}`}
+        description={`Your credit balance, the packs on sale, and your recent credit purchases and spends${realPayments ? " — pay securely via Razorpay; credits are added as soon as the payment is confirmed." : "."}`}
         actionsSlot={
           <span className="cred-info">
             <Icon name="info" />
@@ -115,9 +102,24 @@ export default async function CreditsPage() {
         }
       />
 
-      {!live ? <CachedPricingNote /> : null}
-
-      {lowBalance ? (
+      {outOfCredits ? (
+        <div className="alert alert--danger">
+          <Icon name="warning-octagon" className="alert__icon" />
+          <div className="alert__text">
+            <p className="alert__title">You are out of unlock credits</p>
+            <p className="alert__body">
+              Applicants stay masked until you buy credits. Existing unlocks are unaffected.
+            </p>
+          </div>
+          <div className="alert__actions">
+            {/* Same-page link to the packs below (#2744 item 6). */}
+            <a className="bb-btn bb-btn--secondary bb-btn--sm" href={`#${PACKS_ANCHOR}`}>
+              <Icon name={ACTION_ICON.credits} />
+              <span>Buy credits</span>
+            </a>
+          </div>
+        </div>
+      ) : lowBalance ? (
         <div className="alert alert--warning">
           <Icon name="warning" className="alert__icon" />
           <div className="alert__text">
@@ -161,26 +163,13 @@ export default async function CreditsPage() {
                 <span className="cred-hero__num bb-mono">{dashboard.credits.balance}</span>
                 <span className="cred-hero__unit">available unlocks</span>
               </p>
-              <p className="cred-hero__sub">
-                Equivalent candidate unlock value:{" "}
-                <span className="bb-mono">
-                  {unlockValue !== null ? formatInr(unlockValue) : "—"}
-                </span>
-              </p>
             </div>
-            <div className="cred-hero__stats">
-              <div>
-                <span>VALID UNTIL</span>
-                <strong>{validUntilLabel}</strong>
-              </div>
-              <div>
-                <span>AVG RATE PAID</span>
-                <strong>{unit !== null ? `${formatInr(unit)} / unlock` : "—"}</strong>
-              </div>
-            </div>
+            {/* The balance only. No per-unlock value or rate (#2744), and no credit validity /
+                expiry: the server applies none yet (BB-D-04, #2741). */}
           </section>
 
-          <section className="cred-buy">
+          {/* `anchor-target`: the notice's link lands this below the sticky header. */}
+          <section className="cred-buy anchor-target" id={PACKS_ANCHOR}>
             <div className="cred-buy__head">
               <div>
                 <h2 className="cred-section__title">Buy Credits</h2>
@@ -189,147 +178,105 @@ export default async function CreditsPage() {
                   on any contact unlock.
                 </p>
               </div>
-              <span className="cred-muted">Instant GST Invoice Available</span>
             </div>
-            <CreditsPanel packs={packs} real={realPayments} />
-          </section>
-        </>
-      ) : null}
-
-      <div className="cred-grid">
-        <section className="cred-panel">
-          <div className="cred-panel__head">
-            <div>
-              <h2 className="cred-panel__title">Credit Movement &amp; History</h2>
-              <p className="cred-panel__sub">Your purchases and candidate unlock spends</p>
-            </div>
-          </div>
-          <div className="cred-panel__body">
-            {history.length > 0 ? (
-              <div className="tablewrap" tabIndex={0} role="region" aria-label="Credit history">
-                <table className="table table--nowrap">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Type</th>
-                      <th className="num">Credits</th>
-                      <th className="num">Amount</th>
-                      <th>Ref</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {history.map((t) => (
-                      <tr key={t.id}>
-                        <td className="mono">{day(t.at)}</td>
-                        <td>
-                          {t.kind === "topup" ? (
-                            <Badge tone="success">Purchase</Badge>
-                          ) : (
-                            <Badge tone="neutral">Unlock</Badge>
-                          )}
-                        </td>
-                        <td className="num">{t.credits > 0 ? `+${t.credits}` : t.credits}</td>
-                        <td className="num">
-                          {t.kind === "topup" && t.priceInr !== undefined
-                            ? formatInr(t.priceInr)
-                            : "—"}
-                        </td>
-                        <td className="mono">{opaqueId(t.id)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : error ? (
+            {packs !== null ? (
+              <CreditsPanel packs={packs} real={realPayments} />
+            ) : (
               <div className="state state--error">
                 <span className="state__icon">
                   <Icon name="warning-circle" />
                 </span>
-                <h3 className="state__title">History unavailable</h3>
+                <h3 className="state__title">Packs unavailable</h3>
                 <p className="state__body">
-                  We couldn&rsquo;t load your credit movements right now. Nothing has changed —
+                  We couldn&rsquo;t load the packs on sale right now. Your balance is unaffected —
                   please retry.
                 </p>
                 <div className="state__actions">
                   <RetryButton />
                 </div>
               </div>
-            ) : (
-              <div className="cred-empty">
-                <span className="cred-empty__icon">
-                  <Icon name="receipt" />
-                </span>
-                <h3 className="cred-empty__title">No recent credit movements</h3>
-                <p className="cred-empty__body">
-                  Credit purchases and unlocked applicant contact details will be logged securely
-                  here.
-                </p>
-              </div>
             )}
-          </div>
-          <div className="cred-panel__foot">
-            <span>All candidate identities protected</span>
-            <span className="cred-panel__footend">
-              <Icon name="shield-check" /> Encrypted Audit
-            </span>
-          </div>
-        </section>
+          </section>
+        </>
+      ) : null}
 
-        <section className="cred-panel">
-          <div className="cred-panel__head">
-            <div>
-              <h2 className="cred-panel__title">Credit Expiry &amp; Policy</h2>
-              <p className="cred-panel__sub">
-                Purchased credits are valid for {validityMonths} months
+      <section className="cred-panel">
+        <div className="cred-panel__head">
+          <div>
+            <h2 className="cred-panel__title">Credit Movement &amp; History</h2>
+            <p className="cred-panel__sub">Your purchases and candidate unlock spends</p>
+          </div>
+        </div>
+        <div className="cred-panel__body">
+          {history.length > 0 ? (
+            <div className="tablewrap" tabIndex={0} role="region" aria-label="Credit history">
+              <table className="table table--nowrap">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th className="num">Credits</th>
+                    <th className="num">Amount</th>
+                    <th>Ref</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((t) => (
+                    <tr key={t.id}>
+                      <td className="mono">{day(t.at)}</td>
+                      <td>
+                        {t.kind === "topup" ? (
+                          <Badge tone="success">Purchase</Badge>
+                        ) : (
+                          <Badge tone="neutral">Unlock</Badge>
+                        )}
+                      </td>
+                      <td className="num">{t.credits > 0 ? `+${t.credits}` : t.credits}</td>
+                      <td className="num">
+                        {t.kind === "topup" && t.priceInr !== undefined
+                          ? formatInr(t.priceInr)
+                          : "—"}
+                      </td>
+                      <td className="mono">{opaqueId(t.id)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : error ? (
+            <div className="state state--error">
+              <span className="state__icon">
+                <Icon name="warning-circle" />
+              </span>
+              <h3 className="state__title">History unavailable</h3>
+              <p className="state__body">
+                We couldn&rsquo;t load your credit movements right now. Nothing has changed —
+                please retry.
+              </p>
+              <div className="state__actions">
+                <RetryButton />
+              </div>
+            </div>
+          ) : (
+            <div className="cred-empty">
+              <span className="cred-empty__icon">
+                <Icon name="receipt" />
+              </span>
+              <h3 className="cred-empty__title">No recent credit movements</h3>
+              <p className="cred-empty__body">
+                Credit purchases and unlocked applicant contact details will be logged securely
+                here.
               </p>
             </div>
-            <span className="cred-pill">
-              <Icon name="hourglass" /> Oldest credits used first
-            </span>
-          </div>
-          <div className="cred-panel__body">
-            {expiry.length > 0 ? (
-              <div className="tablewrap" tabIndex={0} role="region" aria-label="Credit expiry">
-                <table className="table table--nowrap">
-                  <thead>
-                    <tr>
-                      <th className="num">Credits</th>
-                      <th>Purchased</th>
-                      <th>Expires</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {expiry.map((e) => (
-                      <tr key={e.topUpId}>
-                        <td className="num">{e.credits}</td>
-                        <td className="mono">{day(e.purchasedAt)}</td>
-                        <td className="mono">{day(e.expiresAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="cred-empty">
-                <span className="cred-empty__icon cred-empty__icon--green">
-                  <Icon name="hourglass" />
-                </span>
-                <h3 className="cred-empty__title">Nothing expiring soon</h3>
-                <p className="cred-empty__body">
-                  All {balance ?? 0} current credits are safe and active. We will email you 30 days
-                  before any unspent credit expires.
-                </p>
-              </div>
-            )}
-          </div>
-          <div className="cred-panel__foot">
-            <span>Validity term: {validityMonths * 30} Days</span>
-            <span className="cred-panel__footend cred-panel__footend--green">
-              <Icon name="check-circle" /> 100% Active
-            </span>
-          </div>
-        </section>
-      </div>
+          )}
+        </div>
+        <div className="cred-panel__foot">
+          <span>All candidate identities protected</span>
+          <span className="cred-panel__footend">
+            <Icon name="shield-check" /> Encrypted Audit
+          </span>
+        </div>
+      </section>
 
       {realPayments ? (
         <div className="alert alert--info">

@@ -111,6 +111,14 @@ import { AdminCompaniesService } from "./companies/admin-companies.service";
 import { AdminCompaniesController } from "./companies/admin-companies.controller";
 import { AdminCreditRulesController } from "./credit-rules/admin-credit-rules.controller";
 import { CreditRulesModule } from "../credit-rules/credit-rules.module";
+import { AdminWaiversController } from "./waivers/admin-waivers.controller";
+import { RvmWaiversModule } from "../rvm-waivers/rvm-waivers.module";
+import { AdminReachDeskController } from "./reach-desk/admin-reach-desk.controller";
+import { ReachDeskModule } from "../reach-desk/reach-desk.module";
+import { PaymentRefundsModule } from "../payment-refunds/payment-refunds.module";
+import { AdminPaymentRefundsController } from "./payment-refunds/admin-payment-refunds.controller";
+import { AdminStudentsController } from "./students/admin-students.controller";
+import { StudentMoveModule } from "../student-move/student-move.module";
 import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerPreferencesService } from "../profiles/worker-preferences.service";
@@ -174,7 +182,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
  * OWN read repository; the WRITER (`AiCostTotalsRepository`) stays unexported from `AiModule`.
  *
  * #997 adds the WORKER-FEEDBACK read (`AdminFeedbackController`/`AdminFeedbackService`/
- * `AdminFeedbackRepository`): `GET /admin/feedback`, `read_entities`-gated, SELECT-ONLY and
+ * `AdminFeedbackRepository`): `GET /admin/feedback`, `read_identity`-gated (#2926), SELECT-ONLY and
  * keyset-paginated like BP-1. It is the ONE read on this surface that is not faceless — it
  * projects `message`, the worker's own free text, which #997 rules is fine to store and show
  * because the worker chose to say it to us. The boundary is unchanged everywhere else: no name,
@@ -229,6 +237,18 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // #2750 item 1 - the credit rules settings routes read and write through CreditRulesService.
     // CreditRulesModule does not import AdminModule, so no cycle.
     CreditRulesModule,
+    // #2750 items 5 and 12 - the placement team's waivers (`/admin/waivers`). RvmWaiversModule
+    // does not import AdminModule, so no cycle.
+    RvmWaiversModule,
+    // #2750 items 7 and 12 - the worker desk (`/admin/desk/reach-cases`). ReachDeskModule does not
+    // import AdminModule, so no cycle.
+    ReachDeskModule,
+    // #2750 items 10 and 12 - refunds of real paid packs (`/admin/payment-orders/:id/refund`,
+    // `/admin/payment-refunds/*`). PaymentRefundsModule does not import AdminModule.
+    PaymentRefundsModule,
+    // #2887 - the moved students' visibility switch (`/admin/students/*`). StudentMoveModule does
+    // not import AdminModule, so no cycle.
+    StudentMoveModule,
     // The Engine view's demo-worker gate resolves demo phones to worker ids through the workers
     // domain (`WorkersRepository.findLiveIdsByPhoneHashes`), so nothing under admin/** names a
     // phone column. WorkersModule does not import AdminModule.
@@ -279,6 +299,10 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // #2564 (B10) — the company record (create / edit / archive / restore / list / detail).
     AdminCompaniesController,
     AdminCreditRulesController,
+    AdminWaiversController,
+    AdminReachDeskController,
+    AdminPaymentRefundsController,
+    AdminStudentsController,
     // #2561 — admin corrections of candidate fields (ADR-0062).
     AdminCorrectionsController,
   ],

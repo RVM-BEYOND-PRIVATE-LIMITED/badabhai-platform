@@ -19,18 +19,19 @@ import { AdminFeedbackQuerySchema, type AdminFeedbackQueryDto } from "./admin-fe
  *
  * RBAC: {@link AdminAuthGuard} + {@link AdminRolesGuard} at the CLASS level, the capability at
  * the METHOD level (deny-by-default — a route that forgets the decorator is denied, not
- * opened). `read_entities`, the ADR-0025 read floor all four roles hold: the issue rules that
- * showing feedback to admins is fine, and a new capability would be a product decision about
- * who may read it, which nobody has made (CLAUDE.md §16). Tightening it later is one line
- * here plus one on the portal nav item.
+ * opened). `read_identity` (super_admin, ops_admin, support) — OWNER RULING #2926 (option 1,
+ * 2026-11-18). It was `read_entities`, which every role holds, and that let an `analyst` read
+ * what workers typed: free text that can carry the worker's own name or phone number, plus
+ * the photos they attached. An analyst sees neither anywhere else in the portal, so the read
+ * moved to the capability that already gates names. Feedback triage is support's job.
  *
  * PII: `worker_id` is an opaque id. No name, no phone, no join that could grow one, and no
  * search over the message body. See the header of `admin-feedback.dto.ts` for the contract.
  *
  * AND THE COMPENSATING CONTROL (ADR-0025 Amendment 1): the read emits `admin.feedback_viewed`,
  * awaited and fail-closed, carrying the admin, the filters and the result count — never any
- * message text. `read_entities` is a broad capability, and this is the one read on the surface
- * that returns a worker's own prose; the trail is what makes that acceptable. The ADMIN comes
+ * message text. This is the one read on the surface that returns a worker's own prose; the
+ * narrower capability and the trail together are what make that acceptable. The ADMIN comes
  * from the session the guard resolved, never from the request.
  */
 @Controller("admin")
@@ -39,7 +40,7 @@ export class AdminFeedbackController {
   constructor(private readonly service: AdminFeedbackService) {}
 
   @Get("feedback")
-  @RequireAdminRole("read_entities")
+  @RequireAdminRole("read_identity")
   list(
     @CurrentAdmin() admin: AuthenticatedAdmin,
     @Query(new ZodValidationPipe(AdminFeedbackQuerySchema)) query: AdminFeedbackQueryDto,

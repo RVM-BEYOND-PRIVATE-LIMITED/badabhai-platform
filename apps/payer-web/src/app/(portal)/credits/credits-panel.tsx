@@ -36,18 +36,19 @@ import { loadCheckoutScript, openCheckout } from "./razorpay-checkout";
  * the flow (and the busy label: "Opening…" for checkout, "Adding…" for the top-up).
  *
  * SHOWN == CHARGED (#2085). A pack's `priceInr` is the price it is charged (the catalog's
- * `prices[]`); its tile strikes the list price through when an offer lowers it. The purchase
- * sends back the exact number the payer saw — the confirm's price (mock) or the tile's (real,
- * which has no confirm of its own) — as `expected_price_inr`. A changed price is refused by the
- * API with nothing bought: the panel says so in the neutral notice, refreshes the page so the new
- * price shows, and retires the purchase key (the next confirm is a new purchase). It never
- * retries on its own.
+ * `prices[]`), and it is the ONE price its tile shows (#2744: catalogue values only — no struck
+ * list price, no per-unlock rate, no "best value"). The purchase sends back the exact number the
+ * payer saw — the confirm's price (mock) or the tile's (real, which has no confirm of its own) —
+ * as `expected_price_inr`. A changed price is refused by the API with nothing bought: the panel
+ * says so in the neutral notice, refreshes the page so the new price shows, and retires the
+ * purchase key (the next confirm is a new purchase). It never retries on its own.
  *
  * ONE SUCCESS PATTERN (#2583): a completed purchase is announced as a toast from the portal's
  * ToastProvider — once, dismissing itself — with the new balance counting up from the old one.
  * The neutral notice and the error stay in this panel's own region: they are about this panel and
- * must not vanish on a timer. Only the BEST-VALUE pack's Buy is the primary action; the others are
- * secondary, so the screen has one primary.
+ * must not vanish on a timer. Only the FIRST pack's Buy, in the catalogue's order, is the primary
+ * action; the others are secondary, so the screen has one primary. It marks a position, never a
+ * value: no pack is singled out as the better buy (#2744).
  */
 export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; real?: boolean }) {
   const router = useRouter();
@@ -90,13 +91,6 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
     }
     return purchaseKeyRef.current.key;
   }
-
-  // The best ₹/credit pack — config-derived (the larger packs carry the real discount), never a
-  // hardcoded "1000". Used only to flag the tile; the price itself always comes from the catalog.
-  const bestValueCode =
-    packs.length > 0
-      ? packs.reduce((a, b) => (a.priceInr / a.credits <= b.priceInr / b.credits ? a : b)).code
-      : null;
 
   function resetBanners(): void {
     setError(null);
@@ -271,49 +265,20 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
       ) : (
         <div className="cred-pack-grid">
           {packs.map((p, i) => {
-            const best = p.code === bestValueCode;
-            const tierLabel =
-              packs.length >= 3
-                ? i === 0
-                  ? "Starter"
-                  : i === packs.length - 1
-                    ? "Volume Discount"
-                    : "Standard"
-                : undefined;
-            const perUnlock = Math.round(p.priceInr / p.credits);
-            const saving =
-              p.listPriceInr !== undefined && p.listPriceInr > p.priceInr
-                ? Math.round(((p.listPriceInr - p.priceInr) / p.listPriceInr) * 100)
-                : null;
+            // Catalogue values only (#2744): the pack's credits and the price it is charged.
             return (
-              <Card
-                key={p.code}
-                className={best ? "cred-pack cred-pack--best" : "cred-pack"}
-              >
-                {best ? (
-                  <span className="cred-pack__ribbon">
-                    <Icon name="medal" /> BEST VALUE{saving !== null ? ` · SAVE ${saving}%` : ""}
-                  </span>
-                ) : null}
+              <Card key={p.code} className="cred-pack">
                 <div className="cred-pack__head">
                   <span className="cred-pack__name">Pack {p.credits}</span>
-                  {tierLabel ? <span className="cred-pack__tier">{tierLabel}</span> : null}
                 </div>
                 <div className="cred-pack__price">
-                  {p.listPriceInr !== undefined && p.listPriceInr > p.priceInr ? (
-                    <s className="price-was">{formatInr(p.listPriceInr)}</s>
-                  ) : null}
                   <strong className="bb-mono">{formatInr(p.priceInr)}</strong>
-                  <span className="cred-pack__gst">+ GST</span>
                 </div>
                 <p className="cred-pack__line">
                   <Icon name="check" /> <span className="bb-mono">{p.credits}</span> unlock credits
                 </p>
-                <p className="cred-pack__rate">
-                  <span className="bb-mono">{formatInr(perUnlock)}</span> per contact unlock
-                </p>
                 <Button
-                  variant={best ? "primary" : "secondary"}
+                  variant={i === 0 ? "primary" : "secondary"}
                   block
                   disabled={pendingCode !== null}
                   loading={pendingCode === p.code}

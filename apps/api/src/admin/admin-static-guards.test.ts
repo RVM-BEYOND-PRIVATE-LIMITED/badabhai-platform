@@ -902,6 +902,9 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
         "admin/admin-payer-logins.service.ts",
         // #2564 — the Companies list (names) and detail (names + contact PII).
         "admin/companies/admin-companies.service.ts",
+        // #2755 item 8 — the out-of-credits call list (company names, on the `payers` surface).
+        // Added below in the same edit, as this test demands.
+        "admin/numbers/admin-numbers-calls.service.ts",
         // #2755 item 9 — launch test A's factory list (the factory names). Added below in the same
         // edit, as this test demands.
         "admin/launch-tests/admin-launch-tests.service.ts",
@@ -928,6 +931,8 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
       "getCompany",
       "listCompanies",
     ]);
+    // #2755 item 8 — the out-of-credits call list.
+    expect(nameBearingHandlers("numbers/admin-numbers-calls.service.ts")).toEqual(["outOfCredits"]);
     // #2755 item 9 — launch test A's factory list.
     expect(nameBearingHandlers("launch-tests/admin-launch-tests.service.ts")).toEqual([
       "listCohort",
@@ -973,6 +978,13 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
       );
     }
     expect(cacheControlOf(AdminCompaniesController, "createCompany")).toBe("no-store");
+    // #2755 item 8 — the out-of-credits call list (names through the identity layer). Its handler
+    // has the service method's name.
+    for (const method of nameBearingHandlers("numbers/admin-numbers-calls.service.ts")) {
+      expect(cacheControlOf(AdminNumbersController, method), `${method} must be no-store`).toBe(
+        "no-store",
+      );
+    }
     // #2755 item 9 — launch test A's factory list (names through the identity layer).
     for (const method of nameBearingHandlers("launch-tests/admin-launch-tests.service.ts")) {
       expect(cacheControlOf(AdminLaunchTestsController, method), `${method} must be no-store`).toBe(
@@ -1197,7 +1209,7 @@ describe("#2563 payer-login routes - guarded + exactly one `manage_payer_credent
   });
 });
 
-describe("#997 feedback route - guarded, read-only, and read_entities-scoped", () => {
+describe("#997 feedback route - guarded, read-only, and read_identity-scoped (#2926)", () => {
   const proto = AdminFeedbackController.prototype as unknown as Record<string, unknown>;
   const routeMethods = Object.getOwnPropertyNames(AdminFeedbackController.prototype).filter(
     (m) =>
@@ -1219,7 +1231,7 @@ describe("#997 feedback route - guarded, read-only, and read_entities-scoped", (
     expect(guards).toContain(AdminRolesGuard.name);
   });
 
-  it("the capability is declared at the METHOD level and is exactly read_entities", () => {
+  it("the capability is declared at the METHOD level and is exactly read_identity", () => {
     // Method-level, because a class-level declaration is inherited by every route added
     // later — including one that should have been gated harder.
     const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.list as object) as
@@ -1228,7 +1240,7 @@ describe("#997 feedback route - guarded, read-only, and read_entities-scoped", (
     const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminFeedbackController) as
       | AdminCapability
       | undefined;
-    expect(onMethod).toBe("read_entities");
+    expect(onMethod).toBe("read_identity");
     expect(onClass, "AdminFeedbackController must NOT declare a class-level capability").toBeUndefined();
   });
 
@@ -2289,9 +2301,16 @@ describe("#2755 numbers routes - guarded, switch before roles, one capability, o
   const numbersCode = (file: string): string =>
     readFileSync(join(ADMIN_DIR, "numbers", file), "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
 
-  it("discovers EXACTLY the definitions read, the two test-company marks and the weekly read", () => {
+  it("discovers EXACTLY the definitions read, the two test-company marks, the weekly read, the call list and the call log", () => {
     expect(routeMethods.sort()).toEqual(
-      ["definitions", "markTestAccount", "unmarkTestAccount", "weekly"].sort(),
+      [
+        "definitions",
+        "markTestAccount",
+        "unmarkTestAccount",
+        "weekly",
+        "outOfCredits",
+        "logCreditCall",
+      ].sort(),
     );
   });
 
@@ -2300,11 +2319,15 @@ describe("#2755 numbers routes - guarded, switch before roles, one capability, o
     const svc = numbersCode("admin-numbers-weekly.service.ts");
     expect(svc).not.toMatch(/\.(insert|update|delete)\s*\(/);
     expect(svc).not.toMatch(/\.execute\s*\(/);
-    // Its two repository calls, both over numbers_weekly.
+    // Its three repository calls, all over numbers_weekly (part C added the newest closed cohort).
     const calls = [...svc.matchAll(/this\.repo\.(\w+)\(/g)].map((m) => m[1]).sort();
-    expect(calls).toEqual(["firstPaidWeek", "readCells"]);
+    expect(calls).toEqual(["firstPaidWeek", "readCells", "readLatestCompleteCohorts"]);
     const repo = numbersCode("numbers-weekly.repository.ts");
-    for (const method of ["async readCells(", "async firstPaidWeek("]) {
+    for (const method of [
+      "async readCells(",
+      "async firstPaidWeek(",
+      "async readLatestCompleteCohorts(",
+    ]) {
       const start = repo.indexOf(method);
       expect(start, method).toBeGreaterThan(-1);
       const body = repo.slice(start, repo.indexOf("\n  }\n", start));
@@ -2350,10 +2373,35 @@ describe("#2755 numbers routes - guarded, switch before roles, one capability, o
     }
   });
 
-  it("the definitions read is a GET; the only writes are the PUT and DELETE marks", () => {
+  it("the definitions read is a GET; the only writes are the PUT and DELETE marks and the POST call", () => {
     expect(Reflect.getMetadata("method", proto.definitions as object) as number).toBe(0);
     expect(Reflect.getMetadata("method", proto.markTestAccount as object) as number).toBe(2);
     expect(Reflect.getMetadata("method", proto.unmarkTestAccount as object) as number).toBe(3);
+    expect(Reflect.getMetadata("method", proto.outOfCredits as object) as number).toBe(0);
+    expect(Reflect.getMetadata("method", proto.logCreditCall as object) as number).toBe(1);
+  });
+
+  it("the call list's repository writes ONE table, insert only: credit_call_log", () => {
+    const repo = numbersCode("numbers-calls.repository.ts");
+    const writes = [...repo.matchAll(/\.(insert|update|delete)\s*\(\s*(\w+)\s*\)/g)].map(
+      (m) => `${m[1]}:${m[2]}`,
+    );
+    expect(writes).toEqual(["insert:creditCallLog"]);
+    expect(repo).not.toMatch(/\.(update|delete)\s*\(/);
+    // It projects no contact column and decrypts nothing: names come from AdminIdentityService.
+    for (const forbidden of ["phoneEnc", "phone_enc", "emailEnc", "orgNameEnc", "org_name_enc"]) {
+      expect(repo, forbidden).not.toContain(forbidden);
+    }
+    expect(repo).not.toMatch(/decrypt/i);
+  });
+
+  it("the call list's service reads names ONLY through AdminIdentityService, on the payers surface", () => {
+    const svc = numbersCode("admin-numbers-calls.service.ts");
+    const resolves = [...svc.matchAll(/this\.identity\.resolve\(\s*admin,\s*"(\w+)"/g)].map(
+      (m) => m[1],
+    );
+    expect(resolves).toEqual(["payers"]);
+    expect(svc).not.toMatch(/decrypt/i);
   });
 
   it("the repository writes ONE column of ONE table: payers.is_test_account (and its updated_at)", () => {

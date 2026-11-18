@@ -165,7 +165,28 @@ export function getPayer(id: string, opts: { faceless?: boolean } = {}) {
 export const creditLedgerItemSchema = z.object({
   id: z.string(),
   delta: z.number(),
-  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant", "expired"]),
+  // #2750 — welcome, goodwill, returned and waived lines (the credit rules).
+  reason: z.enum([
+    "pack_purchase",
+    "unlock_debit",
+    "refund",
+    "grant",
+    "expired",
+    "welcome",
+    "goodwill",
+    // #2750 item 11 — a super admin's correction under the credit rules.
+    "correction",
+    "returned",
+    "waived",
+    // #2754 item 9 — a moved company's unused Campus balance.
+    "campus_conversion",
+    // #2754 item 14 — a batch rollback took that balance back unspent.
+    "campus_conversion_reversed",
+    // #2750 item 9 — credits returned with the next real paid pack.
+    "pack_return",
+    // #2750 item 10 — an admin refund took the pack's credits back.
+    "pack_refund",
+  ]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),
   price_inr: z.number().nullable(),
@@ -373,7 +394,28 @@ function financePageOf<T extends z.ZodTypeAny>(item: T) {
 }
 
 export const reasonBucketSchema = z.object({
-  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant", "expired"]),
+  // #2750 — welcome, goodwill, returned and waived lines (the credit rules).
+  reason: z.enum([
+    "pack_purchase",
+    "unlock_debit",
+    "refund",
+    "grant",
+    "expired",
+    "welcome",
+    "goodwill",
+    // #2750 item 11 — a super admin's correction under the credit rules.
+    "correction",
+    "returned",
+    "waived",
+    // #2754 item 9 — a moved company's unused Campus balance.
+    "campus_conversion",
+    // #2754 item 14 — a batch rollback took that balance back unspent.
+    "campus_conversion_reversed",
+    // #2750 item 9 — credits returned with the next real paid pack.
+    "pack_return",
+    // #2750 item 10 — an admin refund took the pack's credits back.
+    "pack_refund",
+  ]),
   movements: z.number(),
   credits_delta: z.number(),
   amount_inr: z.number(),
@@ -412,7 +454,28 @@ export const ledgerRowSchema = z.object({
   payer_id: z.string(),
   payer_role: payerRoleRefSchema,
   delta: z.number(),
-  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant", "expired"]),
+  // #2750 — welcome, goodwill, returned and waived lines (the credit rules).
+  reason: z.enum([
+    "pack_purchase",
+    "unlock_debit",
+    "refund",
+    "grant",
+    "expired",
+    "welcome",
+    "goodwill",
+    // #2750 item 11 — a super admin's correction under the credit rules.
+    "correction",
+    "returned",
+    "waived",
+    // #2754 item 9 — a moved company's unused Campus balance.
+    "campus_conversion",
+    // #2754 item 14 — a batch rollback took that balance back unspent.
+    "campus_conversion_reversed",
+    // #2750 item 9 — credits returned with the next real paid pack.
+    "pack_return",
+    // #2750 item 10 — an admin refund took the pack's credits back.
+    "pack_refund",
+  ]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),
   price_inr: z.number().nullable(),

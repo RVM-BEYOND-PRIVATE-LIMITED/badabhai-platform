@@ -5,7 +5,9 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
+  Optional,
 } from "@nestjs/common";
+import { WelcomeCreditsService } from "../../credit-rules/welcome-credits.service";
 import type { CompanyChangedField, PayloadInputOf } from "@badabhai/event-schema";
 import type { Database, PayerRole } from "@badabhai/db";
 import type { RequestContext } from "../../common/request-context";
@@ -74,6 +76,9 @@ export class AdminCompaniesService {
     private readonly sessions: PayerSessionService,
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
+    // #2750 item 4 — an approval or a GSTIN can make the company eligible for welcome credits.
+    // Optional only so hand-built unit instances keep compiling; Nest always injects it.
+    @Optional() private readonly welcome?: WelcomeCreditsService,
   ) {}
 
   // ----- reads -----------------------------------------------------------------
@@ -277,6 +282,10 @@ export class AdminCompaniesService {
         await this.repo.restampDriveRequests(tx, id);
       }
     });
+    // #2750 item 4 — AFTER the edit committed; never fails it (the service logs and returns).
+    if ("verification_status" in profileChanges || "gst_number" in profileChanges) {
+      await this.welcome?.afterCompanyUpdated(id, ctx);
+    }
     return { company_id: id, changed: true };
   }
 

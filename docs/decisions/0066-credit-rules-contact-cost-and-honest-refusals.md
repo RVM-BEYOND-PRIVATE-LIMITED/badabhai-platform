@@ -1,6 +1,6 @@
 # ADR-0066: Credit rules: settings, what a contact costs, and the honest "not enough credits" answer
 
-- **Status:** Proposed. Awaiting owner sign-off (Akshit for the brief's rulings; Prakash as the other backend developer). `CREDIT_RULES_ROLLOUT` is not armed in production before this is signed.
+- **Status:** Accepted. Signed by the owner on 2026-11-18 (§2.1–§2.11, including the refund rules and the honest refusals that amend ADR-0010 Decision 4). `CREDIT_RULES_ROLLOUT` may be armed (§5).
 - **Date:** 2026-11-17
 - **Owner:** Divyanshu (Backend Platform).
 - **Issue:** #2750 (BB-D-05; brief 4C.5 to 4C.12, section 7). Built in parts, all behind one switch (§3.5).
@@ -71,6 +71,74 @@ For a company under the credit rules, an open it cannot afford answers:
 - **Pilot list unreadable** (`unavailable`): the open refuses with the neutral body and writes nothing. Charging one credit or the rules' price on a guess are both wrong.
 - **During the pilot both rule sets run side by side.** The weekly limit (part D) counts opens by companies outside the pilot too.
 
+### 2.6 The placement team's waiver (part C)
+
+RVM's placement team can make RVM applicants free to open: for **one company** (every RVM student who applied to any of its jobs) or **one job** (the RVM students who applied to it). Everyone else still pays; a student found only by search is not covered.
+
+- Set or cleared from Campus (`PUT internal/campus/v1/waivers`) or by a super admin (`PUT /admin/waivers`, capability `manage_waivers`). One active waiver per company and per job; clearing keeps the row, with who and why. Staff names are stored encrypted (owner ruling 2026-11-17).
+- The cost rule prices a waived RVM applicant at 0 (`basis: waived`). The quote says `waived: true`.
+- A waived open debits nothing and needs no balance. In the open's transaction it writes one zero-credit `waived` ledger line naming the unlock (no lot) and a use row naming the waiver. It emits no payment events.
+- The waiver is re-read under a share lock inside the open's transaction: one cleared since the price was read refuses the open (neutral, nothing written), and a clear racing the open waits for it.
+
+### 2.7 The opening limits, and the third honest answer (part D; amends ADR-0010 Decision 4 again)
+
+For a company under the credit rules the brief's two limits **replace** the env caps (`UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK`, `UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY`), which every other company keeps:
+
+- **A worker's week** (`workerWeeklyOpenLimit`, 5): a worker opened 5 times in the rolling 7 days, by any company (pilot or not, every new open counts, a free one included), is not opened again this week, **except by a company he applied to** (B7-12). A re-open of a contact the company holds is not a new open. Checked under the worker lock, after the consent, deletion and search-exit gates.
+  - The company is told `200 { status: "worker_unavailable_this_week" }` (#2750 question 2's default). It says he is in demand, which the neutral body hid. It is answered only for a worker every earlier gate let through, so it says no more about consent than an applicant card already does. Nothing is debited; the deny row reads `capped` and `unlock.limit_reached` records it.
+- **An agency's day** (`agencyDailyOpenLimit`, 40): an `agent` account opens at most 40 new contacts per IST calendar day; an employer account is never stopped by it (B4C-18).
+  - The company is told `200 { status: "daily_limit_reached", daily_limit }`. This depends only on the company's own count and is decided **before** anything about the worker is read, then re-checked under a per-company lock inside the transaction (lock order: worker, company, wallet), so two opens at once cannot both pass the line.
+
+### 2.8 The working-number guarantee and the worker desk (part E)
+
+- **The report.** A company under the credit rules reports "couldn't reach" on a contact it opened, up to day `couldntReachWindowDays` (7) after the open, counted in IST calendar days (B7-13: day 7 accepted, day 8 refused). One case per open (`contact_reach_cases`), due `deskWindowHours` (48) later. A second report answers the first case.
+- **The desk** (capability `work_reach_desk`: super_admin, ops_admin and support, owner ruling 2026-11-17) calls the worker through the existing reason-gated reveal (`reveal_pii`, the case id as the reason), logs each attempt as a closed result code, and closes the case: reached and interested, reached and declined (no credit back), or not reached.
+- **Not reached** gives back every credit the open took: one new `returned` lot and ledger line per spent lot, naming the open, keeping the spent lot's expiry while it is ahead, else `returnedLotValidityDays` (30) from the close. A free (waived) open returns nothing. The company's follow-up answer for the open becomes `not_reached` (#2753).
+- **The deadline.** A case still open at its deadline closes as not reached, attempted or not (owner ruling 2026-11-17), by a sweep every 15 minutes. The company never waits on the desk.
+
+### 2.9 Goodwill credits and the grant reasons (item 11)
+
+For a company under the credit rules, an admin credit grant (`POST /admin/payers/:id/credits`) is one of two kinds (owner ruling 2026-11-17):
+
+- **Goodwill.** At most `goodwillMaxPerQuarter` (5) credits per company per calendar quarter in IST, in a lot valid `goodwillValidityDays` (30). A grant that would pass the cap is refused whole (409 `GOODWILL_CAP_EXCEEDED`). Grants are serialised per company, so two at once cannot both pass it.
+- **Correction.** A super admin only, naming the ledger row it corrects. No cap.
+
+`promo` and `support_resolution` are retired for these companies: the brief allows no launch offers, and either would walk around the cap. Every other company keeps all four reasons and today's `grant` line until the rules go on for everyone.
+
+Every grant now carries a written reason and is audited: the ledger line names the reason (`goodwill` / `correction` under the rules), and an `audit_logs` row in the same transaction names the staff member, the reason code, their words and the corrected row. The staff member is not a ledger column (adding one to `credit_ledger` would make every ledger write depend on the migration); the audit row is tied to the ledger line by id.
+
+### 2.10 Returned credits on the next paid pack (item 9)
+
+When a company under the credit rules pays for a pack through a real Razorpay order, credits that expired unused on its earlier real paid packs come back with it (brief 4C.10, B4C-24, B7-09, B7-10). Owner rulings, 2026-11-18:
+
+- **Only the next pack.** An old pack is settled by the first real pack bought after it expired. Up to `returnedCreditsMax` (20) come back in all; anything left over is gone, and a later pack brings back nothing more for it.
+- **Real paid orders only, on both sides.** The expired lot is a `pack` lot naming a payment order, and only a real order's settle returns anything. Mock packs, welcome, goodwill, Campus-moved and desk-returned credits never count.
+- **The window** is `returnedCreditsWindowMonths` (6) from the old pack's expiry date (`expires_at`).
+- **Validity:** the returned credits sit in a `returned` lot that expires with the new pack (copied to the microsecond).
+- **The ledger** gets one `pack_return` line per old pack, keyed `pack_return:<old lot id>`, so no old pack is ever returned twice. Payment history counts it as a grant.
+
+It runs in the settle's own transaction, after the new pack's lot, under the wallet lock. One `payer.pack_credits_returned` event (one per order, only when something came back) commits with it.
+
+**What counts as expired** is the lot's one `expired` line, written by the expiry sweep or a spend. The settle does not expire lots itself, because `payer.credits_expired` v1 has a frozen trigger list. So "the next pack" is judged from when the lot was actually expired (`expired_at`): a pack bought in the minutes between an old pack's date and the sweep does not use up its return.
+
+**Fails safe to no return.** By the time of the settle the money has been taken. If the pilot list or the settings cannot be read, the pack settles without a return and the error is logged; that purchase still counts as the next pack. A wallet whose tenant no longer resolves to the order's stamped wallet gets no return.
+
+### 2.11 Refunds (items 10 and 12)
+
+A super admin can refund a company's real paid pack **in full**, through Razorpay, under one of two rules (brief 4C.12, B4C-26, B4C-27). Owner rulings, 2026-11-18:
+
+- **Rule 1 (`unused`):** the pack is unused, within `refundUnusedWithinDays` (7) days of its purchase.
+- **Rule 2 (`low_match`):** the pack is unused, within `refundLowMatchWithinDays` (30) days, and its job drew fewer than `refundLowMatchMinWorkers` (3) **applicants**. The job is the one the order was bought from, or one of the company's jobs the admin names.
+- **Who:** `refund_payments`, super_admin only: money leaving the business.
+- **Which orders:** any real paid order, pilot company or not.
+- **Off until GST credit notes exist:** every refund route answers 503 until #2749's invoices bind a credit-note issuer.
+
+**Credits first, money second.** One transaction locks the order, checks the rule and takes back the pack's credits, plus any credits that came back with it (§2.10), with one `pack_refund` line per lot. The same transaction writes the `payment_refunds` row, the audit row (with the admin's words) and `payment.refund_requested`. Only then is Razorpay asked, so a company can never spend credits whose money is on its way back.
+
+A provider failure leaves the credits removed and the refund `failed`; an admin retries it. A retry first looks the refund up at Razorpay by our row id, so a lost answer is never paid twice. Razorpay's refund webhooks move the row to `processed` or `failed`.
+
+One refund per order, ever (unique index, and the order row lock serialises two admins).
+
 ## 3. Consequences
 
 - The number on the button equals the credits debited, unless the worker's card changes between the quote and the tap. In that case the open charges the price at the tap; the price is always from the card he shows then.
@@ -78,17 +146,29 @@ For a company under the credit rules, an open it cannot afford answers:
 - The ledger can now hold two `unlock_debit` lines for one unlock (one per lot). `Σ delta` per wallet and per lot still equals the balance and the lots.
 - The app and the web must show the quote on the open button and handle `insufficient_credits` by offering the Starter pack. Until they do, a pilot company on an old client sees an unknown body for a refusal it could not afford; keep pilot companies on updated clients.
 
-## 4. Security review (parts A1 and A2)
+- A `waived` line has `delta = 0` and no lot, so `Σ delta` per wallet and per lot is unchanged by it. Payment history leaves it out.
+
+- A pilot company's apps must handle two more answers: `worker_unavailable_this_week` and `daily_limit_reached`. An old client sees an unknown body; keep pilot companies on updated clients.
+
+- A `returned` ledger line has `unlock_id` set and adds a `returned` lot; `Σ delta` per wallet still equals the balance (DB test). A couldn't-reach return and a returned-with-a-pack credit (part F) are told apart by `unlock_id` (private notes item 12).
+
+## 4. Security review (parts A1, A2, C, D and E)
 
 - **Oracle:** the price and the honest refusal depend only on card facts and the company's own balance; both are decided before any worker-state read. Pinned by unit tests: no consent or institute read on the refusal path, and an identical answer for a consented worker and an unknown id.
 - **Tenancy:** the price facts read this company's grant by tenant key. The wallet helper is tenant-keyed and on the static tenancy scan's helper list.
 - **Money:** an n-credit spend is all-or-nothing under the wallet row lock. Concurrent spends cannot overdraw (DB test). A past-due-only wallet is refused byte-for-byte unchanged (DB test).
+- **Waivers:** whether a waiver frees a worker reads only his applications to this company's jobs (already on the company's applicant list) and the company's own waivers: no consent, limit or deletion state, so the 0 on the button is no oracle. Setting one is super_admin only on BadaBhai's side, or the Campus credential; an unknown or barred company and another company's job are the same neutral 404. Staff names are encrypted at rest and appear in no event.
+- **Limits:** the weekly answer is the one deliberate new signal (he is in demand), given only after the consent, deletion and search-exit gates passed, so it is never an answer about a worker the company could not open anyway. The agency answer reads only the company's own count, before any worker read. Both counts are taken under locks, so they cannot be raced past.
+- **The desk:** a report needs the company's own open (the tenant key) within the window; the desk's routes never return a number (the reveal stays `reveal_pii`, reason-gated and audited). A close returns credits only through the wallet helper, once per spent lot (idempotency key), in one transaction with the close, the audit row and the event; a closed case refuses a second close (409). Attempts and closes carry no free text but the admin's reason, which refuses hard identifiers.
+- **Grants:** under the rules, goodwill is capped per quarter under a per-company lock (DB-tested with concurrent grants) and a correction is super-admin only and names its ledger row; every grant is audited with the staff member. The ops pack route `POST /payers/:payerId/credits` sells a catalogue pack through the mock checkout; it grants no free credits, but it stays a second way to add credits on the ops token and should be reviewed with the real-payments switch.
+- **Returned credits:** no route and no client input: the settle computes them from the company's own wallet (the order's stamped wallet, never a re-resolved one) under the wallet lock, once per old pack (idempotency key and the unique ledger key behind it), and a replayed or racing settle claims nothing and returns nothing (DB test). They count only real paid packs, so the mock checkout cannot farm them.
+- **Refunds:** super_admin only and off until credit notes exist; no company route. The amount is the order's stamped total, never a body field. The rule is re-checked under the order's row lock; the credits are removed in that transaction before any provider call. Our row id rides the provider refund's notes, so a retry adopts a refund already made instead of paying twice. The webhook acts only on refunds this code created (by provider id or our row id) and never on a dashboard refund.
 - **Settings:** super_admin only; the reason text refuses hard identifiers; one audited transaction; 409 on a stale or racing edit.
 
 ## 5. Arming and rollback
 
 - **Arm:**
-  1. Apply the `credit_rules_config` migration.
+  1. Apply the `credit_rules_config` migration, then the `rvm_applicant_waivers` and `contact_reach_cases` ones.
   2. Optionally publish rules different from the defaults.
   3. Set `CREDIT_RULES_ROLLOUT=pilot` and list pilot companies in `feature_pilot_payers` (feature `credit_rules`).
 - **Roll back:** set the switch to `off`. Every company is back to one credit per open on the next request. Stored revisions stay.

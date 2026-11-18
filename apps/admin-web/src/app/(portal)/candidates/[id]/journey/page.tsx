@@ -72,12 +72,12 @@ export default async function WorkerJourneyPage({
   const session = await requireCapability("read_entities");
 
   /**
-   * `GET /admin/feedback` declares the same `read_entities` this page is already behind, so
-   * this is true whenever the page renders. Derived from the session rather than hardcoded,
-   * for the reason the worker detail header records: the day either capability narrows, the
-   * control disappears with it instead of becoming a link to a redirect.
+   * `GET /admin/feedback` declares `read_identity` (owner ruling #2926), narrower than the
+   * `read_entities` this page is behind, so an analyst sees the journey without the feedback
+   * link. Derived from the session rather than hardcoded: the control disappears with the
+   * capability instead of becoming a link to a redirect.
    */
-  const mayReadFeedback = can(session.capabilities, "read_entities");
+  const mayReadFeedback = can(session.capabilities, "read_identity");
   /** The worker's event timeline is `read_events`; its link is offered only with it. */
   const mayReadEvents = can(session.capabilities, "read_events");
 

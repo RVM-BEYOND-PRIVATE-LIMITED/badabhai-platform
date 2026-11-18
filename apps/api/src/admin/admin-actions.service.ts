@@ -1,12 +1,17 @@
 import {
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
-import type { Database, PayerStatus } from "@badabhai/db";
+import type { AdminRole, Database, PayerStatus } from "@badabhai/db";
+import { CreditRulesService } from "../credit-rules/credit-rules.service";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { PayerSessionService } from "../payers/payer-session.service";
@@ -105,6 +110,11 @@ export class AdminActionsService {
     private readonly workerSessions: SessionService,
     // #2562 — the worker's device-unlock PIN credential. An admin reset deletes it.
     private readonly pins: PinRepository,
+    // #2750 item 11 — the credit rules (the goodwill cap and validity) and the company's tenant
+    // key for the per-company switch. Optional only so the hand-built unit instances keep
+    // compiling; absent, no company is under the credit rules. Nest always injects both.
+    @Optional() private readonly creditRules?: CreditRulesService,
+    @Optional() private readonly tenancy?: PayerTenantScopeService,
   ) {}
 
   // ----- payers: suspend / reinstate ----------------------------------------
@@ -342,6 +352,7 @@ export class AdminActionsService {
     payerId: string,
     dto: AdminGrantCreditsDto,
     ctx: RequestContext,
+    adminRole?: AdminRole,
   ): Promise<AdminActionResult & { ledger_id: string; balance: number }> {
     const payer = await this.actions.findPayerStatus(payerId);
     if (!payer) throw new NotFoundException("Payer not found");
@@ -356,9 +367,60 @@ export class AdminActionsService {
     if (isBarredPayerStatus(payer.status)) {
       throw new ConflictException(`Payer is ${payer.status}; credits cannot be granted`);
     }
+    // #2750 item 11 — a company under the credit rules may be granted only `goodwill` (capped per
+    // quarter) or `correction` (super admin, naming the ledger row it corrects), each with a
+    // written reason. Every other company keeps all four reasons and today's `grant` line.
+    const rules = await this.grantRulesFor(payerId, dto, adminRole);
     const result = await this.actions
       .withTransaction(async (tx) => {
-        const grant = await this.actions.grantCredits(payerId, dto.amount, dto.idempotency_key, tx);
+        if (rules?.kind === "goodwill") {
+          // Serialised per company, and a replay of an applied grant is never refused by the cap
+          // its own first attempt used up: the wallet helper answers it as the replay it is.
+          await this.actions.lockGoodwill(tx, payerId);
+          if (!(await this.actions.ledgerKeyExists(tx, dto.idempotency_key))) {
+            const used = await this.actions.goodwillGrantedSince(
+              tx,
+              payerId,
+              istQuarterStart(new Date()),
+            );
+            if (used + dto.amount > rules.cap) {
+              throw new ConflictException({
+                code: "GOODWILL_CAP_EXCEEDED",
+                message: `goodwill this quarter: ${used} of ${rules.cap} credits already granted`,
+                used,
+                cap: rules.cap,
+              });
+            }
+          }
+        }
+        const grant = await this.actions.grantCredits(
+          payerId,
+          dto.amount,
+          dto.idempotency_key,
+          tx,
+          rules === null
+            ? {}
+            : {
+                reason: rules.kind,
+                validityDays: rules.kind === "goodwill" ? rules.validityDays : null,
+              },
+        );
+        // #2750 item 11 — who granted it and why, on the grant's own transaction (every grant; the
+        // reason code used to be checked and then dropped).
+        if (grant.applied) {
+          await this.actions.insertGrantAudit(tx, {
+            adminId,
+            payerId,
+            metadata: {
+              ledger_id: grant.ledgerId,
+              amount: dto.amount,
+              reason_code: dto.reason_code,
+              reason_text: dto.reason_text ?? null,
+              corrects_ledger_id: dto.corrects_ledger_id ?? null,
+              credit_rules: rules !== null,
+            },
+          });
+        }
         // Emit ONLY when the grant actually applied (a new ledger row). A deduped replay
         // (`applied:false`) emits nothing — and the event is keyed on the SAME value, so even if it
         // were re-attempted the spine would dedup to ONE row. No divergence in any case.
@@ -390,6 +452,72 @@ export class AdminActionsService {
       ledger_id: result.ledgerId,
       balance: result.balance,
     };
+  }
+
+  /**
+   * #2750 item 11 — the credit rules' grant rules for this company, or null when it is not under
+   * the rules (today's grant). Refuses, before anything is written:
+   *  - a pilot list that cannot be read (503: which rules apply is unknown);
+   *  - `promo` / `support_resolution` (400 `GRANT_REASON_RETIRED`);
+   *  - a missing written reason (400 `REASON_TEXT_REQUIRED`);
+   *  - a `correction` by anyone but a super admin (403), or with no ledger row of this company named
+   *    (400 `CORRECTS_LEDGER_ID_REQUIRED` / 404);
+   *  - a corrected row named on a goodwill grant (400).
+   */
+  private async grantRulesFor(
+    payerId: string,
+    dto: AdminGrantCreditsDto,
+    adminRole: AdminRole | undefined,
+  ): Promise<
+    | { kind: "goodwill"; cap: number; validityDays: number }
+    | { kind: "correction" }
+    | null
+  > {
+    if (!this.creditRules || !this.tenancy) return null;
+    const scope = await this.tenancy.resolveReadOnly(payerId);
+    if (scope === null) return null;
+    const state = await this.creditRules.stateFor(scope.tenantKey);
+    if (state === "unavailable") {
+      throw new ServiceUnavailableException("credit rules pilot list could not be read");
+    }
+    if (state === "off") return null;
+
+    if (dto.reason_code !== "goodwill" && dto.reason_code !== "correction") {
+      throw new BadRequestException({
+        code: "GRANT_REASON_RETIRED",
+        message: "under the credit rules a grant is goodwill or a correction",
+      });
+    }
+    if (!dto.reason_text) {
+      throw new BadRequestException({
+        code: "REASON_TEXT_REQUIRED",
+        message: "a written reason is required",
+      });
+    }
+    if (dto.reason_code === "goodwill") {
+      if (dto.corrects_ledger_id !== undefined) {
+        throw new BadRequestException("corrects_ledger_id is only for a correction");
+      }
+      const rules = await this.creditRules.get();
+      return {
+        kind: "goodwill",
+        cap: rules.goodwillMaxPerQuarter,
+        validityDays: rules.goodwillValidityDays,
+      };
+    }
+    if (adminRole !== "super_admin") {
+      throw new ForbiddenException("a correction is granted by a super admin");
+    }
+    if (dto.corrects_ledger_id === undefined) {
+      throw new BadRequestException({
+        code: "CORRECTS_LEDGER_ID_REQUIRED",
+        message: "a correction names the ledger row it corrects",
+      });
+    }
+    if (!(await this.actions.ledgerRowOfPayer(payerId, dto.corrects_ledger_id))) {
+      throw new NotFoundException("the corrected ledger row is not this company's");
+    }
+    return { kind: "correction" };
   }
 
   // ----- job_postings: force-close ------------------------------------------
@@ -985,4 +1113,17 @@ export class AdminActionsService {
       tx,
     });
   }
+}
+
+/** India has no daylight saving: IST is UTC+05:30 all year. */
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+
+/**
+ * #2750 item 11 — the start of `now`'s calendar quarter in IST (1 Jan, 1 Apr, 1 Jul, 1 Oct at
+ * 00:00 IST), as an instant: the goodwill cap's window.
+ */
+export function istQuarterStart(now: Date): Date {
+  const ist = new Date(now.getTime() + IST_OFFSET_MS);
+  const quarterMonth = Math.floor(ist.getUTCMonth() / 3) * 3;
+  return new Date(Date.UTC(ist.getUTCFullYear(), quarterMonth, 1) - IST_OFFSET_MS);
 }

@@ -77,6 +77,17 @@ export const CREDIT_LOT_EXPIRY_QUEUE = "credit-lot-expiry";
 export const CREDIT_LOT_EXPIRY_SWEEP_SCHEDULER_ID = "credit-lot-expiry-sweep";
 
 /**
+ * #2750 item 7 — the couldn't-reach deadline sweep: a repeatable tick (every 15 minutes) that
+ * closes each case still open past its 48-hour deadline as not reached and returns its credits.
+ * Inert while the `credit_rules` switch is off everywhere. The rule lives in ReachDeskService; this
+ * queue only supplies the clock.
+ */
+export const REACH_DESK_DEADLINE_QUEUE = "reach-desk-deadline";
+
+/** Stable BullMQ job-scheduler id for the couldn't-reach deadline sweep. */
+export const REACH_DESK_DEADLINE_SCHEDULER_ID = "reach-desk-deadline-sweep";
+
+/**
  * LEARN label producer sweep (migration 0091) — drains spine events
  * (feed.shown_v2 / application.submitted / application.skipped) into `learn_labels`
  * for the offline reach-learn calibrator. The repeatable tick carries NO payload: the

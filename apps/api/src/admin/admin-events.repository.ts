@@ -749,4 +749,41 @@ export class AdminEventsRepository {
     }
     return out;
   }
+
+  /**
+   * #2755 part C — the LATEST time each listed PAYER was the subject of `eventName`: one grouped
+   * pass, ids and times only, never a payload. The out-of-credits call list reads
+   * `payer.credits_exhausted` this way (emitted on the debit that spent a wallet's last credit,
+   * subject = the wallet) for the moment a company ran out by spending. A payer with no such event
+   * is absent from the map.
+   *
+   * INDEX: `events_event_name_idx` and `events_subject_idx` (subject_type, subject_id) narrow it;
+   * the id list is bounded per statement by {@link ADMIN_EVENTS_ID_BATCH_MAX}.
+   */
+  async latestPayerSubjectEventAt(
+    eventName: string,
+    payerIds: readonly string[],
+  ): Promise<Map<string, Date>> {
+    const out = new Map<string, Date>();
+    const ids = [...new Set(payerIds)];
+    for (let i = 0; i < ids.length; i += ADMIN_EVENTS_ID_BATCH_MAX) {
+      const batch = ids.slice(i, i + ADMIN_EVENTS_ID_BATCH_MAX);
+      const rows = await this.db
+        .select({ payerId: events.subjectId, at: max(events.occurredAt) })
+        .from(events)
+        .where(
+          and(
+            eq(events.eventName, eventName),
+            eq(events.subjectType, "payer"),
+            inArray(events.subjectId, batch),
+          ),
+        )
+        .groupBy(events.subjectId);
+      for (const r of rows) {
+        if (r.payerId === null || r.at === null) continue;
+        out.set(r.payerId, new Date(r.at));
+      }
+    }
+    return out;
+  }
 }

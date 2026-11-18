@@ -50,6 +50,8 @@ export default async function DashboardPage({
   // in-page rather than at the route, so an operator without it sees a coherent dashboard
   // instead of a redirect — the rule `requireCapability`'s own doc states.
   const mayReadEntities = can(session.capabilities, "read_entities");
+  // The Feedback screen's own gate (owner ruling #2926: `read_identity`, so not analysts).
+  const mayReadFeedback = can(session.capabilities, "read_identity");
 
   /**
    * `requireCapability()` bounces an operator here with `?denied=<capability>` (see
@@ -99,7 +101,7 @@ export default async function DashboardPage({
     metrics,
     health,
     mayReadEvents,
-    mayReadEntities,
+    mayReadFeedback,
     metricsFailed: mayReadEvents && metricsRes.status === "rejected",
     recentFailed: mayReadEvents && recentRes.status === "rejected",
   });

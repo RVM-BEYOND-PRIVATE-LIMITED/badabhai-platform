@@ -1,3 +1,4 @@
+import { CreditRulesModule } from "../credit-rules/credit-rules.module";
 import { Module } from "@nestjs/common";
 import { AdminModule } from "../admin/admin.module";
 import { AgencyModule } from "../agency/agency.module";
@@ -7,6 +8,9 @@ import { JobPostingsModule } from "../job-postings/job-postings.module";
 import { AdminPostingsController } from "./admin-postings.controller";
 import { AdminPostingsRepository } from "./admin-postings.repository";
 import { AdminPostingsService } from "./admin-postings.service";
+import { AdminPostingWorkerVisibilityController } from "./admin-posting-worker-visibility.controller";
+import { AdminPostingWorkerVisibilityRepository } from "./admin-posting-worker-visibility.repository";
+import { AdminPostingWorkerVisibilityService } from "./admin-posting-worker-visibility.service";
 
 /**
  * #2566 — the ADMIN posting-control write surface.
@@ -19,8 +23,22 @@ import { AdminPostingsService } from "./admin-postings.service";
  * ADR-0050 twin sync for an agency job's synced copy.
  */
 @Module({
-  imports: [AdminModule, EventsModule, JobPostingsModule, AgencyModule, AgencyTwinModule],
-  controllers: [AdminPostingsController],
-  providers: [AdminPostingsRepository, AdminPostingsService],
+  imports: [
+    AdminModule,
+    EventsModule,
+    JobPostingsModule,
+    AgencyModule,
+    AgencyTwinModule,
+    // #2750 item 4 — welcome credits after an approval. No dependency back.
+    CreditRulesModule,
+  ],
+  // #2891 — BadaBhai worker visibility of Campus-origin postings, under the same capability.
+  controllers: [AdminPostingsController, AdminPostingWorkerVisibilityController],
+  providers: [
+    AdminPostingsRepository,
+    AdminPostingsService,
+    AdminPostingWorkerVisibilityRepository,
+    AdminPostingWorkerVisibilityService,
+  ],
 })
 export class AdminPostingsModule {}

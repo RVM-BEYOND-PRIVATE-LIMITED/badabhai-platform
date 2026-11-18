@@ -17,7 +17,12 @@ import type { PayerSession } from "../../../lib/auth/types";
  */
 
 const requirePayer = vi.fn<() => Promise<PayerSession>>();
+const getPhoneProofStatus = vi.fn<() => Promise<{ proven: boolean } | null>>();
 vi.mock("../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
+vi.mock("../../../lib/payer-api", () => ({
+  getPhoneProofStatus: () => getPhoneProofStatus(),
+  getAgencyKyc: vi.fn(),
+}));
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
     type: "a",
@@ -96,6 +101,7 @@ function accountFormProps(tree: ReactElement): Record<string, unknown> | undefin
 
 beforeEach(() => {
   requirePayer.mockReset();
+  getPhoneProofStatus.mockReset().mockResolvedValue(null);
 });
 
 describe("AccountPage — identity header + edit form wiring", () => {
@@ -121,10 +127,22 @@ describe("AccountPage — identity header + edit form wiring", () => {
     expect(findByClass(head, "page-back")).toEqual([]);
   });
 
-  it("forwards the session's OWN editable fields into the AccountForm (org + phoneLast4) only", async () => {
+  it("forwards the session's OWN editable fields + phone-proof status into the AccountForm", async () => {
     const props = accountFormProps(await render());
     expect(props).toBeDefined();
-    expect(props).toEqual({ orgName: "Acme Tools", phoneLast4: "1234" });
+    expect(props).toEqual({ orgName: "Acme Tools", phoneLast4: "1234", phoneProof: null });
+  });
+
+  it("passes the server's phone-proof answer through (proven false → offer confirmation)", async () => {
+    getPhoneProofStatus.mockResolvedValue({ proven: false });
+    expect(accountFormProps(await render())!.phoneProof).toEqual({ proven: false });
+  });
+
+  it("a 404 (null) means the switch is off: no prompt reaches the form", async () => {
+    getPhoneProofStatus.mockResolvedValue(null);
+    const props = accountFormProps(await render());
+    expect(props!.phoneProof).toBeNull();
+    expect(getPhoneProofStatus).toHaveBeenCalledTimes(1);
   });
 
   it("passes phoneLast4 as null (not the full number) when there is no phone on file", async () => {

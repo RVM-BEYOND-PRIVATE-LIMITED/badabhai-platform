@@ -59,7 +59,6 @@ const JOB = {
 const PROPS = {
   credits: { payerId: "p", balance: 50 },
   unlocks: [],
-  unitPriceInr: 40,
 };
 
 interface Collected {
@@ -159,6 +158,8 @@ describe("agency dashboard — designr8 KPI strip", () => {
     expect(textOf(p(byLabel("Contacts unlocked")!).caption as ReactNode)).toContain(
       "1 credit / 1 profile",
     );
+    // #2744: a read balance carries no per-unlock price — no caption at all.
+    expect(p(byLabel("Credit balance")!).caption).toBeUndefined();
   });
 
   it("the credit card's Top-up is the one /credits door in the strip", async () => {

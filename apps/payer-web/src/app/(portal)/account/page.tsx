@@ -1,7 +1,7 @@
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../lib/auth";
 import { agencyFlags } from "../../../lib/config";
-import { getAgencyKyc } from "../../../lib/payer-api";
+import { getAgencyKyc, getPhoneProofStatus } from "../../../lib/payer-api";
 import { isPayerForbiddenError, isPayerStatus } from "../../../lib/payer-errors";
 import { maskLast4 } from "../../../lib/masking";
 import type { AgencyKyc } from "../../../lib/contracts";
@@ -84,6 +84,11 @@ export default async function AccountPage() {
     );
   }
 
+  // Phone proof (#2754 item 3): `null` on a 404 (SMS sign-in switched off) or any read failure, so
+  // the account page renders exactly as it does today. `{ proven }` shows the confirm affordance
+  // beside the contact phone — proven `true` renders it as confirmed, `false` offers confirmation.
+  const phoneProof = await getPhoneProofStatus();
+
   // Agency-only: read the caller's OWN masked KYC status. `null` = not enabled (404) or a
   // transient failure → the KYC card is HIDDEN, never faked. A 403 = recruiter on the
   // owner-only route (#2178) → the neutral owner-only band, never a retry. Isolated so a
@@ -119,7 +124,11 @@ export default async function AccountPage() {
           </div>
         </div>
         <div className="panel__body">
-          <AccountForm orgName={session.displayLabel} phoneLast4={session.phoneLast4 ?? null} />
+          <AccountForm
+            orgName={session.displayLabel}
+            phoneLast4={session.phoneLast4 ?? null}
+            phoneProof={phoneProof}
+          />
         </div>
       </section>
 

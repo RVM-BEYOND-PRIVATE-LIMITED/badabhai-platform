@@ -68,9 +68,15 @@ import {
   UNLOCK_OUTCOME_ANSWERERS,
   CREDIT_LOT_SOURCES,
   CREDIT_LOT_EXPIRY_TRIGGERS,
+  CREDIT_CALL_RESULTS,
   PAYMENT_HOLD_REASONS,
   PAYMENT_HELD_ORDER_STATUSES,
+  PAYMENT_REFUND_FAILURES,
+  PAYMENT_REFUND_RULES,
+  PAYMENT_REFUND_STATUSES,
   LAUNCH_TEST_RESULTS,
+  POSTING_CHOICES,
+  POSTING_SURFACES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -1931,6 +1937,36 @@ export const UnlockCapExceededPayload = z.object({
 });
 
 /**
+ * #2750 item 6 (brief 4C.8, B4C-17, B4C-18) — which credit-rules opening limit refused a NEW open:
+ * `worker_weekly_opens` (the worker was opened `max` times in the rolling 7 days, across all
+ * companies) or `agency_daily_opens` (this agency account opened `max` contacts this IST day).
+ */
+export const UNLOCK_LIMIT_KINDS = ["worker_weekly_opens", "agency_daily_opens"] as const;
+
+/**
+ * #2750 item 6 — an open refused by a credit-rules limit, for a company under the credit rules.
+ * A NEW name beside `unlock.cap_exceeded` (whose cap enum stays as shipped, invariant #8): those
+ * are the env caps every company outside the pilot keeps.
+ *
+ * FACELESS: the tenant key, the worker (null for the agency limit, which is decided before the
+ * worker is read), the closed limit kind and the limit in force. Nothing else.
+ */
+export const UnlockLimitReachedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    worker_id: uuidSchema.nullable(),
+    limit: z.enum(UNLOCK_LIMIT_KINDS),
+    /** The limit in force (`workerWeeklyOpenLimit` / `agencyDailyOpenLimit` at the time). */
+    max: z.number().int().positive(),
+  })
+  .strict()
+  .refine((p) => (p.limit === "agency_daily_opens") === (p.worker_id === null), {
+    message: "worker_id is null exactly for the agency limit",
+    path: ["worker_id"],
+  });
+export type UnlockLimitReachedPayload = z.infer<typeof UnlockLimitReachedPayload>;
+
+/**
  * A routed contact was revealed — channel KIND + counts ONLY. The number / handle /
  * relay destination / routing token NEVER appears here (F-5, non-tradeable #2).
  */
@@ -2053,6 +2089,51 @@ export const PaymentHeldPayload = z
   })
   .strict();
 export type PaymentHeldPayload = z.infer<typeof PaymentHeldPayload>;
+
+/**
+ * #2750 item 10 — a super admin refunded a real paid pack, in the SAME transaction as the refund row,
+ * the `pack_refund` ledger lines that took its credits back and the audit row (idempotency key
+ * `payment.refund_requested:<refund id>`: one per refund, and an order is refunded once). Razorpay is
+ * called after this commits; `payment.refund_status_changed` follows it. The actor is the admin.
+ * FACELESS: opaque ids, a closed rule, integer paise and credits. No provider id, no reason text.
+ */
+export const PaymentRefundRequestedPayload = z
+  .object({
+    refund_id: uuidSchema,
+    payment_order_id: uuidSchema,
+    /** The wallet the order was stamped with (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    rule: z.enum(PAYMENT_REFUND_RULES),
+    /** The whole order total, GST included: refunds are always full. */
+    amount_paise: z.number().int().positive(),
+    /** The credits taken back: the unused pack and any credits that came back with it. */
+    credits_removed: z.number().int().nonnegative(),
+  })
+  .strict();
+export type PaymentRefundRequestedPayload = z.infer<typeof PaymentRefundRequestedPayload>;
+
+/**
+ * #2750 item 10 — a refund moved with Razorpay: accepted and processing (`pending`), the money sent
+ * back (`processed`), or `failed` (the call errored, or Razorpay failed it; the credits stay
+ * removed and an admin retries). One per refund and status (idempotency key
+ * `payment.refund_status_changed:<refund id>:<status>`; a failure retried and failed again is
+ * recorded once per attempt with the attempt's key suffix). `failure_code` is set exactly when
+ * failed. FACELESS: ids and closed codes.
+ */
+export const PaymentRefundStatusChangedPayload = z
+  .object({
+    refund_id: uuidSchema,
+    payment_order_id: uuidSchema,
+    payer_id: uuidSchema,
+    status: z.enum(PAYMENT_REFUND_STATUSES).exclude(["requested"]),
+    failure_code: z.enum(PAYMENT_REFUND_FAILURES).nullable(),
+  })
+  .strict()
+  .refine((p) => (p.status === "failed") === (p.failure_code !== null), {
+    message: "failure_code is set exactly when the refund failed",
+    path: ["failure_code"],
+  });
+export type PaymentRefundStatusChangedPayload = z.infer<typeof PaymentRefundStatusChangedPayload>;
 
 // ---------------------------------------------------------------------------
 // Monetization + Pricing Engine (ADR-0013) — PII-FREE: ids + CODES + enums +
@@ -4115,6 +4196,26 @@ export const JobPostingAudienceSetPayload = z
   .strict();
 export type JobPostingAudienceSetPayload = z.infer<typeof JobPostingAudienceSetPayload>;
 
+/**
+ * #2751 items 1 to 3 (brief 4B.7) — a company published a job with one of the two posting buttons:
+ * `free` ("Post free") or `free_plus_pack` ("Post free + Starter"), on `web` or the `app`. Emitted
+ * ONCE PER POSTING, in the transaction that wrote its `job_posting_choices` row (keyed on the
+ * posting), so the numbers screen can count the share per button. The job is live either way;
+ * whether a paid tap then bought a pack is on `payment_orders.origin_job_posting_id`.
+ *
+ * IDS AND ENUMS ONLY: no label, no price, no company data.
+ */
+export const JobPostingPostingChoiceRecordedPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    choice: z.enum(POSTING_CHOICES),
+    surface: z.enum(POSTING_SURFACES),
+  })
+  .strict();
+export type JobPostingPostingChoiceRecordedPayload = z.infer<
+  typeof JobPostingPostingChoiceRecordedPayload
+>;
+
 /** #2746 PR 5 — the RVM review's institute (`job_posting_institute_reviews.institute_code`). */
 const RVM_REVIEW_INSTITUTE_VALUES = ["rvm"] as const;
 
@@ -4315,6 +4416,156 @@ export const PayerCreditsExpiredPayload = z
   })
   .strict();
 export type PayerCreditsExpiredPayload = z.infer<typeof PayerCreditsExpiredPayload>;
+
+/** #2750 item 4 — what made a company's welcome credits due (`payer.welcome_credits_granted`). */
+export const WELCOME_CREDITS_TRIGGERS = [
+  /** An admin or ops approval of a posting (or an agency job) made the company eligible. */
+  "posting_approved",
+  /** An admin edit of the company record (approval, GSTIN) made it eligible. */
+  "company_updated",
+  /** The Campus company move (#2754) brought an already-eligible company across. */
+  "company_import",
+] as const;
+
+/**
+ * #2750 item 4 (brief 4C.6, B2-20, B4C-11) — a verified company received its welcome credits, ONCE
+ * per company, ever: written in the SAME transaction as the `welcome` lot and its ledger line
+ * (idempotency key `payer.welcome_credits_granted:<payer id>`, the ledger line's own key
+ * `welcome_credits:<payer id>`), so the two commit or roll back together.
+ *
+ * FACELESS: the wallet key (the tenant key), the opaque lot id, a positive count, the lot's expiry
+ * and the closed trigger. No company name, no GSTIN, no phone.
+ */
+export const PayerWelcomeCreditsGrantedPayload = z
+  .object({
+    /** The wallet credited (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    /** The `welcome` lot (opaque `credit_lots.id`). */
+    lot_id: uuidSchema,
+    /** Credits granted (`welcomeCredits` in the credit rules at the time). */
+    credits: z.number().int().positive(),
+    /** When the lot expires (ISO 8601): `welcomeValidityDays` after the grant. */
+    expires_at: isoDateTimeSchema,
+    trigger: z.enum(WELCOME_CREDITS_TRIGGERS),
+  })
+  .strict();
+export type PayerWelcomeCreditsGrantedPayload = z.infer<typeof PayerWelcomeCreditsGrantedPayload>;
+
+/** #2750 item 5 — who a placement-team waiver frees: one company's RVM applicants, or one job's. */
+export const RVM_WAIVER_SCOPES = ["company", "job"] as const;
+/** #2750 item 5 — where a waiver was set or cleared: Campus's placement team, or a BadaBhai admin. */
+export const RVM_WAIVER_SOURCES = ["campus", "admin"] as const;
+
+/**
+ * #2750 item 5 (brief 4C.7, B6-05) — the placement team's waiver of the contact cost was SET
+ * (`payer.rvm_waiver_set`) or CLEARED (`payer.rvm_waiver_cleared`): written in the SAME transaction
+ * as the `rvm_applicant_waivers` row change (idempotency key `<event name>:<waiver id>`, so each
+ * happens once per waiver).
+ *
+ * FACELESS: the company's tenant key, the opaque waiver and posting ids and closed codes. No staff
+ * name (stored encrypted on the row) and no reason text (the staff member's own words stay on the
+ * row and on `audit_logs`).
+ */
+export const PayerRvmWaiverChangedPayload = z
+  .object({
+    /** The waiver (opaque `rvm_applicant_waivers.id`). */
+    waiver_id: uuidSchema,
+    /** The company whose RVM applicants it frees (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    scope: z.enum(RVM_WAIVER_SCOPES),
+    /** The job a `job` waiver frees; null for a `company` waiver. */
+    job_posting_id: uuidSchema.nullable(),
+    /** Where THIS change was made (a waiver set from Campus may be cleared by an admin). */
+    source: z.enum(RVM_WAIVER_SOURCES),
+  })
+  .strict()
+  .refine((p) => (p.scope === "job") === (p.job_posting_id !== null), {
+    message: "job_posting_id is set exactly for a job waiver",
+    path: ["job_posting_id"],
+  });
+export type PayerRvmWaiverChangedPayload = z.infer<typeof PayerRvmWaiverChangedPayload>;
+
+/** #2750 item 7 — how a couldn't-reach case closed. */
+export const CONTACT_REACH_OUTCOMES = ["reached_interested", "reached_declined", "not_reached"] as const;
+/** #2750 item 7 — who closed it: a desk staff member, or the deadline (nobody closed it in time). */
+export const CONTACT_REACH_RESOLVERS = ["desk", "deadline"] as const;
+
+/**
+ * #2750 item 7 (brief 4C.9, B7-13) — a company reported it could not reach a worker it opened: a
+ * desk case is open until `deadline_at`. Written in the SAME transaction as the
+ * `contact_reach_cases` row (idempotency key `payer.contact_reach_reported:<case id>`).
+ *
+ * FACELESS: ids and a time. No name, no phone.
+ */
+export const PayerContactReachReportedPayload = z
+  .object({
+    case_id: uuidSchema,
+    unlock_id: uuidSchema,
+    /** The company's tenant key (ADR-0053): the wallet any return goes to. */
+    payer_id: uuidSchema,
+    deadline_at: isoDateTimeSchema,
+  })
+  .strict();
+export type PayerContactReachReportedPayload = z.infer<typeof PayerContactReachReportedPayload>;
+
+/**
+ * #2750 item 7 — a couldn't-reach case closed, by the desk or at its deadline, in the SAME
+ * transaction as the case row and any `returned` credits (idempotency key
+ * `payer.contact_reach_resolved:<case id>`: a case closes once). `credits_returned` is 0 unless
+ * the worker was not reached (and 0 for a free open).
+ */
+export const PayerContactReachResolvedPayload = z
+  .object({
+    case_id: uuidSchema,
+    unlock_id: uuidSchema,
+    payer_id: uuidSchema,
+    status: z.enum(CONTACT_REACH_OUTCOMES),
+    credits_returned: z.number().int().min(0),
+    resolved_by: z.enum(CONTACT_REACH_RESOLVERS),
+  })
+  .strict()
+  .refine((p) => p.status === "not_reached" || p.credits_returned === 0, {
+    message: "credits come back only when the worker was not reached",
+    path: ["credits_returned"],
+  })
+  .refine((p) => p.resolved_by === "desk" || p.status === "not_reached", {
+    message: "a case closed at its deadline is not reached",
+    path: ["status"],
+  });
+export type PayerContactReachResolvedPayload = z.infer<typeof PayerContactReachResolvedPayload>;
+
+/**
+ * #2750 item 9 — a real paid pack brought back credits that expired unused on the company's
+ * earlier real paid packs, in the SAME transaction as the settle, the `returned` lots and their
+ * `pack_return` lines (idempotency key `payer.pack_credits_returned:order:<order id>`: one per
+ * order). Emitted only when credits came back. `lots` names each old lot and the lot its credits
+ * went into; `expires_at` is the new pack's (null = never expires). Ids, integers and a date.
+ */
+export const PayerPackCreditsReturnedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    payment_order_id: uuidSchema,
+    credits: z.number().int().min(1),
+    lots: z
+      .array(
+        z
+          .object({
+            from_lot_id: uuidSchema,
+            lot_id: uuidSchema,
+            credits: z.number().int().min(1),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+    expires_at: isoDateTimeSchema.nullable(),
+  })
+  .strict()
+  .refine((p) => p.lots.reduce((sum, l) => sum + l.credits, 0) === p.credits, {
+    message: "credits is the sum of the lots' credits",
+    path: ["credits"],
+  });
+export type PayerPackCreditsReturnedPayload = z.infer<typeof PayerPackCreditsReturnedPayload>;
 
 /**
  * MOMENT ④ — `feed.shown`, VERSION 2 (ADR-0036 "feed.shown gets a v2 payload").
@@ -7067,6 +7318,33 @@ export type AdminPayerTestAccountUnmarkedPayload = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
+// #2755 item 8 — A CALL TO A COMPANY WHOSE CREDITS RAN OUT, LOGGED. The telecaller works the call
+// list (`GET /admin/numbers/out-of-credits`) and records each call with
+// `POST /admin/numbers/out-of-credits/:payerId/calls`; one `credit_call_log` row and this event are
+// written in the same transaction, once per call (a retried POST carries the same Idempotency-Key,
+// from which the row id is derived, and emits nothing again).
+//
+// IDS AND ONE CLOSED CODE ONLY, strict. The result is one of `CREDIT_CALL_RESULTS` (@badabhai/types),
+// never text; no name, phone or note of the company ever rides along.
+// ---------------------------------------------------------------------------
+
+/** What a call came to (`CREDIT_CALL_RESULTS`). */
+export const CreditCallResultSchema = z.enum(CREDIT_CALL_RESULTS);
+
+export const AdminCreditCallLoggedPayload = z
+  .object({
+    /** The company called (its wallet key). */
+    payer_id: uuidSchema,
+    /** The `credit_call_log` row. */
+    call_id: uuidSchema,
+    /** The admin who logged the call. */
+    admin_id: uuidSchema,
+    result: CreditCallResultSchema,
+  })
+  .strict();
+export type AdminCreditCallLoggedPayload = z.infer<typeof AdminCreditCallLoggedPayload>;
+
+// ---------------------------------------------------------------------------
 // #2755 item 9 — LAUNCH TEST A: a factory recorded by the desk, or its record changed
 // (`POST` / `PATCH /admin/launch-tests/cohort`). The desk sends five worker profiles and a payment
 // link to each factory by hand and records what it did and what the factory did back; nothing on
@@ -7130,4 +7408,50 @@ export const AdminLaunchTestFactoryUpdatedPayload = z
   .strict();
 export type AdminLaunchTestFactoryUpdatedPayload = z.infer<
   typeof AdminLaunchTestFactoryUpdatedPayload
+>;
+
+/**
+ * #2887 — an admin turned ONE moved student's visibility on or off (`PUT
+ * /admin/students/:workerId/visibility`). Written in the same transaction as the
+ * `student_visibility` row change. On: he is an ordinary BadaBhai worker (matched, searchable);
+ * off: out of matching and kept from companies by #2752's rules.
+ *
+ * FACELESS: the worker id and the new state. The admin is the event's actor; the reason lives on
+ * the `audit_logs` row of the same transaction.
+ */
+export const AdminStudentVisibilityChangedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    visible: z.boolean(),
+  })
+  .strict();
+export type AdminStudentVisibilityChangedPayload = z.infer<
+  typeof AdminStudentVisibilityChangedPayload
+>;
+
+/** #2887 — how a bulk visibility change chose its students. */
+export const STUDENT_VISIBILITY_SELECTORS = ["batch", "branch", "course"] as const;
+
+/**
+ * #2887 — an admin turned visibility on or off for MANY moved students at once (`POST
+ * /admin/students/visibility`): one import run, one branch or one course. One event per call, in
+ * the same transaction as the row changes.
+ *
+ * FACELESS: the selector kind, the import run's id (for `batch`, else null), the new state and how
+ * many students changed. The branch or course name itself lives on the `audit_logs` row.
+ */
+export const AdminStudentVisibilityBulkChangedPayload = z
+  .object({
+    selector: z.enum(STUDENT_VISIBILITY_SELECTORS),
+    batch_id: uuidSchema.nullable(),
+    visible: z.boolean(),
+    changed: z.number().int().min(0),
+  })
+  .strict()
+  .refine((p) => (p.selector === "batch") === (p.batch_id !== null), {
+    message: "batch_id is set exactly for the batch selector",
+    path: ["batch_id"],
+  });
+export type AdminStudentVisibilityBulkChangedPayload = z.infer<
+  typeof AdminStudentVisibilityBulkChangedPayload
 >;
