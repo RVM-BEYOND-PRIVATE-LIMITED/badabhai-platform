@@ -65,6 +65,9 @@ function setup(
       confirmedHires: async () => [],
       openedContacts: async () => [],
       formCompletions: async () => [],
+      welcomeRunOuts: async () => [],
+      reachCases: async () => [],
+      waivedOpens: async () => [],
       companyDims: async () => new Map(),
       workerDims: async () => new Map(),
     })),
@@ -310,7 +313,7 @@ describe("snapshotRowsOf", () => {
         numerator: null,
         denominator: null,
         suppressed: false,
-        definitionVersion: 1,
+        definitionVersion: 2,
       },
     ]);
   });
