@@ -475,7 +475,10 @@ describe("#2746 — audience fields exist on the company schemas only", () => {
     expect(extra(PayerCreateJobPostingWithAudienceSchema, PayerCreateJobPostingSchema)).toEqual(
       [...KEYS].sort(),
     );
-    expect(extra(PayerUpdateJobPostingSchema, UpdateJobPostingSchema)).toEqual([...KEYS].sort());
+    // #2751 adds the posting choice to the PATCH alone (it rides only on the publish).
+    expect(extra(PayerUpdateJobPostingSchema, UpdateJobPostingSchema)).toEqual(
+      [...KEYS, "posting_choice", "surface"].sort(),
+    );
     expect(extra(PayerCreateJobPostingSchema, PayerCreateJobPostingWithAudienceSchema)).toEqual([]);
   });
 
@@ -514,5 +517,66 @@ describe("#2746 — audience fields exist on the company schemas only", () => {
         JSON.stringify(body).slice(0, 60),
       ).toBe(false);
     }
+  });
+});
+
+describe("#2751 — the posting choice rides on the company publish only", () => {
+  const PUBLISH = { status: "open" as const };
+
+  it("accepts both fields together on a publish, every choice on every surface", () => {
+    for (const posting_choice of ["free", "free_plus_pack"] as const) {
+      for (const surface of ["web", "app"] as const) {
+        expect(
+          PayerUpdateJobPostingSchema.parse({ ...PUBLISH, posting_choice, surface }),
+        ).toEqual({ ...PUBLISH, posting_choice, surface });
+      }
+    }
+  });
+
+  it("a publish without them is unchanged", () => {
+    expect(PayerUpdateJobPostingSchema.parse(PUBLISH)).toEqual(PUBLISH);
+  });
+
+  it("refuses one without the other", () => {
+    expect(
+      PayerUpdateJobPostingSchema.safeParse({ ...PUBLISH, posting_choice: "free" }).success,
+    ).toBe(false);
+    expect(PayerUpdateJobPostingSchema.safeParse({ ...PUBLISH, surface: "web" }).success).toBe(
+      false,
+    );
+  });
+
+  it("refuses them on an edit that is not the publish", () => {
+    expect(
+      PayerUpdateJobPostingSchema.safeParse({
+        role_title: "CNC Operator",
+        posting_choice: "free",
+        surface: "web",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("refuses an unknown choice or surface", () => {
+    expect(
+      PayerUpdateJobPostingSchema.safeParse({ ...PUBLISH, posting_choice: "paid", surface: "web" })
+        .success,
+    ).toBe(false);
+    expect(
+      PayerUpdateJobPostingSchema.safeParse({
+        ...PUBLISH,
+        posting_choice: "free",
+        surface: "android",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("the shared PATCH (ops, admin) strips them", () => {
+    const parsed = UpdateJobPostingSchema.parse({
+      ...PUBLISH,
+      posting_choice: "free",
+      surface: "web",
+    }) as Record<string, unknown>;
+    expect(parsed).not.toHaveProperty("posting_choice");
+    expect(parsed).not.toHaveProperty("surface");
   });
 });

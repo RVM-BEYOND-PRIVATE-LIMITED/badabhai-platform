@@ -905,6 +905,13 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingAudienceSetPayload,
   },
+  // #2751 items 1 to 3 — which posting button a company tapped, once per posting, in the
+  // transaction that recorded it. IDS AND ENUMS ONLY. v1.
+  "job_posting.posting_choice_recorded": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingPostingChoiceRecordedPayload,
+  },
   // #2746 PR 5 — the placement team (BadaBhai Campus) approved or rejected the RVM part of a
   // posting, for the content whose hash it stores. IDS AND ENUMS ONLY; never the reason text. v1.
   "job_posting.rvm_reviewed": {

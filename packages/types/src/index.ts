@@ -1737,6 +1737,25 @@ export function isPaymentOrderOrigin(value: unknown): value is PaymentOrderOrigi
   return typeof value === "string" && (PAYMENT_ORDER_ORIGINS as readonly string[]).includes(value);
 }
 
+// ---- The posting choice (#2751 items 1 to 3, migration 0187) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells them into the
+// `job_posting_choices` CHECKs, `packages/event-schema` puts them on the spine
+// (`job_posting.posting_choice_recorded`) and the api parses the publish body with them. FROZEN:
+// the event's v1 enums are taken from these lists.
+
+/**
+ * Which of the two posting buttons a company tapped (brief 4B.7). `free` = "Post free";
+ * `free_plus_pack` = "Post free + Starter". The job goes live either way; the choice is recorded,
+ * not enforced.
+ */
+export const POSTING_CHOICES = Object.freeze(["free", "free_plus_pack"] as const);
+export type PostingChoice = (typeof POSTING_CHOICES)[number];
+
+/** The client the button was tapped on: payer-web or the payer app. */
+export const POSTING_SURFACES = Object.freeze(["web", "app"] as const);
+export type PostingSurface = (typeof POSTING_SURFACES)[number];
+
 // ---- Refunds of real paid packs (#2750 item 10, migration 0186) ----
 //
 // HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells them into the

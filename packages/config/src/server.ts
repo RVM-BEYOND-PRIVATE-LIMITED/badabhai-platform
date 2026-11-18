@@ -733,6 +733,12 @@ export const serverEnvSchema = z.object({
   OUTCOME_STAGES_ROLLOUT: featureRolloutMode,
   OUTBOUND_SIGNALS_ROLLOUT: featureRolloutMode,
   CREDIT_RULES_ROLLOUT: featureRolloutMode,
+  // #2751 items 1-3 - the posting choice record: which of the two posting buttons a company
+  // tapped (`job_posting_choices`), GET /payer/job-postings/posting-options and the checkout
+  // hint on the publish answer. Off, posting-options answers 404 and the publish ignores
+  // `posting_choice` / `surface`; the table is never named. Needs the job_posting_choices
+  // migration applied first. The job goes live on publish whatever this says.
+  POSTING_CHOICE_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER

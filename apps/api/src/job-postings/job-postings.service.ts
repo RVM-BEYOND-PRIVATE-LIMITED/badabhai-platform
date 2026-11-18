@@ -6,7 +6,13 @@ import {
   NotFoundException,
   Optional,
 } from "@nestjs/common";
+import { sqlStateOf } from "../common/db-error";
 import { WelcomeCreditsService } from "../credit-rules/welcome-credits.service";
+import {
+  PostingChoiceService,
+  type PostingChoiceOutcomeDto,
+  type PostingOptionsDto,
+} from "../posting-choice/posting-choice.service";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { SkillCanonicalizationInput } from "@badabhai/ai-contracts";
 import { bandForCount } from "@badabhai/validators";
@@ -157,6 +163,9 @@ export class JobPostingsService {
     // #2750 item 4 — the ops approval route grants welcome credits too (#2750 private notes item
     // 9: both approval routes call the one grant function). Optional for hand-built instances.
     @Optional() private readonly welcome?: WelcomeCreditsService,
+    // #2751 items 1 to 3 — which posting button the company tapped, recorded after a publish
+    // committed. Optional for hand-built instances (they record nothing, as with the switch off).
+    @Optional() private readonly postingChoice?: PostingChoiceService,
   ) {}
 
   /**
@@ -624,6 +633,16 @@ export class JobPostingsService {
   }
 
   /**
+   * `GET /payer/job-postings/posting-options` (#2751 item 1): what each posting button offers the
+   * caller's company, every text decided by the server, or the neutral 404 while the
+   * `posting_choice` switch is off for it.
+   */
+  async postingOptionsForPayer(actorPayerId: string): Promise<PostingOptionsDto> {
+    if (this.postingChoice === undefined) throw new NotFoundException();
+    return this.postingChoice.optionsFor(await this.tenancy.resolve(actorPayerId));
+  }
+
+  /**
    * Voice-toggle draft: one Hinglish voice note into one English job description,
    * filtered to the posting's trade and role (payer-app + payer-web share this).
    *
@@ -704,7 +723,7 @@ export class JobPostingsService {
     actorPayerId: string,
     dto: PayerUpdateJobPostingDto,
     ctx: RequestContext,
-  ): Promise<PayerJobPostingApi> {
+  ): Promise<PayerJobPostingApi & { posting_choice?: PostingChoiceOutcomeDto }> {
     const scope = await this.tenancy.resolve(actorPayerId);
     const current = await this.getOneInScope(id, scope); // no-oracle 404
     // #2668 — the #2635 gate must run BEFORE trade-form validation. Both payer clients now
@@ -815,7 +834,31 @@ export class JobPostingsService {
     if (audienceWritten && !audienceReachesBadaBhaiWorkers(updated.audience) && !rebuilt) {
       await this.reconcileAudienceReach(updated);
     }
-    return this.forPayer(scope, updated);
+    const view = await this.forPayer(scope, updated);
+    // #2751 items 1 to 3 — THE POSTING CHOICE, recorded only on the publish (draft -> open) and
+    // only AFTER it committed: the job is live whatever happens here. The service never throws and
+    // answers null while the `posting_choice` switch is off for the company, so the answer then
+    // carries no `posting_choice` block, exactly as before it existed.
+    if (
+      this.postingChoice !== undefined &&
+      isPublishing(current, tradeDto) &&
+      dto.posting_choice !== undefined &&
+      dto.surface !== undefined
+    ) {
+      try {
+        const outcome = await this.postingChoice.recordAfterPublish(
+          { scope, jobPostingId: updated.id, choice: dto.posting_choice, surface: dto.surface },
+          ctx,
+        );
+        if (outcome !== null) return { ...view, posting_choice: outcome };
+      } catch (err) {
+        // Unreachable by contract (the service catches its own errors); the publish stands.
+        this.logger.warn(
+          `posting choice: unexpected failure (posting=${updated.id} sqlstate=${sqlStateOf(err) ?? "none"}); the publish stands`,
+        );
+      }
+    }
+    return view;
   }
 
   /**

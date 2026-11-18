@@ -1941,6 +1941,26 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "updates; an open grant lets any PostgREST role read the company refunds or forge a row " +
       "that marks a refund processed",
   },
+  // #2751 items 1 to 3: which posting button a company tapped. Nothing names the table while the
+  // `posting_choice` switch is off for a company (the default), and armed with the table missing
+  // the publish still succeeds (the record runs after it committed and its error is swallowed), so a
+  // deploy ahead of the migration breaks no request and it is not a `table` entry. Listed for its
+  // lock (the 0134 rule). APPLY BEFORE THE SWITCH (migration header). The id and tag carry the slot
+  // number: regenerated with the migration when the slot moves.
+  {
+    id: "0187-job-posting-choices-rls",
+    migration: "0187_job_posting_choices",
+    kind: "rls",
+    table: "job_posting_choices",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which posting button each company tapped, the share the numbers " +
+      "screen reports; an open grant lets any PostgREST role read every company's choices or forge " +
+      "rows that skew the count",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

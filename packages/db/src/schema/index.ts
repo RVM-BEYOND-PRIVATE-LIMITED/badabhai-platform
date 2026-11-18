@@ -64,6 +64,7 @@ import { creditRulesConfig } from "./credit-rules";
 import { rvmApplicantWaivers, rvmWaiverUses } from "./rvm-waivers";
 import { contactReachAttempts, contactReachCases } from "./contact-reach";
 import { paymentRefunds } from "./payment-refunds";
+import { jobPostingChoices } from "./job-posting-choice";
 import {
   studentImportBatches,
   studentImportRows,
@@ -216,6 +217,8 @@ export * from "./rvm-waivers";
 export * from "./contact-reach";
 // #2750 item 10 - admin refunds of real paid packs.
 export * from "./payment-refunds";
+// #2751 items 1 to 3 - which posting button a company tapped, one row per posting.
+export * from "./job-posting-choice";
 // #2887 - moving RVM students into BadaBhai: the import ledger, field sources and visibility.
 export * from "./student-move";
 // #2891 - BadaBhai worker visibility of a Campus-origin posting (off until an admin opens it).
@@ -566,6 +569,8 @@ export const schema = {
   contactReachAttempts,
   // #2750 item 10 - admin refunds of real paid packs (read only once credit notes exist).
   paymentRefunds,
+  // #2751 items 1 to 3 - the posting choice, one row per posting (read and written only while POSTING_CHOICE_ROLLOUT is on).
+  jobPostingChoices,
   // #2887 - the bulk student move: import ledger, field source markers, visibility (read only while STUDENT_MOVE_ENABLED is on).
   studentImportBatches,
   studentImportRows,
