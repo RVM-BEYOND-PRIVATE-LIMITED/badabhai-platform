@@ -118,6 +118,9 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
       // PAY-DB-01 P2a: the services whose payer paths resolve the tenant key.
       // P2d (ORG_TENANCY_PLAN §3.4): the referred-worker service. The agency KYC and payout
       // services take the scope their route's owner gate resolved and inject no resolver.
+      // #2750 item 11 — the admin credit grant asks the company's tenant key (read-only) whether it
+      // is under the credit rules. AdminModule imports PayersModule, which the next case checks.
+      "AdminActionsService",
       "AgencyService",
       "AgencyWorkersService",
       // #2746 PR 6: the company's drive requests resolve its tenant (Campus's routes read none).

@@ -383,6 +383,8 @@ export function creditReasonLabel(reason: string): string {
       return "Welcome credits";
     case "goodwill":
       return "Goodwill credits";
+    case "correction":
+      return "Correction";
     case "returned":
       return "Credits returned";
     case "waived":

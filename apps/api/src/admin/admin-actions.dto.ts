@@ -83,6 +83,16 @@ export const AdminGrantCreditsSchema = z
     amount: z.number().int().positive().max(ADMIN_CREDIT_GRANT_MAX),
     reason_code: AdminCreditGrantReason,
     idempotency_key: z.string().uuid(),
+    /**
+     * #2750 item 11 — the staff member's written reason (15–500 characters, no hard identifiers),
+     * stored on the grant's `audit_logs` row. REQUIRED for a company under the credit rules.
+     */
+    reason_text: AdminPayerReasonTextSchema.optional(),
+    /**
+     * #2750 item 11 — for a `correction` to a company under the credit rules: the ledger row
+     * (this company's) the grant corrects. Required there, refused with any other reason.
+     */
+    corrects_ledger_id: z.string().uuid().optional(),
   })
   .strict();
 export type AdminGrantCreditsDto = z.infer<typeof AdminGrantCreditsSchema>;

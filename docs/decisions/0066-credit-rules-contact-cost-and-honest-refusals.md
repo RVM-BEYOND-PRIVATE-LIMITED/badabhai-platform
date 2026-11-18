@@ -96,6 +96,17 @@ For a company under the credit rules the brief's two limits **replace** the env 
 - **Not reached** gives back every credit the open took: one new `returned` lot and ledger line per spent lot, naming the open, keeping the spent lot's expiry while it is ahead, else `returnedLotValidityDays` (30) from the close. A free (waived) open returns nothing. The company's follow-up answer for the open becomes `not_reached` (#2753).
 - **The deadline.** A case still open at its deadline closes as not reached, attempted or not (owner ruling 2026-11-17), by a sweep every 15 minutes. The company never waits on the desk.
 
+### 2.9 Goodwill credits and the grant reasons (item 11)
+
+For a company under the credit rules, an admin credit grant (`POST /admin/payers/:id/credits`) is one of two kinds (owner ruling 2026-11-17):
+
+- **Goodwill.** At most `goodwillMaxPerQuarter` (5) credits per company per calendar quarter in IST, in a lot valid `goodwillValidityDays` (30). A grant that would pass the cap is refused whole (409 `GOODWILL_CAP_EXCEEDED`). Grants are serialised per company, so two at once cannot both pass it.
+- **Correction.** A super admin only, naming the ledger row it corrects. No cap.
+
+`promo` and `support_resolution` are retired for these companies: the brief allows no launch offers, and either would walk around the cap. Every other company keeps all four reasons and today's `grant` line until the rules go on for everyone.
+
+Every grant now carries a written reason and is audited: the ledger line names the reason (`goodwill` / `correction` under the rules), and an `audit_logs` row in the same transaction names the staff member, the reason code, their words and the corrected row. The staff member is not a ledger column (adding one to `credit_ledger` would make every ledger write depend on the migration); the audit row is tied to the ledger line by id.
+
 ## 3. Consequences
 
 - The number on the button equals the credits debited, unless the worker's card changes between the quote and the tap. In that case the open charges the price at the tap; the price is always from the card he shows then.
@@ -117,6 +128,7 @@ For a company under the credit rules the brief's two limits **replace** the env 
 - **Waivers:** whether a waiver frees a worker reads only his applications to this company's jobs (already on the company's applicant list) and the company's own waivers: no consent, limit or deletion state, so the 0 on the button is no oracle. Setting one is super_admin only on BadaBhai's side, or the Campus credential; an unknown or barred company and another company's job are the same neutral 404. Staff names are encrypted at rest and appear in no event.
 - **Limits:** the weekly answer is the one deliberate new signal (he is in demand), given only after the consent, deletion and search-exit gates passed, so it is never an answer about a worker the company could not open anyway. The agency answer reads only the company's own count, before any worker read. Both counts are taken under locks, so they cannot be raced past.
 - **The desk:** a report needs the company's own open (the tenant key) within the window; the desk's routes never return a number (the reveal stays `reveal_pii`, reason-gated and audited). A close returns credits only through the wallet helper, once per spent lot (idempotency key), in one transaction with the close, the audit row and the event; a closed case refuses a second close (409). Attempts and closes carry no free text but the admin's reason, which refuses hard identifiers.
+- **Grants:** under the rules, goodwill is capped per quarter under a per-company lock (DB-tested with concurrent grants) and a correction is super-admin only and names its ledger row; every grant is audited with the staff member. The ops pack route `POST /payers/:payerId/credits` sells a catalogue pack through the mock checkout; it grants no free credits, but it stays a second way to add credits on the ops token and should be reviewed with the real-payments switch.
 - **Settings:** super_admin only; the reason text refuses hard identifiers; one audited transaction; 409 on a stale or racing edit.
 
 ## 5. Arming and rollback

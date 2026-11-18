@@ -17,6 +17,8 @@ import type { TenantKey } from "../payers/payer-tenant-scope";
 import { RvmWaiversRepository } from "../rvm-waivers/rvm-waivers.repository";
 import { UnlocksRepository } from "../unlocks/unlocks.repository";
 import { ReachDeskRepository } from "../reach-desk/reach-desk.repository";
+import { AdminActionsRepository } from "../admin/admin-actions.repository";
+import { istQuarterStart } from "../admin/admin-actions.service";
 
 /**
  * #2750 item 1 — the credit rules' revisions against real Postgres.
@@ -796,5 +798,89 @@ describe.skipIf(!RUN)("couldn't-reach desk — against real Postgres", () => {
     expect(await desk.dueCaseIds(50, new Date(Date.now() + 365 * 86_400_000))).not.toContain(
       caseId,
     );
+  });
+});
+
+/**
+ * #2750 item 11 — the goodwill cap against real Postgres: a goodwill grant writes a `goodwill`
+ * line and a lot valid the given days; the quarter's sum counts goodwill lines only; and grants
+ * taken under the per-company lock can never pass the cap together, however many run at once.
+ */
+describe.skipIf(!RUN)("goodwill grants — against real Postgres", () => {
+  let client: DbClient;
+  let repo: AdminActionsRepository;
+  const T = randomUUID().slice(0, 8);
+  const COMPANY = randomUUID();
+  const RACE = randomUUID();
+  const companies = [COMPANY, RACE];
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL);
+    repo = new AdminActionsRepository(client.db);
+    const { sql } = client;
+    for (const id of companies) {
+      await sql`
+        INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+        VALUES (${id}::uuid, 'employer', ${`enc:2750g-${T}-${id}`}, ${`hash:2750g-${T}-${id}`},
+                ${`enc:co-${T}`}, 'active')`;
+    }
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      const { sql } = client;
+      for (const id of companies) {
+        await sql`DELETE FROM credit_ledger WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM credit_lots WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM payer_credits WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM payers WHERE id = ${id}::uuid`;
+      }
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  it("a goodwill grant: a goodwill line, a lot expiring in 30 days, counted in the quarter", async () => {
+    await client.db.transaction((tx) =>
+      repo.grantCredits(COMPANY, 2, randomUUID(), tx as never, { reason: "goodwill", validityDays: 30 }),
+    );
+    // A plain grant does not count toward the cap.
+    await client.db.transaction((tx) => repo.grantCredits(COMPANY, 4, randomUUID(), tx as never));
+    const { sql } = client;
+    const lines = await sql<{ reason: string; delta: number }[]>`
+      SELECT reason, delta FROM credit_ledger WHERE payer_id = ${COMPANY}::uuid ORDER BY reason`;
+    expect(lines.map((l) => [l.reason, Number(l.delta)])).toEqual([
+      ["goodwill", 2],
+      ["grant", 4],
+    ]);
+    const [lot] = await sql<{ days: number }[]>`
+      SELECT round(extract(epoch FROM (expires_at - created_at)) / 86400)::int AS days
+      FROM credit_lots WHERE payer_id = ${COMPANY}::uuid AND expires_at IS NOT NULL`;
+    expect(Number(lot!.days)).toBe(30);
+    const used = await client.db.transaction((tx) =>
+      repo.goodwillGrantedSince(tx as never, COMPANY, istQuarterStart(new Date())),
+    );
+    expect(used).toBe(2);
+  });
+
+  it("four grants of 2 at once under a cap of 5: exactly two apply", async () => {
+    const attempt = () =>
+      client.db.transaction(async (tx) => {
+        await repo.lockGoodwill(tx as never, RACE);
+        const used = await repo.goodwillGrantedSince(tx as never, RACE, istQuarterStart(new Date()));
+        if (used + 2 > 5) return false;
+        await repo.grantCredits(RACE, 2, randomUUID(), tx as never, {
+          reason: "goodwill",
+          validityDays: 30,
+        });
+        return true;
+      });
+    const results = await Promise.all([attempt(), attempt(), attempt(), attempt()]);
+    expect(results.filter(Boolean)).toHaveLength(2);
+    const used = await client.db.transaction((tx) =>
+      repo.goodwillGrantedSince(tx as never, RACE, istQuarterStart(new Date())),
+    );
+    expect(used).toBe(4);
   });
 });

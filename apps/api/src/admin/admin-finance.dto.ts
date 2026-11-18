@@ -78,6 +78,9 @@ export const AdminLedgerQuerySchema = z
         "waived",
         "returned",
         "campus_conversion",
+        // #2750 item 11 — an admin grant under the credit rules.
+        "goodwill",
+        "correction",
         "campus_conversion_reversed",
       ])
       .optional(),

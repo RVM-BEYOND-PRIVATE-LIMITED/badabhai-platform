@@ -336,6 +336,11 @@ export type CreditReason =
   | "waived"
   | "returned"
   | "campus_conversion"
+  // #2750 item 11 — an admin grant to a company under the credit rules: `goodwill` (capped per
+  // quarter, a lot valid `goodwillValidityDays`) or `correction` (super admin, names the ledger row
+  // it corrects). Every other admin grant keeps `grant`.
+  | "goodwill"
+  | "correction"
   /**
    * #2754 item 14 — a batch rollback took back what a `campus_conversion` lot still held (one
    * compensating line per lot, keyed `campus_conversion_reversed:<lot id>`). Not credits USED.

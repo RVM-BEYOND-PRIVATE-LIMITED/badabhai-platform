@@ -174,6 +174,8 @@ export const creditLedgerItemSchema = z.object({
     "expired",
     "welcome",
     "goodwill",
+    // #2750 item 11 — a super admin's correction under the credit rules.
+    "correction",
     "returned",
     "waived",
     // #2754 item 9 — a moved company's unused Campus balance.
@@ -397,6 +399,8 @@ export const reasonBucketSchema = z.object({
     "expired",
     "welcome",
     "goodwill",
+    // #2750 item 11 — a super admin's correction under the credit rules.
+    "correction",
     "returned",
     "waived",
     // #2754 item 9 — a moved company's unused Campus balance.
@@ -451,6 +455,8 @@ export const ledgerRowSchema = z.object({
     "expired",
     "welcome",
     "goodwill",
+    // #2750 item 11 — a super admin's correction under the credit rules.
+    "correction",
     "returned",
     "waived",
     // #2754 item 9 — a moved company's unused Campus balance.
