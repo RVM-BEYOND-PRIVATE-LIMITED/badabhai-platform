@@ -122,7 +122,7 @@ describe("nav labels", () => {
     expect(byHref("/transactions")?.capability).toBe("read_entities");
     expect(byHref("/credits")?.capability).toBe("read_entities");
     expect(byHref("/numbers")?.capability).toBe("read_business_numbers");
-    expect(byHref("/feedback")?.capability).toBe("read_entities");
+    expect(byHref("/feedback")?.capability).toBe("read_identity");
     expect(byHref("/ai-calls")?.capability).toBe("read_ai_traces");
     expect(byHref("/events")?.capability).toBe("read_events");
     expect(byHref("/admins")?.capability).toBe("manage_admins");

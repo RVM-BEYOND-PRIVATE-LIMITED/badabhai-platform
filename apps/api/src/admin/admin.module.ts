@@ -180,7 +180,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
  * OWN read repository; the WRITER (`AiCostTotalsRepository`) stays unexported from `AiModule`.
  *
  * #997 adds the WORKER-FEEDBACK read (`AdminFeedbackController`/`AdminFeedbackService`/
- * `AdminFeedbackRepository`): `GET /admin/feedback`, `read_entities`-gated, SELECT-ONLY and
+ * `AdminFeedbackRepository`): `GET /admin/feedback`, `read_identity`-gated (#2926), SELECT-ONLY and
  * keyset-paginated like BP-1. It is the ONE read on this surface that is not faceless — it
  * projects `message`, the worker's own free text, which #997 rules is fine to store and show
  * because the worker chose to say it to us. The boundary is unchanged everywhere else: no name,
