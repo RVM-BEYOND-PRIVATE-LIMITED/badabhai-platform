@@ -387,6 +387,9 @@ export function creditReasonLabel(reason: string): string {
       return "Credits returned";
     case "waived":
       return "Waived by placement team";
+    // #2754 item 9 — a moved company's unused Campus balance.
+    case "campus_conversion":
+      return "Moved from Campus";
     default:
       // An unmapped reason is shown RAW rather than hidden — a code nobody recognises is a
       // reason to look, not to render a blank cell.

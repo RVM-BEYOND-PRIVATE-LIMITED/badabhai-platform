@@ -176,6 +176,8 @@ export const creditLedgerItemSchema = z.object({
     "goodwill",
     "returned",
     "waived",
+    // #2754 item 9 — a moved company's unused Campus balance.
+    "campus_conversion",
   ]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),
@@ -395,6 +397,8 @@ export const reasonBucketSchema = z.object({
     "goodwill",
     "returned",
     "waived",
+    // #2754 item 9 — a moved company's unused Campus balance.
+    "campus_conversion",
   ]),
   movements: z.number(),
   credits_delta: z.number(),
@@ -445,6 +449,8 @@ export const ledgerRowSchema = z.object({
     "goodwill",
     "returned",
     "waived",
+    // #2754 item 9 — a moved company's unused Campus balance.
+    "campus_conversion",
   ]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),

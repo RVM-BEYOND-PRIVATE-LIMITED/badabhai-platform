@@ -77,6 +77,7 @@ export const AdminLedgerQuerySchema = z
         "welcome",
         "waived",
         "returned",
+        "campus_conversion",
       ])
       .optional(),
   })

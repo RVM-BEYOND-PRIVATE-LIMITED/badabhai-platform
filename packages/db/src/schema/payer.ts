@@ -318,6 +318,9 @@ export type UnlockDenyReason = "no_consent" | "capped" | "payment_required" | "u
  * (nothing moved), `unlock_id` set, keyed `waived:<unlock id>`; the waiver it used is on
  * `rvm_waiver_uses`. The numbers screen counts these as "credits waived by the placement team".
  *
+ * #2754 item 9 — `campus_conversion`: a company's unused Campus balance moved in with it, as a
+ * `migrated` lot, keyed `campus_conversion:<bundle line key>` (once per source balance). A free grant:
+ * never credits used, never a payment.
  * #2750 item 7 — `returned`: credits a couldn't-reach case gave back (the worker was not reached).
  * `unlock_id` names the open; the line adds a new `returned` lot (`lot_id`), keyed
  * `reach_returned:<unlock id>:<spent lot id>`. Returned credits from a pack (#2750 item 9) will name
@@ -331,7 +334,8 @@ export type CreditReason =
   | "expired"
   | "welcome"
   | "waived"
-  | "returned";
+  | "returned"
+  | "campus_conversion";
 
 /**
  * Routed-channel kind (ADR-0010 §D2). Alpha ships `in_app_relay` ONLY — it
