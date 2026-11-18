@@ -579,6 +579,15 @@ NestJS boot assertion).
     and skips). Bridged through the GitHub `production` environment secret of the same name
     (compose `${ADMIN_NUMBERS_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
     `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+  - `ADMIN_AI_TRACE_READ_ENABLED` (`booleanFromString`, default off; #2739). Off is today exactly:
+    `GET /admin/ai-traces` and `GET /admin/ai-traces/:id` are a neutral 404 for every role, so the
+    admin portal's AI calls tab shows "unavailable". On, `read_ai_traces` (super_admin only) reads
+    the list and the per-call detail. Bridged through the GitHub `production` environment secret
+    of the same name (compose `${ADMIN_AI_TRACE_READ_ENABLED:-false}` on `api`, `ci.yml` `env:` +
+    `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`); values lowercase
+    `true`/`false`/`1`/`0`/empty only. Arm it only with the owner's sign-off. The prompt and reply
+    text are stored only while the ai-service's `AI_CALL_TRACE_TEXT_ENABLED` is on, which the box
+    does not declare, so until then each call's detail shows its metadata with no text.
   - `NUMBERS_FREEZE_AFTER_DAYS` (`positiveIntFromString`, default 3, at least 1; empty reads as
     the default): how many whole days after a week ends (Sunday 23:59:59 India time) the sweep
     freezes it. A frozen week is never recomputed by the sweep; only the logged recompute tool

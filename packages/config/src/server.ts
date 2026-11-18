@@ -1707,12 +1707,13 @@ export const serverEnvSchema = z.object({
   // inside the handler (where this started) the roles guard ran first and three of the four
   // roles got a 403 — a clean oracle saying the surface is real and merely closed.
   //
-  // ⚠ NOT DECLARED IN ANY COMPOSE FILE, deliberately and in line with its two siblings
-  // (ADMIN_PII_REVEAL_ENABLED and ADMIN_IDENTITY_* are likewise undeclared). Compose forwards
-  // only names it declares, so this flag cannot be armed from the staging box today, and that
-  // is the intended posture until the owner has ruled on the surface's capability split (see
-  // `admin-ai-traces.controller.ts`). Arming it is one `${ADMIN_AI_TRACE_READ_ENABLED:-false}`
-  // line in `docker-compose.staging.yml`'s `api.environment:` — `:-`, never a bare `-`.
+  // #2739 — BRIDGED, STILL OFF. `docker-compose.staging.yml` declares
+  // `${ADMIN_AI_TRACE_READ_ENABLED:-false}` on the api and ci.yml bridges the GitHub `production`
+  // secret of the same name (preflighted in `scripts/deploy/staging-deploy.sh`), so the secret is
+  // the ONE arming path and a value left in the box's `.env` is overridden on every deploy. Until
+  // then compose holds it at false: the tab stays a neutral 404. Arm it only with the owner's
+  // sign-off. Bridging changes no capability: both routes stay `read_ai_traces` (super_admin),
+  // and widening the list is still the open ruling in `admin-ai-traces.controller.ts`.
   ADMIN_AI_TRACE_READ_ENABLED: booleanFromString,
   // Engine view (admin `/admin/match/engine/*`, investor demo) — owner ruling 2026-10-06: the
   // per-worker read serves DEMO WORKERS ONLY, fail-closed. A demo worker is one whose phone is in
