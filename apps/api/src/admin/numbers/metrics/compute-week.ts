@@ -8,7 +8,7 @@ import { couldntReach, creditsWaived, welcomeCredits } from "./credit-rules";
 import { formCompletedUnconfirmed } from "./form-completed-unconfirmed";
 import { payingCompanies } from "./paying-companies";
 import { cohortOf, repeatPurchase } from "./repeat-purchase";
-import { revenueByPack } from "./revenue-by-pack";
+import { revenueByPack, revenueGstSplit } from "./revenue-by-pack";
 import {
   weekWindow,
   type NumbersActivityRow,
@@ -111,6 +111,7 @@ export async function computeNumbersWeek(
     ...confirmedHires(w, hires, companies),
     ...contactsPerHire(w, opened, hires, companies),
     ...revenueByPack(w, orders, companies),
+    ...revenueGstSplit(w, orders, companies),
     ...repeatPurchase(w, cohortOrders, companies, asOf),
     ...welcomeCredits(w, welcome, companies),
     ...couldntReach(w, reach, companies),

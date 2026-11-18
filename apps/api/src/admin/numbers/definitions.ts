@@ -6,7 +6,7 @@ import { NUMBERS_DEFINITION_VERSION } from "./groups";
  * routes and the parity tests read their rule from here; `GET /admin/numbers/definitions` serves it.
  *
  * ── A METRIC WITH NO LIVE SOURCE IS `not_available`, NEVER ZERO ────────────────────────────
- * Some figures wait on work that has not shipped (#2749's GST split, #2751). Their figures are
+ * Some figures wait on work that has not shipped (#2751). Their figures are
  * listed with the reason and the issue they wait on, so the screen can say "not yet measured"
  * instead of drawing a zero that reads as "nobody did this". A zero is a measurement.
  *
@@ -38,8 +38,8 @@ export const NUMBERS_METRIC_KINDS = ["headline", "diagnostic"] as const;
 export type NumbersMetricKind = (typeof NUMBERS_METRIC_KINDS)[number];
 
 /** The issues a not-yet-measured figure waits on. */
-// #2750 left the list in version 2: every figure that waited on it is live.
-export const NUMBERS_WAITS_ON = ["#2749", "#2751"] as const;
+// #2750 left the list in version 2 and #2749 in version 3: every figure that waited on them is live.
+export const NUMBERS_WAITS_ON = ["#2751"] as const;
 export type NumbersWaitsOn = (typeof NUMBERS_WAITS_ON)[number];
 
 export type NumbersAvailability =
@@ -442,12 +442,24 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
       },
       {
         id: "revenue_gst_split",
-        title: "Revenue before GST, and the GST",
+        title: "Revenue before GST",
         unit: "paise",
         kind: "headline",
-        source: "the GST split of #2749 (part 3).",
-        rule: "The same orders, split into the price before GST and the GST, in paise.",
-        availability: waitsOn("#2749", "orders carry no GST split until #2749 part 3 lands"),
+        source: "payment_orders.taxable_paise: the GST split #2749 part 3 stamps on every order (0176).",
+        rule:
+          "The same paid orders as revenue by pack, the price before GST summed in paise. An order " +
+          "from before 0176 carries no split and is left out (real payments started after it). " +
+          "Before GST + GST + the order's round-off = as charged.",
+        availability: LIVE,
+      },
+      {
+        id: "revenue_gst",
+        title: "GST collected",
+        unit: "paise",
+        kind: "headline",
+        source: "payment_orders.gst_paise (0176).",
+        rule: "The same orders as revenue before GST, their GST summed in paise.",
+        availability: LIVE,
       },
       {
         id: "revenue_managed_hiring",
@@ -542,6 +554,9 @@ export const NUMBERS_SNAPSHOT_METRICS: Readonly<Record<string, NumbersSnapshotSu
   confirmed_hires_cumulative: "company",
   contacts_per_hire: "company",
   revenue_by_pack: "company",
+  // Version 3: the GST split of the same orders.
+  revenue_gst_split: "company",
+  revenue_gst: "company",
   repeat_purchase_30d: "company",
   repeat_purchase_60d: "company",
   repeat_purchase_90d: "company",

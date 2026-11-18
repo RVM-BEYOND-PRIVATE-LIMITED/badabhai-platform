@@ -24,7 +24,8 @@ import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
  * in the same pull request as any change to a member list or a metric rule.
  */
 // 2 (2026-11-18, #2755 part E): groups 6 to 8 (welcome credits, couldn't-reach, waivers) went live.
-export const NUMBERS_DEFINITION_VERSION = 2;
+// 3 (2026-11-18, #2755): the GST split of revenue went live (revenue_gst_split, revenue_gst).
+export const NUMBERS_DEFINITION_VERSION = 3;
 
 /** The roll-up label every group set includes. */
 export const NUMBERS_ALL_GROUP = "all" as const;
