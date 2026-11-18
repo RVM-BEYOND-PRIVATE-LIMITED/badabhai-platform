@@ -26,8 +26,19 @@
  * as agencies or contractors (created as `agent`). It refuses until migration `company_import` is
  * applied. Then each company's unused Campus balance becomes ONE `migrated` credit lot per bundle
  * line (`campus_conversion:<line key>`, once ever), valid `--credit-validity-days` (default and
- * floor 30; bundle v1 carries no plan expiry). Jobs and applications are a later part; the batch
- * stays `applying` until then.
+ * floor 30; bundle v1 carries no plan expiry). Then each live Campus job becomes a posting through
+ * Campus's own creator (`createForCampus`, origin `campus_imported`), held from BadaBhai workers
+ * until an admin opens it (#2891), with the RVM approval recorded.
+ *
+ * THE JOBS STEP RUNS ONLY WITH `--worker-hold-live`, AND ONLY WHEN #2891's TABLE EXISTS. The table
+ * exists from the moment its migration is applied, which is BEFORE the API that honours the hold
+ * (#2903) is deployed; in that window a `both` posting would reach every matching BadaBhai worker
+ * through the deployed API even though its `off` row is written. So the operator passes
+ * `--worker-hold-live` only after checking that the production build contains #2903: read the
+ * build sha from the production /health and run
+ * `git merge-base --is-ancestor fdabdc17b4167deaaf26f3c297fb1ffba797ec78 <build sha>` (#2903). Without the flag the jobs step
+ * prints that it is waiting and imports no job. A created posting that is not held is closed and
+ * the step stops. Applications are a later part; the batch stays `applying`.
  *
  * NOT YET BUILT (each refuses with a message, never a partial run):
  *   --report --batch <key>      the per-company verification report (item 11)
@@ -68,6 +79,12 @@ import {
   importLedgerExists,
   openBatch,
 } from "./campus-import/import-ledger.repository";
+import {
+  importJobs,
+  workerVisibilityTableExists,
+  type JobImportSummary,
+} from "./campus-import/import-jobs";
+import { buildJobImportDeps } from "./campus-import/job-import-wiring";
 
 export const IMPORT_CAMPUS_COMPANIES_SCRIPT = "import-campus-companies";
 
@@ -82,6 +99,7 @@ export type ImportCampusCompaniesArgs =
       testReason: "pilot_test" | "rehearsal" | null;
       agents: string[];
       creditValidityDays: number;
+      workerHoldLive: boolean;
     }
   | { mode: "synthetic"; out: string; companies: number; seed: string; phones: string[] };
 
@@ -112,6 +130,7 @@ export function parseImportCampusCompaniesArgs(argv: readonly string[]): ImportC
       rehearsal: { type: "boolean", default: false },
       agents: { type: "string" },
       "credit-validity-days": { type: "string" },
+      "worker-hold-live": { type: "boolean", default: false },
       "write-synthetic": { type: "string" },
       companies: { type: "string" },
       seed: { type: "string" },
@@ -163,6 +182,7 @@ export function parseImportCampusCompaniesArgs(argv: readonly string[]): ImportC
       if (values[flag] !== undefined) throw new Error(`--${flag} needs --apply`);
     }
     if (values.test || values.rehearsal) throw new Error("--test and --rehearsal need --apply");
+    if (values["worker-hold-live"]) throw new Error("--worker-hold-live needs --apply");
     return { mode: "plan", bundle: values.bundle, planQuota };
   }
   if (!values.batch || !BATCH_KEY.test(values.batch)) {
@@ -194,6 +214,7 @@ export function parseImportCampusCompaniesArgs(argv: readonly string[]): ImportC
     testReason: values.test ? "pilot_test" : values.rehearsal ? "rehearsal" : null,
     agents,
     creditValidityDays,
+    workerHoldLive: values["worker-hold-live"] === true,
   };
 }
 
@@ -235,6 +256,13 @@ export function formatCompanySummary(s: CompanyImportSummary): string[] {
   return [
     `companies: created=${s.created} matched=${s.matched} already_done=${s.alreadyDone} exceptions: ${fmt(s.exceptions)}`,
     `  phone proof not recorded: ${fmt(s.proofNotRecorded)}`,
+  ];
+}
+
+export function formatJobSummary(s: JobImportSummary): string[] {
+  return [
+    `jobs: created=${s.created} already_done=${s.alreadyDone} not moved: ${fmt(s.notMoved)}`,
+    `  fields dropped by the company form: ${fmt(s.droppedFields)}; inactive branch ids dropped: ${s.droppedBranchIds}`,
   ];
 }
 
@@ -296,7 +324,25 @@ async function apply(
       validityDays: args.creditValidityDays,
     });
     log(formatBalanceSummary(balances));
-    log("jobs and applications: not built yet (#2754, a later part); the batch stays open");
+    if (!args.workerHoldLive) {
+      log(
+        "jobs: NOT IMPORTED — pass --worker-hold-live only after the production build contains " +
+          "#2903 (git merge-base --is-ancestor fdabdc17b4167deaaf26f3c297fb1ffba797ec78 <the /health build sha>). Before " +
+          "then a moved job could reach BadaBhai workers.",
+      );
+    } else if (!(await workerVisibilityTableExists(db))) {
+      log(
+        "jobs: NOT IMPORTED — #2891's job_posting_worker_visibility table is missing on this " +
+          "database; apply its migration first.",
+      );
+    } else {
+      const jobs = await importJobs(buildJobImportDeps(db, config, events), batch, bundle, summary.placed, {
+        requestId: `campus-import:${batch.batchKey}`,
+        correlationId: batch.id,
+      });
+      for (const line of formatJobSummary(jobs)) log(line);
+    }
+    log("applications: not built yet (#2754, a later part); the batch stays open");
     return 0;
   } finally {
     await client.sql.end({ timeout: 5 });

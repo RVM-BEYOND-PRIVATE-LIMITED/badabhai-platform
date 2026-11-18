@@ -19,6 +19,7 @@ import {
 import { CampusBundleError, readCampusBundle } from "./read-bundle";
 import { buildSyntheticBundle, syntheticId } from "./synthetic-bundle";
 import { formatImportPlan, parseImportCampusCompaniesArgs } from "../import-campus-companies.cli";
+import { buildPostingDto, lpaToMonthlyInr } from "./import-jobs";
 
 const DIR = "/bundle";
 
@@ -401,6 +402,7 @@ describe("the CLI arguments", () => {
       testReason: "pilot_test",
       agents: [],
       creditValidityDays: 30,
+      workerHoldLive: false,
     });
   });
 
@@ -410,6 +412,7 @@ describe("the CLI arguments", () => {
     ).toThrow("cannot be combined");
     expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", "--batch", "b"])).toThrow("--batch needs --apply");
     expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", "--test"])).toThrow("need --apply");
+    expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", "--worker-hold-live"])).toThrow("needs --apply");
   });
 
   it("refuses an unknown flag rather than guessing", () => {
@@ -425,5 +428,84 @@ describe("the CLI arguments", () => {
       seed: "s",
       phones: [],
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// #2754 item 7 — a Campus job as the company form's fields
+// ---------------------------------------------------------------------------------------------
+
+describe("buildPostingDto and lpaToMonthlyInr", () => {
+  const company = { name: "Acme Fabricators" } as CampusCompany;
+  const job = (over: Partial<CampusJob>): CampusJob =>
+    ({
+      source_id: "j1",
+      company_source_id: "c1",
+      title: "CNC Turner",
+      description: "Run CNC lathes on two shifts.",
+      status: "active",
+      past_expiry: false,
+      created_at: "2026-11-01T00:00:00Z",
+      updated_at: null,
+      expires_at: null,
+      location: "Faridabad",
+      job_type: "full_time",
+      openings: 2,
+      experience_min_months: 12,
+      experience_max_months: 30,
+      salary_min_lpa: 2.4,
+      salary_max_lpa: 3.6,
+      required_skills: [],
+      preferred_skills: [],
+      cad_software_required: [],
+      interview: { type: null },
+      audience: { visibility_type: "all" },
+      applications: { open: 0, moving: 0, held: 0 },
+      ...over,
+    }) as CampusJob;
+
+  it("turns annual lakhs into monthly whole rupees", () => {
+    expect(lpaToMonthlyInr(2.4)).toBe(20_000);
+    expect(lpaToMonthlyInr(3.6)).toBe(30_000);
+    expect(lpaToMonthlyInr(null)).toBeUndefined();
+    expect(lpaToMonthlyInr(0)).toBeUndefined();
+  });
+
+  it("maps a clean job onto the form: monthly CTC band, whole-year window, openings", () => {
+    const r = buildPostingDto(job({}), company);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.dto).toMatchObject({
+      org_label: "Acme Fabricators",
+      role_title: "CNC Turner",
+      vacancies: 2,
+      location_label: "Faridabad",
+      city: "Faridabad",
+      pay_min: 20_000,
+      pay_max: 30_000,
+      pay_type: "ctc",
+      min_experience_years: 1,
+      max_experience_years: 3,
+    });
+    expect(r.dropped).toEqual([]);
+    expect(r.dto).not.toHaveProperty("role_kind");
+  });
+
+  it("drops a description the form refuses (a phone in it), and says so", () => {
+    const r = buildPostingDto(job({ description: "Call 9876543210 to apply." }), company);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.dto.description).toBeUndefined();
+    expect(r.dropped).toContain("description");
+  });
+
+  it("an unknown opening count is one vacancy, never a refusal", () => {
+    const r = buildPostingDto(job({ openings: null }), company);
+    expect(r.ok && r.dto.vacancies).toBe(1);
+  });
+
+  it("a title the form refuses is a reason, never guessed", () => {
+    const r = buildPostingDto(job({ title: "Call 9876543210" }), company);
+    expect(r).toEqual({ ok: false, reason: "job_invalid_role_title" });
   });
 });
