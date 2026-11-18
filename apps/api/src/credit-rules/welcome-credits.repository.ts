@@ -72,8 +72,34 @@ export class WelcomeCreditsRepository {
       verificationStatus: row?.verification_status ?? null,
       hasGstNumber: row?.has_gst === true,
       phoneProven: await this.phoneProven(tenant),
-      hasApprovedPosting: row?.has_approved_posting === true,
+      hasApprovedPosting:
+        row?.has_approved_posting === true || (await this.hasImportedApprovedPosting(tenant)),
     };
+  }
+
+  /**
+   * #2754 item 10 — a moved company with a live APPROVED Campus job qualifies on move day (the
+   * issue's default). An imported posting carries Campus's approval as its RVM review
+   * (`job_posting_institute_reviews`, `approved`, written by the import with the posting), not the
+   * ops "Verified job" badge, so it is counted here: OPEN, imported (a `job` row of the import
+   * ledger names it) and RVM-approved. Fails CLOSED before migration `company_import` (42P01).
+   */
+  private async hasImportedApprovedPosting(tenant: TenantKey): Promise<boolean> {
+    try {
+      const rows = await this.db.execute<{ ok: boolean }>(sql`
+        SELECT EXISTS (
+          SELECT 1 FROM job_postings jp
+          JOIN company_import_rows r
+            ON r.kind = 'job' AND r.target_id = jp.id AND r.state IN ('created', 'matched')
+          JOIN job_posting_institute_reviews jr
+            ON jr.job_posting_id = jp.id AND jr.institute_code = 'rvm' AND jr.state = 'approved'
+          WHERE jp.payer_id = ${tenant}::uuid AND jp.status = 'open'
+        ) AS ok`);
+      return [...rows][0]?.ok === true;
+    } catch (err) {
+      if (sqlStateOf(err) === UNDEFINED_TABLE) return false;
+      throw err;
+    }
   }
 
   /**
