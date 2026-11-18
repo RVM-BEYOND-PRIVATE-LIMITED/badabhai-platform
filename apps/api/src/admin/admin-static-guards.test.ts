@@ -1209,7 +1209,7 @@ describe("#2563 payer-login routes - guarded + exactly one `manage_payer_credent
   });
 });
 
-describe("#997 feedback route - guarded, read-only, and read_entities-scoped", () => {
+describe("#997 feedback route - guarded, read-only, and read_identity-scoped (#2926)", () => {
   const proto = AdminFeedbackController.prototype as unknown as Record<string, unknown>;
   const routeMethods = Object.getOwnPropertyNames(AdminFeedbackController.prototype).filter(
     (m) =>
@@ -1231,7 +1231,7 @@ describe("#997 feedback route - guarded, read-only, and read_entities-scoped", (
     expect(guards).toContain(AdminRolesGuard.name);
   });
 
-  it("the capability is declared at the METHOD level and is exactly read_entities", () => {
+  it("the capability is declared at the METHOD level and is exactly read_identity", () => {
     // Method-level, because a class-level declaration is inherited by every route added
     // later — including one that should have been gated harder.
     const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.list as object) as
@@ -1240,7 +1240,7 @@ describe("#997 feedback route - guarded, read-only, and read_entities-scoped", (
     const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminFeedbackController) as
       | AdminCapability
       | undefined;
-    expect(onMethod).toBe("read_entities");
+    expect(onMethod).toBe("read_identity");
     expect(onClass, "AdminFeedbackController must NOT declare a class-level capability").toBeUndefined();
   });
 

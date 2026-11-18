@@ -124,13 +124,14 @@ export const NAV: NavSection[] = [
     title: "Quality & AI",
     items: [
       // Every row here is a worker speaking, and its Worker column links straight back into
-      // Candidates. `read_entities` mirrors the route's own guard exactly — the nav hides a door
-      // it cannot open, it does not decide who may go through it.
+      // Candidates. `read_identity` mirrors the route's own guard exactly (owner ruling #2926:
+      // analysts do not read worker feedback) — the nav hides a door it cannot open, it does
+      // not decide who may go through it.
       {
         href: "/feedback",
         label: "Feedback",
         icon: "chat-centered-text",
-        capability: "read_entities",
+        capability: "read_identity",
       },
       // Beside Feedback, and for the mirror reason: Feedback is what a worker chose to tell us,
       // this is every AI call the platform made on their behalf.

@@ -2,19 +2,20 @@ import "reflect-metadata";
 import { describe, expect, it, vi } from "vitest";
 import {
   ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   UnauthorizedException,
 } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
-import type { AdminStatus } from "@badabhai/db";
+import type { AdminRole, AdminStatus } from "@badabhai/db";
 import { validateEvent } from "@badabhai/event-schema";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import type { RequestContext } from "../common/request-context";
 import { AdminAttemptLockoutService } from "./admin-attempt-lockout.service";
 import { AdminMfaSecretStore } from "./admin-mfa.store";
-import { AdminMfaSelfService } from "./admin-mfa-self.service";
+import { AdminMfaSelfService, REQUIRED_FOR_ROLE } from "./admin-mfa-self.service";
 import { currentTotpCode, generateTotpEnrollment } from "./admin-mfa";
 import { fakeRedis } from "./testing/fake-redis";
 
@@ -32,6 +33,8 @@ const pii = new PiiCryptoService({
 
 type Row = {
   id: string;
+  /** Absent in most cases (the switch logic is role-blind); set for the #2924 rule. */
+  role?: AdminRole;
   status: AdminStatus;
   mfaEnabled: boolean;
   mfaEnrolled: boolean;
@@ -81,8 +84,9 @@ function makeAdmins(initial: Partial<Row>) {
   };
 }
 
-function setup(initial: Partial<Row> = {}) {
+function setup(initial: Partial<Row> = {}, over: { mfaRequired?: boolean } = {}) {
   const config = {
+    ADMIN_MFA_REQUIRED: over.mfaRequired ?? true,
     ADMIN_TOTP_ISSUER: "BadaBhai Admin",
     ADMIN_PASSWORD_MAX_ATTEMPTS: MAX_ATTEMPTS,
     ADMIN_PASSWORD_LOCKOUT_SECONDS: 900,
@@ -240,5 +244,63 @@ describe("AdminMfaSelfService — disable needs a valid CURRENT code", () => {
   it("a suspended admin (mid-session) can switch nothing", async () => {
     const d = setup({ status: "suspended" });
     await expect(d.svc.enable(ADMIN_ID)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+});
+
+describe("AdminMfaSelfService — a role that REQUIRES two-step cannot switch it off (#2924)", () => {
+  /** An enabled super_admin / ops_admin with a real, known seed. */
+  function requiredRoleWithSeed(role: AdminRole, over: { mfaRequired?: boolean } = {}) {
+    const { secret } = generateTotpEnrollment("BadaBhai Admin", ADMIN_ID);
+    const d = setup(
+      { role, mfaEnabled: true, mfaEnrolled: true, mfaSecretEnc: pii.encrypt(secret) },
+      over,
+    );
+    return { ...d, secret };
+  }
+
+  for (const role of ["super_admin", "ops_admin"] as AdminRole[]) {
+    it(`${role}: disable is a 403 even with the RIGHT code — still ON, seed intact, nothing evented`, async () => {
+      const d = requiredRoleWithSeed(role);
+      const err = await d.svc.disable(ADMIN_ID, currentTotpCode(d.secret), CTX).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ForbiddenException);
+      expect((err as ForbiddenException).message).toBe(REQUIRED_FOR_ROLE);
+      expect(d.admins.r).toMatchObject({ mfaEnabled: true, mfaEnrolled: true });
+      expect(d.admins.r.mfaSecretEnc).not.toBeNull();
+      expect(d.admins.disableMfa).not.toHaveBeenCalled();
+      expect(d.events.emit).not.toHaveBeenCalled();
+    });
+  }
+
+  it("the refusal comes BEFORE the code is checked, so it never counts toward the lockout", async () => {
+    const d = requiredRoleWithSeed("super_admin");
+    for (let i = 0; i < MAX_ATTEMPTS + 2; i += 1) {
+      await d.svc.disable(ADMIN_ID, wrongCode(d.secret), CTX).catch(() => undefined);
+    }
+    // Still a 403, not a 429: no attempt was ever recorded.
+    await expect(d.svc.disable(ADMIN_ID, currentTotpCode(d.secret), CTX)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  for (const role of ["support", "analyst"] as AdminRole[]) {
+    it(`${role} keeps the Amendment 1 switch: a valid current code turns it OFF`, async () => {
+      const d = requiredRoleWithSeed(role);
+      await expect(d.svc.disable(ADMIN_ID, currentTotpCode(d.secret), CTX)).resolves.toEqual({
+        mfa_enabled: false,
+      });
+    });
+  }
+
+  it("ADMIN_MFA_REQUIRED=false (two-step off for everyone) lifts the refusal", async () => {
+    const d = requiredRoleWithSeed("super_admin", { mfaRequired: false });
+    await expect(d.svc.disable(ADMIN_ID, currentTotpCode(d.secret), CTX)).resolves.toEqual({
+      mfa_enabled: false,
+    });
+  });
+
+  it("enabling stays open to a required role (switching it on early is fine)", async () => {
+    const d = setup({ role: "ops_admin" });
+    const res = await d.svc.enable(ADMIN_ID);
+    expect(res.enrollment.secret).toBeTruthy();
   });
 });

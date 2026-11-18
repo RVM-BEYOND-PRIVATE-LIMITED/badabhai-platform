@@ -872,7 +872,7 @@ Behind `STILL_LOOKING_CHECK_ENABLED` (default off). While it is off, both routes
 | Method | Route | Purpose | Auth |
 |--------|-------|---------|------|
 | `POST /admin/workers/:id/reveal-contact` | Reveal ONE worker phone | AdminAuthGuard, reveal_pii (flag-gated) |
-| `GET /admin/feedback` | Worker feedback | AdminAuthGuard, read_entities |
+| `GET /admin/feedback` | Worker feedback | AdminAuthGuard, read_identity (#2926) |
 | `GET /admin/ai-traces` | PII-free AI trace metadata | AdminAuthGuard, read_ai_traces |
 | `GET /admin/ai-traces/:id` | DECRYPTED AI trace detail | AdminAuthGuard, read_ai_traces |
 | `GET /admin/workers/:id/journey-summary` | 7-step funnel | AdminAuthGuard, read_entities |

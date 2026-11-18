@@ -21,10 +21,15 @@ import type { AdminActionOutcome } from "../../../lib/admin-action-result";
  *     still holds the authenticator, not merely an unattended signed-in browser.
  * Either way the page then refreshes from the server, so `aria-checked` only ever moves when the
  * server says it did.
+ *
+ * REQUIRED FOR THE ROLE (#2924, ADR-0060 Amendment 2: super_admin and ops_admin). With two-step
+ * on, the switch is disabled and nothing offers to turn it off (the API refuses that with a 403
+ * anyway). With it still off, the switch can turn it on now, and the next sign-in would make the
+ * admin set it up regardless.
  */
 type Mode = "idle" | "enrolling" | "disabling";
 
-export function MfaPanel({ enabled }: { enabled: boolean }) {
+export function MfaPanel({ enabled, required = false }: { enabled: boolean; required?: boolean }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("idle");
   const [enrollment, setEnrollment] = useState<{ secret: string; otpauthUri: string } | null>(
@@ -55,6 +60,8 @@ export function MfaPanel({ enabled }: { enabled: boolean }) {
 
   function flip() {
     if (pending || mode !== "idle") return;
+    // A role that requires two-step has no way to switch it off from here.
+    if (enabled && required) return;
     setOutcome(null);
     if (enabled) {
       setCode("");
@@ -129,7 +136,7 @@ export function MfaPanel({ enabled }: { enabled: boolean }) {
           aria-labelledby={labelId}
           aria-describedby={stateId}
           onClick={flip}
-          disabled={pending || mode !== "idle"}
+          disabled={pending || mode !== "idle" || (enabled && required)}
         >
           <span className="switch__thumb" aria-hidden="true" />
         </button>
@@ -138,10 +145,23 @@ export function MfaPanel({ enabled }: { enabled: boolean }) {
         </span>
       </div>
 
-      {!enabled && mode === "idle" ? (
+      {required && enabled && mode === "idle" ? (
         <p className="field__help">
-          Recommended for every admin, and especially for super admins: with it off, your
-          password alone opens this console.
+          Required for your role. Super admins and ops admins can&apos;t turn two-step
+          verification off.
+        </p>
+      ) : null}
+
+      {required && !enabled && mode === "idle" ? (
+        <p className="field__help">
+          Required for your role. You&apos;ll be asked to set it up the next time you sign in, or
+          you can turn it on now.
+        </p>
+      ) : null}
+
+      {!required && !enabled && mode === "idle" ? (
+        <p className="field__help">
+          Recommended for every admin: with it off, your password alone opens this console.
         </p>
       ) : null}
 

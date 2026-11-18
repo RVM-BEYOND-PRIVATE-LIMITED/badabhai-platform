@@ -46,7 +46,8 @@ beforeEach(() => {
 });
 
 describe("the sidebar it hands the shell", () => {
-  it("the read floor sees the Directory, Finance and most of Quality & AI — no admin doors", async () => {
+  it("the read floor sees the Directory, Finance and most of Quality & AI — no admin doors, no Feedback", async () => {
+    // The read floor (an analyst's shape) has no `read_identity`, so no Feedback (#2926).
     stub.capabilities = ["read_entities", "read_candidates", "read_events"];
     await render();
     expect(stub.shell!.sections.map((s) => s.title)).toEqual([
@@ -63,13 +64,18 @@ describe("the sidebar it hands the shell", () => {
       "Postings",
       "Credits",
       "Payment orders",
-      "Feedback",
       "Skill discovery",
       "Engine view",
       "Events",
       "Roles",
       "System",
     ]);
+  });
+
+  it("read_identity adds Feedback to Quality & AI (#2926: super_admin, ops_admin, support)", async () => {
+    stub.capabilities = ["read_entities", "read_candidates", "read_events", "read_identity"];
+    await render();
+    expect(labels()).toContain("Feedback");
   });
 
   it("a super admin's capabilities open every item — at most 16", async () => {
