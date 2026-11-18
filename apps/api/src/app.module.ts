@@ -39,6 +39,8 @@ import { CandidatesModule } from "./candidates/candidates.module";
 import { CampusJobsModule } from "./campus-link/campus-jobs.module";
 import { CampusLinkModule } from "./campus-link/campus-link.module";
 import { CampusReviewModule } from "./campus-link/campus-review.module";
+import { CampusWaiversModule } from "./campus-link/campus-waivers.module";
+import { ReachDeskModule } from "./reach-desk/reach-desk.module";
 import { AgencyModule } from "./agency/agency.module";
 import { AgencyTwinModule } from "./agency-twin/agency-twin.module";
 import { CampusDrivesModule } from "./campus-drives/campus-drives.module";
@@ -50,6 +52,8 @@ import { AdminModule } from "./admin/admin.module";
 import { AdminPostingsModule } from "./admin-postings/admin-postings.module";
 import { AdminHiresModule } from "./hires/admin-hires.module";
 import { PayOnJoiningModule } from "./pay-on-joining/pay-on-joining.module";
+import { AdminNumbersModule } from "./admin/numbers/admin-numbers.module";
+import { AdminLaunchTestsModule } from "./admin/launch-tests/admin-launch-tests.module";
 import { UnlockOutcomesModule } from "./unlock-outcomes/unlock-outcomes.module";
 import { EmailNotificationModule } from "./notifications/email-notification.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
@@ -146,6 +150,11 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // #2746 PR 5 — Campus records the placement team's RVM review and sets the targeting options,
     // behind the same guard and flag. Its own module, so CampusLinkModule is imported, not edited.
     CampusReviewModule,
+    // #2750 item 5 - the placement team's waiver switch (404 while the credit rules are off).
+    CampusWaiversModule,
+    // #2750 item 7 - the couldn't-reach guarantee: the company's report route and the deadline
+    // sweep (404 / inert while the credit rules are off). The desk routes are AdminModule's.
+    ReachDeskModule,
     // Agency Supply Portal demand slice (ADR-0022): agent-only `/payer/agency/*` routes
     // (jobs CRUD + invites + referrals summary) + the consent-gated attribution seam.
     AgencyModule,
@@ -180,6 +189,12 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // #2753 item 11 — the pay-on-joining pilot's hire record (/admin/pay-on-joining-hires). A leaf
     // above AdminModule. INERT until PAY_ON_JOINING_RECORDS_ENABLED is on: every route is a 404.
     PayOnJoiningModule,
+    // #2755 — the numbers screen (/admin/numbers/*): the definitions catalogue and the test-company
+    // marks. A leaf above AdminModule. INERT until ADMIN_NUMBERS_ENABLED is on: every route is a 404.
+    AdminNumbersModule,
+    // #2755 part D — the two pre-launch tests' records (/admin/launch-tests/*). A leaf above
+    // AdminModule. INERT until ADMIN_NUMBERS_ENABLED is on: every route is a 404.
+    AdminLaunchTestsModule,
     // #2753 item 10 — the company follow-up: GET /payer/unlock-outcomes/due and
     // POST /payer/unlocks/:unlockId/outcome. A leaf onto PayersModule and HiresModule; a 404 while
     // UNLOCK_FOLLOWUP_ENABLED is off.

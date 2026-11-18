@@ -15,11 +15,40 @@
 // #2564 — `archived` (the company archive) is a filterable payer status on the server.
 export const PAYER_STATUSES = ["pending", "active", "suspended", "archived"] as const;
 
-/** `AdminLedgerQuerySchema.reason` — the credit ledger's reason chips, in the chips' order. */
-export const LEDGER_REASONS = ["pack_purchase", "grant", "unlock_debit", "refund"] as const;
+/**
+ * `AdminLedgerQuerySchema.reason` — the credit ledger's reason chips, in the chips' order.
+ * `expired` (#2749): a lot's unspent credits removed at its date. `welcome` (#2750): a verified
+ * company's welcome credits, once. `waived` (#2750): an open the placement team's waiver paid for
+ * (a zero-credit line). `campus_conversion` (#2754): a moved company's unused Campus balance;
+ * `campus_conversion_reversed` (#2754 item 14): a batch rollback took it back unspent.
+ * `pack_return` (#2750 item 9): credits that expired on an earlier paid pack, given back with the
+ * next one. `pack_refund` (#2750 item 10): an admin refund took the pack's credits back.
+ */
+export const LEDGER_REASONS = [
+  "pack_purchase",
+  "grant",
+  "unlock_debit",
+  "refund",
+  "expired",
+  "welcome",
+  "waived",
+  "campus_conversion",
+  "returned",
+  // #2750 item 11 — an admin grant under the credit rules.
+  "goodwill",
+  "correction",
+  "campus_conversion_reversed",
+  // #2750 item 9 — credits returned with the next real paid pack.
+  "pack_return",
+  // #2750 item 10 — an admin refund took the pack's credits back.
+  "pack_refund",
+] as const;
 
-/** `AdminOrdersQuerySchema.status` — the Payment orders status chips, in the chips' order. */
-export const ORDER_STATUSES = ["created", "paid", "failed"] as const;
+/**
+ * `AdminOrdersQuerySchema.status` — the Payment orders status chips, in the chips' order.
+ * `held` (#2749): a capture of the wrong amount, nothing granted, waiting on ops.
+ */
+export const ORDER_STATUSES = ["created", "paid", "failed", "held"] as const;
 
 /** `AdminAiTracesQuerySchema.success`, as the address carries it. */
 export const AI_CALL_OUTCOMES = ["true", "false"] as const;
@@ -73,4 +102,6 @@ export const EVENT_SUBJECT_TYPES = [
   "referral_bonus",
   "referral_link",
   "skill_candidate",
+  // #2750 — a revision of the credit rules settings (the target of `credit_rules_changed`).
+  "credit_rules_config",
 ] as const;

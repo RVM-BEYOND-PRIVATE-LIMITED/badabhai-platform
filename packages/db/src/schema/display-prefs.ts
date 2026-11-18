@@ -17,11 +17,12 @@ import type { DisplayPrefsSubjectKind, DisplayTheme } from "@badabhai/types";
 // reads nor writes its row, so a stored choice waits for the switch to open again.
 //
 // NO FOREIGN KEY, on purpose: `subject_id` names a row in one of THREE tables, so no single FK
-// fits, and no cascade erases the row. NO ERASURE PATH NAMES IT YET (#2837, risk R88): naming it
-// in the worker's hard delete before 0165 is applied would roll every worker erasure back on
-// 42P01. Once 0164 and 0165 are applied, #2837 deletes this row and the login's
-// `feature_pilot_subjects` rows in `hardDelete`'s transaction (and in the payer account
-// deletion's). No admin deletion exists; an admin is suspended.
+// fits, and no cascade erases the row. EVERY DELETION PATH DELETES IT ITSELF (#2837, risks R87 and
+// R88, after 0164 and 0165 were applied in production): `eraseLoginKeyedRows` in the api, on the
+// transaction of `WorkersRepository.hardDelete`, Campus's link-created worker delete and the payer
+// account deletion, after the login's own row. A theme PATCH holds `FOR KEY SHARE` on that row
+// while it writes, so no choice lands after an erasure. No admin deletion exists; an admin is
+// suspended.
 //
 // NOT PII: an opaque id, two closed enums and two timestamps. Nothing here crosses the AI boundary.
 // ===========================================================================

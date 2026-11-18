@@ -393,11 +393,12 @@ describe("formatDuration — the idle ladder, and what is NOT a duration", () =>
 });
 
 describe("creditReasonLabel", () => {
-  it("labels the four known reasons", () => {
+  it("labels the five known reasons", () => {
     expect(creditReasonLabel("pack_purchase")).toBe("Pack purchase");
     expect(creditReasonLabel("unlock_debit")).toBe("Contact unlock");
     expect(creditReasonLabel("refund")).toBe("Refund");
     expect(creditReasonLabel("grant")).toBe("Credit grant");
+    expect(creditReasonLabel("expired")).toBe("Credits expired");
   });
 
   it("an UNKNOWN reason is shown raw, never blank", () => {

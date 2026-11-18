@@ -87,6 +87,12 @@ services:
       FAST2SMS_API_KEY: ${FAST2SMS_API_KEY:?required in staging — real Fast2SMS key, worker OTP has no mock path}
       FAST2SMS_SENDER_ID: ${FAST2SMS_SENDER_ID:?required in staging — the DLT-registered sender id}
       FAST2SMS_DLT_TEMPLATE_ID: ${FAST2SMS_DLT_TEMPLATE_ID:?required in staging — the DLT template id}
+      # #2754 — company sign-in by SMS code, off by default. Same Fast2SMS account, the company's
+      # own approved DLT template; the api refuses to boot armed without that template id.
+      # Bridged from the `production` secrets of the same names (ci.yml env + envs).
+      PAYER_SMS_OTP_ENABLED: ${PAYER_SMS_OTP_ENABLED:-false}
+      FAST2SMS_PAYER_DLT_TEMPLATE_ID: ${FAST2SMS_PAYER_DLT_TEMPLATE_ID:-}
+      PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY: ${PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY:-500}
 
       # ---- Payer email OTP (ADR-0019, real-only channel — the ZeptoMail analogue of the
       # Fast2SMS block above) — PASS-THROUGH, NEVER DECLARED HERE UNTIL NOW.
@@ -485,6 +491,23 @@ services:
       STILL_LOOKING_CHECK_ENABLED: ${STILL_LOOKING_CHECK_ENABLED:-false}
       STILL_LOOKING_PUSH_ENABLED: ${STILL_LOOKING_PUSH_ENABLED:-false}
       STILL_LOOKING_EVERY_DAYS: ${STILL_LOOKING_EVERY_DAYS:-30}
+      # THE NUMBERS SCREEN (#2755). Off is today exactly: every /admin/numbers/* route is a neutral
+      # 404 before any query and the nightly numbers sweep writes nothing. Apply the
+      # `numbers_weekly` migration before switching it on (on without it: the weekly route answers
+      # 503 and the sweep skips). `:-false` because this bool rejects "". The freeze wait is
+      # NUMBERS_FREEZE_AFTER_DAYS (`:-3`), bridged from the `production` secret of the same name.
+      ADMIN_NUMBERS_ENABLED: ${ADMIN_NUMBERS_ENABLED:-false}
+      NUMBERS_FREEZE_AFTER_DAYS: ${NUMBERS_FREEZE_AFTER_DAYS:-3}
+      # THE BULK STUDENT MOVE (#2887). Off is today exactly: nothing names the student-move tables
+      # and every /admin/students/* route is a 404. Apply the `student_move` migration before
+      # switching it on (on without it: the routes answer 503, the hot reads fall back). `:-false`
+      # because this bool rejects "".
+      STUDENT_MOVE_ENABLED: ${STUDENT_MOVE_ENABLED:-false}
+      # THE ADMIN AI-CALLS TAB (#2739). Off is today exactly: GET /admin/ai-traces and
+      # /admin/ai-traces/:id are a neutral 404 for every admin role. On, super_admin alone
+      # (read_ai_traces) reads the list and the per-call detail. Armed only by the production
+      # secret of the same name, with the owner's sign-off. `:-false` because this bool rejects "".
+      ADMIN_AI_TRACE_READ_ENABLED: ${ADMIN_AI_TRACE_READ_ENABLED:-false}
       # THE CAMPUS LINK (#2752). Off: every /internal/campus/v1 route is a neutral 404 and nothing
       # else runs. `:-false` because this bool rejects "". The two lists are empty when unset, and
       # empty refuses every caller (fail closed): token HASHES (sha256 hex, two during a rotation)
@@ -730,6 +753,8 @@ services:
       THEME_ROLLOUT: ${THEME_ROLLOUT:-off}
       OUTCOME_STAGES_ROLLOUT: ${OUTCOME_STAGES_ROLLOUT:-off}
       OUTBOUND_SIGNALS_ROLLOUT: ${OUTBOUND_SIGNALS_ROLLOUT:-off}
+      CREDIT_RULES_ROLLOUT: ${CREDIT_RULES_ROLLOUT:-off}
+      POSTING_CHOICE_ROLLOUT: ${POSTING_CHOICE_ROLLOUT:-off}
       CAPACITY_ENFORCEMENT_ENABLED: ${CAPACITY_ENFORCEMENT_ENABLED:-false}
       PACE_ENABLED: ${PACE_ENABLED:-false}
       TEST_LOGIN_ENABLED: ${TEST_LOGIN_ENABLED:-false}

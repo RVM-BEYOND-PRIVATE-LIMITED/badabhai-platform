@@ -74,7 +74,7 @@ export default async function AccountPage() {
           {security.mfaEnabled === null ? (
             <Unreported title="Two-step verification" />
           ) : (
-            <MfaPanel enabled={security.mfaEnabled} />
+            <MfaPanel enabled={security.mfaEnabled} required={security.mfaRequired} />
           )}
         </div>
       )}

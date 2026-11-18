@@ -1271,8 +1271,12 @@ class MockPayerApiClient implements PayerApiClient {
     return UnlockResult.granted(
       unlockId: unlockId,
       expiresAt: _kMockGrantExpiry,
+      creditsCharged: 1,
     );
   }
+
+  @override
+  Future<UnlockQuotes?> fetchUnlockQuotes(List<String> workerIds) async => null;
 
   @override
   Future<RevealResult> reveal(String unlockId) async =>

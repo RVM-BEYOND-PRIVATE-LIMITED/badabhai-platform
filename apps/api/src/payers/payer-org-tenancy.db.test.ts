@@ -5,7 +5,7 @@ import { ConflictException, NotFoundException } from "@nestjs/common";
 import { loadServerConfig, type ServerConfig } from "@badabhai/config";
 import { CREDIT_PACKS, createDbClient, type DbClient } from "@badabhai/db";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
-import { DEFAULT_CATALOG, parseCatalog } from "@badabhai/pricing";
+import { DEFAULT_CATALOG, gstPriceLine, parseCatalog } from "@badabhai/pricing";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsRepository } from "../events/events.repository";
@@ -104,7 +104,13 @@ const EMAIL_B = `tenancy-b-${TAG}@e2e.badabhai.invalid`;
 /** One worker for the anchor's control unlock, a different one for B's (no idempotent replay). */
 const WORKER_FOR_A = randomUUID();
 const WORKER_FOR_B = randomUUID();
-const PACK = CREDIT_PACKS["pack_10"]!;
+// A mock grant of the constant pack, shaped as the gateway resolves one (#2749 PR 3: its GST line
+// and no validity, so the lot never expires).
+const PACK = {
+  ...CREDIT_PACKS["pack_10"]!,
+  validityDays: null,
+  priceLine: gstPriceLine(CREDIT_PACKS["pack_10"]!.priceInr),
+};
 
 describe.skipIf(!RUN)(
   "ADR-0053 T0 — A invites B; B sees A's postings + credits (Postgres, mode on)",
@@ -231,7 +237,9 @@ describe.skipIf(!RUN)(
       const ids = [payerA, payerB].filter(Boolean);
       const { sql } = client;
       await sql`DELETE FROM unlocks WHERE payer_id = ANY(${ids}::uuid[])`;
+      // #2749 — ledger lines name lots (credit_ledger.lot_id), so the ledger goes first.
       await sql`DELETE FROM credit_ledger WHERE payer_id = ANY(${ids}::uuid[])`;
+      await sql`DELETE FROM credit_lots WHERE payer_id = ANY(${ids}::uuid[])`;
       await sql`DELETE FROM payer_credits WHERE payer_id = ANY(${ids}::uuid[])`;
       await sql`DELETE FROM job_postings WHERE payer_id = ANY(${ids}::uuid[]) OR created_by = ANY(${ids}::uuid[])`;
       await sql`DELETE FROM events WHERE correlation_id = ${CTX.correlationId}::uuid`;
@@ -1976,7 +1984,11 @@ describe.skipIf(!RUN)(
       expect(Number(row?.ledger), `ledger of ${payerId}`).toBe(Number(row?.balance));
     }
 
-    /** A credited wallet with its ledger line, exactly as an ops grant writes it (reconciled). */
+    /**
+     * A credited wallet with its ledger line, reconciled (Σ ledger = balance) — written by raw SQL
+     * as the pre-#2749 ops grant wrote it: NO credit lot. The next wallet touch (the spend below)
+     * re-aligns the lots with the balance (credit-wallet.ts), so balance = Σ lots holds after it.
+     */
     async function grantCredits(payerId: string, credits: number): Promise<void> {
       await client.sql`
       INSERT INTO payer_credits (payer_id, balance) VALUES (${payerId}::uuid, ${credits})
@@ -2010,13 +2022,27 @@ describe.skipIf(!RUN)(
           source: "db" as const,
         }),
       };
+      // The fake provider remembers each order it created, so the browser verify's read-back of a
+      // payment (#2749 hardening 5) reports a captured payment of that order's own amount. The
+      // payment ids this suite uses carry no order, so the fake binds a payment to the order last
+      // created — every verify below follows its own order's creation.
+      const created = new Map<string, number>();
+      let lastOrder = "";
       const razorpay = {
         isLive: true,
         keyId: "rzp_test_p2b",
-        createOrder: async ({ amountInr }: { amountInr: number }) => ({
-          orderId: `order_${randomUUID().replace(/-/g, "").slice(0, 14)}`,
-          amountPaise: amountInr * 100,
+        createOrder: async ({ amountInr }: { amountInr: number }) => {
+          const orderId = `order_${randomUUID().replace(/-/g, "").slice(0, 14)}`;
+          created.set(orderId, amountInr * 100);
+          lastOrder = orderId;
+          return { orderId, amountPaise: amountInr * 100, currency: "INR" };
+        },
+        fetchPayment: async (paymentId: string) => ({
+          id: paymentId,
+          orderId: lastOrder,
+          amountPaise: created.get(lastOrder) ?? 0,
           currency: "INR",
+          status: "captured",
         }),
       };
       const gateway = new PaymentGateway(repo, config, pricing as never, razorpay as never);
@@ -2137,8 +2163,11 @@ describe.skipIf(!RUN)(
       const { sql } = client;
       await sql`DELETE FROM resume_disclosures WHERE payer_id = ANY(${payerIds}::uuid[])`;
       await sql`DELETE FROM unlocks WHERE payer_id = ANY(${payerIds}::uuid[])`;
-      await sql`DELETE FROM payment_orders WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      // #2749 — ledger lines name lots and a settled order's lot names the order
+      // (credit_ledger.lot_id, credit_lots.payment_order_id): ledger, then lots, then orders.
       await sql`DELETE FROM credit_ledger WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM credit_lots WHERE payer_id = ANY(${payerIds}::uuid[])`;
+      await sql`DELETE FROM payment_orders WHERE payer_id = ANY(${payerIds}::uuid[])`;
       await sql`DELETE FROM payer_credits WHERE payer_id = ANY(${payerIds}::uuid[])`;
       await sql`DELETE FROM events WHERE correlation_id = ${W_CTX.correlationId}::uuid`;
       await sql`DELETE FROM workers WHERE id = ANY(${workerIds}::uuid[])`;
@@ -2157,7 +2186,10 @@ describe.skipIf(!RUN)(
     it("O-1/O-2: a teammate reads the ORG wallet, never their personal balance; `off` reads their own", async () => {
       const org = await balanceOf(A);
       expect(org).toBeGreaterThan(0);
-      expect(await on.unlocks.getCredits(B)).toEqual({ payer_id: B, balance: org });
+      const orgCredits = await on.unlocks.getCredits(B);
+      expect(orgCredits).toMatchObject({ payer_id: B, balance: org });
+      // #2749 — the lots shown are the ORG wallet's too, and hold exactly its balance.
+      expect(orgCredits.lots.reduce((sum, l) => sum + l.credits_remaining, 0)).toBe(org);
       expect((await off.unlocks.getCredits(B)).balance).toBe(bPersonal);
       // The outsider sees only their own.
       expect((await on.unlocks.getCredits(C)).balance).toBe(await balanceOf(C));
@@ -2321,6 +2353,9 @@ describe.skipIf(!RUN)(
             eventName: "payment.captured",
             paymentId: `pay_${W_TAG}1`,
             orderId: order1!.providerOrderId,
+            // #2749 hardening 5: the capture carries the order total (₹2,000 + GST = ₹2,360).
+            amountPaise: order1!.amountPaise,
+            currency: "INR",
           },
           W_CTX,
         ),
@@ -2358,6 +2393,8 @@ describe.skipIf(!RUN)(
             eventName: "payment.captured",
             paymentId: `pay_${W_TAG}3`,
             orderId: preFlip!.providerOrderId,
+            amountPaise: preFlip!.amountPaise,
+            currency: "INR",
           },
           W_CTX,
         ),
@@ -2439,7 +2476,10 @@ describe.skipIf(!RUN)(
     it("removal: on the very next call the former teammate is back on their personal wallet and sees none of the org's rows", async () => {
       await members.remove(orgOfA, A, memberIdOfB, W_CTX);
       expect((await on.tenancy.resolve(B)).tenantKey).toBe(B);
-      expect(await on.unlocks.getCredits(B)).toEqual({ payer_id: B, balance: bPersonal });
+      const own = await on.unlocks.getCredits(B);
+      expect(own).toMatchObject({ payer_id: B, balance: bPersonal });
+      // #2749 — and the lots are their own wallet's, holding exactly that balance.
+      expect(own.lots.reduce((sum, l) => sum + l.credits_remaining, 0)).toBe(bPersonal);
       const [orgUnlocks] =
         await client.sql`SELECT count(*)::int AS n FROM unlocks WHERE payer_id = ${A}::uuid`;
       expect(Number(orgUnlocks?.n)).toBeGreaterThan(0);

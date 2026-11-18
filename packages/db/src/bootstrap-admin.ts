@@ -213,18 +213,27 @@ async function main(): Promise<void> {
       // and no persistence guarantee, so a flush would have destroyed a seed that is shown
       // once and never recoverable.
       //
-      // One statement, and `mfa_enrolled` is flipped in the SAME update: a seed stored
-      // without the flag would leave an admin the MFA gate never challenges, and the flag
-      // without a seed would lock them out. Neither half is useful alone.
+      // One statement, and `mfa_enrolled` AND `mfa_enabled` are flipped in the SAME update: a
+      // seed stored without the flags would leave an admin the MFA gate never challenges, and
+      // the flags without a seed would lock them out. Neither half is useful alone.
+      //
+      // `mfa_enabled` too (#2924, ADR-0060 Amendment 2). Before it, this stored a seed and left
+      // two-step OFF, so an operator who scanned the seed still signed in with the emailed code
+      // alone. Two-step is now required for super_admin, and the seed printed below is the one
+      // the first sign-in asks for. A seed nobody scanned is recovered with the break-glass
+      // reset (`db:admin:reset-mfa`), as for any lost authenticator.
       await db
         .update(adminUsers)
         .set({
           mfaSecretEnc: encryptPii(secret, encryptionKey!),
           mfaEnrolled: true,
+          mfaEnabled: true,
           updatedAt: new Date(),
         })
         .where(eq(adminUsers.id, created.id));
-      console.log(`[${NAME}] TOTP seed stored (encrypted at rest); mfa_enrolled=true`);
+      console.log(
+        `[${NAME}] TOTP seed stored (encrypted at rest); mfa_enrolled=true mfa_enabled=true`,
+      );
 
       // Printed ONCE, to stdout, deliberately. There is no other way to hand a TOTP seed to
       // a human, and it is never recoverable afterwards (stored encrypted, never returned).

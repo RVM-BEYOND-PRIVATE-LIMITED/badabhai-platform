@@ -97,6 +97,11 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "The company's audience write and its own reads: compares the stored audience with the " +
     "requested one (no-change detection) and with the column default (whether the company's read " +
     "shows the block). Worker visibility is decided only through the fragment's TS twins.",
+  "apps/api/src/admin-postings/admin-posting-worker-visibility.repository.ts":
+    "#2891 — the admin list of Campus-origin postings projects the audience READ-ONLY (so an admin " +
+    "sees a posting the company narrowed to RVM students), and the lock reads it as a VALUE for the " +
+    "TS twin to decide whether `on` can change anything. Admin code, never a worker path " +
+    "(PAIRING_EXEMPT); the worker side reads the hold only through reachesBadaBhaiWorkers().",
   "apps/api/src/admin/admin-entities.repository.ts":
     "The admin posting list and detail project the audience READ-ONLY for the console. Admin code, " +
     "never a worker path (PAIRING_EXEMPT).",
@@ -249,8 +254,8 @@ describe("#2746 — the audience rule has one spelling", () => {
     ];
     for (const sample of samples) expect(rulesHit(sample), sample).not.toEqual([]);
     // The sanctioned use, and a résumé renderer's unrelated `audience` variable, are not hits.
-    expect(rulesHit("AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}")).toEqual([]);
-    expect(rulesHit("reachesBadaBhaiWorkers(jobPostings.audience)")).toEqual([]);
+    expect(rulesHit('AND ${reachesBadaBhaiWorkers("jp")}')).toEqual([]);
+    expect(rulesHit("reachesBadaBhaiWorkers()")).toEqual([]);
     expect(rulesHit("filters.push(reachesRvmStudents(sql`jp.audience`))")).toEqual([]);
     expect(rulesHit(`audience === "worker" ? a : b`)).toEqual([]);
     expect(rulesHit("buildResumeRenderInput(row, audience, opts)")).toEqual([]);
@@ -270,7 +275,7 @@ describe("#2746 — the fragment is never applied conditionally", () => {
       "flag ? reachesBadaBhaiWorkers() : undefined",
       "x ? y : reachesBadaBhaiWorkers()",
       "on && reachesBadaBhaiWorkers()",
-      "a || reachesBadaBhaiWorkers(sql`jp.audience`)",
+      'a || reachesBadaBhaiWorkers("jp")',
       "campus ? reachesRvmStudents(sql`jp.audience`) : undefined",
     ]) {
       expect(CONDITIONAL_FRAGMENT.test(sample), sample).toBe(true);

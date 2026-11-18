@@ -148,15 +148,20 @@ export class PostingAudienceService {
 
   /**
    * #2752 item 5 — the audience of a posting the RVM placement team creates for a company from
-   * Campus: RVM students, with the targeting Campus sent (validated against the active options).
-   * NO SWITCH READ: the `job_audience` switch gates a company CHOOSING an audience on its own form;
-   * a Campus posting is for RVM students by what it is, whoever the company is.
+   * Campus, with the targeting Campus sent (validated against the active options). NO SWITCH READ:
+   * the `job_audience` switch gates a company CHOOSING an audience on its own form; a Campus
+   * posting's audience is decided by what it is, whoever the company is.
+   *
+   * #2891 (ruling of 17 Nov 2026): `both` — for RVM students, and for BadaBhai workers once an
+   * admin opens it. The caller holds it from workers (`holdPostingFromWorkers`) before it opens,
+   * so `both` never reaches a worker on its own. Not `rvm_students` then widened later: the
+   * audience is in the RVM review hash, and a later widening would send the approval to pending.
    */
   resolveForInstitute(targeting: {
     rvm_branch_ids: number[];
     rvm_course_ids: string[];
   }): Promise<PostingAudienceWrite | null> {
-    return this.resolveWrite({ audience: "rvm_students", ...targeting }, DEFAULT_STATE);
+    return this.resolveWrite({ audience: "both", ...targeting }, DEFAULT_STATE);
   }
 
   /**

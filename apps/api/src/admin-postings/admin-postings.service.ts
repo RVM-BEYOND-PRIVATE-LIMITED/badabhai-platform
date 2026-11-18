@@ -3,7 +3,9 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
+import { WelcomeCreditsService } from "../credit-rules/welcome-credits.service";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { Database, Job, JobPosting } from "@badabhai/db";
 import type { JobPostingVerificationStatus } from "@badabhai/types";
@@ -55,6 +57,9 @@ export class AdminPostingsService {
     private readonly jobPostings: JobPostingsService,
     private readonly agency: AgencyService,
     private readonly agencyTwin: AgencyTwinService,
+    // #2750 item 4 — a verified company's welcome credits after its first approved posting.
+    // Optional only so hand-built unit instances keep compiling; Nest always injects it.
+    @Optional() private readonly welcome?: WelcomeCreditsService,
   ) {}
 
   // ----- edit ---------------------------------------------------------------
@@ -603,6 +608,10 @@ export class AdminPostingsService {
         return moved;
       });
       if (!row) throw new ConflictException("Verification changed concurrently; retry");
+      // #2750 item 4 — AFTER the approval committed; never fails it (the service logs and returns).
+      if (next === "verified" && row.payerId !== null) {
+        await this.welcome?.afterPostingApproved(row.payerId, ctx);
+      }
       return { target_id: row.id, entity_type: "job_posting", changed: true };
     }
 

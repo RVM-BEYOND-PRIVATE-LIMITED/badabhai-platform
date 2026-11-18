@@ -10,8 +10,8 @@ the api trust exactly one `X-Forwarded-For` hop:
 - payer-web server-side calls: payer-web forwards the visitor (the last entry nginx appended to
   ITS request, public addresses only) as its own `X-Forwarded-For`, so `req.ip` = the visitor;
 - admin-web: tunnel-only (`127.0.0.1:3003`, no nginx block) and forwards nothing, so its calls
-  stay in one bucket shared by the admins. Direct `/admin/*` hits on the api host through nginx
-  get per-visitor buckets.
+  stay in one bucket shared by the admins. Since 2026-11-18 (#2925) nginx answers 404 to
+  `/admin/*` on the api host, so no admin request comes through nginx at all.
 
 **Design S (owner ruling, 2026-11-04).** No secret, no api middleware. The accepted residual: a
 process on the box's compose network can claim any address by setting `X-Forwarded-For`. What

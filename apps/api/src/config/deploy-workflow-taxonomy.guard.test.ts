@@ -406,6 +406,34 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /STILL_LOOKING_EVERY_DAYS:\s*\$\{\{\s*secrets\.STILL_LOOKING_EVERY_DAYS\s*\}\}/,
       /envs:[^\n]*\bSTILL_LOOKING_EVERY_DAYS\b/,
     ],
+    // #2755 — the numbers screen (/admin/numbers/*). A plain boolean on the api only, turned on in
+    // production ONLY by the environment secret, once the weekly figures ship.
+    [
+      "ADMIN_NUMBERS_ENABLED",
+      /ADMIN_NUMBERS_ENABLED:\s*\$\{\{\s*secrets\.ADMIN_NUMBERS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bADMIN_NUMBERS_ENABLED\b/,
+    ],
+    // #2887 — the bulk student move. A plain boolean on the api only, turned on in production
+    // ONLY by the environment secret, after the `student_move` migration is applied.
+    [
+      "STUDENT_MOVE_ENABLED",
+      /STUDENT_MOVE_ENABLED:\s*\$\{\{\s*secrets\.STUDENT_MOVE_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bSTUDENT_MOVE_ENABLED\b/,
+    ],
+    // #2739 — the admin AI-calls tab (/admin/ai-traces). A plain boolean on the api only, turned on
+    // in production ONLY by the environment secret, with the owner's sign-off.
+    [
+      "ADMIN_AI_TRACE_READ_ENABLED",
+      /ADMIN_AI_TRACE_READ_ENABLED:\s*\$\{\{\s*secrets\.ADMIN_AI_TRACE_READ_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bADMIN_AI_TRACE_READ_ENABLED\b/,
+    ],
+    // #2755 part B — how many days after a week ends the numbers sweep freezes it, a tuning number
+    // like the follow-up wait above; absent, compose holds it at 3.
+    [
+      "NUMBERS_FREEZE_AFTER_DAYS",
+      /NUMBERS_FREEZE_AFTER_DAYS:\s*\$\{\{\s*secrets\.NUMBERS_FREEZE_AFTER_DAYS\s*\}\}/,
+      /envs:[^\n]*\bNUMBERS_FREEZE_AFTER_DAYS\b/,
+    ],
     // ADR-0053 (PAY-DB-01) — payer org tenancy (off | shadow | on), api only. The environment
     // secret is its one arming path (owner decision O-8); absent, the bridge holds it off.
     [
@@ -461,6 +489,12 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       "OUTBOUND_SIGNALS_ROLLOUT",
       /OUTBOUND_SIGNALS_ROLLOUT:\s*\$\{\{\s*secrets\.OUTBOUND_SIGNALS_ROLLOUT\s*\}\}/,
       /envs:[^\n]*\bOUTBOUND_SIGNALS_ROLLOUT\b/,
+    ],
+    // #2750 — the brief's credit rules: the settings table, and later the cost, limits and grants.
+    [
+      "CREDIT_RULES_ROLLOUT",
+      /CREDIT_RULES_ROLLOUT:\s*\$\{\{\s*secrets\.CREDIT_RULES_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bCREDIT_RULES_ROLLOUT\b/,
     ],
     // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
     // secret in the confidentiality sense, but bridged through `secrets.*` like the other
@@ -579,6 +613,14 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["STILL_LOOKING_CHECK_ENABLED", "false"],
     ["STILL_LOOKING_PUSH_ENABLED", "false"],
     ["STILL_LOOKING_EVERY_DAYS", "30"],
+    // #2755 — off is no numbers route at all: a neutral 404 before any query.
+    ["ADMIN_NUMBERS_ENABLED", "false"],
+    // #2755 part B — the zod default: a week freezes 3 days after it ends.
+    ["NUMBERS_FREEZE_AFTER_DAYS", "3"],
+    // #2887 — off is today: nothing names the student-move tables, /admin/students/* is a 404.
+    ["STUDENT_MOVE_ENABLED", "false"],
+    // #2739 — off is today: both /admin/ai-traces routes are a neutral 404 for every role.
+    ["ADMIN_AI_TRACE_READ_ENABLED", "false"],
     // #2752 — off is no Campus route at all: a neutral 404 before any token, address or audit.
     ["CAMPUS_LINK_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.

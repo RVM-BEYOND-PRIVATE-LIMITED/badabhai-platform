@@ -91,8 +91,9 @@ export default async function FeedbackPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  // Page-level gate. Belt and braces: the route enforces `read_entities` server-side too.
-  const session = await requireCapability("read_entities");
+  // Page-level gate. Belt and braces: the route enforces `read_identity` server-side too
+  // (owner ruling #2926: worker feedback is not shown to analysts).
+  const session = await requireCapability("read_identity");
 
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) =>

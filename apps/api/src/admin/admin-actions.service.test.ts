@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
@@ -13,7 +15,7 @@ import type { SessionService } from "../auth/session.service";
 import type { PinRepository } from "../auth/pin.repository";
 import type { AdminRepository } from "./admin.repository";
 import type { AdminActionsRepository } from "./admin-actions.repository";
-import { AdminActionsService } from "./admin-actions.service";
+import { AdminActionsService, istQuarterStart } from "./admin-actions.service";
 import { AdminWorkerSuspendSchema } from "./admin-actions.dto";
 import type { AdminInviteService } from "./admin-invite.service";
 
@@ -82,6 +84,11 @@ interface Mocks {
     suspendPayerInventory: ReturnType<typeof vi.fn>;
     reinstatePayerInventory: ReturnType<typeof vi.fn>;
     grantCredits: ReturnType<typeof vi.fn>;
+    lockGoodwill: ReturnType<typeof vi.fn>;
+    goodwillGrantedSince: ReturnType<typeof vi.fn>;
+    ledgerKeyExists: ReturnType<typeof vi.fn>;
+    ledgerRowOfPayer: ReturnType<typeof vi.fn>;
+    insertGrantAudit: ReturnType<typeof vi.fn>;
     findPostingStatus: ReturnType<typeof vi.fn>;
     forceClosePosting: ReturnType<typeof vi.fn>;
     openFlag: ReturnType<typeof vi.fn>;
@@ -132,6 +139,12 @@ function make(): Mocks {
     suspendPayerInventory: vi.fn(async () => ({ postings: 3, jobs: 1 })),
     reinstatePayerInventory: vi.fn(async () => ({ postings: 3, jobs: 1 })),
     grantCredits: vi.fn(),
+    // #2750 item 11 — the goodwill cap's reads and the grant's audit row.
+    lockGoodwill: vi.fn(async () => undefined),
+    goodwillGrantedSince: vi.fn(async () => 0),
+    ledgerKeyExists: vi.fn(async () => false),
+    ledgerRowOfPayer: vi.fn(async () => true),
+    insertGrantAudit: vi.fn(async () => undefined),
     findPostingStatus: vi.fn(),
     forceClosePosting: vi.fn(),
     openFlag: vi.fn(),
@@ -619,7 +632,8 @@ describe("grantCredits", () => {
     );
 
     // The AMOUNT + reason go to the ledger SoR — NOT the event. The grant is keyed for H2.
-    expect(m.actions.grantCredits).toHaveBeenCalledWith(PAYER_ID, 500, GRANT_KEY, FAKE_TX);
+    // Outside the credit rules: today's grant (`grant`, a lot that never expires).
+    expect(m.actions.grantCredits).toHaveBeenCalledWith(PAYER_ID, 500, GRANT_KEY, FAKE_TX, {});
     expect(res).toEqual({ target_id: PAYER_ID, changed: true, ledger_id: LEDGER_ID, balance: 500 });
     const emitted = soleEmit(m.events);
     assertValueFreeAction(emitted, {
@@ -682,6 +696,43 @@ describe("grantCredits", () => {
     ).rejects.toThrow(ConflictException);
     expect(m.actions.grantCredits).not.toHaveBeenCalled();
     expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("#2749: a key already used for ANOTHER payer → 409 (the ledger key's 23505), not a 500", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    const driver = Object.assign(new Error("duplicate key value"), {
+      code: "23505",
+      constraint_name: "credit_ledger_idempotency_key_uq",
+    });
+    m.actions.grantCredits.mockRejectedValue(
+      new DrizzleQueryError("insert into credit_ledger ...", [], driver),
+    );
+    await expect(
+      m.service.grantCredits(
+        ADMIN_ID,
+        PAYER_ID,
+        { amount: 10, reason_code: "promo", idempotency_key: GRANT_KEY },
+        CTX,
+      ),
+    ).rejects.toThrow(ConflictException);
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("#2749: any OTHER unique violation still propagates (only the ledger key is a 409)", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    const other = Object.assign(new Error("duplicate key value"), {
+      code: "23505",
+      constraint_name: "events_idempotency_key_uq",
+    });
+    m.actions.grantCredits.mockRejectedValue(other);
+    await expect(
+      m.service.grantCredits(
+        ADMIN_ID,
+        PAYER_ID,
+        { amount: 10, reason_code: "promo", idempotency_key: GRANT_KEY },
+        CTX,
+      ),
+    ).rejects.toBe(other);
   });
 
   it("a PENDING payer CAN be granted credits (pre-provisioning is legitimate)", async () => {
@@ -1369,5 +1420,170 @@ describe("resetAdminMfa — the lost-device recovery path (ADR-0038)", () => {
     // The write and the record commit together — a reset that vanished from the spine is
     // an MFA removal nobody can attribute.
     expect((evt as unknown as { tx?: unknown }).tx).toBe(FAKE_TX);
+  });
+});
+
+
+// ===========================================================================
+// #2750 item 11 — the goodwill cap and the grant reasons, for a company under the credit rules
+// ===========================================================================
+describe("grantCredits — under the credit rules (#2750 item 11)", () => {
+  const REASON = "Apology for the failed relay on the 14th";
+  const CORRECTED = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+
+  function underRules(state: "on" | "off" | "unavailable" = "on") {
+    const t = make();
+    const creditRules = {
+      stateFor: vi.fn(async () => state),
+      get: vi.fn(async () => ({ goodwillMaxPerQuarter: 5, goodwillValidityDays: 30 })),
+    };
+    const tenancy = { resolveReadOnly: vi.fn(async () => ({ tenantKey: PAYER_ID })) };
+    const service = new AdminActionsService(
+      t.actions as never,
+      t.admins as never,
+      t.events as never,
+      t.sessions as never,
+      t.invites as never,
+      t.workerSessions as never,
+      t.pins as never,
+      creditRules as never,
+      tenancy as never,
+    );
+    t.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    t.actions.grantCredits.mockResolvedValue({ ledgerId: LEDGER_ID, balance: 7, applied: true });
+    return { ...t, service, creditRules };
+  }
+  const grant = (
+    t: ReturnType<typeof underRules>,
+    body: Record<string, unknown>,
+    role: "super_admin" | "ops_admin" = "ops_admin",
+  ) =>
+    t.service.grantCredits(
+      ADMIN_ID,
+      PAYER_ID,
+      { amount: 2, reason_code: "goodwill", idempotency_key: GRANT_KEY, reason_text: REASON, ...body } as never,
+      CTX,
+      role,
+    );
+
+  it("goodwill within the cap: a goodwill line, a lot valid 30 days, the audit row with the reason", async () => {
+    const t = underRules();
+    t.actions.goodwillGrantedSince.mockResolvedValue(3);
+    await grant(t, {});
+    expect(t.actions.lockGoodwill).toHaveBeenCalledWith(FAKE_TX, PAYER_ID);
+    expect(t.actions.grantCredits).toHaveBeenCalledWith(PAYER_ID, 2, GRANT_KEY, FAKE_TX, {
+      reason: "goodwill",
+      validityDays: 30,
+    });
+    expect(t.actions.insertGrantAudit).toHaveBeenCalledWith(FAKE_TX, {
+      adminId: ADMIN_ID,
+      payerId: PAYER_ID,
+      metadata: {
+        ledger_id: LEDGER_ID,
+        amount: 2,
+        reason_code: "goodwill",
+        reason_text: REASON,
+        corrects_ledger_id: null,
+        credit_rules: true,
+      },
+    });
+  });
+
+  it("goodwill beyond the quarter's cap is refused (409) and nothing is granted", async () => {
+    const t = underRules();
+    t.actions.goodwillGrantedSince.mockResolvedValue(4);
+    await expect(grant(t, {})).rejects.toMatchObject({
+      response: { code: "GOODWILL_CAP_EXCEEDED", used: 4, cap: 5 },
+    });
+    expect(t.actions.grantCredits).not.toHaveBeenCalled();
+    expect(t.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("a replay of an applied grant is never refused by the cap its first attempt used up", async () => {
+    const t = underRules();
+    t.actions.goodwillGrantedSince.mockResolvedValue(5);
+    t.actions.ledgerKeyExists.mockResolvedValue(true);
+    t.actions.grantCredits.mockResolvedValue({ ledgerId: LEDGER_ID, balance: 7, applied: false });
+    await expect(grant(t, {})).resolves.toMatchObject({ changed: false });
+    expect(t.actions.goodwillGrantedSince).not.toHaveBeenCalled();
+  });
+
+  it.each(["promo", "support_resolution"])("%s is retired for a company under the rules (400)", async (reason) => {
+    const t = underRules();
+    await expect(grant(t, { reason_code: reason })).rejects.toMatchObject({
+      response: { code: "GRANT_REASON_RETIRED" },
+    });
+    expect(t.actions.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it("a written reason is required under the rules (400)", async () => {
+    const t = underRules();
+    await expect(grant(t, { reason_text: undefined })).rejects.toMatchObject({
+      response: { code: "REASON_TEXT_REQUIRED" },
+    });
+  });
+
+  it("a correction: super admin only, naming a ledger row of this company; no cap, a lot that never expires", async () => {
+    const t = underRules();
+    await expect(
+      grant(t, { reason_code: "correction", corrects_ledger_id: CORRECTED }, "ops_admin"),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(grant(t, { reason_code: "correction" }, "super_admin")).rejects.toMatchObject({
+      response: { code: "CORRECTS_LEDGER_ID_REQUIRED" },
+    });
+    t.actions.ledgerRowOfPayer.mockResolvedValueOnce(false);
+    await expect(
+      grant(t, { reason_code: "correction", corrects_ledger_id: CORRECTED }, "super_admin"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    await grant(t, { reason_code: "correction", corrects_ledger_id: CORRECTED }, "super_admin");
+    expect(t.actions.lockGoodwill).not.toHaveBeenCalled();
+    expect(t.actions.grantCredits).toHaveBeenCalledWith(PAYER_ID, 2, GRANT_KEY, FAKE_TX, {
+      reason: "correction",
+      validityDays: null,
+    });
+    expect(t.actions.insertGrantAudit).toHaveBeenCalledWith(
+      FAKE_TX,
+      expect.objectContaining({
+        metadata: expect.objectContaining({ reason_code: "correction", corrects_ledger_id: CORRECTED }),
+      }),
+    );
+  });
+
+  it("goodwill naming a corrected row is refused (400)", async () => {
+    const t = underRules();
+    await expect(grant(t, { corrects_ledger_id: CORRECTED })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it("a company outside the rules keeps all four reasons and today's grant, audited", async () => {
+    const t = underRules("off");
+    await grant(t, { reason_code: "promo", reason_text: undefined });
+    expect(t.actions.grantCredits).toHaveBeenCalledWith(PAYER_ID, 2, GRANT_KEY, FAKE_TX, {});
+    expect(t.actions.lockGoodwill).not.toHaveBeenCalled();
+    expect(t.actions.insertGrantAudit).toHaveBeenCalledWith(
+      FAKE_TX,
+      expect.objectContaining({
+        metadata: expect.objectContaining({ reason_code: "promo", credit_rules: false }),
+      }),
+    );
+  });
+
+  it("a pilot list that cannot be read refuses the grant (503), nothing written", async () => {
+    const t = underRules("unavailable");
+    await expect(grant(t, {})).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(t.actions.withTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("istQuarterStart (#2750 item 11)", () => {
+  it.each([
+    ["2026-11-18T10:00:00Z", "2026-09-30T18:30:00.000Z"],
+    ["2026-09-30T18:29:59Z", "2026-06-30T18:30:00.000Z"],
+    ["2026-09-30T18:30:00Z", "2026-09-30T18:30:00.000Z"],
+    ["2026-01-01T00:00:00Z", "2025-12-31T18:30:00.000Z"],
+  ])("%s → %s", (now, start) => {
+    expect(istQuarterStart(new Date(now)).toISOString()).toBe(start);
   });
 });

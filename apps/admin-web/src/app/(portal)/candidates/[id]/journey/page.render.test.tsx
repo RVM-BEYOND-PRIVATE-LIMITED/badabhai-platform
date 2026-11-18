@@ -48,7 +48,8 @@ const WORKER_ID = "5eeded00-0001-4a00-8000-000000000001";
 
 beforeEach(() => {
   // Every role holds read_events today, so the realistic session carries it.
-  stub.capabilities = ["read_entities", "read_events"];
+  // ops_admin's real set for these three: the journey, the timeline and the feedback link.
+  stub.capabilities = ["read_entities", "read_events", "read_identity"];
   stub.gates.length = 0;
 });
 
@@ -70,10 +71,11 @@ describe("the link to what this worker told us", () => {
     expect(out).toContain("What they told us");
   });
 
-  it("gates on read_entities, and does not offer the link without it", async () => {
+  it("gates on read_identity, and does not offer the link without it (#2926)", async () => {
     // Derived from the session rather than hardcoded: the day `GET /admin/feedback` narrows
     // its capability, this control disappears instead of becoming a link to a redirect.
-    stub.capabilities = ["read_events"];
+    // analyst's shape: the journey (read_entities) but not read_identity.
+    stub.capabilities = ["read_entities", "read_events"];
     const out = await render();
     expect(out).not.toContain("/feedback");
     expect(out).not.toContain("What they told us");
@@ -82,7 +84,7 @@ describe("the link to what this worker told us", () => {
   });
 
   it("offers the event timeline only with read_events, the timeline route's own gate", async () => {
-    stub.capabilities = ["read_entities"];
+    stub.capabilities = ["read_entities", "read_identity"];
     const out = await render();
     expect(out).not.toContain(`href="/candidates/${WORKER_ID}/timeline"`);
     expect(out).not.toContain("View event timeline");

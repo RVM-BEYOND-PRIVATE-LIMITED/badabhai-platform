@@ -1585,6 +1585,226 @@ export type UnlockCompanyOutcome = (typeof UNLOCK_COMPANY_OUTCOMES)[number];
 export const UNLOCK_OUTCOME_ANSWERERS = Object.freeze(["company", "desk"] as const);
 export type UnlockOutcomeAnswerer = (typeof UNLOCK_OUTCOME_ANSWERERS)[number];
 
+// ---- Launch test A: what each factory did with its payment link (#2755 item 9) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells it into
+// `launch_test_cohort_result_chk`, `packages/event-schema` puts it on the spine
+// (`admin.launch_test_factory_updated`), and `apps/api` writes and lists it.
+
+/**
+ * The result the desk records for one factory of launch test A. `pending` until the desk knows;
+ * `paid` (it paid the link: `paid_at` is set exactly then), `declined` (it said no) or
+ * `no_response` (it never answered).
+ */
+export const LAUNCH_TEST_RESULTS = Object.freeze([
+  "pending",
+  "paid",
+  "declined",
+  "no_response",
+] as const);
+export type LaunchTestResult = (typeof LAUNCH_TEST_RESULTS)[number];
+
+// ---- Credit lots: a company's balance, as expiring lots (#2749, migration 0174) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells the sources into
+// `credit_lots_source_chk` and writes them from its wallet helpers, and the api returns them on
+// `GET /payer/credits`. Declared once so the CHECK, the writers and the readers cannot drift.
+
+/**
+ * Where a lot's credits came from (brief 4C.1). `pack` = a pack bought (mock or Razorpay);
+ * `welcome` = the one-time welcome credits; `goodwill` = an ops grant; `returned` = credits given
+ * back after a refund; `migrated` = moved from another wallet; `legacy` = what a wallet held before
+ * lots existed (migration 0174's backfill), and the free-tier signup grant. A new value is a
+ * migration widening `credit_lots_source_chk`.
+ */
+export const CREDIT_LOT_SOURCES = Object.freeze([
+  "pack",
+  "welcome",
+  "goodwill",
+  "returned",
+  "migrated",
+  "legacy",
+] as const);
+export type CreditLotSource = (typeof CREDIT_LOT_SOURCES)[number];
+
+export function isCreditLotSource(value: unknown): value is CreditLotSource {
+  return typeof value === "string" && (CREDIT_LOT_SOURCES as readonly string[]).includes(value);
+}
+
+/**
+ * What closed an expired lot (`payer.credits_expired.trigger`): `spend` = a contact open found the
+ * lot past its date before it spent, `sweep` = the `credit-lot-expiry` sweep. FROZEN: the event's
+ * v1 enum is taken from this list, and a shipped payload never changes.
+ */
+export const CREDIT_LOT_EXPIRY_TRIGGERS = Object.freeze(["spend", "sweep"] as const);
+export type CreditLotExpiryTrigger = (typeof CREDIT_LOT_EXPIRY_TRIGGERS)[number];
+
+/**
+ * One open lot on `GET /payer/credits` (`credits_remaining > 0`), in the order credits are spent:
+ * the soonest `expires_at` first, a lot that never expires last. No lot id and no payment
+ * reference: what a company can see is how many credits it holds and when they end.
+ */
+export interface PayerCreditLot {
+  readonly source: CreditLotSource;
+  readonly credits_remaining: number;
+  readonly credits_granted: number;
+  /** ISO 8601 instant the lot expires, or `null` when it never does. */
+  readonly expires_at: string | null;
+  /** The pack a `pack` lot came from; `null` for every other source. */
+  readonly pack_code: string | null;
+}
+
+/**
+ * The reply of `GET /payer/credits` (and the ops `GET /payers/:payerId/credits`). `payer_id`
+ * echoes the caller, `balance` is the wallet the caller spends from (the org wallet under org
+ * tenancy `on`, ADR-0053), and `balance` equals the sum of `lots[].credits_remaining`.
+ */
+export interface PayerCreditsResponse {
+  readonly payer_id: string;
+  readonly balance: number;
+  readonly lots: readonly PayerCreditLot[];
+}
+
+// ---- The out-of-credits call log (#2755 item 8, the telecaller list) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells the results into
+// `credit_call_log_result_chk`, `packages/event-schema` puts one on the spine
+// (`admin.credit_call_logged`), and the api parses the route body with them. Declared once so the
+// CHECK, the event and the route cannot drift.
+
+/**
+ * What a call to a company whose credits ran out came to. CLOSED CODES ONLY, never free text:
+ * `reached_will_buy` = reached, says it will buy; `reached_not_now` = reached, not now;
+ * `reached_declined` = reached, does not want to buy; `no_answer` = nobody picked up;
+ * `wrong_number` = the number is not the company's. FROZEN: the event's v1 enum is taken from this
+ * list; a new value is a migration widening the CHECK and a new event version.
+ */
+export const CREDIT_CALL_RESULTS = Object.freeze([
+  "reached_will_buy",
+  "reached_not_now",
+  "reached_declined",
+  "no_answer",
+  "wrong_number",
+] as const);
+export type CreditCallResult = (typeof CREDIT_CALL_RESULTS)[number];
+
+// ---- Payment orders: checkout (#2749 item 9, migration 0176) ----
+//
+// HERE FOR THE SAME REASON AS THE LOT SOURCES ABOVE: `packages/db` spells these sets into CHECK
+// constraints on `payment_orders`, the api writes and validates them, `packages/event-schema` puts
+// the hold reasons on the spine (`payment.held`), and admin-web parses the statuses. Declared once
+// so none of them can drift. A new value in any of them is a migration widening its CHECK.
+
+/**
+ * What a payment order sells. `credit_pack` is the only kind today; #2751 widens it (a pack code
+ * and a positive credit grant are then required only of a `credit_pack` order).
+ */
+export const PAYMENT_ORDER_PRODUCT_KINDS = Object.freeze(["credit_pack"] as const);
+export type PaymentOrderProductKind = (typeof PAYMENT_ORDER_PRODUCT_KINDS)[number];
+
+/**
+ * A payment order's lifecycle. `created` at intent → `paid` once a verified capture granted it, or
+ * `failed` after a provider failure (a later capture may still settle a `failed` order: Razorpay
+ * lets a buyer retry on the same order). `held` (#2749 hardening 5): the provider captured an
+ * amount that is NOT the order's total, so nothing was granted and the order can never be settled
+ * — ops resolve it (a refund in the Razorpay dashboard until BB-D-05).
+ */
+export const PAYMENT_ORDER_STATUSES = Object.freeze(["created", "paid", "failed", "held"] as const);
+export type PaymentOrderStatus = (typeof PAYMENT_ORDER_STATUSES)[number];
+
+export function isPaymentOrderStatus(value: unknown): value is PaymentOrderStatus {
+  return typeof value === "string" && (PAYMENT_ORDER_STATUSES as readonly string[]).includes(value);
+}
+
+/**
+ * Where a purchase started (the button a company pressed; #2749 item 9, #2781's numbers screen).
+ * `credits_page` = the Credits page itself; `unlock_prompt` = an "out of credits" prompt on a
+ * contact open; `candidate_search` = the candidate search list; `posting_flow` = a job posting's
+ * screens (its applicants, posting a job); `dashboard` = a dashboard tile; `other` = anything else.
+ * Optional on the order: an older client sends none and the order stores null.
+ */
+export const PAYMENT_ORDER_ORIGINS = Object.freeze([
+  "credits_page",
+  "unlock_prompt",
+  "candidate_search",
+  "posting_flow",
+  "dashboard",
+  "other",
+] as const);
+export type PaymentOrderOrigin = (typeof PAYMENT_ORDER_ORIGINS)[number];
+
+export function isPaymentOrderOrigin(value: unknown): value is PaymentOrderOrigin {
+  return typeof value === "string" && (PAYMENT_ORDER_ORIGINS as readonly string[]).includes(value);
+}
+
+// ---- The posting choice (#2751 items 1 to 3, migration 0187) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells them into the
+// `job_posting_choices` CHECKs, `packages/event-schema` puts them on the spine
+// (`job_posting.posting_choice_recorded`) and the api parses the publish body with them. FROZEN:
+// the event's v1 enums are taken from these lists.
+
+/**
+ * Which of the two posting buttons a company tapped (brief 4B.7). `free` = "Post free";
+ * `free_plus_pack` = "Post free + Starter". The job goes live either way; the choice is recorded,
+ * not enforced.
+ */
+export const POSTING_CHOICES = Object.freeze(["free", "free_plus_pack"] as const);
+export type PostingChoice = (typeof POSTING_CHOICES)[number];
+
+/** The client the button was tapped on: payer-web or the payer app. */
+export const POSTING_SURFACES = Object.freeze(["web", "app"] as const);
+export type PostingSurface = (typeof POSTING_SURFACES)[number];
+
+// ---- Refunds of real paid packs (#2750 item 10, migration 0186) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells them into the
+// `payment_refunds` CHECKs, `packages/event-schema` puts them on the spine
+// (`payment.refund_requested`, `payment.refund_status_changed`) and the api parses the admin
+// route with them. FROZEN: each event's v1 enum is taken from these lists.
+
+/**
+ * The refund rule a refund was granted under (brief 4C.12): `unused` = the pack is unused, within
+ * `refundUnusedWithinDays` of its purchase; `low_match` = unused, within `refundLowMatchWithinDays`,
+ * and its job drew fewer than `refundLowMatchMinWorkers` applicants.
+ */
+export const PAYMENT_REFUND_RULES = Object.freeze(["unused", "low_match"] as const);
+export type PaymentRefundRuleCode = (typeof PAYMENT_REFUND_RULES)[number];
+
+/** Where a refund stands with Razorpay: `requested` → `pending` → `processed`, or `failed`. */
+export const PAYMENT_REFUND_STATUSES = Object.freeze([
+  "requested",
+  "pending",
+  "processed",
+  "failed",
+] as const);
+export type PaymentRefundStatusCode = (typeof PAYMENT_REFUND_STATUSES)[number];
+
+/** Why a refund failed: the provider call errored, or Razorpay reported the refund failed. */
+export const PAYMENT_REFUND_FAILURES = Object.freeze(["provider_error", "provider_failed"] as const);
+export type PaymentRefundFailureCode = (typeof PAYMENT_REFUND_FAILURES)[number];
+
+/**
+ * Why a captured payment was HELD instead of granted (`payment.held.reason`). `amount_mismatch` =
+ * the captured paise are not the order's total; `amount_missing` = the capture carried no amount;
+ * `currency_mismatch` = the capture was not in INR. FROZEN: the event's v1 enum is taken from this
+ * list, and a shipped payload never changes.
+ */
+export const PAYMENT_HOLD_REASONS = Object.freeze([
+  "amount_mismatch",
+  "amount_missing",
+  "currency_mismatch",
+] as const);
+export type PaymentHoldReason = (typeof PAYMENT_HOLD_REASONS)[number];
+
+/**
+ * The order's status after a mismatched capture (`payment.held.order_status`): `held` = the capture
+ * held the order and granted nothing; `paid` = the order was already paid (the browser verify
+ * settled it first), so nothing changed and the grant stands. FROZEN with the event's v1 enum.
+ */
+export const PAYMENT_HELD_ORDER_STATUSES = Object.freeze(["held", "paid"] as const);
+export type PaymentHeldOrderStatus = (typeof PAYMENT_HELD_ORDER_STATUSES)[number];
+
 // ---- Display preferences: the theme (#2819, migration 0165) ----
 //
 // HERE FOR THE SAME REASON AS THE SKINS ABOVE: `packages/db` spells both sets into CHECK

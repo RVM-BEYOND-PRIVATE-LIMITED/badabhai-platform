@@ -1,3 +1,5 @@
+import { CreditRulesModule } from "../credit-rules/credit-rules.module";
+import { RvmWaiversModule } from "../rvm-waivers/rvm-waivers.module";
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { CampusLinkModule } from "../campus-link/campus-link.module";
@@ -5,7 +7,7 @@ import { FeatureRolloutModule } from "../feature-rollout/feature-rollout.module"
 import { ConsentModule } from "../consent/consent.module";
 import { PayersModule } from "../payers/payers.module";
 import { PricingModule } from "../pricing/pricing.module";
-import { REFERRAL_BONUS_QUEUE } from "../queue/queue.constants";
+import { CREDIT_LOT_EXPIRY_QUEUE, REFERRAL_BONUS_QUEUE } from "../queue/queue.constants";
 import { UnlocksController } from "./unlocks.controller";
 import { UnlockService } from "./unlocks.service";
 import { UnlocksRepository } from "./unlocks.repository";
@@ -13,6 +15,8 @@ import { PaymentGateway } from "./payment-gateway";
 import { RazorpayClient } from "./razorpay.client";
 import { RazorpayWebhookController } from "./razorpay-webhook.controller";
 import { RazorpayWebhookGuard } from "./razorpay-webhook.guard";
+import { CreditLotExpirySweepProcessor } from "./credit-lot-expiry-sweep.processor";
+import { PaymentRefundsModule } from "../payment-refunds/payment-refunds.module";
 
 /**
  * Contact Unlock + Reveal (ADR-0010, Stream A): the routed-disclosure monetization
@@ -42,11 +46,23 @@ import { RazorpayWebhookGuard } from "./razorpay-webhook.guard";
     // ONLY: the processor lives in ReferralAttributionModule, so this stays a queue
     // registration and NOT a module import (no dependency from `unlocks` into `referrals`).
     BullModule.registerQueue({ name: REFERRAL_BONUS_QUEUE }),
+    // #2749 item 4 — the credit-lot expiry sweep's clock. Registered here because the processor
+    // lives here, beside the wallet it expires (it reaches the lots only through
+    // UnlocksRepository, the module's single writer); the tick carries no payload.
+    BullModule.registerQueue({ name: CREDIT_LOT_EXPIRY_QUEUE }),
     // #2752 — InstituteOpenGate: a linked institute student opens only for a company he applied
     // to. A one-way edge: the Campus link has no dependency on unlocks.
     CampusLinkModule,
     // #2747 — the `contact_rules` switch (open for good, the contact read). No dependency back.
     FeatureRolloutModule,
+    // #2750 — the credit rules (what a contact costs). CreditRulesModule has no dependency back.
+    CreditRulesModule,
+    // #2750 item 5 - the placement team's waivers (which waiver frees a worker, and its use). No
+    // dependency back: RvmWaiversModule imports only CreditRulesModule and PayersModule.
+    RvmWaiversModule,
+    // #2750 item 10 - the webhook's `refund.*` deliveries reach the refund service. A one-way edge:
+    // PaymentRefundsModule imports only CreditRulesModule.
+    PaymentRefundsModule,
   ],
   // RazorpayWebhookController is the PUBLIC capture surface (ADR-0010 real-payments
   // stream). It lives here, beside the money chokepoint it drives, so the whole payment
@@ -61,6 +77,7 @@ import { RazorpayWebhookGuard } from "./razorpay-webhook.guard";
     // outside this module may reach the gateway credentials.
     RazorpayClient,
     RazorpayWebhookGuard,
+    CreditLotExpirySweepProcessor,
   ],
   // Export ONLY the service (the fail-closed chokepoint) so the payer-portal route
   // group (ADR-0019) can reuse the exact same disclosure logic. UnlocksRepository

@@ -21,6 +21,12 @@ export interface AccountSecurity {
   mustChangePassword: boolean;
   /** Whether two-step verification (MFA) is on for this account. null = the server did not say. */
   mfaEnabled: boolean | null;
+  /**
+   * #2924 — the admin's ROLE requires two-step (super_admin, ops_admin), so the page offers no
+   * way to switch it off. An older API that does not send it reads as false: the server still
+   * refuses the switch-off on its own, so the worst case is a button that answers with a 403.
+   */
+  mfaRequired: boolean;
 }
 
 /** Exported so tests parse a response through the real schema, not around it. */
@@ -28,6 +34,7 @@ export const meSecuritySchema = z.object({
   has_password: z.boolean().optional(),
   must_change_password: z.boolean().optional(),
   mfa_enabled: z.boolean().optional(),
+  mfa_required: z.boolean().optional(),
 });
 
 export function toAccountSecurity(raw: z.infer<typeof meSecuritySchema>): AccountSecurity {
@@ -35,6 +42,7 @@ export function toAccountSecurity(raw: z.infer<typeof meSecuritySchema>): Accoun
     hasPassword: raw.has_password ?? null,
     mustChangePassword: raw.must_change_password === true,
     mfaEnabled: raw.mfa_enabled ?? null,
+    mfaRequired: raw.mfa_required === true,
   };
 }
 

@@ -709,6 +709,12 @@ export const serverEnvSchema = z.object({
   //     RVM once (POST /internal/campus/selection-events). Off for the company, the mark is saved
   //     and nothing is queued; off everywhere, the sender idles and queued rows wait. Needs
   //     migration 0167 and the RVM_STUDENT_API_* settings.
+  //   CREDIT_RULES_ROLLOUT (#2750) — the brief's credit rules for a company: the settings in
+  //     `credit_rules_config` (edited on PUT /admin/credit-rules) and, as later parts land, the
+  //     cost per contact, welcome credits, waivers, limits and the couldn't-reach guarantee.
+  //     Off everywhere, the admin settings routes answer 404 and nothing reads the table; off for
+  //     a company, it keeps one credit per open and the env caps. Needs the credit_rules_config
+  //     migration applied first.
   // Off, the new payer fields are ignored and the new routes answer 404. Campus's own routes
   // additionally need CAMPUS_LINK_ENABLED. A switch gates CAPABILITIES only: stored state (the
   // worker-path audience filter, the RVM review gate) is honoured whatever it says, so switching
@@ -726,6 +732,13 @@ export const serverEnvSchema = z.object({
   THEME_ROLLOUT: featureRolloutMode,
   OUTCOME_STAGES_ROLLOUT: featureRolloutMode,
   OUTBOUND_SIGNALS_ROLLOUT: featureRolloutMode,
+  CREDIT_RULES_ROLLOUT: featureRolloutMode,
+  // #2751 items 1-3 - the posting choice record: which of the two posting buttons a company
+  // tapped (`job_posting_choices`), GET /payer/job-postings/posting-options and the checkout
+  // hint on the publish answer. Off, posting-options answers 404 and the publish ignores
+  // `posting_choice` / `surface`; the table is never named. Needs the job_posting_choices
+  // migration applied first. The job goes live on publish whatever this says.
+  POSTING_CHOICE_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER
@@ -1019,6 +1032,21 @@ export const serverEnvSchema = z.object({
   // unbounded run (same posture as RETENTION_BATCH_LIMIT).
   REACH_WIDEN_EXPIRY_BATCH_LIMIT: z.coerce.number().int().positive().default(100),
 
+  // ── #2749 item 4: the credit-lot EXPIRY sweep (migration 0174) ──
+  // Cadence (minutes) of the tick that closes every open lot past its `expires_at` with one
+  // `expired` ledger line (the spend path also expires a due lot before it spends). The predicate
+  // over `credit_lots` is authoritative, so a missed/duplicated tick only delays an expiry until
+  // the next one (or the wallet's next spend). Fractional minutes allowed for tests.
+  //
+  // NO enable / dry-run gate, deliberately: only a `pack` lot whose pack sets `validityDays` gets
+  // an `expires_at` (#2749 PR 3; legacy lots get their date at the switch-over), and production's
+  // default packs set none, so the sweep has nothing to do until the data says so — the
+  // restriction lives in the data.
+  CREDIT_LOT_EXPIRY_SWEEP_INTERVAL_MINUTES: z.coerce.number().positive().default(15),
+  // Per-tick cap on WALLETS processed (each in its own transaction) — a backlog drains across
+  // ticks, never one unbounded run (same posture as REACH_WIDEN_EXPIRY_BATCH_LIMIT).
+  CREDIT_LOT_EXPIRY_BATCH_LIMIT: z.coerce.number().int().positive().default(200),
+
   // ── LEARN label producer (migration 0091): spine events → training labels ──
   // Cadence (hours) of the sweep tick. The cursor + UNIQUE impression key in the store
   // are authoritative — a missed/duplicated tick only delays labeling until the next
@@ -1307,6 +1335,25 @@ export const serverEnvSchema = z.object({
   FAST2SMS_ENTITY_ID: z.string().min(1).optional(),
   FAST2SMS_ROUTE: z.string().min(1).default("dlt"),
 
+  // #2754 item 1 — a COMPANY signs in with an SMS code to the phone on its account, through the
+  // same Fast2SMS DLT account as workers but its own approved template. Default off: a phone on
+  // `POST /payer/login/request` then gets today's neutral answer and no message. On, a phone that
+  // the company has PROVEN (#2754 item 3, `payer_phone_proofs`: one account per proven phone) gets a
+  // code by SMS; an unproven phone gets the neutral answer; an email still goes by email. The proof
+  // routes (`POST /payer/me/phone-proof`, `/verify`) exist only while it is on.
+  // `assertPayerAuthConfig` refuses to boot it on without the company template id.
+  PAYER_SMS_OTP_ENABLED: booleanFromString,
+  // The DLT template id approved for the COMPANY sign-in message (#2754 item 2). Separate from
+  // FAST2SMS_DLT_TEMPLATE_ID (the worker message): a DLT template is approved for its own text.
+  // `optionalSecret`: compose passes it as `${…:-}`, and a blank value is unset, never a boot failure.
+  FAST2SMS_PAYER_DLT_TEMPLATE_ID: optionalSecret(z.string().trim().min(1)),
+  // The company SMS path's own platform-wide daily ceiling, the SMS twin of
+  // PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY. Counted on the existence-independent reserve, so a known
+  // and an unknown phone see the same 429. 0 = paused = the company-SMS kill-switch (a
+  // payer.sms_send_cap_exceeded event, no redeploy). Per number, the payer OTP cooldown and
+  // OTP_MAX_SENDS_PER_HOUR still apply first.
+  PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY: z.coerce.number().int().min(0).default(500),
+
   // Self-serve PAYER auth (ADR-0019 Decision B — closes R16/LC-1/TD33). The payer is
   // the THIRD principal (worker/payer/ops). The session mechanism reuses JWT_SECRET +
   // SESSION_TTL_DAYS (PayerSessionService) and the login OTP reuses the OTP_* knobs
@@ -1518,6 +1565,33 @@ export const serverEnvSchema = z.object({
     // `.default()` on the INNER schema, for the reason written out on `positiveIntFromString`.
     z.coerce.number().int().min(7).default(30),
   ),
+  // THE NUMBERS SCREEN (#2755) — `/admin/numbers/*`: the definitions catalogue, the test-company
+  // marks and the weekly figures (`GET /admin/numbers/weekly`, read from the `numbers_weekly`
+  // snapshot a nightly sweep keeps), the call list in a later part. Readable only with the
+  // `read_business_numbers` capability (super_admin, ops_admin).
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: every `/admin/numbers/*` route is a neutral 404 before
+  // any query, and the sweep returns at once. The company test marker is `payers.is_test_account`
+  // (migration 0162); the snapshot needs the `numbers_weekly` migration, APPLY BEFORE THE SWITCH
+  // (on without it, the weekly route answers 503 and the sweep logs and skips).
+  ADMIN_NUMBERS_ENABLED: booleanFromString,
+  // How many whole days after a week ends (Sunday 23:59:59 India time) the nightly numbers sweep
+  // FREEZES it (#2755 part B): from then on the sweep never recomputes that week, and only the
+  // logged recompute tool (`recompute-numbers.cli.ts`) can change it. Default 3 (the issue's "a few
+  // days after it ends"), at least 1. Empty reads as the default. Read only while
+  // ADMIN_NUMBERS_ENABLED is on.
+  NUMBERS_FREEZE_AFTER_DAYS: positiveIntFromString(3),
+  // THE BULK STUDENT MOVE (#2887, ruling of 17 Nov 2026): RVM students imported into BadaBhai as
+  // workers, out of matching and hidden from companies until an admin turns their visibility on.
+  // On: #2752's company rules lift for visible moved students and hold for hidden ones, the
+  // `/admin/students/*` routes answer to `manage_student_visibility`, and a worker's own edit marks
+  // the field as his. DEFAULT OFF: every `/admin/students/*` route is a neutral 404 and the search,
+  // open-gate and pre-pay statements are byte-identical to before. (`job_reach` is NOT switched:
+  // reach depends on no switch, #2746 M2. It skips a hidden moved student whenever the
+  // `student_visibility` table exists; before the migration, and with no student imported, nothing
+  // changes.) APPLY THE `student_move` MIGRATION BEFORE THE SWITCH (on without it: the routes answer
+  // 503 and the hot reads fall back to their off text).
+  STUDENT_MOVE_ENABLED: booleanFromString,
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable
@@ -1639,12 +1713,13 @@ export const serverEnvSchema = z.object({
   // inside the handler (where this started) the roles guard ran first and three of the four
   // roles got a 403 — a clean oracle saying the surface is real and merely closed.
   //
-  // ⚠ NOT DECLARED IN ANY COMPOSE FILE, deliberately and in line with its two siblings
-  // (ADMIN_PII_REVEAL_ENABLED and ADMIN_IDENTITY_* are likewise undeclared). Compose forwards
-  // only names it declares, so this flag cannot be armed from the staging box today, and that
-  // is the intended posture until the owner has ruled on the surface's capability split (see
-  // `admin-ai-traces.controller.ts`). Arming it is one `${ADMIN_AI_TRACE_READ_ENABLED:-false}`
-  // line in `docker-compose.staging.yml`'s `api.environment:` — `:-`, never a bare `-`.
+  // #2739 — BRIDGED, STILL OFF. `docker-compose.staging.yml` declares
+  // `${ADMIN_AI_TRACE_READ_ENABLED:-false}` on the api and ci.yml bridges the GitHub `production`
+  // secret of the same name (preflighted in `scripts/deploy/staging-deploy.sh`), so the secret is
+  // the ONE arming path and a value left in the box's `.env` is overridden on every deploy. Until
+  // then compose holds it at false: the tab stays a neutral 404. Arm it only with the owner's
+  // sign-off. Bridging changes no capability: both routes stay `read_ai_traces` (super_admin),
+  // and widening the list is still the open ruling in `admin-ai-traces.controller.ts`.
   ADMIN_AI_TRACE_READ_ENABLED: booleanFromString,
   // Engine view (admin `/admin/match/engine/*`, investor demo) — owner ruling 2026-10-06: the
   // per-worker read serves DEMO WORKERS ONLY, fail-closed. A demo worker is one whose phone is in
@@ -3118,6 +3193,30 @@ export function assertPayerAuthConfig(
 
   if (!isDevEnv(rawNodeEnv) && config.JWT_SECRET === DEV_JWT_SECRET) {
     problems.push("JWT_SECRET must be overridden (the payer session is signed with it)");
+  }
+
+  // #2754 — company SMS codes ride the worker's Fast2SMS account with their OWN approved
+  // template. Armed without one, every company code would go out on the worker template (wrong
+  // text, a DLT rejection) or not at all, so refuse to boot instead.
+  //
+  // #2754 item 3 lifted the production refusal that used to sit here: an SMS code now signs in
+  // only the ONE account that PROVED the phone (`payer_phone_proofs`, unique per phone; a phone
+  // change drops the proof), so an unproven, mistyped or planted number is never a credential.
+  // Armed before that table is migrated, every SMS sign-in fails closed (no phone is proven).
+  if (config.PAYER_SMS_OTP_ENABLED) {
+    const missing = [
+      ["FAST2SMS_API_KEY", config.FAST2SMS_API_KEY],
+      ["FAST2SMS_SENDER_ID", config.FAST2SMS_SENDER_ID],
+      ["FAST2SMS_PAYER_DLT_TEMPLATE_ID", config.FAST2SMS_PAYER_DLT_TEMPLATE_ID],
+    ]
+      .filter(([, value]) => !value)
+      .map(([key]) => key);
+    if (missing.length > 0) {
+      problems.push(
+        `PAYER_SMS_OTP_ENABLED is true but ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} ` +
+          "not set — company sign-in codes need the Fast2SMS account and their own approved DLT template",
+      );
+    }
   }
 
   // PAYER test-login seam. Same two-part discipline as TEST_LOGIN_ENABLED (TD67):

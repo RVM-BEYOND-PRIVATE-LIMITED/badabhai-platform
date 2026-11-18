@@ -74,8 +74,11 @@ class _ViewApi extends MockPayerApiClient {
           _page(<CandidateSearchRow>[_turner, _vmc]);
   List<PayerUnlock> history = const <PayerUnlock>[];
   int applicantListLoads = 0;
+  UnlockQuotes? quotes;
+  final List<List<String>> quoteReads = <List<String>>[];
   final List<({String workerId, String? jobId})> unlockCalls =
       <({String workerId, String? jobId})>[];
+  UnlockResult unlockResult = const UnlockResult.granted(unlockId: 'unl-search-1');
 
   @override
   Future<CandidateSearchPage> searchCandidates(CandidateSearchQuery query) {
@@ -96,9 +99,15 @@ class _ViewApi extends MockPayerApiClient {
   }
 
   @override
+  Future<UnlockQuotes?> fetchUnlockQuotes(List<String> workerIds) async {
+    quoteReads.add(workerIds);
+    return quotes;
+  }
+
+  @override
   Future<UnlockResult> unlock({required String workerId, String? jobId}) async {
     unlockCalls.add((workerId: workerId, jobId: jobId));
-    return const UnlockResult.granted(unlockId: 'unl-search-1');
+    return unlockResult;
   }
 }
 
@@ -127,6 +136,7 @@ void main() {
     WidgetTester tester, {
     FindView initialView = FindView.allCandidates,
     CandidateSearchQuery initialSearch = const CandidateSearchQuery(),
+    VoidCallback? onOpenCredits,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -135,6 +145,7 @@ void main() {
             onReveal: revealed.add,
             initialView: initialView,
             initialSearch: initialSearch,
+            onOpenCredits: onOpenCredits,
           ),
         ),
       ),
@@ -800,5 +811,62 @@ void main() {
     expect(api.searches.first.skillIds, <String>['mskill_cnc_turner']);
     expect(api.searches.first.city, 'Pune');
     expect(api.searches.first.strict, isTrue);
+  });
+
+  group('#2750 — the contact cost on the open button', () {
+    testWidgets('shows the quote, disables an unaffordable open, offers the Starter pack',
+        (WidgetTester tester) async {
+      api.quotes = UnlockQuotes(
+        creditsByWorker: <String, int>{_turner.workerId: 2},
+        creditsAvailable: 1,
+      );
+
+      await pumpFind(tester, onOpenCredits: () {});
+
+      expect(api.quoteReads.single, <String>[_turner.workerId, _vmc.workerId]);
+      expect(find.text('Open for 2 credits'), findsOneWidget);
+      final BbButton open = tester.widget<BbButton>(
+        find.ancestor(
+          of: find.text('Open for 2 credits'),
+          matching: find.byType(BbButton),
+        ),
+      );
+      expect(open.onPressed, isNull, reason: '2 credits > 1 available');
+      expect(find.text('Starter pack'), findsOneWidget);
+    });
+
+    testWidgets('a 0-credit quote reads as free', (WidgetTester tester) async {
+      api.quotes = UnlockQuotes(
+        creditsByWorker: <String, int>{_turner.workerId: 0},
+        creditsAvailable: 0,
+      );
+
+      await pumpFind(tester);
+
+      expect(find.text('Open (free)'), findsOneWidget);
+    });
+
+    testWidgets('an insufficient refusal is the honest line, not the generic deny toast',
+        (WidgetTester tester) async {
+      api.quotes = UnlockQuotes(
+        creditsByWorker: <String, int>{_turner.workerId: 2},
+        creditsAvailable: 2,
+      );
+      api.unlockResult = const UnlockResult.insufficient(
+        creditsNeeded: 2,
+        creditsAvailable: 1,
+      );
+
+      await pumpFind(tester);
+      await tester.tap(find.text('Open for 2 credits'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Unlock for 2 credits'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Not enough credits'), findsOneWidget);
+      expect(find.textContaining('You need 2 credits, you have 1.'), findsOneWidget);
+      expect(find.text('Starter pack'), findsOneWidget);
+      expect(find.text("Couldn't unlock"), findsNothing);
+    });
   });
 }

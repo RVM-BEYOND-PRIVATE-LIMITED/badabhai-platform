@@ -17,6 +17,10 @@ import { join, relative, sep } from "node:path";
  * A new delete of the workers row, a new `hardDelete` caller or a new `execute` caller fails this
  * file until it is listed here, so a fifth exit path (an admin erase, a DSAR route) cannot ship
  * without someone deciding how it writes the one deletion event.
+ *
+ * #2837 — and each statement that deletes the row also erases the rows keyed on his id that no
+ * cascade reaches (`eraseLoginKeyedRows`: `display_prefs`, `feature_pilot_subjects`), proved
+ * against Postgres in `common/login-keyed-rows.db.test.ts`.
  */
 const SRC = join(__dirname, "..");
 
@@ -24,6 +28,8 @@ const SRC = join(__dirname, "..");
 const DELETES_THE_ROW: Readonly<Record<string, string>> = {
   "workers/workers.repository.ts": "hardDelete",
   "campus-link/institute-link.repository.ts": "deleteLinkCreatedPendingWorker",
+  // #2887 — the import rollback: only a never-signed-in row that import run created.
+  "student-import/student-import.repository.ts": "deleteImportCreatedPendingWorker",
 };
 
 /** Every caller of those methods (and of the erasure), each of which writes the event itself. */
@@ -39,6 +45,10 @@ const CALLERS: Readonly<Record<string, { calls: string; writesEvent: boolean }>>
     writesEvent: false,
   },
   "auth/auth.controller.ts": { calls: "accountDeletion.execute(", writesEvent: false },
+  "student-import/import-campus-students.ts": {
+    calls: ".deleteImportCreatedPendingWorker(",
+    writesEvent: true,
+  },
 };
 
 function sourceFiles(dir: string): string[] {
@@ -66,7 +76,8 @@ const relativePath = (path: string) => relative(SRC, path).split(sep).join("/");
 
 const DELETE_WORKERS = /\.delete\(\s*workers\s*\)|\bdelete\s+from\s+"?workers"?\b/i;
 /** A call (`x.hardDelete(`), never the definition (`async hardDelete(`). */
-const DELETE_CALL = /\.(hardDelete|deleteLinkCreatedPendingWorker)\(/;
+const DELETE_CALL =
+  /\.(hardDelete|deleteLinkCreatedPendingWorker|deleteImportCreatedPendingWorker)\(/;
 const IMPORTS_ERASURE = /import\s*(type\s*)?\{[^}]*\bAccountDeletionService\b[^}]*\}\s*from/;
 
 describe("#2753 item 13 — every worker exit path is listed and writes the deletion event", () => {
@@ -90,6 +101,10 @@ describe("#2753 item 13 — every worker exit path is listed and writes the dele
   for (const [file, method] of Object.entries(DELETES_THE_ROW)) {
     it(`${file} deletes the row in ${method}`, () => {
       expect(readFileSync(join(SRC, file), "utf8")).toContain(`async ${method}(`);
+    });
+
+    it(`${file} erases his login-keyed rows with the row (#2837)`, () => {
+      expect(code(join(SRC, file))).toMatch(/eraseLoginKeyedRows\(\s*\w+,\s*\{\s*kind: "worker"/);
     });
   }
 

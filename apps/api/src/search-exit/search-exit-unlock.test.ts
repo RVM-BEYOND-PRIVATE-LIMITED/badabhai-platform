@@ -95,7 +95,8 @@ function setup(opts: Opts = {}) {
     }),
     countDistinctPayersSince: vi.fn(async () => 0),
     findTradeLevels: vi.fn(async () => []),
-    tryDebit: vi.fn(async () => 4),
+    // #2749: a debit names the lot it came from.
+    tryDebit: vi.fn(async () => ({ balanceAfter: 4, lotId: "lot-1" })),
     upsertGrant: vi.fn(async (_tx: unknown, input: Record<string, unknown>) => ({
       id: "unlock-new",
       ...input,
@@ -109,6 +110,8 @@ function setup(opts: Opts = {}) {
   const repo = {
     withTransaction: vi.fn(async (work: (t: unknown) => Promise<unknown>) => work(tx)),
     getBalance: vi.fn(async () => 5),
+    // #2749: the no-credit check reads SPENDABLE credits (past-due lots do not count).
+    getSpendableBalance: vi.fn(async () => 5),
     findOwnedJobRef: vi.fn(async () => null),
     legacyJobExists: vi.fn(async () => true),
     findAgencyTwinSourceJobId: vi.fn(async () => null),

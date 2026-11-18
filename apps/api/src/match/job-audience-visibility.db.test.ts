@@ -4,11 +4,15 @@ import { eq } from "drizzle-orm";
 import { createDbClient, events, type DbClient } from "@badabhai/db";
 import { loadServerConfig, type ServerConfig } from "@badabhai/config";
 
+import { AdminPostingWorkerVisibilityRepository } from "../admin-postings/admin-posting-worker-visibility.repository";
+import { AdminPostingWorkerVisibilityService } from "../admin-postings/admin-posting-worker-visibility.service";
+import { AdminPostingsRepository } from "../admin-postings/admin-postings.repository";
 import { ApplicationsRepository } from "../applications/applications.repository";
 import { ApplicationsService } from "../applications/applications.service";
 import type { RequestContext } from "../common/request-context";
 import { EventsRepository } from "../events/events.repository";
 import { EventsService } from "../events/events.service";
+import type { JobPostingsService } from "../job-postings/job-postings.service";
 import { JobsRepository } from "../jobs/jobs.repository";
 import { MatchApplyService } from "./match-apply.service";
 import { MatchConfigRepository } from "./match-config.repository";
@@ -83,9 +87,28 @@ const P_WORKERS = uuid(0x27462003);
 /** Publish-path fixtures: live, sets empty until `PublishReachService.materialize` resolves them. */
 const P_PUB_RVM = uuid(0x27462004);
 const P_PUB_BOTH = uuid(0x27462005);
-const ALL_POSTINGS = [P_RVM, P_BOTH, P_WORKERS, P_PUB_RVM, P_PUB_BOTH];
+/**
+ * #2891 — Campus-origin postings: audience `both`, with a `job_posting_worker_visibility` row.
+ * HELD (`off`, never decided) must behave exactly as P_RVM on every path; OPENED (`on`) exactly as
+ * P_BOTH. FLIP starts held and is turned on and off again through the admin service below.
+ */
+const P_CAMPUS_HELD = uuid(0x28912001);
+const P_CAMPUS_OPENED = uuid(0x28912002);
+const P_CAMPUS_FLIP = uuid(0x28912003);
+const ALL_POSTINGS = [
+  P_RVM,
+  P_BOTH,
+  P_WORKERS,
+  P_PUB_RVM,
+  P_PUB_BOTH,
+  P_CAMPUS_HELD,
+  P_CAMPUS_OPENED,
+  P_CAMPUS_FLIP,
+];
 const FIXTURES = new Set(ALL_POSTINGS);
-const SERVED = [P_BOTH, P_WORKERS].sort();
+const SERVED = [P_BOTH, P_WORKERS, P_CAMPUS_OPENED].sort();
+/** The admin who decides in the #2891 block (audit_logs.actor_id has no FK). */
+const ADMIN = uuid(0x28913001);
 
 const only = (ids: readonly string[]): string[] => ids.filter((id) => FIXTURES.has(id)).sort();
 
@@ -105,7 +128,7 @@ describe.skipIf(!RUN)("#2746 an RVM-only posting reaches no BadaBhai worker, on 
   }
 
   async function seedReachRows(): Promise<void> {
-    for (const id of [P_RVM, P_BOTH, P_WORKERS]) {
+    for (const id of [P_RVM, P_BOTH, P_WORKERS, P_CAMPUS_HELD, P_CAMPUS_OPENED]) {
       await client.sql`
         INSERT INTO job_reach (job_posting_id, worker_id, match_tier, matched_skill_id)
         VALUES (${id}::uuid, ${WORKER}::uuid, 1, ${SKILL})
@@ -179,12 +202,17 @@ describe.skipIf(!RUN)("#2746 an RVM-only posting reaches no BadaBhai worker, on 
 
   it("detail (`findWorkerVisibleJobById`): an RVM-only posting is the neutral miss", async () => {
     expect(await jobs.findWorkerVisibleJobById(P_RVM)).toBeUndefined();
+    // #2891 — a held Campus posting is the same miss (share links open this read); an opened one is served.
+    expect(await jobs.findWorkerVisibleJobById(P_CAMPUS_HELD)).toBeUndefined();
+    expect((await jobs.findWorkerVisibleJobById(P_CAMPUS_OPENED))?.id).toBe(P_CAMPUS_OPENED);
     expect((await jobs.findWorkerVisibleJobById(P_BOTH))?.id).toBe(P_BOTH);
     expect((await jobs.findWorkerVisibleJobById(P_WORKERS))?.id).toBe(P_WORKERS);
   }, 30_000);
 
   it("V1 apply gate (`findReachRow`): the reach row exists, the gate stays shut", async () => {
     expect(await workerSkills.findReachRow(WORKER, P_RVM)).toBeUndefined();
+    expect(await workerSkills.findReachRow(WORKER, P_CAMPUS_HELD)).toBeUndefined();
+    expect(await workerSkills.findReachRow(WORKER, P_CAMPUS_OPENED)).toBeDefined();
     expect(await workerSkills.findReachRow(WORKER, P_BOTH)).toEqual({
       matchTier: 1,
       matchedSkillId: SKILL,
@@ -194,6 +222,8 @@ describe.skipIf(!RUN)("#2746 an RVM-only posting reaches no BadaBhai worker, on 
 
   it("union decision target (`findOpenPostingRef`): an RVM-only posting is not a target", async () => {
     expect(await applications.findOpenPostingRef(P_RVM)).toBeUndefined();
+    expect(await applications.findOpenPostingRef(P_CAMPUS_HELD)).toBeUndefined();
+    expect(await applications.findOpenPostingRef(P_CAMPUS_OPENED)).toEqual({ id: P_CAMPUS_OPENED });
     expect(await applications.findOpenPostingRef(P_BOTH)).toEqual({ id: P_BOTH });
     expect(await applications.findOpenPostingRef(P_WORKERS)).toEqual({ id: P_WORKERS });
   }, 30_000);
@@ -252,6 +282,121 @@ describe.skipIf(!RUN)("#2746 an RVM-only posting reaches no BadaBhai worker, on 
     expect(await reachedPostings(WORKER)).not.toContain(P_PUB_RVM);
   }, 60_000);
 
+  // ── #2891: an admin opens a held Campus posting, then holds it again ────────
+
+  it("#2891 admin: on builds reach and opens the worker paths; a bulk off clears reach and closes them", async () => {
+    const publish = new PublishReachService(
+      new MatchSkillsService(matchConfig, workerSkills),
+      workerSkills,
+      eventsService,
+      new ReachWidenRepository(client.db),
+      matchConfig,
+    );
+    const input = {
+      matchSkillIds: [SKILL],
+      untickedIds: [],
+      trigger: "publish" as const,
+      actor: { actor_type: "admin" as const, actor_id: ADMIN },
+    };
+    // The real service, with the post-commit rebuild standing in for
+    // `JobPostingsService.materializeAfterWorkerVisibility` (a publish through the same core).
+    const jobPostings = {
+      materializeAfterWorkerVisibility: async (id: string) => {
+        await publish.materialize(id, input, CTX);
+        return true;
+      },
+    } as unknown as JobPostingsService;
+    const service = new AdminPostingWorkerVisibilityService(
+      new AdminPostingWorkerVisibilityRepository(client.db),
+      new AdminPostingsRepository(client.db),
+      jobPostings,
+      eventsService,
+    );
+    const reason = {
+      reason_code: "other" as const,
+      reason_text: "Campus job checked against the company record",
+    };
+    const ids = (page: { postings: { posting_id: string }[] }) =>
+      page.postings.map((p) => p.posting_id);
+
+    // HELD: a publish writes no reach row for it, and detail misses it.
+    const held = await publish.materialize(P_CAMPUS_FLIP, input, CTX);
+    expect(held.reachTotal).toBe(0);
+    expect(held.zeroReach).toBe(false); // empty by design, not the E13 void
+    expect(await reachedPostings(WORKER)).not.toContain(P_CAMPUS_FLIP);
+    expect(await jobs.findWorkerVisibleJobById(P_CAMPUS_FLIP)).toBeUndefined();
+    const waiting = await service.list({ filter: "waiting", limit: 200 });
+    expect(ids(waiting)).toEqual(expect.arrayContaining([P_CAMPUS_HELD, P_CAMPUS_FLIP]));
+    expect(ids(waiting)).not.toContain(P_CAMPUS_OPENED);
+    expect(ids(waiting)).not.toContain(P_BOTH); // not Campus-origin: never on this list
+    const row = waiting.postings.find((p) => p.posting_id === P_CAMPUS_FLIP)!;
+    expect(row).toMatchObject({ audience: "both", origin: "campus_imported", worker_visibility: "off" });
+
+    // #2635 — no trade, no worker surface: `on` is refused, nothing written, nothing reached.
+    expect(row).toMatchObject({ role_kind: null, trade_ready: false });
+    expect(await service.set(ADMIN, P_CAMPUS_FLIP, { state: "on", ...reason }, CTX)).toEqual({
+      posting_id: P_CAMPUS_FLIP,
+      outcome: "trade_required",
+      state: "off",
+    });
+    expect(await reachedPostings(WORKER)).not.toContain(P_CAMPUS_FLIP);
+    // The admin names its trade (the #2566 edit route writes this column), then turns it on.
+    await client.sql`UPDATE job_postings SET role_kind = 'cad_draughtsman' WHERE id = ${P_CAMPUS_FLIP}::uuid`;
+
+    // ON: reach is built and every read serves it.
+    expect(await service.set(ADMIN, P_CAMPUS_FLIP, { state: "on", ...reason }, CTX)).toEqual({
+      posting_id: P_CAMPUS_FLIP,
+      outcome: "changed",
+      state: "on",
+    });
+    expect(await reachedPostings(WORKER)).toContain(P_CAMPUS_FLIP);
+    expect((await jobs.findWorkerVisibleJobById(P_CAMPUS_FLIP))?.id).toBe(P_CAMPUS_FLIP);
+    const feed = await matchFeed.listFeed(WORKER, 50, {});
+    expect(only(feed.map((r) => r.jobPostingId))).toContain(P_CAMPUS_FLIP);
+    expect(ids(await service.list({ filter: "on", limit: 200 }))).toContain(P_CAMPUS_FLIP);
+    // The same decision again writes nothing.
+    expect((await service.set(ADMIN, P_CAMPUS_FLIP, { state: "on", ...reason }, CTX)).outcome).toBe(
+      "unchanged",
+    );
+
+    // BULK OFF: the Campus posting is held again and loses its reach; a non-Campus posting is
+    // refused, never given a row.
+    const off = await service.setMany(
+      ADMIN,
+      { posting_ids: [P_CAMPUS_FLIP, P_BOTH], state: "off", ...reason },
+      CTX,
+    );
+    expect(off.results).toEqual([
+      { posting_id: P_CAMPUS_FLIP, outcome: "changed", state: "off" },
+      { posting_id: P_BOTH, outcome: "not_campus_origin", state: null },
+    ]);
+    expect(await reachedPostings(WORKER)).not.toContain(P_CAMPUS_FLIP);
+    expect(await jobs.findWorkerVisibleJobById(P_CAMPUS_FLIP)).toBeUndefined();
+    expect(await workerSkills.findReachRow(WORKER, P_CAMPUS_FLIP)).toBeUndefined();
+    expect(ids(await service.list({ filter: "off", limit: 200 }))).toContain(P_CAMPUS_FLIP);
+    expect(ids(await service.list({ filter: "waiting", limit: 200 }))).not.toContain(P_CAMPUS_FLIP);
+    const noRow = await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM job_posting_worker_visibility WHERE job_posting_id = ${P_BOTH}::uuid`;
+    expect(noRow[0]?.n).toBe(0);
+
+    // Every decision is in audit_logs, with the admin's reason.
+    const audits = await client.sql<{ action: string; metadata: Record<string, unknown> }[]>`
+      SELECT action, metadata FROM audit_logs
+       WHERE actor_id = ${ADMIN}::uuid AND entity_id = ${P_CAMPUS_FLIP}::uuid
+       ORDER BY created_at, id`;
+    expect(audits.map((a) => a.action)).toEqual([
+      "posting_worker_visibility_on",
+      "posting_worker_visibility_off",
+    ]);
+    expect(audits[0]!.metadata).toMatchObject({
+      reason_code: "other",
+      reason_text: reason.reason_text,
+      worker_visibility_before: "off",
+      worker_visibility_after: "on",
+      first_decision: true,
+    });
+  }, 60_000);
+
   // ── M2: no switch is involved ───────────────────────────────────────────────
 
   describe("with the API config at its DEFAULTS, and every rollout switch x feed mode", () => {
@@ -291,6 +436,7 @@ describe.skipIf(!RUN)("#2746 an RVM-only posting reaches no BadaBhai worker, on 
         const served = only(page.jobs.map((j) => j.job_id));
         expect(served).not.toContain(P_RVM);
         expect(served).not.toContain(P_PUB_RVM); // published above, still RVM-only
+        expect(served).not.toContain(P_CAMPUS_HELD); // #2891 — held from workers
         // A posting mode serves the BadaBhai-visible postings, so the exclusion is not vacuous.
         if (config.MATCH_V1_ENABLED || config.FEED_POSTINGS_UNION_ENABLED) {
           expect(served).toEqual(expect.arrayContaining(SERVED));
@@ -309,9 +455,14 @@ describe.skipIf(!RUN)("#2746 an RVM-only posting reaches no BadaBhai worker, on 
         await expect(service.skip(WORKER, P_RVM, { reason: "too_far" }, CTX)).rejects.toThrow(
           "Job not found",
         );
+        // #2891 — a held Campus posting is the same 404.
+        await expect(
+          service.apply(WORKER, P_CAMPUS_HELD, { rank: 1, source_surface: "feed" }, CTX),
+        ).rejects.toThrow("Job not found");
         const written = await client.sql<{ n: number }[]>`
         SELECT count(*)::int AS n FROM applications
-         WHERE worker_id = ${WORKER}::uuid AND job_posting_id = ${P_RVM}::uuid`;
+         WHERE worker_id = ${WORKER}::uuid
+           AND job_posting_id IN (${P_RVM}::uuid, ${P_CAMPUS_HELD}::uuid)`;
         expect(written[0]?.n).toBe(0);
       },
       30_000,
@@ -393,12 +544,29 @@ async function seed(client: DbClient): Promise<void> {
   // muddy the read cases that run first.
   await posting(P_PUB_RVM, "rvm_students", "draft", [], null);
   await posting(P_PUB_BOTH, "both", "draft", [], null);
+
+  // #2891 — Campus-origin postings, held as the Campus route holds them.
+  await posting(P_CAMPUS_HELD, "both", "open", [SKILL], "2099-03-04T00:00:00Z");
+  await posting(P_CAMPUS_OPENED, "both", "open", [SKILL], "2099-03-05T00:00:00Z");
+  await posting(P_CAMPUS_FLIP, "both", "open", [SKILL], "2099-03-06T00:00:00Z");
+  await sql`
+    INSERT INTO job_posting_worker_visibility (job_posting_id, state, origin)
+    VALUES (${P_CAMPUS_HELD}::uuid, 'off', 'campus_posted'),
+           (${P_CAMPUS_FLIP}::uuid, 'off', 'campus_imported')
+  `;
+  await sql`
+    INSERT INTO job_posting_worker_visibility
+      (job_posting_id, state, origin, decided_by_admin_id, decided_at)
+    VALUES (${P_CAMPUS_OPENED}::uuid, 'on', 'campus_posted', ${ADMIN}::uuid, now())
+  `;
 }
 
 async function cleanup(client: DbClient): Promise<void> {
   const { sql } = client;
   await sql`DELETE FROM applications WHERE worker_id = ${WORKER}::uuid`;
   await sql`DELETE FROM job_reach WHERE worker_id = ${WORKER}::uuid`;
+  // #2891 — the visibility rows cascade with their postings; the admin's audit rows do not.
+  await sql`DELETE FROM audit_logs WHERE actor_id = ${ADMIN}::uuid`;
   for (const id of ALL_POSTINGS) await sql`DELETE FROM job_postings WHERE id = ${id}::uuid`;
   await sql`DELETE FROM worker_skill WHERE worker_id = ${WORKER}::uuid`;
   await sql`DELETE FROM worker_industry_tenure WHERE worker_id = ${WORKER}::uuid`;

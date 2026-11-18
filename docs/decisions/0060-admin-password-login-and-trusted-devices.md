@@ -1,6 +1,6 @@
 # ADR-0060: Admin password login, optional per-admin 2FA, forgot password, trusted devices and direct admin creation
 
-- **Status:** Accepted. Owner rulings by Prakash, 2026-11-03.
+- **Status:** Accepted. Owner rulings by Prakash, 2026-11-03. **Amendment 2 (2026-11-18, #2924): two-step is REQUIRED for super_admin and ops_admin** — see §5.
 - **Date:** 2026-11-03
 - **Owner:** Prakash (Backend Platform, admin module)
 - **Needs:** migration `0144` applied to production BEFORE the build that reads it deploys. (Applied by the owner 2026-11-03 under its first number, `0142`; renumbered to `0144` after main gained its own `0142`/`0143`.)
@@ -72,5 +72,22 @@ Onboarding a second admin was also blocked. The invite accept link comes back as
   - session revocation on any credential change;
   - every admin can turn 2FA on;
   - the Admins page already shows who has an authenticator set up.
-- **Recommendation, not a rule:** super_admins should keep 2FA on.
+- **Recommendation, not a rule:** super_admins should keep 2FA on. *Superseded for super_admin and ops_admin by Amendment 2 (§5): for them it is now a rule.*
 - **Rollout order:** apply `0144`, then merge. The admin repository selects whole rows, so code that knows the new columns fails against a database without them.
+
+## 5. Amendment 2 — two-step required for super_admin and ops_admin (owner, 2026-11-18, #2924)
+
+**Ruling: option B.** Two-step verification is **required** for `super_admin` and `ops_admin`. `support` and `analyst` keep ruling A2 (optional, per admin, starts off). Option C (required for every admin) is to be reconsidered before the pilot if the admin list grows beyond the core team.
+
+**Why.** These two roles can create admins and change companies, credits and postings, and export events. With A2 and no admin having switched it on, all of that sat behind one factor, the super admin included. "Trust this device" (A3) keeps the cost to about one authenticator code a month per browser.
+
+**What changed:**
+
+- **The gate** (`gateMfaThenMaybeMint`) treats these roles as two-step ON whatever `mfa_enabled` says. One whose switch is still off gets the enrolment step with a **fresh** seed, never a code request against a seed already on file. A stored seed may never have been scanned, and asking for a code from it is the 2026-11-03 lockout. The first valid code at `POST /admin/mfa/verify` switches two-step on for the account (`mfa_enrolled` and `mfa_enabled` together, recorded as `admin_mfa_enabled`). No trusted device counts while the switch is off.
+- **The Account page** cannot turn it off for these roles: `POST /admin/me/mfa/disable` answers **403** before any code is checked or counted. `GET /admin/me` gains `mfa_required`, and the page shows the switch as required.
+- **The bootstrap** (`--with-totp`) now sets `mfa_enabled` along with `mfa_enrolled`. Before, an operator who scanned the printed seed still signed in with the emailed code alone.
+- **`ADMIN_MFA_REQUIRED=false`** still turns two-step off for everyone, these roles included. It exists for local development and tests; production leaves it unset.
+- The rule lives in one place: `apps/api/src/admin/admin-mfa-policy.ts` (`ADMIN_MFA_REQUIRED_ROLES`).
+
+**Rollout.** No migration and no new secret. After the deploy, every super_admin and ops_admin who has not switched two-step on is asked to scan a QR code and enter one code at their next sign-in. An admin who loses the authenticator is recovered with the break-glass reset (`db:admin:reset-mfa`) or a super_admin's reset, as before.
+

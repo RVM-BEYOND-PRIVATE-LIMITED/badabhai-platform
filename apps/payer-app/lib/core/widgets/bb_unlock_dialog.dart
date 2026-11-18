@@ -22,13 +22,20 @@ Future<bool?> showUnlockDialog(
   BuildContext context, {
   required String shownName,
   required int? creditsAfter,
+  int credits = 1,
 }) {
+  final String price =
+      credits == 0 ? 'Free' : '$credits ${credits == 1 ? 'credit' : 'credits'}';
   return showBbConfirm(
     context,
-    title: 'Unlock this candidate?',
+    title: credits == 0 ? 'Open this contact?' : 'Unlock this candidate?',
     message: '',
-    body: _UnlockBody(shownName: shownName, creditsAfter: creditsAfter),
-    confirmLabel: 'Unlock for $kUnlockCreditLabel',
+    body: _UnlockBody(
+      shownName: shownName,
+      creditsAfter: creditsAfter,
+      credits: credits,
+    ),
+    confirmLabel: credits == 0 ? 'Open (free)' : 'Unlock for $price',
     cancelLabel: 'Cancel',
     confirmIcon: Icons.lock_open_rounded,
     // #2596 — the unlock's ONE medium haptic lands with the success stamp once
@@ -37,11 +44,36 @@ Future<bool?> showUnlockDialog(
   );
 }
 
+/// #2750 — the honest not-enough-credits answer: no generic error, and the
+/// Starter pack is the offered next step. Returns true when the payer asks to
+/// see the Credits tab.
+Future<bool> showInsufficientCreditsDialog(
+  BuildContext context, {
+  required int creditsNeeded,
+  required int creditsAvailable,
+}) {
+  return showBbConfirm(
+    context,
+    title: 'Not enough credits',
+    message:
+        'You need $creditsNeeded ${creditsNeeded == 1 ? 'credit' : 'credits'}, '
+        'you have $creditsAvailable. The Starter pack has more credits.',
+    confirmLabel: 'Starter pack',
+    cancelLabel: 'Close',
+    confirmIcon: Icons.workspace_premium_rounded,
+  );
+}
+
 class _UnlockBody extends StatelessWidget {
-  const _UnlockBody({required this.shownName, required this.creditsAfter});
+  const _UnlockBody({
+    required this.shownName,
+    required this.creditsAfter,
+    required this.credits,
+  });
 
   final String shownName;
   final int? creditsAfter;
+  final int credits;
 
   @override
   Widget build(BuildContext context) {
@@ -68,14 +100,16 @@ class _UnlockBody extends StatelessWidget {
               ),
               const TextSpan(text: "'s real name and phone number. "),
               TextSpan(
-                text: kUnlockCreditLabel,
+                text: credits == 0
+                    ? 'No credits'
+                    : '$credits ${credits == 1 ? 'credit' : 'credits'}',
                 style: AppTypography.body(
                   size: AppTypography.sizeBase,
                   weight: FontWeight.w700,
                   color: AppColors.textPrimary,
                 ),
               ),
-              const TextSpan(text: ' will be used — '),
+              TextSpan(text: credits == 0 ? ' will be used — ' : ' will be used — '),
               TextSpan(
                 text: '${creditsAfter ?? '—'} left',
                 style: AppTypography.body(

@@ -194,17 +194,18 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 #### `POST /payer/login/request`
 
 - **Auth:** none (public, IP rate-limited).
-- **Body:** `{ email: string }`.
+- **Body:** `{ email: string }` or `{ phone: string }` (E.164, `+91…`; email wins when both are sent).
 - **Response:** `{ status: 'code_sent', resend_in_seconds: number }`.
-- **Events:** `payer.login_requested` (only if email matches an existing account; unknown → nothing emitted).
-- **Mobile gotchas:** No enumeration — unknown emails get the identical timing/response. Code is emailed only.
+- **Events:** `payer.login_requested` (only if the contact matches an existing account; unknown → nothing emitted). A code sent by SMS emits `payer.login_requested_v2` with `method: 'sms_otp'` instead (#2754).
+- **Phone sign-in by SMS (#2754, `PAYER_SMS_OTP_ENABLED`, default off):** with it on, an Indian mobile (`+91` followed by 10 digits starting 6–9) gets its code by SMS on the company DLT template **only if a company has PROVEN it** (#2754 item 3: `POST /payer/me/phone-proof`, below). The code goes to the ONE account that proved the phone (one account per proven phone), whichever other accounts also have it typed in. Any other phone never gets an SMS. A phone nobody has proven (typed at sign-up or in `PATCH /payer/me`), an unknown phone, a suspended or archived company's phone, and every phone while the proof table is not migrated get the same neutral response and no message; those companies keep email sign-in. A phone-only **sign-up** therefore gets no SMS code: a brand-new account's phone is unproven. With the switch off, a phone gets no SMS. Company SMS has its own daily ceiling (`PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY`, default 500; a breach is the same neutral 429 plus `payer.sms_send_cap_exceeded`). Arming it needs `FAST2SMS_PAYER_DLT_TEMPLATE_ID`: the deploy preflight and the boot guard both refuse the switch without it.
+- **Mobile gotchas:** No enumeration — unknown contacts get the identical timing/response.
 
 #### `POST /payer/login/verify`
 
 - **Auth:** none (public, IP rate-limited).
-- **Body:** `{ email: string, code: string (4–8 digits) }`.
+- **Body:** `{ email: string, code: string (4–8 digits) }` or `{ phone: string, code }` — the same contact the request carried.
 - **Response:** `{ access_token, token_type: 'Bearer', expires_in_seconds, payer_id (UUID), role: 'employer'|'agent', is_new_payer (always false) }`.
-- **Events:** `payer.session_started`.
+- **Events:** `payer.session_started`; an SMS-code sign-in emits `payer.session_started_v2` with `method: 'sms_otp'` instead (#2754). With SMS on, a phone signs in only the one account that PROVED it and still holds it (#2754 item 3); any other phone is the same `401`.
 - **Mobile gotchas:** Token is in the **body**, not `Set-Cookie`. Failure = single neutral `401`. **`is_new_payer` is always `false` — do not branch on it** (verified correction). Single-use code (deleted on success).
 
 #### `POST /payer/refresh`
@@ -237,7 +238,21 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Body:** `{ orgName?: string (2–120 graphemes), phone?: E.164 }` — at least one field; `.strict()` rejects unknown keys and any `email`/`role`/`status`/`payer_id`.
 - **Response:** same shape as `GET /payer/me` (including `postingOrgName`: an org founder who renames their org gets the new name back, and their teammates read it on their next `GET`).
 - **Events:** `payer.account_updated` (carries `changed_fields` = field **keys** only, never values).
+- **A new phone starts unproven (#2754 item 3):** changing `phone` drops the account's phone proof in the same write, so the new number cannot sign in by SMS code until the company proves it again (`POST /payer/me/phone-proof`). Saving the same number again keeps the proof. A real change also emails the account's own address the security notice used for password changes ("The phone number on your BadaBhai account was changed"; no number in it); a phone-only account gets none.
 - **Mobile gotchas:** `email`/`role`/`status` are immutable. Empty patch → `400`. `no-store`.
+
+#### `GET /payer/me/phone-proof` · `POST /payer/me/phone-proof` · `POST /payer/me/phone-proof/verify` (#2754 item 3)
+
+The signed-in company proves the phone on its account, so that phone signs it in by SMS code. One account per proven phone.
+
+- **Auth:** `PayerAuthGuard` (Bearer), `employer` and `agent` alike. The account is the token's; no id in the path or body. The two `POST`s carry the per-IP cap of the public sign-in routes.
+- **The switch:** all three routes are a plain `404` while `PAYER_SMS_OTP_ENABLED` is off.
+- **`GET /payer/me/phone-proof`:** **Response:** `{ proven: boolean }`. `true` only while a proof names the account's CURRENT phone; `false` for no phone, a phone not yet proven, a phone changed since its proof, and while the proof table is not migrated (never a `503`), so the screen simply offers to prove the number. A read: no per-IP cap, no events.
+- **`POST /payer/me/phone-proof`** (no body): sends a code by SMS to the account's CURRENT stored phone (company template). **Response:** `{ status: 'code_sent', resend_in_seconds: number }`. The same bounds as an SMS sign-in code: a resend cooldown, the per-number hourly cap (shared with sign-in codes to that number) and the company-SMS daily ceiling (`429`, plus `payer.sms_send_cap_exceeded`). `409 { reason: 'no_phone_on_account' }`: add a phone with `PATCH /payer/me` first. `409 { reason: 'phone_not_provable' }`: only an Indian mobile (`+91`, 10 digits from 6–9) can be confirmed by SMS. `502`: the SMS could not be sent; retry. `503`: Redis down, or the proof table not migrated yet (no SMS goes out).
+- **`POST /payer/me/phone-proof/verify`:** body `{ code: string (4–8 digits) }`, `.strict()`. **Response:** `{ status: 'proven' }`. `401` wrong or expired code (one message). `429` too many attempts. `409 { reason: 'phone_changed' }`: the phone changed after the code was sent; request a new one. `409 { reason: 'phone_linked_to_another_account' }`: another BadaBhai account already holds this phone's proof; the company contacts support, who move it by hand. `503` Redis or the table. **Send an `Idempotency-Key`**: a retry with the same key replays the first answer (the code is single-use, so a re-run would otherwise answer `401` to a company whose phone was in fact proven). A duplicate while the first is still running is `409 { reason: 'in_flight' }`.
+- **A proof code is not a sign-in code**, and a sign-in code is not a proof code: each fails the other door with the same `401`.
+- **Events:** `payer.phone_proven` v1 (`payer_id`, `method: 'sms_code'`) on a successful verify, in the same transaction as the proof. Never the number, its hash or the code.
+- **Mobile gotchas:** `no-store` on all three. Read `GET /payer/me/phone-proof` to decide whether to show "Confirm your number" (a `404` means the switch is off: show nothing). After `PATCH /payer/me` changes the phone, `proven` goes back to `false` and the company must confirm again.
 
 #### `GET /payer/me/display-prefs` · `PATCH /payer/me/display-prefs` (#2819)
 
@@ -418,14 +433,15 @@ Behind the `job_audience` switch (`JOB_AUDIENCE_ROLLOUT`: `off` | `pilot` | `on`
 
 #### Purchase idempotency (`Idempotency-Key`)
 
-Routes: `POST /payer/credits`, `POST /payer/capacity`, `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`.
+Routes: `POST /payer/credits`, `POST /payer/credits/order` (#2749), `POST /payer/capacity`, `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`.
 
 - **Optional.** No header (or a blank one) → the request runs exactly as before; nothing is reserved.
 - Mint **one key per confirmed purchase** and reuse it only for retries of that purchase. A new purchase (a renewal, a second top-up) needs a new key.
 - Keys are scoped per route **and** per session payer, and honoured for **180 s**.
 - **Same key, first attempt finished** → the stored outcome is replayed: the same `201` body, or the same error status **and the same error body** (#2103). The work does not run again, so nothing is charged twice and no event is emitted twice.
 - **Same key, first attempt still running** → `409` with `error.reason: "in_flight"` (#2111, on all five routes) and the route's in-flight message (unchanged). Re-read state (`GET /payer/capacity`, `GET /payer/job-postings/:id`, `GET /payer/credits`) rather than resubmitting. This `409` is never stored, so it is never replayed.
-- **Same key, different body** → **not** compared: the first purchase's outcome is replayed. The key names the intent; a client that changes the body under one key has a bug.
+- **Same key, different body** → on `POST /payer/credits/order` (#2749) the key is **bound to the body**: a different `pack_code`, `expected_price_inr`, `origin` or `origin_job_posting_id` under a used key is a `422` with `error.reason: "idempotency_key_reused"` (also while the first is still running), never a replay of the first order; nothing is stored for it. On the other routes the body is **not** compared: the first purchase's outcome is replayed. Either way the key names the intent; a client that changes the body under one key has a bug.
+- **After a 5xx, send a FRESH key.** A failure is stored and replayed like a success for the key's whole window (180 s), so retrying a `5xx` under the same key only replays that `5xx`. A retry after a timeout or a lost response (no status at all) keeps the key — that is what the key is for.
 - **Replayed error body (#2103):** identical to the first response's `error` object — every field, e.g. a replayed `409 price_mismatch` still carries `reason`, `expected_price_inr`, `current_price_inr`. Only the envelope's `requestId`/`path`/`timestamp` differ (they describe the retry). Outcomes stored by a pre-#2103 build (at most 180 s around the deploy) replay as `{ message }` only.
 - If Redis is unavailable the request runs undeduplicated (fail open at this one step; all money paths stay fail-closed).
 
@@ -463,7 +479,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - `price_inr` is what a purchase of that tier is charged at `priced_at` without a coupon. It is computed by the same function the purchase routes charge through, so shown == charged. `offer` is the automatic ops offer applied, or `null`. Coupons and `floorPriceInr` never ship.
 - Credit packs (`contact_unlock`) are charged at list price and take no offer, so their `offer` is always `null`.
 - An offer can expire after `priced_at`; `expected_price_inr` catches that.
-- **⚠️ `price` is informational — do NOT show it to companies yet (#2749 part 3).** An order still charges `priceInr`, which is **before GST**: `POST /payer/credits/order` creates the Razorpay order for `priceInr`, the mock route stamps `priceInr` on the ledger, and `expected_price_inr` is compared with `priceInr`. So `price.totalPaise` and `price.display` (`₹999 plus GST (₹1,179)`) are **not** what a purchase takes today. Part 3 makes the order total equal `price.totalPaise`; until it ships, a screen must not show the GST total or the display line.
+- **`price` is what a purchase charges (#2749 part 3).** `POST /payer/credits/order` creates the Razorpay order for `price.totalPaise` (its `amount`). (The mock `POST /payer/credits`, which takes no money and is retired when real payments switch on, still stamps the list price `priceInr` on its ledger line.) `expected_price_inr` is still compared with `priceInr`, the list price **before** GST (`price_inr` in `prices`). Show `price.display` (`₹999 plus GST (₹1,179)`) or build from `price.totalPaise`.
 - **Credit packs (#2749): only packs that can be sold now, each with its GST price.** Only the `contact_unlock` product is listed (the one product the purchase routes sell; any other `credit_pack` product is never shown), and only its tiers that can be sold at `priced_at`; `prices` has rows only for those. A tier cannot be sold when the catalogue marks it `offered: false`, before 00:00 IST on its `onSaleFrom` date, or when its GST line cannot be computed (an impossibly large price; the tier is skipped and logged, the rest of the catalogue still answers). If the stored catalogue row fails validation, **no** pack is listed (the server falls back to the default catalogue for everything else, but never sells the default packs in place of a published catalogue; with no stored row at all, the default packs are listed as before). A hidden pack sends nothing: no tier, no price row, and its code, price and date are absent. If no pack can be sold, the `credit_pack` product is left out of `products`. `POST /payer/credits` and `POST /payer/credits/order` accept exactly the packs listed here (any other code → `404`, never a `409`, even with a wrong `expected_price_inr`).
   Each credit-pack tier is built from a fixed list of keys. Other or future catalogue fields never ship, and `onSaleFrom` / `offered` are never sent:
   ```
@@ -477,7 +493,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   ```
   `price` is the charged price taxed, all in integer **paise**: taxable = price × 100; GST = 18% of it, rounded half-up to the paisa; total = taxable + GST rounded half-up to the whole rupee; `roundOffPaise` = total − taxable − GST (from −49 to +50; negative when the rupee rounds down). Example, ₹999: `99900 / 17982 / 18 / 117900`. `display` is the brief's line, with en-IN grouping (`₹1,599 plus GST (₹1,887)`).
 - Other products (posting plans, boosts, hiring capacity, quota top-ups) are unchanged: their tiers ship as the catalogue holds them.
-- **Mobile gotchas:** do not show `price` yet (see the warning above). Once part 3 ships, show `price.display` (or build from `price.totalPaise`); never compute GST on the client. Do not read `windowDays` as credit validity. Production serves the default catalogue today, whose packs set no `validityDays` (`null`).
+- **Mobile gotchas:** show `price.display` (or build from `price.totalPaise`); never compute GST on the client. Do not read `windowDays` as credit validity. Production serves the default catalogue today, whose packs set no `validityDays` (`null`): their credits never expire. Mobile apps never take a payment (CLAUDE.md §12).
 - **Events:** none (read-only).
 
 #### Pricing (read-only, ops-intent, unauthenticated)
@@ -494,7 +510,9 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 #### `GET /payer/credits`
 
 - **Auth:** `PayerAuthGuard` (Bearer) only — any authenticated payer, any `org_role` (owner ruling 2026-10-07). With org tenancy `off` (production today) the balance is the **caller's own** `payer_id` wallet. With it `on` (PAY-DB-01; the code is complete since P3, arming is owner action O-8) it is the **org wallet** — the founder's — for every member (ADR-0053 O-1), and `payer_id` still echoes the caller. Shape unchanged.
-- **Response:** `{ payer_id, balance: number (≥0) }`.
+- **Response:** `{ payer_id, balance: number (≥0), lots: [{ source, credits_remaining, credits_granted, expires_at: string | null, pack_code: string | null }] }` (`PayerCreditsResponse` in `@badabhai/types`).
+- **Lots (#2749, additive):** the wallet's OPEN lots (`credits_remaining > 0`) in the order credits are spent — the soonest `expires_at` first, a lot that never expires (`expires_at: null`) last. `source` is one of `pack`, `welcome`, `goodwill`, `returned`, `migrated`, `legacy` (a balance held before lots existed, and the signup free-tier grant); `pack_code` is set only for a `pack` lot. `balance` = the sum of `credits_remaining`. No lot id and no payment reference are returned. A `pack` lot expires `validityDays` days after the grant (the purchase, or the Razorpay settle) when its pack sets `validityDays`, computed by the database clock; production's default packs set none, so today every lot reads `expires_at: null`. When a lot's date passes, its credits stop being spendable at once; the expiry sweep (every 15 minutes), or the next contact open that spends a credit, removes them with one `expired` line on `GET /payer/credits/ledger` and one `payer.credits_expired` event (`{ payer_id, lot_id, credits, source, expires_at, trigger: "spend" | "sweep" }`); until then the lot is still listed. The ops route `GET /payers/:payerId/credits` returns the same shape.
+- **Mobile gotchas:** a reader that knows only `{ payer_id, balance }` is unaffected (the field is additive). A ledger reader must accept the new `reason` value `expired` (a negative `delta`).
 
 #### `POST /payer/credits`
 
@@ -503,7 +521,20 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Body:** `{ pack_code: string, expected_price_inr?: int }` — code only; price/credits resolved server-side. `expected_price_inr` (#2085): mismatch → `409 price_mismatch`, no ledger row, no credits (see [Price confirmation](#price-confirmation-expected_price_inr)). `POST /payer/credits/order` accepts the same optional field; a mismatch creates no provider order and no `payment_orders` row.
 - **Response:** `{ payer_id, balance, credits, pack_code }`.
 - **Events:** `payment.authorized`, `payment.captured`.
+- **Stamped:** the ledger line's `price_inr` is the pack's list price `priceInr` (before GST), and so is `amount_inr` on `payment.authorized` / `payment.captured` — unchanged by #2749, because this mock route takes no money and is retired when real payments switch on. A real order (below) charges the GST-inclusive total. Since #2749 part 3 the pack lot expires `validityDays` after the purchase when the pack sets one (see `GET /payer/credits`).
 - **Mobile gotchas:** **MOCK money** (`real_call:false`). Unknown pack → `404`; since #2749 so is any code `GET /payer/pricing/catalog` does not list right now (an off-sale pack, or an old code such as `pack_10` / `pack_25`). `201`.
+
+#### `POST /payer/credits/order`
+
+- **Real payments only.** With `PAYMENTS_ENABLE_REAL` off (production today) → a neutral `404`, the same as a route that does not exist. With it on, `POST /payer/credits` answers that `404` instead.
+- **Auth:** `PayerAuthGuard` (Bearer) only, like `POST /payer/credits`.
+- **Headers:** `Idempotency-Key?: string` (#2749) — see [Purchase idempotency](#purchase-idempotency-idempotency-key); scope `credits_order`. **Clients should send one per confirmed purchase**: a retry under the same key replays the first response (the same `order_id`) and creates no second Razorpay order; a duplicate while the first is running is `409` `in_flight` (`"This checkout is already being prepared; wait a moment before trying again"`). The key is bound to the body: the same key with any other body is `422` `idempotency_key_reused`. After a `5xx` send a **fresh** key (the failure is replayed for 180 s). Without the header every call creates a new provider order, as before.
+- **Body:** `{ pack_code: string, expected_price_inr?: int, origin?: string, origin_job_posting_id?: uuid }`. `expected_price_inr` is the pack's `priceInr`, the list price **before** GST (see [Price confirmation](#price-confirmation-expected_price_inr)). `origin` (#2749 item 9) is where the purchase started, one of `credits_page`, `unlock_prompt`, `candidate_search`, `posting_flow`, `dashboard`, `other` (anything else → `400`). `origin_job_posting_id` is the job posting it came from; it is stored only when it is a posting of the caller's own company, and any other id is dropped silently (never a `404`). Both are optional.
+- **Response `201`:** `{ order_id, key_id, amount: int, amount_inr: int, currency: 'INR', pack_code, credits, price: { taxable_paise, gst_paise, round_off_paise, total_paise, gst_rate_bps }, validity_days: int | null }`. **Since #2749 part 3 `amount` (paise) is the GST-inclusive total, equal to the pack's `price.totalPaise` on `GET /payer/pricing/catalog`** (₹999 → `117900`), and `amount_inr` is the same total in rupees (`1179`). `price` and `validity_days` are additive. `key_id` is the public `rzp_*` key id; no secret is ever returned.
+- **`503`** (`"Checkout is unavailable right now; nothing was charged. Please try again."`): Razorpay's order came back for a different amount or currency than the stamped total, so nothing was stored and no checkout is handed out. Retry with a fresh key.
+- **Settlement:** `POST /payments/razorpay/webhook` (`payment.captured`) is the source of truth, `POST /payer/credits/verify` the browser fallback; they settle the same order once. **Both check the captured amount first**: the webhook from its payment entity, the verify by reading the payment back from Razorpay (`GET /payments/:id`). A different amount, no amount, or a currency other than INR **grants nothing** and moves the order to `held` (one `payment.held` event: `{ payment_order_id, payer_id, pack_code, expected_paise, captured_paise, reason: 'amount_mismatch' | 'amount_missing' | 'currency_mismatch', order_status: 'held', real_call }`). A held order is never settled afterwards: a webhook replay no-ops and `/credits/verify` answers its neutral `404`. Ops resolve it in the Razorpay dashboard. If the verify cannot read the payment back (network, a Razorpay 5xx) it settles nothing and answers the same neutral `404`; retry, or let the webhook settle. A mismatched capture reported for an order **already paid** changes nothing (the grant stands) and records `payment.held` with `order_status: 'paid'`. The settled lot expires `validity_days` after the settle when set. **Returned credits (#2750 item 9, ADR-0066 §2.10):** for a company under the credit rules, the settle also gives back credits that expired unused on its earlier real paid packs (up to 20 in all, old pack expired within 6 months, only the first real pack after the expiry), in a `returned` lot that expires with the new pack; the verify answer carries `credits_returned` (already in `balance`; `0` when none or when the webhook settled first). The webhook path records `payer.pack_credits_returned`.
+- **Events:** `payment.authorized` (one per order row; `amount_inr` = the total).
+- **Mobile gotchas:** web only — mobile apps never take a payment (CLAUDE.md §12).
 
 #### `GET /payer/unlocks`
 
@@ -522,8 +553,30 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Response:** SUCCESS `{ ok: true, unlock_id, status: 'granted', expires_at, open_until }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200` in both cases). `open_until` (#2747): `null` = open for good; otherwise the window's end. `expires_at` stays a date string.
 - **Open for good (#2747, ADR-0064, behind `CONTACT_RULES_ROLLOUT` — off | pilot | on, default off — AND only for a worker whose own consent notice describes it, ADR-0064 §3.8; a worker on the 2026-11-04 notice, which says "14 din tak", keeps the 14-day window whatever your switch says):** while it applies, a contact you opened never lapses and **re-opening it costs nothing** — a second `POST` for the same worker returns the same `unlock_id` with no debit, even for a contact opened under the old 14-day window. Off, the 14-day window applies (a lapsed grant re-opens with a new debit). A contact opened, re-opened or revealed while the rule was on stays open if it is later turned off. Erasure, a pending deletion, a suspension or a withdrawn consent still close a contact.
 - **A worker who left company search (#2753 item 6, behind `SEARCH_EXIT_ENABLED`, default off) can be opened only by a company he applied to** (an `applied` decision on one of your postings or agency jobs that he has not taken back), or by a company that already holds an open contact of him (a re-open or a reveal of it). Any other company — one holding his `worker_id` from a search page it loaded before he left, say — gets the same neutral `{ status: 'unavailable' }`, with no credit spent and no row written. Off, nothing changes.
-- **Events:** on success `unlock.requested` + `unlock.granted` + `payment.authorized` + `payment.captured`; on deny `unlock.denied` (plus `unlock.cap_exceeded` if a per-worker cap is hit, or `payment.failed` if no credit). The deny **reason is internal-only**, never echoed in the response.
+- **Events:** on success `unlock.requested` + `unlock.granted` + `payment.authorized` + `payment.captured`; on deny `unlock.denied` (plus `unlock.cap_exceeded` if a per-worker cap is hit, or `payment.failed` if no credit). The deny **reason is internal-only**, never echoed in the response. #2749: the no-credit check counts only SPENDABLE credits (a balance held in lots past their date does not count, and nothing is written then). When an open that does spend finds a lot past its date, it expires the lot first and writes one `payer.credits_expired` (`trigger: "spend"`) per expired lot in the same transaction.
 - **Mobile gotchas:** Spends 1 credit on grant. All denials (no credit / capped / no consent / protected) return the **same** neutral `unavailable` — never infer why. Fail-closed ordering (credit precondition → consent → cap → grant). Branch on the `ok` field, not the HTTP status.
+- **Credit rules (#2750, ADR-0066, behind `CREDIT_RULES_ROLLOUT`, which is off / pilot / on, default off):** for a company under the rules, an open costs what `POST /payer/unlocks/quotes` quoted: 1 or 2 credits by the worker's rung and experience, 1 for an RVM student, 0 for a contact you already hold.
+  - A success adds `credits_charged` (the credits taken; `0` on a re-open).
+  - **Placement-team waivers (#2750 item 5):** an RVM student who applied to a job of yours that RVM's placement team waived (that job, or your whole company) opens for `0` (`credits_charged: 0`), even with no credits. No payment events are written for it; your ledger gets a zero-credit `waived` line. If the waiver is cleared between the quote and the tap, that one open is refused (the neutral body); quote again.
+  - When you cannot afford the contact, the answer is `200 { status: 'insufficient_credits', credits_needed, credits_available }` instead of the neutral body. Nothing is debited or opened; offer a pack. This is decided before anything about the worker is read, so it says nothing about him.
+  - **Opening limits (#2750 item 6):** a worker opened 5 times in the last 7 days (by any company) answers `200 { status: 'worker_unavailable_this_week' }`, unless he applied to one of your jobs. An agency account that opened 40 new contacts today (IST) answers `200 { status: 'daily_limit_reached', daily_limit }`; employer accounts have no daily limit. Nothing is debited or opened. The numbers are the credit rules' settings. Under the rules these replace the old per-worker caps.
+  - Every other refusal is still the neutral `unavailable`.
+  - Off, nothing changes: one credit, no `credits_charged`, and no-credit is the neutral body.
+
+#### `POST /payer/unlocks/quotes` (#2750: the number on the open button)
+
+- **Auth:** `PayerAuthGuard` (Bearer). Not on the disclosure cap: it opens nothing.
+- **Body:** `{ worker_ids: UUID[] }`, 1 to 50 ids, no repeats, strict.
+- **Response:** `200 { quotes: [{ worker_id, credits, waived? }], credits_available }`. `waived: true` is present only when a placement-team waiver makes the contact free (`credits: 0`); show who made it free (for example "Free: RVM placement team"). Each worker is priced by the same rule as the open, from facts on his card only. A contact you hold open quotes `0`. An unknown id is priced like a worker who stated nothing, so the answer never tells you whether an id exists. `credits_available` is your spendable balance.
+- **Off** (`CREDIT_RULES_ROLLOUT` off for your company): `404`.
+- **Mobile gotchas:** Show "Open for N credit(s)" from `credits`, and the Starter pack when `credits > credits_available`. Re-quote after a purchase. The open charges the price at the tap; if the worker's card changed in between, that price can differ from the quote.
+
+#### `POST /payer/unlocks/:unlockId/couldnt-reach` and `GET` the same (#2750: the working-number guarantee)
+
+- **Auth:** `PayerAuthGuard` (Bearer). For a company under the credit rules only (`CREDIT_RULES_ROLLOUT`); off, both are `404`.
+- **POST (report):** empty body. Accepted up to day 7 after the open (IST calendar days; day 7 accepted, day 8 refused with `409 { code: "REPORT_WINDOW_CLOSED" }`). The open must be yours and a contact (`404` otherwise). Opens one case per open; a second report answers the same case (idempotent).
+- **Response (both):** `200 { case_id, unlock_id, status, reported_at, deadline_at, resolved_at, credits_returned }`. `status` is `open` until the worker desk closes it: `reached_interested`, `reached_declined`, or `not_reached`. Not reached gives back every credit the open took (`credits_returned`), as new credits that keep the spent credits' expiry while it is ahead, else 30 days. A case still open at `deadline_at` (48 hours) closes as `not_reached` on its own. **GET** is `404` when you never reported that open.
+- **Mobile gotchas:** Show "Couldn't reach?" on an opened contact for 7 days. After a report, show the case's status and, when `not_reached`, the credits returned. Your ledger shows a `returned` line naming the open.
 
 #### `POST /payer/unlocks/:unlockId/reveal`
 
@@ -811,6 +864,10 @@ So a screen can draw the Selected and Hired controls only when a move would be a
 - **Auth:** `AdminAuthGuard` plus `manage_agency_match_skills` (currently `super_admin` only), the same gate as the agency-jobs routes above.
 - **Response:** `{ skills: [{ skill_id, label, industry_id, related_skill_ids }], max_skills_per_posting }`. `skills` is the same closed vocabulary `GET /payer/match/skills` serves, sorted by `skill_id`. `max_skills_per_posting` is the live `match_config` cap that the PUT enforces, read on every call.
 - **Events:** none. It is a read-only route, and the PUT records the decision taken with it.
+
+#### The numbers screen — **Admin Portal** (#2755)
+
+- `GET /admin/numbers/definitions` (the catalogue of the weekly figures), `PUT|DELETE /admin/numbers/test-accounts/:payerId` (mark or unmark a test company, `payers.is_test_account`) and `GET /admin/numbers/weekly?city=&trade=&weeks=` (every figure with this week, last week, the change and the series, read only from the `numbers_weekly` snapshot a nightly sweep keeps; 503 before its migration). Capability `read_business_numbers` (super_admin, ops_admin), NOT the `read_entities` floor that `GET /admin/finance/summary` uses; a neutral 404 while `ADMIN_NUMBERS_ENABLED` is off. Contract: [admin-numbers-api-reference.md](./admin-numbers-api-reference.md).
 
 ### 4.7 Admin posting detail (NOT a payer/mobile route — for reference)
 

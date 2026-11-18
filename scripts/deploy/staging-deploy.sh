@@ -194,6 +194,20 @@ case "${OUTCOME_STAGES_ROLLOUT-}" in
     exit 1
     ;;
 esac
+case "${CREDIT_RULES_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::CREDIT_RULES_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set CREDIT_RULES_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+case "${POSTING_CHOICE_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::POSTING_CHOICE_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set POSTING_CHOICE_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
 case "${OUTBOUND_SIGNALS_ROLLOUT-}" in
   "" | off | pilot | on) ;;
   *)
@@ -253,6 +267,19 @@ case "${STILL_LOOKING_EVERY_DAYS-}" in
     ;;
 esac
 
+# #2755 part B: NUMBERS_FREEZE_AFTER_DAYS — how many days after a week ends the numbers sweep freezes
+# it, whole days. The api parses it as a positive integer at boot (positiveIntFromString), so "0",
+# "3d" or "three" would crash-loop it with no automatic rollback. Only empty or 1..999 pass,
+# checked here before any prune, pull or recreate. Empty means 3 through compose's
+# `${NUMBERS_FREEZE_AFTER_DAYS:-3}`.
+case "${NUMBERS_FREEZE_AFTER_DAYS-}" in
+  "" | [1-9] | [1-9][0-9] | [1-9][0-9][0-9]) ;;
+  *)
+    echo "::error::NUMBERS_FREEZE_AFTER_DAYS must be a whole number from 1 to 999, or empty (empty means 3). Fix the production secret (gh secret set NUMBERS_FREEZE_AFTER_DAYS --env production --body 3) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
 # EVERY OTHER BRIDGED BOOLEAN — the same boot-time grammar, the same reason. Each name below is
 # in the deploy job's `envs:` list in ci.yml AND parsed by the api's `booleanFromString`
 # (packages/config/src/server.ts), which throws at boot on anything but true/false/1/0/empty.
@@ -262,6 +289,8 @@ esac
 # bridged-boolean-flags-preflight.guard.test.ts fails if a bridged booleanFromString flag is
 # missing from this list, so adding one to `envs:` without adding it here turns CI red.
 BRIDGED_BOOLEAN_FLAGS=(
+  ADMIN_AI_TRACE_READ_ENABLED
+  ADMIN_NUMBERS_ENABLED
   AGENCY_PAYOUTS_ENABLED
   AGENCY_TWIN_SYNC_ENABLED
   AI_ALERT_EMAIL_ENABLED
@@ -286,6 +315,7 @@ BRIDGED_BOOLEAN_FLAGS=(
   HIRE_RECORDS_ENABLED
   LEVEL_NEEDED_SORT_ENABLED
   PAYER_APPLICANT_STAGES_ENABLED
+  PAYER_SMS_OTP_ENABLED
   PAY_ON_JOINING_RECORDS_ENABLED
   PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED
   PROFILING_TIERS_ENABLED
@@ -299,6 +329,7 @@ BRIDGED_BOOLEAN_FLAGS=(
   SIGNUP_AGE_GATE_ENABLED
   STILL_LOOKING_CHECK_ENABLED
   STILL_LOOKING_PUSH_ENABLED
+  STUDENT_MOVE_ENABLED
   TEST_IMMEDIATE_DELETE_ENABLED
   UNLOCK_FOLLOWUP_ENABLED
   WORK_HISTORY_POLISH_ENABLED
@@ -314,6 +345,22 @@ for _flag in "${BRIDGED_BOOLEAN_FLAGS[@]}"; do
       ;;
   esac
 done
+# #2754 — company sign-in by SMS code, armed: the company's own DLT template id must be set. The
+# api refuses to boot armed without FAST2SMS_PAYER_DLT_TEMPLATE_ID (assertPayerAuthConfig), and a
+# refused boot is an outage the deploy gate does not roll back, so stop here, before a container
+# moves. (#2754 item 3 replaced the blanket refusal that stood here: an SMS code now signs in only
+# the one account that PROVED the phone, so arming no longer makes an unproven number a credential.
+# Apply the payer_phone_proofs migration before arming; until then every SMS sign-in fails closed.)
+# The value is never echoed — only the names.
+case "${PAYER_SMS_OTP_ENABLED-}" in
+  true | 1)
+    _payer_sms_template="${FAST2SMS_PAYER_DLT_TEMPLATE_ID-}"
+    if [ -z "${_payer_sms_template//[[:space:]]/}" ]; then
+      echo "::error::PAYER_SMS_OTP_ENABLED is armed but FAST2SMS_PAYER_DLT_TEMPLATE_ID is not set (the company sign-in template's DLT id); the api would refuse to boot. Set the production secret (gh secret set FAST2SMS_PAYER_DLT_TEMPLATE_ID --env production) or set PAYER_SMS_OTP_ENABLED to false, and re-run. Nothing was deployed."
+      _bad_flags=1
+    fi
+    ;;
+esac
 # Every bad flag is reported above before this exits, so one run names them all.
 if [ "$_bad_flags" -ne 0 ]; then
   exit 1

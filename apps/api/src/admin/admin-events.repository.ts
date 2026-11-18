@@ -707,4 +707,83 @@ export class AdminEventsRepository {
       lastAt: r?.lastAt ?? null,
     };
   }
+
+  // =========================================================================
+  // #2755 part B — the numbers screen's ONE spine read (the form-worker gap diagnostic).
+  //
+  // Here and not on the snapshot's repository for the reason the journey's reads are: `events`
+  // keeps exactly one admin reader (build-blocked in `admin-static-guards.test.ts`).
+  // =========================================================================
+
+  /**
+   * The workers whose FIRST `eventName` (a worker-SUBJECT event) fell in `[from, to)`, each with
+   * that first time: one grouped pass, ids and times only, never a payload. The numbers sweep
+   * reads `profile.form_completed` this way (emitted once per worker and pack, subject = the
+   * worker) to measure the trade-form workers whose profile was never confirmed.
+   *
+   * INDEX: `events_event_name_idx` narrows to the one name; the group runs over its rows. The
+   * bounds are compared in the HAVING as ISO text cast to timestamptz (an interpolated `Date` in
+   * a `sql` template reaches the driver unmapped: the BP-1 trap above).
+   */
+  async firstWorkerSubjectEventsBetween(
+    eventName: string,
+    from: Date,
+    to: Date,
+  ): Promise<Array<{ workerId: string; firstAt: Date }>> {
+    const first = sql`min(${events.occurredAt})`;
+    const rows = await this.db
+      .select({ workerId: events.subjectId, firstAt: min(events.occurredAt) })
+      .from(events)
+      .where(and(eq(events.eventName, eventName), eq(events.subjectType, "worker")))
+      .groupBy(events.subjectId)
+      .having(
+        and(
+          sql`${first} >= ${from.toISOString()}::timestamptz`,
+          sql`${first} < ${to.toISOString()}::timestamptz`,
+        ),
+      );
+    const out: Array<{ workerId: string; firstAt: Date }> = [];
+    for (const r of rows) {
+      if (r.workerId === null || r.firstAt === null) continue;
+      out.push({ workerId: r.workerId, firstAt: new Date(r.firstAt) });
+    }
+    return out;
+  }
+
+  /**
+   * #2755 part C — the LATEST time each listed PAYER was the subject of `eventName`: one grouped
+   * pass, ids and times only, never a payload. The out-of-credits call list reads
+   * `payer.credits_exhausted` this way (emitted on the debit that spent a wallet's last credit,
+   * subject = the wallet) for the moment a company ran out by spending. A payer with no such event
+   * is absent from the map.
+   *
+   * INDEX: `events_event_name_idx` and `events_subject_idx` (subject_type, subject_id) narrow it;
+   * the id list is bounded per statement by {@link ADMIN_EVENTS_ID_BATCH_MAX}.
+   */
+  async latestPayerSubjectEventAt(
+    eventName: string,
+    payerIds: readonly string[],
+  ): Promise<Map<string, Date>> {
+    const out = new Map<string, Date>();
+    const ids = [...new Set(payerIds)];
+    for (let i = 0; i < ids.length; i += ADMIN_EVENTS_ID_BATCH_MAX) {
+      const batch = ids.slice(i, i + ADMIN_EVENTS_ID_BATCH_MAX);
+      const rows = await this.db
+        .select({ payerId: events.subjectId, at: max(events.occurredAt) })
+        .from(events)
+        .where(
+          and(
+            eq(events.eventName, eventName),
+            eq(events.subjectType, "payer"),
+            inArray(events.subjectId, batch),
+          ),
+        )
+        .groupBy(events.subjectId);
+      for (const r of rows) {
+        if (r.payerId === null || r.at === null) continue;
+        out.set(r.payerId, new Date(r.at));
+      }
+    }
+    return out;
+  }
 }

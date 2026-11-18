@@ -550,7 +550,10 @@ describe("the rollout switches and the pilot list have ONE reader each", () => {
   });
 
   it("feature_pilot_subjects is reached only through FeaturePilotSubjectsRepository, which only the service uses", () => {
+    // #2837 (R87) — and by the erasure's delete of a deleted login's rows, which can only remove a
+    // pilot place, never add one (pinned below).
     expect(filesNaming("featurePilotSubjects")).toEqual([
+      "common/login-keyed-rows.ts",
       "feature-rollout/feature-pilot-subjects.repository.ts",
     ]);
     expect(filesNaming("feature_pilot_subjects")).toEqual([]);
@@ -563,6 +566,14 @@ describe("the rollout switches and the pilot list have ONE reader each", () => {
       "feature-rollout/feature-rollout.module.ts",
       "feature-rollout/feature-rollout.service.ts",
     ]);
+  });
+
+  it("#2837: the erasure helper only DELETES feature_pilot_subjects rows: it cannot put anyone on a pilot", () => {
+    const erasure = codeOf(join(SRC, "common", "login-keyed-rows.ts"));
+    expect(erasure).toContain(".delete(featurePilotSubjects)");
+    for (const write of [".insert(", ".update(", ".execute("]) {
+      expect(erasure, write).not.toContain(write);
+    }
   });
 
   it("isSealedRolloutCaller has one caller, the service", () => {
@@ -598,6 +609,14 @@ describe("isLiveForServiceCaller is a SERVICE-caller check, used only where it w
     // everywhere → it claims nothing. Which marks are QUEUED is decided per company, with
     // `stateFor` and the tenant key, in OutboundSignalsService.signalsStateFor.
     "outbound-signals/outbound-signals.sender.ts",
+    // #2750 item 1 — the admin credit-rules settings routes act for no company: `credit_rules`
+    // off everywhere → 404 and nothing reads `credit_rules_config`. Whether a COMPANY gets the
+    // rules is asked per company, with the tenant key, on the company paths.
+    "credit-rules/credit-rules.service.ts",
+    // #2750 item 8 — the couldn't-reach deadline sweep acts for no company: `credit_rules` off
+    // everywhere → the tick does nothing and nothing reads `contact_reach_cases`. Every case it
+    // closes was opened by a company under the rules (the report route asks per company).
+    "reach-desk/reach-desk.service.ts",
   ];
 
   it("its call sites are exactly the allow-list", () => {

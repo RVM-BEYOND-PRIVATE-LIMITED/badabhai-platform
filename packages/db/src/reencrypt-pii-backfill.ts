@@ -56,6 +56,8 @@ import {
   agencyProfiles,
   aiCallTraces,
   campusDriveRequests,
+  launchTestCohort,
+  rvmApplicantWaivers,
   workerAdminOverrides,
   employerProfiles,
   payerMemberInvites,
@@ -411,6 +413,43 @@ function buildTargets(db: Database): PiiTarget[] {
       "campus_drive_requests",
       "contact_phone_enc",
       "contactPhoneEnc",
+    ),
+    // #2755 item 9 — launch test A's factory name and phone (migration `*_launch_tests`). Added
+    // WITH the migration, while the table is empty, for the same reason as the entries above.
+    target(
+      launchTestCohort,
+      launchTestCohort.id,
+      launchTestCohort.factoryNameEnc,
+      "launch_test_cohort",
+      "factory_name_enc",
+      "factoryNameEnc",
+    ),
+    target(
+      launchTestCohort,
+      launchTestCohort.id,
+      launchTestCohort.factoryPhoneEnc,
+      "launch_test_cohort",
+      "factory_phone_enc",
+      "factoryPhoneEnc",
+    ),
+    // #2750 item 5 — the staff names on the placement team's waivers (migration
+    // `*_rvm_applicant_waivers`). Added WITH the migration, while the table is empty, for the same
+    // reason as the entries above.
+    target(
+      rvmApplicantWaivers,
+      rvmApplicantWaivers.id,
+      rvmApplicantWaivers.setByLabelEnc,
+      "rvm_applicant_waivers",
+      "set_by_label_enc",
+      "setByLabelEnc",
+    ),
+    target(
+      rvmApplicantWaivers,
+      rvmApplicantWaivers.id,
+      rvmApplicantWaivers.clearedByLabelEnc,
+      "rvm_applicant_waivers",
+      "cleared_by_label_enc",
+      "clearedByLabelEnc",
     ),
   ];
 }

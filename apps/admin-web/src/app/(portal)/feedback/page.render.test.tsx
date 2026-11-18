@@ -121,11 +121,11 @@ const render = async (searchParams: Record<string, string | string[] | undefined
   renderToStaticMarkup(await FeedbackPage({ searchParams: Promise.resolve(searchParams) }));
 
 describe("the gate", () => {
-  it("requires read_entities, and requires it BEFORE the read runs", async () => {
+  it("requires read_identity (#2926), and requires it BEFORE the read runs", async () => {
     // Order is the assertion. A gate that resolves after the fetch has already returned the
     // rows has audited nothing — the data was fetched either way.
     await render();
-    expect(stub.order).toEqual(["gate:read_entities", "fetch"]);
+    expect(stub.order).toEqual(["gate:read_identity", "fetch"]);
   });
 });
 
