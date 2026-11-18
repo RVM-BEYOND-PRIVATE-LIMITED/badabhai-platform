@@ -6,7 +6,7 @@ import { NUMBERS_DEFINITION_VERSION } from "./groups";
  * routes and the parity tests read their rule from here; `GET /admin/numbers/definitions` serves it.
  *
  * ── A METRIC WITH NO LIVE SOURCE IS `not_available`, NEVER ZERO ────────────────────────────
- * Some figures wait on work that has not shipped (#2751). Their figures are
+ * Some figures wait on work that has not shipped (#2751's Managed Hiring). Their figures are
  * listed with the reason and the issue they wait on, so the screen can say "not yet measured"
  * instead of drawing a zero that reads as "nobody did this". A zero is a measurement.
  *
@@ -322,18 +322,26 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         title: "Tapped 'Post free (5 contacts)'",
         unit: "share",
         kind: "headline",
-        source: "the posting-button tap record of #2751.",
-        rule: "Taps on the free button over all taps on the two buttons in the week.",
-        availability: waitsOn("#2751", "the posting-button tap record does not exist yet"),
+        source:
+          "job_posting_choices (#2751 items 1 to 3, migration 0187): the button tapped when a job " +
+          "was published, one row per posting.",
+        rule:
+          "Taps on 'Post free' over all taps on the two buttons in the week (recorded_at), test " +
+          "and sample companies and sample postings left out. The share in hundredths, rounded " +
+          "half up; numerator and denominator kept; null when the week has no tap, never zero. " +
+          "Split by the company's city and trade.",
+        availability: LIVE,
       },
       {
         id: "posting_choice_starter_share",
         title: "Tapped 'Post free + Starter ₹999 (20 contacts)'",
         unit: "share",
         kind: "headline",
-        source: "the posting-button tap record of #2751.",
-        rule: "Taps on the Starter button over all taps on the two buttons in the week.",
-        availability: waitsOn("#2751", "the posting-button tap record does not exist yet"),
+        source: "job_posting_choices (#2751 items 1 to 3, migration 0187).",
+        rule:
+          "Taps on 'Post free + Starter' over all taps on the two buttons in the week, the same " +
+          "way as the free share.",
+        availability: LIVE,
       },
     ],
   },
@@ -546,6 +554,9 @@ export const NUMBERS_SNAPSHOT_METRICS: Readonly<Record<string, NumbersSnapshotSu
   paying_companies_cumulative: "company",
   companies_posted: "company",
   companies_posted_cumulative: "company",
+  // Version 4: the posting-button shares (#2751).
+  posting_choice_free_share: "company",
+  posting_choice_starter_share: "company",
   completed_profiles: "worker",
   completed_profiles_cumulative: "worker",
   active_workers_30d: "worker",

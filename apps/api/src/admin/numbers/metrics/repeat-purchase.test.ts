@@ -231,6 +231,7 @@ describe("computeCohortWeek", () => {
       welcomeRunOuts: never,
       reachCases: never,
       waivedOpens: never,
+      postingChoices: never,
       workerDims: never,
       cohortOrders: async () => {
         calls.push("cohortOrders");

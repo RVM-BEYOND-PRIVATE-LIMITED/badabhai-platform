@@ -7,6 +7,7 @@ import { contactsPerHire } from "./contacts-per-hire";
 import { couldntReach, creditsWaived, welcomeCredits } from "./credit-rules";
 import { formCompletedUnconfirmed } from "./form-completed-unconfirmed";
 import { payingCompanies } from "./paying-companies";
+import { postingChoiceShares } from "./posting-choice";
 import { cohortOf, repeatPurchase } from "./repeat-purchase";
 import { revenueByPack, revenueGstSplit } from "./revenue-by-pack";
 import {
@@ -19,6 +20,7 @@ import {
   type NumbersHireRow,
   type NumbersOpenedContactRow,
   type NumbersPaidOrderRow,
+  type NumbersPostingChoiceRow,
   type NumbersReachCaseRow,
   type NumbersWaivedOpenRow,
   type NumbersWeekWindow,
@@ -49,6 +51,8 @@ export interface NumbersWeekSources {
   reachCases(window: NumbersWeekWindow): Promise<NumbersReachCaseRow[]>;
   /** #2750 — opens a placement-team waiver paid for in the week. */
   waivedOpens(window: NumbersWeekWindow): Promise<NumbersWaivedOpenRow[]>;
+  /** #2751 — the posting-button taps recorded in the week. */
+  postingChoices(window: NumbersWeekWindow): Promise<NumbersPostingChoiceRow[]>;
   companyDims(payerIds: readonly string[]): Promise<Map<string, NumbersDims>>;
   workerDims(workerIds: readonly string[]): Promise<Map<string, NumbersDims>>;
 }
@@ -81,6 +85,7 @@ export async function computeNumbersWeek(
   const welcome = await sources.welcomeRunOuts(w);
   const reach = await sources.reachCases(w);
   const waived = await sources.waivedOpens(w);
+  const taps = await sources.postingChoices(w);
 
   const companies = lookup(
     await sources.companyDims([
@@ -92,6 +97,7 @@ export async function computeNumbersWeek(
       ...welcome.map((r) => r.payerId),
       ...reach.map((r) => r.payerId),
       ...waived.map((r) => r.payerId),
+      ...taps.map((t) => t.payerId),
     ]),
   );
   const workers = lookup(
@@ -105,6 +111,7 @@ export async function computeNumbersWeek(
   return [
     ...payingCompanies(w, orders, companies),
     ...companiesPosted(w, publications, companies),
+    ...postingChoiceShares(w, taps, companies),
     ...completedProfiles(w, profiles, workers),
     ...activeWorkers30d(w, activity, workers),
     ...formCompletedUnconfirmed(w, completions, workers),

@@ -142,3 +142,13 @@ export interface NumbersWaivedOpenRow {
   readonly payerId: string;
   readonly at: Date;
 }
+
+/**
+ * #2751 / #2755 metric group 5 — one posting-button tap of a countable company: the button chosen
+ * when the job was published (`job_posting_choices`, one row per posting) and when.
+ */
+export interface NumbersPostingChoiceRow {
+  readonly payerId: string;
+  readonly choice: "free" | "free_plus_pack";
+  readonly recordedAt: Date;
+}

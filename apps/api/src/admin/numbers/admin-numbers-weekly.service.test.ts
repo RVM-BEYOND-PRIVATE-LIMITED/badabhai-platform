@@ -135,7 +135,7 @@ describe("AdminNumbersWeeklyService.weekly", () => {
       "pune",
       "cnc_operator",
     );
-    expect(out).toMatchObject({ city: "pune", trade: "cnc_operator", definition_version: 3 });
+    expect(out).toMatchObject({ city: "pune", trade: "cnc_operator", definition_version: 4 });
     // …and the newest closed cohort of each repeat window, for the same filter, up to this week.
     expect(repo.readLatestCompleteCohorts).toHaveBeenCalledWith(THIS, "pune", "cnc_operator");
   });
@@ -274,7 +274,7 @@ describe("AdminNumbersWeeklyService.weekly", () => {
   it("a not_available figure carries its reason and the issue it waits on, never a zero", async () => {
     const { service, query } = setup([]);
     const out = await service.weekly(query(), NOW);
-    for (const id of ["posting_choice_free_share", "posting_choice_starter_share", "revenue_managed_hiring"]) {
+    for (const id of ["revenue_managed_hiring"]) {
       const m = metricOf(out, id);
       expect(m.availability, id).toBe("not_available");
       expect(m.reason?.length, id).toBeGreaterThan(5);

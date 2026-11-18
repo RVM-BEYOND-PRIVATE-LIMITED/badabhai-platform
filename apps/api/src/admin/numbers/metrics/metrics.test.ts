@@ -8,6 +8,7 @@ import { confirmedHires } from "./confirmed-hires";
 import { contactsPerHire } from "./contacts-per-hire";
 import { formCompletedUnconfirmed } from "./form-completed-unconfirmed";
 import { payingCompanies } from "./paying-companies";
+import { postingChoiceShares } from "./posting-choice";
 import { revenueByPack, revenueGstSplit } from "./revenue-by-pack";
 import { weekWindow, type NumbersDimsLookup } from "./types";
 
@@ -347,6 +348,10 @@ describe("computeNumbersWeek", () => {
         calls.push("waivedOpens");
         return [];
       },
+      postingChoices: async () => {
+        calls.push("postingChoices");
+        return [];
+      },
       companyDims: async (ids) => {
         calls.push(`companyDims:${[...new Set(ids)].sort().join(",")}`);
         return new Map([["a", PUNE_CNC]]);
@@ -365,6 +370,9 @@ describe("computeNumbersWeek", () => {
       "paying_companies_cumulative",
       "companies_posted",
       "companies_posted_cumulative",
+      // Version 4: the posting-button shares.
+      "posting_choice_free_share",
+      "posting_choice_starter_share",
       "completed_profiles",
       "completed_profiles_cumulative",
       "active_workers_30d",
@@ -429,5 +437,42 @@ describe("revenueGstSplit (version 3)", () => {
     expect(total(byId(out, "revenue_gst"))).toBe(35964);
     expect(at(byId(out, "revenue_gst_split"), "pune", "cnc_operator").value).toBe(99900);
     expect(at(byId(out, "revenue_gst"), "ncr", "all").value).toBe(17982);
+  });
+});
+
+describe("postingChoiceShares (version 4)", () => {
+  const tap = (payerId: string, choice: "free" | "free_plus_pack", recordedAt: Date) => ({
+    payerId,
+    choice,
+    recordedAt,
+  });
+  const out = postingChoiceShares(
+    W,
+    [
+      tap("a", "free", MONDAY_START),
+      tap("a", "free", SUNDAY_END),
+      tap("b", "free_plus_pack", MONDAY_START),
+      tap("a", "free_plus_pack", BEFORE), // the week before: not counted
+      tap("b", "free", NEXT_MONDAY), // the week after: not counted
+    ],
+    dimsOf({ a: PUNE_CNC, b: NCR_CAD }),
+  );
+
+  it("each button's share of the week's taps, in hundredths, numerator and denominator kept", () => {
+    expect(at(byId(out, "posting_choice_free_share"), "all", "all")).toMatchObject({
+      value: 67,
+      numerator: 2,
+      denominator: 3,
+    });
+    expect(at(byId(out, "posting_choice_starter_share"), "all", "all")).toMatchObject({
+      value: 33,
+      numerator: 1,
+      denominator: 3,
+    });
+    expect(at(byId(out, "posting_choice_starter_share"), "ncr", "all").value).toBe(100);
+  });
+
+  it("a cell with no tap has no share (null), never a zero", () => {
+    expect(at(byId(out, "posting_choice_free_share"), "unknown", "unknown").value).toBeNull();
   });
 });
