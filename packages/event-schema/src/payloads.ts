@@ -71,6 +71,9 @@ import {
   CREDIT_CALL_RESULTS,
   PAYMENT_HOLD_REASONS,
   PAYMENT_HELD_ORDER_STATUSES,
+  PAYMENT_REFUND_FAILURES,
+  PAYMENT_REFUND_RULES,
+  PAYMENT_REFUND_STATUSES,
   LAUNCH_TEST_RESULTS,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
@@ -2084,6 +2087,51 @@ export const PaymentHeldPayload = z
   })
   .strict();
 export type PaymentHeldPayload = z.infer<typeof PaymentHeldPayload>;
+
+/**
+ * #2750 item 10 — a super admin refunded a real paid pack, in the SAME transaction as the refund row,
+ * the `pack_refund` ledger lines that took its credits back and the audit row (idempotency key
+ * `payment.refund_requested:<refund id>`: one per refund, and an order is refunded once). Razorpay is
+ * called after this commits; `payment.refund_status_changed` follows it. The actor is the admin.
+ * FACELESS: opaque ids, a closed rule, integer paise and credits. No provider id, no reason text.
+ */
+export const PaymentRefundRequestedPayload = z
+  .object({
+    refund_id: uuidSchema,
+    payment_order_id: uuidSchema,
+    /** The wallet the order was stamped with (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    rule: z.enum(PAYMENT_REFUND_RULES),
+    /** The whole order total, GST included: refunds are always full. */
+    amount_paise: z.number().int().positive(),
+    /** The credits taken back: the unused pack and any credits that came back with it. */
+    credits_removed: z.number().int().nonnegative(),
+  })
+  .strict();
+export type PaymentRefundRequestedPayload = z.infer<typeof PaymentRefundRequestedPayload>;
+
+/**
+ * #2750 item 10 — a refund moved with Razorpay: accepted and processing (`pending`), the money sent
+ * back (`processed`), or `failed` (the call errored, or Razorpay failed it; the credits stay
+ * removed and an admin retries). One per refund and status (idempotency key
+ * `payment.refund_status_changed:<refund id>:<status>`; a failure retried and failed again is
+ * recorded once per attempt with the attempt's key suffix). `failure_code` is set exactly when
+ * failed. FACELESS: ids and closed codes.
+ */
+export const PaymentRefundStatusChangedPayload = z
+  .object({
+    refund_id: uuidSchema,
+    payment_order_id: uuidSchema,
+    payer_id: uuidSchema,
+    status: z.enum(PAYMENT_REFUND_STATUSES).exclude(["requested"]),
+    failure_code: z.enum(PAYMENT_REFUND_FAILURES).nullable(),
+  })
+  .strict()
+  .refine((p) => (p.status === "failed") === (p.failure_code !== null), {
+    message: "failure_code is set exactly when the refund failed",
+    path: ["failure_code"],
+  });
+export type PaymentRefundStatusChangedPayload = z.infer<typeof PaymentRefundStatusChangedPayload>;
 
 // ---------------------------------------------------------------------------
 // Monetization + Pricing Engine (ADR-0013) — PII-FREE: ids + CODES + enums +

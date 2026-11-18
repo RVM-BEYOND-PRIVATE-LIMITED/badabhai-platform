@@ -144,6 +144,12 @@ export const ADMIN_ACTION_CODES = {
   // the selector live on the `audit_logs` row; the spine records `admin.student_visibility_*`.
   student_visibility_changed: "student_visibility_changed",
   student_visibility_bulk_changed: "student_visibility_bulk_changed",
+  // ── #2750 item 10 — a real paid pack refunded, or a failed refund sent again ───────────
+  // The `audit_logs` row (entity `payment_refund`) carries the order, the rule, the amount, the
+  // credits removed and the admin's reason; the spine records `payment.refund_requested` (actor =
+  // the admin) and each `payment.refund_status_changed`, ids and codes only.
+  payment_refund_requested: "payment_refund_requested",
+  payment_refund_retried: "payment_refund_retried",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];

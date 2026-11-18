@@ -1737,6 +1737,34 @@ export function isPaymentOrderOrigin(value: unknown): value is PaymentOrderOrigi
   return typeof value === "string" && (PAYMENT_ORDER_ORIGINS as readonly string[]).includes(value);
 }
 
+// ---- Refunds of real paid packs (#2750 item 10, migration 0186) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells them into the
+// `payment_refunds` CHECKs, `packages/event-schema` puts them on the spine
+// (`payment.refund_requested`, `payment.refund_status_changed`) and the api parses the admin
+// route with them. FROZEN: each event's v1 enum is taken from these lists.
+
+/**
+ * The refund rule a refund was granted under (brief 4C.12): `unused` = the pack is unused, within
+ * `refundUnusedWithinDays` of its purchase; `low_match` = unused, within `refundLowMatchWithinDays`,
+ * and its job drew fewer than `refundLowMatchMinWorkers` applicants.
+ */
+export const PAYMENT_REFUND_RULES = Object.freeze(["unused", "low_match"] as const);
+export type PaymentRefundRuleCode = (typeof PAYMENT_REFUND_RULES)[number];
+
+/** Where a refund stands with Razorpay: `requested` → `pending` → `processed`, or `failed`. */
+export const PAYMENT_REFUND_STATUSES = Object.freeze([
+  "requested",
+  "pending",
+  "processed",
+  "failed",
+] as const);
+export type PaymentRefundStatusCode = (typeof PAYMENT_REFUND_STATUSES)[number];
+
+/** Why a refund failed: the provider call errored, or Razorpay reported the refund failed. */
+export const PAYMENT_REFUND_FAILURES = Object.freeze(["provider_error", "provider_failed"] as const);
+export type PaymentRefundFailureCode = (typeof PAYMENT_REFUND_FAILURES)[number];
+
 /**
  * Why a captured payment was HELD instead of granted (`payment.held.reason`). `amount_mismatch` =
  * the captured paise are not the order's total; `amount_missing` = the capture carried no amount;

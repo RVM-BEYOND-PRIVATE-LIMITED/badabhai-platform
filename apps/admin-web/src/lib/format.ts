@@ -398,6 +398,9 @@ export function creditReasonLabel(reason: string): string {
     // #2750 item 9 — expired credits of an earlier paid pack, given back with the next one.
     case "pack_return":
       return "Returned with new pack";
+    // #2750 item 10 — an admin refund of the pack took its unused credits back.
+    case "pack_refund":
+      return "Pack refunded";
     default:
       // An unmapped reason is shown RAW rather than hidden — a code nobody recognises is a
       // reason to look, not to render a blank cell.

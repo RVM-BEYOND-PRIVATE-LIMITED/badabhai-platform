@@ -16,6 +16,7 @@ import { RazorpayClient } from "./razorpay.client";
 import { RazorpayWebhookController } from "./razorpay-webhook.controller";
 import { RazorpayWebhookGuard } from "./razorpay-webhook.guard";
 import { CreditLotExpirySweepProcessor } from "./credit-lot-expiry-sweep.processor";
+import { PaymentRefundsModule } from "../payment-refunds/payment-refunds.module";
 
 /**
  * Contact Unlock + Reveal (ADR-0010, Stream A): the routed-disclosure monetization
@@ -59,6 +60,9 @@ import { CreditLotExpirySweepProcessor } from "./credit-lot-expiry-sweep.process
     // #2750 item 5 - the placement team's waivers (which waiver frees a worker, and its use). No
     // dependency back: RvmWaiversModule imports only CreditRulesModule and PayersModule.
     RvmWaiversModule,
+    // #2750 item 10 - the webhook's `refund.*` deliveries reach the refund service. A one-way edge:
+    // PaymentRefundsModule imports only CreditRulesModule.
+    PaymentRefundsModule,
   ],
   // RazorpayWebhookController is the PUBLIC capture surface (ADR-0010 real-payments
   // stream). It lives here, beside the money chokepoint it drives, so the whole payment

@@ -215,6 +215,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     manage_student_visibility: ["super_admin", "ops_admin"],
     // #2750 items 7 and 12 - the worker desk. Owner ruling 2026-11-17.
     work_reach_desk: ["super_admin", "ops_admin", "support"],
+    // #2750 items 10 and 12 - refunds of real paid packs. Owner ruling 2026-11-18: super_admin only.
+    refund_payments: ["super_admin"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -281,6 +283,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "manage_student_visibility",
       // #2750 - closing a desk case returns credits: a write.
       "work_reach_desk",
+      // #2750 - a refund sends money back: a write.
+      "refund_payments",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }
