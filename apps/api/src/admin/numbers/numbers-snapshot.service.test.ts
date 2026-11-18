@@ -68,6 +68,7 @@ function setup(
       welcomeRunOuts: async () => [],
       reachCases: async () => [],
       waivedOpens: async () => [],
+      postingChoices: async () => [],
       companyDims: async () => new Map(),
       workerDims: async () => new Map(),
     })),
@@ -313,7 +314,7 @@ describe("snapshotRowsOf", () => {
         numerator: null,
         denominator: null,
         suppressed: false,
-        definitionVersion: 3,
+        definitionVersion: 4,
       },
     ]);
   });

@@ -56,6 +56,7 @@ import type {
   NumbersHireRow,
   NumbersOpenedContactRow,
   NumbersPaidOrderRow,
+  NumbersPostingChoiceRow,
   NumbersReachCaseRow,
   NumbersWaivedOpenRow,
   NumbersWeekWindow,
@@ -416,6 +417,7 @@ export class NumbersWeeklyRepository {
       welcomeRunOuts: (w) => this.welcomeRunOuts(tx, w),
       reachCases: (w) => this.reachCases(tx, w),
       waivedOpens: (w) => this.waivedOpens(tx, w),
+      postingChoices: (w) => this.postingChoices(tx, w),
       companyDims: (ids) => this.companyDims(tx, ids),
       workerDims: (ids) => this.workerDims(tx, ids),
     };
@@ -637,6 +639,31 @@ export class NumbersWeeklyRepository {
     return rows.flatMap((r) => {
       const at = msOf(r.at_ms);
       return at === null ? [] : [{ payerId: String(r.payer_id), at }];
+    });
+  }
+
+  /**
+   * #2751 items 1 to 3 — the posting-button taps of countable companies recorded in the week
+   * (`job_posting_choices`, migration 0187: one row per posting), sample postings left out. Written
+   * only while the `posting_choice` switch is on for the company; with none, the shares are null.
+   */
+  private async postingChoices(
+    tx: Database,
+    w: NumbersWeekWindow,
+  ): Promise<NumbersPostingChoiceRow[]> {
+    const rows = (await tx.execute(sql`
+      SELECT c.payer_id, c.choice, (extract(epoch from c.recorded_at) * 1000)::float8 AS at_ms
+      FROM job_posting_choices c
+      WHERE c.recorded_at >= ${ts(w.fromUtc)} AND c.recorded_at < ${ts(w.toUtcExclusive)}
+        AND ${countablePayer(sql.raw(`"c"."payer_id"`))}
+        AND ${excludeSamplePostings(sql.raw(`"c"."job_posting_id"`))}
+    `)) as unknown as Array<Record<string, unknown>>;
+    return rows.flatMap((r) => {
+      const recordedAt = msOf(r.at_ms);
+      const choice = r.choice === "free" || r.choice === "free_plus_pack" ? r.choice : null;
+      return recordedAt === null || choice === null
+        ? []
+        : [{ payerId: String(r.payer_id), choice, recordedAt }];
     });
   }
 

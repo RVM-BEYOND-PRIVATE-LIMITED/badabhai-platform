@@ -812,6 +812,17 @@ describe.skipIf(!RUN)("#2755 part E against Postgres (groups 6 to 8)", () => {
         VALUES (${unlock!.id}::uuid, ${co}::uuid, ${co}::uuid, '2026-09-08T04:30:00.000Z',
                 '2026-09-10T04:30:00.000Z', 'not_reached', 1, '2026-09-10T04:30:00.000Z',
                 'deadline')`;
+      // #2751: a posting with its "Post free" tap in WA (version 4's shares).
+      const postingId = randomUUID();
+      await sql`
+        INSERT INTO job_postings (id, created_by, payer_id, org_label, role_title, vacancy_band,
+                                  status, city, role_kind, created_at, published_at)
+        VALUES (${postingId}::uuid, ${randomUUID()}::uuid, ${co}::uuid, 'Numbers Fixture',
+                ${`Numbers E posting ${TAG}`}, '1', 'open', 'Pune', 'cnc_turner',
+                ${WA_FROM}::timestamptz, ${WA_FROM}::timestamptz)`;
+      await sql`
+        INSERT INTO job_posting_choices (job_posting_id, payer_id, choice, surface, recorded_at)
+        VALUES (${postingId}::uuid, ${co}::uuid, 'free', 'web', '2026-09-08T06:00:00.000Z')`;
       // Two waived opens in WA, one in WB.
       for (const when of ["2026-09-08T05:00:00.000Z", "2026-09-11T05:00:00.000Z", WB_FROM]) {
         await sql`
@@ -826,6 +837,8 @@ describe.skipIf(!RUN)("#2755 part E against Postgres (groups 6 to 8)", () => {
     try {
       const { sql } = client;
       for (const co of COS) {
+        await sql`DELETE FROM job_posting_choices WHERE payer_id = ${co}::uuid`;
+        await sql`DELETE FROM job_postings WHERE payer_id = ${co}::uuid`;
         await sql`DELETE FROM contact_reach_cases WHERE payer_id = ${co}::uuid`;
         await sql`DELETE FROM unlocks WHERE payer_id = ${co}::uuid`;
         await sql`DELETE FROM payment_orders WHERE payer_id = ${co}::uuid`;
@@ -862,6 +875,13 @@ describe.skipIf(!RUN)("#2755 part E against Postgres (groups 6 to 8)", () => {
         resolvedAt: at("2026-09-10T04:30:00.000Z"),
         creditsReturned: 1,
       },
+    ]);
+  });
+
+  it("the posting-button taps of the week, test companies out (version 4)", async () => {
+    const rows = await sources((s) => s.postingChoices(WEEK_E));
+    expect(rows.filter((r) => COS.includes(r.payerId))).toEqual([
+      { payerId: CO, choice: "free", recordedAt: at("2026-09-08T06:00:00.000Z") },
     ]);
   });
 
