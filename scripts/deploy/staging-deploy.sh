@@ -282,6 +282,7 @@ esac
 # bridged-boolean-flags-preflight.guard.test.ts fails if a bridged booleanFromString flag is
 # missing from this list, so adding one to `envs:` without adding it here turns CI red.
 BRIDGED_BOOLEAN_FLAGS=(
+  ADMIN_AI_TRACE_READ_ENABLED
   ADMIN_NUMBERS_ENABLED
   AGENCY_PAYOUTS_ENABLED
   AGENCY_TWIN_SYNC_ENABLED
