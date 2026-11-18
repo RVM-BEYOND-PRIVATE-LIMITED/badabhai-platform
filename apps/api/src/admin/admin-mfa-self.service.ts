@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Inject,
@@ -17,11 +18,14 @@ import { AdminAttemptLockoutService } from "./admin-attempt-lockout.service";
 import { ADMIN_ACTION_CODES } from "./admin-actions.service";
 import { emitAdminAccountAction } from "./admin-account-event";
 import { generateTotpEnrollment, verifyTotp } from "./admin-mfa";
+import { mfaRequiredForRole } from "./admin-mfa-policy";
 import type { AdminMfaEnrollmentResponse, AdminMfaStateResponse } from "./admin-auth.dto";
 
 const ALREADY_ON = "Two-step verification is already on";
 const ALREADY_OFF = "Two-step verification is already off";
 const WRONG_CODE = "Incorrect code";
+/** #2924 — the 403 copy when a role that requires two-step asks to switch it off. */
+export const REQUIRED_FOR_ROLE = "Two-step verification is required for your role and cannot be turned off";
 
 /**
  * The signed-in admin's OWN two-step switch (owner Amendment 1, 2026-11-03: two-step is
@@ -32,6 +36,8 @@ const WRONG_CODE = "Incorrect code";
  *   confirm → a code from that seed proves the authenticator works → enrolled + enabled together.
  *   disable → a code from the CURRENT seed proves possession → enabled, enrolled AND the seed are
  *             cleared together (re-enabling shows a new QR; trusted devices die with the seed).
+ *             REFUSED (403) for a role that requires two-step (#2924, Amendment 2:
+ *             super_admin, ops_admin), before any code is checked or counted.
  *
  * Self-service only: the session admin's id comes from the guard, never a body. Recovering a
  * LOST device stays the super_admin reset (another human) or the break-glass CLI — the disable
@@ -94,6 +100,9 @@ export class AdminMfaSelfService {
     ctx: RequestContext,
   ): Promise<AdminMfaStateResponse> {
     const row = await this.requireActive(adminId);
+    if (this.config.ADMIN_MFA_REQUIRED && mfaRequiredForRole(row.role)) {
+      throw new ForbiddenException(REQUIRED_FOR_ROLE);
+    }
     if (!row.mfaEnabled) throw new ConflictException(ALREADY_OFF);
     await this.assertCode(adminId, code);
     const switched = await this.admins.withTransaction(async (tx) => {

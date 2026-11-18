@@ -84,6 +84,11 @@ export const ADMIN_ACTION_CODES = {
   posting_unhidden: "posting_unhidden",
   posting_verified: "posting_verified",
   posting_rejected: "posting_rejected",
+  // ── #2891 — BadaBhai worker visibility of a Campus-origin posting ──────────────────────
+  // Target = the posting (`target_type: "job_posting"`). The reason, the state before and after,
+  // and whether it was the first decision live on the `audit_logs` row; the spine carries the CODE.
+  posting_worker_visibility_on: "posting_worker_visibility_on",
+  posting_worker_visibility_off: "posting_worker_visibility_off",
   // ── #2564 — company records ─────────────────────────────────────────────────────────────
   // Target = the org's ROOT payer (`target_type: "payer"`). The reason, the edited values and
   // the archived member logins live on `audit_logs` and the lifecycle events; the spine's
@@ -108,6 +113,10 @@ export const ADMIN_ACTION_CODES = {
   // `admin.payer_test_account_marked`; the spine's `admin.action_performed` carries the CODE only.
   payer_test_account_marked: "payer_test_account_marked",
   payer_test_account_unmarked: "payer_test_account_unmarked",
+  // ── #2755 item 8 — a call to a company whose credits ran out, logged ─────────────────────
+  // Target = the payer (`target_type: "payer"`). The closed result code rides
+  // `admin.credit_call_logged`; the spine's `admin.action_performed` carries the CODE only.
+  credit_call_logged: "credit_call_logged",
   // ── #2750 item 1 — the credit rules' settings ──────────────────────────────────────────
   // Target = the new revision (`target_type: "credit_rules_config"`). The keys that moved, their
   // old and new values and the admin's reason live on the `audit_logs` row; the spine carries the
@@ -118,6 +127,29 @@ export const ADMIN_ACTION_CODES = {
   // ride `admin.launch_test_factory_recorded|updated`; never the name, phone or link text.
   launch_test_factory_recorded: "launch_test_factory_recorded",
   launch_test_factory_updated: "launch_test_factory_updated",
+  // ── #2750 item 5 — a placement-team waiver set or cleared from the admin console ───────
+  // The `audit_logs` row (entity `rvm_applicant_waiver`) carries the change, the scope and the
+  // admin's reason; the spine records it as `payer.rvm_waiver_set|cleared` (actor = the admin),
+  // ids and codes only.
+  rvm_waiver_changed: "rvm_waiver_changed",
+  // ── #2750 item 7 — the worker desk: a call attempt logged, a couldn't-reach case closed ─
+  // The `audit_logs` row (entity `contact_reach_case`) carries the attempt's result code, or the
+  // outcome, the credits returned and the admin's reason; the spine records the close as
+  // `payer.contact_reach_resolved` (actor = the admin), ids and codes only.
+  reach_case_attempt_logged: "reach_case_attempt_logged",
+  reach_case_resolved: "reach_case_resolved",
+  // ── #2887 — a moved RVM student's visibility turned on or off ──────────────────────────
+  // One student: target the worker (`entity_type: "worker"`); a bulk call (one import run, branch
+  // or course): its own operation id (`entity_type: "student_visibility_bulk"`). The reason and
+  // the selector live on the `audit_logs` row; the spine records `admin.student_visibility_*`.
+  student_visibility_changed: "student_visibility_changed",
+  student_visibility_bulk_changed: "student_visibility_bulk_changed",
+  // ── #2750 item 10 — a real paid pack refunded, or a failed refund sent again ───────────
+  // The `audit_logs` row (entity `payment_refund`) carries the order, the rule, the amount, the
+  // credits removed and the admin's reason; the spine records `payment.refund_requested` (actor =
+  // the admin) and each `payment.refund_status_changed`, ids and codes only.
+  payment_refund_requested: "payment_refund_requested",
+  payment_refund_retried: "payment_refund_retried",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];

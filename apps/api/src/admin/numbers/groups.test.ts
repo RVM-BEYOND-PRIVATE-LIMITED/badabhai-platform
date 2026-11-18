@@ -23,8 +23,8 @@ import {
 /** #2755 item 3 — the city and trade groups: versioned code, honest `other` and `unknown`. */
 
 describe("the definition version", () => {
-  it("starts at 1 (a change to any list bumps it in the same pull request)", () => {
-    expect(NUMBERS_DEFINITION_VERSION).toBe(1);
+  it("is 4 since the posting-button shares went live (a change to any list bumps it in the same pull request)", () => {
+    expect(NUMBERS_DEFINITION_VERSION).toBe(4);
   });
 });
 

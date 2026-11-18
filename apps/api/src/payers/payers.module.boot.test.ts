@@ -118,6 +118,9 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
       // PAY-DB-01 P2a: the services whose payer paths resolve the tenant key.
       // P2d (ORG_TENANCY_PLAN §3.4): the referred-worker service. The agency KYC and payout
       // services take the scope their route's owner gate resolved and inject no resolver.
+      // #2750 item 11 — the admin credit grant asks the company's tenant key (read-only) whether it
+      // is under the credit rules. AdminModule imports PayersModule, which the next case checks.
+      "AdminActionsService",
       "AgencyService",
       "AgencyWorkersService",
       // #2746 PR 6: the company's drive requests resolve its tenant (Campus's routes read none).
@@ -144,13 +147,22 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
       // PAY-DB-01 P2c: plans, boosts, capacity and coupons, and the payer posting seam.
       "PayerPostingPlansService",
       "PostingPlansService",
+      // #2750 item 7: the company's couldn't-reach report resolves its tenant (the case's wallet).
+      // ReachDeskModule imports PayersModule, which the next case checks.
+      "ReachDeskService",
       // P2b (ORG_TENANCY_PLAN §3.2): the money + disclosure + relay services resolve the tenant.
       "RelayService",
       "ResumeDisclosureService",
+      // #2750 item 5: a waiver names the company by id and stores its tenant key (resolved
+      // read-only). RvmWaiversModule imports PayersModule, which the next case checks.
+      "RvmWaiversService",
       // #2753 item 10: the company follow-up resolves the tenant whose unlocks it lists and answers.
       // UnlockOutcomesModule imports PayersModule, which the next case checks.
       "UnlockOutcomesService",
       "UnlockService",
+      // #2750 item 4: the welcome grant resolves a posting OWNER's tenant key read-only (the wallet
+      // it credits). CreditRulesModule imports PayersModule, which the next case checks.
+      "WelcomeCreditsService",
     ]);
   });
 

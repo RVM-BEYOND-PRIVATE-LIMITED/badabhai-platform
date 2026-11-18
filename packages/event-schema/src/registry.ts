@@ -419,6 +419,8 @@ export const EVENT_REGISTRY = {
   "unlock.granted": { version: 1, domain: "unlock", payload: p.UnlockGrantedPayload },
   "unlock.denied": { version: 1, domain: "unlock", payload: p.UnlockDeniedPayload },
   "unlock.cap_exceeded": { version: 1, domain: "unlock", payload: p.UnlockCapExceededPayload },
+  // #2750 item 6 — a credit-rules opening limit refused a new open (pilot companies). v1.
+  "unlock.limit_reached": { version: 1, domain: "unlock", payload: p.UnlockLimitReachedPayload },
   "contact.revealed": { version: 1, domain: "contact", payload: p.ContactRevealedPayload },
   "contact.viewed": { version: 1, domain: "contact", payload: p.ContactViewedPayload },
   "unlock.reopened": { version: 1, domain: "unlock", payload: p.UnlockReopenedPayload },
@@ -435,6 +437,17 @@ export const EVENT_REGISTRY = {
   // #2749 hardening 5 — a capture whose amount is not the order total: nothing granted, the order
   // parked in `held` for ops. One per order; ids + paise + a closed reason, strict. v1.
   "payment.held": { version: 1, domain: "payment", payload: p.PaymentHeldPayload },
+  // #2750 item 10 — an admin refund of a real paid pack, and its progress with Razorpay. v1.
+  "payment.refund_requested": {
+    version: 1,
+    domain: "payment",
+    payload: p.PaymentRefundRequestedPayload,
+  },
+  "payment.refund_status_changed": {
+    version: 1,
+    domain: "payment",
+    payload: p.PaymentRefundStatusChangedPayload,
+  },
 
   // Monetization + Pricing Engine (ADR-0013) — PII-FREE: ids + codes + enums + integer
   // ₹ amounts + counts only. `payment.*` above is reused for the money movement of every
@@ -892,6 +905,13 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingAudienceSetPayload,
   },
+  // #2751 items 1 to 3 — which posting button a company tapped, once per posting, in the
+  // transaction that recorded it. IDS AND ENUMS ONLY. v1.
+  "job_posting.posting_choice_recorded": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingPostingChoiceRecordedPayload,
+  },
   // #2746 PR 5 — the placement team (BadaBhai Campus) approved or rejected the RVM part of a
   // posting, for the content whose hash it stores. IDS AND ENUMS ONLY; never the reason text. v1.
   "job_posting.rvm_reviewed": {
@@ -933,6 +953,44 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "payer",
     payload: p.PayerCreditsExpiredPayload,
+  },
+  // #2750 item 4 — a verified company's welcome credits: ONE per company, ever, in the transaction
+  // that writes its `welcome` lot and ledger line. v1.
+  "payer.welcome_credits_granted": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerWelcomeCreditsGrantedPayload,
+  },
+  // #2750 item 5 — the placement team's waiver of the contact cost was set or cleared: ONE each per
+  // waiver, in the transaction that writes the `rvm_applicant_waivers` change. v1.
+  "payer.rvm_waiver_set": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerRvmWaiverChangedPayload,
+  },
+  "payer.rvm_waiver_cleared": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerRvmWaiverChangedPayload,
+  },
+  // #2750 item 7 — a couldn't-reach report opened a desk case, and the case closed: ONE each per
+  // case, in the transaction that writes the case change (and any returned credits). v1.
+  "payer.contact_reach_reported": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerContactReachReportedPayload,
+  },
+  "payer.contact_reach_resolved": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerContactReachResolvedPayload,
+  },
+  // #2750 item 9 — a real paid pack brought back credits expired on earlier paid packs: ONE per
+  // order, in the settle's transaction. v1.
+  "payer.pack_credits_returned": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerPackCreditsReturnedPayload,
   },
   // MOMENT ④ — `feed.shown` VERSION 2. `feed.shown` above KEEPS its v1 entry,
   // unmodified, as history (invariant #8): `validateEvent` allows exactly one version
@@ -1870,6 +1928,13 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminPayerTestAccountUnmarkedPayload,
   },
+  // #2755 item 8 — a call to a company whose credits ran out, logged by an admin from the call list
+  // (`credit_call_log`). IDS AND ONE CLOSED RESULT CODE ONLY, strict. v1.
+  "admin.credit_call_logged": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminCreditCallLoggedPayload,
+  },
   // #2755 item 9 — launch test A: a factory recorded by the desk with the profiles sent to it, or
   // its record changed (link, result, account, paid order). IDS, COUNTS AND CLOSED CODES ONLY,
   // strict: never the factory's name or phone, the link's text or a worker id. v1.
@@ -1882,6 +1947,18 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "admin",
     payload: p.AdminLaunchTestFactoryUpdatedPayload,
+  },
+  // #2887 — a moved student's visibility turned on or off by an admin: one student, or a bulk call
+  // (one import run, branch or course). In the transaction that changes the rows. v1.
+  "admin.student_visibility_changed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminStudentVisibilityChangedPayload,
+  },
+  "admin.student_visibility_bulk_changed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminStudentVisibilityBulkChangedPayload,
   },
 } as const satisfies Record<string, EventDefinition>;
 

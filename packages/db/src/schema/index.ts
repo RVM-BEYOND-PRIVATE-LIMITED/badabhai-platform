@@ -59,8 +59,22 @@ import { unlockOutcomes } from "./unlock-outcome";
 import { stillLookingChecks } from "./still-looking";
 import { payerPhoneProofs } from "./payer-phone-proof";
 import { numbersRecomputeLog, numbersWeekly } from "./numbers-weekly";
+import { creditCallLog } from "./credit-call-log";
 import { creditRulesConfig } from "./credit-rules";
+import { rvmApplicantWaivers, rvmWaiverUses } from "./rvm-waivers";
+import { contactReachAttempts, contactReachCases } from "./contact-reach";
+import { paymentRefunds } from "./payment-refunds";
+import { jobPostingChoices } from "./job-posting-choice";
+import {
+  studentImportBatches,
+  studentImportRows,
+  studentImportSubjects,
+  studentVisibility,
+  workerFieldSources,
+} from "./student-move";
+import { jobPostingWorkerVisibility } from "./job-worker-visibility";
 import { launchTestCohort, launchTestShares } from "./launch-test";
+import { companyImportBatches, companyImportRows } from "./company-import";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -194,9 +208,25 @@ export * from "./still-looking";
 export * from "./payer-phone-proof";
 // #2755 items 4 and 11 — the numbers screen's weekly snapshot and its recompute log.
 export * from "./numbers-weekly";
+// #2755 item 8 — the out-of-credits call log (one row per call, a closed result code).
+export * from "./credit-call-log";
 export * from "./credit-rules";
+// #2750 item 5 - the placement team's waivers of the contact cost, and their uses.
+export * from "./rvm-waivers";
+// #2750 item 7 - the couldn't-reach guarantee: cases and the desk's call attempts.
+export * from "./contact-reach";
+// #2750 item 10 - admin refunds of real paid packs.
+export * from "./payment-refunds";
+// #2751 items 1 to 3 - which posting button a company tapped, one row per posting.
+export * from "./job-posting-choice";
+// #2887 - moving RVM students into BadaBhai: the import ledger, field sources and visibility.
+export * from "./student-move";
+// #2891 - BadaBhai worker visibility of a Campus-origin posting (off until an admin opens it).
+export * from "./job-worker-visibility";
 // #2755 item 9 — launch test A: the factories, what each was sent, its payment link and result.
 export * from "./launch-test";
+// #2754 item 4 — the Campus company import: one row per batch, one row per source record moved.
+export * from "./company-import";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -527,9 +557,32 @@ export const schema = {
   // #2755 - the numbers screen's weekly snapshot and its recompute log (behind ADMIN_NUMBERS_ENABLED).
   numbersWeekly,
   numbersRecomputeLog,
+  // #2755 item 8 - the out-of-credits call log (behind ADMIN_NUMBERS_ENABLED).
+  creditCallLog,
   // #2750 item 1 - the credit rules settings, one row per revision (read only while CREDIT_RULES_ROLLOUT is on).
   creditRulesConfig,
+  // #2750 item 5 - the placement team's waivers and the opens they paid for (read only while CREDIT_RULES_ROLLOUT is on).
+  rvmApplicantWaivers,
+  rvmWaiverUses,
+  // #2750 item 7 - the couldn't-reach cases and the desk's call attempts (read only while CREDIT_RULES_ROLLOUT is on).
+  contactReachCases,
+  contactReachAttempts,
+  // #2750 item 10 - admin refunds of real paid packs (read only once credit notes exist).
+  paymentRefunds,
+  // #2751 items 1 to 3 - the posting choice, one row per posting (read and written only while POSTING_CHOICE_ROLLOUT is on).
+  jobPostingChoices,
+  // #2887 - the bulk student move: import ledger, field source markers, visibility (read only while STUDENT_MOVE_ENABLED is on).
+  studentImportBatches,
+  studentImportRows,
+  studentImportSubjects,
+  workerFieldSources,
+  studentVisibility,
   // #2755 item 9 - launch test A records (read and written only while ADMIN_NUMBERS_ENABLED is on).
   launchTestCohort,
   launchTestShares,
+  // #2754 item 4 - the Campus company import ledger (written only by import-campus-companies.cli).
+  companyImportBatches,
+  companyImportRows,
+  // #2891 - a Campus-origin posting held from BadaBhai workers until an admin opens it (read by reachesBadaBhaiWorkers).
+  jobPostingWorkerVisibility,
 };

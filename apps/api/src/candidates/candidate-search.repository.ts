@@ -1,11 +1,13 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import { sql as dsql, type SQL } from "drizzle-orm";
-import type { Database } from "@badabhai/db";
+import { isVisibleStudent, notHiddenStudent, type Database } from "@badabhai/db";
 import { sqlStateOf } from "../common/db-error";
 import { SERVER_CONFIG } from "../config/config.module";
 import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { searchExitEnabled, type SearchExitConfig } from "../search-exit/search-exit.flag";
+import { studentMoveEnabled, type StudentMoveConfig } from "../student-move/student-move.flag";
+import { warnStudentVisibilityMissingOnce } from "../student-move/student-visibility-missing";
 import {
   PG_UNDEFINED_TABLE,
   warnSearchExitsTableMissingOnce,
@@ -135,6 +137,12 @@ export interface CandidatePoolQuery {
    * the statement is byte-identical to the one before #2753 and the table is never named.
    */
   excludeSearchExits?: boolean;
+  /**
+   * #2887 — STUDENT_MOVE_ENABLED: a moved student whose visibility is off is out of the pool, and one
+   * an admin made visible is in it like any worker (#2752's active-link exclusion lifts for him).
+   * Set by {@link CandidateSearchRepository} from the switch, never by a service.
+   */
+  studentMove?: boolean;
 }
 
 /** One candidate in the pool, before labelling. */
@@ -161,6 +169,12 @@ export interface CandidatePoolCounts {
   unrecorded: number;
 }
 
+/** The two switches a pool statement carries (#2753 item 6, #2887). */
+interface PoolSwitches {
+  excludeSearchExits: boolean;
+  studentMove: boolean;
+}
+
 /** One wanted skill of a page worker, most months first. */
 export interface CandidateRoleRow {
   workerId: string;
@@ -177,7 +191,26 @@ function consentingWorkers(
   onlyWorkerId: string | null = null,
   tenant?: TenantKey,
   excludeSearchExits = false,
+  studentMove = false,
 ): SQL {
+  // #2887 — off: the empty fragments, so the text is byte-identical to before. On: an active
+  // #2752 link hides a student only while he is not made visible, and a hidden moved student is out
+  // whether or not he has a link row.
+  const linkHides = studentMove
+    ? dsql`
+          AND (
+            NOT EXISTS (
+              SELECT 1 FROM worker_institute_links il
+              WHERE il.worker_id = w.id AND il.status = 'active'
+            )
+            OR ${isVisibleStudent(dsql`w.id`)}
+          )
+          AND ${notHiddenStudent(dsql`w.id`)}`
+    : dsql`
+          AND NOT EXISTS (
+            SELECT 1 FROM worker_institute_links il
+            WHERE il.worker_id = w.id AND il.status = 'active'
+          )`;
   // #2753 item 6 — over the WHOLE pool (after the grant branch's OR), so a granted student who
   // left search is out of that company's pool too. Off: the empty fragment, so the text is unchanged.
   const exits = excludeSearchExits
@@ -221,11 +254,7 @@ function consentingWorkers(
           ) IS TRUE
           AND EXISTS (
             SELECT 1 FROM worker_skill ws0 WHERE ws0.worker_id = w.id AND ws0.wants
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM worker_institute_links il
-            WHERE il.worker_id = w.id AND il.status = 'active'
-          )
+          )${linkHides}
         )${granted}
       )${exits}${only}`;
 }
@@ -326,7 +355,12 @@ export function candidateSearchStatement(q: CandidatePoolQuery): SQL {
       FROM (${liveGrantRows(q.tenant)}) ws
       JOIN consenting cw ON cw.worker_id = ws.worker_id`;
 
-  const pool = consentingWorkers(q.onlyWorkerId ?? null, q.tenant, q.excludeSearchExits === true);
+  const pool = consentingWorkers(
+    q.onlyWorkerId ?? null,
+    q.tenant,
+    q.excludeSearchExits === true,
+    q.studentMove === true,
+  );
 
   return dsql`
     WITH consenting AS (${pool}),
@@ -439,10 +473,14 @@ export class CandidateSearchRepository {
     @Inject(DATABASE) private readonly db: Database,
     // Optional only so the hand-built instances (unit and DB suites) keep compiling; absent reads as
     // off. Nest always injects it (AppConfigModule is @Global).
-    @Optional() @Inject(SERVER_CONFIG) config?: SearchExitConfig,
+    @Optional() @Inject(SERVER_CONFIG) config?: SearchExitConfig & StudentMoveConfig,
   ) {
     this.excludeSearchExits = searchExitEnabled(config);
+    this.studentMove = studentMoveEnabled(config);
   }
+
+  /** #2887 — STUDENT_MOVE_ENABLED, read once. Off (or no config at all) is today. */
+  private readonly studentMove: boolean;
 
   /**
    * Run one pool statement with the SWITCH's predicate (never the caller's), FAILING OPEN when the
@@ -451,15 +489,25 @@ export class CandidateSearchRepository {
    * fallback is a separate statement on the global pool, never inside a transaction (a failed
    * statement aborts a Postgres transaction). Off, or any other error: exactly one attempt.
    */
-  private async executeFailOpen<T>(statement: (excludeSearchExits: boolean) => SQL): Promise<T[]> {
+  private async executeFailOpen<T>(statement: (flags: PoolSwitches) => SQL): Promise<T[]> {
+    const on: PoolSwitches = {
+      excludeSearchExits: this.excludeSearchExits,
+      studentMove: this.studentMove,
+    };
     try {
-      return (await this.db.execute(statement(this.excludeSearchExits))) as unknown as T[];
+      return (await this.db.execute(statement(on))) as unknown as T[];
     } catch (err) {
-      if (!this.excludeSearchExits || sqlStateOf(err) !== PG_UNDEFINED_TABLE) throw err;
-      // The off statement differs only by the predicate: if it succeeds, the missing relation
-      // was `worker_search_exits`; if another table is missing, it throws its own 42P01 here.
-      const rows = (await this.db.execute(statement(false))) as unknown as T[];
-      warnSearchExitsTableMissingOnce("search");
+      if ((!on.excludeSearchExits && !on.studentMove) || sqlStateOf(err) !== PG_UNDEFINED_TABLE) {
+        throw err;
+      }
+      // The off statement differs only by the switches' predicates: if it succeeds, the missing
+      // relation was `worker_search_exits` or `student_visibility` (#2887); if another table is
+      // missing, it throws its own 42P01 here.
+      const rows = (await this.db.execute(
+        statement({ excludeSearchExits: false, studentMove: false }),
+      )) as unknown as T[];
+      if (on.excludeSearchExits) warnSearchExitsTableMissingOnce("search");
+      if (on.studentMove) warnStudentVisibilityMissingOnce();
       return rows;
     }
   }
@@ -468,8 +516,8 @@ export class CandidateSearchRepository {
   async searchPool(
     q: CandidatePoolQuery,
   ): Promise<{ counts: CandidatePoolCounts; rows: CandidatePoolRow[] }> {
-    const raw = await this.executeFailOpen<SearchSqlRow>((excludeSearchExits) =>
-      candidateSearchStatement({ ...q, excludeSearchExits }),
+    const raw = await this.executeFailOpen<SearchSqlRow>((flags) =>
+      candidateSearchStatement({ ...q, ...flags }),
     );
     const head = raw[0];
     // The counts CTE always yields exactly one row; none at all is a defect, never data.
@@ -513,8 +561,8 @@ export class CandidateSearchRepository {
   /** Every trimmed raw city the eligible pool records — the city facet's source. */
   async listPoolCities(): Promise<string[]> {
     const rows = await this.executeFailOpen<{ city: string }>(
-      (excludeSearchExits) => dsql`
-      WITH consenting AS (${consentingWorkers(null, undefined, excludeSearchExits)})
+      (flags) => dsql`
+      WITH consenting AS (${consentingWorkers(null, undefined, flags.excludeSearchExits, flags.studentMove)})
       SELECT DISTINCT current_city AS city FROM consenting WHERE current_city IS NOT NULL
     `,
     );

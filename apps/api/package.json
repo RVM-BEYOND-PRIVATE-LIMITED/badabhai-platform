@@ -15,9 +15,11 @@
     "perf:candidates-search": "node dist/admin/candidate-search-perf.cli.js",
     "backfill:company-name-tokens": "node dist/payers/backfill-company-name-tokens.cli.js",
     "report:shared-payer-phones": "node dist/payers/report-shared-payer-phones.cli.js",
+    "import:campus-companies": "node dist/payers/import-campus-companies.cli.js",
     "backfill:candidate-index": "node dist/admin/candidate-index/candidate-index-backfill.cli.js",
     "campus:mock": "node dist/campus-link/mock/campus-link-mock.cli.js",
     "backfill:synthetic-test-payers": "node dist/admin/numbers/mark-synthetic-test-payers.cli.js",
+    "import:campus-students": "node dist/workers/import-campus-students.cli.js",
     "recompute:numbers": "node dist/admin/numbers/recompute-numbers.cli.js",
     "clean": "rimraf --glob dist .turbo *.tsbuildinfo"
   },

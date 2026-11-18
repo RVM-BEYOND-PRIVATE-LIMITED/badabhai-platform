@@ -201,6 +201,13 @@ case "${CREDIT_RULES_ROLLOUT-}" in
     exit 1
     ;;
 esac
+case "${POSTING_CHOICE_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::POSTING_CHOICE_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set POSTING_CHOICE_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
 case "${OUTBOUND_SIGNALS_ROLLOUT-}" in
   "" | off | pilot | on) ;;
   *)
@@ -289,6 +296,7 @@ esac
 # bridged-boolean-flags-preflight.guard.test.ts fails if a bridged booleanFromString flag is
 # missing from this list, so adding one to `envs:` without adding it here turns CI red.
 BRIDGED_BOOLEAN_FLAGS=(
+  ADMIN_AI_TRACE_READ_ENABLED
   ADMIN_NUMBERS_ENABLED
   AGENCY_PAYOUTS_ENABLED
   AGENCY_TWIN_SYNC_ENABLED
@@ -330,6 +338,7 @@ BRIDGED_BOOLEAN_FLAGS=(
   SIGNUP_AGE_GATE_ENABLED
   STILL_LOOKING_CHECK_ENABLED
   STILL_LOOKING_PUSH_ENABLED
+  STUDENT_MOVE_ENABLED
   TEST_IMMEDIATE_DELETE_ENABLED
   UNLOCK_FOLLOWUP_ENABLED
   WORK_HISTORY_POLISH_ENABLED

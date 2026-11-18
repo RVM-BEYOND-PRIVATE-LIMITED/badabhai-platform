@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { areRealPaymentsEnabled } from "@badabhai/config";
-import type { CreditPack, ExpiredCreditLot, PaymentOrder } from "@badabhai/db";
+import type { CreditPack, ExpiredCreditLot, PackReturnResult, PaymentOrder } from "@badabhai/db";
 import type { GstPriceLine } from "@badabhai/pricing";
 import type { PaymentOrderOrigin } from "@badabhai/types";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -124,6 +124,8 @@ export type SettleResult =
       balanceAfter: number;
       credits: number;
       priceInr: number;
+      /** #2750 item 9 — the expired credits this pack brought back (0 when none, or not asked). */
+      creditsReturned: number;
     }
   | { outcome: "already_settled"; order: PaymentOrder }
   /**
@@ -454,6 +456,14 @@ export class PaymentGateway {
       onHeld?: (tx: Tx, held: PaymentOrder, mismatch: CaptureMismatch) => Promise<void>;
       /** A mismatched capture for an order already PAID (nothing changes; the caller records it). */
       onPaidMismatch?: (paid: PaymentOrder, mismatch: CaptureMismatch) => Promise<void>;
+      /**
+       * #2750 item 9 — the returned-credits rule for this order's WALLET (the `payer_id` stamped on
+       * the row), asked BEFORE the transaction (a pilot-list or settings read on the pool must not
+       * run under the wallet lock). Null = no return. It must not throw: a settle never fails on it.
+       */
+      packReturnFor?: (order: PaymentOrder) => Promise<{ max: number; windowMonths: number } | null>;
+      /** #2750 item 9 — credits came back: runs on the settle's transaction (the caller's event). */
+      onPackReturn?: (tx: Tx, order: PaymentOrder, returned: PackReturnResult) => Promise<void>;
     } = {},
   ): Promise<SettleResult> {
     const existing = await this.repo.findPaymentOrder(input.providerOrderId);
@@ -499,12 +509,19 @@ export class PaymentGateway {
     // ₹ are all the CLAIMED row's stamped values — what this order was sold as and the wallet it
     // was sold to (ADR-0053 §6, never re-resolved), not what the pack or the caller's tenancy is
     // today. `undefined` = lost the race: the winner granted, so we must not.
-    const settled = await this.repo.withTransaction((tx) =>
-      this.repo.claimAndCreditPaymentOrderWithinTx(tx, {
+    const packReturn = hooks.packReturnFor ? await hooks.packReturnFor(existing) : null;
+    const settled = await this.repo.withTransaction(async (tx) => {
+      const done = await this.repo.claimAndCreditPaymentOrderWithinTx(tx, {
         providerOrderId: input.providerOrderId,
         providerPaymentRef: input.providerPaymentRef,
-      }),
-    );
+        ...(packReturn !== null ? { packReturn } : {}),
+      });
+      // The returned credits' event commits with them, or neither does.
+      if (done?.packReturn && done.packReturn.credits > 0 && hooks.onPackReturn) {
+        await hooks.onPackReturn(tx, done.order, done.packReturn);
+      }
+      return done;
+    });
 
     if (!settled) {
       // Someone else claimed (or held) it inside the race window. Re-read for the caller's
@@ -518,6 +535,7 @@ export class PaymentGateway {
       balanceAfter: settled.balanceAfter,
       credits: settled.order.creditsGranted,
       priceInr: settled.order.amountInr,
+      creditsReturned: settled.packReturn?.credits ?? 0,
     };
   }
 

@@ -9,6 +9,7 @@ import type {
   PayerSession,
   RequestCodeResult,
 } from "./types";
+import type { LoginCodeContact } from "./types";
 import { payerFetch, isPayerUnauthorized } from "../payer-http";
 import { isPayerStatus, isPayerValidationError } from "../payer-errors";
 import { payerMeWireSchema } from "../contracts";
@@ -86,13 +87,18 @@ const NEW_PASSWORD_REFUSALS: ReadonlyArray<readonly [RegExp, NewPasswordRefusal]
 
 type PasswordLoginFailureResult = Exclude<PasswordLoginResult, { ok: true }>;
 
+/** The auth body for a code request/verify: `{ email }` or `{ phone }` (#2754). */
+function codeContactBody(input: LoginCodeContact): { email: string } | { phone: string } {
+  return "phone" in input ? { phone: input.phone } : { email: input.email };
+}
+
 export const httpPayerAuthProvider: PayerAuthProvider = {
-  async requestCode({ email }): Promise<RequestCodeResult> {
+  async requestCode(input): Promise<RequestCodeResult> {
     try {
       const res = await payerFetch("/payer/login/request", {
         method: "POST",
         public: true,
-        body: { email },
+        body: codeContactBody(input),
         schema: requestCodeWireSchema,
       });
       return {
@@ -133,13 +139,13 @@ export const httpPayerAuthProvider: PayerAuthProvider = {
     }
   },
 
-  async verifyCode({ email, code }): Promise<LoginResult> {
+  async verifyCode(input): Promise<LoginResult> {
     let res: SessionWire;
     try {
       res = await payerFetch("/payer/login/verify", {
         method: "POST",
         public: true,
-        body: { email, code },
+        body: { ...codeContactBody(input), code: input.code },
         schema: verifyWireSchema,
       });
     } catch (err) {

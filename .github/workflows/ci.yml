@@ -676,7 +676,7 @@ jobs:
         # No `version:` here on purpose — it would conflict with the
         # `packageManager` field in package.json (ERR_PNPM_BAD_PM_VERSION).
         # package.json's `packageManager: pnpm@11.5.2` is the single source.
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -1126,7 +1126,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -1498,6 +1498,12 @@ jobs:
       #                    phone change drops the proof in its transaction (a rollback keeps it, a
       #                    racing proof never survives on the old number); the import's savepoint;
       #                    the CHECK, the FK cascade and RLS forced with no grant (src/payers).
+      #   * campus-company-import.db - #2754 item 6, placing Campus companies on BadaBhai
+      #                    accounts (migration company_import): a batch creates each company once
+      #                    (pending account, profile, Campus-proven phone, test mark, ledger row, no
+      #                    credits); a second run adds nothing; a new batch matches by phone, e-mail
+      #                    or GSTIN instead of creating; a shared phone or an archived match is an
+      #                    exception; a batch key is bound to its bundle (src/payers/campus-import).
       #   * admin-numbers.db — #2755 part A, the numbers screen's test companies: the mark /
       #                    unmark round trip on payers.is_test_account (migration 0162) with its
       #                    events in one transaction (a re-mark and a second unmark write nothing;
@@ -1521,6 +1527,14 @@ jobs:
       #                    the snapshot only, a frozen week unchanged by the next sweep, the logged
       #                    recompute (dry run writes nothing; apply rewrites and logs ONE row), and two
       #                    racing sweeps leaving one set of rows (src/admin/numbers).
+      #   * numbers-repeat-calls.db — #2755 part C: repeat buying equals a hand-written SQL (first and
+      #                    second paid order per company, the 30/60/90-day windows, pending cohorts
+      #                    store no share, unpaid orders and mock ledger rows never count), the freeze
+      #                    keyed on the longest window (frozen rows never move, open cohort rows do),
+      #                    the out-of-credits call list equals a hand-written SQL in the same order
+      #                    page by page, the usable balance agrees with readSpendableCredits wallet by
+      #                    wallet, and the call log (one row and two events per call, a retry writes
+      #                    nothing, 404s, the result CHECK, the cascade, RLS) (src/admin/numbers).
       #   * payment-orders.db — #2749 PR 3, checkout (migration 0176): the money CHECKs (the parts
       #                    sum to a whole-rupee total = amount_inr x 100, all five or none), a
       #                    credit-pack order's pack code and positive grant, the closed status /
@@ -1550,7 +1564,7 @@ jobs:
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a six-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + candidate search + payer org tenancy + org tenancy census + free-chat probe + companion history + deletion event tx + admin candidate detail + admin funnel parity + admin empty-feed parity + payer login management + worker account actions + PIN-reset gate + admin posting control + admin cost ledger + admin company records + admin candidates search + admin candidate corrections + job audience visibility + payer job audience + campus review + Campus student link, tag rules and admin scope + Campus jobs and search grants + campus drives + pre-pay facts + open for good + theme rollout + display prefs + outbound signals + worker activity + leave company search + hire records + pay-on-joining hires + unlock outcomes + still looking + credit lots + login-keyed rows + company phone proofs + numbers screen test companies + payment orders + numbers weekly snapshot + credit rules + launch-test records)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + candidate search + payer org tenancy + org tenancy census + free-chat probe + companion history + deletion event tx + admin candidate detail + admin funnel parity + admin empty-feed parity + payer login management + worker account actions + PIN-reset gate + admin posting control + admin cost ledger + admin company records + admin candidates search + admin candidate corrections + job audience visibility + payer job audience + campus review + Campus student link, tag rules and admin scope + Campus jobs and search grants + campus drives + pre-pay facts + open for good + theme rollout + display prefs + outbound signals + worker activity + leave company search + hire records + pay-on-joining hires + unlock outcomes + still looking + credit lots + login-keyed rows + company phone proofs + numbers screen test companies + payment orders + numbers weekly snapshot + credit rules + launch-test records + numbers repeat buying and call list)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -1578,7 +1592,7 @@ jobs:
           # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
           # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
           # 2820-test `node` suite is database-free and has no shared state to race on.
-          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db payer-job-audience.db campus-review.db campus-jobs.db institute-grants.db campus-drives.db pre-pay-facts.db open-grant.db theme-rollout.db display-prefs.db outbound-signals.db pay-on-joining-hires.db worker-activity.db worker-search-exits.db hires.db unlock-outcomes.db still-looking.db credit-lots.db login-keyed-rows.db payer-phone-proofs.db admin-numbers.db payment-orders.db numbers-weekly.db credit-rules.db admin-launch-tests.db 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db payer-job-audience.db campus-review.db campus-jobs.db institute-grants.db campus-drives.db pre-pay-facts.db open-grant.db theme-rollout.db display-prefs.db outbound-signals.db pay-on-joining-hires.db worker-activity.db worker-search-exits.db hires.db unlock-outcomes.db still-looking.db credit-lots.db login-keyed-rows.db payer-phone-proofs.db admin-numbers.db payment-orders.db numbers-weekly.db credit-rules.db admin-launch-tests.db numbers-repeat-calls.db campus-company-import.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
@@ -1608,13 +1622,14 @@ jobs:
           # and `admin-numbers.db` under src/admin/numbers
           # and `admin-launch-tests.db` under src/admin/launch-tests
           # and `numbers-weekly.db` under src/admin/numbers (already in the alternation)
+          # and `numbers-repeat-calls.db` under src/admin/numbers (already in the alternation)
           # (nested paths need
           # and against a regex
           # missing any one of them
           # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
           # gate lands in a new directory.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db payer-job-audience.db campus-review.db campus-jobs.db institute-grants.db campus-drives.db pre-pay-facts.db open-grant.db theme-rollout.db display-prefs.db outbound-signals.db pay-on-joining-hires.db worker-activity.db worker-search-exits.db hires.db unlock-outcomes.db still-looking.db credit-lots.db login-keyed-rows.db payer-phone-proofs.db admin-numbers.db payment-orders.db numbers-weekly.db credit-rules.db admin-launch-tests.db; do
-            line=$(grep -E "src/(admin|admin-postings|admin/companies|admin/corrections|admin/launch-tests|admin/numbers|agency-twin|ai|applications|auth|campus-drives|campus-link|candidates|chat-companion|common|credit-rules|display-prefs|feature-rollout|hires|jobs|match|outbound-signals|pay-on-joining|payer-portal|payer-portal/job-posting-chat|payers|profiles|profiling/free-chat|resume|search-exit|still-looking|unlock-outcomes|unlocks|worker-activity|workers)/${f}\.test\.ts" db-gates.log | head -1 || true)
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db payer-job-audience.db campus-review.db campus-jobs.db institute-grants.db campus-drives.db pre-pay-facts.db open-grant.db theme-rollout.db display-prefs.db outbound-signals.db pay-on-joining-hires.db worker-activity.db worker-search-exits.db hires.db unlock-outcomes.db still-looking.db credit-lots.db login-keyed-rows.db payer-phone-proofs.db admin-numbers.db payment-orders.db numbers-weekly.db credit-rules.db admin-launch-tests.db numbers-repeat-calls.db campus-company-import.db; do
+            line=$(grep -E "src/(admin|admin-postings|admin/companies|admin/corrections|admin/launch-tests|admin/numbers|agency-twin|ai|applications|auth|campus-drives|campus-link|candidates|chat-companion|common|credit-rules|display-prefs|feature-rollout|hires|jobs|match|outbound-signals|pay-on-joining|payer-portal|payer-portal/job-posting-chat|payers|payers/campus-import|profiles|profiling/free-chat|resume|search-exit|still-looking|unlock-outcomes|unlocks|worker-activity|workers)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
               exit 1
@@ -1631,8 +1646,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +66 passed \(66\)' db-gates.log; then
-            echo "::error::Expected exactly the 66 gate files to run - the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +68 passed \(68\)' db-gates.log; then
+            echo "::error::Expected exactly the 68 gate files to run - the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
@@ -1965,7 +1980,7 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Log in to the Container registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -2445,6 +2460,14 @@ jobs:
           # A plain tuning number, bridged like UNLOCK_FOLLOWUP_AFTER_DAYS: absent, compose's `:-3`
           # holds it at 3.
           NUMBERS_FREEZE_AFTER_DAYS: ${{ secrets.NUMBERS_FREEZE_AFTER_DAYS }}
+          # The bulk student move (#2887). Unset/empty resolves to off through compose's `:-false`:
+          # nothing names the student-move tables and /admin/students/* is a 404. Apply the
+          # `student_move` migration BEFORE turning it on. true/false/1/0/empty only.
+          STUDENT_MOVE_ENABLED: ${{ secrets.STUDENT_MOVE_ENABLED }}
+          # The admin AI-calls tab (#2739): GET /admin/ai-traces and /admin/ai-traces/:id, read_ai_traces
+          # (super_admin only). Unset/empty resolves to off through compose's `:-false`: both routes are a
+          # neutral 404 for every role. Turn it on only with the owner's sign-off. true/false/1/0/empty only.
+          ADMIN_AI_TRACE_READ_ENABLED: ${{ secrets.ADMIN_AI_TRACE_READ_ENABLED }}
           # Loud AI alerts (B13, #2567). INERT UNTIL THE SECRETS EXIST: absent, compose's
           # `:-` defaults resolve to today's thresholds (24h window, 10-call minimum, 0.5
           # share) and email OFF — the spine events + admin API carry the signal regardless.
@@ -2707,7 +2730,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,RESUME_OPTION_MAP_REQUIRES_AUTOFILL,PROFILING_TIERS_ENABLED,FORM_TYPED_TENURE_DERIVE_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_TURN_UNDERSTANDING_ENABLED,PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED,CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED,CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,CHAT_FREE_CHAT_DISABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,ADMIN_NAME_TOKEN_KEYS,ADMIN_NAME_TOKEN_ACTIVE_KID,AI_RAW_PII_ENABLED,MATCH_V1_ENABLED,FEED_POSTINGS_UNION_ENABLED,AGENCY_TWIN_SYNC_ENABLED,PAYER_APPLICANT_STAGES_ENABLED,LEVEL_NEEDED_SORT_ENABLED,ADMIN_ENGINE_VIEW_ALLOW_PHONES,PAYER_LOGIN_METHOD,PAYER_ORG_TENANCY_MODE,JOB_AUDIENCE_ROLLOUT,CAMPUS_DRIVE_REQUESTS_ROLLOUT,CAMPUS_LINK_ENABLED,CAMPUS_SERVICE_TOKEN_SHA256S,CAMPUS_SERVICE_ALLOWED_IPS,CAMPUS_SERVICE_MAX_PER_MINUTE,RVM_STUDENT_API_BASE_URL,RVM_STUDENT_API_TOKEN,RVM_STUDENT_API_TIMEOUT_MS,RVM_CONSENT_RECHECK_SECONDS,PAYER_SMS_OTP_ENABLED,FAST2SMS_PAYER_DLT_TEMPLATE_ID,PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY,PAYER_AUTH_MAX_PER_IP_PER_HOUR,SIGNUP_AGE_GATE_ENABLED,TRUST_PROXY_HOP_COUNT,AI_FALLBACK_ALERT_WINDOW_HOURS,AI_FALLBACK_ALERT_MIN_CALLS,AI_FALLBACK_ALERT_SHARE,AI_ALERT_EMAIL_ENABLED,AI_ALERT_EMAIL_TO,SEARCH_EXIT_ENABLED,REFERRAL_HELPER_NAME_ENABLED,AVAILABILITY_ANSWERS_V2_ENABLED,PAY_ON_JOINING_RECORDS_ENABLED,POJ_PARTNER_SHARE_PERCENT,WORKER_ACTIVITY_ENABLED,CAMPUS_DRIVE_MAX_OPEN_REQUESTS,APPLICANT_FACTS_ROLLOUT,CONTACT_RULES_ROLLOUT,OUTCOME_STAGES_ROLLOUT,OUTBOUND_SIGNALS_ROLLOUT,CREDIT_CHECKOUT_ROLLOUT,RETIRED_PRODUCTS_OFF_SALE,PAYMENTS_ENABLE_REAL,PAYMENTS_PROVIDER_KEY,PAYMENTS_PROVIDER_SECRET,RAZORPAY_WEBHOOK_SECRET,CREDIT_RULES_ROLLOUT,THEME_ROLLOUT,HIRE_RECORDS_ENABLED,UNLOCK_FOLLOWUP_ENABLED,UNLOCK_FOLLOWUP_AFTER_DAYS,STILL_LOOKING_CHECK_ENABLED,STILL_LOOKING_PUSH_ENABLED,STILL_LOOKING_EVERY_DAYS,ADMIN_NUMBERS_ENABLED,NUMBERS_FREEZE_AFTER_DAYS,FORM_TENURE_MONTHS_ENABLED,CONSENT_NOTICE_URL
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,RESUME_OPTION_MAP_REQUIRES_AUTOFILL,PROFILING_TIERS_ENABLED,FORM_TYPED_TENURE_DERIVE_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_TURN_UNDERSTANDING_ENABLED,PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED,CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED,CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,CHAT_FREE_CHAT_DISABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,ADMIN_NAME_TOKEN_KEYS,ADMIN_NAME_TOKEN_ACTIVE_KID,AI_RAW_PII_ENABLED,MATCH_V1_ENABLED,FEED_POSTINGS_UNION_ENABLED,AGENCY_TWIN_SYNC_ENABLED,PAYER_APPLICANT_STAGES_ENABLED,LEVEL_NEEDED_SORT_ENABLED,ADMIN_ENGINE_VIEW_ALLOW_PHONES,PAYER_LOGIN_METHOD,PAYER_ORG_TENANCY_MODE,JOB_AUDIENCE_ROLLOUT,CAMPUS_DRIVE_REQUESTS_ROLLOUT,CAMPUS_LINK_ENABLED,CAMPUS_SERVICE_TOKEN_SHA256S,CAMPUS_SERVICE_ALLOWED_IPS,CAMPUS_SERVICE_MAX_PER_MINUTE,RVM_STUDENT_API_BASE_URL,RVM_STUDENT_API_TOKEN,RVM_STUDENT_API_TIMEOUT_MS,RVM_CONSENT_RECHECK_SECONDS,PAYER_SMS_OTP_ENABLED,FAST2SMS_PAYER_DLT_TEMPLATE_ID,PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY,PAYER_AUTH_MAX_PER_IP_PER_HOUR,SIGNUP_AGE_GATE_ENABLED,TRUST_PROXY_HOP_COUNT,AI_FALLBACK_ALERT_WINDOW_HOURS,AI_FALLBACK_ALERT_MIN_CALLS,AI_FALLBACK_ALERT_SHARE,AI_ALERT_EMAIL_ENABLED,AI_ALERT_EMAIL_TO,SEARCH_EXIT_ENABLED,REFERRAL_HELPER_NAME_ENABLED,AVAILABILITY_ANSWERS_V2_ENABLED,PAY_ON_JOINING_RECORDS_ENABLED,POJ_PARTNER_SHARE_PERCENT,WORKER_ACTIVITY_ENABLED,CAMPUS_DRIVE_MAX_OPEN_REQUESTS,APPLICANT_FACTS_ROLLOUT,CONTACT_RULES_ROLLOUT,OUTCOME_STAGES_ROLLOUT,OUTBOUND_SIGNALS_ROLLOUT,CREDIT_CHECKOUT_ROLLOUT,RETIRED_PRODUCTS_OFF_SALE,PAYMENTS_ENABLE_REAL,PAYMENTS_PROVIDER_KEY,PAYMENTS_PROVIDER_SECRET,RAZORPAY_WEBHOOK_SECRET,CREDIT_RULES_ROLLOUT,THEME_ROLLOUT,HIRE_RECORDS_ENABLED,UNLOCK_FOLLOWUP_ENABLED,UNLOCK_FOLLOWUP_AFTER_DAYS,STILL_LOOKING_CHECK_ENABLED,STILL_LOOKING_PUSH_ENABLED,STILL_LOOKING_EVERY_DAYS,ADMIN_NUMBERS_ENABLED,NUMBERS_FREEZE_AFTER_DAYS,STUDENT_MOVE_ENABLED,ADMIN_AI_TRACE_READ_ENABLED,FORM_TENURE_MONTHS_ENABLED,CONSENT_NOTICE_URL
           #
           # ⚠ FIVE LINKS, AND A SECRET ONLY BUYS THE FIRST. A value reaches a container by:
           #   1. existing as a GitHub environment secret

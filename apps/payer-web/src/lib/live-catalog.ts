@@ -22,6 +22,9 @@ import type { TierPrice } from "./pricing-config";
  * never change what is charged — and since #2085 a purchase sends back the price the
  * payer confirmed, so a stale price is REFUSED (409 `price_mismatch`), never charged.
  *
+ * ONE EXCEPTION (#2744): the Credits page's pack tiles come from the catalogue API only, so on
+ * `live:false` it renders no packs (an error state with a retry) instead of these defaults.
+ *
  * EFFECTIVE PRICES (#2085): `prices` is the API's per-tier charge price (`prices[]`,
  * computed by the same function the purchase routes charge through, active offer
  * included). It is null when the API sent none — an API older than #2085, or the

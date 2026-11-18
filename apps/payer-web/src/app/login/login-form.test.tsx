@@ -59,7 +59,8 @@ vi.mock("./actions", () => ({
 }));
 
 // Real single-source-of-truth copy constants (plain module — safe to import).
-const { NEUTRAL_SEND_ERROR, SEND_CONFIRMATION } = await import("./messages");
+const { NEUTRAL_SEND_ERROR, SEND_CONFIRMATION, LOGIN_CONTACT_ERROR, PHONE_CODE_HELPER } =
+  await import("./messages");
 const { LoginForm } = await import("./login-form");
 
 // useState call order in the source:
@@ -237,11 +238,11 @@ describe("AUTH-1 · mode toggle (sign in / create account)", () => {
     expect(groups.length).toBe(1);
   });
 
-  it("signin entry shows ONLY the email Input (no org / phone)", () => {
+  it("signin entry shows ONLY the email-or-phone Input (no org / phone signup fields)", () => {
     const tree = render({ step: "entry", mode: "signin" });
     const inputs = findAll(tree, Input);
     expect(inputs.length).toBe(1);
-    expect(p(inputs[0]!).label).toBe("Email");
+    expect(p(inputs[0]!).label).toBe("Email or phone");
     const submit = findAll(tree, Button).find((b) => p(b).type === "submit");
     expect(textOf(p(submit!).children as ReactNode)).toContain("Send login code");
   });
@@ -551,5 +552,54 @@ describe("AUTH-1 · errors are neutral (no enumeration oracle) via DS Toast", ()
     const org = findAll(tree, Input).find((i) => p(i).label === "Company name");
     expect(p(org!).error).toBe("Enter your organisation name.");
     expect(p(org!)["aria-invalid"]).toBe(true);
+  });
+});
+
+/**
+ * #2754 — the code door accepts a phone as well as an email. The field is one control; the
+ * form classifies it with the SAME identifier helper the password door uses, and a phone
+ * carries `{ phone }` to request and `{ phone, code }` to verify. A phone code step never prints
+ * the full number and offers an email code instead.
+ */
+describe("#2754 · sign in with a phone code", () => {
+  it("an Indian mobile typed into the email-or-phone field requests { phone } (E.164)", () => {
+    requestCodeAction.mockResolvedValue({ ok: true, resendInSeconds: 30 });
+    const tree = render({ step: "entry", mode: "signin", email: "98765 43210" });
+    const form = findByProp(tree, "className", "login-form")[0]!;
+    (p(form).onSubmit as (e: { preventDefault: () => void }) => void)({ preventDefault: vi.fn() });
+    expect(requestCodeAction).toHaveBeenCalledWith({ phone: "+919876543210" });
+  });
+
+  it("an unclassifiable contact shows the field error and never calls the action", () => {
+    const tree = render({ step: "entry", mode: "signin", email: "not a contact" });
+    const form = findByProp(tree, "className", "login-form")[0]!;
+    (p(form).onSubmit as (e: { preventDefault: () => void }) => void)({ preventDefault: vi.fn() });
+    expect(requestCodeAction).not.toHaveBeenCalled();
+    const field = findAll(tree, Input).find((i) => p(i).id === "login-email")!;
+    expect(p(field).error).toBeUndefined();
+  });
+
+  it("the code step for a phone verifies { phone, code } and explains SMS + offers email", () => {
+    verifyCodeAction.mockResolvedValue({ ok: true, isNewPayer: false });
+    const tree = render({ step: "code", email: "+919876543210", code: "123456" });
+    expect(textOf(tree)).toContain(PHONE_CODE_HELPER);
+    expect(textOf(tree)).not.toContain("+919876543210");
+    const back = findAll(tree, Button).find((b) =>
+      textOf(p(b).children as ReactNode).includes("Use an email code instead"),
+    );
+    expect(back).toBeDefined();
+    submitCode(tree);
+    expect(verifyCodeAction).toHaveBeenCalledWith({ phone: "+919876543210", code: "123456" });
+  });
+
+  it("the entry field is labelled for both contacts and no longer forces email type", () => {
+    const tree = render({ step: "entry", mode: "signin" });
+    const field = findAll(tree, Input).find((i) => p(i).id === "login-email")!;
+    expect(p(field).label).toBe("Email or phone");
+    expect(p(field).type).toBe("text");
+  });
+
+  it("the invalid-contact copy is neutral about account state", () => {
+    expect(LOGIN_CONTACT_ERROR).not.toMatch(/unknown|not found|registered|exists/i);
   });
 });

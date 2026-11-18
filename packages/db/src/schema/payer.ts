@@ -310,8 +310,53 @@ export type UnlockDenyReason = "no_consent" | "capped" | "payment_required" | "u
  * with a closed set of its own (the admin finance filter, the payment-history mapping, the
  * admin-web parsers) must learn it in the same change. `returned` / `waived` / `welcome` /
  * `goodwill` arrive with #2750.
+ *
+ * #2750 item 4 — `welcome`: a verified company's welcome credits, once (`credit_lots.source =
+ * 'welcome'`, keyed `welcome_credits:<payer id>`). The numbers screen (#2755) counts it apart.
+ *
+ * #2750 item 5 — `waived`: an open the placement team's waiver paid for. `delta` 0 and no lot
+ * (nothing moved), `unlock_id` set, keyed `waived:<unlock id>`; the waiver it used is on
+ * `rvm_waiver_uses`. The numbers screen counts these as "credits waived by the placement team".
+ *
+ * #2754 item 9 — `campus_conversion`: a company's unused Campus balance moved in with it, as a
+ * `migrated` lot, keyed `campus_conversion:<bundle line key>` (once per source balance). A free grant:
+ * never credits used, never a payment.
+ * #2750 item 7 — `returned`: credits a couldn't-reach case gave back (the worker was not reached).
+ * `unlock_id` names the open; the line adds a new `returned` lot (`lot_id`), keyed
+ * `reach_returned:<unlock id>:<spent lot id>`. Returned credits from a pack (#2750 item 9) will name
+ * the new pack's lot instead (private notes item 12).
  */
-export type CreditReason = "pack_purchase" | "unlock_debit" | "refund" | "grant" | "expired";
+export type CreditReason =
+  | "pack_purchase"
+  | "unlock_debit"
+  | "refund"
+  | "grant"
+  | "expired"
+  | "welcome"
+  | "waived"
+  | "returned"
+  | "campus_conversion"
+  // #2750 item 11 — an admin grant to a company under the credit rules: `goodwill` (capped per
+  // quarter, a lot valid `goodwillValidityDays`) or `correction` (super admin, names the ledger row
+  // it corrects). Every other admin grant keeps `grant`.
+  | "goodwill"
+  | "correction"
+  /**
+   * #2754 item 14 — a batch rollback took back what a `campus_conversion` lot still held (one
+   * compensating line per lot, keyed `campus_conversion_reversed:<lot id>`). Not credits USED.
+   */
+  | "campus_conversion_reversed"
+  /**
+   * #2750 item 9 — credits that expired unused on an earlier real paid pack, given back when the
+   * next real pack is paid inside the window (one line per old pack, keyed
+   * `pack_return:<old lot id>`; a `returned` lot that expires with the new pack).
+   */
+  | "pack_return"
+  /**
+   * #2750 item 10 — an admin refund of a real paid pack took its unused credits back (and any
+   * credits that came back with it): one line per lot, keyed `pack_refund:<lot id>`.
+   */
+  | "pack_refund";
 
 /**
  * Routed-channel kind (ADR-0010 §D2). Alpha ships `in_app_relay` ONLY — it

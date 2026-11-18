@@ -184,6 +184,18 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
         // #2750 item 12 — the credit rules settings (super_admin). Not the journey's: it writes
         // the price and limits and reads no funnel step.
         "manage_credit_rules",
+        // #2750 items 5 and 12 — the placement team's waivers (super_admin). Not the journey's: it
+        // writes a company's price and reads no funnel step.
+        "manage_waivers",
+        // #2750 items 7 and 12 — the worker desk (super_admin, ops_admin, support). Not the
+        // journey's: it closes couldn't-reach cases and reads no funnel step.
+        "work_reach_desk",
+        // #2750 items 10 and 12 — refunds (super_admin). Not the journey's: it sends money back and
+        // reads no funnel step.
+        "refund_payments",
+        // #2887 — the moved students' visibility switch (super_admin, ops_admin). Not the
+        // journey's: it changes who is matched and shown, and reads no funnel step.
+        "manage_student_visibility",
         // ADR-0062 §3.8 (#2560) — the Candidates full-detail read. Not the journey's: the journey
         // stays on `read_entities` and returns no profile values.
         "read_candidates",

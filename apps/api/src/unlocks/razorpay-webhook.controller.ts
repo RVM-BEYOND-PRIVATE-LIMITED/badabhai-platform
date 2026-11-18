@@ -2,7 +2,13 @@ import { Controller, HttpCode, Post, Req, UseGuards } from "@nestjs/common";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { UnlockService } from "./unlocks.service";
 import { RazorpayWebhookGuard } from "./razorpay-webhook.guard";
-import { RazorpayWebhookSchema, toPaymentEvent } from "./razorpay-webhook.dto";
+import {
+  isRefundEvent,
+  RazorpayWebhookSchema,
+  toPaymentEvent,
+  toRefundEvent,
+} from "./razorpay-webhook.dto";
+import { PaymentRefundsService } from "../payment-refunds/payment-refunds.service";
 import type { RawBodyRequest } from "./razorpay-raw-body.middleware";
 
 /**
@@ -27,7 +33,11 @@ import type { RawBodyRequest } from "./razorpay-raw-body.middleware";
  */
 @Controller("payments/razorpay")
 export class RazorpayWebhookController {
-  constructor(private readonly unlocks: UnlockService) {}
+  constructor(
+    private readonly unlocks: UnlockService,
+    // #2750 item 10 — `refund.*` deliveries move an admin refund's status.
+    private readonly refunds: PaymentRefundsService,
+  ) {}
 
   @Post("webhook")
   @UseGuards(RazorpayWebhookGuard)
@@ -47,6 +57,10 @@ export class RazorpayWebhookController {
     // out of here, the global exceptions filter answers 5xx, and Razorpay redelivers. There
     // is no try/catch, because swallowing a DB failure into a 200 would tell Razorpay we
     // handled a capture we did not.
+    if (isRefundEvent(parsed.data)) {
+      await this.refunds.handleProviderRefundEvent(toRefundEvent(parsed.data));
+      return { received: true };
+    }
     await this.unlocks.handleRazorpayEvent(toPaymentEvent(parsed.data), ctx);
     return { received: true };
   }

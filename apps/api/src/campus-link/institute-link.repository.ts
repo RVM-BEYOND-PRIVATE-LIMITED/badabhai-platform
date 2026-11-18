@@ -17,9 +17,11 @@ import {
   type InstituteCode,
   type InstituteStudentStatus,
   type WorkerOriginKind,
+  studentVisibilityPresent,
 } from "@badabhai/db";
 import { eraseLoginKeyedRows } from "../common/login-keyed-rows";
 import { DATABASE } from "../database/database.module";
+import { warnStudentVisibilityMissingOnce } from "../student-move/student-visibility-missing";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 
 export type InstituteLinkRow = typeof workerInstituteLinks.$inferSelect;
@@ -129,6 +131,24 @@ export class InstituteLinkRepository {
    * His live link, or undefined. On the global pool: the open gate reads it before the unlock's
    * advisory lock, beside the consent read it stands in for (the pool-vs-lock deadlock rule).
    */
+  /**
+   * #2887 — a moved student's visibility: `visible`, `hidden`, or null for a worker who was never
+   * moved. Asked only while STUDENT_MOVE_ENABLED is on. A missing `student_visibility` (the switch
+   * set before the migration) reads as null, logged once: today's rules, never a guess.
+   */
+  async studentVisibilityOf(workerId: string): Promise<"visible" | "hidden" | null> {
+    if (!(await studentVisibilityPresent(this.db))) {
+      warnStudentVisibilityMissingOnce();
+      return null;
+    }
+    const rows = (await this.db.execute(sql`
+      SELECT visible FROM student_visibility WHERE worker_id = ${workerId}::uuid
+    `)) as unknown as { visible: boolean }[];
+    const row = rows[0];
+    if (row === undefined) return null;
+    return row.visible ? "visible" : "hidden";
+  }
+
   async findActiveByWorker(workerId: string): Promise<InstituteLinkRow | undefined> {
     const rows = await this.db
       .select()

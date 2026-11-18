@@ -20,6 +20,7 @@ import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers
 import { PayerRoleGuard, PayerRoles } from "../payers/payer-role.guard";
 import { JobPostingsService } from "../job-postings/job-postings.service";
 import type { PostingStats } from "../posting-plans/posting-plans.service";
+import type { PostingOptionsDto } from "../posting-choice/posting-choice.service";
 import type {
   AudienceOptionsDto,
   PayerJobPostingApi,
@@ -167,6 +168,19 @@ export class PayerJobPostingsController {
   @PayerRoles("employer")
   audienceOptions(@CurrentPayer() payer: AuthenticatedPayer): Promise<AudienceOptionsDto> {
     return this.jobPostings.audienceOptionsForPayer(payer.id);
+  }
+
+  /**
+   * #2751 item 1 — what each of the two posting buttons offers the caller's company ("Post free",
+   * "Post free + Starter"), every label, the pack and its price decided by the server. Employer
+   * accounts only (an agency does not post company jobs). The house neutral 404 while the
+   * `posting_choice` switch is off for the company. DECLARED BEFORE `GET :id`, so the static
+   * segment is never read as an id.
+   */
+  @Get("posting-options")
+  @PayerRoles("employer")
+  postingOptions(@CurrentPayer() payer: AuthenticatedPayer): Promise<PostingOptionsDto> {
+    return this.jobPostings.postingOptionsForPayer(payer.id);
   }
 
   /** Get one of the caller's OWN postings; no-oracle 404 for unknown OR foreign id. */

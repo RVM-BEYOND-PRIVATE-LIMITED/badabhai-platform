@@ -6,11 +6,12 @@ import type { ServerConfig } from "@badabhai/config";
 import { AdminEventsRepository } from "../admin-events.repository";
 import { AdminNumbersWeeklyQuerySchema } from "./admin-numbers.dto";
 import { AdminNumbersWeeklyService } from "./admin-numbers-weekly.service";
-import { NUMBERS_SNAPSHOT_METRICS } from "./definitions";
+import { NUMBERS_DEFINITION_VERSION, NUMBERS_SNAPSHOT_METRICS } from "./definitions";
 import { NUMBERS_CITY_GROUP_MEMBERS, NUMBERS_TRADE_GROUP_MEMBERS } from "./groups";
 import { NumbersSnapshotService } from "./numbers-snapshot.service";
 import { NumbersWeeklyRepository } from "./numbers-weekly.repository";
 import { recomputeNumbers } from "./recompute-numbers";
+import { weekWindow } from "./metrics/types";
 
 /**
  * #2755 part B against a real Postgres — THE PARITY TEST the issue asks for: every figure the
@@ -615,7 +616,9 @@ describe.skipIf(!RUN)("#2755 part B against Postgres (the weekly snapshot)", () 
 
   it("a company marked as test changes no company figure; a linked identity no worker total", async () => {
     const total = async (metric: string, week: string) => {
-      const rows = await repo.withTransaction((tx) => snapshot.computeWeekRows(tx, week, true));
+      const rows = await repo.withTransaction((tx) =>
+        snapshot.computeWeekRows(tx, week, true, NOW),
+      );
       return rows.find(
         (r) => r.metric === metric && r.cityGroup === "all" && r.tradeGroup === "all",
       )!.value;
@@ -674,9 +677,19 @@ describe.skipIf(!RUN)("#2755 part B against Postgres (the weekly snapshot)", () 
                                   provider_order_id, status, created_at, updated_at)
       VALUES (${late}::uuid, 'pack_50', 2000, 10, 'razorpay', ${`order_nw_${TAG}_late`}, 'paid',
               '2026-09-11T08:00:00Z', '2026-09-11T08:00:00Z')`;
+    const cohortBefore = await stored(WA, "repeat_purchase_30d");
     const out = await snapshot.sweep(NOW, [WA, WB]);
-    expect(out).toEqual({ armed: true, computed: 1, frozen: 0, skipped: 1 });
+    // Part C: WA's repeat-buying (cohort) rows stay open until 90 days after the week, so the
+    // sweep recomputes them (WA counts as computed, not skipped); its frozen rows never move.
+    expect(out).toEqual({ armed: true, computed: 2, frozen: 0, skipped: 0 });
     expect(await stored(WA, "paying_companies")).toEqual(frozenBefore);
+    expect(cohortBefore?.frozen).toBe(false);
+    expect(await stored(WA, "repeat_purchase_30d")).toMatchObject({
+      value: null,
+      numerator: null,
+      denominator: (cohortBefore?.denominator ?? 0) + 1,
+      frozen: false,
+    });
     expect((await stored(WB, "paying_companies_cumulative"))?.value).toBe(
       (cumulativeBefore?.value ?? 0) + 1,
     );
@@ -726,7 +739,7 @@ describe.skipIf(!RUN)("#2755 part B against Postgres (the weekly snapshot)", () 
       actor: "cli",
       from_week: WA,
       to_week: WA,
-      definition_version: 1,
+      definition_version: NUMBERS_DEFINITION_VERSION,
       rows_changed: applied.rowsChanged,
     });
     // The reason is stored, never printed.
@@ -746,5 +759,134 @@ describe.skipIf(!RUN)("#2755 part B against Postgres (the weekly snapshot)", () 
       SELECT count(*) AS n, count(DISTINCT metric) AS metrics FROM numbers_weekly WHERE week_start = ${WB}::date`;
     expect(Number(rows[0]!.n)).toBe(Number(rows[0]!.metrics) * 42);
     expect((await stored(WB, "paying_companies"))?.value).toBe(await paying(WB_FROM, WB_TO));
+  });
+});
+
+/**
+ * #2755 part E — the three #2750 source reads against Postgres: a welcome lot's run-out moment
+ * from its debit lines and the first paid order after it; the couldn't-reach cases reported or
+ * closed in the week; the waived opens. Test companies are left out of all three.
+ */
+describe.skipIf(!RUN)("#2755 part E against Postgres (groups 6 to 8)", () => {
+  let client: DbClient;
+  let repo: NumbersWeeklyRepository;
+  const CO = randomUUID();
+  const CO_T = randomUUID(); // a test company
+  const COS: string[] = [CO, CO_T];
+  const WEEK_E = weekWindow(WA);
+
+  beforeAll(async () => {
+    assertLocalDatabase(DATABASE_URL);
+    client = createDbClient(DATABASE_URL);
+    repo = new NumbersWeeklyRepository(client.db, new AdminEventsRepository(client.db));
+    const { sql } = client;
+    for (const co of COS) {
+      await sql`
+        INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status, is_test_account)
+        VALUES (${co}::uuid, 'employer', ${`enc:2755e-${TAG}-${co}`}, ${`hash:2755e-${TAG}-${co}`},
+                ${`enc:co-${TAG}`}, 'active', ${co === CO_T})`;
+      // A welcome lot of 2, spent on Monday and Wednesday of WA: it ran out on Wednesday.
+      const [lot] = await sql<{ id: string }[]>`
+        INSERT INTO credit_lots (payer_id, source, credits_granted, credits_remaining, created_at)
+        VALUES (${co}::uuid, 'welcome', 2, 0, ${WA_FROM}::timestamptz - interval '3 days')
+        RETURNING id`;
+      for (const when of ["2026-09-07T04:30:00.000Z", "2026-09-09T04:30:00.000Z"]) {
+        await sql`
+          INSERT INTO credit_ledger (payer_id, delta, reason, lot_id, created_at)
+          VALUES (${co}::uuid, -1, 'unlock_debit', ${lot!.id}::uuid, ${when}::timestamptz)`;
+      }
+      // A real paid order on Thursday of WA, after the run-out.
+      await sql`
+        INSERT INTO payment_orders (payer_id, pack_code, amount_inr, credits_granted,
+                                    provider_order_id, status, updated_at)
+        VALUES (${co}::uuid, 'pack_20', 1179, 20, ${`order_2755e_${TAG}_${co.slice(0, 8)}`},
+                'paid', '2026-09-10T04:30:00.000Z'::timestamptz)`;
+      // A couldn't-reach case reported Tuesday, closed not reached Thursday, 1 credit back.
+      const [unlock] = await sql<{ id: string }[]>`
+        INSERT INTO unlocks (payer_id, status, granted_at, routing_token_ref)
+        VALUES (${co}::uuid, 'granted', ${WA_FROM}::timestamptz, ${randomUUID()}::uuid)
+        RETURNING id`;
+      await sql`
+        INSERT INTO contact_reach_cases (unlock_id, payer_id, reported_by, reported_at, deadline_at,
+                                         status, credits_returned, resolved_at, resolved_by)
+        VALUES (${unlock!.id}::uuid, ${co}::uuid, ${co}::uuid, '2026-09-08T04:30:00.000Z',
+                '2026-09-10T04:30:00.000Z', 'not_reached', 1, '2026-09-10T04:30:00.000Z',
+                'deadline')`;
+      // #2751: a posting with its "Post free" tap in WA (version 4's shares).
+      const postingId = randomUUID();
+      await sql`
+        INSERT INTO job_postings (id, created_by, payer_id, org_label, role_title, vacancy_band,
+                                  status, city, role_kind, created_at, published_at)
+        VALUES (${postingId}::uuid, ${randomUUID()}::uuid, ${co}::uuid, 'Numbers Fixture',
+                ${`Numbers E posting ${TAG}`}, '1', 'open', 'Pune', 'cnc_turner',
+                ${WA_FROM}::timestamptz, ${WA_FROM}::timestamptz)`;
+      await sql`
+        INSERT INTO job_posting_choices (job_posting_id, payer_id, choice, surface, recorded_at)
+        VALUES (${postingId}::uuid, ${co}::uuid, 'free', 'web', '2026-09-08T06:00:00.000Z')`;
+      // Two waived opens in WA, one in WB.
+      for (const when of ["2026-09-08T05:00:00.000Z", "2026-09-11T05:00:00.000Z", WB_FROM]) {
+        await sql`
+          INSERT INTO credit_ledger (payer_id, delta, reason, created_at)
+          VALUES (${co}::uuid, 0, 'waived', ${when}::timestamptz)`;
+      }
+    }
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      const { sql } = client;
+      for (const co of COS) {
+        await sql`DELETE FROM job_posting_choices WHERE payer_id = ${co}::uuid`;
+        await sql`DELETE FROM job_postings WHERE payer_id = ${co}::uuid`;
+        await sql`DELETE FROM contact_reach_cases WHERE payer_id = ${co}::uuid`;
+        await sql`DELETE FROM unlocks WHERE payer_id = ${co}::uuid`;
+        await sql`DELETE FROM payment_orders WHERE payer_id = ${co}::uuid`;
+        await sql`DELETE FROM credit_ledger WHERE payer_id = ${co}::uuid`;
+        await sql`DELETE FROM credit_lots WHERE payer_id = ${co}::uuid`;
+        await sql`DELETE FROM payers WHERE id = ${co}::uuid`;
+      }
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  const sources = <T>(read: (s: ReturnType<NumbersWeeklyRepository["sourcesFor"]>) => Promise<T>) =>
+    repo.withTransaction((tx) => read(repo.sourcesFor(tx, false)));
+
+  it("a welcome lot runs out when its debits reach its size; the first paid order after it is read", async () => {
+    const rows = await sources((s) => s.welcomeRunOuts(WEEK_E));
+    const mine = rows.filter((r) => COS.includes(r.payerId));
+    expect(mine).toEqual([
+      {
+        payerId: CO,
+        ranOutAt: at("2026-09-09T04:30:00.000Z"),
+        firstPaidAfter: at("2026-09-10T04:30:00.000Z"),
+      },
+    ]);
+  });
+
+  it("the couldn't-reach cases of the week, test companies out", async () => {
+    const rows = await sources((s) => s.reachCases(WEEK_E));
+    expect(rows.filter((r) => COS.includes(r.payerId))).toEqual([
+      {
+        payerId: CO,
+        reportedAt: at("2026-09-08T04:30:00.000Z"),
+        resolvedAt: at("2026-09-10T04:30:00.000Z"),
+        creditsReturned: 1,
+      },
+    ]);
+  });
+
+  it("the posting-button taps of the week, test companies out (version 4)", async () => {
+    const rows = await sources((s) => s.postingChoices(WEEK_E));
+    expect(rows.filter((r) => COS.includes(r.payerId))).toEqual([
+      { payerId: CO, choice: "free", recordedAt: at("2026-09-08T06:00:00.000Z") },
+    ]);
+  });
+
+  it("the waived opens of the week only, test companies out", async () => {
+    const rows = await sources((s) => s.waivedOpens(WEEK_E));
+    expect(rows.filter((r) => COS.includes(r.payerId)).map((r) => r.payerId)).toEqual([CO, CO]);
   });
 });

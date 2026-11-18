@@ -38,14 +38,62 @@ const RazorpayPaymentEntitySchema = z.object({
  * types over time and an UNKNOWN type must be a 200 no-op, not a validation failure that
  * makes Razorpay retry forever.
  */
+/**
+ * #2750 item 10 — the refund entity of a `refund.*` delivery: the opaque `rfnd_*` id, its status and
+ * the notes WE wrote (`payment_refund_id`, our row id). Nothing else is parsed.
+ */
+const RazorpayRefundEntitySchema = z.object({
+  id: z.string().min(1).max(128),
+  status: z.string().min(1).max(32).optional(),
+  notes: z
+    .union([
+      z.object({ payment_refund_id: z.string().min(1).max(64).optional() }).passthrough(),
+      z.array(z.unknown()),
+    ])
+    .optional(),
+});
+
 export const RazorpayWebhookSchema = z.object({
   event: z.string().min(1).max(128),
   payload: z
     .object({
       payment: z.object({ entity: RazorpayPaymentEntitySchema }).optional(),
+      refund: z.object({ entity: RazorpayRefundEntitySchema }).optional(),
     })
     .optional(),
 });
+
+/** #2750 item 10 — a `refund.*` delivery, reduced to what the refund path reads. */
+export interface RazorpayRefundEvent {
+  eventName: string;
+  /** `rfnd_*`, or null when the delivery carried no refund entity. */
+  refundId: string | null;
+  status: string | null;
+  /** The row id we put in the refund's notes, or null. */
+  notesRefundRowId: string | null;
+}
+
+/** The refund events Razorpay sends; every other `refund.*` name is acknowledged and ignored. */
+export const RAZORPAY_REFUND_EVENTS = ["refund.created", "refund.processed", "refund.failed"] as const;
+
+export function isRefundEvent(body: RazorpayWebhookBody): boolean {
+  return body.event.startsWith("refund.");
+}
+
+export function toRefundEvent(body: RazorpayWebhookBody): RazorpayRefundEvent {
+  const entity = body.payload?.refund?.entity;
+  const notes = entity?.notes;
+  const rowId =
+    notes !== undefined && !Array.isArray(notes) && typeof notes.payment_refund_id === "string"
+      ? notes.payment_refund_id
+      : null;
+  return {
+    eventName: body.event,
+    refundId: entity?.id ?? null,
+    status: entity?.status ?? null,
+    notesRefundRowId: rowId,
+  };
+}
 
 export type RazorpayWebhookBody = z.infer<typeof RazorpayWebhookSchema>;
 

@@ -22,6 +22,7 @@ export const FEATURE_ROLLOUT_KEYS = [
   "outbound_signals",
   "credit_checkout",
   "credit_rules",
+  "posting_choice",
 ] as const;
 export type FeatureRolloutKey = (typeof FEATURE_ROLLOUT_KEYS)[number];
 
@@ -39,4 +40,5 @@ export const FEATURE_ROLLOUT_CONFIG = {
   outbound_signals: "OUTBOUND_SIGNALS_ROLLOUT",
   credit_checkout: "CREDIT_CHECKOUT_ROLLOUT",
   credit_rules: "CREDIT_RULES_ROLLOUT",
+  posting_choice: "POSTING_CHOICE_ROLLOUT",
 } as const satisfies Record<FeatureRolloutKey, keyof ServerConfig>;

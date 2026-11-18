@@ -642,6 +642,7 @@ describe("UnlocksRepository.appendLedger — append-only ledger write", () => {
       packCode: null,
       paymentRef: null,
       lotId: null,
+      idempotencyKey: null,
     });
   });
 
@@ -655,6 +656,7 @@ describe("UnlocksRepository.appendLedger — append-only ledger write", () => {
       packCode: "pack_10",
       paymentRef: "order-1",
       lotId: "lot-1",
+      idempotencyKey: "waived:u-1",
     });
     expect(captured.insertValues).toEqual({
       payerId: PAYER_ID,
@@ -664,6 +666,7 @@ describe("UnlocksRepository.appendLedger — append-only ledger write", () => {
       packCode: "pack_10",
       paymentRef: "order-1",
       lotId: "lot-1",
+      idempotencyKey: "waived:u-1",
     });
   });
 });
@@ -795,7 +798,8 @@ describe("UnlocksRepository.claimAndCreditPaymentOrderWithinTx — settlement cr
       providerOrderId: "order_X",
       providerPaymentRef: "pay_X",
     });
-    expect(out).toEqual({ order: claimedRow, balanceAfter: 50 });
+    // #2750 item 9 — no return asked (the company is not under the credit rules): none given.
+    expect(out).toEqual({ order: claimedRow, balanceAfter: 50, packReturn: null });
     expect(captured.updateTable).toBe(paymentOrders);
     expect(params(captured.where)).toEqual([RAZORPAY_PROVIDER, "order_X", "created", "failed"]);
     const [grantTx, grant] = vi.mocked(grantCreditsWithinTx).mock.calls[0]!;

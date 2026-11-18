@@ -12,6 +12,8 @@ export * from "./credit-packs";
 // and the `db:grant:free-tier` script here must both use it; a second copy would let the
 // balance, the lots and the ledger drift apart.
 export * from "./credit-wallet";
+// #2750 item 9 — credits returned with the next real pack.
+export * from "./credit-pack-return";
 export * from "./crypto";
 // The one ordering that decides which `worker_profiles` row IS a worker's profile. Exported
 // because the readers are spread across apps/api repositories AND the D2 backfill in this
@@ -22,6 +24,8 @@ export * from "./current-profile";
 // Exported because the worker reads live in apps/api and the reach materialization lives here;
 // both must test the same membership, and a second spelling is how an RVM-only job leaks.
 export * from "./job-visibility";
+// #2891 — the one writer of a Campus-origin posting's worker-visibility hold.
+export * from "./job-worker-visibility";
 // #2746 — the one content hash and the one "approved for RVM students" predicate. The payer and
 // admin reads use them now; the Campus approval and the student-facing read will, so one copy.
 export * from "./job-review";
@@ -195,6 +199,8 @@ export {
 // and its `db:sync:agency-twins` CLI (apps/api) must run the SAME plan, diff and write, and the
 // api's posting publish runs the same `job_reach` materialization statement.
 export * from "./agency-twin";
+// #2887 — the bulk student move: the hidden-student SQL the reach and search statements splice in.
+export * from "./student-visibility";
 // The ops TARGET guard (DATABASE_URL decides, not NODE_ENV). Exported so a runner that lives in
 // `apps/api` — ADR-0050's `sync-agency-twins` CLI — is held to the SAME production-write rule as
 // every `db:*` runner here, rather than restating it. Pure; no IO.

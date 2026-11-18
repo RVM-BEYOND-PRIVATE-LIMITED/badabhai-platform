@@ -740,6 +740,12 @@ export const serverEnvSchema = z.object({
   OUTBOUND_SIGNALS_ROLLOUT: featureRolloutMode,
   CREDIT_CHECKOUT_ROLLOUT: featureRolloutMode,
   CREDIT_RULES_ROLLOUT: featureRolloutMode,
+  // #2751 items 1-3 - the posting choice record: which of the two posting buttons a company
+  // tapped (`job_posting_choices`), GET /payer/job-postings/posting-options and the checkout
+  // hint on the publish answer. Off, posting-options answers 404 and the publish ignores
+  // `posting_choice` / `surface`; the table is never named. Needs the job_posting_choices
+  // migration applied first. The job goes live on publish whatever this says.
+  POSTING_CHOICE_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER
@@ -1582,6 +1588,17 @@ export const serverEnvSchema = z.object({
   // days after it ends"), at least 1. Empty reads as the default. Read only while
   // ADMIN_NUMBERS_ENABLED is on.
   NUMBERS_FREEZE_AFTER_DAYS: positiveIntFromString(3),
+  // THE BULK STUDENT MOVE (#2887, ruling of 17 Nov 2026): RVM students imported into BadaBhai as
+  // workers, out of matching and hidden from companies until an admin turns their visibility on.
+  // On: #2752's company rules lift for visible moved students and hold for hidden ones, the
+  // `/admin/students/*` routes answer to `manage_student_visibility`, and a worker's own edit marks
+  // the field as his. DEFAULT OFF: every `/admin/students/*` route is a neutral 404 and the search,
+  // open-gate and pre-pay statements are byte-identical to before. (`job_reach` is NOT switched:
+  // reach depends on no switch, #2746 M2. It skips a hidden moved student whenever the
+  // `student_visibility` table exists; before the migration, and with no student imported, nothing
+  // changes.) APPLY THE `student_move` MIGRATION BEFORE THE SWITCH (on without it: the routes answer
+  // 503 and the hot reads fall back to their off text).
+  STUDENT_MOVE_ENABLED: booleanFromString,
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable
@@ -1703,12 +1720,13 @@ export const serverEnvSchema = z.object({
   // inside the handler (where this started) the roles guard ran first and three of the four
   // roles got a 403 — a clean oracle saying the surface is real and merely closed.
   //
-  // ⚠ NOT DECLARED IN ANY COMPOSE FILE, deliberately and in line with its two siblings
-  // (ADMIN_PII_REVEAL_ENABLED and ADMIN_IDENTITY_* are likewise undeclared). Compose forwards
-  // only names it declares, so this flag cannot be armed from the staging box today, and that
-  // is the intended posture until the owner has ruled on the surface's capability split (see
-  // `admin-ai-traces.controller.ts`). Arming it is one `${ADMIN_AI_TRACE_READ_ENABLED:-false}`
-  // line in `docker-compose.staging.yml`'s `api.environment:` — `:-`, never a bare `-`.
+  // #2739 — BRIDGED, STILL OFF. `docker-compose.staging.yml` declares
+  // `${ADMIN_AI_TRACE_READ_ENABLED:-false}` on the api and ci.yml bridges the GitHub `production`
+  // secret of the same name (preflighted in `scripts/deploy/staging-deploy.sh`), so the secret is
+  // the ONE arming path and a value left in the box's `.env` is overridden on every deploy. Until
+  // then compose holds it at false: the tab stays a neutral 404. Arm it only with the owner's
+  // sign-off. Bridging changes no capability: both routes stay `read_ai_traces` (super_admin),
+  // and widening the list is still the open ruling in `admin-ai-traces.controller.ts`.
   ADMIN_AI_TRACE_READ_ENABLED: booleanFromString,
   // Engine view (admin `/admin/match/engine/*`, investor demo) — owner ruling 2026-10-06: the
   // per-worker read serves DEMO WORKERS ONLY, fail-closed. A demo worker is one whose phone is in

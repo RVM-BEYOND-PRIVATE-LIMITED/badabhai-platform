@@ -1,9 +1,10 @@
 import type { CreditTopUp, UnlockHistoryItem } from "./contracts";
 
 /**
- * PURE credit-history math — merge + sort + 12-month expiry bucketing (ADR-0019 Phase 1).
+ * PURE credit-history math — merge + sort (ADR-0019 Phase 1). No credit expiry is worked out
+ * in the browser: a lot's expiry is the server's to state (#2744 item 1, BB-D-04).
  *
- * Exported and side-effect-free so the date/bucketing logic is unit-testable WITHOUT a
+ * Exported and side-effect-free so the merge/sort logic is unit-testable WITHOUT a
  * render (same discipline as `toPayerJobPostingBody`). No I/O, no `Date.now()` — every
  * function is a deterministic transform of its inputs. PII-FREE: it moves only ids, amounts,
  * config pack codes, and timestamps — NEVER a worker name/phone.
@@ -26,43 +27,6 @@ export interface CreditTransaction {
   priceInr?: number;
   /** The config pack code (top-ups only). */
   packCode?: string;
-}
-
-/** One top-up's 12-month expiry bucket (purchased credits expire `months` after purchase). */
-export interface CreditExpiry {
-  topUpId: string;
-  credits: number;
-  purchasedAt: string;
-  /** `purchasedAt` + `months` (default 12), clamped for short months (e.g. Jan 31 → Feb). */
-  expiresAt: string;
-}
-
-/**
- * Add `months` to an ISO timestamp (UTC), clamping the day to the target month's last day
- * (so Jan 31 + 1 month → Feb 28/29, not Mar 3). Deterministic — no `Date.now()`. Returns the
- * input unchanged if it is not a parseable date (fail-safe; the caller already has valid ISO).
- */
-export function addMonthsIso(iso: string, months: number): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const day = d.getUTCDate();
-  // First land on day 1 of the target month (avoids rollover), then clamp the day.
-  const target = new Date(
-    Date.UTC(
-      d.getUTCFullYear(),
-      d.getUTCMonth() + months,
-      1,
-      d.getUTCHours(),
-      d.getUTCMinutes(),
-      d.getUTCSeconds(),
-      d.getUTCMilliseconds(),
-    ),
-  );
-  const lastDayOfTargetMonth = new Date(
-    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
-  ).getUTCDate();
-  target.setUTCDate(Math.min(day, lastDayOfTargetMonth));
-  return target.toISOString();
 }
 
 /**
@@ -89,21 +53,4 @@ export function buildTransactionHistory(input: {
     packCode: t.packCode,
   }));
   return [...tops, ...spends].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
-}
-
-/**
- * The credit-expiry schedule for purchased credits, derived from each top-up's purchase
- * timestamp, SOONEST-EXPIRING FIRST. Pure. PII-free (ids/amounts only). `months` is supplied
- * by the caller from config (`creditValidityMonths()`, default 12) — not hardcoded here; the
- * default is only a sensible fallback for direct/test callers.
- */
-export function creditExpirySchedule(topUps: CreditTopUp[], months = 12): CreditExpiry[] {
-  return topUps
-    .map((t) => ({
-      topUpId: t.topUpId,
-      credits: t.credits,
-      purchasedAt: t.createdAt,
-      expiresAt: addMonthsIso(t.createdAt, months),
-    }))
-    .sort((a, b) => (a.expiresAt < b.expiresAt ? -1 : a.expiresAt > b.expiresAt ? 1 : 0));
 }

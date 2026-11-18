@@ -64,7 +64,30 @@ export const AdminLedgerQuerySchema = z
     ...pageShape,
     payerId: z.string().uuid().optional(),
     // #2749 adds `expired` (a lot's credits removed at its date) — the ledger's own reason set.
-    reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant", "expired"]).optional(),
+    // #2750 item 4 adds `welcome` (a verified company's welcome credits, once); item 5 adds
+    // `waived` (an open the placement team's waiver paid for: a zero-credit line); item 7 adds
+    // `returned` (credits a couldn't-reach case gave back).
+    reason: z
+      .enum([
+        "pack_purchase",
+        "unlock_debit",
+        "refund",
+        "grant",
+        "expired",
+        "welcome",
+        "waived",
+        "returned",
+        "campus_conversion",
+        // #2750 item 11 — an admin grant under the credit rules.
+        "goodwill",
+        "correction",
+        "campus_conversion_reversed",
+        // #2750 item 9 — credits returned with the next real paid pack.
+        "pack_return",
+        // #2750 item 10 — an admin refund took the pack's credits back.
+        "pack_refund",
+      ])
+      .optional(),
   })
   .strict();
 export type AdminLedgerQueryDto = z.infer<typeof AdminLedgerQuerySchema>;

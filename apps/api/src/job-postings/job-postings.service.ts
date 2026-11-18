@@ -4,12 +4,22 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
+import { sqlStateOf } from "../common/db-error";
+import { WelcomeCreditsService } from "../credit-rules/welcome-credits.service";
+import {
+  PostingChoiceService,
+  type PostingChoiceOutcomeDto,
+  type PostingOptionsDto,
+} from "../posting-choice/posting-choice.service";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { SkillCanonicalizationInput } from "@badabhai/ai-contracts";
 import { bandForCount } from "@badabhai/validators";
 import {
   audienceReachesBadaBhaiWorkers,
+  holdPostingFromWorkers,
+  type JobWorkerVisibilityOrigin,
   type Database,
   type JobPosting,
   type JobPostingAudience,
@@ -150,6 +160,12 @@ export class JobPostingsService {
     // #2746 — who sees a COMPANY posting (audience, RVM targeting, the RVM review row). Called on
     // the payer path only; the ops and admin edits cannot express an audience.
     private readonly audience: PostingAudienceService,
+    // #2750 item 4 — the ops approval route grants welcome credits too (#2750 private notes item
+    // 9: both approval routes call the one grant function). Optional for hand-built instances.
+    @Optional() private readonly welcome?: WelcomeCreditsService,
+    // #2751 items 1 to 3 — which posting button the company tapped, recorded after a publish
+    // committed. Optional for hand-built instances (they record nothing, as with the switch off).
+    @Optional() private readonly postingChoice?: PostingChoiceService,
   ) {}
 
   /**
@@ -419,6 +435,25 @@ export class JobPostingsService {
     );
   }
 
+  /**
+   * #2891 — the reach rebuild after an admin turned a Campus-origin posting's BadaBhai worker
+   * visibility ON. Post-commit and non-fatal, like {@link materializeAfterAdminEdit}: the decision
+   * and its audit row have committed, and `job_reach` is a rebuildable cache. Run as a PUBLISH,
+   * because this is the moment BadaBhai workers can first see the posting: it resolves the match
+   * set the way a company publish does, stamps `published_at` if it was never stamped, and raises
+   * the zero-reach alert when nobody matches. Only an OPEN posting is rebuilt; a paused one is
+   * rebuilt by its resume, through the same fragment. Resolves whether the reach core ran.
+   */
+  async materializeAfterWorkerVisibility(
+    jobPostingId: string,
+    adminId: string,
+    ctx: RequestContext,
+  ): Promise<boolean> {
+    const posting = await this.repo.findById(jobPostingId);
+    if (!posting || posting.status !== "open") return false;
+    return this.materializeReach(posting, "publish", { actor_type: "admin", actor_id: adminId }, ctx);
+  }
+
   /** Ops: mark a posting REJECTED (reviewed and declined). */
   reject(id: string, ctx: RequestContext): Promise<JobPostingApi> {
     return this.setVerification(id, "rejected", ctx);
@@ -456,6 +491,10 @@ export class JobPostingsService {
     await this.events.emit(
       this.emitParams("job_posting.verification_updated", updated.id, actor, payload, ctx),
     );
+    // #2750 item 4 — AFTER the approval is stored; never fails it (the service logs and returns).
+    if (next === "verified" && updated.payer_id !== null) {
+      await this.welcome?.afterPostingApproved(updated.payer_id, ctx);
+    }
     return updated;
   }
 
@@ -490,12 +529,23 @@ export class JobPostingsService {
     dto: PayerCreateJobPostingDto,
     targeting: { rvm_branch_ids: number[]; rvm_course_ids: string[] },
     ctx: RequestContext,
+    // #2891 — how the posting came from Campus: the placement team's post-for-company route
+    // (`campus_posted`, the default) or #2754's import of live Campus jobs (`campus_imported`).
+    // Both take this one path, so an imported job gets exactly the field rules a posted one does.
+    opts: { origin?: JobWorkerVisibilityOrigin } = {},
   ): Promise<JobPostingApi> {
     const audience = await this.audience.resolveForInstitute(targeting);
     const draft = await this.createWithin(scope, dto, ctx, audience);
+    // #2891 — HELD FROM BADABHAI WORKERS until an admin opens it (ruling of 17 Nov 2026). Written
+    // while the posting is still a DRAFT, which no worker path reads, and BEFORE the open below: if
+    // this write fails the posting stays a draft and nothing leaks. Its audience is `both`, so the
+    // admin's `on` is all it takes; the hold is outside the RVM review hash.
+    const origin = opts.origin ?? "campus_posted";
+    await this.repo.withTransaction((tx) => holdPostingFromWorkers(tx, draft.id, origin));
     // OPEN AT ONCE, as Campus puts a staff-posted job live today. Not through the company
     // publish gate: that gate requires one of the 16 trades because publishing MATCHES BadaBhai
-    // workers (#2635), and an RVM-only posting reaches no worker at all.
+    // workers (#2635), and a held posting reaches no worker at all. Reach is built when an admin
+    // turns its worker visibility on (`materializeAfterWorkerVisibility`).
     const opened = await this.repo.transitionOwned(draft.id, scope.tenantKey, "draft", "open");
     if (!opened) throw new Error("campus posting: the new draft could not be opened");
     const payload: PayloadInputOf<"job_posting.updated"> = {
@@ -583,6 +633,16 @@ export class JobPostingsService {
   }
 
   /**
+   * `GET /payer/job-postings/posting-options` (#2751 item 1): what each posting button offers the
+   * caller's company, every text decided by the server, or the neutral 404 while the
+   * `posting_choice` switch is off for it.
+   */
+  async postingOptionsForPayer(actorPayerId: string): Promise<PostingOptionsDto> {
+    if (this.postingChoice === undefined) throw new NotFoundException();
+    return this.postingChoice.optionsFor(await this.tenancy.resolve(actorPayerId));
+  }
+
+  /**
    * Voice-toggle draft: one Hinglish voice note into one English job description,
    * filtered to the posting's trade and role (payer-app + payer-web share this).
    *
@@ -663,7 +723,7 @@ export class JobPostingsService {
     actorPayerId: string,
     dto: PayerUpdateJobPostingDto,
     ctx: RequestContext,
-  ): Promise<PayerJobPostingApi> {
+  ): Promise<PayerJobPostingApi & { posting_choice?: PostingChoiceOutcomeDto }> {
     const scope = await this.tenancy.resolve(actorPayerId);
     const current = await this.getOneInScope(id, scope); // no-oracle 404
     // #2668 — the #2635 gate must run BEFORE trade-form validation. Both payer clients now
@@ -774,7 +834,31 @@ export class JobPostingsService {
     if (audienceWritten && !audienceReachesBadaBhaiWorkers(updated.audience) && !rebuilt) {
       await this.reconcileAudienceReach(updated);
     }
-    return this.forPayer(scope, updated);
+    const view = await this.forPayer(scope, updated);
+    // #2751 items 1 to 3 — THE POSTING CHOICE, recorded only on the publish (draft -> open) and
+    // only AFTER it committed: the job is live whatever happens here. The service never throws and
+    // answers null while the `posting_choice` switch is off for the company, so the answer then
+    // carries no `posting_choice` block, exactly as before it existed.
+    if (
+      this.postingChoice !== undefined &&
+      isPublishing(current, tradeDto) &&
+      dto.posting_choice !== undefined &&
+      dto.surface !== undefined
+    ) {
+      try {
+        const outcome = await this.postingChoice.recordAfterPublish(
+          { scope, jobPostingId: updated.id, choice: dto.posting_choice, surface: dto.surface },
+          ctx,
+        );
+        if (outcome !== null) return { ...view, posting_choice: outcome };
+      } catch (err) {
+        // Unreachable by contract (the service catches its own errors); the publish stands.
+        this.logger.warn(
+          `posting choice: unexpected failure (posting=${updated.id} sqlstate=${sqlStateOf(err) ?? "none"}); the publish stands`,
+        );
+      }
+    }
+    return view;
   }
 
   /**

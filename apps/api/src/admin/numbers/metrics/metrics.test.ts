@@ -8,7 +8,8 @@ import { confirmedHires } from "./confirmed-hires";
 import { contactsPerHire } from "./contacts-per-hire";
 import { formCompletedUnconfirmed } from "./form-completed-unconfirmed";
 import { payingCompanies } from "./paying-companies";
-import { revenueByPack } from "./revenue-by-pack";
+import { postingChoiceShares } from "./posting-choice";
+import { revenueByPack, revenueGstSplit } from "./revenue-by-pack";
 import { weekWindow, type NumbersDimsLookup } from "./types";
 
 /**
@@ -54,6 +55,8 @@ describe("payingCompanies", () => {
     payerId,
     packCode: "pack_50",
     amountInr: 2000,
+    taxablePaise: null,
+    gstPaise: null,
     settledAt,
   });
   const dims = dimsOf({ a: PUNE_CNC, b: NCR_CAD, c: PUNE_CNC });
@@ -222,6 +225,8 @@ describe("revenueByPack", () => {
     payerId,
     packCode,
     amountInr,
+    taxablePaise: null,
+    gstPaise: null,
     settledAt,
   });
   const out = revenueByPack(
@@ -288,7 +293,24 @@ describe("computeNumbersWeek", () => {
     const sources: NumbersWeekSources = {
       paidOrders: async () => {
         calls.push("paidOrders");
-        return [{ payerId: "a", packCode: "pack_50", amountInr: 2000, settledAt: MONDAY_START }];
+        return [
+          {
+            payerId: "a",
+            packCode: "pack_50",
+            amountInr: 2000,
+            taxablePaise: 169500,
+            gstPaise: 30510,
+            settledAt: MONDAY_START,
+          },
+        ];
+      },
+      cohortOrders: async () => {
+        calls.push("cohortOrders");
+        // "a" first paid in the week; "c" paid before it (not in the cohort).
+        return [
+          { payerId: "a", packCode: "pack_50", amountInr: 2000, taxablePaise: null, gstPaise: null, settledAt: MONDAY_START },
+          { payerId: "c", packCode: "pack_50", amountInr: 2000, taxablePaise: null, gstPaise: null, settledAt: BEFORE },
+        ];
       },
       firstPublications: async () => {
         calls.push("firstPublications");
@@ -314,6 +336,22 @@ describe("computeNumbersWeek", () => {
         calls.push("formCompletions");
         return [{ workerId: "w3", firstCompletedAt: MONDAY_START, profileConfirmed: false }];
       },
+      welcomeRunOuts: async () => {
+        calls.push("welcomeRunOuts");
+        return [];
+      },
+      reachCases: async () => {
+        calls.push("reachCases");
+        return [];
+      },
+      waivedOpens: async () => {
+        calls.push("waivedOpens");
+        return [];
+      },
+      postingChoices: async () => {
+        calls.push("postingChoices");
+        return [];
+      },
       companyDims: async (ids) => {
         calls.push(`companyDims:${[...new Set(ids)].sort().join(",")}`);
         return new Map([["a", PUNE_CNC]]);
@@ -323,7 +361,8 @@ describe("computeNumbersWeek", () => {
         return new Map([["w1", NCR_CAD]]);
       },
     };
-    const out = await computeNumbersWeek(sources, WEEK);
+    const out = await computeNumbersWeek(sources, WEEK, NEXT_MONDAY);
+    // The cohort's company ("a") is placed; "c" (first paid before the week) is not.
     expect(calls).toContain("companyDims:a,b");
     expect(calls).toContain("workerDims:w1,w2,w3");
     expect(out.map((m) => m.metric)).toEqual([
@@ -331,6 +370,9 @@ describe("computeNumbersWeek", () => {
       "paying_companies_cumulative",
       "companies_posted",
       "companies_posted_cumulative",
+      // Version 4: the posting-button shares.
+      "posting_choice_free_share",
+      "posting_choice_starter_share",
       "completed_profiles",
       "completed_profiles_cumulative",
       "active_workers_30d",
@@ -340,9 +382,97 @@ describe("computeNumbersWeek", () => {
       "contacts_per_hire",
       "revenue_by_pack",
       "revenue_by_pack:pack_50",
+      // Version 3: the GST split of the same orders.
+      "revenue_gst_split",
+      "revenue_gst",
+      "repeat_purchase_30d",
+      "repeat_purchase_60d",
+      "repeat_purchase_90d",
+      // #2755 part E — groups 6 to 8.
+      "welcome_credits_used_up",
+      "welcome_then_bought",
+      "couldnt_reach_claims",
+      "couldnt_reach_credits_returned",
+      "credits_waived",
     ]);
     for (const m of out) expect(m.cells).toHaveLength(42);
+    // As of the week's end every window is still open: the cohort of one is pending.
+    expect(at(byId(out, "repeat_purchase_30d"), "all", "all")).toMatchObject({
+      value: null,
+      numerator: null,
+      denominator: 1,
+    });
     expect(total(byId(out, "contacts_per_hire"))).toBe(100);
     expect(at(byId(out, "companies_posted"), "unknown", "unknown").value).toBe(1);
+  });
+});
+
+describe("revenueGstSplit (version 3)", () => {
+  const order = (
+    payerId: string,
+    settledAt: Date,
+    split: { taxablePaise: number; gstPaise: number } | null,
+  ) => ({
+    payerId,
+    packCode: "pack_20",
+    amountInr: 1179,
+    taxablePaise: split?.taxablePaise ?? null,
+    gstPaise: split?.gstPaise ?? null,
+    settledAt,
+  });
+  const out = revenueGstSplit(
+    W,
+    [
+      order("a", MONDAY_START, { taxablePaise: 99900, gstPaise: 17982 }),
+      order("b", SUNDAY_END, { taxablePaise: 99900, gstPaise: 17982 }),
+      order("a", MONDAY_START, null), // a pre-0176 order: no split, left out of both
+      order("a", BEFORE, { taxablePaise: 99900, gstPaise: 17982 }), // the week before
+      order("b", NEXT_MONDAY, { taxablePaise: 99900, gstPaise: 17982 }), // the week after
+    ],
+    dimsOf({ a: PUNE_CNC, b: NCR_CAD }),
+  );
+
+  it("sums the price before GST and the GST of the week's split orders, in paise", () => {
+    expect(total(byId(out, "revenue_gst_split"))).toBe(199800);
+    expect(total(byId(out, "revenue_gst"))).toBe(35964);
+    expect(at(byId(out, "revenue_gst_split"), "pune", "cnc_operator").value).toBe(99900);
+    expect(at(byId(out, "revenue_gst"), "ncr", "all").value).toBe(17982);
+  });
+});
+
+describe("postingChoiceShares (version 4)", () => {
+  const tap = (payerId: string, choice: "free" | "free_plus_pack", recordedAt: Date) => ({
+    payerId,
+    choice,
+    recordedAt,
+  });
+  const out = postingChoiceShares(
+    W,
+    [
+      tap("a", "free", MONDAY_START),
+      tap("a", "free", SUNDAY_END),
+      tap("b", "free_plus_pack", MONDAY_START),
+      tap("a", "free_plus_pack", BEFORE), // the week before: not counted
+      tap("b", "free", NEXT_MONDAY), // the week after: not counted
+    ],
+    dimsOf({ a: PUNE_CNC, b: NCR_CAD }),
+  );
+
+  it("each button's share of the week's taps, in hundredths, numerator and denominator kept", () => {
+    expect(at(byId(out, "posting_choice_free_share"), "all", "all")).toMatchObject({
+      value: 67,
+      numerator: 2,
+      denominator: 3,
+    });
+    expect(at(byId(out, "posting_choice_starter_share"), "all", "all")).toMatchObject({
+      value: 33,
+      numerator: 1,
+      denominator: 3,
+    });
+    expect(at(byId(out, "posting_choice_starter_share"), "ncr", "all").value).toBe(100);
+  });
+
+  it("a cell with no tap has no share (null), never a zero", () => {
+    expect(at(byId(out, "posting_choice_free_share"), "unknown", "unknown").value).toBeNull();
   });
 });

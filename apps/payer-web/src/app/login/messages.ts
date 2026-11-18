@@ -19,6 +19,20 @@ export const NEUTRAL_SEND_ERROR =
  */
 export const NEUTRAL_VERIFY_ERROR = "Invalid or expired code.";
 
+/**
+ * Inline entry error for the code door (#2754): it now takes an email OR a phone. Field-level
+ * only — it never reveals whether a contact exists.
+ */
+export const LOGIN_CONTACT_ERROR = "Enter a valid email address or phone number.";
+
+/**
+ * Under the code input when the code went to a phone (#2754): an SMS code reaches only a number
+ * this account has confirmed, and email remains available. Neutral — it never says whether the
+ * number exists or is proven.
+ */
+export const PHONE_CODE_HELPER =
+  "A code by SMS works only for a phone number confirmed in your account. If you don’t get it, use an email code instead.";
+
 /** Account-state-independent confirmation after step 1. NEVER contains the code. */
 export const SEND_CONFIRMATION =
   "If that email is registered, a login code is on its way. Enter it below.";

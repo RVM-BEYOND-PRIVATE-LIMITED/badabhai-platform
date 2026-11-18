@@ -1691,6 +1691,276 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "worker id; an open grant lets any PostgREST role read whose profile went where, or add " +
       "a share past the five-per-factory limit the service enforces",
   },
+  // #2755 part C: the out-of-credits call log. Nothing names the table while
+  // ADMIN_NUMBERS_ENABLED is off; with it on and the table missing, the call list still answers
+  // (`last_call: null`) and the POST answers 503 (42P01), so a deploy ahead of the migration breaks
+  // no request and it is not a `table` entry. Listed for its lock (the 0134 rule). APPLY BEFORE
+  // THE SWITCH (migration header). The id and tag carry the slot number: regenerated with the
+  // migration when the slot moves.
+  {
+    id: "0180-credit-call-log-rls",
+    migration: "0180_credit_call_log",
+    kind: "rls",
+    table: "credit_call_log",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which companies ran out of credits, who on the team called each " +
+      "one and what the call came to: an open grant lets any PostgREST role read the sales " +
+      "pipeline, or write a call result the telecaller then trusts",
+  },
+  // #2750 item 5: the placement team's waivers and the opens they paid for. Nothing names either
+  // table while CREDIT_RULES_ROLLOUT is off (the waiver routes answer 404 and no open reads a
+  // waiver), and with it on a 42P01 reads as "no waiver" on the open (the routes answer 503), so a
+  // deploy ahead of the migration breaks no request and neither is a `table` entry. Listed for
+  // their locks (the 0134 rule). APPLY BEFORE THE SWITCH (migration header). The ids and tag
+  // carry the slot number: regenerated with the migration when the slot moves.
+  {
+    id: "0181-rvm-applicant-waivers-rls",
+    migration: "0181_rvm_applicant_waivers",
+    kind: "rls",
+    table: "rvm_applicant_waivers",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides which companies open RVM applicants for no credit, and holds " +
+      "the encrypted names of the staff who set each waiver; an open grant lets any PostgREST " +
+      "role write an active waiver (free opens for any company) or read who waived what",
+  },
+  {
+    id: "0181-rvm-waiver-uses-rls",
+    migration: "0181_rvm_applicant_waivers",
+    kind: "rls",
+    table: "rvm_waiver_uses",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which open each waiver paid for, keyed by unlock id; an open " +
+      "grant lets any PostgREST role read which company opened which RVM applicant for free, " +
+      "or rewrite the count the placement team reads",
+  },
+  // #2887: the bulk student move. Every statement naming these tables asks first whether
+  // `student_visibility` exists (the reach statements key on that alone; search, the open gate and
+  // the admin routes also wait for STUDENT_MOVE_ENABLED), so a deploy ahead of the migration
+  // breaks no request and none is a `table` entry. Listed for their locks (the 0134 rule). APPLY
+  // BEFORE THE SWITCH (migration header). The ids and tag carry the slot number: regenerated
+  // with the migration when the slot moves.
+  {
+    id: "0182-student-import-batches-rls",
+    migration: "0182_student_move",
+    kind: "rls",
+    table: "student_import_batches",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table is the record of every student import run (when, which kind, its " +
+      "counts); an open grant lets any PostgREST role rewrite a run's status, which the " +
+      "rollback reads to decide what it may undo",
+  },
+  {
+    id: "0182-student-import-rows-rls",
+    migration: "0182_student_move",
+    kind: "rls",
+    table: "student_import_rows",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which Campus candidate became which worker in each run and " +
+      "whether the run created him; an open grant lets any PostgREST role read the mapping or " +
+      "flip `worker_created`, which is what `--rollback` deletes by",
+  },
+  {
+    id: "0182-student-import-subjects-rls",
+    migration: "0182_student_move",
+    kind: "rls",
+    table: "student_import_subjects",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table maps each Campus candidate id to his BadaBhai worker; an open grant " +
+      "lets any PostgREST role read the mapping or repoint it, so a later sync writes one " +
+      "student's profile onto another worker",
+  },
+  {
+    id: "0182-worker-field-sources-rls",
+    migration: "0182_student_move",
+    kind: "rls",
+    table: "worker_field_sources",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table is what stops a sync overwriting a field the worker edited himself; an " +
+      "open grant lets any PostgREST role flip a marker back to `campus_import`, and the next " +
+      "sync silently replaces the worker's own words",
+  },
+  {
+    id: "0182-student-visibility-rls",
+    migration: "0182_student_move",
+    kind: "rls",
+    table: "student_visibility",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides whether a moved student is matched and shown to companies; an " +
+      "open grant lets any PostgREST role make every hidden student visible (or hide every " +
+      "visible one) with no admin, reason or audit row",
+  },
+  // #2754 item 4: the Campus company import ledger. Only the import CLI names it (no route, sweep or
+  // read path), so a deploy ahead of the migration breaks nothing and it is not a `table` entry.
+  // Listed for its locks (the 0134 rule). The ids and tag carry the slot number: regenerated with
+  // the migration when the slot moves.
+  {
+    id: "0183-company-import-batches-rls",
+    migration: "0183_company_import",
+    kind: "rls",
+    table: "company_import_batches",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table names every import batch, whether it was a test, who ran it and the manifest counts of each Campus export; an open grant lets any PostgREST role read the move's history or mark a batch rolled back, which the CLI then trusts",
+  },
+  // #2754 item 4: the Campus company import ledger. Only the import CLI names it (no route, sweep or
+  // read path), so a deploy ahead of the migration breaks nothing and it is not a `table` entry.
+  // Listed for its locks (the 0134 rule). The ids and tag carry the slot number: regenerated with
+  // the migration when the slot moves.
+  {
+    id: "0183-company-import-rows-rls",
+    migration: "0183_company_import",
+    kind: "rls",
+    table: "company_import_rows",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table maps every moved Campus company, job, application and balance to its BadaBhai row; an open grant lets any PostgREST role read which companies moved and rewrite the map that --rollback uses to archive accounts, close postings and reverse converted credits",
+  },
+  // #2891: a Campus-origin posting held from BadaBhai workers until an admin opens it. The worker
+  // fragment reads the table unconditionally (no switch, by the #2746 rule), so it is a `table`
+  // entry: APPLY BEFORE DEPLOY (migration header). Plus its lock. The ids and tag carry the slot
+  // number: regenerated with the migration when the slot moves.
+  {
+    id: "0184-job-posting-worker-visibility",
+    migration: "0184_job_posting_worker_visibility",
+    kind: "table",
+    table: "job_posting_worker_visibility",
+    requiredBy:
+      "reachesBadaBhaiWorkers() (job-visibility.ts), applied UNCONDITIONALLY by every BadaBhai " +
+      "worker read (feed, search, job detail, apply) and inside the reach core " +
+      "(materializeJobReachWithin, D5, the worker reconcile, the agency-twin sync, " +
+      "db:verify:match-v1); the Campus post-for-company route (holdPostingFromWorkers) and the " +
+      "admin worker-visibility routes",
+    failureMode:
+      "every worker feed, search, job detail and apply 500s (relation does not exist), every " +
+      "reach write fails, and Campus post-for-company 500s after creating a draft. Old builds on " +
+      "a migrated database are fine (a superset); new builds on an unmigrated one are not, which " +
+      "is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0184-job-posting-worker-visibility-rls",
+    migration: "0184_job_posting_worker_visibility",
+    kind: "rls",
+    table: "job_posting_worker_visibility",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides which Campus-origin postings reach BadaBhai workers; an open " +
+      "grant lets any PostgREST role turn a posting's worker visibility on (bypassing the " +
+      "admin decision and its audit row) or read which Campus jobs are held",
+  },
+  // #2750 item 7: the couldn't-reach cases and the desk's call attempts. Nothing names either
+  // table while CREDIT_RULES_ROLLOUT is off (the payer and desk routes answer 404, the deadline
+  // sweep does nothing), and with it on a 42P01 is a 503 on the routes and a logged wait in the
+  // sweep, so a deploy ahead of the migration breaks no request and neither is a `table` entry.
+  // Listed for their locks (the 0134 rule). APPLY BEFORE THE SWITCH (migration header). The ids
+  // and tag carry the slot number: regenerated with the migration when the slot moves.
+  {
+    id: "0185-contact-reach-cases-rls",
+    migration: "0185_contact_reach_cases",
+    kind: "rls",
+    table: "contact_reach_cases",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides whose credits come back: an open grant lets any PostgREST role " +
+      "insert or close a case as not reached (credits returned for a contact that was reached) " +
+      "or read which company could not reach which worker",
+  },
+  {
+    id: "0185-contact-reach-attempts-rls",
+    migration: "0185_contact_reach_cases",
+    kind: "rls",
+    table: "contact_reach_attempts",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which admin called which case when and what happened; an open " +
+      "grant lets any PostgREST role read the desk's work or forge attempts on a case",
+  },
+  // #2750 item 10: admin refunds of real paid packs. Nothing names the table until GST credit
+  // notes exist (every refund route answers 503 first), and with them a 42P01 is a 503 on the
+  // routes and a logged acknowledgement on the refund webhook, so a deploy ahead of the migration
+  // breaks no request and it is not a `table` entry. Listed for its lock (the 0134 rule). APPLY
+  // BEFORE REFUNDS ARE TURNED ON (migration header). The id and tag carry the slot number:
+  // regenerated with the migration when the slot moves.
+  {
+    id: "0186-payment-refunds-rls",
+    migration: "0186_payment_refunds",
+    kind: "rls",
+    table: "payment_refunds",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which payments were refunded and drives the webhook's status " +
+      "updates; an open grant lets any PostgREST role read the company refunds or forge a row " +
+      "that marks a refund processed",
+  },
+  // #2751 items 1 to 3: which posting button a company tapped. Nothing names the table while the
+  // `posting_choice` switch is off for a company (the default), and armed with the table missing
+  // the publish still succeeds (the record runs after it committed and its error is swallowed), so a
+  // deploy ahead of the migration breaks no request and it is not a `table` entry. Listed for its
+  // lock (the 0134 rule). APPLY BEFORE THE SWITCH (migration header). The id and tag carry the slot
+  // number: regenerated with the migration when the slot moves.
+  {
+    id: "0187-job-posting-choices-rls",
+    migration: "0187_job_posting_choices",
+    kind: "rls",
+    table: "job_posting_choices",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which posting button each company tapped, the share the numbers " +
+      "screen reports; an open grant lets any PostgREST role read every company's choices or forge " +
+      "rows that skew the count",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

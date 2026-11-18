@@ -6,8 +6,15 @@ import { Badge, Button, Input, Tabs, Toast, tabId, tabPanelId } from "../../comp
 import { OtpCodeInput } from "../../components/otp-input";
 import { requestCodeAction, signupAction, verifyCodeAction } from "./actions";
 import { looksLikeLoginEmail } from "./email-shape";
+import { normalizeLoginContact } from "./identifier";
 import { usePortalNavigation } from "../../components/portal-navigation";
-import { INVALID_ORG_NAME, INVALID_PHONE } from "./messages";
+import {
+  INVALID_ORG_NAME,
+  INVALID_PHONE,
+  LOGIN_CONTACT_ERROR,
+  NEUTRAL_VERIFY_ERROR,
+  PHONE_CODE_HELPER,
+} from "./messages";
 import type { PayerRole } from "../../lib/auth";
 import { Icon, type IconName } from "@badabhai/icons";
 import { IDENTIFIER_FIELD_ID, PASSWORD_FIELD_ID, PasswordSignInForm } from "./password-sign-in";
@@ -182,9 +189,12 @@ export function LoginForm() {
     // Deliberately NOT on mode or typing: focus moves only when what the card shows changes.
   }, [view, method]);
 
-  // Inline valid affordance — a subtle check once the typed email is well-formed (and not in
-  // an error state). Presentation only; the server is still the source of truth.
-  const emailValid = !emailError && looksLikeLoginEmail(email.trim());
+  // Inline valid affordance — a subtle check once the typed contact is well-formed (and not in
+  // an error state). Sign-in accepts an email OR a phone (#2754); signup's email stays email-only.
+  // Presentation only; the server is still the source of truth.
+  const emailValid =
+    !emailError &&
+    (isSignup ? looksLikeLoginEmail(email.trim()) : normalizeLoginContact(email.trim()) !== null);
 
   function clearOutcome() {
     setError(null);
@@ -270,16 +280,17 @@ export function LoginForm() {
     setCooldown(resendInSeconds);
   }
 
-  /** Step 1 (signin) — request a login code for the email. UNCHANGED logic. */
+  /** Step 1 (signin) — request a login code for an email or an E.164 phone (#2754). */
   function sendLoginCode() {
     clearOutcome();
-    if (!looksLikeLoginEmail(email.trim())) {
-      setEmailError("Enter a valid email address.");
+    const contact = normalizeLoginContact(email.trim());
+    if (!contact) {
+      setEmailError(LOGIN_CONTACT_ERROR);
       return;
     }
     setEmailError(null);
     startTransition(async () => {
-      const res = await requestCodeAction({ email: email.trim() });
+      const res = await requestCodeAction(contact);
       if (res.ok) startCodeStep(res.resendInSeconds);
       else setError(res.error);
     });
@@ -349,10 +360,15 @@ export function LoginForm() {
       return;
     }
     setCodeError(null);
+    const contact = normalizeLoginContact(email.trim());
+    if (!contact) {
+      setError(NEUTRAL_VERIFY_ERROR);
+      return;
+    }
     startTransition(async () => {
       // ROLE-AGNOSTIC: verify is identical for company- and agency-created accounts. An agent
       // account lands on the agency-labelled portal automatically (the server resolves the role).
-      const res = await verifyCodeAction({ email: email.trim(), code: submitted });
+      const res = await verifyCodeAction({ ...contact, code: submitted });
       if (res.ok) {
         // The accepted code stays readable — locked in the boxes, with the check — while the
         // dashboard opens (a box edited during the check shows the code that was accepted).
@@ -391,6 +407,12 @@ export function LoginForm() {
     setSucceeded(false);
   }
 
+  /** "Use an email code instead" — drop the phone from the field and return to entry. */
+  function useEmailInstead() {
+    setEmail("");
+    backToEntry();
+  }
+
   const statusRegion = (
     <div aria-live="polite" className="login-status">
       {info && succeeded ? (
@@ -408,6 +430,8 @@ export function LoginForm() {
 
   // ---- Shared CODE step (UNCHANGED contract for both signin and signup) ----
   if (step === "code") {
+    const codeContact = normalizeLoginContact(email.trim());
+    const codeBySms = codeContact !== null && "phone" in codeContact;
     return (
       <form className="login-form" onSubmit={onVerify}>
         <div className="login-steps" aria-hidden="true">
@@ -419,8 +443,17 @@ export function LoginForm() {
         </div>
 
         <p id={CODE_HEADING_ID} tabIndex={-1} className="login-otp__sent">
-          We sent a {OTP_LENGTH}-digit code to <strong>{email.trim()}</strong>. Enter it below to
-          continue.
+          {codeBySms ? (
+            <>
+              If that number can sign in by SMS, a {OTP_LENGTH}-digit code is on its way. Enter it
+              below to continue.
+            </>
+          ) : (
+            <>
+              We sent a {OTP_LENGTH}-digit code to <strong>{email.trim()}</strong>. Enter it below
+              to continue.
+            </>
+          )}
         </p>
         <div className="login-otp">
           {/* Six boxes (components/otp-input.tsx): the visible label names the group, the first box
@@ -447,6 +480,7 @@ export function LoginForm() {
             </span>
           ) : null}
         </div>
+        {codeBySms ? <p className="form__hint">{PHONE_CODE_HELPER}</p> : null}
         <Button
           type="submit"
           variant={succeeded ? "success" : "primary"}
@@ -471,10 +505,10 @@ export function LoginForm() {
             type="button"
             variant="ghost"
             disabled={pending || succeeded}
-            onClick={backToEntry}
+            onClick={codeBySms ? useEmailInstead : backToEntry}
             iconLeft="arrow-left"
           >
-            Use a different email
+            {codeBySms ? "Use an email code instead" : "Use a different email"}
           </Button>
         </div>
         {statusRegion}
@@ -602,13 +636,18 @@ export function LoginForm() {
 
             <Input
               id={EMAIL_FIELD_ID}
-              label="Email"
-              type="email"
+              label={isSignup ? "Email" : "Email or phone"}
+              type={isSignup ? "email" : "text"}
               name="email"
               iconLeft="envelope"
               iconRight={emailValid ? "check-circle" : undefined}
               autoComplete="username"
-              placeholder="you@company.example"
+              placeholder={isSignup ? "you@company.example" : "you@company.example or +919876543210"}
+              hint={
+                isSignup
+                  ? undefined
+                  : "We’ll email a code, or text one if this is a number confirmed in your account."
+              }
               value={email}
               error={emailError ?? undefined}
               aria-invalid={emailError ? true : undefined}

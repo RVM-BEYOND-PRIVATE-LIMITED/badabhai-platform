@@ -82,7 +82,9 @@ ops console's privileged data access.
 - `src/lib/pricing-config.ts` — pure readers over the catalog products the caller passes in.
 - `src/lib/live-catalog.ts` — the LIVE catalog fetch (D-6: `GET /payer/pricing/catalog`);
   `DEFAULT_CATALOG` is only the documented fetch-failure fallback (pages render a subtle
-  "cached pricing" note — the server still enforces real prices at charge time).
+  "cached pricing" note — the server still enforces real prices at charge time). Exception:
+  the Credits page shows packs only from a successful catalog read; on a failure it shows
+  a "Packs unavailable" error state with Retry instead of the fallback (#2744 item 3).
 
 ## Env
 

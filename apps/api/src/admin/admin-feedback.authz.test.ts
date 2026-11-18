@@ -18,18 +18,17 @@ import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
  * a sharper question here than on the faceless lists. Three separate properties, and the
  * first is the one that would be easy to get wrong by accident:
  *
- *   1. A principal WITHOUT `read_entities` is refused. All four defined roles hold it (it is
- *      the ADR-0025 read floor), so the only way to exercise the refusal is an UNKNOWN role —
- *      which is also the realistic failure: a role string arriving from a stale token, a typo
- *      in a seed, or a future role added to the enum and forgotten in the matrix. `can()` is
- *      deny-by-default, and that is asserted here rather than assumed.
+ *   1. Only `read_identity` holders read it (owner ruling #2926, option 1, 2026-11-18):
+ *      super_admin, ops_admin and support. `analyst` is refused with a 403: a worker's own
+ *      words can carry their name or phone number, and an analyst sees neither anywhere else
+ *      in the portal. An UNKNOWN role is refused too (`can()` is deny-by-default).
  *   2. An unauthenticated caller is refused with a 401, never a silent allow.
- *   3. Reading feedback is NOT reading identity. `read_entities` must stay strictly weaker
- *      than `reveal_pii`: an analyst who can see "my supervisor takes my wages" must not
+ *   3. Reading feedback is NOT resolving who wrote it. The feedback gate must stay distinct
+ *      from `reveal_pii`: an ops_admin who can see "my supervisor takes my wages" must not
  *      thereby be able to resolve whose phone number that is.
  */
 
-const ROLES: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
+const READERS: AdminRole[] = ["super_admin", "ops_admin", "support"];
 const admin = (role: AdminRole): AuthenticatedAdmin => ({ id: "a", role, sid: "s" });
 
 function declaredCapability(ctor: new (...a: never[]) => object, method: string): AdminCapability {
@@ -60,25 +59,28 @@ function ctxFor(
 const guard = new AdminRolesGuard(new Reflector());
 
 describe("#997 GET /admin/feedback — who may read a worker's own words", () => {
-  it("declares read_entities — an EXISTING capability, not a newly minted one", () => {
-    // Minting a capability for this route would break `capabilities.test.ts`, which pins the
-    // portal's ten-string vocabulary as a literal — by design, because a new capability is a
-    // product decision about who may read feedback, and nobody has made one (CLAUDE.md §16).
-    expect(declaredCapability(AdminFeedbackController, "list")).toBe("read_entities");
-    expect(ADMIN_CAPABILITIES).toContain("read_entities");
+  it("declares read_identity — the EXISTING capability that gates names (#2926)", () => {
+    expect(declaredCapability(AdminFeedbackController, "list")).toBe("read_identity");
+    expect(ADMIN_CAPABILITIES).toContain("read_identity");
   });
 
-  it("ALL four defined roles pass — read_entities is the ADR-0025 read floor", () => {
-    for (const role of ROLES) {
+  it("super_admin, ops_admin and support pass", () => {
+    for (const role of READERS) {
       expect(guard.canActivate(ctxFor(AdminFeedbackController, "list", admin(role)))).toBe(true);
     }
   });
 
-  it("a principal whose role does NOT hold read_entities is refused (deny-by-default)", () => {
+  it("analyst is REFUSED (403): a worker's own words can carry their name or phone (#2926)", () => {
+    expect(() => guard.canActivate(ctxFor(AdminFeedbackController, "list", admin("analyst")))).toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it("a principal whose role does NOT hold read_identity is refused (deny-by-default)", () => {
     // The realistic shape of "lacks the capability" on this surface: a role the matrix has
     // never heard of. `can()` denies it rather than defaulting to a privileged role, so an
     // enum widened without a matrix row fails closed instead of opening this read.
-    for (const rogue of ["root", "viewer", "", "read_entities"]) {
+    for (const rogue of ["root", "viewer", "", "read_identity"]) {
       const who = { id: "a", role: rogue as AdminRole, sid: "s" };
       expect(() => guard.canActivate(ctxFor(AdminFeedbackController, "list", who))).toThrow(
         ForbiddenException,
@@ -114,12 +116,19 @@ describe("#997 — reading feedback NEVER confers resolving who wrote it", () =>
     );
   });
 
-  it("analyst and ops_admin may read feedback but are DENIED the contact reveal", () => {
-    for (const role of ["analyst", "ops_admin"] as AdminRole[]) {
-      expect(guard.canActivate(ctxFor(AdminFeedbackController, "list", admin(role)))).toBe(true);
-      expect(() =>
-        guard.canActivate(ctxFor(AdminPiiRevealController, "revealContact", admin(role))),
-      ).toThrow(ForbiddenException);
+  it("ops_admin may read feedback but is DENIED the contact reveal", () => {
+    expect(guard.canActivate(ctxFor(AdminFeedbackController, "list", admin("ops_admin")))).toBe(true);
+    expect(() =>
+      guard.canActivate(ctxFor(AdminPiiRevealController, "revealContact", admin("ops_admin"))),
+    ).toThrow(ForbiddenException);
+  });
+
+  it("analyst is denied BOTH the feedback read and the contact reveal", () => {
+    for (const ctor of [AdminFeedbackController, AdminPiiRevealController] as const) {
+      const method = ctor === AdminFeedbackController ? "list" : "revealContact";
+      expect(() => guard.canActivate(ctxFor(ctor, method, admin("analyst")))).toThrow(
+        ForbiddenException,
+      );
     }
   });
 });

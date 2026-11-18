@@ -681,6 +681,10 @@ describe("isLiveForServiceCaller is a SERVICE-caller check, used only where it w
     // off everywhere → 404 and nothing reads `credit_rules_config`. Whether a COMPANY gets the
     // rules is asked per company, with the tenant key, on the company paths.
     "credit-rules/credit-rules.service.ts",
+    // #2750 item 8 — the couldn't-reach deadline sweep acts for no company: `credit_rules` off
+    // everywhere → the tick does nothing and nothing reads `contact_reach_cases`. Every case it
+    // closes was opened by a company under the rules (the report route asks per company).
+    "reach-desk/reach-desk.service.ts",
   ];
 
   it("its call sites are exactly the allow-list", () => {

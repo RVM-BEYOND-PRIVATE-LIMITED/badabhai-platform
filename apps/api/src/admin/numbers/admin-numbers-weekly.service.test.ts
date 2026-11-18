@@ -43,10 +43,12 @@ function setup(
   cells: NumbersStoredCellRow[],
   firstPaidWeek: string | null = null,
   config: Partial<ServerConfig> = {},
+  latestComplete: NumbersStoredCellRow[] = [],
 ) {
   const repo = {
     readCells: vi.fn(async () => cells),
     firstPaidWeek: vi.fn(async () => firstPaidWeek),
+    readLatestCompleteCohorts: vi.fn(async () => latestComplete),
   };
   const service = new AdminNumbersWeeklyService(
     repo as unknown as NumbersWeeklyRepository,
@@ -76,6 +78,8 @@ const metricOf = (out: { metrics: Array<{ id: string }> }, id: string) =>
     reason?: string;
     waits_on?: string;
     pack?: string;
+    list_route?: string;
+    latest_complete?: Record<string, unknown> | null;
     kind: string;
     unit: string;
   };
@@ -88,6 +92,7 @@ describe("weekOnWeekChange", () => {
       numerator: null,
       denominator: null,
       suppressed: false,
+      pending: false,
       before_real_payments: false,
       frozen: false,
       definition_version: 1,
@@ -130,7 +135,9 @@ describe("AdminNumbersWeeklyService.weekly", () => {
       "pune",
       "cnc_operator",
     );
-    expect(out).toMatchObject({ city: "pune", trade: "cnc_operator", definition_version: 1 });
+    expect(out).toMatchObject({ city: "pune", trade: "cnc_operator", definition_version: 4 });
+    // …and the newest closed cohort of each repeat window, for the same filter, up to this week.
+    expect(repo.readLatestCompleteCohorts).toHaveBeenCalledWith(THIS, "pune", "cnc_operator");
   });
 
   it("answers every catalogue metric, in catalogue order, live or not", async () => {
@@ -138,7 +145,10 @@ describe("AdminNumbersWeeklyService.weekly", () => {
     const out = await service.weekly(query(), NOW);
     expect(out.metrics.map((m) => m.id)).toEqual(allNumbersMetrics().map((m) => m.id));
     for (const m of out.metrics) {
-      expect(m.availability).toBe(m.id in NUMBERS_SNAPSHOT_METRICS ? "live" : "not_available");
+      const listed = m.id === "out_of_credits_companies";
+      expect(m.availability, m.id).toBe(
+        m.id in NUMBERS_SNAPSHOT_METRICS || listed ? "live" : "not_available",
+      );
     }
   });
 
@@ -264,13 +274,81 @@ describe("AdminNumbersWeeklyService.weekly", () => {
   it("a not_available figure carries its reason and the issue it waits on, never a zero", async () => {
     const { service, query } = setup([]);
     const out = await service.weekly(query(), NOW);
-    for (const id of ["revenue_gst_split", "posting_choice_free_share", "repeat_purchase_30d"]) {
+    for (const id of ["revenue_managed_hiring"]) {
       const m = metricOf(out, id);
       expect(m.availability, id).toBe("not_available");
       expect(m.reason?.length, id).toBeGreaterThan(5);
       expect(m.waits_on, id).toMatch(/^#27\d\d$/);
       expect(m).toMatchObject({ this_week: null, last_week: null, change: null, series: [] });
     }
+  });
+
+  it("the call list is live as a LIST: its route, no values and no series, never a zero", async () => {
+    const { service, query } = setup([row(THIS, "paying_companies", 1)]);
+    const m = metricOf(await service.weekly(query(), NOW), "out_of_credits_companies");
+    expect(m).toMatchObject({
+      availability: "live",
+      list_route: "GET /admin/numbers/out-of-credits",
+      this_week: null,
+      last_week: null,
+      change: null,
+      series: [],
+    });
+    expect(m.reason).toBeUndefined();
+  });
+
+  it("repeat buying: a share in hundredths, PENDING points with the cohort size only, and the newest closed cohort", async () => {
+    const OLD = "2026-08-03";
+    const { service, query } = setup(
+      [
+        // Last week's and this week's cohorts are still open (pending): no share, the cohort size.
+        row(LAST, "repeat_purchase_30d", null, { numerator: null, denominator: 4 }),
+        row(THIS, "repeat_purchase_30d", null, { numerator: null, denominator: 2 }),
+        // Two weeks ago the 30-day window had closed on an empty cohort: no share, not pending.
+        row(BEFORE_LAST, "repeat_purchase_30d", null, { numerator: 0, denominator: 0 }),
+        row(THIS, "paying_companies", 2),
+      ],
+      null,
+      {},
+      [
+        row(OLD, "repeat_purchase_30d", 33, {
+          numerator: 1,
+          denominator: 3,
+          frozenAt: new Date("2026-11-10T00:00:00.000Z"),
+        }),
+      ],
+    );
+    const out = await service.weekly(query({ weeks: "3" }), NOW);
+    const m30 = metricOf(out, "repeat_purchase_30d");
+    expect(m30).toMatchObject({
+      availability: "live",
+      unit: "share",
+      this_week: null,
+      change: null,
+    });
+    expect(
+      m30.series.map((p) => [p.week_start, p.value, (p as never as { pending: boolean }).pending]),
+    ).toEqual([
+      [BEFORE_LAST, null, false],
+      [LAST, null, true],
+      [THIS, null, true],
+    ]);
+    expect(m30.series[2]).toMatchObject({ numerator: null, denominator: 2 });
+    // The headline: the newest closed cohort, its share as a fraction (33 hundredths = 0.33).
+    expect(m30.latest_complete).toMatchObject({
+      week_start: OLD,
+      value: 0.33,
+      numerator: 1,
+      denominator: 3,
+      pending: false,
+      frozen: true,
+    });
+    // No closed cohort yet for the 90-day window: null, never a zero.
+    expect(metricOf(out, "repeat_purchase_90d").latest_complete).toBeNull();
+    // Every other metric's points are never pending, and carry no latest_complete.
+    const paying = metricOf(out, "paying_companies");
+    for (const p of paying.series) expect((p as never as { pending: boolean }).pending).toBe(false);
+    expect(paying.latest_complete).toBeUndefined();
   });
 
   it("the diagnostic is served as a diagnostic", async () => {
