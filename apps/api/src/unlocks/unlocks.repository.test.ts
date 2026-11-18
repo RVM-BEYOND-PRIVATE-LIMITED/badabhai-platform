@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import {
@@ -7,9 +7,16 @@ import {
   unlockRouting,
   payerCredits,
   creditLedger,
+  creditLots,
   paymentOrders,
   workers,
   jobs,
+  countOrphanWalletsWithDueLots,
+  expireWalletWithinTx,
+  findWalletsWithDueLots,
+  grantCreditsWithinTx,
+  readSpendableCredits,
+  spendOneCreditWithinTx,
   type Database,
 } from "@badabhai/db";
 import { UnlocksRepository, RAZORPAY_PROVIDER } from "./unlocks.repository";
@@ -26,7 +33,34 @@ import type { TenantKey } from "../payers/payer-tenant-scope";
  * mocks this repository outright. What lives here is "does the SQL this repository
  * builds actually say what its comment claims" — the compare-and-set predicates, the
  * PII-free projections, the ON CONFLICT targets/sets.
+ *
+ * #2749 — every balance move now goes through the packages/db wallet helpers
+ * (`credit-wallet.ts`: lock → align → lots → ledger). Those are MOCKED here: this file pins that
+ * the repository hands them the right transaction, wallet key, lot and ledger line; the helpers'
+ * own plan logic is unit-tested in packages/db and their SQL is proven against Postgres by
+ * `credit-lots.db.test.ts`.
  */
+vi.mock("@badabhai/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@badabhai/db")>();
+  return {
+    ...actual,
+    countOrphanWalletsWithDueLots: vi.fn(),
+    expireWalletWithinTx: vi.fn(),
+    findWalletsWithDueLots: vi.fn(),
+    grantCreditsWithinTx: vi.fn(),
+    readSpendableCredits: vi.fn(),
+    spendOneCreditWithinTx: vi.fn(),
+  };
+});
+
+beforeEach(() => {
+  vi.mocked(countOrphanWalletsWithDueLots).mockReset();
+  vi.mocked(readSpendableCredits).mockReset();
+  vi.mocked(expireWalletWithinTx).mockReset();
+  vi.mocked(findWalletsWithDueLots).mockReset();
+  vi.mocked(grantCreditsWithinTx).mockReset();
+  vi.mocked(spendOneCreditWithinTx).mockReset();
+});
 
 const dialect = new PgDialect();
 const compile = (cond: unknown) => dialect.sqlToQuery(cond as SQL);
@@ -498,27 +532,101 @@ describe("UnlocksRepository.listCreditLedgerByPayer — self-scoped, PII-free, n
   });
 });
 
-describe("UnlocksRepository.tryDebit — atomic conditional debit (never negative)", () => {
-  it("decrements balance by the amount ONLY where balance >= amount", async () => {
-    const { db, tx, captured } = makeDb({ rows: [{ balance: 4 }] });
+describe("UnlocksRepository.listOpenLots — #2749, the tenant's OPEN lots in spend order", () => {
+  it("projects source / remaining / granted / expiry / pack, scoped to the tenant and open lots", async () => {
+    const expires = new Date("2026-12-01T00:00:00.000Z");
+    const { db, captured } = makeDb({
+      rows: [
+        {
+          source: "pack",
+          creditsRemaining: 3,
+          creditsGranted: 10,
+          expiresAt: expires,
+          packCode: "pack_10",
+        },
+        {
+          source: "legacy",
+          creditsRemaining: 5,
+          creditsGranted: 5,
+          expiresAt: null,
+          packCode: null,
+        },
+      ],
+    });
+    const out = await new UnlocksRepository(db).listOpenLots(PAYER_ID);
+    expect(captured.selectTable).toBe(creditLots);
+    // No lot id and no payment reference reach a payer.
+    expect(Object.keys(captured.selection!).sort()).toEqual(
+      ["source", "creditsRemaining", "creditsGranted", "expiresAt", "packCode"].sort(),
+    );
+    expect(text(captured.where)).toBe(
+      '("credit_lots"."payer_id" = $1 and "credit_lots"."credits_remaining" > $2)',
+    );
+    expect(params(captured.where)).toEqual([PAYER_ID, 0]);
+    // The spend order's first key: soonest expiry first, never-expiring last.
+    expect(text(captured.orderBy)).toBe('"credit_lots"."expires_at" ASC NULLS LAST');
+    expect(out).toEqual([
+      {
+        source: "pack",
+        credits_remaining: 3,
+        credits_granted: 10,
+        expires_at: "2026-12-01T00:00:00.000Z",
+        pack_code: "pack_10",
+      },
+      {
+        source: "legacy",
+        credits_remaining: 5,
+        credits_granted: 5,
+        expires_at: null,
+        pack_code: null,
+      },
+    ]);
+  });
+});
+
+const NO_ALIGNMENT = { action: "none", credits: 0, openBefore: 4, balance: 4 } as const;
+
+describe("UnlocksRepository.tryDebit — one credit from the soonest-expiring lot (#2749)", () => {
+  const EXPIRED_LOT = {
+    lotId: "lot-old",
+    credits: 2,
+    source: "pack",
+    expiresAt: new Date("2026-11-01T00:00:00.000Z"),
+  } as const;
+
+  it("delegates to spendOneCreditWithinTx on the CALLER's tx and the tenant key, returning the lot", async () => {
+    vi.mocked(spendOneCreditWithinTx).mockResolvedValueOnce({
+      ok: true,
+      balanceAfter: 3,
+      lotId: "lot-1",
+      creditsExpired: 2,
+      expiredLots: [EXPIRED_LOT],
+      alignment: NO_ALIGNMENT,
+    });
+    const { db, tx } = makeDb();
     const out = await new UnlocksRepository(db).tryDebit(tx, PAYER_ID, 1);
-    expect(captured.updateTable).toBe(payerCredits);
-    expect(text(captured.updateSet!.balance)).toBe('"payer_credits"."balance" - $1');
-    expect(params(captured.updateSet!.balance)).toEqual([1]);
-    const { sql, params: p } = compile(captured.where);
-    expect(sql).toBe('("payer_credits"."payer_id" = $1 and "payer_credits"."balance" >= $2)');
-    expect(p).toEqual([PAYER_ID, 1]);
-    expect(out).toBe(4);
+    expect(spendOneCreditWithinTx).toHaveBeenCalledWith(tx, PAYER_ID);
+    // The lots it expired first ride along, for the caller to report on the same transaction.
+    expect(out).toEqual({ ok: true, balanceAfter: 3, lotId: "lot-1", expiredLots: [EXPIRED_LOT] });
   });
 
-  it("returns undefined when the guard excludes every row (insufficient credits)", async () => {
-    const { db, tx } = makeDb({ rows: [] });
-    expect(await new UnlocksRepository(db).tryDebit(tx, PAYER_ID, 100)).toBeUndefined();
+  it("returns undefined when no credit is spendable — and the helper wrote nothing (#2749 review)", async () => {
+    vi.mocked(spendOneCreditWithinTx).mockResolvedValueOnce({ ok: false, balanceAfter: 2 });
+    const { db, tx } = makeDb();
+    expect(await new UnlocksRepository(db).tryDebit(tx, PAYER_ID, 1)).toBeUndefined();
+  });
+
+  it("spends exactly one credit — any other amount is refused before the database", async () => {
+    const { db, tx } = makeDb();
+    await expect(
+      new UnlocksRepository(db).tryDebit(tx, PAYER_ID, 2 as unknown as 1),
+    ).rejects.toThrow(RangeError);
+    expect(spendOneCreditWithinTx).not.toHaveBeenCalled();
   });
 });
 
 describe("UnlocksRepository.appendLedger — append-only ledger write", () => {
-  it("inserts the movement, defaulting the optional refs to null", async () => {
+  it("inserts the movement, defaulting the optional refs (and the lot) to null", async () => {
     const { db, tx, captured } = makeDb();
     await new UnlocksRepository(db).appendLedger(tx, {
       payerId: PAYER_ID,
@@ -533,33 +641,49 @@ describe("UnlocksRepository.appendLedger — append-only ledger write", () => {
       unlockId: null,
       packCode: null,
       paymentRef: null,
+      lotId: null,
+      idempotencyKey: null,
     });
   });
 
-  it("carries through explicit refs when given", async () => {
+  it("carries through explicit refs when given, including the lot the credit came from", async () => {
     const { db, tx, captured } = makeDb();
     await new UnlocksRepository(db).appendLedger(tx, {
       payerId: PAYER_ID,
-      delta: 10,
-      reason: "pack_purchase",
+      delta: -1,
+      reason: "unlock_debit",
       unlockId: UNLOCK_ID,
       packCode: "pack_10",
       paymentRef: "order-1",
+      lotId: "lot-1",
+      idempotencyKey: "waived:u-1",
     });
     expect(captured.insertValues).toEqual({
       payerId: PAYER_ID,
-      delta: 10,
-      reason: "pack_purchase",
+      delta: -1,
+      reason: "unlock_debit",
       unlockId: UNLOCK_ID,
       packCode: "pack_10",
       paymentRef: "order-1",
+      lotId: "lot-1",
+      idempotencyKey: "waived:u-1",
     });
   });
 });
 
-describe("UnlocksRepository.creditPack — upsert balance + append ledger in ONE transaction", () => {
-  it("creditPack opens its OWN transaction and returns the new balance", async () => {
-    const { db } = makeDb({ rows: [{ balance: 10 }] });
+const applied = (balanceAfter: number) =>
+  ({
+    applied: true,
+    balanceAfter,
+    lotId: "lot-new",
+    ledgerId: "line-new",
+    alignment: NO_ALIGNMENT,
+  }) as const;
+
+describe("UnlocksRepository.creditPack — one pack lot + one ledger line + the balance, in ONE transaction", () => {
+  it("opens its OWN transaction, grants through grantCreditsWithinTx, and returns the new balance", async () => {
+    vi.mocked(grantCreditsWithinTx).mockResolvedValueOnce(applied(10));
+    const { db } = makeDb();
     const balance = await new UnlocksRepository(db).creditPack({
       payerId: PAYER_ID,
       credits: 10,
@@ -569,10 +693,12 @@ describe("UnlocksRepository.creditPack — upsert balance + append ledger in ONE
       priceInr: 499,
     });
     expect(balance).toBe(10);
+    expect(grantCreditsWithinTx).toHaveBeenCalledTimes(1);
   });
 
-  it("upserts payer_credits with a GREATEST-free additive balance bump on conflict", async () => {
-    const { db, captured } = makeDb({ sequence: [[{ balance: 10 }], []] });
+  it("the lot is a `pack` lot with no order and no validity (never expires); the ledger line carries the stamped ₹", async () => {
+    vi.mocked(grantCreditsWithinTx).mockResolvedValueOnce(applied(10));
+    const { db } = makeDb();
     await new UnlocksRepository(db).creditPack({
       payerId: PAYER_ID,
       credits: 10,
@@ -580,37 +706,43 @@ describe("UnlocksRepository.creditPack — upsert balance + append ledger in ONE
       packCode: "pack_10",
       paymentRef: "order-1",
     });
-    const balanceInsert = captured.inserts.find((i) => i.table === payerCredits)!;
-    expect(balanceInsert.values).toEqual({ payerId: PAYER_ID, balance: 10 });
-    const conflict = balanceInsert.conflict as { target: unknown; set: Record<string, unknown> };
-    expect(conflict.target).toBe(payerCredits.payerId);
-    expect(text(conflict.set.balance)).toBe('"payer_credits"."balance" + $1');
-    expect(params(conflict.set.balance)).toEqual([10]);
-  });
-
-  it("also appends the ledger movement in the SAME tx, with priceInr/idempotencyKey defaulted to null", async () => {
-    const { db, captured } = makeDb({ sequence: [[{ balance: 10 }], []] });
-    await new UnlocksRepository(db).creditPack({
+    expect(vi.mocked(grantCreditsWithinTx).mock.calls[0]![1]).toEqual({
       payerId: PAYER_ID,
       credits: 10,
-      reason: "pack_purchase",
-      packCode: "pack_10",
-      paymentRef: "order-1",
+      lot: { source: "pack", packCode: "pack_10", paymentOrderId: null, validityDays: null },
+      ledger: {
+        reason: "pack_purchase",
+        packCode: "pack_10",
+        paymentRef: "order-1",
+        priceInr: null,
+        idempotencyKey: null,
+      },
     });
-    const ledgerInsert = captured.inserts.find((i) => i.table === creditLedger)!;
-    expect(ledgerInsert.values).toEqual({
+  });
+
+  it("#2749 PR 3: a pack's validityDays reaches the lot (the wallet counts it from the grant)", async () => {
+    vi.mocked(grantCreditsWithinTx).mockResolvedValueOnce(applied(20));
+    const { db } = makeDb();
+    await new UnlocksRepository(db).creditPack({
       payerId: PAYER_ID,
-      delta: 10,
+      credits: 20,
       reason: "pack_purchase",
-      packCode: "pack_10",
-      paymentRef: "order-1",
-      priceInr: null,
-      idempotencyKey: null,
+      packCode: "pack_starter",
+      paymentRef: null,
+      priceInr: 1179,
+      validityDays: 30,
+    });
+    expect(vi.mocked(grantCreditsWithinTx).mock.calls[0]![1].lot).toEqual({
+      source: "pack",
+      packCode: "pack_starter",
+      paymentOrderId: null,
+      validityDays: 30,
     });
   });
 
   it("stamps priceInr and idempotencyKey through when provided", async () => {
-    const { db, captured } = makeDb({ sequence: [[{ balance: 10 }], []] });
+    vi.mocked(grantCreditsWithinTx).mockResolvedValueOnce(applied(10));
+    const { db } = makeDb();
     await new UnlocksRepository(db).creditPack({
       payerId: PAYER_ID,
       credits: 10,
@@ -620,12 +752,15 @@ describe("UnlocksRepository.creditPack — upsert balance + append ledger in ONE
       priceInr: 499,
       idempotencyKey: "order-1:paid",
     });
-    const ledgerInsert = captured.inserts.find((i) => i.table === creditLedger)!;
-    expect(ledgerInsert.values).toMatchObject({ priceInr: 499, idempotencyKey: "order-1:paid" });
+    expect(vi.mocked(grantCreditsWithinTx).mock.calls[0]![1].ledger).toMatchObject({
+      priceInr: 499,
+      idempotencyKey: "order-1:paid",
+    });
   });
 
-  it("throws when the balance upsert returns no row", async () => {
-    const { db } = makeDb({ rows: [] });
+  it("propagates a failed grant (the transaction rolls back)", async () => {
+    vi.mocked(grantCreditsWithinTx).mockRejectedValueOnce(new Error("the balance was not written"));
+    const { db } = makeDb();
     await expect(
       new UnlocksRepository(db).creditPack({
         payerId: PAYER_ID,
@@ -634,7 +769,7 @@ describe("UnlocksRepository.creditPack — upsert balance + append ledger in ONE
         packCode: "pack_10",
         paymentRef: "order-1",
       }),
-    ).rejects.toThrow("Failed to credit pack");
+    ).rejects.toThrow("the balance was not written");
   });
 });
 
@@ -651,46 +786,82 @@ describe("UnlocksRepository.claimAndCreditPaymentOrderWithinTx — settlement cr
     providerOrderId: "order_X",
     status: "paid" as const,
     providerPaymentRef: "pay_X",
+    creditValidityDays: null as number | null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
 
-  it("claims with the compare-and-set, then upserts the RETURNED row's wallet and ledgers its stamped ₹ on the SAME key", async () => {
-    // Call order: the UPDATE … RETURNING (the claim), the payer_credits upsert, the ledger insert.
-    const { db, tx, captured } = makeDb({ sequence: [[claimedRow], [{ balance: 50 }], []] });
+  it("claims with the compare-and-set, then grants the RETURNED row's wallet one lot naming the order", async () => {
+    vi.mocked(grantCreditsWithinTx).mockResolvedValueOnce(applied(50));
+    const { db, tx, captured } = makeDb({ sequence: [[claimedRow]] });
     const out = await new UnlocksRepository(db).claimAndCreditPaymentOrderWithinTx(tx, {
       providerOrderId: "order_X",
       providerPaymentRef: "pay_X",
     });
-    expect(out).toEqual({ order: claimedRow, balanceAfter: 50 });
+    // #2750 item 9 — no return asked (the company is not under the credit rules): none given.
+    expect(out).toEqual({ order: claimedRow, balanceAfter: 50, packReturn: null });
     expect(captured.updateTable).toBe(paymentOrders);
-    expect(params(captured.where)).toEqual([RAZORPAY_PROVIDER, "order_X", "paid"]);
-    const balanceInsert = captured.inserts.find((i) => i.table === payerCredits)!;
-    expect(balanceInsert.values).toEqual({ payerId: STAMPED_WALLET, balance: 50 });
-    const conflict = balanceInsert.conflict as { target: unknown; set: Record<string, unknown> };
-    expect(conflict.target).toBe(payerCredits.payerId);
-    expect(params(conflict.set.balance)).toEqual([50]);
-    const ledgerInsert = captured.inserts.find((i) => i.table === creditLedger)!;
-    expect(ledgerInsert.values).toEqual({
+    expect(params(captured.where)).toEqual([RAZORPAY_PROVIDER, "order_X", "created", "failed"]);
+    const [grantTx, grant] = vi.mocked(grantCreditsWithinTx).mock.calls[0]!;
+    expect(grantTx).toBe(tx); // the claim and the grant share ONE transaction
+    expect(grant).toEqual({
       payerId: STAMPED_WALLET, // the same key as the balance it moved: Σ ledger = balance
-      delta: 50,
-      reason: "pack_purchase",
-      packCode: "pack_50",
-      paymentRef: "pay_X",
-      priceInr: 2000,
-      idempotencyKey: "payment_order:order-row-1", // layer 3: one ledger row per order row
+      credits: 50,
+      // One lot per paid order (credit_lots_payment_order_uq).
+      lot: {
+        source: "pack",
+        packCode: "pack_50",
+        paymentOrderId: "order-row-1",
+        validityDays: null, // the order stamped none (every pre-0176 order): never expires
+      },
+      ledger: {
+        reason: "pack_purchase",
+        packCode: "pack_50",
+        paymentRef: "pay_X",
+        priceInr: 2000,
+        idempotencyKey: "payment_order:order-row-1", // layer 3: one ledger row per order row
+      },
     });
   });
 
-  it("a lost race (the compare-and-set returned no row) credits nothing", async () => {
-    const { db, tx, captured } = makeDb({ rows: [] });
+  it("#2749 PR 3: grants with the order's STAMPED credit_validity_days, never a catalogue read", async () => {
+    vi.mocked(grantCreditsWithinTx).mockResolvedValueOnce(applied(50));
+    const { db, tx } = makeDb({ sequence: [[{ ...claimedRow, creditValidityDays: 30 }]] });
+    await new UnlocksRepository(db).claimAndCreditPaymentOrderWithinTx(tx, {
+      providerOrderId: "order_X",
+      providerPaymentRef: "pay_X",
+    });
+    expect(vi.mocked(grantCreditsWithinTx).mock.calls[0]![1].lot).toMatchObject({
+      paymentOrderId: "order-row-1",
+      validityDays: 30,
+    });
+  });
+
+  it("a key already on the ledger grants nothing and reads as a lost race", async () => {
+    vi.mocked(grantCreditsWithinTx).mockResolvedValueOnce({
+      applied: false,
+      balanceAfter: 50,
+      ledgerId: "line-old",
+      alignment: NO_ALIGNMENT,
+    });
+    const { db, tx } = makeDb({ sequence: [[claimedRow]] });
     expect(
       await new UnlocksRepository(db).claimAndCreditPaymentOrderWithinTx(tx, {
         providerOrderId: "order_X",
         providerPaymentRef: "pay_X",
       }),
     ).toBeUndefined();
-    expect(captured.inserts).toEqual([]);
+  });
+
+  it("a lost race (the compare-and-set returned no row) credits nothing", async () => {
+    const { db, tx } = makeDb({ rows: [] });
+    expect(
+      await new UnlocksRepository(db).claimAndCreditPaymentOrderWithinTx(tx, {
+        providerOrderId: "order_X",
+        providerPaymentRef: "pay_X",
+      }),
+    ).toBeUndefined();
+    expect(grantCreditsWithinTx).not.toHaveBeenCalled();
   });
 
   it("no public method credits a caller-supplied order or wallet (type-level: the credit is private)", () => {
@@ -699,6 +870,90 @@ describe("UnlocksRepository.claimAndCreditPaymentOrderWithinTx — settlement cr
     expect(typeof repo.creditWalletWithinTx).toBe("function");
     // The settlement-only credit that took a caller-built PaymentOrder is gone.
     expect("creditClaimedOrderWithinTx" in repo).toBe(false);
+  });
+});
+
+describe("UnlocksRepository — the credit-lot expiry sweep's two calls (#2749 item 4)", () => {
+  it("findWalletsWithDueLots reads the work list on the pool, bounded by the limit", async () => {
+    vi.mocked(findWalletsWithDueLots).mockResolvedValueOnce(["w-1", "w-2"]);
+    const { db } = makeDb();
+    expect(await new UnlocksRepository(db).findWalletsWithDueLots(200)).toEqual(["w-1", "w-2"]);
+    expect(findWalletsWithDueLots).toHaveBeenCalledWith(db, 200);
+  });
+
+  it("getSpendableBalance reads the spendable credits (due lots out) on the pool, for F-1", async () => {
+    vi.mocked(readSpendableCredits).mockResolvedValueOnce(3);
+    const { db } = makeDb();
+    expect(await new UnlocksRepository(db).getSpendableBalance(PAYER_ID)).toBe(3);
+    expect(readSpendableCredits).toHaveBeenCalledWith(db, PAYER_ID);
+  });
+
+  it("countOrphanWalletsWithDueLots counts the lots the sweep can never expire", async () => {
+    vi.mocked(countOrphanWalletsWithDueLots).mockResolvedValueOnce(2);
+    const { db } = makeDb();
+    expect(await new UnlocksRepository(db).countOrphanWalletsWithDueLots()).toBe(2);
+  });
+
+  it("expireDueLotsForWallet runs the caller's work on the SAME transaction, after the expiry", async () => {
+    const result = {
+      walletFound: true,
+      creditsExpired: 1,
+      lotsExpired: 1,
+      expiredLots: [{ lotId: "lot-9", credits: 1, source: "pack", expiresAt: new Date() }] as const,
+      balanceAfter: 0,
+      alignment: NO_ALIGNMENT,
+    };
+    vi.mocked(expireWalletWithinTx).mockResolvedValueOnce(result);
+    const { db, tx } = makeDb();
+    const seen: unknown[] = [];
+    const out = await new UnlocksRepository(db).expireDueLotsForWallet(
+      "w-9" as never,
+      async (within, done) => {
+        seen.push(within, done);
+      },
+    );
+    expect(out).toEqual(result);
+    expect(seen).toEqual([tx, result]);
+  });
+
+  it("expireDueLotsForWallet: a failure in the caller's work rejects (the transaction rolls back)", async () => {
+    vi.mocked(expireWalletWithinTx).mockResolvedValueOnce({
+      walletFound: true,
+      creditsExpired: 1,
+      lotsExpired: 1,
+      expiredLots: [],
+      balanceAfter: 0,
+      alignment: NO_ALIGNMENT,
+    });
+    const { db } = makeDb();
+    await expect(
+      new UnlocksRepository(db).expireDueLotsForWallet("w-9" as never, async () => {
+        throw new Error("events table unreachable");
+      }),
+    ).rejects.toThrow("events table unreachable");
+  });
+
+  it("expireDueLotsForWallet runs ONE wallet in its OWN transaction", async () => {
+    const result = {
+      walletFound: true,
+      creditsExpired: 4,
+      lotsExpired: 1,
+      expiredLots: [
+        { lotId: "lot-1", credits: 4, source: "legacy", expiresAt: new Date() },
+      ] as const,
+      balanceAfter: 6,
+      alignment: NO_ALIGNMENT,
+    };
+    vi.mocked(expireWalletWithinTx).mockResolvedValueOnce(result);
+    const { db, tx } = makeDb();
+    const repo = new UnlocksRepository(db);
+    const [wallet] = await (async () => {
+      vi.mocked(findWalletsWithDueLots).mockResolvedValueOnce(["w-1"]);
+      return repo.findWalletsWithDueLots(1);
+    })();
+    expect(await repo.expireDueLotsForWallet(wallet!)).toEqual(result);
+    // `db.transaction` hands the callback the tx handle.
+    expect(expireWalletWithinTx).toHaveBeenCalledWith(tx, "w-1");
   });
 });
 
@@ -713,14 +968,59 @@ describe("UnlocksRepository.createPaymentOrder — persist a freshly-created pro
       providerOrderId: "rzp_order_1",
     });
     expect(captured.insertTable).toBe(paymentOrders);
+    // A caller with no money line (a fixture) writes what a pre-0176 order held.
     expect(captured.insertValues).toEqual({
       payerId: PAYER_ID,
+      productKind: "credit_pack",
       packCode: "pack_10",
       amountInr: 499,
       creditsGranted: 10,
       provider: RAZORPAY_PROVIDER,
       providerOrderId: "rzp_order_1",
       status: "created",
+      taxablePaise: null,
+      gstPaise: null,
+      roundOffPaise: null,
+      totalPaise: null,
+      gstRateBps: null,
+      creditValidityDays: null,
+      origin: null,
+      originJobPostingId: null,
+    });
+  });
+
+  it("#2749: stamps the caller's row id, the paise line, the validity and the origin in the same insert", async () => {
+    const { db, captured } = makeDb({ rows: [{ id: "row-1" }] });
+    await new UnlocksRepository(db).createPaymentOrder({
+      id: "row-1",
+      payerId: PAYER_ID,
+      packCode: "pack_starter",
+      amountInr: 1179,
+      creditsGranted: 20,
+      providerOrderId: "rzp_order_2",
+      money: {
+        taxablePaise: 99900,
+        gstPaise: 17982,
+        roundOffPaise: 18,
+        totalPaise: 117900,
+        gstRateBps: 1800,
+      },
+      creditValidityDays: 30,
+      origin: "unlock_prompt",
+      originJobPostingId: "eeeeeeee-0000-4000-8000-000000000005",
+    });
+    expect(captured.insertValues).toMatchObject({
+      id: "row-1",
+      productKind: "credit_pack",
+      amountInr: 1179,
+      taxablePaise: 99900,
+      gstPaise: 17982,
+      roundOffPaise: 18,
+      totalPaise: 117900,
+      gstRateBps: 1800,
+      creditValidityDays: 30,
+      origin: "unlock_prompt",
+      originJobPostingId: "eeeeeeee-0000-4000-8000-000000000005",
     });
   });
 
@@ -781,8 +1081,9 @@ describe("UnlocksRepository.claimAndCreditPaymentOrderWithinTx — the compare-a
     status: "paid",
   };
 
-  it("sets status='paid' + the payment ref, guarded on provider/providerOrderId/status<>'paid'", async () => {
-    const { db, tx, captured } = makeDb({ sequence: [[paidRow], [{ balance: 10 }], []] });
+  it("sets status='paid' + the payment ref, guarded on provider/providerOrderId/status IN (created, failed)", async () => {
+    vi.mocked(grantCreditsWithinTx).mockResolvedValueOnce(applied(10));
+    const { db, tx, captured } = makeDb({ sequence: [[paidRow]] });
     const out = await new UnlocksRepository(db).claimAndCreditPaymentOrderWithinTx(tx, {
       providerOrderId: "rzp_order_1",
       providerPaymentRef: "pay_1",
@@ -790,10 +1091,11 @@ describe("UnlocksRepository.claimAndCreditPaymentOrderWithinTx — the compare-a
     expect(captured.updateTable).toBe(paymentOrders);
     expect(captured.updateSet).toMatchObject({ status: "paid", providerPaymentRef: "pay_1" });
     const { sql, params: p } = compile(captured.where);
+    // #2749 hardening 5: a 'held' order (like a 'paid' one) matches nothing.
     expect(sql).toBe(
-      '("payment_orders"."provider" = $1 and "payment_orders"."provider_order_id" = $2 and "payment_orders"."status" <> $3)',
+      '("payment_orders"."provider" = $1 and "payment_orders"."provider_order_id" = $2 and "payment_orders"."status" in ($3, $4))',
     );
-    expect(p).toEqual([RAZORPAY_PROVIDER, "rzp_order_1", "paid"]);
+    expect(p).toEqual([RAZORPAY_PROVIDER, "rzp_order_1", "created", "failed"]);
     expect(out?.order).toEqual(paidRow);
   });
 
@@ -804,21 +1106,67 @@ describe("UnlocksRepository.claimAndCreditPaymentOrderWithinTx — the compare-a
       providerPaymentRef: "pay_1",
       provider: "other_provider",
     });
-    expect(params(captured.where)).toEqual(["other_provider", "order_1", "paid"]);
+    expect(params(captured.where)).toEqual(["other_provider", "order_1", "created", "failed"]);
+  });
+});
+
+describe("UnlocksRepository.holdPaymentOrder — #2749 hardening 5: the same CAS, to 'held', with its event in the transaction", () => {
+  it("sets status='held' + the payment ref, guarded on status IN (created, failed), and runs the hook on the SAME tx", async () => {
+    const heldRow = { id: "order-1", status: "held" };
+    const { db, captured } = makeDb({ rows: [heldRow] });
+    const hook = vi.fn(async (_tx: unknown, _held: unknown) => undefined);
+    const out = await new UnlocksRepository(db).holdPaymentOrder(
+      { providerOrderId: "rzp_order_1", providerPaymentRef: "pay_1" },
+      hook,
+    );
+    expect(out).toEqual(heldRow);
+    expect(captured.updateTable).toBe(paymentOrders);
+    expect(captured.updateSet).toMatchObject({ status: "held", providerPaymentRef: "pay_1" });
+    const { sql, params: p } = compile(captured.where);
+    expect(sql).toBe(
+      '("payment_orders"."provider" = $1 and "payment_orders"."provider_order_id" = $2 and "payment_orders"."status" in ($3, $4))',
+    );
+    expect(p).toEqual([RAZORPAY_PROVIDER, "rzp_order_1", "created", "failed"]);
+    expect(hook).toHaveBeenCalledTimes(1);
+    expect(hook.mock.calls[0]![1]).toEqual(heldRow);
+  });
+
+  it("matched nothing (already paid / held / unknown) → undefined, and the hook never runs", async () => {
+    const { db } = makeDb({ rows: [] });
+    const hook = vi.fn(async () => undefined);
+    expect(
+      await new UnlocksRepository(db).holdPaymentOrder(
+        { providerOrderId: "rzp_order_1", providerPaymentRef: "pay_1" },
+        hook,
+      ),
+    ).toBeUndefined();
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  it("a hook failure propagates (the transaction — the hold with it — rolls back)", async () => {
+    const { db } = makeDb({ rows: [{ id: "order-1", status: "held" }] });
+    await expect(
+      new UnlocksRepository(db).holdPaymentOrder(
+        { providerOrderId: "rzp_order_1", providerPaymentRef: "pay_1" },
+        async () => {
+          throw new Error("events table down");
+        },
+      ),
+    ).rejects.toThrow("events table down");
   });
 });
 
 describe("UnlocksRepository.markPaymentOrderFailed — guarded, never walks back a paid order", () => {
-  it("sets status='failed', guarded on provider/providerOrderId/status<>'paid'", async () => {
+  it("sets status='failed', guarded on provider/providerOrderId/status IN (created, failed) — never over paid or held", async () => {
     const { db, captured } = makeDb({ rows: [{ id: "order-1", status: "failed" }] });
     const out = await new UnlocksRepository(db).markPaymentOrderFailed("rzp_order_1");
     expect(captured.updateTable).toBe(paymentOrders);
     expect(captured.updateSet).toMatchObject({ status: "failed" });
     const { sql, params: p } = compile(captured.where);
     expect(sql).toBe(
-      '("payment_orders"."provider" = $1 and "payment_orders"."provider_order_id" = $2 and "payment_orders"."status" <> $3)',
+      '("payment_orders"."provider" = $1 and "payment_orders"."provider_order_id" = $2 and "payment_orders"."status" in ($3, $4))',
     );
-    expect(p).toEqual([RAZORPAY_PROVIDER, "rzp_order_1", "paid"]);
+    expect(p).toEqual([RAZORPAY_PROVIDER, "rzp_order_1", "created", "failed"]);
     expect(out).toEqual({ id: "order-1", status: "failed" });
   });
 

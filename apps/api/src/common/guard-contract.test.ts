@@ -62,8 +62,16 @@ import { NotificationPrefsController } from "../notifications/notification-prefs
 import { PayerRelayController } from "../relay/payer-relay.controller";
 import { WorkerRelayController } from "../relay/worker-relay.controller";
 import { SkillsController } from "../skills/skills.controller";
+import { CampusApplicationsController } from "../campus-link/campus-applications.controller";
+import { CampusGrantsController } from "../campus-link/campus-grants.controller";
+import { CampusJobsController } from "../campus-link/campus-jobs.controller";
+import { CampusLinkController } from "../campus-link/campus-link.controller";
+import { CampusReviewController } from "../campus-link/campus-review.controller";
 import { ReferralAttributionController } from "../referrals/referral-attribution.controller";
 import { ReferralBonusController } from "../referrals/referral-bonus.controller";
+// #2746 PR 6 — campus-drive requests: one controller per principal.
+import { PayerCampusDriveRequestsController } from "../campus-drives/payer-campus-drive-requests.controller";
+import { CampusDriveRequestsController } from "../campus-drives/campus-drive-requests.controller";
 // BL-3 — 17 controllers independently found missing from this contract (11 platform-wide
 // beyond PAY-SEC-06's 6 payer/agency ones, incl. 4 admin controllers). Every guard below was
 // read directly from each controller's current @UseGuards, not assumed from the audit.
@@ -89,6 +97,16 @@ import { PayerJobPostingsController } from "../payer-portal/payer-job-postings.c
 import { PayerOrgInvitesController } from "../payer-portal/payer-org-invites.controller";
 import { PayerOrgMembersController } from "../payer-portal/payer-org-members.controller";
 import { PayerAccountController } from "../payers/payer-account.controller";
+// #2819 — the theme: one controller per realm, each behind its own guard only.
+import { WorkerDisplayPrefsController } from "../display-prefs/worker-display-prefs.controller";
+import { PayerDisplayPrefsController } from "../display-prefs/payer-display-prefs.controller";
+import { AdminDisplayPrefsController } from "../display-prefs/admin-display-prefs.controller";
+import { SearchExitController } from "../search-exit/search-exit.controller";
+import { StillLookingController } from "../still-looking/still-looking.controller";
+// #2753 item 11 — the pay-on-joining pilot's hire record (admin, behind its own switch guard).
+import { PayOnJoiningHiresController } from "../pay-on-joining/pay-on-joining-hires.controller";
+// #2753 item 10 — the company follow-up: the payer realm's guard, then its own switch.
+import { PayerUnlockOutcomesController } from "../unlock-outcomes/payer-unlock-outcomes.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -134,10 +152,12 @@ const A = "AdminAuthGuard";
 const AR = "AdminRolesGuard";
 const CNR = "ConsentNotRevokedGuard";
 const SI = "SkillsInternalGuard";
+const CS = "CampusServiceGuard";
 const TL = "TestLoginGuard";
 const PTL = "PayerTestLoginGuard";
 const PE = "AgencyPayoutsEnabledGuard";
 const ATF = "AdminAiTraceFlagGuard";
+const POJ = "PayOnJoiningFlagGuard";
 /**
  * ⚠ NOT AN AUTH GUARD. `OptionalWorkerAuthGuard` attaches `req.worker` when a valid session
  * token happens to ride along and ALWAYS returns true — its `canActivate` has one return
@@ -151,6 +171,12 @@ const ATF = "AdminAiTraceFlagGuard";
 const OW = "OptionalWorkerAuthGuard";
 const RZ = "RazorpayWebhookGuard";
 const POR = "PayerOrgRoleGuard";
+/** #2753 item 6 — NOT AN AUTH GUARD: the SEARCH_EXIT_ENABLED switch's neutral 404, run first. */
+const SE = "SearchExitEnabledGuard";
+/** #2753 item 5 — NOT AN AUTH GUARD: the STILL_LOOKING_CHECK_ENABLED switch's neutral 404, first. */
+const SL = "StillLookingEnabledGuard";
+/** #2753 item 10 — NOT an auth guard: the follow-up switch, a neutral 404 while it is off. */
+const UFE = "UnlockFollowupEnabledGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [I], recordBatch: [I] } },
@@ -210,7 +236,7 @@ const CONTRACT: ControllerContract[] = [
   { name: "Chat", ctor: ChatController, routes: { startSession: [C, W], postMessage: [C, W] } },
   // ADR-0044 — the post-completion companion: the same worker-self, consent-gated pair as chat.
   { name: "ChatCompanion", ctor: ChatCompanionController, routes: { open: [C, W], message: [C, W] } },
-  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W], withdrawEmployerContact: [W], grantEmployerContact: [W], mine: [W] } },
+  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W], withdrawEmployerContact: [W], grantEmployerContact: [W], mine: [W], notice: [W] } },
   // E0 — the relay: the payer sends against the handle they hold (payer-self), and the
   // worker reads/replies/reads-marks their own threads (worker-self + consent).
   { name: "PayerRelay", ctor: PayerRelayController, routes: { templates: [P], send: [P], read: [P] } },
@@ -657,6 +683,39 @@ const CONTRACT: ControllerContract[] = [
     ctor: SkillsController,
     routes: { nearestAliases: [SI], recordUnresolved: [SI] },
   },
+  // #2746 PR 5 — Campus's RVM review and targeting-options writes: the same CampusServiceGuard
+  // (and so the same flag, token, allow-list, cap and per-call audit row) and nothing else.
+  {
+    name: "CampusReview",
+    ctor: CampusReviewController,
+    routes: { reviewPosting: [CS], setTargetingOptions: [CS] },
+  },
+  // #2752 — BadaBhai Campus's ONLY credential. CampusServiceGuard (its own hashed token, an
+  // address allow-list, a per-minute cap, an audit row per call) and never InternalServiceGuard,
+  // whose shared secret opens the ops routes that return personal data.
+  {
+    name: "CampusLink",
+    ctor: CampusLinkController,
+    routes: { ping: [CS], unlinkStudent: [CS] },
+  },
+  // #2752 item 10 — named-company search grants, behind the same Campus credential only.
+  {
+    name: "CampusGrants",
+    ctor: CampusGrantsController,
+    routes: { grant: [CS], revoke: [CS] },
+  },
+  // #2752 part E — the jobs feed, posting for a Campus-created company, the company lookup, and
+  // Campus applications: the same Campus credential only.
+  {
+    name: "CampusJobs",
+    ctor: CampusJobsController,
+    routes: { listPostings: [CS], postForCompany: [CS], findCompany: [CS] },
+  },
+  {
+    name: "CampusApplications",
+    ctor: CampusApplicationsController,
+    routes: { apply: [CS], feed: [CS], withdraw: [CS] },
+  },
   // Referral attribution (ADR-0020/0022): the invited_worker_id is the SESSION worker, so
   // a caller can only ever attribute THEMSELVES to a code (XB-A). B4 added an OPTIONAL
   // `source` to the body — the guard, the IP cap and the neutral response are unchanged.
@@ -833,6 +892,9 @@ const CONTRACT: ControllerContract[] = [
       buyPlan: [P, R],
       buyBoost: [P, R],
       topUpQuota: [P, R],
+      // #2746 PR 4 — GET audience-options: the class pair, employer accounts only
+      // (@PayerRoles('employer')); a neutral 404 while job_audience is off for the company.
+      audienceOptions: [P, R],
     },
   },
   { name: "PayerOrgInvites", ctor: PayerOrgInvitesController, routes: { accept: [P] } },
@@ -845,6 +907,67 @@ const CONTRACT: ControllerContract[] = [
     name: "PayerAccount",
     ctor: PayerAccountController,
     routes: { me: [P], updateMe: [P] },
+  },
+  // #2746 PR 6 — a company's campus-drive requests: employer-only on every route (the PayerRoleGuard
+  // 403 for an agency), tenant-scoped in the service.
+  {
+    name: "PayerCampusDriveRequests",
+    ctor: PayerCampusDriveRequestsController,
+    routes: { create: [P, R], list: [P, R], getOne: [P, R], cancel: [P, R] },
+  },
+  // #2746 PR 6 — Campus's drive-request feed and decision: CampusServiceGuard (its own token,
+  // allow-list, cap and per-call audit row) and never InternalServiceGuard.
+  {
+    name: "CampusDriveRequests",
+    ctor: CampusDriveRequestsController,
+    routes: { listDriveRequests: [CS], decideDriveRequest: [CS] },
+  },
+  // #2819 — each login's own theme. The worker pair is [W] WITHOUT ConsentGuard, deliberately: the
+  // splash and sign-in screens read the theme before consent. The payer pair serves employer and
+  // agent alike (no PayerRoleGuard, and no PayerOrgRoleGuard: a tenancy refusal closes the theme,
+  // never 403s it). The admin pair is any admin role, like `admin/me` (no AdminRolesGuard).
+  {
+    name: "WorkerDisplayPrefs",
+    ctor: WorkerDisplayPrefsController,
+    routes: { get: [W], update: [W] },
+  },
+  {
+    name: "PayerDisplayPrefs",
+    ctor: PayerDisplayPrefsController,
+    routes: { get: [P], update: [P] },
+  },
+  {
+    name: "AdminDisplayPrefs",
+    ctor: AdminDisplayPrefsController,
+    routes: { get: [A], update: [A] },
+  },
+  // #2753 item 6 — "companies can find me": the posture of every other `/workers/me/*` write
+  // ([C, W]) behind the switch's 404 (SE, first in order; pinned below).
+  {
+    name: "SearchExit",
+    ctor: SearchExitController,
+    routes: { get: [SE, C, W], set: [SE, C, W] },
+  },
+  // #2753 item 5 — the monthly "still looking?" check: the posture of every other
+  // `/workers/me/*` write ([C, W]) behind the switch's 404 (SL, first in order; pinned below).
+  {
+    name: "StillLooking",
+    ctor: StillLookingController,
+    routes: { get: [SL, C, W], answer: [SL, C, W] },
+  },
+  // #2753 item 11 — the pay-on-joining hire record: admin session, then the
+  // PAY_ON_JOINING_RECORDS_ENABLED switch (a neutral 404 for every role), then the capability.
+  {
+    name: "PayOnJoiningHires",
+    ctor: PayOnJoiningHiresController,
+    routes: { listHires: [A, POJ, AR], createHire: [A, POJ, AR], updateHire: [A, POJ, AR] },
+  },
+  // #2753 item 10 — the company follow-up: PayerAuthGuard (the session payer, either role, like the
+  // unlock routes it follows up) plus the switch. Ownership is the service's tenant chokepoint.
+  {
+    name: "PayerUnlockOutcomes",
+    ctor: PayerUnlockOutcomesController,
+    routes: { listDue: [P, UFE], recordOutcome: [P, UFE] },
   },
 ];
 
@@ -877,6 +1000,10 @@ describe("API authz contract — guards on every controller route", () => {
   describe("every routed method is in the contract (exists → listed)", () => {
     const PATH_METADATA = "path";
     for (const ctor of [
+      // #2746 PR 6 — a service credential that reads contact details, and the company surface it
+      // serves; a route must not join either unpinned.
+      CampusDriveRequestsController,
+      PayerCampusDriveRequestsController,
       WorkerEmploymentController,
       WorkerPreferencesController,
       WorkerQualificationsController,
@@ -888,6 +1015,23 @@ describe("API authz contract — guards on every controller route", () => {
       // ADR-0040 / E2 — pages the whole consented pool to any payer; a third route must not
       // join this class unpinned.
       CandidateSearchController,
+      // #2746 PR 5 — a service credential's write surface (review, targeting); a third route
+      // must not join this class unpinned.
+      CampusReviewController,
+      // #2819 — one realm's guard and nothing else on each; a route must not join unpinned (the
+      // worker class carries no ConsentGuard, so an unpinned route there would be pre-consent).
+      WorkerDisplayPrefsController,
+      PayerDisplayPrefsController,
+      AdminDisplayPrefsController,
+      // #2753 item 6 — the worker's own search visibility; a route must not join unpinned.
+      SearchExitController,
+      // #2753 item 5 — the worker's own monthly answer; a route must not join unpinned.
+      StillLookingController,
+      // #2753 item 11 — a money record's write surface; a route must not join it unpinned.
+      PayOnJoiningHiresController,
+      // #2753 item 10 — a company's answers about the contacts it opened; a route must not join
+      // unpinned.
+      PayerUnlockOutcomesController,
     ] as Ctor[]) {
       it(`${ctor.name} lists every route it serves`, () => {
         const proto = ctor.prototype as Record<string, unknown>;
@@ -938,6 +1082,25 @@ describe("API authz contract — guards on every controller route", () => {
         expect(guardNames(ctor)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
       });
     }
+
+    // #2753 item 6 — the same pair, behind the switch's 404 that runs FIRST, so with the switch
+    // off nothing at all runs (no token check, no consent read), as for an unmounted route.
+    it("SearchExitController runs [SearchExitEnabledGuard, WorkerAuthGuard, ConsentGuard] in order", () => {
+      expect(guardNames(SearchExitController)).toEqual([
+        "SearchExitEnabledGuard",
+        "WorkerAuthGuard",
+        "ConsentGuard",
+      ]);
+    });
+
+    // #2753 item 5 — the same pair behind the check's 404, which runs FIRST.
+    it("StillLookingController runs [StillLookingEnabledGuard, WorkerAuthGuard, ConsentGuard] in order", () => {
+      expect(guardNames(StillLookingController)).toEqual([
+        "StillLookingEnabledGuard",
+        "WorkerAuthGuard",
+        "ConsentGuard",
+      ]);
+    });
 
     // WorkersController.setMyName applies the guards at the METHOD level (the
     // controller also has open ops routes), so assert the order on the handler.

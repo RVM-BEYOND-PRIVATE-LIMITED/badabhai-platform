@@ -171,3 +171,84 @@ describe("assertPayerAuthConfig — email-OTP provider gate (only when method=em
     expect(c.EMAIL_FROM_ADDRESS).toBe("otp@example.com");
   });
 });
+
+describe("#2754 — company sign-in by SMS code", () => {
+  const SMS_CREDS = {
+    FAST2SMS_API_KEY: "placeholder-key",
+    FAST2SMS_SENDER_ID: "BADABH",
+    FAST2SMS_PAYER_DLT_TEMPLATE_ID: "1707000000000000001",
+  };
+
+  it("is off by default, with its own daily ceiling", () => {
+    const c = cfg();
+    expect(c.PAYER_SMS_OTP_ENABLED).toBe(false);
+    expect(c.FAST2SMS_PAYER_DLT_TEMPLATE_ID).toBeUndefined();
+    expect(c.PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY).toBe(500);
+    expect(
+      cfg({ PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY: "0" }).PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY,
+    ).toBe(0);
+  });
+
+  it("armed WITHOUT the company template (or the Fast2SMS account) refuses to boot, naming what is missing", () => {
+    const noTemplate = cfg({
+      JWT_SECRET: REAL_JWT,
+      ...ZEPTO_CREDS,
+      PAYER_SMS_OTP_ENABLED: "true",
+      FAST2SMS_API_KEY: "placeholder-key",
+      FAST2SMS_SENDER_ID: "BADABH",
+    });
+    expect(() => assertPayerAuthConfig(noTemplate, "production")).toThrow(
+      /FAST2SMS_PAYER_DLT_TEMPLATE_ID is not set/,
+    );
+    const nothing = cfg({ JWT_SECRET: REAL_JWT, ...ZEPTO_CREDS, PAYER_SMS_OTP_ENABLED: "true" });
+    expect(() => assertPayerAuthConfig(nothing, "production")).toThrow(
+      /FAST2SMS_API_KEY, FAST2SMS_SENDER_ID, FAST2SMS_PAYER_DLT_TEMPLATE_ID are not set/,
+    );
+  });
+
+  it("armed WITH the account and its own template boots in staging; off needs neither", () => {
+    expect(() =>
+      assertPayerAuthConfig(
+        cfg({ JWT_SECRET: REAL_JWT, ...ZEPTO_CREDS, ...SMS_CREDS, PAYER_SMS_OTP_ENABLED: "true" }),
+        "staging",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertPayerAuthConfig(cfg({ JWT_SECRET: REAL_JWT, ...ZEPTO_CREDS }), "production"),
+    ).not.toThrow();
+  });
+
+  it("#2754 item 3 — boots ARMED in production when fully configured (phones are now proven)", () => {
+    // The production refusal is gone: an SMS code signs in only the account that PROVED the phone
+    // (`payer_phone_proofs`). What still refuses is the missing account or template (above).
+    expect(() =>
+      assertPayerAuthConfig(
+        cfg({ JWT_SECRET: REAL_JWT, ...ZEPTO_CREDS, ...SMS_CREDS, PAYER_SMS_OTP_ENABLED: "true" }),
+        "production",
+      ),
+    ).not.toThrow();
+    // …and the template check still bites in production, so arming can never ship half-configured.
+    expect(() =>
+      assertPayerAuthConfig(
+        cfg({
+          JWT_SECRET: REAL_JWT,
+          ...ZEPTO_CREDS,
+          ...SMS_CREDS,
+          FAST2SMS_PAYER_DLT_TEMPLATE_ID: "",
+          PAYER_SMS_OTP_ENABLED: "true",
+        }),
+        "production",
+      ),
+    ).toThrow(/FAST2SMS_PAYER_DLT_TEMPLATE_ID is not set/);
+  });
+
+  it("treats a blank template id as unset, and refuses a whitespace-only one at boot", () => {
+    expect(
+      cfg({ FAST2SMS_PAYER_DLT_TEMPLATE_ID: "" }).FAST2SMS_PAYER_DLT_TEMPLATE_ID,
+    ).toBeUndefined();
+    expect(() => cfg({ FAST2SMS_PAYER_DLT_TEMPLATE_ID: "   " })).toThrow();
+    expect(cfg({ FAST2SMS_PAYER_DLT_TEMPLATE_ID: " 1707 " }).FAST2SMS_PAYER_DLT_TEMPLATE_ID).toBe(
+      "1707",
+    );
+  });
+});

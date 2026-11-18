@@ -14,7 +14,7 @@ const HEALTHY: AttentionInput = {
   metrics: { breaches: [], by_event_name: [], window_days: 7 },
   health: { environment: "production", checks: { db: "up", redis: "up", sms: "real" } },
   mayReadEvents: true,
-  mayReadEntities: true,
+  mayReadFeedback: true,
   metricsFailed: false,
   recentFailed: false,
 };
@@ -236,11 +236,11 @@ describe("feedback waiting to be read", () => {
   });
 
   it("says nothing to an operator who cannot open the feedback screen", () => {
-    // `read_entities` is what the route declares. An item whose entire content is "go and
-    // read this" is noise to someone the route would turn away.
+    // `read_identity` is what the route declares (#2926). An item whose entire content is "go
+    // and read this" is noise to someone the route would turn away.
     const out = buildAdminAttention({
       ...withEvents([{ key: "feedback.submitted", count: 5 }]),
-      mayReadEntities: false,
+      mayReadFeedback: false,
     });
     expect(out.map((i) => i.id)).not.toContain("feedback-unread");
   });

@@ -102,6 +102,16 @@ describe("findWorkerVisibleJobById — BOTH statements gate on status='open'", (
     expect(where).toContain('"status"');
     expect(queries[index]!.limit).toBe(1);
   });
+
+  it("#2746 — the posting fallback also excludes an RVM-only posting (the same neutral 404)", async () => {
+    const { repo, queries } = makeDb([], []);
+    await repo.findWorkerVisibleJobById(JOB_ID);
+    expect(render(queries[1]!.where)).toContain(
+      `"job_postings"."audience" IN ('badabhai_workers', 'both')`,
+    );
+    // The legacy `jobs` table has no audience: agency/seed jobs are BadaBhai-worker jobs.
+    expect(render(queries[0]!.where)).not.toContain("audience");
+  });
 });
 
 describe("findWorkerVisibleJobById — the PII-free SHOW set (ADR-0024 §Surfaces)", () => {
@@ -235,6 +245,21 @@ describe("searchOpenPostings — the filters #822 specifies", () => {
     expect(compile(queries[0]!.where).sql).toMatch(/"status" = \$\d/);
   });
 
+  it("#2746 — ALWAYS excludes an RVM-only posting, for the search box and the companion alike", async () => {
+    const audience = `"job_postings"."audience" IN ('badabhai_workers', 'both')`;
+    const box = makeSearchDb();
+    await box.repo.searchOpenPostings({ ...SEARCH_ARGS, q: "fitter", city: "pune" });
+    expect(compile(box.queries[0]!.where).sql).toContain(audience);
+    // ADR-0044 — the companion's "new jobs" read is this method with a window.
+    const companion = makeSearchDb();
+    await companion.repo.searchOpenPostings({
+      ...SEARCH_ARGS,
+      profileSkillIds: ["mskill_fitter"],
+      publishedAfter: new Date("2026-11-01T00:00:00.000Z"),
+    });
+    expect(compile(companion.queries[0]!.where).sql).toContain(audience);
+  });
+
   it("city is a PARTIAL, case-insensitive match — never the feed's exact equality", async () => {
     // The one-word regression this pins: ILIKE '%pune%' becoming = 'pune' turns "pun" from a
     // search into zero results, which reads to a worker as "there are no jobs".
@@ -365,8 +390,16 @@ describe("ADR-0044 — `publishedAfter`, the companion's \"new in the last N day
     const published = text.search(/"published_at" > \$\d+/);
     expect(status).toBeGreaterThanOrEqual(0);
     expect(published).toBeGreaterThan(status);
-    // Nothing else between them: the next clause after status is the window.
-    expect(text.slice(status, published)).not.toMatch(/reach_skill_ids|not exists|ilike/i);
+    // Nothing else between them: the next clause after status is the window. The shared visibility
+    // fragment (hidden, audience, and the #2891 Campus hold's own NOT EXISTS) is not a filter
+    // clause of this search, so it is set aside first.
+    const between = text
+      .slice(status, published)
+      .replace(
+        / AND NOT EXISTS \(SELECT 1 FROM job_posting_worker_visibility jpwv WHERE jpwv\.job_posting_id = [^)]+ AND jpwv\.state <> 'on'\)/,
+        "",
+      );
+    expect(between).not.toMatch(/reach_skill_ids|not exists|ilike/i);
   });
 
   it("composes with the #1240 profile fallback and keeps the applied/skipped exclusion", async () => {

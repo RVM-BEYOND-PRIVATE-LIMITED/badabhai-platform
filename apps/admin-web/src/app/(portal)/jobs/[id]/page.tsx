@@ -6,6 +6,8 @@ import { requireCapability } from "../../../../lib/auth";
 import { can } from "../../../../lib/auth/capabilities";
 import { getJobPosting, listApplications } from "../../../../lib/entities";
 import { isAdminRequestError } from "../../../../lib/admin-http";
+import { getWaivers } from "../../../../lib/waivers";
+import { WaiverSwitch } from "../../waivers/waiver-switch";
 import {
   formatCount,
   formatExperienceBand,
@@ -65,6 +67,18 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
     throw err;
   }
 
+  let jobWaiver: { active: boolean; setBy: string | null } | undefined;
+  const mayManageWaivers = can(session.capabilities, "manage_waivers");
+  if (mayManageWaivers && job.payer_id) {
+    try {
+      const waivers = await getWaivers({ companyId: job.payer_id });
+      const waiver = waivers.waivers.find((w) => w.scope === "job" && w.posting_id === job.id && w.active);
+      jobWaiver = { active: Boolean(waiver), setBy: waiver?.set_by_label ?? null };
+    } catch {
+      jobWaiver = undefined;
+    }
+  }
+
   const decisions = await listApplications({ jobPostingId: id, limit: 10 }).catch(() => null);
   const total = job.applied_count + job.skipped_count;
   // Only meaningful once anyone has seen it; 0/0 would render NaN%.
@@ -114,6 +128,16 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         canForceClose={can(session.capabilities, "force_close_posting")}
         timelineHref={timelineHref}
       />
+
+      {mayManageWaivers && job.payer_id && jobWaiver !== undefined ? (
+        <WaiverSwitch
+          scope="job"
+          companyId={job.payer_id}
+          postingId={job.id}
+          active={jobWaiver.active}
+          setBy={jobWaiver.setBy}
+        />
+      ) : null}
 
       {job.status === "suspended" && (
         <section className="notice notice--bad notice--row" role="status">

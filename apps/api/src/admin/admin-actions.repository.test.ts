@@ -1,10 +1,21 @@
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Database, creditLedger, payerCredits } from "@badabhai/db";
+import { type Database, campusDriveRequests, grantCreditsWithinTx } from "@badabhai/db";
 import { AdminActionsRepository } from "./admin-actions.repository";
+
+// #2749 — the credit grant goes through the packages/db wallet helper (credit-wallet.ts); it is
+// mocked here, and its behaviour against Postgres is `credit-lots.db.test.ts`.
+vi.mock("@badabhai/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@badabhai/db")>();
+  return { ...actual, grantCreditsWithinTx: vi.fn() };
+});
+
+beforeEach(() => {
+  vi.mocked(grantCreditsWithinTx).mockReset();
+});
 
 const dialect = new PgDialect();
 
@@ -82,53 +93,6 @@ function makeDb(rows: Record<string, unknown>[] = []) {
   return { db, updates, inserts };
 }
 
-/**
- * A sequenced mock for the H2 dedup branch: the ledger insert resolves `ledgerInsert`, and the two
- * follow-up SELECTs (existing ledger row, current balance) resolve from `selects` in order. The
- * balance UPSERT (insert into payer_credits) is recorded so the test can assert it never ran.
- */
-function makeDbSeq(cfg: { ledgerInsert: Record<string, unknown>[]; selects: Record<string, unknown>[][] }) {
-  const inserts: InsertCall[] = [];
-  let selectIdx = 0;
-
-  const insert = (table: unknown) => ({
-    values: (values: Record<string, unknown>) => {
-      const call: InsertCall = { table, values };
-      inserts.push(call);
-      const isLedger = table === creditLedger;
-      return {
-        onConflictDoNothing: (cfg2: unknown) => {
-          call.onConflict = cfg2;
-          return { returning: async () => (isLedger ? cfg.ledgerInsert : []) };
-        },
-        onConflictDoUpdate: (cfg2: unknown) => {
-          call.onConflict = cfg2;
-          return { returning: async () => [{ balance: 0 }] };
-        },
-        returning: async () => [],
-      };
-    },
-  });
-
-  const select = (_proj?: unknown) => ({
-    from: (_table: unknown) => ({
-      where: (_where: unknown) => ({
-        limit: async (_n: number) => cfg.selects[selectIdx++] ?? [],
-      }),
-    }),
-  });
-
-  const db = {
-    select,
-    insert,
-    transaction: async (cb: (tx: unknown) => Promise<unknown>) => cb({ insert, select }),
-  } as unknown as Database;
-
-  // Expose a `table` tag so the test can assert which tables were inserted into.
-  const tagged = inserts as (InsertCall & { table: unknown })[];
-  return { db, inserts: tagged, payerCreditsTable: payerCredits };
-}
-
 const PAYER_ID = "bbbbbbbb-0000-4000-8000-000000000002";
 const POSTING_ID = "cccccccc-0000-4000-8000-000000000003";
 const WORKER_ID = "dddddddd-0000-4000-8000-000000000004";
@@ -137,18 +101,25 @@ const ADMIN_ID = "aaaaaaaa-0000-4000-8000-000000000001";
 describe("AdminActionsRepository.suspendPayer — guarded active→suspended (idempotent)", () => {
   it("returns the new status when a row matched (active → suspended)", async () => {
     const m = makeDb([{ status: "suspended" }]);
-    const res = await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID);
+    const res = await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID, m.db);
     expect(res).toEqual({ status: "suspended" });
     // The write set status=suspended and was guarded (the WHERE is a non-null SQL condition).
-    expect(m.updates).toHaveLength(1);
+    expect(m.updates).toHaveLength(2);
     expect(m.updates[0]!.set).toMatchObject({ status: "suspended" });
     expect(m.updates[0]!.where).toBeDefined();
+    // #2746 PR 6 (migration review M1): then the company's drive requests are re-stamped, on the
+    // same executor, so Campus's feed sees the withdrawal.
+    expect(m.updates[1]!.table).toBe(campusDriveRequests);
+    expect(Object.keys(m.updates[1]!.set)).toEqual(["updatedAt"]);
+    expect(dialect.sqlToQuery(m.updates[1]!.where as SQL).params).toEqual([PAYER_ID]);
   });
 
   it("returns undefined when no row matched the guard (already suspended → no-op)", async () => {
     const m = makeDb([]); // guarded WHERE matched nothing
-    const res = await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID);
+    const res = await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID, m.db);
     expect(res).toBeUndefined();
+    // Nothing moved, so nothing is re-stamped.
+    expect(m.updates).toHaveLength(1);
   });
 });
 
@@ -158,7 +129,7 @@ describe("AdminActionsRepository.reinstatePayer — guarded suspended→previous
     // (`coalesce(previous_status,'pending')`), so the `set` carries a SQL node rather than
     // a literal — assert on the rendered SQL, which is what actually reaches Postgres.
     const hit = makeDb([{ status: "active" }]);
-    expect(await new AdminActionsRepository(hit.db).reinstatePayer(PAYER_ID)).toEqual({
+    expect(await new AdminActionsRepository(hit.db).reinstatePayer(PAYER_ID, hit.db)).toEqual({
       status: "active",
     });
 
@@ -173,14 +144,14 @@ describe("AdminActionsRepository.reinstatePayer — guarded suspended→previous
     expect(set.previousStatus).toBeNull();
 
     const miss = makeDb([]);
-    expect(await new AdminActionsRepository(miss.db).reinstatePayer(PAYER_ID)).toBeUndefined();
+    expect(await new AdminActionsRepository(miss.db).reinstatePayer(PAYER_ID, miss.db)).toBeUndefined();
   });
 });
 
 describe("AdminActionsRepository.suspendPayer — ADR-0037 widened from-state", () => {
   it("accepts BOTH pending and active, and captures the status it moved out of", async () => {
     const m = makeDb([{ status: "suspended", previousStatus: "active" }]);
-    await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID);
+    await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID, m.db);
 
     // The from-state predicate is an explicit two-value list, NOT `ne('suspended')`.
     // There is no DB CHECK on payers.status, so `ne` would silently accept any future or
@@ -265,43 +236,61 @@ describe("AdminActionsRepository — payer inventory cascade (ADR-0037 Decision 
 const GRANT_KEY = "99999999-0000-4000-8000-00000000000a";
 
 describe("AdminActionsRepository.grantCredits — positive additive ledger movement (H2)", () => {
-  it("NEW key → appends a 'grant' ledger row (keyed) + bumps the balance (applied:true)", async () => {
-    // The tx runs insert(creditLedger)->returning(id) FIRST (a new row), then the balance upsert.
-    // Our mock returns `rows` for BOTH returning() calls; shape it to satisfy both reads.
-    const m = makeDb([{ balance: 500, id: "ledger-1" }]);
+  const NO_ALIGNMENT = { action: "none", credits: 0, openBefore: 0, balance: 0 } as const;
+
+  it("NEW key → one never-expiring `goodwill` lot + one keyed `grant` line + the balance (applied:true)", async () => {
+    vi.mocked(grantCreditsWithinTx).mockResolvedValueOnce({
+      applied: true,
+      balanceAfter: 500,
+      lotId: "lot-1",
+      ledgerId: "ledger-1",
+      alignment: NO_ALIGNMENT,
+    });
+    const m = makeDb();
     const res = await new AdminActionsRepository(m.db).grantCredits(PAYER_ID, 500, GRANT_KEY);
     expect(res).toEqual({ ledgerId: "ledger-1", balance: 500, applied: true });
 
-    // Two inserts: the ledger movement (delta=+amount, grant, KEYED) then the balance upsert.
-    expect(m.inserts).toHaveLength(2);
-    const ledger = m.inserts.find((i) => i.values.reason === "grant");
-    expect(ledger, "a 'grant' ledger movement was appended").toBeDefined();
-    expect(ledger!.values).toMatchObject({
-      payerId: PAYER_ID,
-      delta: 500,
-      reason: "grant",
-      idempotencyKey: GRANT_KEY,
+    const [, input] = vi.mocked(grantCreditsWithinTx).mock.calls[0]!;
+    expect(input).toEqual({
+      payerId: PAYER_ID, // the account the admin route names (a named §4 exception)
+      credits: 500,
+      lot: { source: "goodwill", expiresAt: null },
+      // The ledger reason stays `grant`; the key is the client's opaque uuid (exactly-once).
+      ledger: { reason: "grant", idempotencyKey: GRANT_KEY },
     });
     // The amount is a POSITIVE delta (a grant never drives the balance negative).
-    expect(ledger!.values.delta).toBeGreaterThan(0);
-    // It is ON CONFLICT DO NOTHING on the idempotency key (exactly-once on the ledger).
-    expect(ledger!.onConflict).toBeDefined();
+    expect(input.credits).toBeGreaterThan(0);
   });
 
-  it("DUPLICATE key (ledger insert deduped) → NO balance bump, applied:false (exactly-once)", async () => {
-    // Model the conflict: the keyed ledger insert returns [] (ON CONFLICT DO NOTHING suppressed it),
-    // then the existing-row + balance SELECTs resolve the already-applied state. The balance upsert
-    // must NOT run.
-    const m = makeDbSeq({
-      ledgerInsert: [], // deduped: no new ledger row
-      selects: [[{ id: "ledger-existing" }], [{ balance: 500 }]],
+  it("DUPLICATE key (already on the ledger) → NO lot, NO balance move, applied:false (exactly-once)", async () => {
+    vi.mocked(grantCreditsWithinTx).mockResolvedValueOnce({
+      applied: false,
+      balanceAfter: 500,
+      ledgerId: "ledger-existing",
+      alignment: NO_ALIGNMENT,
     });
+    const m = makeDb();
     const res = await new AdminActionsRepository(m.db).grantCredits(PAYER_ID, 500, GRANT_KEY);
     expect(res).toEqual({ ledgerId: "ledger-existing", balance: 500, applied: false });
+  });
 
-    // Exactly ONE insert was attempted (the ledger); the balance upsert was NOT reached.
-    expect(m.inserts).toHaveLength(1);
-    expect(m.inserts.find((i) => i.table === m.payerCreditsTable)).toBeUndefined();
+  it("runs on the CALLER's transaction when one is passed (H3), else opens its own", async () => {
+    const ok = {
+      applied: true,
+      balanceAfter: 1,
+      lotId: "lot-1",
+      ledgerId: "ledger-1",
+      alignment: NO_ALIGNMENT,
+    } as const;
+    vi.mocked(grantCreditsWithinTx).mockResolvedValue(ok);
+    const m = makeDb();
+    const callerTx = { tag: "caller-tx" } as unknown as Database;
+    await new AdminActionsRepository(m.db).grantCredits(PAYER_ID, 1, GRANT_KEY, callerTx);
+    expect(vi.mocked(grantCreditsWithinTx).mock.calls[0]![0]).toBe(callerTx);
+
+    await new AdminActionsRepository(m.db).grantCredits(PAYER_ID, 1, GRANT_KEY);
+    // The repository's own transaction handle (the fake's tx object), never the bare db.
+    expect(vi.mocked(grantCreditsWithinTx).mock.calls[1]![0]).not.toBe(m.db);
   });
 });
 

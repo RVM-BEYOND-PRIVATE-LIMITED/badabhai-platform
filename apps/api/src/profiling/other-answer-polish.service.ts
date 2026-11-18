@@ -6,6 +6,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { AiService } from "../ai/ai.service";
 import type { AiRequestContext } from "../ai/ai.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
+import { InstituteAiGate } from "../campus-link/institute-ai-gate.service";
 import { EventsService } from "../events/events.service";
 import { tradeResumeMapFor } from "../resume/trade-resume-map";
 import { TradeFormRepository } from "./form/trade-form.repository";
@@ -93,6 +94,9 @@ export class OtherAnswerPolishService {
     private readonly aiCost: AiCostRecorder,
     private readonly events: EventsService,
     private readonly packs: PackRegistryService,
+    // #2752 item 13 — no review for an institute student without BadaBhai's own consent; it
+    // also runs inside a résumé render started off his request. CampusLinkModule, one-way.
+    private readonly instituteAi: InstituteAiGate,
   ) {}
 
   /**
@@ -120,6 +124,8 @@ export class OtherAnswerPolishService {
 
     let items: readonly string[];
     try {
+      // #2752 item 13 — a refusal lands in the catch below: nothing prints for this answer.
+      await this.instituteAi.assertMayRunAi(target.workerId);
       const out = await this.ai.reviewOtherAnswer(
         {
           schema_version: "oie.v1",

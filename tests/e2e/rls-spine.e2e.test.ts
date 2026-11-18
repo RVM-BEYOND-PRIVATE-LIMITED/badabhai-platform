@@ -223,6 +223,113 @@ const LOCKED_TABLES = [
   // {corrected, previous} envelope plus the written reason, keyed by worker with cascade as the
   // DSAR coverage. RLS+FORCE+REVOKE in 0160.
   "worker_admin_override",
+  // 0161 (#2752 part B): which workers are institute students (course, branch, status, score,
+  // consent) and where each worker came from. Both cascade on worker deletion. RLS+FORCE+REVOKE
+  // in 0161.
+  "worker_institute_links",
+  "worker_origins",
+  // 0162 (#2746): the placement team's review of a posting's RVM part (opaque posting id +
+  // closed state + a Campus staff ref) - the gate that keeps unreviewed jobs from RVM students.
+  "job_posting_institute_reviews",
+  // 0162 (#2746): branch and course labels companies may target (reference data, PII-free).
+  "rvm_targeting_options",
+  // 0162 (#2746): campus-drive requests - the contact person as AES ciphertext plus each
+  // company's hiring plan; payer FK cascade as the erasure coverage.
+  "campus_drive_requests",
+  // 0162 (#2746): the pilot list behind each off/pilot/on switch (opaque payer ids).
+  "feature_pilot_payers",
+  // 0163 (#2752): named-company search grants (opaque company and worker ids, a consent ref and
+  // a match skill id) and Campus applications (opaque ids, a Campus ref, dates).
+  "institute_search_grants",
+  "institute_applications",
+  // 0163 (#2752): the companies Campus created (opaque payer ids) — the only ones it may post for.
+  "institute_companies",
+  // 0164 (#2820): the pilot list for workers and admins (opaque worker / admin ids, no FK).
+  "feature_pilot_subjects",
+  // 0165 (#2819): one login's theme (opaque worker / payer login / admin ids, no FK).
+  "display_prefs",
+  // 0167 (#2747 item 8): marks owed to RVM (ids, closed codes and dates; the body is built at send
+  // time). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0167.
+  "outbound_signals",
+  // 0168 (#2753 items 4 and 7): the days a worker was active (an opaque worker id and an IST
+  // date, nothing else). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0168.
+  "worker_activity",
+  // 0169 (#2753 item 6): which workers left company search (an opaque worker id, a time and a
+  // closed code). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0169.
+  "worker_search_exits",
+  // 0170 (#2753 item 9): one hire record per company, worker and posting (ids, dates and closed
+  // codes). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0170.
+  "hires",
+  // 0171 (#2753 item 11): the pay-on-joining pilot's hire record (opaque factory / partner / worker
+  // / posting ids, dates, paise and an admin note). Worker FK cascade as the erasure coverage.
+  // RLS+FORCE+REVOKE in 0171.
+  "pay_on_joining_hires",
+  // 0172 (#2753 item 10): one follow-up answer per opened contact (ids, closed codes and dates).
+  // Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0172.
+  "unlock_outcomes",
+  // 0173 (#2753 item 5): the monthly "still looking?" check (an opaque worker id, two times and a
+  // closed answer). Worker FK cascade as the erasure coverage. RLS+FORCE+REVOKE in 0173.
+  "still_looking_checks",
+  // 0174 (#2749): a company's credits as expiring lots (opaque wallet key, a closed source, a pack
+  // code, integers and dates). Billing records, no FK to payers, never erased. RLS+FORCE+REVOKE in
+  // 0174.
+  "credit_lots",
+  // #2754 item 3: a company proved the phone on its account (an opaque payer id, a keyed phone
+  // hash, a closed method and a time). Payer FK cascade as the erasure coverage. RLS+FORCE+REVOKE
+  // in the hand-written tail of `*_payer_phone_proofs`.
+  "payer_phone_proofs",
+  // #2755 part B: the numbers screen's weekly snapshot (aggregates only: counts, paise, ratio terms)
+  // and its recompute log (weeks, a version, a count and the operator's reason). No FK, never erased
+  // per person (no person in them). RLS+FORCE+REVOKE in the hand-written tail of `*_numbers_weekly`.
+  "numbers_weekly",
+  "numbers_recompute_log",
+  // #2755 part C: the out-of-credits call log (a company id, an admin id, a time and one closed
+  // result code; no free text). Payer FK cascade as the erasure coverage. RLS+FORCE+REVOKE in the
+  // hand-written tail of `*_credit_call_log`.
+  "credit_call_log",
+  // #2750 item 1: the credit rules' settings, one row per revision (integers in jsonb, an admin
+  // id, times). No worker or company data. RLS+FORCE+REVOKE in the hand-written tail of
+  // `*_credit_rules_config`.
+  "credit_rules_config",
+  // #2755 item 9: launch test A's records - one row per factory (its encrypted name and phone, the
+  // phone's keyed hash, opaque payer / order / admin ids, closed codes and dates) and one per
+  // worker sent to it (opaque ids and a time). Worker FK cascade as the erasure coverage.
+  // RLS+FORCE+REVOKE in the hand-written tail of `*_launch_tests`.
+  "launch_test_cohort",
+  "launch_test_shares",
+  // #2750 item 5: the placement team's waivers (scope, the company's tenant key, a posting id,
+  // encrypted staff names, a capped reason, times) and the opens each paid for (opaque ids and a
+  // time). RLS+FORCE+REVOKE in the hand-written tail of `*_rvm_applicant_waivers`.
+  "rvm_applicant_waivers",
+  "rvm_waiver_uses",
+  // #2750 item 7: the couldn't-reach cases (opaque unlock / tenant / worker / login / admin ids,
+  // a closed status, an integer and times) and the desk's call attempts (ids, a closed result
+  // code, a time). RLS+FORCE+REVOKE in the hand-written tail of `*_contact_reach_cases`.
+  "contact_reach_cases",
+  "contact_reach_attempts",
+  // #2750 item 10: admin refunds of real paid packs (opaque order / tenant / posting / admin ids,
+  // closed rule, status and failure codes, integers, an opaque provider refund id and times).
+  // RLS+FORCE+REVOKE in the hand-written tail of `*_payment_refunds`.
+  "payment_refunds",
+  // #2751 items 1 to 3: which posting button a company tapped (an opaque posting id, the tenant
+  // key, two closed codes and a time). RLS+FORCE+REVOKE in the hand-written tail of
+  // `*_job_posting_choices`.
+  "job_posting_choices",
+  // #2887: the bulk student move - the import ledger (runs, per-candidate rows, the candidate ->
+  // worker map), the per-field source markers and the visibility switch. Ids, closed codes,
+  // counts, hashes and times. RLS+FORCE+REVOKE in the hand-written tail of `*_student_move`.
+  "student_import_batches",
+  "student_import_rows",
+  "student_import_subjects",
+  "worker_field_sources",
+  "student_visibility",
+  // #2754 item 4: the Campus company import ledger (batch names, counts, Campus ids mapped to
+  // BadaBhai ids, reason codes). RLS+FORCE+REVOKE in the hand-written tail of `*_company_import`.
+  "company_import_batches",
+  "company_import_rows",
+  // #2891: a Campus-origin posting's BadaBhai worker visibility (a posting id, off/on, the deciding
+  // admin id, times). RLS+FORCE+REVOKE in the hand-written tail of `*_job_posting_worker_visibility`.
+  "job_posting_worker_visibility",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

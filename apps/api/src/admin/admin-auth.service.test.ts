@@ -69,6 +69,9 @@ function setup(
     findById: vi.fn(async () => account as never),
     setMfaEnrolled: vi.fn(async () => account as never),
     touchLastLogin: vi.fn(async () => undefined),
+    // #2924 — the guarded switch-on a required role gets at its first completed second factor.
+    enableMfa: vi.fn(async (_id: string, _tx?: unknown) => true),
+    withTransaction: vi.fn(async <T>(cb: (tx: unknown) => Promise<T>) => cb({ tx: true })),
   };
   const otp = {
     issueAndSend: vi.fn(async () => ({ resendInSeconds: 30 })),
@@ -355,13 +358,14 @@ describe("AdminAuthService — PII-free, registry-valid admin events", () => {
 // ---------------------------------------------------------------------------
 describe("AdminAuthService — the per-admin two-step switch (Amendment 1)", () => {
   it("two-step OFF: the emailed code alone mints a session (no TOTP, no enrolment, no marker)", async () => {
+    // support: a role two-step is NOT required for (#2924 keeps Amendment 1 for support/analyst).
     const d = setup({
-      account: { id: ADMIN_ID, role: "ops_admin", status: "active", mfaEnrolled: false, mfaEnabled: false },
+      account: { id: ADMIN_ID, role: "support", status: "active", mfaEnrolled: false, mfaEnabled: false },
     });
     const res = await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
 
     expect(res).toMatchObject({ access_token: "admin-jwt", token_type: "Bearer", admin_id: ADMIN_ID });
-    expect(d.sessions.create).toHaveBeenCalledWith(ADMIN_ID, "ops_admin", 0);
+    expect(d.sessions.create).toHaveBeenCalledWith(ADMIN_ID, "support", 0);
     // No second-factor machinery runs for an admin who has it off.
     expect(d.mfaStore.markOtpPassed).not.toHaveBeenCalled();
     expect(d.mfaStore.save).not.toHaveBeenCalled();
@@ -388,12 +392,12 @@ describe("AdminAuthService — the per-admin two-step switch (Amendment 1)", () 
     expect(d.mfaStore.markOtpPassed).not.toHaveBeenCalled();
   });
 
-  it("two-step OFF even when ENROLLED (the owner's own row after 0144): no TOTP asked", async () => {
+  it("two-step OFF even when ENROLLED, on a role it is not required for: no TOTP asked", async () => {
     const d = setup({
-      account: { id: ADMIN_ID, role: "super_admin", status: "active", mfaEnrolled: true, mfaEnabled: false },
+      account: { id: ADMIN_ID, role: "analyst", status: "active", mfaEnrolled: true, mfaEnabled: false },
     });
     const res = await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
-    expect(res).toMatchObject({ access_token: "admin-jwt", role: "super_admin" });
+    expect(res).toMatchObject({ access_token: "admin-jwt", role: "analyst" });
   });
 
   it("two-step OFF ignores a presented device token (nothing to skip, no Redis read)", async () => {
@@ -430,6 +434,119 @@ describe("AdminAuthService — the per-admin two-step switch (Amendment 1)", () 
     });
     const res = await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
     expect(res).toMatchObject({ access_token: "admin-jwt" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2924 (ADR-0060 Amendment 2) — two-step is REQUIRED for super_admin and ops_admin.
+// ---------------------------------------------------------------------------
+describe("AdminAuthService — two-step required for super_admin and ops_admin (#2924)", () => {
+  for (const role of ["super_admin", "ops_admin"] as AdminRole[]) {
+    it(`${role} with the switch OFF gets the enrolment step, never a session, from the first factor`, async () => {
+      const d = setup({
+        account: { id: ADMIN_ID, role, status: "active", mfaEnrolled: false, mfaEnabled: false },
+      });
+      const res = await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
+      expect(res).toMatchObject({ status: "mfa_required", needs_enrollment: true });
+      expect((res as { enrollment?: unknown }).enrollment).toBeDefined();
+      expect(d.sessions.create).not.toHaveBeenCalled();
+      expect(d.mfaStore.save).toHaveBeenCalledTimes(1);
+      expect(d.mfaStore.markOtpPassed).toHaveBeenCalledWith(ADMIN_ID, 0);
+    });
+  }
+
+  it("a seed ALREADY on file is not trusted while the switch is off: a FRESH enrolment, never a bare TOTP step", async () => {
+    // The 3 Nov lockout shape: `--with-totp` stored a seed (mfa_enrolled=true) that may never
+    // have been scanned. Asking for a code from it would lock the owner out.
+    const d = setup({
+      account: { id: ADMIN_ID, role: "super_admin", status: "active", mfaEnrolled: true, mfaEnabled: false },
+    });
+    const res = await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
+    expect(res).toMatchObject({ status: "mfa_required", needs_enrollment: true });
+    expect(d.mfaStore.save).toHaveBeenCalledTimes(1);
+  });
+
+  it("no trusted device counts for a required role whose switch is off (nothing to have trusted)", async () => {
+    const d = setup({
+      account: { id: ADMIN_ID, role: "ops_admin", status: "active", mfaEnrolled: true, mfaEnabled: false },
+      trusted: true,
+    });
+    const res = await d.svc.verifyLogin(
+      { email: EMAIL, code: "123456", device_token: "d".repeat(43) },
+      CTX,
+    );
+    expect(d.devices.isTrusted).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ status: "mfa_required", needs_enrollment: true });
+    expect(d.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it("the first valid code switches two-step ON (guarded write + admin_mfa_enabled) and mints the session", async () => {
+    const { secret } = generateTotpEnrollment("BadaBhai Admin", ADMIN_ID);
+    const d = setup({
+      account: { id: ADMIN_ID, role: "super_admin", status: "active", mfaEnrolled: false, mfaEnabled: false },
+      storedSecret: secret,
+    });
+    const res = await d.svc.verifyMfa({ email: EMAIL, code: currentTotpCode(secret) }, CTX);
+
+    expect(res).toMatchObject({ access_token: "admin-jwt", role: "super_admin" });
+    expect(d.admins.withTransaction).toHaveBeenCalledTimes(1);
+    expect(d.admins.enableMfa).toHaveBeenCalledWith(ADMIN_ID, { tx: true });
+    // enrolled + enabled go together in enableMfa; the bare enrolled flag is not written.
+    expect(d.admins.setMfaEnrolled).not.toHaveBeenCalled();
+    const action = d.events.emit.mock.calls.find((c) => c[0].event_name === "admin.action_performed");
+    expect(action?.[0].payload).toMatchObject({ action_code: "admin_mfa_enabled" });
+    assertNoPiiInEvents(d.events);
+  });
+
+  it("a racing second verify finds the switch already on: nothing is recorded twice", async () => {
+    const { secret } = generateTotpEnrollment("BadaBhai Admin", ADMIN_ID);
+    const d = setup({
+      account: { id: ADMIN_ID, role: "ops_admin", status: "active", mfaEnrolled: false, mfaEnabled: false },
+      storedSecret: secret,
+    });
+    d.admins.enableMfa.mockResolvedValueOnce(false);
+    await d.svc.verifyMfa({ email: EMAIL, code: currentTotpCode(secret) }, CTX);
+    expect(d.events.emit.mock.calls.some((c) => c[0].event_name === "admin.action_performed")).toBe(
+      false,
+    );
+    expect(d.sessions.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("a WRONG code switches nothing on", async () => {
+    const { secret } = generateTotpEnrollment("BadaBhai Admin", ADMIN_ID);
+    const d = setup({
+      account: { id: ADMIN_ID, role: "super_admin", status: "active", mfaEnrolled: false, mfaEnabled: false },
+      storedSecret: secret,
+    });
+    const right = currentTotpCode(secret);
+    await expect(
+      d.svc.verifyMfa({ email: EMAIL, code: right === "000000" ? "111111" : "000000" }, CTX),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(d.admins.enableMfa).not.toHaveBeenCalled();
+    expect(d.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it("a required role with two-step already ON is unchanged: the TOTP step, and verify writes no switch", async () => {
+    const { secret } = generateTotpEnrollment("BadaBhai Admin", ADMIN_ID);
+    const d = setup({
+      account: { id: ADMIN_ID, role: "super_admin", status: "active", mfaEnrolled: true, mfaEnabled: true },
+      storedSecret: secret,
+    });
+    expect(await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX)).toEqual({
+      status: "mfa_required",
+      needs_enrollment: false,
+    });
+    await d.svc.verifyMfa({ email: EMAIL, code: currentTotpCode(secret) }, CTX);
+    expect(d.admins.enableMfa).not.toHaveBeenCalled();
+  });
+
+  it("ADMIN_MFA_REQUIRED=false still switches two-step off for everyone, required roles included", async () => {
+    const d = setup({
+      account: { id: ADMIN_ID, role: "super_admin", status: "active", mfaEnrolled: false, mfaEnabled: false },
+      mfaRequired: false,
+    });
+    const res = await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
+    expect(res).toMatchObject({ access_token: "admin-jwt", role: "super_admin" });
   });
 });
 
@@ -545,7 +662,12 @@ describe("AdminAuthService.accountFlags — the GET /admin/me additions (0144)",
       mfaSecretEnc: "v1.seed",
     } as never);
     const flags = await d.svc.accountFlags(ADMIN_ID);
-    expect(flags).toEqual({ has_password: true, must_change_password: true, mfa_enabled: false });
+    expect(flags).toEqual({
+      has_password: true,
+      must_change_password: true,
+      mfa_enabled: false,
+      mfa_required: false,
+    });
   });
 
   it("an admin with no password reads has_password=false", async () => {
@@ -560,7 +682,26 @@ describe("AdminAuthService.accountFlags — the GET /admin/me additions (0144)",
       has_password: false,
       must_change_password: false,
       mfa_enabled: true,
+      mfa_required: false,
     });
+  });
+
+  it("mfa_required is true for super_admin and ops_admin only (#2924), and never under ADMIN_MFA_REQUIRED=false", async () => {
+    const live = (role: AdminRole) =>
+      ({ id: ADMIN_ID, role, passwordHash: null, mustChangePassword: false, mfaEnabled: false }) as never;
+    for (const [role, required] of [
+      ["super_admin", true],
+      ["ops_admin", true],
+      ["support", false],
+      ["analyst", false],
+    ] as const) {
+      const d = setup();
+      d.admins.findById.mockResolvedValueOnce(live(role));
+      expect((await d.svc.accountFlags(ADMIN_ID)).mfa_required).toBe(required);
+    }
+    const off = setup({ mfaRequired: false });
+    off.admins.findById.mockResolvedValueOnce(live("super_admin"));
+    expect((await off.svc.accountFlags(ADMIN_ID)).mfa_required).toBe(false);
   });
 
   it("a vanished row is the neutral session 401", async () => {

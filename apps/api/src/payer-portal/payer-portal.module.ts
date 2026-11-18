@@ -21,6 +21,7 @@ import {
   type PayerLoginChannel,
   WhatsAppLoginChannel,
   SupabaseLoginChannel,
+  SmsLoginChannel,
 } from "../payers/payer-login-channel";
 import { ZeptoMailEmailLoginChannel } from "../payers/zeptomail-email-login-channel";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
@@ -35,7 +36,12 @@ import { PayerPricingController } from "./payer-pricing.controller";
 import { PayerOrgMembersController } from "./payer-org-members.controller";
 import { PayerOrgInvitesController } from "./payer-org-invites.controller";
 import { JobPostingChatModule } from "./job-posting-chat/job-posting-chat.module";
+import { FeatureRolloutModule } from "../feature-rollout/feature-rollout.module";
+import { OutboundSignalsModule } from "../outbound-signals/outbound-signals.module";
+import { HiresModule } from "../hires/hires.module";
 import { PayerAuthService } from "./payer-auth.service";
+import { PayerPhoneProofController } from "./payer-phone-proof.controller";
+import { PayerPhoneProofService } from "./payer-phone-proof.service";
 import { PayerOrgMembersService } from "./payer-org-members.service";
 import { PayerApplicantsService } from "./payer-applicants.service";
 import { PayerPostingPlansService } from "./payer-posting-plans.service";
@@ -102,6 +108,12 @@ import {
     // controller here, because it owns state (sessions/messages) and therefore a
     // repository; it rides the same PayerAuthGuard and adds no new principal.
     JobPostingChatModule,
+    // #2747 — the `outcome_stages` switch read by PayerApplicantStagesService.
+    FeatureRolloutModule,
+    // #2747 item 8 — the RVM selection signal the stage transaction queues (and its sender).
+    OutboundSignalsModule,
+    // #2753 item 9 — the hire record a move into or out of `hired` writes in the stage transaction.
+    HiresModule,
     // Reuse BullMQ's Redis connection (client only) for the payer OTP store + XB-G cap.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],
@@ -121,12 +133,16 @@ import {
     PayerPricingController,
     PayerOrgMembersController,
     PayerOrgInvitesController,
+    // #2754 item 3 — POST /payer/me/phone-proof (+ /verify): a company proves its sign-in phone.
+    PayerPhoneProofController,
   ],
   providers: [
     // #1046 — the reserve-run-store-replay seam POST /payer/credits is guarded by, so a retry
     // after an ambiguous timeout replays the original grant instead of granting a second pack.
     RequestIdempotency,
     PayerAuthService,
+    // #2754 item 3 — proving a company phone (PayerOtpService below, the proofs repo from PayersModule).
+    PayerPhoneProofService,
     PayerOrgMembersService,
     // The payer applicant list's source selection (#1823): an owned agency `jobs` row → the
     // ReachService pool; an owned posting → MatchCandidatesService (MatchModule, @Global).
@@ -167,6 +183,8 @@ import {
     ZeptoMailEmailLoginChannel,
     WhatsAppLoginChannel,
     SupabaseLoginChannel,
+    // #2754 — a company phone's code by SMS (SMS_PROVIDER is global), beside the active channel.
+    SmsLoginChannel,
     MockWhatsAppProvider,
     MetaWhatsAppProvider,
     {

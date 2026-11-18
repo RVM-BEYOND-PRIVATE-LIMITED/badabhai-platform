@@ -48,6 +48,10 @@ function make(tenancy: PayerTenantScopeService) {
     listInScope: vi.fn(async (scope: PayerTenantScope, _query: unknown) =>
       ownedBy(scope) ? [{ id: POSTING }, { id: OTHER }] : [],
     ),
+    // #2746 — the audience blocks, in the same scope (identity here; shaped in its own suite).
+    toPayerPostings: vi.fn(async (_scope: PayerTenantScope, postings: readonly unknown[]) => [
+      ...postings,
+    ]),
   };
   type Purchase = (id: string, scope: PayerTenantScope, dto: unknown, ctx: unknown) => Promise<unknown>;
   const plans = {
@@ -161,6 +165,15 @@ describe("PayerPostingPlansService — the posting reads carry their stats from 
       scopeArg(d.jobPostings.listInScope, 0, 0),
     );
     expect(d.disclosures.countDownloadsForPostingInScope).not.toHaveBeenCalled();
+    // #2746 — the page's audience blocks: ONE call, the whole page, in the SAME scope object.
+    expect(d.jobPostings.toPayerPostings).toHaveBeenCalledTimes(1);
+    expect(d.jobPostings.toPayerPostings.mock.calls[0]![0]).toBe(
+      scopeArg(d.jobPostings.listInScope, 0, 0),
+    );
+    expect(d.jobPostings.toPayerPostings.mock.calls[0]![1]).toEqual([
+      { id: POSTING },
+      { id: OTHER },
+    ]);
   });
 
   it("on: a teammate's read of the org's posting carries its stats; an outsider's is the 404 and reads no stats", async () => {
@@ -176,6 +189,10 @@ describe("PayerPostingPlansService — the posting reads carry their stats from 
     expect(d.disclosures.countDownloadsForPostingInScope).toHaveBeenCalledTimes(1);
     expect(d.disclosures.countDownloadsForPostingInScope.mock.calls[0]![0]).toBe(POSTING);
     expect(d.disclosures.countDownloadsForPostingInScope.mock.calls[0]![1]).toBe(
+      scopeArg(d.jobPostings.getOneInScope),
+    );
+    // #2746 — the single read's audience block, in the scope the ownership read used.
+    expect(d.jobPostings.toPayerPostings.mock.calls[0]![0]).toBe(
       scopeArg(d.jobPostings.getOneInScope),
     );
 

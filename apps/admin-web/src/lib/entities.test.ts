@@ -335,6 +335,22 @@ describe("finance schemas — money never arrives without its provenance", () =>
     expect(s.unsettled_orders.amount_inr).toBe(4000);
   });
 
+  it("#2749 — an `expired` line (a lot's credits removed at its date) parses on every ledger read", () => {
+    const expired = { ...LEDGER_ROW, delta: -3, reason: "expired", unlock_id: null };
+    expect(
+      ledgerPageSchema.safeParse({ items: [expired], nextCursor: null, payments: MOCK_POSTURE })
+        .success,
+    ).toBe(true);
+    const { payer_id: _p, ...companyLine } = expired;
+    expect(
+      creditsViewSchema.safeParse({
+        payer_id: "p1",
+        balance: 0,
+        ledger: { items: [companyLine], nextCursor: null },
+      }).success,
+    ).toBe(true);
+  });
+
   it("an unknown credit reason is rejected rather than rendered as a blank row", () => {
     expect(
       ledgerPageSchema.safeParse({
@@ -343,6 +359,30 @@ describe("finance schemas — money never arrives without its provenance", () =>
         payments: MOCK_POSTURE,
       }).success,
     ).toBe(false);
+  });
+
+  it("#2749 — a `held` order (captured, nothing granted), its paise total and the held summary bucket parse", () => {
+    const held = { ...ORDER_ROW, status: "held", amount_inr: 1179, total_paise: 117900 };
+    const page = ordersPageSchema.safeParse({
+      items: [held, { ...ORDER_ROW, total_paise: null }],
+      nextCursor: null,
+      payments: MOCK_POSTURE,
+    });
+    expect(page.success).toBe(true);
+    if (page.success) expect(page.data.items[0]?.total_paise).toBe(117900);
+    const summary = financeSummarySchema.parse({
+      payments: MOCK_POSTURE,
+      window_days: 30,
+      outstanding_credits: 0,
+      payers_with_balance: 0,
+      by_reason: [],
+      paid_orders: { count: 0, credits: 0, amount_inr: 0 },
+      unsettled_orders: { count: 0, amount_inr: 0 },
+      failed_orders: { count: 0 },
+      held_orders: { count: 1, amount_inr: 1179 },
+      top_balances: [],
+    });
+    expect(summary.held_orders).toEqual({ count: 1, amount_inr: 1179 });
   });
 
   it("an unknown order status is rejected", () => {

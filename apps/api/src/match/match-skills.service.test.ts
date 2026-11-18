@@ -283,6 +283,28 @@ describe("MatchSkillsService.reachPreview — the live counter", () => {
     expect(sumOfPluses).not.toBe(res.reach_total - res.reach_tier1);
   });
 
+  it("#2746 — an rvm_students audience reports ZERO BadaBhai supply and reads no count", async () => {
+    const { svc, countWorkersReachedBy } = setup();
+    const res = await svc.reachPreview({ ...preview([VMC]), audience: "rvm_students" });
+    expect(res.reach_total).toBe(0);
+    expect(res.reach_tier1).toBe(0);
+    expect(res.skills[0]!.reach_count).toBe(0);
+    expect(res.skills[0]!.related.every((r) => r.reach_count === 0)).toBe(true);
+    // The reach set itself still resolves (a later change of audience publishes it), and the
+    // E13 void warning does not apply: this posting goes to RVM students.
+    expect(res.reach_skill_ids).toEqual([TURNER, HMC, VMC].sort());
+    expect(res.zero_reach).toBe(false);
+    expect(countWorkersReachedBy).not.toHaveBeenCalled();
+  });
+
+  it("#2746 — `both` and `badabhai_workers` count BadaBhai supply exactly as an audience-less preview", async () => {
+    const { svc } = setup();
+    const plain = await svc.reachPreview(preview([VMC]));
+    for (const audience of ["both", "badabhai_workers"] as const) {
+      expect(await svc.reachPreview({ ...preview([VMC]), audience })).toEqual(plain);
+    }
+  });
+
   it("E13 — zero reach is surfaced ON THE FORM, before the company pays", async () => {
     const { svc } = setup();
     // A carpenter has no curated relations, so the reach set is the posted skill alone

@@ -1,8 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
+import {
+  isUndefinedTable,
+  warnWorkerActivityTableMissing,
+} from "../worker-activity/worker-activity.repository";
 
 /** One referred worker's ENGAGEMENT row. No name, no phone, no employer, no job. */
 export interface AgencyWorkerEngagementRow {
@@ -50,14 +54,41 @@ export class AgencyWorkersRepository {
   async listReferredWithConsent(
     tenant: TenantKey,
     limit: number,
+    opts: {
+      /**
+       * #2753 — WORKER_ACTIVITY_ENABLED is on. The LIMIT's order then also counts his newest
+       * `worker_activity` day, so a worker who uses the app daily but last signed in months ago is
+       * not cut from a long list. MEMBERSHIP ONLY: the day the agency SEES is replaced by the one
+       * definition (`WorkerActivityService.lastActiveDays`) in the service, which re-sorts anyway.
+       * Off (the default), this SQL does not name `worker_activity`: today's statement exactly.
+       * Without the table (42P01, 0168 not applied), it falls back to that statement.
+       */
+      readonly activityOrder?: boolean;
+    } = {},
   ): Promise<AgencyWorkerEngagementRow[]> {
-    const rows = await this.db.execute<{
-      worker_id: string;
-      profile_complete: boolean;
-      applied_count: string;
-      unlocked_count: string;
-      last_active_on: string | null;
-    }>(sql`
+    // Both terms are `YYYY-MM-DD` text, so GREATEST (which skips a NULL) picks the later day. The
+    // device term is spelled out again rather than naming the `last_active_on` output column:
+    // Postgres resolves an output alias in ORDER BY only as a bare name, never inside an expression.
+    const activityOrderDay = sql`GREATEST(
+          (
+            SELECT to_char(max(wd.last_seen_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+            FROM worker_devices wd
+            WHERE wd.worker_id = ai.invited_worker_id AND wd.revoked_at IS NULL
+          ),
+          (
+            SELECT to_char(max(wa.active_on), 'YYYY-MM-DD')
+            FROM worker_activity wa
+            WHERE wa.worker_id = ai.invited_worker_id
+          )
+        )`;
+    const select = (orderDay: SQL) =>
+      this.db.execute<{
+        worker_id: string;
+        profile_complete: boolean;
+        applied_count: string;
+        unlocked_count: string;
+        last_active_on: string | null;
+      }>(sql`
       SELECT
         ai.invited_worker_id                                   AS worker_id,
         EXISTS (
@@ -143,9 +174,23 @@ export class AgencyWorkersRepository {
       --
       -- NB: no backtick may appear anywhere in this block -- it lives inside a tagged
       -- template literal, so one would terminate the string mid-query.
-      ORDER BY last_active_on DESC NULLS LAST, ai.invited_worker_id ASC
+      ORDER BY ${orderDay} DESC NULLS LAST, ai.invited_worker_id ASC
       LIMIT ${limit}
     `);
+    let rows: unknown;
+    if (!opts.activityOrder) {
+      rows = await select(sql`last_active_on`);
+    } else {
+      try {
+        rows = await select(activityOrderDay);
+      } catch (err) {
+        // #2753 — switched on before migration 0168: order by the device day alone (today's
+        // statement exactly) rather than answer 500. Only 42P01; any other error propagates.
+        if (!isUndefinedTable(err)) throw err;
+        warnWorkerActivityTableMissing();
+        rows = await select(sql`last_active_on`);
+      }
+    }
 
     // Same narrowing the match-feed repository does: drizzle's `execute` result is
     // not a plain array at the type level, so the row shape is re-asserted here.

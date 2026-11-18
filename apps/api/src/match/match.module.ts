@@ -1,6 +1,7 @@
 import { Global, Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { AuthModule } from "../auth/auth.module";
+import { FeatureRolloutModule } from "../feature-rollout/feature-rollout.module";
 import { PayersModule } from "../payers/payers.module";
 import { REACH_WIDEN_EXPIRY_QUEUE } from "../queue/queue.constants";
 import { MatchConfigRepository } from "./match-config.repository";
@@ -19,6 +20,9 @@ import { ApplicantProfileFactsRepository } from "./applicant-profile-facts.repos
 import { MatchApplyService } from "./match-apply.service";
 import { MatchCandidatesService } from "./match-candidates.service";
 import { FreeTierService } from "./free-tier.service";
+import { PrePayFactsRepository } from "./pre-pay-facts.repository";
+import { PrePayFactsService } from "./pre-pay-facts.service";
+import { WorkerActivityModule } from "../worker-activity/worker-activity.module";
 
 /**
  * Matching V1 (ADR-0036) — the shared matching layer.
@@ -47,6 +51,10 @@ import { FreeTierService } from "./free-tier.service";
     // registered here because the processor lives here; the tick carries no payload
     // and nothing else produces to it.
     BullModule.registerQueue({ name: REACH_WIDEN_EXPIRY_QUEUE }),
+    // #2747 — the `applicant_facts` switch read by PrePayFactsService.
+    FeatureRolloutModule,
+    // #2753 - the last-active day and the not-recently-active mark, read by PrePayFactsService.
+    WorkerActivityModule,
   ],
   // Two guard sets, two controllers on purpose: the payer posting form (`PayerAuthGuard`)
   // and the worker's own exit (`WorkerAuthGuard` + `ConsentGuard`).
@@ -66,6 +74,8 @@ import { FreeTierService } from "./free-tier.service";
     MatchApplyService,
     MatchCandidatesService,
     FreeTierService,
+    PrePayFactsRepository,
+    PrePayFactsService,
   ],
   exports: [
     MatchConfigService,
@@ -79,6 +89,8 @@ import { FreeTierService } from "./free-tier.service";
     MatchApplyService,
     MatchCandidatesService,
     FreeTierService,
+    // #2747 — the source label and the pre-pay facts, for the payer lists and the search card.
+    PrePayFactsService,
   ],
 })
 export class MatchModule {}

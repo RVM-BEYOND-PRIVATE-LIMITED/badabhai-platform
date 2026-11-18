@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { count, eq, inArray, sql as dsql } from "drizzle-orm";
 
+import { materializeJobReachWithin } from "./agency-twin";
 import { createDbClient, type DbClient } from "./client";
 import {
   materializePostingReach,
@@ -357,3 +358,195 @@ describe.skipIf(!RUN)(
     });
   },
 );
+
+/**
+ * #2746 — THE REACH LOCK, on the CLI path and on the shared core the API publish path calls.
+ *
+ * An `rvm_students` posting reaches no BadaBhai worker: D5 CLEARS it (every row deleted, none
+ * written — even when its stored set would fail the stored-set gate), a full run visits it so a
+ * leftover row is repaired, and `materializeJobReachWithin` itself — the one statement publish,
+ * unpause, edit, ops widen and the agency-twin sync all run — writes nothing for it even when
+ * handed the posting's full stored set. `both` and `badabhai_workers` materialize exactly as
+ * before. Runs after the suite above, on the same empty-database guard (it removes its rows).
+ */
+describe.skipIf(!RUN)("#2746 D5 and the shared core never reach for an RVM-only posting", () => {
+  let client: DbClient;
+  const skill = `mskill_t2746_posted_${tag}`;
+  const w: Record<string, string> = {};
+  const p: Record<string, string> = {};
+
+  async function insertPosting(
+    audience: "badabhai_workers" | "rvm_students" | "both",
+    status: "open" | "paused",
+    reachSkillIds: string[],
+  ): Promise<string> {
+    const [row] = await client.db
+      .insert(jobPostings)
+      .values({
+        createdBy: randomUUID(),
+        orgLabel: "t2746",
+        roleTitle: "t2746",
+        vacancyBand: "1",
+        status,
+        audience,
+        matchSkillIds: [skill],
+        reachSkillIds,
+      })
+      .returning({ id: jobPostings.id });
+    return row!.id;
+  }
+
+  async function workersReached(jobPostingId: string): Promise<string[]> {
+    const rows = await client.db
+      .select({ workerId: jobReach.workerId })
+      .from(jobReach)
+      .where(eq(jobReach.jobPostingId, jobPostingId));
+    return rows.map((r) => r.workerId).sort();
+  }
+
+  beforeAll(async () => {
+    expect(DATABASE_URL, "set MATERIALIZE_REACH_DATABASE_URL to a scratch database").not.toBe("");
+    expect(hostClass(DATABASE_URL), "refusing a non-local database").toBe("LOCAL DOCKER");
+    client = createDbClient(DATABASE_URL, { max: 1 });
+    const [{ n }] = (await client.db.select({ n: count() }).from(jobPostings)) as [{ n: number }];
+    expect(n, "refusing a database whose job_postings already holds rows").toBe(0);
+
+    await client.db.insert(skills).values({
+      skillId: skill,
+      labelEn: skill,
+      source: "rvm" as const,
+      status: "active" as const,
+      kind: "match_skill" as const,
+    });
+    for (const k of ["a", "b"]) {
+      const [row] = await client.db
+        .insert(workers)
+        .values({
+          phoneE164: `+9197${Date.now() % 1e8}${k === "a" ? 1 : 2}`,
+          phoneHash: randomBytes(32).toString("hex"),
+        })
+        .returning({ id: workers.id });
+      w[k] = row!.id;
+    }
+    await client.db.insert(workerSkills).values(
+      [w.a!, w.b!].map((workerId) => ({
+        workerId,
+        skillId: skill,
+        industryId: "ind_industrial_manufacturing",
+        monthsBucketed: 12,
+        wants: true,
+        source: "ops" as const,
+      })),
+    );
+
+    p.rvm = await insertPosting("rvm_students", "open", [skill]);
+    // An RVM-only posting whose stored set would be SKIPPED by the stored-set gate: the audience
+    // rule must still clear it rather than leave its rows untouched.
+    p.rvmBadSet = await insertPosting("rvm_students", "open", []);
+    p.rvmPaused = await insertPosting("rvm_students", "paused", [skill]);
+    p.both = await insertPosting("both", "open", [skill]);
+    p.workers = await insertPosting("badabhai_workers", "open", [skill]);
+    // Rows left over from before the audience change (or a publish that raced it).
+    await client.db.insert(jobReach).values(
+      [p.rvm, p.rvmBadSet, p.rvmPaused].map((jobPostingId) => ({
+        jobPostingId: jobPostingId!,
+        workerId: w.a!,
+        matchTier: 1,
+        matchedSkillId: skill,
+      })),
+    );
+  }, 60_000);
+
+  afterAll(async () => {
+    if (client === undefined) return;
+    const postingIds = Object.values(p);
+    if (postingIds.length > 0)
+      await client.db.delete(jobPostings).where(inArray(jobPostings.id, postingIds));
+    const workerIds = Object.values(w);
+    if (workerIds.length > 0) await client.db.delete(workers).where(inArray(workers.id, workerIds));
+    await client.db.delete(skills).where(eq(skills.skillId, skill));
+    await client.sql.end({ timeout: 5 });
+  });
+
+  it("dry run plans to clear the RVM-only postings and materialize the others, writing nothing", async () => {
+    const before = await client.db
+      .select()
+      .from(jobReach)
+      .orderBy(jobReach.jobPostingId, jobReach.workerId);
+
+    const summary = await runMaterializeJobReach(client.db, { apply: false });
+
+    // Every OPEN posting is visited, whatever its audience — paused is not in a full run.
+    expect(summary.postingsProcessed).toBe(4);
+    expect([...summary.clearedIds].sort()).toEqual([p.rvm!, p.rvmBadSet!].sort());
+    expect(summary.postingsMaterialized).toBe(2);
+    expect(summary.skipped).toEqual([]);
+    expect(summary.rowsInserted).toBe(4); // a + b on `both` and on `badabhai_workers`
+    expect(summary.rowsDeleted).toBe(2); // the two leftover rows on the open RVM-only postings
+    expect(summary.zeroReachIds).toEqual([]);
+    expect(
+      await client.db.select().from(jobReach).orderBy(jobReach.jobPostingId, jobReach.workerId),
+    ).toEqual(before);
+  }, 30_000);
+
+  it("apply clears the RVM-only postings and reaches both workers through `both` and `badabhai_workers`", async () => {
+    const summary = await runMaterializeJobReach(client.db, { apply: true });
+    expect(summary.rowsInserted).toBe(4);
+    expect(summary.rowsDeleted).toBe(2);
+
+    expect(await workersReached(p.rvm!)).toEqual([]);
+    expect(await workersReached(p.rvmBadSet!)).toEqual([]);
+    expect(await workersReached(p.both!)).toEqual([w.a!, w.b!].sort());
+    expect(await workersReached(p.workers!)).toEqual([w.a!, w.b!].sort());
+
+    // The stored sets are not touched: a later change back to a BadaBhai audience can rebuild.
+    const [rvm] = await client.db
+      .select({ reach: jobPostings.reachSkillIds })
+      .from(jobPostings)
+      .where(eq(jobPostings.id, p.rvm!));
+    expect(rvm!.reach).toEqual([skill]);
+  }, 30_000);
+
+  it("a re-run is idempotent: the RVM-only postings stay at zero", async () => {
+    const summary = await runMaterializeJobReach(client.db, { apply: true });
+    expect(summary.rowsInserted).toBe(0);
+    expect(summary.rowsDeleted).toBe(0);
+    expect([...summary.clearedIds].sort()).toEqual([p.rvm!, p.rvmBadSet!].sort());
+    expect(await workersReached(p.rvm!)).toEqual([]);
+  }, 30_000);
+
+  it("--job-posting-id clears a PAUSED RVM-only posting", async () => {
+    expect(await selectPostingIds(client.db, p.rvmPaused)).toEqual([p.rvmPaused]);
+    expect(await materializePostingReach(client.db, p.rvmPaused!, { apply: true })).toEqual({
+      kind: "cleared",
+      jobPostingId: p.rvmPaused,
+      rowsDeleted: 1,
+    });
+    expect(await workersReached(p.rvmPaused!)).toEqual([]);
+  }, 30_000);
+
+  it("the shared core (the API publish path's statement) writes nothing for an RVM-only posting, even handed its stored set", async () => {
+    // Exactly what `WorkerSkillsRepository.materializeReachForPosting` runs on publish/edit.
+    const rvm = await client.db.transaction((tx) =>
+      materializeJobReachWithin(tx as unknown as DbClient["db"], p.rvm!, [skill], [skill]),
+    );
+    expect(rvm).toEqual({ upserted: 0, inserted: 0, deleted: 0 });
+    expect(await workersReached(p.rvm!)).toEqual([]);
+
+    // A row slipped in behind it (an audience change racing a publish) is purged by the next call.
+    await client.db
+      .insert(jobReach)
+      .values({ jobPostingId: p.rvm!, workerId: w.b!, matchTier: 1, matchedSkillId: skill });
+    const purged = await client.db.transaction((tx) =>
+      materializeJobReachWithin(tx as unknown as DbClient["db"], p.rvm!, [skill], [skill]),
+    );
+    expect(purged).toEqual({ upserted: 0, inserted: 0, deleted: 1 });
+    expect(await workersReached(p.rvm!)).toEqual([]);
+
+    // The same call on a `both` posting refreshes both rows in place.
+    const both = await client.db.transaction((tx) =>
+      materializeJobReachWithin(tx as unknown as DbClient["db"], p.both!, [skill], [skill]),
+    );
+    expect(both).toEqual({ upserted: 2, inserted: 0, deleted: 0 });
+  }, 30_000);
+});

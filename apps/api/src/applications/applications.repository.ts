@@ -10,9 +10,11 @@ import {
   type SkipReason,
   type SourceSurface,
   applications,
+  instituteApplications,
   jobs,
   jobPostings,
   jobReach,
+  reachesBadaBhaiWorkers,
 } from "@badabhai/db";
 import type { TradeKey } from "@badabhai/taxonomy";
 import { DATABASE } from "../database/database.module";
@@ -154,6 +156,11 @@ export interface ApplicationWithJob {
   // legacy decision (which has no reach row at all). The ID, not a label: turning it into a
   // human string is a taxonomy lookup and belongs in the service, not the repository.
   matchedSkillId: string | null;
+  // #2753 item 8. TRUE when Campus CREATED this application: a live Campus record
+  // (`institute_applications`, not withdrawn) points at it AND owns it (`owns_application`). An
+  // apply he made in the app that Campus also recorded is FALSE. The service turns it into `via`.
+  // A bit, not the record: the Campus ref and the student ref stay off the worker's list.
+  viaCampus: boolean;
 }
 
 /** The fields an apply/skip upsert writes (worker/job identify the row). */
@@ -312,18 +319,20 @@ export class ApplicationsRepository {
       .limit(limit);
   }
 
-  /** A single OPEN job by id, or undefined (used to 404 unknown/closed jobs — no oracle). */
   /**
-   * ADR-0050 §4.5 — when `jobPostingId` is a system-owned agency TWIN, its SOURCE job id and that
-   * job's status; otherwise undefined (a native posting, a D4 conversion, or no such posting).
+   * ADR-0050 §4.5 — when `jobPostingId` is a system-owned agency TWIN, its SOURCE job id, that
+   * job's status and its admin hide (`hidden_at`, #2566); otherwise undefined (a native posting,
+   * a D4 conversion, or no such posting).
    * One PK probe joined to one PK probe. The V1 apply/skip resolves a twin id here BEFORE it
    * chooses a code path, so the twin's own id never becomes an application key (C5).
    */
   async findAgencyTwinSource(
     jobPostingId: string,
-  ): Promise<{ sourceJobId: string; sourceStatus: Job["status"] } | undefined> {
+  ): Promise<
+    { sourceJobId: string; sourceStatus: Job["status"]; sourceHiddenAt: Date | null } | undefined
+  > {
     const rows = await this.db
-      .select({ sourceJobId: jobs.id, sourceStatus: jobs.status })
+      .select({ sourceJobId: jobs.id, sourceStatus: jobs.status, sourceHiddenAt: jobs.hiddenAt })
       .from(jobPostings)
       .innerJoin(jobs, eq(jobs.id, jobPostings.sourceJobId))
       .where(and(eq(jobPostings.id, jobPostingId), isNotNull(jobPostings.syncSource)))
@@ -331,6 +340,7 @@ export class ApplicationsRepository {
     return rows[0];
   }
 
+  /** A single OPEN job by id, or undefined (used to 404 unknown/closed jobs — no oracle). */
   async findJobById(id: string): Promise<Job | undefined> {
     const rows = await this.db
       .select()
@@ -347,6 +357,7 @@ export class ApplicationsRepository {
    *
    *   (1) `status = 'open'` — positively excludes draft, paused, suspended and closed. The
    *       ADR-0037 suspension cascade is a status move, so no `payers` join is needed.
+   *       (1b) not hidden (#2566); (1c) an audience a BadaBhai worker may see (#2746).
    *   (2) `published_at IS NOT NULL` — a NULL means the publish never completed; such a row
    *       has no honest `posted_at`, and V1 never serves it either.
    *   (3a) no APPLIED decision on this posting (`applications_worker_posting_uq`), and
@@ -386,6 +397,7 @@ export class ApplicationsRepository {
     const conditions: (SQL | undefined)[] = [
       eq(jobPostings.status, "open"), // (1)
       isNull(jobPostings.hiddenAt), // (1b) #2566 — hidden leaves every worker surface
+      reachesBadaBhaiWorkers(), // (1c) #2746 — an RVM-only posting is on no worker surface
       isNotNull(jobPostings.publishedAt), // (2)
       sql`NOT EXISTS (
         SELECT 1 FROM ${applications}
@@ -463,14 +475,20 @@ export class ApplicationsRepository {
    * #1823 — an OPEN posting's id, or undefined: the posting branch of the apply/skip
    * resolution, consulted only after the open-`jobs` read misses. Id-only on purpose — the
    * caller needs existence, and a wider projection is a leak waiting for a log line.
-   * Unknown, draft, paused, suspended and closed all read as undefined (no oracle).
+   * Unknown, draft, paused, suspended, closed, hidden and RVM-only (#2746) all read as
+   * undefined (no oracle).
    */
   async findOpenPostingRef(id: string): Promise<{ id: string } | undefined> {
     const rows = await this.db
       .select({ id: jobPostings.id })
       .from(jobPostings)
       .where(
-        and(eq(jobPostings.id, id), eq(jobPostings.status, "open"), isNull(jobPostings.hiddenAt)),
+        and(
+          eq(jobPostings.id, id),
+          eq(jobPostings.status, "open"),
+          isNull(jobPostings.hiddenAt),
+          reachesBadaBhaiWorkers(),
+        ),
       )
       .limit(1);
     return rows[0];
@@ -667,6 +685,20 @@ export class ApplicationsRepository {
         // service. Keeping the repository to columns is also what stops this join from
         // becoming the place someone later reaches for pay or employer.
         matchedSkillId: jobReach.matchedSkillId,
+        // #2753 item 8 — WHO CREATED it. An EXISTS in this statement, not a join and not a read
+        // per row: it cannot fan a decision out, and the worker id keeps it on
+        // `institute_applications_worker_idx` (a Campus record and the application it points at
+        // always name the same worker). `owns_application` is what makes it Campus's: a record
+        // that points at an apply he had already made in the app does not. A withdrawal nulls
+        // `application_id` (the CHECK `institute_applications_withdrawn_chk`); `withdrawn_at IS
+        // NULL` says "live" in words as well.
+        viaCampus: sql<boolean>`exists (
+          select 1 from ${instituteApplications}
+          where ${instituteApplications.workerId} = ${applications.workerId}
+            and ${instituteApplications.applicationId} = ${applications.id}
+            and ${instituteApplications.ownsApplication}
+            and ${instituteApplications.withdrawnAt} is null
+        )`,
       })
       .from(applications)
       .leftJoin(jobs, eq(applications.jobId, jobs.id))

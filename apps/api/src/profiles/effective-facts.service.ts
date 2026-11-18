@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   workerAdminOverrides,
@@ -6,6 +6,9 @@ import {
   type WorkerAdminOverrideFactKey,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import { SERVER_CONFIG } from "../config/config.module";
+import { studentMoveEnabled, type StudentMoveConfig } from "../student-move/student-move.flag";
+import { markWorkerEditedWithin } from "../student-move/worker-field-sources";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import type { RequestContext } from "../common/request-context";
@@ -38,11 +41,18 @@ export interface LiveCorrection {
  */
 @Injectable()
 export class EffectiveFactsService {
+  /** #2887 — STUDENT_MOVE_ENABLED, read once. Off (or no config at all) is today. */
+  private readonly studentMove: boolean;
+
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
-  ) {}
+    // Optional only so the hand-built instances keep compiling; absent reads as off.
+    @Optional() @Inject(SERVER_CONFIG) config?: StudentMoveConfig,
+  ) {
+    this.studentMove = studentMoveEnabled(config);
+  }
 
   /** Decrypt one stored envelope. Throws on a malformed token — never serves a half value. */
   private envelope(token: string): CorrectionEnvelope {
@@ -137,6 +147,9 @@ export class EffectiveFactsService {
     const keys = [...new Set(factKeys)];
     if (keys.length === 0) return;
     const run = async (tx: Database): Promise<void> => {
+      // #2887 — the worker's own edit makes these fields his: a later student sync never
+      // overwrites them (ruling 4, 17 Nov 2026). Switch off: no statement at all.
+      if (this.studentMove) await markWorkerEditedWithin(tx, workerId, keys);
       const rows = await tx
         .update(workerAdminOverrides)
         .set({ supersededAt: new Date(), supersededById: null })

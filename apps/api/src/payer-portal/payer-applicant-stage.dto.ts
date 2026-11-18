@@ -1,6 +1,13 @@
+import type { BadRequestException } from "@nestjs/common";
 import { z } from "zod";
 import { uuidSchema } from "@badabhai/validators";
-import { APPLICANT_STAGES, type ApplicantPostingKind, type ApplicantStage } from "@badabhai/types";
+import {
+  APPLICANT_STAGES,
+  APPLICANT_STAGES_V1,
+  type ApplicantPostingKind,
+  type ApplicantStage,
+} from "@badabhai/types";
+import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 
 /**
  * The ONE body every not-settable stage gets — an unknown posting, another payer's posting, and a
@@ -10,7 +17,11 @@ import { APPLICANT_STAGES, type ApplicantPostingKind, type ApplicantStage } from
  */
 export const APPLICANT_NOT_FOUND = "Job not found";
 
-/** A stage on the payer's New / Shortlist / Passed board (`APPLICANT_STAGES`). */
+/**
+ * A stage on the payer's board (`APPLICANT_STAGES`): New / Shortlist / Passed and, from #2747,
+ * the outcome stages Selected / Hired. Whether this company may WRITE an outcome stage is the
+ * service's question (`OUTCOME_STAGES_ROLLOUT`); every read reports a stored one as itself.
+ */
 export const ApplicantStageSchema = z.enum(APPLICANT_STAGES);
 
 /**
@@ -32,6 +43,23 @@ export type ApplicantStageParamsDto = z.infer<typeof ApplicantStageParamsSchema>
 export const SetApplicantStageSchema = z.object({ stage: ApplicantStageSchema }).strict();
 export type SetApplicantStageDto = z.infer<typeof SetApplicantStageSchema>;
 
+/** The body as it was before #2747: the first three stages only. */
+const SetApplicantStageV1Schema = z.object({ stage: z.enum(APPLICANT_STAGES_V1) }).strict();
+
+/**
+ * The 400 an outcome stage gets while `OUTCOME_STAGES_ROLLOUT` is off for the company: EXACTLY the
+ * body the route gave `selected` or `hired` before #2747 (the same pipe over the old body
+ * schema), so a company without the switch sees today's API word for word.
+ */
+export function outcomeStageRefusal(stage: ApplicantStage): BadRequestException {
+  try {
+    new ZodValidationPipe(SetApplicantStageV1Schema).transform({ stage });
+  } catch (err) {
+    return err as BadRequestException;
+  }
+  throw new Error(`outcomeStageRefusal: "${stage}" is one of the first three stages`);
+}
+
 /**
  * The response — the same for a change and for a no-op, so a retry reads exactly like the first
  * success (`changed` is the only difference). `previousStage` is what the board held before this
@@ -46,4 +74,26 @@ export interface SetApplicantStageResponseDto {
   previousStage: ApplicantStage;
   /** `false` when the applicant already held `stage`: nothing was written and no event emitted. */
   changed: boolean;
+}
+
+/**
+ * `GET /payer/reach/applicant-stages` (#2747, #2852) — what THIS company's board may do right now,
+ * so a screen can draw the Selected / Hired controls only when a move would be accepted, instead
+ * of learning it from a 400.
+ *
+ *  - `stages`: the stages a move may target — {@link APPLICANT_STAGES_V1}, plus `selected` and
+ *    `hired` while `OUTCOME_STAGES_ROLLOUT` is on for the company. Board order.
+ *  - `outcomeStages`: `true` exactly when `stages` includes `selected` and `hired`.
+ *  - `rvmSignal`: `true` when a move into `selected` or `hired` of an actively linked RVM student
+ *    (a feed row with `source: 'rvm_student'`) is also sent to RVM — `OUTBOUND_SIGNALS_ROLLOUT` on
+ *    for the company, and `outcomeStages` too (there is no mark to send without it). A BadaBhai
+ *    worker's mark is never sent, whatever this says.
+ *
+ * Company-level only, and only a forecast: the switches are read at each request, so a move can
+ * still be refused (400) or answer 503 if a switch changes or the pilot list cannot be read.
+ */
+export interface ApplicantStageOptionsDto {
+  stages: ApplicantStage[];
+  outcomeStages: boolean;
+  rvmSignal: boolean;
 }

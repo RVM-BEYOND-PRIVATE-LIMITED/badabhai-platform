@@ -7,8 +7,9 @@
  *
  *   1. ADDITIVE — one new table. Nothing dropped, no existing table altered.
  *   2. THE RLS TAIL — FORCE and the four REVOKEs are hand-appended; a regenerate drops them.
- *   3. THE VOCABULARIES — the two CHECKs are exactly `APPLICANT_POSTING_KINDS` and
- *      `APPLICANT_STAGES`, so the DB cannot hold a value the route, the DTO and the event do not know.
+ *   3. THE VOCABULARIES — the two CHECKs are exactly `APPLICANT_POSTING_KINDS` and the three
+ *      stages of the time (`APPLICANT_STAGES_V1`), so the DB cannot hold a value the route, the DTO
+ *      and the event do not know. 0166 widens the stage CHECK (#2747); its own test pins that.
  *   4. THE KEY — one row per (posting kind, posting id, worker): the upsert target.
  *   5. THE HEADER — deploy order (apply before the FLAG) and rollback are written down.
  *
@@ -19,7 +20,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { APPLICANT_POSTING_KINDS, APPLICANT_STAGES } from "@badabhai/types";
+import { APPLICANT_POSTING_KINDS, APPLICANT_STAGES_V1 } from "@badabhai/types";
 
 const TAG = "0134_payer_applicant_stages";
 const TABLE = "payer_applicant_stages";
@@ -107,9 +108,12 @@ describe("the vocabularies", () => {
     ]);
   });
 
-  it("stage admits exactly APPLICANT_STAGES — `new` included, for a row moved back", () => {
-    expect(checkValues("payer_applicant_stages_stage_chk", "stage")).toEqual([...APPLICANT_STAGES]);
-    expect(APPLICANT_STAGES).toContain("new");
+  it("stage admits exactly the three stages of 2026-10-07 — `new` included, for a row moved back", () => {
+    // A FROZEN record: 0166 widens it with the outcome stages, and its test pins the live model.
+    expect(checkValues("payer_applicant_stages_stage_chk", "stage")).toEqual([
+      ...APPLICANT_STAGES_V1,
+    ]);
+    expect(APPLICANT_STAGES_V1).toContain("new");
   });
 
   it("every column is NOT NULL — a row always names its posting, worker, stage and author", () => {

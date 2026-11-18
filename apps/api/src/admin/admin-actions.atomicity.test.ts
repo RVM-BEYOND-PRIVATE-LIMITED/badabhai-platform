@@ -86,6 +86,8 @@ function makeHarness(opts: { failEmitOnce?: boolean } = {}) {
       });
       return { postings, jobs: 0 };
     },
+    // #2746 PR 6 — the final drive-request re-stamp: no staged state of its own here.
+    restampDriveRequests: async () => undefined,
   } as unknown as AdminActionsRepository;
 
   const admins = {} as unknown as AdminRepository;

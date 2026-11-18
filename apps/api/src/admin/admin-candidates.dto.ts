@@ -64,6 +64,8 @@ export const AdminCandidateSearchFiltersSchema = z
     flagged: z.boolean().optional(),
     is_test_account: z.boolean().optional(),
     form_level: z.array(z.enum(["easy", "medium", "hard"])).max(3).optional(),
+    /** #2752 — true: only actively linked institute students; false: everyone else. */
+    institute_linked: z.boolean().optional(),
   })
   .strict();
 
@@ -126,6 +128,11 @@ export interface AdminCandidateRow {
   updated_at: string;
   ai_cost_inr: string;
   referral_source: string | null;
+  /**
+   * #2752 item 12 — the institute he is actively linked to (`rvm`: an RVM student, through
+   * BadaBhai Campus), or null. Labels the row; filter with `filters.institute_linked`.
+   */
+  institute_code: string | null;
   /**
    * The worker's name — present ONLY when disclosed under the identity rules
    * (role + budget + audit). ABSENT when undisclosed (no capability, capped, or

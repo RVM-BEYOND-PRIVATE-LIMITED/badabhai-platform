@@ -1,4 +1,5 @@
 import { Module, forwardRef } from "@nestjs/common";
+import { CampusLinkModule } from "../campus-link/campus-link.module";
 import { BullModule } from "@nestjs/bullmq";
 import { AuthModule } from "../auth/auth.module";
 import { ChatModule } from "../chat/chat.module";
@@ -13,6 +14,9 @@ import { VoiceTranscriptionProcessor } from "./voice-transcription.processor";
 
 @Module({
   imports: [
+    // #2752 item 13 — InstituteAiGate for VoiceTranscriptionService.
+    // ACYCLIC: CampusLinkModule imports no module.
+    CampusLinkModule,
     // forwardRef, AND IT IS LOAD-ORDER RATHER THAN INJECTION. The cycle is a triangle and every
     // edge of it is real: this module needs `ChatRepository` to look a session up, `ChatModule`
     // needs `ProfilingOrchestrator` to run a turn, and `ProfilingModule` needs

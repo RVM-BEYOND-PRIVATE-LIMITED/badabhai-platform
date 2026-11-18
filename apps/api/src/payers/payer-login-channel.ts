@@ -1,10 +1,11 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { areRealMessagesEnabled } from "@badabhai/config";
-import type { PayerLoginMethodEnum } from "@badabhai/event-schema";
+import type { PayerLoginMethodV2Enum } from "@badabhai/event-schema";
 import { SERVER_CONFIG } from "../config/config.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { WHATSAPP_PROVIDER, type WhatsAppProvider } from "../messaging/whatsapp.provider";
+import { SMS_PROVIDER, type SmsProvider } from "../sms/sms.provider";
 
 /**
  * The one-time login code + the (decrypted, transient) destination contact handed to a
@@ -32,8 +33,11 @@ export interface PayerLoginCodeDelivery {
  * (a failed send must leave no dangling code), exactly like `SmsProvider.sendOtp`.
  */
 export interface PayerLoginChannel {
-  /** The method this channel implements (carried into the PII-free `payer.*` events). */
-  readonly method: PayerLoginMethodEnum;
+  /**
+   * The method this channel implements, for its log lines. The `payer.*` events take their method
+   * from the request path (`PayerAuthService`), not from here. `sms_otp` exists only in the v2 set.
+   */
+  readonly method: PayerLoginMethodV2Enum;
   /**
    * True for a MOCK/no-spend channel (e.g. the WhatsApp mock provider in alpha); false for
    * a REAL channel (ZeptoMail email, real WhatsApp). Informational only — the one-time code
@@ -105,5 +109,39 @@ export class SupabaseLoginChannel implements PayerLoginChannel {
     throw new Error(
       "supabase payer login adapter is config-gated and inert in this build (ADR-0019 B-R1)",
     );
+  }
+}
+
+/**
+ * #2754 item 1 — a COMPANY's sign-in code by SMS, to the phone on its account, through the same
+ * {@link SmsProvider} seam (Fast2SMS DLT) as worker codes but on the company's own approved
+ * template (`FAST2SMS_PAYER_DLT_TEMPLATE_ID`). Not selected by `PAYER_LOGIN_METHOD`: it is the
+ * channel for a PHONE contact while `PAYER_SMS_OTP_ENABLED` is on, beside whichever channel serves
+ * an email (`PayerOtpService` picks per request).
+ *
+ * Throws on a missing phone or template (the OTP store then rolls the code back, and the caller
+ * answers the same neutral body as any delivery failure). The provider logs only a phone-hash
+ * prefix; the code and the number never leave this call.
+ */
+@Injectable()
+export class SmsLoginChannel implements PayerLoginChannel {
+  readonly method = "sms_otp" as const;
+  readonly mock = false;
+  private readonly logger = new Logger(SmsLoginChannel.name);
+
+  constructor(
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    @Inject(SMS_PROVIDER) private readonly sms: SmsProvider,
+  ) {}
+
+  async deliver(input: PayerLoginCodeDelivery): Promise<void> {
+    if (!input.phone) {
+      this.logger.warn(`payer sms login: no phone on file payer=${input.payerId.slice(0, 8)}…`);
+      throw new Error("no_phone_on_file");
+    }
+    const templateId = this.config.FAST2SMS_PAYER_DLT_TEMPLATE_ID;
+    // assertPayerAuthConfig refuses to boot the SMS path without it; guard anyway, fail closed.
+    if (!templateId) throw new Error("payer_sms_template_not_configured");
+    await this.sms.sendOtp({ phoneE164: input.phone, code: input.code, templateId });
   }
 }

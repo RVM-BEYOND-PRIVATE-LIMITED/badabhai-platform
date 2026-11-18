@@ -15,6 +15,7 @@
  */
 import type { ReactNode } from "react";
 import { ACTION_ICON } from "@badabhai/icons";
+import { creditsLabel } from "../../lib/unlock-quotes";
 import { Button, Dialog } from "../ds";
 
 export interface ConfirmSpendDialogProps {
@@ -24,6 +25,8 @@ export interface ConfirmSpendDialogProps {
   onCancel: () => void;
   /** Confirm the spend — the caller runs the (ids-only) unlock exactly once per row. */
   onConfirm: () => void;
+  /** #2750 — the quoted cost of THIS open. Defaults to today's 1 credit. */
+  credits?: number;
   /** Heading. @default 'Unlock this contact?' */
   title?: ReactNode;
   /** Body copy. Defaults to the neutral MOCK explainer. */
@@ -34,9 +37,15 @@ export function ConfirmSpendDialog({
   open,
   onCancel,
   onConfirm,
+  credits = 1,
   title = "Unlock this contact?",
-  children = "This spends 1 credit. You reach them through BadaBhai — never a phone number. You can open the contact again until your access ends.",
+  children,
 }: ConfirmSpendDialogProps) {
+  const body =
+    children ??
+    (credits === 0
+      ? "This open is free — you already hold this contact. You reach them through BadaBhai — never a phone number."
+      : `This spends ${creditsLabel(credits)}. You reach them through BadaBhai — never a phone number. You can open the contact again until your access ends.`);
   return (
     <Dialog
       open={open}
@@ -49,12 +58,12 @@ export function ConfirmSpendDialog({
           </Button>
           {/* The row's Unlock button again — same colour, same lock-open glyph: one action. */}
           <Button variant="primary" iconLeft={ACTION_ICON.unlock} onClick={onConfirm}>
-            Unlock · 1 credit
+            {credits === 0 ? "Open (free)" : `Unlock · ${creditsLabel(credits)}`}
           </Button>
         </>
       }
     >
-      {children}
+      {body}
     </Dialog>
   );
 }

@@ -50,7 +50,7 @@ function setup(
   opts: {
     existing?: { id: string; action: string } | undefined;
     /** ADR-0050 — the posting is an agency TWIN of this source job. */
-    twin?: { sourceJobId: string; sourceStatus: string };
+    twin?: { sourceJobId: string; sourceStatus: string; sourceHiddenAt: Date | null };
     /** The legacy decision already on the SOURCE row (TD73 on the twin path). */
     existingSourceDecision?: { id: string; action: string };
   } = {},
@@ -318,7 +318,7 @@ describe("skip on the V1 path — same gate, no snapshot, no downgrade", () => {
 
 describe("ADR-0050 — apply/skip on an agency twin resolve to the SOURCE job's id space", () => {
   const SOURCE = "44444444-4444-4444-8444-444444444444";
-  const twin = { sourceJobId: SOURCE, sourceStatus: "open" };
+  const twin = { sourceJobId: SOURCE, sourceStatus: "open", sourceHiddenAt: null };
 
   it("apply runs the JOB path on the source: job_id row, counter, subject job, legacy key", async () => {
     const { svc, repo, events, matchApply } = setup({ twin });
@@ -363,7 +363,9 @@ describe("ADR-0050 — apply/skip on an agency twin resolve to the SOURCE job's 
     "a twin whose source is %s is the neutral 404 — no gate read, no write, no event",
     async (sourceStatus) => {
       for (const act of ["apply", "skip"] as const) {
-        const { svc, repo, events, matchApply } = setup({ twin: { sourceJobId: SOURCE, sourceStatus } });
+        const { svc, repo, events, matchApply } = setup({
+          twin: { sourceJobId: SOURCE, sourceStatus, sourceHiddenAt: null },
+        });
         const call =
           act === "apply"
             ? svc.apply(WORKER, POSTING, { source_surface: "feed", rank: 1 } as never, CTX)
@@ -376,4 +378,40 @@ describe("ADR-0050 — apply/skip on an agency twin resolve to the SOURCE job's 
       }
     },
   );
+
+  it("a HIDDEN twin (source open and visible) is refused by the gate before the source path runs (#2566)", async () => {
+    // The twin's own hide is enforced by `findReachRow` on the twin id, which `buildSnapshot`
+    // runs BEFORE `applyJob` / `skipJob`. Reordering those lines would let a hidden twin's
+    // applicant reach the source job's applicant list; this pins the order.
+    for (const act of ["apply", "skip"] as const) {
+      const { svc, repo, events, matchApply } = setup({ twin });
+      matchApply.buildSnapshot.mockRejectedValueOnce(new NotFoundException("Job not found"));
+      const call =
+        act === "apply"
+          ? svc.apply(WORKER, POSTING, { source_surface: "feed", rank: 1 } as never, CTX)
+          : svc.skip(WORKER, POSTING, { reason: "too_far" } as never, CTX);
+      await expect(call, act).rejects.toThrow("Job not found");
+      expect(repo.findDecision).not.toHaveBeenCalled();
+      expect(repo.upsertDecision).not.toHaveBeenCalled();
+      expect(repo.incrementApplicantsReceived).not.toHaveBeenCalled();
+      expect(events.emit).not.toHaveBeenCalled();
+    }
+  });
+
+  it("a twin whose OPEN source an admin HID is the same neutral 404 (#2566) — no gate read, no write, no event", async () => {
+    for (const act of ["apply", "skip"] as const) {
+      const { svc, repo, events, matchApply } = setup({
+        twin: { sourceJobId: SOURCE, sourceStatus: "open", sourceHiddenAt: new Date() },
+      });
+      const call =
+        act === "apply"
+          ? svc.apply(WORKER, POSTING, { source_surface: "feed", rank: 1 } as never, CTX)
+          : svc.skip(WORKER, POSTING, { reason: "too_far" } as never, CTX);
+      await expect(call, act).rejects.toThrow("Job not found");
+      expect(matchApply.buildSnapshot).not.toHaveBeenCalled();
+      expect(repo.upsertDecision).not.toHaveBeenCalled();
+      expect(matchApply.upsertDecision).not.toHaveBeenCalled();
+      expect(events.emit).not.toHaveBeenCalled();
+    }
+  });
 });

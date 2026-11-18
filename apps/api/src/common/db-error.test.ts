@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { DrizzleQueryError } from "drizzle-orm";
 import {
+  constraintOf,
   RedactedQueryError,
   isUniqueViolation,
   logSafeReason,
@@ -130,5 +131,23 @@ describe("sqlStateOf / isUniqueViolation — the SQLSTATE sits on the cause (#18
     expect(isUniqueViolation(drizzleQueryError(QUERY, [], new Error("socket hang up")))).toBe(false);
     expect(sqlStateOf(null)).toBeUndefined();
     expect(isUniqueViolation(undefined)).toBe(false);
+  });
+});
+
+describe("constraintOf — WHICH unique index fired (#2749)", () => {
+  it("reads constraint_name through drizzle's wrapper and off a bare driver error", () => {
+    const driver = Object.assign(new Error("dup"), {
+      code: "23505",
+      constraint_name: "credit_ledger_idempotency_key_uq",
+    });
+    expect(constraintOf(drizzleQueryError(QUERY, [], driver))).toBe(
+      "credit_ledger_idempotency_key_uq",
+    );
+    expect(constraintOf(driver)).toBe("credit_ledger_idempotency_key_uq");
+  });
+
+  it("is undefined when no constraint is named", () => {
+    expect(constraintOf(drizzleQueryError(QUERY, [], new Error("socket hang up")))).toBeUndefined();
+    expect(constraintOf(null)).toBeUndefined();
   });
 });

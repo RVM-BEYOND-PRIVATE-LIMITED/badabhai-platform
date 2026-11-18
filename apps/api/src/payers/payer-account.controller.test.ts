@@ -476,7 +476,10 @@ describe("PayerAccountController — postingOrgName on GET /payer/me (ADR-0053 O
 
   it("PATCH /payer/me answers with postingOrgName too (an anchor renaming their org posts under the NEW name)", async () => {
     const { repo } = makeRepo();
-    (repo as unknown as { update: unknown }).update = vi.fn(async () => rowFor(PAYER_A));
+    (repo as unknown as { updateContact: unknown }).updateContact = vi.fn(async () => ({
+      row: rowFor(PAYER_A),
+      phoneChanged: false,
+    }));
     (repo as unknown as { decryptContact: unknown }).decryptContact = vi.fn(() => ({
       id: PAYER_A,
       role: "employer",
@@ -533,8 +536,19 @@ describe("PayerAccountController — self-edit on PATCH /payer/me (PROF-3)", () 
       }),
     );
 
-    const repo = { update, decryptContact } as unknown as PayersRepository;
-    return { repo, update, encrypt, hashPhone };
+    // #2754 item 3 — the service writes through `updateContact` (the same write, plus whether the
+    // phone's keyed hash moved). It delegates to the `update` spy above, so every assertion on the
+    // write's arguments still reads `update`; a phone counts as changed when it differs.
+    const previousPhone = current?.phone ?? null;
+    const updateContact = vi.fn(async (id: string, patch: { orgName?: string; phone?: string }) => {
+      const row = await update(id, patch);
+      return row
+        ? { row, phoneChanged: patch.phone !== undefined && patch.phone !== previousPhone }
+        : undefined;
+    });
+
+    const repo = { update, updateContact, decryptContact } as unknown as PayersRepository;
+    return { repo, update, updateContact, encrypt, hashPhone };
   }
 
   /** The single argument the service hands to `EventsService.emit` (the bit we assert). */
@@ -681,8 +695,8 @@ describe("PayerAccountController — self-edit on PATCH /payer/me (PROF-3)", () 
   });
 
   it("a foreign/unknown principal id (no row) → neutral 404, no event emitted", async () => {
-    const update = vi.fn(async () => undefined); // id matches no row
-    const repo = { update } as unknown as PayersRepository;
+    const updateContact = vi.fn(async () => undefined); // id matches no row
+    const repo = { updateContact } as unknown as PayersRepository;
     const { controller, emit } = controllerWith(repo);
 
     await expect(
@@ -692,11 +706,11 @@ describe("PayerAccountController — self-edit on PATCH /payer/me (PROF-3)", () 
   });
 
   it("fails CLOSED on a decrypt error after write — generic 500, no ciphertext", async () => {
-    const update = vi.fn(async () => rowFor(PAYER_A));
+    const updateContact = vi.fn(async () => ({ row: rowFor(PAYER_A), phoneChanged: false }));
     const decryptContact = vi.fn(() => {
       throw new Error("gcm auth failed");
     });
-    const repo = { update, decryptContact } as unknown as PayersRepository;
+    const repo = { updateContact, decryptContact } as unknown as PayersRepository;
     const { controller } = controllerWith(repo);
 
     await expect(
@@ -724,6 +738,55 @@ describe("PayerAccountController — self-edit on PATCH /payer/me (PROF-3)", () 
     expect(logged).not.toContain("Loud Org Name");
     expect(logged).not.toContain("9876543210");
     spies.forEach((s) => s.mockRestore());
+  });
+});
+
+describe("#2754 item 3 — a phone change on PATCH /payer/me", () => {
+  const SELF: AuthenticatedPayer = { id: PAYER_A, sid: "sid", role: "employer" };
+  const validate = (body: unknown): PayerUpdateDto =>
+    new ZodValidationPipe(PayerUpdateSchema).transform(body);
+
+  function harness(phoneChanged: boolean) {
+    const row = rowFor(PAYER_A);
+    const updateContact = vi.fn(async () => ({ row, phoneChanged }));
+    const decryptContact = vi.fn(
+      (r: Payer): PayerContact => ({
+        id: r.id,
+        role: r.role,
+        status: r.status,
+        email: "owner@self.example",
+        orgName: "Org",
+        phone: "+919812345678",
+      }),
+    );
+    const repo = { updateContact, decryptContact } as unknown as PayersRepository;
+    const notify = vi.fn(async () => undefined);
+    const service = new PayerAccountService(repo, noopEvents(), makeOrgs(), { notify } as never);
+    return { controller: new PayerAccountController(service), updateContact, notify };
+  }
+
+  it("writes through updateContact (the one writer that drops the phone proof in the same transaction)", async () => {
+    const h = harness(true);
+    await h.controller.updateMe(SELF, validate({ phone: "+919812345678" }), CTX);
+    expect(h.updateContact).toHaveBeenCalledExactlyOnceWith(PAYER_A, {
+      orgName: undefined,
+      phone: "+919812345678",
+    });
+  });
+
+  it("a REAL phone change sends the credential-change security notice (kind phone_changed)", async () => {
+    const h = harness(true);
+    await h.controller.updateMe(SELF, validate({ phone: "+919812345678" }), CTX);
+    expect(h.notify).toHaveBeenCalledExactlyOnceWith(PAYER_A, "phone_changed");
+  });
+
+  it("the same number saved again, or a name-only edit, sends no notice", async () => {
+    const same = harness(false);
+    await same.controller.updateMe(SELF, validate({ phone: "+919812345678" }), CTX);
+    expect(same.notify).not.toHaveBeenCalled();
+    const nameOnly = harness(false);
+    await nameOnly.controller.updateMe(SELF, validate({ orgName: "New Name" }), CTX);
+    expect(nameOnly.notify).not.toHaveBeenCalled();
   });
 });
 

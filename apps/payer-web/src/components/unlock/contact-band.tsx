@@ -21,6 +21,13 @@ import type { ReactElement } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { ContactView, RevealView, UnlockView } from "../../lib/unlock-view";
 import { isoDay } from "../../lib/unlock-history";
+import {
+  creditsLabel,
+  openButtonLabel,
+  retryOpenButtonLabel,
+  STARTER_PACK_LABEL,
+  unaffordable,
+} from "../../lib/unlock-quotes";
 import { Badge, Button } from "../ds";
 import { PortalLink } from "../portal-link";
 import { MaskedResumeCard, RoutedContactCard } from "./routed-contact-card";
@@ -62,6 +69,12 @@ export interface ContactBandInput {
   unlockError: string | null;
   /** The payer's own balance — an affordance only (an unread balance arrives as 1). */
   balance: number;
+  /** #2750 — this worker's quoted credits, when the page has a quote (null = no quote). */
+  quoteCredits?: number | null;
+  /** #2750 — the quote response's spendable balance. */
+  creditsAvailable?: number | null;
+  /** #2750 part C — this open is free because RVM's placement team waived it. */
+  quoteWaived?: boolean;
   /** The id of the visible "why Unlock is disabled" line — position-keyed, never a worker id. */
   unlockHintId: string;
   /** The card's posting offers this session no unlock (an inbox card's view-only posting). */
@@ -77,6 +90,9 @@ export function contactBand({
   row,
   unlockError,
   balance,
+  quoteCredits = null,
+  creditsAvailable = null,
+  quoteWaived = false,
   unlockHintId,
   viewOnly,
   onUnlock,
@@ -85,6 +101,11 @@ export function contactBand({
   onRevealed,
 }: ContactBandInput): ReactElement {
   const granted = row.unlock?.kind === "granted" ? row.unlock : null;
+  const quoted = quoteCredits !== null;
+  const tooDear = unaffordable(quoteCredits, creditsAvailable);
+  // With a quote the quote's balance decides; without one, today's 1-credit affordance.
+  const disabled = row.busy || (quoted ? tooDear : balance === 0);
+  const showOffer = quoted ? tooDear : balance === 0;
   return (
     <div className="applicant__contact">
       {viewOnly ? (
@@ -176,6 +197,33 @@ export function contactBand({
             </div>
           </div>
         </div>
+      ) : row.unlock?.kind === "insufficient" ? (
+        // #2750 — the honest refusal: about the payer's balance, never the worker.
+        // No generic error toast; the Starter pack is offered right here.
+        <div className="applicant__engaged">
+          <Badge tone="warning">Not enough credits</Badge>
+          <p className="applicant__neutral">{row.unlock.message}</p>
+          <div className="applicant__unlock-actions">
+            <PortalLink
+              className="bb-btn bb-btn--secondary"
+              href="/credits"
+              pendingLabel="Credits"
+            >
+              <Icon name={ACTION_ICON.credits} />
+              <span>{STARTER_PACK_LABEL}</span>
+            </PortalLink>
+          </div>
+        </div>
+      ) : row.unlock?.kind === "week_limit" ? (
+        <div className="applicant__engaged">
+          <Badge tone="warning">Not available this week</Badge>
+          <p className="applicant__neutral">{row.unlock.message}</p>
+        </div>
+      ) : row.unlock?.kind === "daily_limit" ? (
+        <div className="applicant__engaged">
+          <Badge tone="warning">Daily opening limit</Badge>
+          <p className="applicant__neutral">{row.unlock.message}</p>
+        </div>
       ) : row.unlock?.kind === "unavailable" ? (
         // CURRENTLY ENGAGED / UNAVAILABLE (no-oracle): one neutral state, IDENTICAL
         // copy for capped vs unknown vs no-consent vs already-unlocked. The badge is
@@ -194,37 +242,42 @@ export function contactBand({
               variant="primary"
               size="md"
               iconLeft={ACTION_ICON.unlock}
-              disabled={row.busy || balance === 0}
+              disabled={disabled}
               loading={row.busy}
               aria-busy={row.busy}
-              aria-describedby={balance === 0 ? unlockHintId : undefined}
+              aria-describedby={showOffer ? unlockHintId : undefined}
               onClick={() => onUnlock()}
             >
               {row.busy
                 ? "Unlocking…"
                 : unlockError
-                  ? "Retry unlock (1 credit)"
-                  : "Unlock contact (1 credit)"}
+                  ? retryOpenButtonLabel(quoteCredits, quoteWaived)
+                  : openButtonLabel(quoteCredits, quoteWaived)}
             </Button>
             {/* A REAL zero balance only — an unread balance arrives here as 1 (the
                 page's affordance default), so Unlock stays enabled and this never
                 shows. Every member can open Credits, so the disabled Unlock always
                 gets an enabled next step beside it; it is about the payer's own
                 balance, never a signal about this applicant. */}
-            {balance === 0 ? (
+            {showOffer ? (
               <PortalLink className="bb-btn bb-btn--secondary" href="/credits" pendingLabel="Credits">
                 <Icon name={ACTION_ICON.credits} />
-                <span>Buy credits</span>
+                <span>{quoted ? STARTER_PACK_LABEL : "Buy credits"}</span>
               </PortalLink>
             ) : null}
           </div>
-          {/* Plain text, not a link: the "Buy credits" button right above is this
-              band's one way to /credits (a second link to the same page was a
-              redundant tab stop on every card). */}
-          {balance === 0 ? (
+          {/* Plain text, not a link: the offer button right above is this band's one
+              way to /credits (a second link to the same page would be a redundant tab
+              stop on every card). */}
+          {showOffer ? (
             <p className="applicant__hint" id={unlockHintId}>
-              Buy credits to unlock. Guidance only — this is your own balance, never a signal
-              about this applicant.
+              {quoteWaived
+                ? "This RVM applicant was waived by the placement team. Opening costs 0 credits. "
+                : quoted && quoteCredits !== null && creditsAvailable !== null
+                ? `You need ${creditsLabel(quoteCredits)}, you have ${creditsAvailable}. ` +
+                  "The Starter pack has more credits. Guidance only — this is your own " +
+                  "balance, never a signal about this applicant."
+                : "Buy credits to unlock. Guidance only — this is your own balance, never a signal about this applicant."}
             </p>
           ) : null}
           {/* Transient unlock failure: retryable inline error (the Unlock button

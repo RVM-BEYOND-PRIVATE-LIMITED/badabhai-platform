@@ -84,8 +84,9 @@ describe("posting trade catalogue", () => {
         confirmedFrom: "skilled",
       },
       welder: { rungs: ["trainee", "operator", "skilled", "senior", "supervisor"], confirmedFrom: "skilled" },
+      // #2753 item 1 — the worker pack's @3 splits "Senior / Programmer"; the posting follows.
       sheet_metal_worker: {
-        rungs: ["trainee", "operator", "skilled", "senior", "supervisor"],
+        rungs: ["trainee", "operator", "skilled", "senior", "programmer", "supervisor"],
         confirmedFrom: "skilled",
       },
       press_operator: {

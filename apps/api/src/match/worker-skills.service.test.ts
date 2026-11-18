@@ -1,11 +1,18 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { DEFAULT_MATCH_CONFIG, type MatchConfig } from "@badabhai/match-engine";
+import {
+  bucketMonths,
+  DEFAULT_MATCH_CONFIG,
+  type FormTenureFill,
+  type MatchConfig,
+} from "@badabhai/match-engine";
+import type { PackAnswer } from "@badabhai/taxonomy";
 import {
   WorkerMatchSkillWantsSetPayload,
   WorkerMatchSkillsRebuiltPayload,
 } from "@badabhai/event-schema";
 import type { EventsService } from "../events/events.service";
+import type { FormTenureMonthsConfig } from "./form-tenure-months.flag";
 import type { MatchConfigService } from "./match-config.service";
 import type {
   DerivedWorkerSkillRow,
@@ -45,6 +52,7 @@ interface Harness {
     findLatestProfileSignals: ReturnType<typeof vi.fn>;
     findPackAttributeOptions: ReturnType<typeof vi.fn>;
     findSecondaryRoleIds: ReturnType<typeof vi.fn>;
+    findFormTenureFills: ReturnType<typeof vi.fn>;
     replaceDerivedSkillsAndTenure: ReturnType<typeof vi.fn>;
     listWantedSkillIds: ReturnType<typeof vi.fn>;
     reconcileReachForWorker: ReturnType<typeof vi.fn>;
@@ -74,6 +82,12 @@ function setup(opts: {
   setWantsUpdated?: boolean;
   /** The skill ids the clear-all switched from ON to OFF (what the repository returns). */
   switchedOff?: string[];
+  /** #2753 item 2 — his stored pack answers. Empty (today's stub) unless a case opts in. */
+  packAnswers?: PackAnswer[];
+  /** #2753 item 2 — what the shared form-tenure read returns, by worker. */
+  formTenure?: Map<string, FormTenureFill[]>;
+  /** #2753 item 2 — the server config handed to the service. Absent = a hand-built instance. */
+  serverConfig?: FormTenureMonthsConfig;
   /** The worker's own `worker_skill` rows, for the page prefill. */
   skillRows?: {
     skillId: string;
@@ -89,7 +103,12 @@ function setup(opts: {
     // B0b: the role-pack bridge. Empty here on purpose — these cases are about the PROFILE
     // signals, and a stub that returned pack answers would change what every one of them
     // derives. `pack-attribute-skills.test.ts` covers the bridge itself.
-    findPackAttributeOptions: vi.fn(async () => new Map<string, string[]>()),
+    findPackAttributeOptions: vi.fn(async () => opts.packAnswers ?? new Map<string, string[]>()),
+    // #2753 item 2 — the batched form-tenure read. Called only while the switch is on.
+    findFormTenureFills: vi.fn(async () => {
+      order.push("formTenure");
+      return opts.formTenure ?? new Map<string, FormTenureFill[]>();
+    }),
     // Layer A (f): the declared secondary occupations. Empty unless a case opts in.
     findSecondaryRoleIds: vi.fn(async () => opts.secondaryRoleIds ?? []),
     findLatestProfileSignals: vi.fn(async () => {
@@ -137,6 +156,8 @@ function setup(opts: {
       repo as unknown as WorkerSkillsRepository,
       config as unknown as MatchConfigService,
       events as unknown as EventsService,
+      // Undefined unless a case opts in — exactly a hand-built instance, which derives today.
+      opts.serverConfig,
     ),
     repo,
     events,
@@ -759,6 +780,124 @@ describe("WorkerSkillsService.listMatchSkillsForWorker — the page's prefill", 
     });
     expect((await h.svc.listMatchSkillsForWorker(WORKER)).map((r) => r.skill_id)).toEqual([
       "mskill_plumber",
+    ]);
+  });
+});
+
+describe("WorkerSkillsService — a trade form's experience band (#2753 item 2)", () => {
+  /** A sheet-metal form worker as the form leaves him: chips under the form's pack, no profile. */
+  const SHEET_METAL: PackAnswer[] = [
+    {
+      packId: "qp_sheet_metal_fab",
+      attributeKey: "sheet_metal_machine",
+      optionKeys: ["fibre_laser"],
+    },
+  ];
+  const BAND_3_TO_5 = new Map<string, FormTenureFill[]>([
+    [WORKER, [{ packId: "qp_sheet_metal_fab", years: 4 }]],
+  ]);
+  const ON = { FORM_TENURE_MONTHS_ENABLED: true, FORM_TYPED_TENURE_DERIVE_ENABLED: false };
+
+  it("OFF: no read at all, and the rows are exactly a hand-built instance's (form worker)", async () => {
+    const today = setup({ signals: undefined, packAnswers: SHEET_METAL, formTenure: BAND_3_TO_5 });
+    await today.svc.rebuildForWorker(WORKER);
+    for (const serverConfig of [
+      {},
+      { FORM_TENURE_MONTHS_ENABLED: false, FORM_TYPED_TENURE_DERIVE_ENABLED: true },
+    ]) {
+      const off = setup({
+        signals: undefined,
+        packAnswers: SHEET_METAL,
+        formTenure: BAND_3_TO_5,
+        serverConfig,
+      });
+      await off.svc.rebuildForWorker(WORKER);
+      expect(off.repo.findFormTenureFills).not.toHaveBeenCalled();
+      expect(off.writtenSkills()).toStrictEqual(today.writtenSkills());
+      expect(off.writtenTenure()).toStrictEqual(today.writtenTenure());
+    }
+    expect(today.writtenSkills()).toEqual([
+      { skillId: "mskill_sheet_metal_worker", industryId: MFG, monthsBucketed: 0 },
+    ]);
+  });
+
+  it("OFF: identical for a profile worker and for a worker with both", async () => {
+    for (const packAnswers of [undefined, SHEET_METAL]) {
+      const profile = signals({ canonicalRoleId: ROLE_VMC, totalYears: 4 });
+      const today = setup({ signals: profile, packAnswers });
+      await today.svc.rebuildForWorker(WORKER);
+      const off = setup({
+        signals: profile,
+        packAnswers,
+        formTenure: BAND_3_TO_5,
+        serverConfig: { FORM_TENURE_MONTHS_ENABLED: false },
+      });
+      await off.svc.rebuildForWorker(WORKER);
+      expect(off.repo.findFormTenureFills).not.toHaveBeenCalled();
+      expect(off.writtenSkills()).toStrictEqual(today.writtenSkills());
+      expect(off.writtenTenure()).toStrictEqual(today.writtenTenure());
+    }
+  });
+
+  it("ON: the 3–5 years band reads as 48 months — what the real bucketing gives 4 years", async () => {
+    const h = setup({
+      signals: undefined,
+      packAnswers: SHEET_METAL,
+      formTenure: BAND_3_TO_5,
+      serverConfig: ON,
+    });
+    await h.svc.rebuildForWorker(WORKER);
+    expect(h.writtenSkills()).toEqual([
+      {
+        skillId: "mskill_sheet_metal_worker",
+        industryId: MFG,
+        monthsBucketed: bucketMonths(4, DEFAULT_MATCH_CONFIG.monthBucket),
+      },
+    ]);
+    expect(h.writtenSkills()[0]!.monthsBucketed).toBe(48);
+    // The E8 clamp lifts his industry tenure to the skill's months: never below them.
+    expect(h.writtenTenure()).toEqual([{ industryId: MFG, calendarMonths: 48 }]);
+  });
+
+  it("ON: reads ONCE, for this worker, with the typed switch only when BOTH are on", async () => {
+    const h = setup({ signals: undefined, packAnswers: SHEET_METAL, serverConfig: ON });
+    await h.svc.rebuildForWorker(WORKER);
+    expect(h.repo.findFormTenureFills).toHaveBeenCalledTimes(1);
+    expect(h.repo.findFormTenureFills).toHaveBeenCalledWith([WORKER], {
+      months: true,
+      typed: false,
+    });
+
+    const both = setup({
+      signals: undefined,
+      packAnswers: SHEET_METAL,
+      serverConfig: { FORM_TENURE_MONTHS_ENABLED: true, FORM_TYPED_TENURE_DERIVE_ENABLED: true },
+    });
+    await both.svc.rebuildForWorker(WORKER);
+    expect(both.repo.findFormTenureFills).toHaveBeenCalledWith([WORKER], {
+      months: true,
+      typed: true,
+    });
+  });
+
+  it("ON, no band (nothing read for him): the skill stays 0 — 'not recorded'", async () => {
+    const h = setup({ signals: undefined, packAnswers: SHEET_METAL, serverConfig: ON });
+    await h.svc.rebuildForWorker(WORKER);
+    expect(h.writtenSkills()).toEqual([
+      { skillId: "mskill_sheet_metal_worker", industryId: MFG, monthsBucketed: 0 },
+    ]);
+  });
+
+  it("ON: a profile's own total_years is NEVER overridden by a band", async () => {
+    const h = setup({
+      signals: signals({ totalYears: 8 }),
+      packAnswers: SHEET_METAL,
+      formTenure: new Map([[WORKER, [{ packId: "qp_sheet_metal_fab", years: 12 }]]]),
+      serverConfig: ON,
+    });
+    await h.svc.rebuildForWorker(WORKER);
+    expect(h.writtenSkills()).toEqual([
+      { skillId: "mskill_sheet_metal_worker", industryId: MFG, monthsBucketed: 96 },
     ]);
   });
 });

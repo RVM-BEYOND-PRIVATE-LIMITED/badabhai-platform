@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { formAvailabilityLabel, readPreferenceFacts } from "./resume-preference-facts";
+import {
+  formAvailability,
+  formAvailabilityLabel,
+  readPreferenceFacts,
+} from "./resume-preference-facts";
 import { buildResumeRenderInput, type TradeSheetContext } from "./resume-render-input";
 
 /** The finishing form's answers, exactly as `loadTradeSheet` returns them. */
@@ -320,5 +324,84 @@ describe("readPreferenceFacts — the band's lower end and the status slug (ADR-
       sheet({ salary_expected_min: 18000 }),
     );
     expect(rowValue(input.availFactRows, "Salary expected")).toBeUndefined();
+  });
+});
+
+/**
+ * #2753 item 3 — THE BRIEF'S FOUR ON THE SHEET. Each prints its own label on the Terms row, and the
+ * header states the start the key names: now, 15 days, 30 days, or no day count at all for a
+ * worker who is working and open to a better offer. The first set's rules are the tests above,
+ * unchanged.
+ */
+describe("the brief's four availability answers on the sheet (#2753 item 3)", () => {
+  const NOON_IST = new Date("2026-11-04T06:30:00Z");
+  const render = (attributes: Record<string, unknown>) =>
+    buildResumeRenderInput({}, null, "bb_trade.v2", null, false, "worker", {
+      ...sheet(attributes),
+      asOf: NOON_IST,
+    });
+
+  it.each([
+    ["join_now", "Can join now", "available immediately"],
+    ["in_15_days", "Can join in 15 days", "available in 15 days"],
+    ["in_30_days", "Can join in 30 days", "available in 30 days"],
+    ["working_open", "Working, open to a better offer", "working, open to a better offer"],
+  ])("%s prints %j on the row and %j in the header", (status, row, header) => {
+    const input = render({ availability: { status } });
+    expect(rowValue(input.availFactRows, "Available from")).toBe(row);
+    expect(input.subheadLine).toBe(header);
+  });
+
+  it("starts: join_now is immediate, the day counts are the key's own, working_open has none", () => {
+    const start = (status: string) =>
+      formAvailability(readPreferenceFacts({ availability: { status } }), NOON_IST)?.start;
+    expect(start("join_now")).toEqual({ kind: "immediate" });
+    expect(start("in_15_days")).toEqual({ kind: "in_days", days: 15 });
+    expect(start("in_30_days")).toEqual({ kind: "in_days", days: 30 });
+    // NOT `on_notice`: that would tell an employer he has already resigned.
+    expect(start("working_open")).toEqual({ kind: "open_to_offer" });
+  });
+
+  it("a date after the render day still wins over any status", () => {
+    for (const status of ["join_now", "in_15_days", "in_30_days", "working_open"]) {
+      const input = render({ availability: { status, available_from: "2026-11-12" } });
+      expect(rowValue(input.availFactRows, "Available from"), status).toBe("From 12 Nov 2026");
+      expect(input.subheadLine, status).toBe("available from 12 Nov 2026");
+    }
+    // A date already reached is the date's rule, not the status's: "Immediately", as today.
+    const past = render({ availability: { status: "working_open", available_from: "2026-11-01" } });
+    expect(rowValue(past.availFactRows, "Available from")).toBe("Immediately");
+    expect(past.subheadLine).toBe("available immediately");
+  });
+
+  it("a stated notice period beside one of the four is not read — the key names the start", () => {
+    expect(
+      formAvailabilityLabel(
+        readPreferenceFacts({ availability: { status: "in_15_days", notice_period_days: 45 } }),
+        NOON_IST,
+      ),
+    ).toBe("Can join in 15 days");
+    expect(
+      formAvailability(
+        readPreferenceFacts({ availability: { status: "working_open", notice_period_days: 30 } }),
+        NOON_IST,
+      ),
+    ).toEqual({ label: "Working, open to a better offer", start: { kind: "open_to_offer" } });
+  });
+
+  it("narrows the four to the vocabulary like the first set, and an old key keeps its words", () => {
+    expect(readPreferenceFacts({ availability: { status: "in_30_days" } })).toMatchObject({
+      availabilityStatus: "in_30_days",
+      availabilityStatusLabel: "Can join in 30 days",
+    });
+    // Never relabelled in the new words: "within a week" is what the worker said.
+    expect(readPreferenceFacts({ availability: { status: "within_week" } })).toMatchObject({
+      availabilityStatus: "within_week",
+      availabilityStatusLabel: "Within a week",
+    });
+    expect(readPreferenceFacts({ availability: { status: "15_days" } })).toMatchObject({
+      availabilityStatus: null,
+      availabilityStatusLabel: null,
+    });
   });
 });

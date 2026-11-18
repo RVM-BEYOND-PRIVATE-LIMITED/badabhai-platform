@@ -83,6 +83,8 @@ vi.mock("react", async () => {
   return {
     ...actual,
     useState: (init: unknown) => useState(init),
+    // The quote layer's effect: the quotes these suites pass are already the frame's.
+    useEffect: () => {},
     useSyncExternalStore: (
       subscribe: (onChange: () => void) => () => void,
       getSnapshot: () => unknown,

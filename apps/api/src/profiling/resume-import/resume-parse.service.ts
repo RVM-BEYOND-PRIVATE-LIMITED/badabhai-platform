@@ -13,6 +13,7 @@ import {
 
 import { AiService } from "../../ai/ai.service";
 import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
+import { InstituteAiGate } from "../../campus-link/institute-ai-gate.service";
 import { EventsService } from "../../events/events.service";
 import type { RequestContext } from "../../common/request-context";
 import { ResumeImportRepository, type StaleImport } from "./resume-import.repository";
@@ -112,6 +113,9 @@ export class ResumeParseService {
     private readonly ai: AiService,
     private readonly aiCost: AiCostRecorder,
     private readonly events: EventsService,
+    // #2752 item 13 — no AI for an institute student without BadaBhai's own consent; import
+    // jobs and the import sweep run off his request. CampusLinkModule, a one-way edge.
+    private readonly instituteAi: InstituteAiGate,
   ) {}
 
   /**
@@ -138,6 +142,7 @@ export class ResumeParseService {
       return { status: "already_settled", importStatus: "parsing" };
     }
 
+    await this.instituteAi.assertMayRunAi(workerId); // #2752 item 13, before the model call
     const out = await this.ai.parseResume(
       {
         schema_version: "resume.v1",

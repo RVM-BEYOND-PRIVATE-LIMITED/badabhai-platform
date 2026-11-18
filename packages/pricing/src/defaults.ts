@@ -16,8 +16,9 @@
  *    see OFFERED_BOOST_TIERS below.
  *  - contact_unlock (§3A 2026-06-19): offered packs pack_50 ₹2000/50, pack_200 ₹8000/200,
  *    pack_1000 ₹32000/1000 (per-unlock unit ₹40; the 1000-pack carries a REAL 20% volume
- *    discount → ₹32/credit, CEO-FINAL 2026-06-22). Legacy pack_10/pack_25 are retained as
- *    RESOLVABLE in credit-packs.ts for credit_ledger history (invariant 8) but no longer OFFERED.
+ *    discount → ₹32/credit, CEO-FINAL 2026-06-22). Legacy pack_10/pack_25 are retained in
+ *    credit-packs.ts for credit_ledger history (invariant 8) but cannot be ordered (#2749).
+ *    ⚠️ Production serves this default (no catalogue row) — see the TODO(#2749 go-live) below.
  *  - hiring_capacity (ADR-0016): cap_5 ₹5000 / 5 active vacancies / 30d;
  *    cap_15 ₹12000 / 15 / 30d. Buying RAISES the payer's concurrent-active-vacancy
  *    allowance (over-cap plans are 'paused'). Ops-editable; the service logic reads
@@ -67,8 +68,17 @@ export const DEFAULT_CATALOG: Catalog = catalogSchema.parse({
       // §3A pricing locks (2026-06-19): per-unlock unit ₹40; offered packs 50/200/1000.
       // 50 & 200 are at the flat ₹40/credit anchor; the 1000-pack carries a REAL 20% volume
       // discount → ₹32,000 (₹32/credit), CEO-FINAL 2026-06-22 — see packages/db/src/credit-packs.ts.
-      // Legacy pack_10/pack_25 are RETAINED (resolvable) for credit_ledger history but are
-      // no longer OFFERED, so they are not listed in this catalog.
+      // Legacy pack_10/pack_25 are kept in credit-packs.ts for credit_ledger history labels; they
+      // are not in this catalog, so they cannot be bought (#2749: purchase accepts only a pack
+      // this catalog lists and has on sale).
+      //
+      // TODO(#2749 go-live) — DO NOT EDIT THESE PACKS IN A NORMAL PR. Production has no
+      // pricing_catalog row (read 2026-11-16), so it serves THIS default: changing a pack here
+      // changes what every company sees and can buy the moment it deploys. Replacing them with
+      // the brief's three packs (Starter, Standard, Big) is a go-live act, done in the same change
+      // that publishes the catalogue row — see docs/runbooks/2749-publish-brief-credit-packs.md.
+      // The Annual pack never goes in this file (the repository is public); it lives only in the
+      // database row.
       kind: "credit_pack",
       code: "contact_unlock",
       tiers: [

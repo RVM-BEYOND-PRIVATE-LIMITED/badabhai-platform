@@ -126,6 +126,7 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
         notice: null,
         pagingStalled: false,
       ));
+      await _loadQuotes(page.candidates);
       await unlocks;
       return null;
     } catch (e) {
@@ -178,6 +179,7 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
         loadingMore: false,
         pagingStalled: added.isEmpty,
       ));
+      await _loadQuotes(added);
     } catch (e) {
       if (isClosed || generation != _generation) return;
       if (e is PayerApiException && e.statusCode == 400) {
@@ -236,6 +238,7 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
           unlockExpiries: until == null
               ? null
               : <String, DateTime>{...state.unlockExpiries, workerId: until},
+          quotes: _quotesAfter(workerId, result),
         ));
       }
       return result;
@@ -300,6 +303,7 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
         reload: CandidateSearchReload.none,
         rowsQuery: null,
       ));
+      await _loadQuotes(page.candidates);
     } catch (e) {
       if (isClosed || generation != _generation) return;
       emit(state.copyWith(
@@ -311,6 +315,55 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
         rowsQuery: null,
       ));
     }
+  }
+
+  /// #2750 — read the quotes for [rows] AFTER they are on screen. Soft: a
+  /// failure leaves the cards on today's button; a 404 (outside the rules) clears
+  /// the quote so nothing claims a price the server will not charge.
+  Future<void> _loadQuotes(List<CandidateSearchRow> rows) async {
+    final int generation = _generation;
+    final List<String> ids = <String>{
+      for (final CandidateSearchRow r in rows) r.workerId,
+    }.take(50).toList(growable: false);
+    if (ids.isEmpty) return;
+    try {
+      final UnlockQuotes? quotes = await _api.fetchUnlockQuotes(ids);
+      if (isClosed || generation != _generation) return;
+      if (quotes == null) {
+        emit(state.copyWith(quotes: null));
+        return;
+      }
+      final Map<String, int> merged = <String, int>{
+        ...?state.quotes?.creditsByWorker,
+        ...quotes.creditsByWorker,
+      };
+      final Set<String> mergedWaived = <String>{
+        ...?state.quotes?.waivedWorkers,
+        ...quotes.waivedWorkers,
+      };
+      emit(state.copyWith(
+        quotes: UnlockQuotes(
+          creditsByWorker: Map<String, int>.unmodifiable(merged),
+          creditsAvailable: quotes.creditsAvailable,
+          waivedWorkers: Set<String>.unmodifiable(mergedWaived),
+        ),
+      ));
+    } catch (_) {
+      // Failure-safe: keep the quotes already held; the list never breaks.
+    }
+  }
+
+  /// #2750 — fold a grant / refusal into the page's quotes without a second read.
+  UnlockQuotes? _quotesAfter(String workerId, UnlockResult result) {
+    final UnlockQuotes? current = state.quotes;
+    if (current != null) return current.afterUnlock(workerId, result);
+    if (result.insufficient) {
+      return UnlockQuotes(
+        creditsByWorker: const <String, int>{},
+        creditsAvailable: result.creditsAvailable!,
+      );
+    }
+    return current;
   }
 
   Future<void> _loadFilters() async {
@@ -396,6 +449,7 @@ class CandidateSearchState extends Equatable {
     this.reload = CandidateSearchReload.none,
     this.pagingStalled = false,
     this.rowsQuery,
+    this.quotes,
   });
 
   final CandidateSearchStatus status;
@@ -451,6 +505,18 @@ class CandidateSearchState extends Equatable {
   /// the same response the rows came from (ADR-0040 Decision 3); only the
   /// filter bar shows the pending [query].
   final CandidateSearchQuery? rowsQuery;
+
+  /// #2750 — the page's contact-cost quotes, or null when unread / off.
+  final UnlockQuotes? quotes;
+
+  /// The quoted credits for [workerId], or null when there is no quote.
+  int? quotedCreditsFor(String workerId) => quotes?.creditsFor(workerId);
+
+  /// #2750 part C — this open is free because RVM's placement team waived it.
+  bool quotedWaivedFor(String workerId) => quotes?.waivedFor(workerId) ?? false;
+
+  bool quoteUnaffordableFor(String workerId) =>
+      quotes?.unaffordableFor(workerId) ?? false;
 
   /// The filters the rows on screen came from.
   CandidateSearchQuery get _shownQuery => rowsQuery ?? query;
@@ -526,6 +592,7 @@ class CandidateSearchState extends Equatable {
     CandidateSearchReload? reload,
     bool? pagingStalled,
     Object? rowsQuery = _keep,
+    Object? quotes = _keep,
   }) {
     return CandidateSearchState(
       status: status ?? this.status,
@@ -551,6 +618,7 @@ class CandidateSearchState extends Equatable {
       rowsQuery: identical(rowsQuery, _keep)
           ? this.rowsQuery
           : rowsQuery as CandidateSearchQuery?,
+      quotes: identical(quotes, _keep) ? this.quotes : quotes as UnlockQuotes?,
     );
   }
 
@@ -572,5 +640,6 @@ class CandidateSearchState extends Equatable {
         reload,
         pagingStalled,
         rowsQuery,
+        quotes,
       ];
 }

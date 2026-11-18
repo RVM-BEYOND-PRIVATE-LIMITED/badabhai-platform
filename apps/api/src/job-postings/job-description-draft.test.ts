@@ -4,6 +4,7 @@ import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { defaultModeResolver } from "../payers/payer-tenant-scope.test-support";
 import { JobPostingsService } from "./job-postings.service";
+import { inertPostingAudience } from "./posting-audience.test-support";
 import {
   DraftJobDescriptionSchema,
   JobDescriptionDraftResultSchema,
@@ -39,6 +40,7 @@ function make(draft: { description: string | null; is_mock?: boolean } | null) {
     {} as never,
     { normalizeSelection: vi.fn() } as never,
     defaultModeResolver() as PayerTenantScopeService,
+    inertPostingAudience(), // #2746 — no posting is written here
   );
   return { svc, draftJobDescription, recordAiCost };
 }

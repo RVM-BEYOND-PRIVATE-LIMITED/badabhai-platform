@@ -78,6 +78,7 @@ function setup(byInput: Readonly<Record<string, string | null>>) {
     { savePolishedDescriptions } as never,
     { saveAttributePolish } as never,
     { record: vi.fn(async () => undefined) } as never,
+    { assertMayRunAi: vi.fn(async () => undefined) } as never, // #2752 institute AI gate
   );
   return { svc, polishWorkHistory, savePolishedDescriptions, saveAttributePolish };
 }

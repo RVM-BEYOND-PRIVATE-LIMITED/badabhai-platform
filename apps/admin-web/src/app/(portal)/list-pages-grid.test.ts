@@ -102,6 +102,7 @@ describe("the filter bars (A4)", () => {
       "app/(portal)/companies/company-filter-bar.tsx",
       "app/(portal)/events/filter-bar.tsx",
       "app/(portal)/jobs/filter-bar.tsx",
+      "app/(portal)/numbers/numbers-filter-bar.tsx",
       "app/(portal)/skills/discovery/filter-bar.tsx",
       "components/payer-filter-bar.tsx",
     ]);
