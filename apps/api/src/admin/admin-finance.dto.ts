@@ -81,6 +81,7 @@ export const AdminLedgerQuerySchema = z
         // #2750 item 11 — an admin grant under the credit rules.
         "goodwill",
         "correction",
+        "campus_conversion_reversed",
       ])
       .optional(),
   })

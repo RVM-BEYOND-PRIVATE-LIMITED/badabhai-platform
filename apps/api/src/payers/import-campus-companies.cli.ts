@@ -44,7 +44,8 @@
  * with its stage (#2754 item 8): a moved or linked RVM student, or an outside candidate who already
  * has a consenting BadaBhai account on that phone; everyone else is held with no personal detail.
  * A contact the company had opened on Campus is carried over, opened for good and free (item 9).
- * The batch stays `applying` until the rollback lands.
+ * The batch is marked `applied` once a run has been through every step (jobs and applications
+ * included); a run without `--worker-hold-live` leaves it `applying`.
  *
  * REPORT (#2754 item 11), read only:
  *   node apps/api/dist/payers/import-campus-companies.cli.js --report --batch <key>  *        --bundle <the same folder> [--plan-quota <file>] [--out <empty folder>]
@@ -53,8 +54,12 @@
  * `differences.csv` (`verify-report.ts`). It refuses a bundle other than the one the batch was
  * opened with. Exit code 2 when any difference is unexplained: the runbook stops there.
  *
- * NOT YET BUILT (refuses with a message, never a partial run):
- *   --rollback --batch <key>    reverse a batch (item 14)
+ * ROLLBACK (#2754 item 14), a write, under the same ops guard as `--apply`:
+ *   node apps/api/dist/payers/import-campus-companies.cli.js --rollback --batch <key> --run-by <label>
+ * Ends the opened contacts and removes the applications the batch moved, closes its postings,
+ * takes back what its converted lots still hold, and archives the accounts it created unless they
+ * are in use on their own (`rollback.ts`). Accounts it only matched are kept. Run it again after a
+ * stop: it continues. The batch ends `rolled_back` and its key is spent.
  *
  * TARGET SAFETY: `--apply` goes through the shared ops guard — a write to a production-like
  * database needs `--i-am-authorised-to-write-to-production` AND
@@ -90,8 +95,10 @@ import {
   CampusImportRefusal,
   findBatch,
   importLedgerExists,
+  markBatchApplied,
   openBatch,
 } from "./campus-import/import-ledger.repository";
+import { rollbackCompanyImport, type RollbackSummary } from "./campus-import/rollback";
 import {
   compareSides,
   readBadaBhaiFacts,
@@ -104,7 +111,7 @@ import {
   workerVisibilityTableExists,
   type JobImportSummary,
 } from "./campus-import/import-jobs";
-import { buildJobImportDeps } from "./campus-import/job-import-wiring";
+import { buildJobImportDeps, buildRollbackDeps } from "./campus-import/job-import-wiring";
 import {
   importApplications,
   type ApplicationImportSummary,
@@ -126,9 +133,9 @@ export type ImportCampusCompaniesArgs =
       workerHoldLive: boolean;
     }
   | { mode: "synthetic"; out: string; companies: number; seed: string; phones: string[] }
-  | { mode: "report"; bundle: string; planQuota: Record<string, number>; batch: string; out: string };
+  | { mode: "report"; bundle: string; planQuota: Record<string, number>; batch: string; out: string }
+  | { mode: "rollback"; batch: string; runBy: string };
 
-const NOT_YET = ["rollback"] as const;
 const BATCH_KEY = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 function readJson(path: string, what: string): unknown {
@@ -166,10 +173,21 @@ export function parseImportCampusCompaniesArgs(argv: readonly string[]): ImportC
     strict: true,
     allowPositionals: false,
   });
-  for (const flag of NOT_YET) {
-    if (values[flag]) {
-      throw new Error(`--${flag} is not built yet (#2754, a later part)`);
+  if (values.rollback) {
+    if (values.apply || values.report) throw new Error("--rollback cannot be combined with --apply or --report");
+    if (values.bundle !== undefined) throw new Error("--rollback reads the import ledger, not a bundle: drop --bundle");
+    for (const flag of ["plan-quota", "agents", "credit-validity-days", "out", "write-synthetic"] as const) {
+      if (values[flag] !== undefined) throw new Error(`--${flag} cannot be used with --rollback`);
     }
+    if (values.test || values.rehearsal || values["worker-hold-live"]) {
+      throw new Error("--test, --rehearsal and --worker-hold-live cannot be used with --rollback");
+    }
+    if (!values.batch || !BATCH_KEY.test(values.batch)) {
+      throw new Error("--rollback needs --batch <key>: lower-case letters, digits and dashes, up to 64");
+    }
+    const runBy = values["run-by"]?.trim() ?? "";
+    if (runBy.length < 1 || runBy.length > 128) throw new Error("--rollback needs --run-by <who is running it>");
+    return { mode: "rollback", batch: values.batch, runBy };
   }
   if (values["write-synthetic"] !== undefined) {
     if (values.bundle !== undefined) throw new Error("--write-synthetic and --bundle cannot be combined");
@@ -392,8 +410,52 @@ async function apply(
       for (const line of formatJobSummary(jobs)) log(line);
       const apps = await importApplications(db, pii, batch, bundle, summary.placed, jobs.placed);
       for (const line of formatApplicationSummary(apps)) log(line);
+      await markBatchApplied(db, batch.id);
+      log(`batch ${batch.batchKey} applied; next: --report --batch ${batch.batchKey} on the same bundle`);
+      return 0;
     }
-    log("the batch stays open until the verification report and the rollback land (#2754 items 11, 14)");
+    log(`batch ${batch.batchKey} stays applying until a run with the jobs step`);
+    return 0;
+  } finally {
+    await client.sql.end({ timeout: 5 });
+  }
+}
+
+/** The `--rollback` printout: counts and outcome codes only. */
+export function formatRollbackSummary(s: RollbackSummary): string[] {
+  if (s.alreadyRolledBack) return [`batch ${s.batchKey} was already rolled back: nothing to do`];
+  return [
+    `opened contacts: ended=${s.access.ended} kept (existed before)=${s.access.keptExisting}`,
+    `applications: removed=${s.applications.removed} kept (existed before)=${s.applications.keptExisting}`,
+    `postings: closed=${s.postings.closed} already_closed=${s.postings.alreadyClosed} ` +
+      `not closeable (suspended)=${s.postings.notCloseable}`,
+    `balances: reversed=${s.balances.reversed} credits taken back=${s.balances.creditsTakenBack} ` +
+      `already spent (kept)=${s.balances.creditsAlreadySpent} not reversed: ${fmt(s.balances.notReversed)}`,
+    `accounts: archived=${s.accounts.archived} already_archived=${s.accounts.alreadyArchived} ` +
+      `kept (existed before)=${s.accounts.keptExisting} kept (in use on BadaBhai)=${s.accounts.keptInUse}`,
+  ];
+}
+
+async function rollback(
+  args: Extract<ImportCampusCompaniesArgs, { mode: "rollback" }>,
+  log: (line: string) => void,
+): Promise<number> {
+  const { connectionString } = enforceOpsGuard({
+    script: IMPORT_CAMPUS_COMPANIES_SCRIPT,
+    connectionString: process.env.DATABASE_URL,
+    mutating: true,
+  });
+  const config: ServerConfig = loadServerConfig();
+  const client = createDbClient(connectionString, { max: 2 });
+  try {
+    const db = client.db;
+    if (!(await importLedgerExists(db))) {
+      throw new CampusImportRefusal("migration company_import is not applied on this database");
+    }
+    const events = new EventsService(new EventsRepository(db), config);
+    log(`[${IMPORT_CAMPUS_COMPANIES_SCRIPT}] ROLLBACK batch ${args.batch}`);
+    const summary = await rollbackCompanyImport(buildRollbackDeps(db, config, events), args.batch, args.runBy);
+    for (const line of formatRollbackSummary(summary)) log(line);
     return 0;
   } finally {
     await client.sql.end({ timeout: 5 });
@@ -460,6 +522,7 @@ export async function run(
   const args = parseImportCampusCompaniesArgs(argv);
   if (args.mode === "apply") return apply(args, log);
   if (args.mode === "report") return report(args, log);
+  if (args.mode === "rollback") return rollback(args, log);
   if (args.mode === "synthetic") {
     writeSyntheticBundle(args.out, {
       companies: args.companies,

@@ -392,6 +392,9 @@ export function creditReasonLabel(reason: string): string {
     // #2754 item 9 — a moved company's unused Campus balance.
     case "campus_conversion":
       return "Moved from Campus";
+    // #2754 item 14 — a batch rollback took that balance back unspent.
+    case "campus_conversion_reversed":
+      return "Campus move reversed";
     default:
       // An unmapped reason is shown RAW rather than hidden — a code nobody recognises is a
       // reason to look, not to render a blank cell.
