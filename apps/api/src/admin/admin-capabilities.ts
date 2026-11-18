@@ -247,6 +247,83 @@ export const ADMIN_CAPABILITIES = [
    * `manage_worker_account` (sessions/PIN/suspension) and from `flag_worker` (standing).
    */
   "edit_candidates",
+  /**
+   * #2755 — READ the BUSINESS NUMBERS: the weekly numbers screen (`/admin/numbers/*` — paying
+   * companies, revenue by pack, repeat buying, hires, the out-of-credits call list), and MARK or
+   * UNMARK a test company so it stays out of every company figure. `super_admin` + `ops_admin`
+   * ONLY (owner question 1 default: "super admin and ops admin only, through a new capability;
+   * support and analyst are added only on his word").
+   *
+   * ── WHY NOT `read_entities`, WHERE `GET /admin/finance/summary` SITS ──────────────────────
+   * Because `read_entities` is the floor all four roles hold, and these figures are the company's
+   * own commercial performance — the numbers shown to investors, revenue week on week, which
+   * companies stopped buying. The finance summary already exposes revenue to every role; widening
+   * that pattern to the whole screen would hand the analytics and support roles the business plan
+   * as a side effect of a read floor. If telecallers sign in as `support`, the owner adds `support`
+   * here; `analyst` only on his word.
+   *
+   * ── WHY THE TEST-COMPANY MARK RIDES THE SAME ROW ────────────────────────────────────────
+   * The mark exists only to decide what these figures count. A separate write capability would be
+   * a second allow-set to keep equal to this one; a role that cannot read the numbers has no
+   * reason to change what they include. It is still a WRITE, so it is audited (an
+   * `admin.payer_test_account_*` event plus `admin.action_performed` per change).
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "read_business_numbers",
+  /**
+   * #2750 item 12 — READ and EDIT the credit rules' settings (`GET` / `PUT /admin/credit-rules`):
+   * what a contact costs, the experience line, welcome credits, the opening limits, the
+   * couldn't-reach windows, returned credits, the refund rules and the goodwill cap.
+   * `super_admin` ONLY.
+   *
+   * ── WHY ITS OWN ROW, AND WHY SO NARROW ────────────────────────────────────────────────
+   * `grant_credits` moves one company's balance by a stated amount. This row changes the PRICE
+   * and the limits for EVERY company at once, with no deploy, which is the pricing catalogue's
+   * reach rather than a grant's. Folding it into `grant_credits` would hand `ops_admin` the
+   * power to make every contact free or every limit vanish. Widening it is an owner decision.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "manage_credit_rules",
+  /**
+   * #2750 items 5 and 12 — set or clear the placement team's waiver of the contact cost for one
+   * company or one job (`/admin/waivers`), and read every waiver with who set it. A waiver makes a
+   * company's RVM applicants free to open, so it is a price decision for that company, held by the
+   * same role as the credit rules (the issue's default: "BadaBhai super admins"). Campus's
+   * placement team sets waivers through its own service route, not through this capability.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "manage_waivers",
+  /**
+   * #2887 — turn a moved RVM student's visibility on or off, one student or in bulk (one import
+   * run, branch or course), and list the moved students (`/admin/students/*`). On, the student is an
+   * ordinary BadaBhai worker: matched to jobs and shown to companies. That is an access decision
+   * about a person, so it sits with the roles that already run the platform's operations
+   * (`super_admin`, `ops_admin`), not with `support` or the read-only `analyst`.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "manage_student_visibility",
+  /**
+   * #2750 items 7 and 12 — work the worker desk (`/admin/desk/reach-cases`): read the couldn't-reach
+   * queue, log call attempts, and close a case as reached or not reached (not reached returns the
+   * company's credits). Owner ruling 2026-11-17: super_admin, ops_admin and support. Calling the
+   * worker still needs `reveal_pii` (super_admin and support), through the existing reveal.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "work_reach_desk",
+  /**
+   * #2750 items 10 and 12 — refund a company's real paid pack in full through Razorpay
+   * (`/admin/payment-orders/:id/refund`, `/admin/payment-refunds/*`), under the brief's two refund
+   * rules, removing the pack's credits. Money leaving the business: owner ruling 2026-11-18,
+   * `super_admin` only, the same narrow row as the credit rules settings and the waivers.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "refund_payments",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -320,6 +397,23 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   manage_companies: ["super_admin", "ops_admin"],
   // #2561 / ADR-0062 §3.8 — candidate-field corrections. `analyst` denied.
   edit_candidates: ["super_admin", "ops_admin", "support"],
+  // #2755 — the business numbers screen and its test-company marks (owner question 1 default).
+  // `support` and `analyst` denied until the owner says otherwise.
+  read_business_numbers: ["super_admin", "ops_admin"],
+  // #2750 item 12 — the credit rules' settings: every company's price and limits at once.
+  // `super_admin` only (see the capability's docstring).
+  manage_credit_rules: ["super_admin"],
+  // #2750 items 5 and 12 — the placement team's waivers (free RVM applicants for one company or
+  // job). `super_admin` only, the issue's default (see the capability's docstring).
+  manage_waivers: ["super_admin"],
+  // #2887 — the moved students' visibility switch. `super_admin` and `ops_admin` (see the
+  // capability's docstring); `support` and `analyst` denied.
+  manage_student_visibility: ["super_admin", "ops_admin"],
+  // #2750 items 7 and 12 — the worker desk. Owner ruling 2026-11-17: super_admin, ops_admin and
+  // support. `analyst` denied (a close returns credits: a write).
+  work_reach_desk: ["super_admin", "ops_admin", "support"],
+  // #2750 items 10 and 12 — refunds of real paid packs. Owner ruling 2026-11-18: `super_admin` only.
+  refund_payments: ["super_admin"],
 } as const;
 
 /**

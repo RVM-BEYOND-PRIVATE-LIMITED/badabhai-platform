@@ -202,3 +202,35 @@ describe("maskedResumeAction — asked with no posting (a search row)", () => {
     expect(input).toMatchObject({ unlockId: UNLOCK, workerId: W1 });
   });
 });
+
+describe("#2750 — the honest not-enough-credits answer", () => {
+  it("maps to an insufficient view, publishes the refusal's own balance, reads no second time", async () => {
+    requestUnlock.mockResolvedValueOnce({
+      status: "insufficient_credits",
+      creditsNeeded: 2,
+      creditsAvailable: 1,
+    });
+    const res = await candidateUnlockAction({ workerId: W1, isSample: false });
+    expect(res).toEqual({
+      ok: true,
+      view: {
+        kind: "insufficient",
+        creditsNeeded: 2,
+        creditsAvailable: 1,
+        message: "You need 2 credits, you have 1.",
+      },
+      readBack: { balance: 1, asOf: NOW },
+    });
+    expect(getCredits).not.toHaveBeenCalled();
+  });
+
+  it("a grant carries credits_charged through the view, and still re-reads the balance", async () => {
+    requestUnlock.mockResolvedValueOnce({ ...GRANTED, creditsCharged: 2 });
+    getCredits.mockResolvedValueOnce({ payerId: "p", balance: 3 });
+    expect(await candidateUnlockAction({ workerId: W1, isSample: false })).toMatchObject({
+      ok: true,
+      view: { kind: "granted", creditsCharged: 2 },
+      readBack: { balance: 3, asOf: NOW },
+    });
+  });
+});

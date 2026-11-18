@@ -44,17 +44,21 @@ export function OnboardingFunnel({
     <ol className="funnel funnel--bars">
       {steps.map((step, i) => {
         const share = total > 0 ? step.done / total : 0;
-        const stagger = i < 8 ? { animationDelay: `calc(var(--stagger-step) * ${i})` } : undefined;
+        // The delay sits on the FILL, the element that animates (#2580: it sat on the track,
+        // which has no animation, so the rows never staggered).
+        // The house stagger (`.grid__table tbody tr`): one step per row for the first eight, and
+        // every row after the eighth enters WITH the eighth (step × 7), not before the first.
+        const delay = `calc(var(--stagger-step) * ${Math.min(i, 7)})`;
         return (
           <li className="funnel__row funnel__row--bar" key={step.key}>
             <span className="funnel__label">
               <strong>
                 {step.order}. {stepTitle(step.key as Parameters<typeof stepTitle>[0])}
               </strong>
-              <span className="funnel__bar" aria-hidden="true" style={stagger}>
+              <span className="funnel__bar" aria-hidden="true">
                 <span
                   className="funnel__fill"
-                  style={{ transform: `scaleX(${share.toFixed(4)})` }}
+                  style={{ transform: `scaleX(${share.toFixed(4)})`, animationDelay: delay }}
                 />
               </span>
             </span>

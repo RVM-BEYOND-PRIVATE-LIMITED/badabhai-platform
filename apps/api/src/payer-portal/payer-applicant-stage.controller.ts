@@ -1,4 +1,14 @@
-import { Body, Controller, HttpCode, Inject, Param, Put, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  Inject,
+  Param,
+  Put,
+  UseGuards,
+} from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { Ctx, type RequestContext } from "../common/request-context";
@@ -10,6 +20,7 @@ import { PayerApplicantStagesService } from "./payer-applicant-stages.service";
 import {
   ApplicantStageParamsSchema,
   SetApplicantStageSchema,
+  type ApplicantStageOptionsDto,
   type ApplicantStageParamsDto,
   type SetApplicantStageDto,
   type SetApplicantStageResponseDto,
@@ -39,6 +50,12 @@ import {
  *    `PAYER_APPLICANT_STAGE_MAX_PER_HOUR`), charged BEFORE the service so a capped payer touches
  *    no data; one unit per request, including a no-op or a 404 (probing is not free). Fails
  *    closed: Redis down is the same 429. Deliberately NOT the `payer_reach` read budget.
+ *
+ * `GET /payer/reach/applicant-stages` (#2747, #2852) — the stages this company may move an
+ * applicant into now, and whether an outcome mark on an RVM student is sent to RVM, so a screen
+ * draws Selected / Hired only when a move would be accepted. The same guards (404 while the board
+ * is off); no write cap and no event, like `GET payer/me/display-prefs` — it reads only the pilot
+ * list. `no-store`: the answer changes when a switch or the pilot list does.
  */
 @Controller("payer/reach")
 @UseGuards(PayerAuthGuard, PayerApplicantStagesEnabledGuard)
@@ -48,6 +65,12 @@ export class PayerApplicantStageController {
     private readonly rateLimit: PayerDisclosureRateLimit,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
+
+  @Get("applicant-stages")
+  @Header("Cache-Control", "no-store")
+  stageOptions(@CurrentPayer() payer: AuthenticatedPayer): Promise<ApplicantStageOptionsDto> {
+    return this.stages.stageOptions(payer.id);
+  }
 
   @Put("jobs/:jobId/applicants/:workerId/stage")
   @HttpCode(200)

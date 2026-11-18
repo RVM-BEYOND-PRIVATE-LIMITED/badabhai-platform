@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   NotFoundException,
   Param,
@@ -11,6 +12,7 @@ import {
   Req,
   UseGuards,
 } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import type { Request } from "express";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
@@ -30,6 +32,8 @@ import {
   type PayerBuyPackDto,
   PayerRequestUnlockSchema,
   type PayerRequestUnlockDto,
+  PayerContactQuotesSchema,
+  type PayerContactQuotesDto,
   PayerLedgerQuerySchema,
   type PayerLedgerQueryDto,
 } from "./payer-unlocks.dto";
@@ -92,6 +96,20 @@ export class PayerUnlocksController {
   }
 
   /**
+   * #2750 item 3 — what opening each worker on a page costs the caller's company (the number on
+   * the button). 404 unless the company is under the credit rules. Priced from facts on the card
+   * only (never consent or a limit), and it opens nothing, so it is NOT on the disclosure cap.
+   */
+  @Post("unlocks/quotes")
+  @HttpCode(200)
+  quoteContacts(
+    @Body(new ZodValidationPipe(PayerContactQuotesSchema)) dto: PayerContactQuotesDto,
+    @CurrentPayer() payer: AuthenticatedPayer,
+  ) {
+    return this.unlocks.quoteContacts(payer.id, dto.worker_ids);
+  }
+
+  /**
    * Reveal a granted unlock the caller OWNS. Ownership is enforced at the chokepoint
    * (`expectedPayerId = payer.id`): a not-owned or unknown unlock returns the IDENTICAL
    * neutral body — never a 403 — so a payer cannot probe other tenants' unlocks (XB-A
@@ -110,6 +128,25 @@ export class PayerUnlocksController {
   }
 
   /**
+   * #2747 item 5 (ADR-0064 §3.3) — the full name and phone number of a contact the caller's
+   * company OPENED, on screen. Only while `contact_rules` is on for the company (off: 404).
+   * Ownership, the open rule, the deletion freeze and consent are the chokepoint's
+   * (`UnlockService.readContact`); every refusal is the one neutral body. Each read counts against
+   * the same per-login hourly disclosure cap as an unlock or a reveal (XB-G) and writes
+   * `contact.viewed`. `no-store`: no proxy or client cache keeps the number; the body is never logged.
+   */
+  @Get("unlocks/:unlockId/contact")
+  @Header("Cache-Control", "no-store")
+  async readContact(
+    @Param("unlockId", new ParseUUIDPipe()) unlockId: string,
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Ctx() ctx: RequestContext,
+  ) {
+    await this.disclosureRate.assertWithinHourlyCap(payer.id); // XB-G (real identity)
+    return this.unlocks.readContact(unlockId, payer.id, ctx);
+  }
+
+  /**
    * List the caller's OWN unlocks (scoped to the session `payer_id`; PII-free projection).
    * #2033: payer-visible states only (`granted | revealed | expired | revoked`), `expired`
    * derived from `expires_at`, plus the additive `job_posting_id`.
@@ -121,7 +158,8 @@ export class PayerUnlocksController {
 
   /**
    * The balance of the wallet the caller spends from — the TENANT's (the org wallet in mode `on`).
-   * `payer_id` echoes the caller (ADR-0053 §10). Amounts + id only.
+   * `payer_id` echoes the caller (ADR-0053 §10). Amounts + id only. #2749: plus the wallet's open
+   * `lots` in spend order (source, remaining, granted, expiry, pack) — no lot id, no payment ref.
    */
   @Get("credits")
   ownCredits(@CurrentPayer() payer: AuthenticatedPayer) {
@@ -224,27 +262,83 @@ export class PayerUnlocksController {
    *
    * The response carries the `rzp_*` KEY ID, which is public by design (checkout.js needs
    * it in the browser). The key SECRET and the webhook secret never appear in any response.
+   *
+   * #2749 PR 3 — THE AMOUNT IS THE GST-INCLUSIVE TOTAL: `amount` (paise) = the pack's
+   * `price.totalPaise` on `GET /payer/pricing/catalog`, `amount_inr` its whole rupees. `price`
+   * (additive) is the stamped line in paise and `validity_days` how long the credits last.
+   * `expected_price_inr` stays the LIST price before GST. Optional `origin` /
+   * `origin_job_posting_id` record where the purchase started (a posting not the caller's own is
+   * dropped silently).
+   *
+   * IDEMPOTENCY (#2749 item 9): an `Idempotency-Key` header is honoured exactly as on
+   * `POST /payer/credits` — the same seam, namespace `payer_idem`, scoped to this route and the
+   * SESSION payer. A retry under the same key replays the first handoff (the same `order_id`) and
+   * creates NO second Razorpay order; a duplicate while the first is still running is a 409
+   * `in_flight`. The key is BOUND TO THE BODY ({@link creditOrderFingerprint}): the same key with a
+   * different pack, price confirmation or origin is a 422 `idempotency_key_reused`, never a replay
+   * of the first order. A failure is replayed for the key's whole window too, so after a 5xx the
+   * client sends a FRESH key. Optional for backward compatibility; clients SHOULD send one per
+   * confirmed purchase. Without it every call creates a new provider order (the old behaviour).
    */
   @Post("credits/order")
   @HttpCode(201)
   async createOrder(
     @Body(new ZodValidationPipe(CreateCreditOrderSchema)) dto: CreateCreditOrderDto,
     @CurrentPayer() payer: AuthenticatedPayer,
+    @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ) {
+    // OUTSIDE THE GUARD, for the same reason as `POST /payer/credits`: a deployment-mode 404 must
+    // never be pinned under a key for the window.
     if (!this.unlocks.realPaymentsLive) throw new NotFoundException();
-    const order = await this.unlocks.createCreditOrder(payer.id, dto.pack_code, ctx, dto.expected_price_inr);
-    // Unknown pack → a real 404 (a public catalog item, not a per-tenant resource).
-    if (!order) throw new NotFoundException(`Unknown credit pack: ${dto.pack_code}`);
-    return {
-      order_id: order.providerOrderId,
-      key_id: order.keyId,
-      amount: order.amountPaise, // paise — what checkout.js expects
-      amount_inr: order.amountInr, // whole ₹ — what the UI displays
-      currency: order.currency,
-      pack_code: order.packCode,
-      credits: order.credits,
-    };
+
+    return this.idempotency.runOnce({
+      namespace: "payer_idem",
+      scope: "credits_order",
+      // The SESSION payer, never a body value (XB-A): one payer cannot replay another's handoff.
+      subject: payer.id,
+      subjectLabel: "payer",
+      logLabel: "payer",
+      idempotencyKey: req.header("idempotency-key"),
+      // The key names THIS checkout: another body under it is a 422, not the first order replayed.
+      fingerprint: creditOrderFingerprint(dto),
+      // 409, never a guessed handoff: the first attempt has not created its provider order yet.
+      inFlight: (): never => {
+        throw inFlightConflict(
+          "This checkout is already being prepared; wait a moment before trying again",
+        );
+      },
+      work: async () => {
+        const order = await this.unlocks.createCreditOrder(
+          payer.id,
+          dto.pack_code,
+          ctx,
+          dto.expected_price_inr,
+          { origin: dto.origin, jobPostingId: dto.origin_job_posting_id },
+        );
+        // Unknown pack → a real 404 (a public catalog item, not a per-tenant resource). Inside
+        // the guard: a retry under the same key replays it.
+        if (!order) throw new NotFoundException(`Unknown credit pack: ${dto.pack_code}`);
+        return {
+          order_id: order.providerOrderId,
+          key_id: order.keyId,
+          amount: order.amountPaise, // paise — what checkout.js expects (the GST-inclusive total)
+          amount_inr: order.amountInr, // whole ₹ — the same total, what the UI displays
+          currency: order.currency,
+          pack_code: order.packCode,
+          credits: order.credits,
+          // #2749 PR 3, additive: the stamped price line (paise) and the credit validity.
+          price: {
+            taxable_paise: order.price.taxablePaise,
+            gst_paise: order.price.gstPaise,
+            round_off_paise: order.price.roundOffPaise,
+            total_paise: order.price.totalPaise,
+            gst_rate_bps: order.price.gstRateBps,
+          },
+          validity_days: order.validityDays,
+        };
+      },
+    });
   }
 
   /**
@@ -284,6 +378,26 @@ export class PayerUnlocksController {
       balance: result.balance,
       credits: result.credits,
       pack_code: result.pack_code,
+      // #2750 item 9 — expired credits that came back with this pack (already in `balance`).
+      credits_returned: result.credits_returned,
     };
   }
+}
+
+/**
+ * #2749 item 9 — the digest an order's `Idempotency-Key` is bound to: every field of the body
+ * (pack, price confirmation, origin, origin posting), in a fixed order, absent fields as null.
+ * A sha256 hex digest of ids and codes only — no PII is in the body, and none is stored.
+ */
+export function creditOrderFingerprint(dto: CreateCreditOrderDto): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        dto.pack_code,
+        dto.expected_price_inr ?? null,
+        dto.origin ?? null,
+        dto.origin_job_posting_id ?? null,
+      ]),
+    )
+    .digest("hex");
 }

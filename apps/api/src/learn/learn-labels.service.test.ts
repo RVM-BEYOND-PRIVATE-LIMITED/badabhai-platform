@@ -39,7 +39,15 @@ function appliedEvent(createdAt: Date): LearnEventRow {
   };
 }
 
-function setup() {
+/** A latest consent row that gives `model_training` — the only one the gate lets through. */
+const TRAINING_CONSENT = { purposes: ["profiling", "model_training"], revokedAt: null };
+
+/**
+ * `consentOf` is each worker's LATEST consent row (absent = never consented). The default gives
+ * WORKER `model_training`, so the routing tests below see his events; the #2753 item 13 block
+ * takes it away.
+ */
+function setup(consentOf: Record<string, unknown> = { [WORKER]: TRAINING_CONSENT }) {
   const repo = {
     readEventBatch: vi.fn(async (_ms: number, _limit: number): Promise<LearnEventRow[]> => []),
     ingestImpression: vi.fn(async (_ev: LearnEventRow) => true),
@@ -48,8 +56,14 @@ function setup() {
     setWatermark: vi.fn(async (_ms: number) => undefined),
     countRelevantAfter: vi.fn(async () => 0),
   };
-  const svc = new LearnLabelsService(repo as never);
-  return { svc, repo };
+  const consents = {
+    findLatestStatesByWorkers: vi.fn(
+      async (ids: readonly string[]) =>
+        new Map(ids.filter((id) => id in consentOf).map((id) => [id, consentOf[id]])),
+    ),
+  };
+  const svc = new LearnLabelsService(repo as never, consents as never);
+  return { svc, repo, consents };
 }
 
 describe("LearnLabelsService.processBatch", () => {
@@ -118,5 +132,83 @@ describe("LearnLabelsService.processBatch", () => {
     expect(await svc.countPending()).toBe(42);
     expect(repo.readEventBatch).not.toHaveBeenCalled();
     expect(repo.setWatermark).not.toHaveBeenCalled();
+  });
+});
+
+// #2753 item 13 — a label is training data for reach-learn, so it is written only for a worker
+// whose latest consent names `model_training` (`modelTrainingAllowed`). Nobody has given it yet.
+describe("LearnLabelsService.processBatch — the model-training gate", () => {
+  const t0 = new Date("2026-08-01T10:00:00Z");
+  const batch = () => [shownEvent(t0), appliedEvent(new Date(t0.getTime() + 60_000))];
+
+  it.each<[string, Record<string, unknown>]>([
+    ["has never consented", {}],
+    ["consented to profiling only", { [WORKER]: { purposes: ["profiling"], revokedAt: null } }],
+    ["revoked his consent", { [WORKER]: { ...TRAINING_CONSENT, revokedAt: new Date() } }],
+  ])("writes nothing for a worker who %s, and says so", async (_case, consentOf) => {
+    const { svc, repo } = setup(consentOf);
+    repo.readEventBatch.mockResolvedValue(batch());
+
+    const summary = await svc.processBatch(100);
+
+    expect(repo.ingestImpression).not.toHaveBeenCalled();
+    expect(repo.resolvePending).not.toHaveBeenCalled();
+    expect(summary).toEqual({
+      impressionsIngested: 0,
+      submittedResolved: 0,
+      skippedResolved: 0,
+      skippedEvents: 0,
+      withheldNoConsent: 2,
+    });
+    // The cursor still moves past them: a later yes is never applied to earlier behaviour.
+    expect(repo.setWatermark).toHaveBeenCalledWith(t0.getTime() + 60_000);
+  });
+
+  it("FAILS CLOSED: a consent read that throws withholds the whole batch", async () => {
+    const { svc, repo, consents } = setup();
+    consents.findLatestStatesByWorkers.mockRejectedValue(new Error("connection terminated"));
+    repo.readEventBatch.mockResolvedValue(batch());
+
+    const summary = await svc.processBatch(100);
+
+    expect(repo.ingestImpression).not.toHaveBeenCalled();
+    expect(repo.resolvePending).not.toHaveBeenCalled();
+    expect(summary.withheldNoConsent).toBe(2);
+  });
+
+  it("asks once per batch, before any write, and keeps another worker's events out", async () => {
+    const OTHER = "33333333-3333-4333-8333-333333333333";
+    const { svc, repo, consents } = setup();
+    const theirs: LearnEventRow = {
+      ...shownEvent(t0),
+      id: "eeeeeeee-0000-4000-8000-000000000003",
+      payload: { ...shownEvent(t0).payload, worker_id: OTHER },
+    };
+    repo.readEventBatch.mockResolvedValue([...batch(), theirs]);
+
+    const summary = await svc.processBatch(100);
+
+    expect(consents.findLatestStatesByWorkers).toHaveBeenCalledTimes(1);
+    expect(consents.findLatestStatesByWorkers).toHaveBeenCalledWith([WORKER, OTHER]);
+    expect(consents.findLatestStatesByWorkers.mock.invocationCallOrder[0]!).toBeLessThan(
+      repo.ingestImpression.mock.invocationCallOrder[0]!,
+    );
+    expect(repo.ingestImpression).toHaveBeenCalledTimes(1);
+    expect(repo.ingestImpression).toHaveBeenCalledWith(
+      expect.objectContaining({ id: batch()[0]!.id }),
+    );
+    expect(summary.impressionsIngested).toBe(1);
+    expect(summary.submittedResolved).toBe(1);
+    expect(summary.withheldNoConsent).toBe(1);
+  });
+
+  it("withholds an event that names no worker", async () => {
+    const { svc, repo } = setup();
+    repo.readEventBatch.mockResolvedValue([{ ...shownEvent(t0), payload: { rank: 1 } }]);
+
+    const summary = await svc.processBatch(100);
+
+    expect(repo.ingestImpression).not.toHaveBeenCalled();
+    expect(summary.withheldNoConsent).toBe(1);
   });
 });

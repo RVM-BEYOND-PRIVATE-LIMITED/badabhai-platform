@@ -73,6 +73,8 @@ const TENANT_TABLES: Record<string, string> = {
   unlocks: "unlocks",
   resumeDisclosures: "resume_disclosures",
   payerCredits: "payer_credits",
+  // #2749 (migration 0174) — a wallet's lots, keyed by the same tenant key as its balance.
+  creditLots: "credit_lots",
   creditLedger: "credit_ledger",
   paymentOrders: "payment_orders",
   agencyInvites: "agency_invites",
@@ -83,7 +85,33 @@ const TENANT_TABLES: Record<string, string> = {
   payerJobPostingChatSessions: "payer_job_posting_chat_sessions",
   payerJobPostingChatMessages: "payer_job_posting_chat_messages",
   payerFormDrafts: "payer_form_drafts",
+  // #2746 (migration 0162) — keyed by the tenant key, as the census (C5) already counts them.
+  campusDriveRequests: "campus_drive_requests",
+  featurePilotPayers: "feature_pilot_payers",
+  // #2752 item 10 — a named-company search grant is keyed by the company's tenant key.
+  instituteSearchGrants: "institute_search_grants",
 };
+/**
+ * #2749 — the packages/db wallet helpers (`credit-wallet.ts`). Each writes `payer_credits`,
+ * `credit_lots` and `credit_ledger` for the wallet key its caller hands it, so CALLING one is a
+ * tenant-table touch exactly as naming `payerCredits` is: a raw-id caller of a helper is a T5
+ * finding (or a §4 exception — the admin grant and the free-tier grant are). credit-wallet.ts
+ * itself sits in packages/db, outside this scan, on purpose: it takes whatever key it is handed and
+ * resolves none, so the keying this test holds is its callers' — the tenant key on every payer
+ * path, the account id on the two named ops/signup exceptions, and a key read back from
+ * `credit_lots` on the expiry sweep (`StoredWalletKey`, never a caller's id).
+ */
+const WALLET_HELPERS: ReadonlySet<string> = new Set([
+  "lockWallet",
+  "alignLotsWithBalance",
+  "expireDueLots",
+  "grantCreditsWithinTx",
+  "spendOneCreditWithinTx",
+  // #2750 item 2 — a multi-credit open (the higher cost) spends across lots.
+  "spendCreditsWithinTx",
+  "expireWalletWithinTx",
+  "findWalletsWithDueLots",
+]);
 const SQL_TABLE = new RegExp(
   `\\b(?:from|join|into|update)\\s+(?:public\\.)?(${Object.values(TENANT_TABLES).join("|")})\\b`,
   "i",
@@ -113,6 +141,10 @@ const NAMED_EXCEPTIONS: readonly string[] = [
   "match/free-tier.service.ts FreeTierService.grantForPayer",
   // Ops address an account literally (admin actions, entity views, finance).
   "admin/admin-actions.repository.ts AdminActionsRepository.grantCredits",
+  // #2750 item 11 — the goodwill cap's quarter sum and the corrected row: the same wallet key the
+  // admin grant above credits (the account id it names).
+  "admin/admin-actions.repository.ts AdminActionsRepository.goodwillGrantedSince",
+  "admin/admin-actions.repository.ts AdminActionsRepository.ledgerRowOfPayer",
   "admin/admin-actions.repository.ts AdminActionsRepository.reinstatePayerInventory",
   "admin/admin-actions.repository.ts AdminActionsRepository.suspendPayerInventory",
   "admin/admin-entities.repository.ts AdminEntitiesRepository.getCreditBalance",
@@ -123,6 +155,15 @@ const NAMED_EXCEPTIONS: readonly string[] = [
   // Ops verify / reject the KYC of the account they name (plan §3.4, agency-kyc-ops: literal).
   "agency/agency-kyc.repository.ts AgencyKycRepository.markRejected",
   "agency/agency-kyc.repository.ts AgencyKycRepository.markVerified",
+  // #2746 PR 6 — the person, not the tenant (plan §4, beside payers.repository.ts): the account
+  // deletion erases the campus-drive contacts the deleted LOGIN typed (`created_by`), in whichever
+  // company's request they sit. Owner ruling 14 Nov 2026 (ADR-0063 §3.6); security review.
+  "campus-drives/campus-drive-contact-erasure.repository.ts CampusDriveContactErasureRepository.eraseEnteredBy",
+  // #2746 PR 6 — keyed on the payers / employer_profiles ROW THAT MOVED, not on a tenant key
+  // (plan §4, beside suspendPayerInventory and eraseEnteredBy): a standing writer (suspend,
+  // archive, a verification change) re-stamps the drive requests that read that row
+  // (security re-check L4, ADR-0063 §3.6).
+  "campus-drives/campus-drive-feed-stamp.ts restampCompanyDriveRequests",
 ];
 
 // THE OLD `UNCONVERTED` ALLOWLIST IS GONE (Phase 3). Phase 2 emptied it, one domain per PR:
@@ -228,7 +269,10 @@ function hasRawPayerIdParam(
   );
 }
 
-/** Drizzle tenant tables this file imports from @badabhai/db (local name → table). */
+/**
+ * Drizzle tenant tables — and the wallet helpers ({@link WALLET_HELPERS}) — this file imports from
+ * @badabhai/db (local names).
+ */
 function importedTenantTables(sf: ts.SourceFile): Set<string> {
   const locals = new Set<string>();
   sf.forEachChild((node) => {
@@ -244,7 +288,7 @@ function importedTenantTables(sf: ts.SourceFile): Set<string> {
     for (const el of bindings.elements) {
       if (el.isTypeOnly) continue;
       const imported = (el.propertyName ?? el.name).text;
-      if (imported in TENANT_TABLES) locals.add(el.name.text);
+      if (imported in TENANT_TABLES || WALLET_HELPERS.has(imported)) locals.add(el.name.text);
     }
   });
   return locals;
@@ -368,7 +412,8 @@ describe("T5 — no tenant-table callable takes a raw payer id, except the liste
     expect(found).toContain(
       "admin/admin-entities.repository.ts AdminEntitiesRepository.getCreditBalance",
     );
-    // Its only table reference is a `dsql` template (the file imports no Drizzle table).
+    // Its only tenant-table touch is a credit-wallet helper call (#2749; the file imports no
+    // Drizzle table). The raw `sql` template path it used to witness keeps its fixture below.
     expect(found).toContain("match/free-tier.service.ts FreeTierService.grantForPayer");
     // Its raw id is `filter.payerId` in an INLINE type literal (the parameter is `filter`).
     expect(found).toContain(
@@ -694,6 +739,20 @@ describe("T5's scanner — every detection path fires (fixtures, so a quiet scan
       "fx/intersect.repository.ts FxRepository.credit",
       "fx/intersect.repository.ts FxRepository.maybe",
     ]);
+  });
+
+  it("a call to a packages/db wallet helper (#2749), and not to an unrelated import", () => {
+    const found = scanRawTenantKeyCallables([
+      fixture(
+        "fx/wallet.service.ts",
+        `import { grantCreditsWithinTx, isSampleWorkerId } from "@badabhai/db";
+        export class FxService {
+          async grant(payerId: string) { return grantCreditsWithinTx(this.tx, { payerId, credits: 1 }); }
+          async sample(payerId: string) { return isSampleWorkerId(payerId); }
+        }`,
+      ),
+    ]);
+    expect(found).toEqual(["fx/wallet.service.ts FxService.grant"]);
   });
 
   it("a raw table name in a `sql` template", () => {

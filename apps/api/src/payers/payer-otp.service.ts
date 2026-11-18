@@ -8,11 +8,47 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import {
   OtpSendCapExceededException,
+  PayerSmsSendCapExceededException,
   secondsUntilEndOfUtcDay,
   utcDayStamp,
 } from "../common/otp-send-cap";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
-import { PAYER_LOGIN_CHANNEL, type PayerLoginChannel } from "./payer-login-channel";
+import {
+  PAYER_LOGIN_CHANNEL,
+  SmsLoginChannel,
+  type PayerLoginChannel,
+} from "./payer-login-channel";
+
+/**
+ * Which way a code goes (#2754): `default` is the configured channel (`PAYER_LOGIN_METHOD`);
+ * `sms` is a company's phone while `PAYER_SMS_OTP_ENABLED` is on. The caller decides from the
+ * contact it was given, BEFORE it knows whether the account exists, so the reserve (cooldown,
+ * caps and the daily ceiling of that path) is the same for a known and an unknown contact.
+ */
+export type PayerOtpRoute = "default" | "sms";
+
+/**
+ * #2754 item 3 — the Redis home of ONE kind of code. A sign-in code and a phone-proof code live in
+ * DIFFERENT slots, and each slot binds its code's HMAC to its own purpose, so a code issued for one
+ * purpose can never verify as the other: a sign-in code keyed under a phone is not a proof of that
+ * phone, and a proof code is not a session.
+ *
+ * What the purposes SHARE on purpose: the per-number hourly send counter (`sendCountSubject`, so
+ * one handset gets at most OTP_MAX_SENDS_PER_HOUR codes of any kind) and, on the SMS route, the
+ * company-SMS daily ceiling.
+ */
+interface PayerOtpSlot {
+  readonly codeKey: string;
+  readonly attemptsKey: string;
+  readonly cooldownKey: string;
+  /** The keyed hash the per-number hourly send counter is kept under (shared across purposes). */
+  readonly sendCountSubject: string;
+  /** The HMAC input of a code in this slot (domain separation between purposes). */
+  bind(code: string): string;
+  /** An opaque prefix for log lines only, and what it is a prefix of. */
+  readonly logHandle: string;
+  readonly logKey: "email_hash" | "payer";
+}
 
 /** Minimal typed view of the raw Redis commands the OTP flow needs (same as OtpService). */
 interface RedisOtpClient {
@@ -67,43 +103,50 @@ export class PayerOtpService {
     private readonly pii: PiiCryptoService,
     @Inject(PAYER_LOGIN_CHANNEL) private readonly channel: PayerLoginChannel,
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
+    // #2754 — a company phone's code, while PAYER_SMS_OTP_ENABLED is on.
+    private readonly smsChannel: SmsLoginChannel,
   ) {}
 
   /**
    * Reserve + deliver a code (an EXISTING account). Stores the code's HMAC keyed by
-   * `emailHash`, then delivers via the active channel. Throws 429 (cooldown / hourly cap),
-   * 502 (delivery failed), or 503 (Redis down — fail closed). The caller swallows the 502
-   * to the neutral response so a delivery failure is not an existence oracle.
+   * `emailHash` (the contact's keyed hash, an email's or a phone's), then delivers via the
+   * channel of `route`. Throws 429 (cooldown / hourly cap / daily ceiling), 502 (delivery
+   * failed), or 503 (Redis down — fail closed). The caller swallows the 502 to the neutral
+   * response so a delivery failure is not an existence oracle.
    */
   async issueAndSend(input: {
     emailHash: string;
     email: string;
     phone: string | null;
     payerId: string;
+    route?: PayerOtpRoute;
   }): Promise<PayerOtpIssued> {
     const { emailHash } = input;
+    const route = input.route ?? "default";
+    const channel = route === "sms" ? this.smsChannel : this.channel;
     const hashPrefix = emailHash.slice(0, 8);
+    const slot = PayerOtpService.loginSlot(emailHash);
     const redis = await this.client();
     try {
-      const code = await this.reserve(emailHash, redis);
+      const code = await this.reserve(slot, redis, route);
       try {
-        await this.channel.deliver({
+        await channel.deliver({
           code,
           email: input.email,
           phone: input.phone,
           payerId: input.payerId,
         });
       } catch (sendErr) {
-        await redis.del(PayerOtpService.codeKey(emailHash)).catch(() => undefined);
+        await redis.del(slot.codeKey).catch(() => undefined);
         // NEVER log the email/phone/code — only the email-hash prefix + reason class.
         this.logger.error(
-          `payer login code delivery failed email_hash=${hashPrefix} method=${this.channel.method} reason=${
+          `payer login code delivery failed email_hash=${hashPrefix} method=${channel.method} reason=${
             sendErr instanceof Error ? sendErr.message : String(sendErr)
           }`,
         );
         throw new HttpException("Could not send the code, please retry", HttpStatus.BAD_GATEWAY);
       }
-      this.logger.log(`payer login code issued email_hash=${hashPrefix} method=${this.channel.method}`);
+      this.logger.log(`payer login code issued email_hash=${hashPrefix} method=${channel.method}`);
       return this.issued();
     } catch (err) {
       throw this.mapFailClosed(err, hashPrefix);
@@ -118,13 +161,16 @@ export class PayerOtpService {
    * session). Throws 429 / 503 exactly as the existing-account path does (existence-
    * independent), so neither is an enumeration oracle.
    */
-  async issueWithoutDelivery(emailHash: string): Promise<PayerOtpIssued> {
+  async issueWithoutDelivery(
+    emailHash: string,
+    route: PayerOtpRoute = "default",
+  ): Promise<PayerOtpIssued> {
     const hashPrefix = emailHash.slice(0, 8);
     const redis = await this.client();
     try {
-      // Reserve a code for its SIDE EFFECTS only (cooldown/hourly-cap/store + the global
-      // breaker) — it is never delivered, so the plaintext is intentionally discarded here.
-      await this.reserve(emailHash, redis);
+      // Reserve a code for its SIDE EFFECTS only (cooldown/hourly-cap/store + the route's
+      // daily breaker) — it is never delivered, so the plaintext is intentionally discarded.
+      await this.reserve(PayerOtpService.loginSlot(emailHash), redis, route);
       return this.issued();
     } catch (err) {
       throw this.mapFailClosed(err, hashPrefix);
@@ -137,12 +183,71 @@ export class PayerOtpService {
    * 429 (too many attempts), or 503 (Redis down — fail closed). Constant-time compare.
    */
   async verify(emailHash: string, code: string): Promise<void> {
-    const hashPrefix = emailHash.slice(0, 8);
+    await this.verifySlot(PayerOtpService.loginSlot(emailHash), code, "payer login code");
+  }
+
+  /**
+   * #2754 item 3 — send a PHONE-PROOF code to the signed-in company's CURRENT stored phone, by SMS
+   * on the company template, under the same bounds as an SMS sign-in code: the resend cooldown (of
+   * this slot), the per-number hourly cap (SHARED with sign-in codes to that number) and the
+   * company-SMS daily ceiling. The code lives in its own slot, keyed by the account and bound to
+   * the phone's hash, so it is never a sign-in code, and a phone change in between voids it.
+   *
+   * Throws 429 (cooldown / cap / ceiling: `PayerSmsSendCapExceededException` for the ceiling),
+   * 502 (delivery failed — this is the company's own account, so there is no oracle to protect),
+   * or 503 (Redis down — fail closed).
+   */
+  async issuePhoneProof(input: {
+    payerId: string;
+    phoneHash: string;
+    phone: string;
+  }): Promise<PayerOtpIssued> {
+    const slot = PayerOtpService.phoneProofSlot(input.payerId, input.phoneHash);
+    const redis = await this.client();
+    try {
+      const code = await this.reserve(slot, redis, "sms");
+      try {
+        await this.smsChannel.deliver({
+          code,
+          email: "",
+          phone: input.phone,
+          payerId: input.payerId,
+        });
+      } catch (sendErr) {
+        await redis.del(slot.codeKey).catch(() => undefined);
+        this.logger.error(
+          `payer phone-proof code delivery failed payer=${slot.logHandle} reason=${
+            sendErr instanceof Error ? sendErr.message : String(sendErr)
+          }`,
+        );
+        throw new HttpException("Could not send the code, please retry", HttpStatus.BAD_GATEWAY);
+      }
+      this.logger.log(`payer phone-proof code issued payer=${slot.logHandle}`);
+      return this.issued();
+    } catch (err) {
+      throw this.mapFailClosed(err, slot.logHandle, slot.logKey);
+    }
+  }
+
+  /**
+   * #2754 item 3 — verify a phone-proof code for the account and the phone hash it was sent to.
+   * The same rules as {@link verify} (one 401 for "no code" and "wrong code", the attempt cap,
+   * single-use, constant-time, fail closed) on the phone-proof slot only.
+   */
+  async verifyPhoneProof(input: { payerId: string; phoneHash: string; code: string }): Promise<void> {
+    await this.verifySlot(
+      PayerOtpService.phoneProofSlot(input.payerId, input.phoneHash),
+      input.code,
+      "payer phone-proof code",
+    );
+  }
+
+  /** The shared verify over one slot (see {@link verify}). */
+  private async verifySlot(slot: PayerOtpSlot, code: string, label: string): Promise<void> {
+    const hashPrefix = slot.logHandle;
     const redis = await this.client();
 
-    const codeKey = PayerOtpService.codeKey(emailHash);
-    const attemptsKey = PayerOtpService.attemptsKey(emailHash);
-    const cooldownKey = PayerOtpService.cooldownKey(emailHash);
+    const { codeKey, attemptsKey, cooldownKey } = slot;
 
     // ONE rejection message for "no code on file" AND "wrong code" so a caller cannot use
     // the response to tell whether an account/code exists (enumeration oracle; XB-H).
@@ -152,7 +257,7 @@ export class PayerOtpService {
       const storedHmac = await redis.get(codeKey);
       if (!storedHmac) {
         // Flatten timing: equivalent HMAC + constant-time compare on a dummy.
-        const dummy = Buffer.from(this.pii.hmac(code), "utf8");
+        const dummy = Buffer.from(this.pii.hmac(slot.bind(code)), "utf8");
         timingSafeEqual(dummy, dummy);
         throw new HttpException(INVALID, HttpStatus.UNAUTHORIZED);
       }
@@ -164,18 +269,18 @@ export class PayerOtpService {
         throw new HttpException("Too many attempts, request a new code", HttpStatus.TOO_MANY_REQUESTS);
       }
 
-      const submitted = Buffer.from(this.pii.hmac(code), "utf8");
+      const submitted = Buffer.from(this.pii.hmac(slot.bind(code)), "utf8");
       const stored = Buffer.from(storedHmac, "utf8");
       const ok = submitted.length === stored.length && timingSafeEqual(submitted, stored);
       if (!ok) throw new HttpException(INVALID, HttpStatus.UNAUTHORIZED);
 
       // Success → single-use: delete code, attempts, and the resend cooldown.
       await redis.del(codeKey, attemptsKey, cooldownKey);
-      this.logger.log(`payer login code verified email_hash=${hashPrefix} status=ok`);
+      this.logger.log(`${label} verified ${slot.logKey}=${hashPrefix} status=ok`);
     } catch (err) {
       if (err instanceof HttpException) throw err;
       this.logger.error(
-        `payer OTP verify Redis error email_hash=${hashPrefix}; failing closed (reason: ${
+        `payer OTP verify Redis error ${slot.logKey}=${hashPrefix}; failing closed (reason: ${
           err instanceof Error ? err.message : String(err)
         })`,
       );
@@ -193,10 +298,12 @@ export class PayerOtpService {
    * reset attempts → arm the resend cooldown. Returns the plaintext code. Throws 429 on
    * cooldown/cap; lets Redis errors propagate (the caller maps them to 503).
    */
-  private async reserve(emailHash: string, redis: RedisOtpClient): Promise<string> {
-    const codeKey = PayerOtpService.codeKey(emailHash);
-    const attemptsKey = PayerOtpService.attemptsKey(emailHash);
-    const cooldownKey = PayerOtpService.cooldownKey(emailHash);
+  private async reserve(
+    slot: PayerOtpSlot,
+    redis: RedisOtpClient,
+    route: PayerOtpRoute,
+  ): Promise<string> {
+    const { codeKey, attemptsKey, cooldownKey } = slot;
 
     if ((await redis.exists(cooldownKey)) > 0) {
       throw new HttpException(
@@ -206,7 +313,7 @@ export class PayerOtpService {
     }
 
     const hour = PayerOtpService.utcHourStamp();
-    const sendCountKey = PayerOtpService.sendCountKey(emailHash, hour);
+    const sendCountKey = PayerOtpService.sendCountKey(slot.sendCountSubject, hour);
     const sends = await redis.incr(sendCountKey);
     await redis.expire(sendCountKey, PayerOtpService.secondsUntilEndOfUtcHour());
     if (sends > this.config.OTP_MAX_SENDS_PER_HOUR) {
@@ -217,7 +324,7 @@ export class PayerOtpService {
     }
 
     const code = PayerOtpService.generateCode(this.config.OTP_LENGTH);
-    await redis.set(codeKey, this.pii.hmac(code), "EX", this.config.OTP_TTL_SECONDS);
+    await redis.set(codeKey, this.pii.hmac(slot.bind(code)), "EX", this.config.OTP_TTL_SECONDS);
     await redis.del(attemptsKey);
     await redis.set(cooldownKey, "1", "EX", this.config.OTP_RESEND_COOLDOWN_SECONDS);
 
@@ -228,10 +335,40 @@ export class PayerOtpService {
     // throw the SAME neutral 429 the throttle uses (tagged so the caller emits the breach
     // event once + degrades to the neutral "code_sent" response). A Redis error propagates
     // to the caller's fail-closed mapper (503) — it never uncaps.
-    if (isRealPayerEmailActive(this.config)) {
+    //
+    // #2754 — an SMS reserve counts against the company-SMS ceiling INSTEAD: no email goes out
+    // for it, and SMS is the path that spends. Chosen by route, which the caller fixes from the
+    // contact before the account is looked up, so a known and an unknown phone count the same.
+    if (route === "sms") {
+      await this.assertWithinSmsDailyCap(redis, codeKey, cooldownKey);
+    } else if (isRealPayerEmailActive(this.config)) {
       await this.assertWithinGlobalDailyCap(redis, codeKey, cooldownKey);
     }
     return code;
+  }
+
+  /**
+   * #2754 — the company sign-in SMS daily ceiling (`PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY`), the
+   * SMS twin of {@link assertWithinGlobalDailyCap}: its own counter, the same `count >= cap` rule
+   * (cap 0 = paused), the same roll-back and the same neutral 429, as its own exception.
+   */
+  private async assertWithinSmsDailyCap(
+    redis: RedisOtpClient,
+    codeKey: string,
+    cooldownKey: string,
+  ): Promise<void> {
+    const day = utcDayStamp();
+    const key = PayerOtpService.globalSmsSendCountKey(day);
+    const count = await redis.incr(key);
+    await redis.expire(key, secondsUntilEndOfUtcDay());
+    const limit = this.config.PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY;
+    if (count >= limit) {
+      await redis.del(codeKey, cooldownKey).catch(() => undefined);
+      this.logger.warn(
+        `payer OTP global daily send cap reached (payer_sms) limit=${limit} day=${day}; refusing real send`,
+      );
+      throw new PayerSmsSendCapExceededException({ limit, window: day });
+    }
   }
 
   /**
@@ -272,10 +409,14 @@ export class PayerOtpService {
   }
 
   /** Re-raise explicit HTTP decisions; map anything else (Redis/transport) to 503 (fail closed). */
-  private mapFailClosed(err: unknown, hashPrefix: string): HttpException {
+  private mapFailClosed(
+    err: unknown,
+    hashPrefix: string,
+    logKey: PayerOtpSlot["logKey"] = "email_hash",
+  ): HttpException {
     if (err instanceof HttpException) return err;
     this.logger.error(
-      `payer OTP issue Redis error email_hash=${hashPrefix}; failing closed (reason: ${
+      `payer OTP issue Redis error ${logKey}=${hashPrefix}; failing closed (reason: ${
         err instanceof Error ? err.message : String(err)
       })`,
     );
@@ -296,14 +437,39 @@ export class PayerOtpService {
     return code;
   }
 
-  private static codeKey(emailHash: string): string {
-    return `payer_otp:code:${emailHash}`;
+  /**
+   * A SIGN-IN code, keyed by the contact's keyed hash (an email's or a phone's). The keys and the
+   * raw-code HMAC are exactly the pre-#2754-item-3 ones, so a code issued before a deploy still
+   * verifies after it.
+   */
+  private static loginSlot(contactHash: string): PayerOtpSlot {
+    return {
+      codeKey: `payer_otp:code:${contactHash}`,
+      attemptsKey: `payer_otp:attempts:${contactHash}`,
+      cooldownKey: `payer_otp:cooldown:${contactHash}`,
+      sendCountSubject: contactHash,
+      bind: (code) => code,
+      logHandle: contactHash.slice(0, 8),
+      logKey: "email_hash",
+    };
   }
-  private static attemptsKey(emailHash: string): string {
-    return `payer_otp:attempts:${emailHash}`;
-  }
-  private static cooldownKey(emailHash: string): string {
-    return `payer_otp:cooldown:${emailHash}`;
+
+  /**
+   * #2754 item 3 — a PHONE-PROOF code: keyed by the ACCOUNT (`payer_otp:phone_proof:*`, never the
+   * sign-in keys) and bound to the hash of the phone it was sent to (`phone_proof:<hash>:<code>`),
+   * so it cannot verify as a sign-in code, a sign-in code cannot verify as it, and a phone change
+   * between the send and the verify voids it. The hourly per-number counter is the sign-in one.
+   */
+  private static phoneProofSlot(payerId: string, phoneHash: string): PayerOtpSlot {
+    return {
+      codeKey: `payer_otp:phone_proof:code:${payerId}`,
+      attemptsKey: `payer_otp:phone_proof:attempts:${payerId}`,
+      cooldownKey: `payer_otp:phone_proof:cooldown:${payerId}`,
+      sendCountSubject: phoneHash,
+      bind: (code) => `phone_proof:${phoneHash}:${code}`,
+      logHandle: payerId.slice(0, 8),
+      logKey: "payer",
+    };
   }
   private static sendCountKey(emailHash: string, hour: string): string {
     return `payer_otp:sendcount:${emailHash}:${hour}`;
@@ -311,6 +477,10 @@ export class PayerOtpService {
   /** Global daily REAL-send counter (OTP-5 spend ceiling) — NOT keyed by account. */
   private static globalSendCountKey(day: string): string {
     return `payer_otp:global_sendcount:${day}`;
+  }
+  /** #2754 — the company-SMS daily counter, its own key beside the email one. */
+  private static globalSmsSendCountKey(day: string): string {
+    return `payer_otp:global_sms_sendcount:${day}`;
   }
 
   /** UTC hour stamp `YYYYMMDDHH`. */

@@ -13,6 +13,7 @@ import {
   type DbClient,
   type EventRow,
 } from "@badabhai/db";
+import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
 /**
  * Phase 1 worker onboarding — ONE comprehensive happy-path test.
@@ -65,12 +66,12 @@ const SERVICE_TOKEN = process.env.INTERNAL_SERVICE_TOKEN ?? "";
 
 /**
  * A phone in the ONLY range the D-3 mint will serve: SYNTHETIC_TEST_PHONE_PATTERN
- * (`/^\+910{5}\d{5}$/`, i.e. `+9100000` + 5 digits) — the reserved, unassignable block.
+ * (`/^\+910{5}\d{5}$/`) — the reserved, unassignable block, inside this suite's own slot.
  * `AuthService.testLogin` refuses anything else before finding or creating a worker.
- * Randomised (not `Date.now()`-derived) so a re-run of this suite in the same process
- * cannot collide with a worker a prior run already minted.
+ * Randomised within the slot (not `Date.now()`-derived) so a re-run of this suite in the
+ * same process is unlikely to meet a worker a prior run already minted.
  */
-const PHONE = `+9100000${String(Math.floor(Math.random() * 100_000)).padStart(5, "0")}`;
+const PHONE = syntheticPhoneMinter(66)();
 const NATIONAL = PHONE.slice(1); // digits only, no leading "+"
 const CONSENT_VERSION = "2026-06-01";
 const PURPOSES = ["profiling", "resume_generation"] as const;

@@ -27,10 +27,12 @@ export class Fast2SmsProvider implements SmsProvider {
     private readonly pii: PiiCryptoService,
   ) {}
 
-  async sendOtp(input: { phoneE164: string; code: string }): Promise<void> {
+  async sendOtp(input: { phoneE164: string; code: string; templateId?: string }): Promise<void> {
     const apiKey = this.config.FAST2SMS_API_KEY;
     const senderId = this.config.FAST2SMS_SENDER_ID;
-    const templateId = this.config.FAST2SMS_DLT_TEMPLATE_ID;
+    // A caller with its own approved template (the company sign-in message) names it; the
+    // worker sign-in template stays the default.
+    const templateId = input.templateId ?? this.config.FAST2SMS_DLT_TEMPLATE_ID;
     // assertAuthConfig guarantees these are present in non-dev; guard anyway so a
     // misconfig fails CLOSED (throws) rather than sending a malformed request.
     if (!apiKey || !senderId || !templateId) {

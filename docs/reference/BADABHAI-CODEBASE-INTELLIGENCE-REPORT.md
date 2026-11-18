@@ -509,6 +509,72 @@ Delhi), never displayed. Served whole rather than behind a `?q=` route because t
 values and ~1.2 KB, so the client filters it in memory — the pattern `SEARCHABLE_OPTION_THRESHOLD`
 already sets for every other long option list.
 
+## 5.6a Company Search Visibility APIs (#2753 item 6)
+
+| Method | Route | Purpose | Auth |
+|--------|-------|---------|------|
+| `GET /workers/me/search-visibility` | Whether companies can find the worker | SearchExitEnabledGuard, WorkerAuthGuard, ConsentGuard |
+| `PUT /workers/me/search-visibility` | Leave company search (`{ visible: false }`) or come back (`{ visible: true }`) | SearchExitEnabledGuard, WorkerAuthGuard, ConsentGuard |
+
+Behind `SEARCH_EXIT_ENABLED` (default off). While it is off, both routes answer the plain 404 of a
+route that does not exist, before any auth runs. On, both answer `{ visible: boolean, hidden_since:
+string | null }` (`hidden_since` is when he left, ISO 8601; `null` while he is in search), with
+`Cache-Control: no-store`. The PUT body is strict `{ visible: boolean }` (anything else is a 400),
+the worker id comes from the token, and no Idempotency-Key is needed: a repeat is a no-op that keeps
+the first `hidden_since` and returns the same body. One `worker.search_visibility_changed` event per
+real change.
+
+Leaving search writes one `worker_search_exits` row (migration 0169) and touches **no consent
+row**: withdrawing consent stays the stronger exit. While he is out he is absent from every company's
+candidate search, its city facet and the admin candidate card, and only a company he applied to (or
+one already holding an open contact) can open him. His own job feed, applying, chat and the
+applicant lists of companies he applied to are unaffected.
+
+## 5.6b The Monthly "Still Looking?" Check (#2753 item 5)
+
+| Method | Route | Purpose | Auth |
+|--------|-------|---------|------|
+| `GET /workers/me/still-looking` | Is a check due (the in-app card), and the card's other facts | StillLookingEnabledGuard, WorkerAuthGuard, ConsentGuard |
+| `POST /workers/me/still-looking` | Answer it: `{ answer: "yes" \| "not_now" \| "hired" }` | StillLookingEnabledGuard, WorkerAuthGuard, ConsentGuard |
+
+Behind `STILL_LOOKING_CHECK_ENABLED` (default off). While it is off, both routes answer the plain
+404 of a route that does not exist, before any auth runs, and nothing reads or writes
+`still_looking_checks` (migration 0173). On, both answer, with `Cache-Control: no-store`:
+
+```ts
+{
+  due: boolean;                       // an open (unanswered) check exists: show the card
+  check_id: string | null;            // that check's id; null when none is open
+  availability_needs_answer: boolean; // stored availability empty, or an OLD key while the brief's
+                                      // four answers are on: ask it again with the four
+  last_active_on: string | null;      // IST yyyy-mm-dd, the day companies see; null while
+                                      // WORKER_ACTIVITY_ENABLED is off
+  not_recently_active: boolean;       // the company rows' own mark (NOT_RECENTLY_ACTIVE_DAYS);
+                                      // false while WORKER_ACTIVITY_ENABLED is off
+}
+```
+
+- **The prompt.** A daily sweep opens one check for each worker who is `active`, not scheduled for
+  deletion, holds an unrevoked latest consent, has no open check, and has had no check opened or
+  answered in the last `STILL_LOOKING_EVERY_DAYS` (default 30). Each opened check emits
+  `worker.still_looking_prompted { worker_id, check_id }`, which is also an Alerts entry (type
+  `still_looking`, static Hinglish copy). An ignored card stays the one card: it is not re-pushed.
+- **The answer.** The POST body is strict `{ answer }` (anything else is a 400); the worker id comes
+  from the token. It answers the open check, or, with none open (an answer from Settings), opens and
+  answers one. One transaction stores the answer, emits
+  `worker.still_looking_answered { worker_id, check_id, answer }` and, with `SEARCH_EXIT_ENABLED`
+  on, moves him: `not_now` takes him out of company search (via `monthly_check`), `yes` brings him
+  back (from either via). `hired` is stored and reported only: a hire record needs a company and a
+  posting, which the worker desk links later (his own `hired` is never a confirmed hire). After the
+  commit his last active day moves to today, so the mark clears. The reply is the GET shape.
+- **No Idempotency-Key.** Repeating the answer already stored writes no row and emits no event, and
+  answers the same body.
+- **The push** goes out only with `STILL_LOOKING_PUSH_ENABLED` on as well (default off). It is a
+  NON-security push, which the ADR-0034 ruling (security alerts only; ADR-0062 added the correction
+  notices) does not yet allow: **the owner must widen that ruling before the secret is set.** As a
+  non-security push it counts against `PUSH_GLOBAL_MAX_SENDS_PER_DAY` and respects the worker's own
+  notifications toggle. With it off, the card and the Alerts entry still show.
+
 ## 5.7 Employment APIs
 
 | Method | Route | Purpose | Auth |
@@ -806,7 +872,7 @@ already sets for every other long option list.
 | Method | Route | Purpose | Auth |
 |--------|-------|---------|------|
 | `POST /admin/workers/:id/reveal-contact` | Reveal ONE worker phone | AdminAuthGuard, reveal_pii (flag-gated) |
-| `GET /admin/feedback` | Worker feedback | AdminAuthGuard, read_entities |
+| `GET /admin/feedback` | Worker feedback | AdminAuthGuard, read_identity (#2926) |
 | `GET /admin/ai-traces` | PII-free AI trace metadata | AdminAuthGuard, read_ai_traces |
 | `GET /admin/ai-traces/:id` | DECRYPTED AI trace detail | AdminAuthGuard, read_ai_traces |
 | `GET /admin/workers/:id/journey-summary` | 7-step funnel | AdminAuthGuard, read_entities |

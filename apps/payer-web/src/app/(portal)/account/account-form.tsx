@@ -8,6 +8,7 @@ import { Button, Input, Toast } from "../../../components/ds";
 import { useToast } from "../../../components/ds/toast-provider";
 import { updateAccountAction } from "./actions";
 import { ACCOUNT_SAVE_ERROR, ORG_NAME_ERROR, PHONE_ERROR, SAVED_CONFIRMATION } from "./messages";
+import { PhoneProofPrompt } from "./phone-proof-prompt";
 
 /**
  * Account edit form (PROF-4) — a payer changes their OWN org name + contact phone.
@@ -42,6 +43,11 @@ export interface AccountFormProps {
   orgName: string;
   /** Last 4 of the current phone, or null if none on file. */
   phoneLast4: string | null;
+  /**
+   * `GET /payer/me/phone-proof` (#2754): absent/null on a 404 (the switch is off) — the form then
+   * looks exactly as it does today. `{ proven }` renders the confirm/confirmed affordance.
+   */
+  phoneProof?: { proven: boolean } | null;
 }
 
 interface FieldErrors {
@@ -55,7 +61,7 @@ function orgNameValid(value: string): boolean {
   return len >= 2 && len <= 120;
 }
 
-export function AccountForm({ orgName, phoneLast4 }: AccountFormProps) {
+export function AccountForm({ orgName, phoneLast4, phoneProof }: AccountFormProps) {
   const router = useRouter();
   // useState order (mirrored by account-form.test.tsx): orgValue, phoneValue, fieldErrors,
   // error. A save is confirmed by the portal's one success toast (#2583), not by form state.
@@ -162,6 +168,13 @@ export function AccountForm({ orgName, phoneLast4 }: AccountFormProps) {
             if (fieldErrors.phone) setFieldErrors((p) => ({ ...p, phone: undefined }));
           }}
         />
+        {phoneProof ? (
+          <PhoneProofPrompt
+            key={`${phoneLast4 ?? "none"}-${phoneProof.proven}`}
+            proven={phoneProof.proven}
+            phoneLast4={phoneLast4}
+          />
+        ) : null}
       </div>
 
       <div className="form-actions">

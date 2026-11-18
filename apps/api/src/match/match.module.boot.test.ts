@@ -16,6 +16,8 @@ import { MatchApplyService } from "./match-apply.service";
 import { MatchCandidatesService } from "./match-candidates.service";
 import { ApplicantProfileFactsRepository } from "./applicant-profile-facts.repository";
 import { FreeTierService } from "./free-tier.service";
+import { PrePayFactsService } from "./pre-pay-facts.service";
+import { FeatureRolloutModule } from "../feature-rollout/feature-rollout.module";
 import { MatchConfigRepository } from "./match-config.repository";
 
 /**
@@ -106,7 +108,12 @@ describe("MatchModule — the @Global matching layer's wiring", () => {
       MatchApplyService,
       MatchCandidatesService,
       FreeTierService,
+      PrePayFactsService,
     ]);
+  });
+
+  it("imports FeatureRolloutModule — the source of the #2747 `applicant_facts` switch", () => {
+    expect(getMeta("imports", MatchModule)).toContain(FeatureRolloutModule);
   });
 
   it("keeps MatchConfigRepository INTERNAL — config is read through the cached service", () => {

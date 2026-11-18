@@ -114,6 +114,33 @@ describe("the two-step verification switch", () => {
   });
 });
 
+describe("the two-step switch when the ROLE requires it (#2924: super_admin, ops_admin)", () => {
+  it("on and required: the switch is disabled and says why — there is no way to turn it off", async () => {
+    stub.security = { hasPassword: true, mustChangePassword: false, mfaEnabled: true, mfaRequired: true };
+    const html = await render();
+    expect(switchTag(html)).toContain('aria-checked="true"');
+    expect(switchTag(html)).toMatch(/disabled=""/);
+    expect(html).toContain("Required for your role");
+    expect(html).not.toContain("Recommended for every admin");
+  });
+
+  it("off but required: the switch can turn it on now, and the next sign-in will ask for it", async () => {
+    stub.security = { hasPassword: true, mustChangePassword: false, mfaEnabled: false, mfaRequired: true };
+    const html = await render();
+    expect(switchTag(html)).toContain('aria-checked="false"');
+    expect(switchTag(html)).not.toMatch(/disabled=""/);
+    expect(html).toContain("the next time you sign in");
+    expect(html).not.toContain("Recommended for every admin");
+  });
+
+  it("not required (support, analyst): the Amendment 1 switch, unchanged", async () => {
+    stub.security = { hasPassword: true, mustChangePassword: false, mfaEnabled: true, mfaRequired: false };
+    const html = await render();
+    expect(switchTag(html)).not.toMatch(/disabled=""/);
+    expect(html).not.toContain("Required for your role");
+  });
+});
+
 describe("what the server did not say", () => {
   it("an older API (fields absent): each panel says so and offers nothing to press", async () => {
     stub.security = { hasPassword: null, mustChangePassword: false, mfaEnabled: null };

@@ -3,7 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import { IconButtonBase } from "@badabhai/icons/button";
 import { Badge, Button, Card } from "../../../components/ds";
-import type { CandidateSearchRow } from "../../../lib/contracts";
+import type { CandidateSearchRow, UnlockQuotes } from "../../../lib/contracts";
 import { workerHandle } from "../../../lib/masking";
 
 /**
@@ -71,6 +71,8 @@ vi.mock("react", async () => {
   return {
     ...actual,
     useState: (init: unknown) => useState(init),
+    // The quote layer's effect: the quotes these suites pass are already the frame's.
+    useEffect: () => {},
     useSyncExternalStore: (
       subscribe: (onChange: () => void) => () => void,
       getSnapshot: () => unknown,
@@ -114,6 +116,8 @@ function mount(
     /** When the page's server read `balance` (#2585). */
     balanceAsOf?: number;
     unlocked?: Record<string, { kind: "granted"; unlockId: string; expiresAt: string }>;
+    /** #2750 — the pre-read quote frame. */
+    unlockQuotes?: UnlockQuotes | null;
   } = {},
 ) {
   unsubscribe?.();
@@ -130,6 +134,7 @@ function mount(
       balance: opts.balance ?? 5,
       balanceAsOf: opts.balanceAsOf ?? 0,
       ...(opts.unlocked ? { unlocked: opts.unlocked } : {}),
+      ...(opts.unlockQuotes !== undefined ? { unlockQuotes: opts.unlockQuotes } : {}),
     }) as ReactElement;
   };
   renderFn();
@@ -484,5 +489,68 @@ describe("#2585 — after an unlock the balance updates with NO page reload", ()
     )!;
     (stamp.props.onAnimationEnd as () => void)();
     expect(fresh()).toHaveLength(0);
+  });
+});
+
+describe("#2750 — the contact cost on the open button", () => {
+  const quotes = (quotes: Record<string, number>, creditsAvailable: number): UnlockQuotes => ({
+    quotes,
+    creditsAvailable,
+  });
+
+  it("shows 'Open for N credits' from the quote; 0 reads as free", () => {
+    mount([row(W1), row(W2)], {
+      unlockQuotes: quotes({ [W1]: 2, [W2]: 0 }, 5),
+    });
+    expect(button(cards()[0]!, "Open for 2 credits")).toBeDefined();
+    expect(button(cards()[1]!, "Open (free)")).toBeDefined();
+    expect(button(cards()[0]!, "Open for 2 credits")!.disabled).toBe(false);
+  });
+
+  it("disables an open beyond the balance and offers the Starter pack beside it", () => {
+    mount([row(W1), row(W2)], {
+      unlockQuotes: quotes({ [W1]: 2, [W2]: 1 }, 1),
+    });
+    const dear = button(cards()[0]!, "Open for 2 credits")!;
+    expect(dear.disabled).toBe(true);
+    expect(elements(cards()[0]!).some((el) => el.props?.href === "/credits")).toBe(true);
+    expect(deepText(cards()[0]!)).toContain("Starter pack");
+    expect(deepText(cards()[0]!)).toContain("You need 2 credits, you have 1.");
+    expect(button(cards()[1]!, "Open for 1 credit")!.disabled).toBe(false);
+  });
+
+  it("a quote failure (null) keeps today's 1-credit button — the list never breaks", () => {
+    mount([row(W1)], { unlockQuotes: null });
+    expect(button(cards()[0]!, "Unlock contact (1 credit)")).toBeDefined();
+  });
+
+  it("the confirm dialog states the quoted cost", () => {
+    mount([row(W1)], { unlockQuotes: quotes({ [W1]: 2 }, 5) });
+    button(cards()[0]!, "Open for 2 credits")!.onClick!();
+    expect(elements().some((el) => textOf(el.props.children as ReactNode).includes("Unlock · 2 credits"))).toBe(true);
+  });
+
+  it("an insufficient_credits answer shows the honest line + Starter pack, never a failure toast", async () => {
+    toastShow.mockClear();
+    candidateUnlockAction.mockResolvedValue({
+      ok: true,
+      view: {
+        kind: "insufficient",
+        creditsNeeded: 2,
+        creditsAvailable: 1,
+        message: "You need 2 credits, you have 1.",
+      },
+      readBack: { balance: 1, asOf: 200 },
+    });
+    mount([row(W1)], { unlockQuotes: quotes({ [W1]: 2 }, 2) });
+    button(cards()[0]!, "Open for 2 credits")!.onClick!();
+    await buttons()
+      .find((b) => b.text.startsWith("Unlock · 2 credits"))!
+      .onClick!();
+    expect(deepText(cards()[0]!)).toContain("You need 2 credits, you have 1.");
+    expect(deepText(cards()[0]!)).toContain("Starter pack");
+    expect(elements(cards()[0]!).some((el) => el.props?.href === "/credits")).toBe(true);
+    expect(cells[3]).toBeNull(); // no generic failure toast
+    expect(toastShow).not.toHaveBeenCalled();
   });
 });

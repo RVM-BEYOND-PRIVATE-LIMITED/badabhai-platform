@@ -5,6 +5,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { AiService } from "../ai/ai.service";
 import type { AiRequestContext } from "../ai/ai.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
+import { InstituteAiGate } from "../campus-link/institute-ai-gate.service";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import type { WorkerEmploymentRecord } from "./resume-employment-rows";
@@ -68,6 +69,10 @@ export class WorkHistoryPolishService {
     private readonly employments: WorkerEmploymentRepository,
     private readonly attributes: WorkerAttributesRepository,
     private readonly aiCost: AiCostRecorder,
+    // #2752 item 13 — no polish for an institute student without BadaBhai's own consent. The
+    // render that asks for it is also started off his request (an ops name change, an admin
+    // correction). CampusLinkModule, a one-way edge.
+    private readonly instituteAi: InstituteAiGate,
   ) {}
 
   /**
@@ -215,6 +220,8 @@ export class WorkHistoryPolishService {
     ctx: AiRequestContext,
   ): Promise<string | null> {
     try {
+      // #2752 item 13 — a refusal lands in the catch below: the sheet prints his own words.
+      await this.instituteAi.assertMayRunAi(workerId);
       const out = await this.ai.polishWorkHistory(
         {
           schema_version: "oie.v1",

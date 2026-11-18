@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { labelForTaxonomyId, ROLES } from "@badabhai/taxonomy";
 import {
-  AVAILABILITY_STATUSES,
+  AVAILABILITY_STATUSES_ALL,
+  AVAILABILITY_STATUSES_V1,
+  AVAILABILITY_STATUSES_V2,
   DOCUMENTS_READY,
   EDUCATION_COUNCILS,
   EDUCATION_QUALIFICATIONS,
@@ -14,6 +16,7 @@ import { storedEducationField, storedEmployerName } from "../../profiles/title-c
 import { EditProposalRowSchema } from "../chat-companion.dto";
 import { EDIT_ENTRY_LABELS, EDIT_FIELD_LABELS, EDIT_YES_NO_LABELS } from "../companion-replies";
 import {
+  buildEditableFields,
   cardFieldLabel,
   displayValue,
   EDIT_CATALOGUE,
@@ -38,7 +41,8 @@ const VOCABULARY_FIELDS: ReadonlyArray<
   ["preferences", "shift", SHIFTS],
   ["preferences", "job_type", JOB_TYPES],
   ["preferences", "work_types", JOB_TYPES],
-  ["preferences", "availability_status", AVAILABILITY_STATUSES],
+  // Both answer sets (#2753 item 3): the writer accepts either, so the card carries and labels either.
+  ["preferences", "availability_status", AVAILABILITY_STATUSES_ALL],
   ["preferences", "documents_ready", DOCUMENTS_READY],
 ];
 
@@ -366,5 +370,31 @@ describe("an employer name and an education field normalise to the casing their 
     ["qualifications", "training_provider"],
   ] as const)("leaves %s:%s as typed — only the two written fields are cased", (section, field) => {
     expect(normaliseValue(section, field, "govt iti pune")).toBe("govt iti pune");
+  });
+});
+
+describe("availability_status — both answer sets, whatever the flag says (#2753 item 3)", () => {
+  it("accepts a key of either set and labels each in its OWN words", () => {
+    for (const [slug, label] of [
+      ...Object.entries(AVAILABILITY_STATUSES_V1),
+      ...Object.entries(AVAILABILITY_STATUSES_V2),
+    ]) {
+      expect(normaliseValue("preferences", "availability_status", slug)).toBe(slug);
+      expect(displayValue("preferences", "availability_status", slug)).toBe(label);
+    }
+    // An old stored answer is never shown in the new words.
+    expect(displayValue("preferences", "availability_status", "within_week")).toBe("Within a week");
+    expect(displayValue("preferences", "availability_status", "join_now")).toBe("Can join now");
+    // Lower-cased as the store keeps it; a label or an unknown word is not a key.
+    expect(normaliseValue("preferences", "availability_status", " Join_Now ")).toBe("join_now");
+    expect(normaliseValue("preferences", "availability_status", "Can join now")).toBeNull();
+    expect(normaliseValue("preferences", "availability_status", "15 days")).toBeNull();
+  });
+
+  it("offers the model no value list at all, so the flag has nothing to narrow in the catalogue", () => {
+    // The catalogue the AI service receives is section, field and ops. Offering the brief's four
+    // to the model would need a `values` member on both sides of the edit-parse contract.
+    const entry = buildEditableFields().find((e) => e.field === "availability_status");
+    expect(entry).toEqual({ section: "preferences", field: "availability_status", ops: ["edit"] });
   });
 });

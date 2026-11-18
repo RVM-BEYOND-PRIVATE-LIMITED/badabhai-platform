@@ -6,8 +6,9 @@ import { APPLICANT_STAGES } from "@badabhai/types";
  * `PAYER_APPLICANT_STAGES_ENABLED` is on (#2737).
  *
  * `all` is the saved board's own view: every applicant, each row labelled with its
- * stage (payer-web's New / Shortlist / Passed tabs ask for it). The three real stages
- * narrow the feed to that one stage. Absent means `new` — the actionable feed of
+ * stage (payer-web's New / Shortlist / Passed tabs ask for it). Each real stage (the outcome
+ * stages `selected` / `hired` included, #2747, whatever the outcome switch says)
+ * narrows the feed to that one stage. Absent means `new` — the actionable feed of
  * applicants nobody has handled yet, so a rejected or selected applicant is gone on
  * the next read regardless of which client is asking.
  */

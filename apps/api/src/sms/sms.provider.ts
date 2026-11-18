@@ -13,7 +13,11 @@ import type { OtpSendFailureReason } from "@badabhai/event-schema";
  * emit the PII-free `worker.otp_send_failed` monitoring event (F4, #168).
  */
 export interface SmsProvider {
-  sendOtp(input: { phoneE164: string; code: string }): Promise<void>;
+  /**
+   * `templateId` is the approved DLT template to send on (#2754: the company sign-in message).
+   * Omitted, the worker sign-in template (`FAST2SMS_DLT_TEMPLATE_ID`) is used, as before.
+   */
+  sendOtp(input: { phoneE164: string; code: string; templateId?: string }): Promise<void>;
 }
 
 /** DI token for the active {@link SmsProvider} implementation. */

@@ -31,6 +31,12 @@ Code: `["Junior Programmer", "Programmer", "Senior Programmer"]`
 Spec: no ladder given — use code ladder as `trainee→junior, programmer, senior`.
 Keys: `junior_programmer, programmer, senior_programmer`. Higher tier: Programmer+.
 
+## Sheet metal (`mskill_sheet_metal_worker` / `sheet_metal_worker` / `qp_sheet_metal_fab`)
+
+Code: `["Helper", "Operator", "Skilled", "Senior", "Programmer", "Supervisor"]`
+CEO Launch Plan Pack v1, sheet 10 (shipped as `qp_sheet_metal_fab@2`): one chip "Senior / Programmer" stored `senior`.
+#2753 item 1 (`qp_sheet_metal_fab@3`; owner question 5 default: a level, not a trade): `helper, operator, skilled, senior, programmer, supervisor`. Programmer sits above senior and below supervisor: the @2 rung's separating question ("Nesting / press-brake program khud banate ho?") is the programmer's evidence. Confirmed from `skilled`; Higher from `skilled`. That question is asked of senior and programmer (standing owner rule 2026-11-03); supervisor by rule. Stored @2 `senior` answers stay valid and print "Senior". The posting ladder carries the same split (`trainee … senior, programmer, supervisor`).
+
 ## Price tier (spec §4.1, hook only, ₹40 live)
 
 Lower: Helper, Operator, null (+ CAD trainee/draughtsman/modeller equivalents).

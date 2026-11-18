@@ -31,6 +31,7 @@ const CREATED = new Date("2026-07-20T08:00:00.000Z");
 
 function candidate(id: string, over: Partial<CandidateRow> = {}): CandidateRow {
   return {
+    instituteCode: null,
     applicationId: id,
     workerId: `w-${id}`,
     matchTier: 1,
@@ -237,6 +238,8 @@ describe("MatchCandidatesService — the row a payer reads before paying", () =>
         "engineVersion",
         "industryExperienceBand",
         "industryMonths",
+        // #2752 — the "RVM student" label (an institute code or null), never identity.
+        "instituteCode",
         "lastActiveBand",
         "lastWorkedAt",
         "matchTier",

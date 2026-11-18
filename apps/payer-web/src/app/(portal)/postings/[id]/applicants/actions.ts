@@ -99,7 +99,18 @@ async function spendUnlock(postingId: string | null, workerId: string): Promise<
   } catch {
     return { ok: false, error: "Unlock failed (service unavailable). Please retry." };
   }
-  return { ok: true, view, readBack: view.kind === "granted" ? await balanceAfterGrant() : null };
+  if (view.kind === "granted") {
+    return { ok: true, view, readBack: await balanceAfterGrant() };
+  }
+  if (view.kind === "insufficient") {
+    // The refusal carries the company's own spendable balance; publish it at once.
+    return {
+      ok: true,
+      view,
+      readBack: { balance: view.creditsAvailable, asOf: Date.now() },
+    };
+  }
+  return { ok: true, view, readBack: null };
 }
 
 /**

@@ -325,7 +325,13 @@ function setup(
     }),
   };
 
-  const parse = new ResumeParseService(table as never, ai as never, aiCost as never, events);
+  const parse = new ResumeParseService(
+    table as never,
+    ai as never,
+    aiCost as never,
+    events,
+    { assertMayRunAi: vi.fn(async () => undefined) } as never, // #2752 institute AI gate
+  );
   const routing = new ResumeRouteService(
     table as never,
     occupations as never,

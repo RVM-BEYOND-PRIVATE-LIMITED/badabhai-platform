@@ -16,7 +16,14 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
-import type { MessageDirection, MessageType } from "@badabhai/types";
+import type {
+  CreditLotSource,
+  MessageDirection,
+  MessageType,
+  PaymentOrderOrigin,
+  PaymentOrderProductKind,
+  PaymentOrderStatus as TypesPaymentOrderStatus,
+} from "@badabhai/types";
 import { jsonObject } from "./internal/sql-defaults";
 import { workers } from "./worker";
 import { generatedResumes } from "./profile";
@@ -147,6 +154,13 @@ export const payers = pgTable(
       .notNull()
       .default(sql`'{}'::text[]`),
     orgNameTokenKeyId: text("org_name_token_key_id"),
+    /**
+     * #2746 — test-traffic marker for a COMPANY (the `workers.is_test_account` twin). Set only
+     * by an explicit ops act; rows a test company creates copy it (`campus_drive_requests.is_test`,
+     * #2749's credit lots) so reports can split real from test. Default FALSE keeps every
+     * existing company on today's behaviour.
+     */
+    isTestAccount: boolean("is_test_account").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -287,10 +301,62 @@ export type UnlockDenyReason = "no_consent" | "capped" | "payment_required" | "u
  * Append-only credit-ledger movement reason (ADR-0010 §D5). `pack_purchase` =
  * a payer bought a credit pack (mock in alpha, see credit-packs.ts); `unlock_debit`
  * = one credit spent to grant an unlock; `refund` = a credit returned; `grant` =
- * an ops/internal top-up (no real money). No currency/PAN/UPI is ever stored —
- * `payment_ref` is an OPAQUE external order id only, never card/PII data.
+ * an ops/internal top-up (no real money); `expired` = a lot's unspent credits removed when its
+ * `expires_at` passed (#2749, migration 0174: one line per lot, ever, keyed
+ * `credit_lot_expired:<lot id>`). No currency/PAN/UPI is ever stored — `payment_ref` is an
+ * OPAQUE external order id only, never card/PII data.
+ *
+ * `reason` is plain `text` with no CHECK, so a new value needs no migration — but every reader
+ * with a closed set of its own (the admin finance filter, the payment-history mapping, the
+ * admin-web parsers) must learn it in the same change. `returned` / `waived` / `welcome` /
+ * `goodwill` arrive with #2750.
+ *
+ * #2750 item 4 — `welcome`: a verified company's welcome credits, once (`credit_lots.source =
+ * 'welcome'`, keyed `welcome_credits:<payer id>`). The numbers screen (#2755) counts it apart.
+ *
+ * #2750 item 5 — `waived`: an open the placement team's waiver paid for. `delta` 0 and no lot
+ * (nothing moved), `unlock_id` set, keyed `waived:<unlock id>`; the waiver it used is on
+ * `rvm_waiver_uses`. The numbers screen counts these as "credits waived by the placement team".
+ *
+ * #2754 item 9 — `campus_conversion`: a company's unused Campus balance moved in with it, as a
+ * `migrated` lot, keyed `campus_conversion:<bundle line key>` (once per source balance). A free grant:
+ * never credits used, never a payment.
+ * #2750 item 7 — `returned`: credits a couldn't-reach case gave back (the worker was not reached).
+ * `unlock_id` names the open; the line adds a new `returned` lot (`lot_id`), keyed
+ * `reach_returned:<unlock id>:<spent lot id>`. Returned credits from a pack (#2750 item 9) will name
+ * the new pack's lot instead (private notes item 12).
  */
-export type CreditReason = "pack_purchase" | "unlock_debit" | "refund" | "grant";
+export type CreditReason =
+  | "pack_purchase"
+  | "unlock_debit"
+  | "refund"
+  | "grant"
+  | "expired"
+  | "welcome"
+  | "waived"
+  | "returned"
+  | "campus_conversion"
+  // #2750 item 11 — an admin grant to a company under the credit rules: `goodwill` (capped per
+  // quarter, a lot valid `goodwillValidityDays`) or `correction` (super admin, names the ledger row
+  // it corrects). Every other admin grant keeps `grant`.
+  | "goodwill"
+  | "correction"
+  /**
+   * #2754 item 14 — a batch rollback took back what a `campus_conversion` lot still held (one
+   * compensating line per lot, keyed `campus_conversion_reversed:<lot id>`). Not credits USED.
+   */
+  | "campus_conversion_reversed"
+  /**
+   * #2750 item 9 — credits that expired unused on an earlier real paid pack, given back when the
+   * next real pack is paid inside the window (one line per old pack, keyed
+   * `pack_return:<old lot id>`; a `returned` lot that expires with the new pack).
+   */
+  | "pack_return"
+  /**
+   * #2750 item 10 — an admin refund of a real paid pack took its unused credits back (and any
+   * credits that came back with it): one line per lot, keyed `pack_refund:<lot id>`.
+   */
+  | "pack_refund";
 
 /**
  * Routed-channel kind (ADR-0010 §D2). Alpha ships `in_app_relay` ONLY — it
@@ -376,6 +442,83 @@ export const payerCredits = pgTable(
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
+// ===========================================================================
+// credit_lots — a wallet's balance, as lots that may expire (#2749, migration 0174)
+// ===========================================================================
+//
+// ONE ROW PER GRANT INTO A WALLET: a pack bought, an ops grant, the free-tier grant, and (from the
+// 0174 backfill) one `legacy` lot per balance that existed before lots did. `payer_id` is the
+// WALLET key — the same key as `payer_credits.payer_id` (the tenant key, ADR-0053), so a team
+// spends one set of lots. No FK, like `payer_credits`: faceless rails.
+//
+// THE INVARIANT: per wallet, `payer_credits.balance = Σ credits_remaining` over its lots, and
+// `balance = Σ credit_ledger.delta`. Every writer goes through `credit-wallet.ts`, under the wallet
+// row lock (wallet row → lots → ledger, one order everywhere), so the three move together.
+//
+// SPEND ORDER: the open lot that expires soonest, a lot that never expires last
+// (`expires_at ASC NULLS LAST, created_at ASC, id ASC`; brief 7, register B7-08).
+//
+// EXPIRY: an open lot past `expires_at` is closed by the spend path or the `credit-lot-expiry`
+// sweep with ONE `expired` ledger line (idempotency key `credit_lot_expired:<id>`): remaining → 0,
+// `expired_at` stamped. `expires_at` NULL = never expires; a `pack` lot gets `grant time + validityDays` (#2749 PR 3).
+//
+// Billing records: NOT erased with the payer account (no FK to `payers`, like the ledger).
+// NOT PII: opaque ids, integers, a closed source code, a pack code and dates.
+export const creditLots = pgTable(
+  "credit_lots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The wallet key (tenant key) — the same value as payer_credits.payer_id. No FK.
+    payerId: uuid("payer_id").notNull(),
+    /** One of `CREDIT_LOT_SOURCES` (@badabhai/types). */
+    source: text("source").$type<CreditLotSource>().notNull(),
+    // The pack a `pack` lot came from (e.g. 'pack_50'). Null for every other source.
+    packCode: text("pack_code"),
+    // The paid Razorpay order a lot came from. UNIQUE (partial, below): one lot per order, so a
+    // settle replay can never add a second lot even past the ledger's own key.
+    paymentOrderId: uuid("payment_order_id").references(() => paymentOrders.id),
+    creditsGranted: integer("credits_granted").notNull(),
+    creditsRemaining: integer("credits_remaining").notNull(),
+    // NULL = never expires.
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    // Stamped when the lot is expired (its remaining credits removed with an `expired` line).
+    expiredAt: timestamp("expired_at", { withTimezone: true }),
+    // A staff test company's lot (plan §14: the one live pilot purchase is marked is_test).
+    isTest: boolean("is_test").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The spend / align read: a wallet's OPEN lots in spend order (btree ASC is NULLS LAST).
+    index("credit_lots_open_spend_idx")
+      .on(t.payerId, t.expiresAt, t.createdAt, t.id)
+      .where(sql`${t.creditsRemaining} > 0`),
+    // The sweep read: open lots that can expire, by date.
+    index("credit_lots_due_idx")
+      .on(t.expiresAt)
+      .where(sql`${t.creditsRemaining} > 0 AND ${t.expiresAt} IS NOT NULL`),
+    // One lot per paid order.
+    uniqueIndex("credit_lots_payment_order_uq")
+      .on(t.paymentOrderId)
+      .where(sql`${t.paymentOrderId} IS NOT NULL`),
+    // `CREDIT_LOT_SOURCES`, spelled out because a CHECK is static SQL (0174's test pins the copy).
+    check(
+      "credit_lots_source_chk",
+      sql`${t.source} IN ('pack', 'welcome', 'goodwill', 'returned', 'migrated', 'legacy')`,
+    ),
+    check("credit_lots_granted_pos_chk", sql`${t.creditsGranted} > 0`),
+    check(
+      "credit_lots_remaining_range_chk",
+      sql`${t.creditsRemaining} >= 0 AND ${t.creditsRemaining} <= ${t.creditsGranted}`,
+    ),
+    // An expired lot holds nothing.
+    check(
+      "credit_lots_expired_empty_chk",
+      sql`${t.expiredAt} IS NULL OR ${t.creditsRemaining} = 0`,
+    ),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + four REVOKEs carried by migration 0174
+
 // credit_ledger — APPEND-ONLY credit movements (the source of truth; balance is a
 // materialization of it). Amounts + ids ONLY. NO currency/PAN/UPI — `payment_ref`
 // is an OPAQUE external payment/order id only, NEVER card/PII data (§D5).
@@ -410,19 +553,29 @@ export const creditLedger = pgTable(
     // number, UPI handle, or any PII. Null for ops grants / mock debits.
     paymentRef: text("payment_ref"),
     // EXACTLY-ONCE money guard (ADMIN-3a H2). An OPAQUE, caller-supplied stable key for a
-    // logical credit movement (e.g. an admin grant). The partial unique index below makes the
-    // ledger insert idempotent under at-least-once retry: a re-submit with the SAME key inserts
-    // NO second row and changes NO balance. NULLABLE on purpose (NULLS DISTINCT) — movements with
-    // no natural dedup key (legacy/mock debits) leave it null and never collide. Carries NO PII /
-    // value — an opaque UUID only; the admin.action_performed event is keyed on the SAME value so
-    // ledger + spine agree (no double-spend / no money-vs-spine divergence).
+    // logical credit movement (e.g. an admin grant). The unique index below makes the ledger
+    // insert idempotent under at-least-once retry: a re-submit with the SAME key inserts NO second
+    // row and changes NO balance. It is a FULL unique index on a nullable column, not a partial
+    // one: NULLABLE on purpose (NULLS DISTINCT) — movements with no natural dedup key
+    // (legacy/mock debits) leave it null and never collide. Carries NO PII / value — an opaque key
+    // only; the admin.action_performed event is keyed on the SAME value so ledger + spine agree
+    // (no double-spend / no money-vs-spine divergence).
     idempotencyKey: text("idempotency_key"),
+    // #2749 (migration 0174) — the lot this movement added to, spent from or expired. Null for
+    // every line written before 0174 (the backfill writes no ledger line; the `legacy` lots it
+    // creates stand for what those lines already granted). No cascade: lots are never deleted.
+    //
+    // ⚠️ APPLY BEFORE DEPLOY: Drizzle names every model column in each insert, so every ledger
+    // write (every purchase, unlock and grant) fails against a database without this column.
+    lotId: uuid("lot_id").references(() => creditLots.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("credit_ledger_payer_id_idx").on(t.payerId),
     // Exactly-once: non-null keys are unique; many NULLs allowed (Postgres NULLS DISTINCT).
     uniqueIndex("credit_ledger_idempotency_key_uq").on(t.idempotencyKey),
+    // #2749 — a lot's movements (and the FK's referencing-side index).
+    index("credit_ledger_lot_id_idx").on(t.lotId),
     // BP-1 — the admin per-payer ledger keyset. Payer-leading because the admin read is
     // ALWAYS scoped to one payer; a bare (created_at, id) index would not serve it.
     index("credit_ledger_payer_keyset_idx").on(t.payerId, t.createdAt.desc(), t.id.desc()),
@@ -814,8 +967,12 @@ export const planQuotaTopups = pgTable(
 // held since ADR-0010 §D5. Provider ids are OPAQUE external references, not PII.
 // ===========================================================================
 
-/** Payment order lifecycle. `created` at intent → `paid` on a verified provider callback → `failed`. */
-export type PaymentOrderStatus = "created" | "paid" | "failed";
+/**
+ * Payment order lifecycle (`PAYMENT_ORDER_STATUSES`, @badabhai/types): `created` at intent →
+ * `paid` on a verified provider capture → `failed`; `held` (#2749, migration 0176) when the
+ * captured amount is not the order's total — nothing granted, never settleable.
+ */
+export type PaymentOrderStatus = TypesPaymentOrderStatus;
 
 // payment_orders — one row per checkout intent against a payment provider.
 export const paymentOrders = pgTable(
@@ -825,9 +982,19 @@ export const paymentOrders = pgTable(
     // Opaque payer ref — the "faceless-rails" pattern, NO FK (mirrors payer_credits /
     // credit_ledger, which this sits in front of).
     payerId: uuid("payer_id").notNull(),
+    // What the order sells (`PAYMENT_ORDER_PRODUCT_KINDS`, #2749 / migration 0176). Defaulted, so
+    // every pre-0176 row and an old build's insert read `credit_pack`. #2751 widens the CHECK.
+    productKind: text("product_kind")
+      .$type<PaymentOrderProductKind>()
+      .notNull()
+      .default("credit_pack"),
     // Which credit pack was bought (e.g. 'pack_10'); resolved against @badabhai/pricing.
-    packCode: text("pack_code").notNull(),
-    // Whole ₹, never paise (house convention — see credit_ledger.price_inr).
+    // NULLABLE since 0176 so a non-pack product (#2751) can be ordered; a `credit_pack` order still
+    // requires it (`payment_orders_pack_code_chk`).
+    packCode: text("pack_code"),
+    // Whole ₹, never paise (house convention — see credit_ledger.price_inr). Since #2749 PR 3 this
+    // is the whole-rupee TOTAL the buyer pays, GST included (= total_paise / 100); before it, the
+    // list price before GST. The paise columns below are the precise record.
     amountInr: integer("amount_inr").notNull(),
     // How many credits this order buys, RESOLVED FROM THE CATALOG ONCE AT ORDER CREATION
     // and never re-read afterwards.
@@ -845,8 +1012,28 @@ export const paymentOrders = pgTable(
     // The provider's own order id. OPAQUE — never parsed, never a PII carrier.
     providerOrderId: text("provider_order_id").notNull(),
     status: text("status").$type<PaymentOrderStatus>().notNull().default("created"),
-    // The provider's payment reference, stamped when the order settles. Opaque.
+    // The provider's payment reference, stamped when the order settles (or is held). Opaque.
     providerPaymentRef: text("provider_payment_ref"),
+    // ── THE MONEY, IN PAISE (#2749 item 7, migration 0176) ─────────────────────
+    // `gstPriceLine(price)` stamped at order creation: taxable + gst + round_off = total, and the
+    // total is a whole rupee. NULL on every pre-0176 order (it carried only `amount_inr`); all
+    // five are written together (`payment_orders_money_set_chk`). The settle path compares the
+    // captured amount with `total_paise` (or `amount_inr` × 100 on an old row).
+    taxablePaise: integer("taxable_paise"),
+    gstPaise: integer("gst_paise"),
+    roundOffPaise: integer("round_off_paise"),
+    totalPaise: integer("total_paise"),
+    // The GST rate applied, in basis points (1800 = 18%).
+    gstRateBps: integer("gst_rate_bps"),
+    // How long the credits last, in days, stamped from the pack at order creation so the settle
+    // never re-reads the catalogue (#2749 hazard 8). NULL = the lot never expires.
+    creditValidityDays: integer("credit_validity_days"),
+    // Where the purchase started (`PAYMENT_ORDER_ORIGINS`), and the job posting it came from —
+    // verified to be the buyer tenant's own at order time, else stored null. Both nullable.
+    origin: text("origin").$type<PaymentOrderOrigin>(),
+    originJobPostingId: uuid("origin_job_posting_id").references(() => jobPostings.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -867,9 +1054,46 @@ export const paymentOrders = pgTable(
     // A zero/negative-amount order is always a bug, never a real purchase.
     check("payment_orders_amount_pos_chk", sql`${t.amountInr} > 0`),
     // Same reasoning for the grant side: an order that buys zero (or negative) credits is
-    // a resolver bug, and a DB constraint is the only place it cannot be forgotten.
-    check("payment_orders_credits_pos_chk", sql`${t.creditsGranted} > 0`),
-    check("payment_orders_status_chk", sql`${t.status} IN ('created', 'paid', 'failed')`),
+    // a resolver bug, and a DB constraint is the only place it cannot be forgotten. Since 0176
+    // it binds a `credit_pack` order only (#2751's products may grant no credits).
+    check(
+      "payment_orders_credits_pos_chk",
+      sql`${t.creditsGranted} > 0 OR ${t.productKind} <> 'credit_pack'`,
+    ),
+    // `PAYMENT_ORDER_STATUSES`, spelled out because a CHECK is static SQL (0176's test pins it).
+    check("payment_orders_status_chk", sql`${t.status} IN ('created', 'paid', 'failed', 'held')`),
+    // ── 0176 (#2749 item 9) ────────────────────────────────────────────────────
+    // `PAYMENT_ORDER_PRODUCT_KINDS`. #2751 widens it.
+    check("payment_orders_product_kind_chk", sql`${t.productKind} IN ('credit_pack')`),
+    // A credit-pack order names its pack.
+    check(
+      "payment_orders_pack_code_chk",
+      sql`${t.productKind} <> 'credit_pack' OR ${t.packCode} IS NOT NULL`,
+    ),
+    // The five money columns are written together or not at all (a pre-0176 row has none).
+    check(
+      "payment_orders_money_set_chk",
+      sql`(${t.taxablePaise} IS NULL AND ${t.gstPaise} IS NULL AND ${t.roundOffPaise} IS NULL AND ${t.totalPaise} IS NULL AND ${t.gstRateBps} IS NULL) OR (${t.taxablePaise} IS NOT NULL AND ${t.gstPaise} IS NOT NULL AND ${t.roundOffPaise} IS NOT NULL AND ${t.totalPaise} IS NOT NULL AND ${t.gstRateBps} IS NOT NULL)`,
+    ),
+    // When set: total = taxable + GST + round-off, a positive whole rupee, equal to the rupee
+    // column; the taxable amount and the tax are non-negative; the rate is 0–100%.
+    check(
+      "payment_orders_money_sum_chk",
+      sql`${t.totalPaise} IS NULL OR (${t.totalPaise} = ${t.taxablePaise} + ${t.gstPaise} + ${t.roundOffPaise} AND ${t.totalPaise} > 0 AND ${t.totalPaise} % 100 = 0 AND ${t.totalPaise} = ${t.amountInr} * 100 AND ${t.taxablePaise} >= 0 AND ${t.gstPaise} >= 0 AND ${t.gstRateBps} BETWEEN 0 AND 10000)`,
+    ),
+    check(
+      "payment_orders_validity_pos_chk",
+      sql`${t.creditValidityDays} IS NULL OR ${t.creditValidityDays} > 0`,
+    ),
+    // `PAYMENT_ORDER_ORIGINS`, spelled out (0176's test pins the copy).
+    check(
+      "payment_orders_origin_chk",
+      sql`${t.origin} IS NULL OR ${t.origin} IN ('credits_page', 'unlock_prompt', 'candidate_search', 'posting_flow', 'dashboard', 'other')`,
+    ),
+    // The FK's referencing side, so a job posting's delete (seeds only today) does not scan.
+    index("payment_orders_origin_job_posting_idx")
+      .on(t.originJobPostingId)
+      .where(sql`${t.originJobPostingId} IS NOT NULL`),
   ],
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0058
 

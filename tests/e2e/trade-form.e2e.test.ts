@@ -7,6 +7,7 @@ import {
   type DbClient,
 } from "@badabhai/db";
 import { eq } from "drizzle-orm";
+import { syntheticPhoneMinter } from "./helpers/synthetic-phone";
 
 /**
  * ══════════════════════════════════════════════════════════════════════════════════════
@@ -56,8 +57,8 @@ const DATABASE_URL =
   process.env.DATABASE_URL ??
   "postgresql://badabhai:badabhai@localhost:5432/badabhai";
 
-/** The reserved synthetic block `AuthService.testLogin` will mint for: `+9100000#####`. */
-const PHONE = `+9100000${String(Math.floor(Math.random() * 100000)).padStart(5, "0")}`;
+/** The reserved synthetic block `AuthService.testLogin` will mint for, this suite's slot. */
+const PHONE = syntheticPhoneMinter(69)();
 
 const PACK_ID = "qp_cnc_turning";
 

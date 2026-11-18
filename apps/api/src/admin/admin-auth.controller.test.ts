@@ -63,7 +63,12 @@ function makeCtrl() {
     refresh: vi.fn(async () => ({ access_token: "fresh-admin-jwt", token_type: "Bearer" as const, expires_in_seconds: 2592000 })),
     logout: vi.fn(async () => undefined),
     // 0144 — the three account booleans GET /admin/me adds, read from the live row.
-    accountFlags: vi.fn(async () => ({ has_password: true, must_change_password: false, mfa_enabled: false })),
+    accountFlags: vi.fn(async () => ({
+      has_password: true,
+      must_change_password: false,
+      mfa_enabled: false,
+      mfa_required: true,
+    })),
   };
   // 0144 — the password + two-step-switch seams.
   const passwords = {
@@ -216,6 +221,8 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
       has_password: true,
       must_change_password: false,
       mfa_enabled: false,
+      // #2924 — ops_admin's role requires two-step.
+      mfa_required: true,
       capabilities: [
         "read_events",
         // BP-1 — the faceless entity reads (ADR-0025 §3.1 row 2, all four roles).
@@ -249,6 +256,12 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
         "manage_companies",
         // #2561 — candidate-field corrections (super_admin, ops_admin, support). Tail-appended.
         "edit_candidates",
+        // #2755 — the business numbers screen (super_admin, ops_admin). Tail-appended.
+        "read_business_numbers",
+        // #2887 — the moved students' visibility switch (super_admin, ops_admin).
+        "manage_student_visibility",
+        // #2750 — the worker desk (super_admin, ops_admin, support). Tail-appended.
+        "work_reach_desk",
       ],
     });
   });
@@ -326,7 +339,7 @@ describe("AdminAuthController — PII-free response bodies (invariant #2)", () =
     expect(Object.keys(res).sort()).toEqual(["access_token", "expires_in_seconds", "token_type"].sort());
   });
 
-  it("me's body is the opaque id + RBAC role + capabilities + three booleans — no email, no sid, no token", async () => {
+  it("me's body is the opaque id + RBAC role + capabilities + four booleans — no email, no sid, no token", async () => {
     const res = await d.ctrl.me(ADMIN);
     assertPiiFree(res);
     // Capability names are a closed vocabulary of role verbs; they carry no worker or admin
@@ -337,6 +350,7 @@ describe("AdminAuthController — PII-free response bodies (invariant #2)", () =
       "capabilities",
       "has_password",
       "mfa_enabled",
+      "mfa_required",
       "must_change_password",
       "role",
     ]);

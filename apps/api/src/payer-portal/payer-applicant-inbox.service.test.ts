@@ -316,6 +316,7 @@ function candidatesOf(postingId: string): CandidateRow[] {
   const rows: CandidateRow[] = APPLICATIONS.filter(
     (a) => a.jobPostingId === postingId && listed(a),
   ).map((a) => ({
+    instituteCode: null,
     applicationId: a.id,
     workerId: a.workerId,
     matchTier: a.matchTier ?? null,
@@ -722,6 +723,8 @@ describe("PayerApplicantInboxService — a row is EXACTLY its per-posting feed r
 
 describe("PayerApplicantInboxService — faceless (no name, phone or other identifier)", () => {
   const ALLOWED = new Set([
+    // #2752 — the "RVM student" label (an institute code or null), never identity.
+    "instituteCode",
     // ApplicantRowDto
     "workerId",
     "rank",
@@ -990,11 +993,20 @@ describe("PayerApplicantInboxService — the saved pipeline board (owner ruling 
     const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const w = world({
       stagesEnabled: true,
-      page: (payerId, q) => pageOf(payerId, q).map((r) => ({ ...r, stage: "hired" })),
+      page: (payerId, q) => pageOf(payerId, q).map((r) => ({ ...r, stage: "contacted" })),
     });
     const out = await w.inbox.list(PAYER_A, query({ limit: 3 }), CTX);
     expect(out.applicants.map((r) => r.stage)).toEqual(["new", "new", "new"]);
     warn.mockRestore();
+  });
+
+  it("#2747: a stored outcome stage reads as itself, whatever the outcome switch says", async () => {
+    const w = world({
+      stagesEnabled: true,
+      page: (payerId, q) => pageOf(payerId, q).map((r) => ({ ...r, stage: "hired" })),
+    });
+    const out = await w.inbox.list(PAYER_A, query({ limit: 3 }), CTX);
+    expect(out.applicants.map((r) => r.stage)).toEqual(["hired", "hired", "hired"]);
   });
 
   it("flag OFF: the page read is NOT asked for the board, and no row carries `stage`", async () => {

@@ -62,6 +62,21 @@ describe("requestCodeAction — the code never reaches the client (real-OTP only
   });
 });
 
+describe("#2754 · requestCodeAction — a phone is accepted and normalized to +91 E.164", () => {
+  it("sends { phone } to the seam (an Indian mobile typed the usual way becomes E.164)", async () => {
+    requestCode.mockResolvedValue({ ok: true, resendInSeconds: 30 });
+    const res = await requestCodeAction({ phone: "98765 43210" });
+    expect(res).toEqual({ ok: true, resendInSeconds: 30 });
+    expect(requestCode).toHaveBeenCalledWith({ phone: "+919876543210" });
+  });
+
+  it("a malformed phone collapses to the SAME neutral send error", async () => {
+    const res = await requestCodeAction({ phone: "12345" });
+    expect(res).toEqual({ ok: false, error: NEUTRAL_SEND_ERROR });
+    expect(requestCode).not.toHaveBeenCalled();
+  });
+});
+
 describe("requestCodeAction — ONE neutral message for every non-success (no oracle)", () => {
   it("an invalid email yields the neutral send error (not a validation oracle)", async () => {
     const res = await requestCodeAction({ email: "not-an-email" });
@@ -155,6 +170,21 @@ describe("verifyCodeAction — single neutral 'invalid or expired code' for ever
     verifyCode.mockResolvedValue({ ok: true, isNewPayer: true, session: { payerId: "p", role: "employer", displayLabel: "Co" } });
     const res = await verifyCodeAction({ email: "a@b.co", code: "123456" });
     expect(res).toEqual({ ok: true, isNewPayer: true });
+  });
+});
+
+describe("#2754 · verifyCodeAction — verify the same phone contact", () => {
+  it("sends { phone, code } to the seam (normalized)", async () => {
+    verifyCode.mockResolvedValue({ ok: true, isNewPayer: false });
+    const res = await verifyCodeAction({ phone: "98765 43210", code: "123456" });
+    expect(res).toEqual({ ok: true, isNewPayer: false });
+    expect(verifyCode).toHaveBeenCalledWith({ phone: "+919876543210", code: "123456" });
+  });
+
+  it("a malformed phone gets the neutral verify error without reaching the seam", async () => {
+    const res = await verifyCodeAction({ phone: "12345", code: "123456" });
+    expect(res).toEqual({ ok: false, error: NEUTRAL_VERIFY_ERROR });
+    expect(verifyCode).not.toHaveBeenCalled();
   });
 });
 

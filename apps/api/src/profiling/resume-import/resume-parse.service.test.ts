@@ -114,6 +114,7 @@ function setup(opts: {
     ai as never,
     aiCost as never,
     events as never,
+    { assertMayRunAi: vi.fn(async () => undefined) } as never, // #2752 institute AI gate
   );
   return { svc, imports, ai, aiCost, events, seen };
 }

@@ -17,7 +17,8 @@
  *                    REAL skill row with kind='match_skill' (no orphan match ids).
  *   D. REACH       — every OPEN posting with match skills has ≥1 `job_reach` row, or is
  *                    reported as ZERO-REACH; every posting's stored `reach_skill_ids` is
- *                    a superset of its `match_skill_ids`.
+ *                    a superset of its `match_skill_ids`; NO `job_reach` row sits on a
+ *                    posting no BadaBhai worker may see (#2746 — those are not zero-reach).
  *   E. TIERS       — every `job_reach.match_tier` ∈ (1,2) and every TIER-1 row's
  *                    `matched_skill_id` really is in that posting's `match_skill_ids`
  *                    (a tier that disagrees with the data is worse than no tier).
@@ -33,7 +34,10 @@
  *   pnpm db:verify:match-v1
  */
 import { parseMatchConfig } from "@badabhai/match-engine";
+import { sql as dsql } from "drizzle-orm";
 import { createDbClient } from "./client";
+import { reachesBadaBhaiWorkers } from "./job-visibility";
+import { LIVE_POSTING_STATUSES } from "./materialize-job-reach";
 import { parseCommonCli } from "./match-v1-cli";
 
 const NAME = "verify:match-v1";
@@ -63,13 +67,18 @@ function warn(check: string, detail: string): void {
   console.log(`  ! ${check} — ${detail}`);
 }
 
+/** The rows of a drizzle `db.execute` result (postgres-js hands back an array). */
+function rowsOf<T>(result: unknown): T[] {
+  return Array.isArray(result) ? (result as T[]) : [];
+}
+
 async function main(): Promise<void> {
   // Reuses the common parser for DATABASE_URL validation + the prod guard message; the
   // `--apply` flag is meaningless here and is ignored.
   const opts = parseCommonCli(NAME);
   console.log(`[${NAME}] READ-ONLY verification starting`);
 
-  const { sql } = createDbClient(opts.databaseUrl, { max: 1 });
+  const { db, sql } = createDbClient(opts.databaseUrl, { max: 1 });
   try {
     // ── A. STRUCTURE ────────────────────────────────────────────────────────
     console.log("\nA. structure + row counts");
@@ -172,14 +181,65 @@ async function main(): Promise<void> {
       );
     } else pass("D.reach_superset", "reach ⊇ match on every posting");
 
-    const zeroReach = await sql<{ id: string; role_title: string }[]>`
-      SELECT jp.id, jp.role_title
-      FROM job_postings jp
-      WHERE jp.status = 'open'
-        AND jsonb_array_length(jp.match_skill_ids) > 0
-        AND NOT EXISTS (SELECT 1 FROM job_reach jr WHERE jr.job_posting_id = jp.id)
-      LIMIT 50
-    `;
+    // #2746 — a posting no BadaBhai worker may see holds no `job_reach` row, ever: the reach core
+    // never writes one and purges what it finds, and a company's audience change clears the rows
+    // whatever the posting's status (#2746 PR 4). A row here is a broken lock (or a clear that
+    // failed after its edit committed), so it FAILS. The worker reads refuse to serve it either way.
+    //
+    // THE REPAIR DEPENDS ON THE STATUS. D5 rebuilds only a LIVE posting (`LIVE_POSTING_STATUSES`),
+    // and its full run visits `open` ones alone, so the hint names one command per case.
+    const liveStatuses = dsql.raw(LIVE_POSTING_STATUSES.map((s) => `'${s}'`).join(", "));
+    const offAudience = rowsOf<{
+      rows: number;
+      postings: number;
+      live_example: string | null;
+      other_example: string | null;
+    }>(
+      await db.execute(dsql`
+        SELECT count(*)::int AS rows,
+               count(DISTINCT jr.job_posting_id)::int AS postings,
+               min(jr.job_posting_id::text) FILTER (WHERE jp.status IN (${liveStatuses})) AS live_example,
+               min(jr.job_posting_id::text) FILTER (WHERE jp.status NOT IN (${liveStatuses})) AS other_example
+        FROM job_reach jr
+        JOIN job_postings jp ON jp.id = jr.job_posting_id
+        WHERE NOT (${reachesBadaBhaiWorkers("jp")})
+      `),
+    )[0];
+    if ((offAudience?.rows ?? 0) > 0) {
+      const repairs: string[] = [];
+      if (offAudience!.live_example !== null) {
+        repairs.push(
+          `for an open or paused posting (e.g. ${offAudience!.live_example}), ` +
+            `db:materialize:reach --apply --job-posting-id=<id> (it clears an RVM-only posting; a ` +
+            `full --apply visits open postings only)`,
+        );
+      }
+      if (offAudience!.other_example !== null) {
+        repairs.push(
+          `for a draft, closed or suspended posting (e.g. ${offAudience!.other_example}), D5 refuses ` +
+            `it, and the rows are a cache it can never serve, so delete them by hand: ` +
+            `DELETE FROM job_reach WHERE job_posting_id = '<id>'`,
+        );
+      }
+      fail(
+        "D.reach_audience",
+        `${offAudience!.rows} job_reach row(s) on ${offAudience!.postings} posting(s) no BadaBhai ` +
+          `worker may see. Repair: ${repairs.join("; ")}`,
+      );
+    } else pass("D.reach_audience", "no job_reach row on a posting outside the BadaBhai audience");
+
+    // An RVM-only posting reaches nobody BY DESIGN, so it is not a zero-reach warning.
+    const zeroReach = rowsOf<{ id: string; role_title: string }>(
+      await db.execute(dsql`
+        SELECT jp.id, jp.role_title
+        FROM job_postings jp
+        WHERE jp.status = 'open'
+          AND jsonb_array_length(jp.match_skill_ids) > 0
+          AND ${reachesBadaBhaiWorkers("jp")}
+          AND NOT EXISTS (SELECT 1 FROM job_reach jr WHERE jr.job_posting_id = jp.id)
+        LIMIT 50
+      `),
+    );
     if (zeroReach.length > 0) {
       // ZERO-REACH is a real, legitimate state (thin supply) — it is a WARNING with the
       // ids named, not a failure. A failure here would block a correct deploy.

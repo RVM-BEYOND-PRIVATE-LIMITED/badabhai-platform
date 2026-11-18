@@ -75,6 +75,22 @@ export const ADMIN_CAPABILITIES = [
   "manage_companies",
   // #2561 — edit a candidate's profile facts (correction layer with revert).
   "edit_candidates",
+  // #2755 — the business numbers screen (weekly figures, call list, launch tests) and its
+  // test-company marks. Vocabulary only: this file carries no role mapping.
+  "read_business_numbers",
+  // #2750 — the credit rules settings (what a contact costs, the limits, welcome credits and the
+  // other credit numbers). Vocabulary only: this file carries no role mapping.
+  "manage_credit_rules",
+  // #2750 — the placement team's waivers (free RVM applicants for one company or one job).
+  // Vocabulary only: this file carries no role mapping.
+  "manage_waivers",
+  // #2750 — the worker desk (the couldn't-reach queue). Vocabulary only: no role mapping here.
+  "work_reach_desk",
+  // #2887 — the moved RVM students' visibility switch (one student or in bulk).
+  // Vocabulary only: this file carries no role mapping.
+  "manage_student_visibility",
+  // #2750 — refunds of real paid packs. Vocabulary only: this file carries no role mapping.
+  "refund_payments",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -94,7 +110,7 @@ export const ROLE_LABELS: Record<AdminRole, string> = {
 export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   read_events: "Read events",
   read_entities: "Read workers, companies, agencies and postings",
-  read_identity: "See names on worker, company, agency and admin records",
+  read_identity: "See names on worker, company, agency and admin records, and read worker feedback",
   // Says what it DISCLOSES, not what it unlocks. "Read AI traces" would read as telemetry to
   // an operator scanning the Roles screen; what the capability actually permits is reading the
   // text of a call, which for a worker surface is the worker speaking.
@@ -121,6 +137,12 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   manage_postings: "Edit, pause, close, hide and verify postings",
   manage_companies: "Create, edit, archive and restore companies",
   edit_candidates: "Correct candidate profile fields",
+  read_business_numbers: "Read the business numbers and mark test companies",
+  manage_credit_rules: "Edit the credit rules (contact cost, limits, welcome credits)",
+  manage_waivers: "Set or clear the placement team's waivers for RVM applicants",
+  work_reach_desk: "Work the couldn't-reach desk queue",
+  manage_student_visibility: "Turn moved RVM students' visibility on or off",
+  refund_payments: "Refund a company's paid credit pack",
 };
 
 /** Narrow an unknown string to a known capability (anything else is dropped, not trusted). */

@@ -1,9 +1,10 @@
-import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import { ReachService } from "../reach/reach.service";
 import type { ApplicantRowDto } from "../reach/reach.dto";
 import { MatchCandidatesService } from "../match/match-candidates.service";
+import { PrePayFactsService } from "../match/pre-pay-facts.service";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import {
   PayerApplicantInboxRepository,
@@ -76,6 +77,9 @@ export class PayerApplicantInboxService {
     private readonly candidates: MatchCandidatesService,
     @Inject(SERVER_CONFIG) private readonly config: ApplicantStagesConfig,
     private readonly tenancy: PayerTenantScopeService,
+    // #2747 — the source label and the pre-pay facts (the @Global MatchModule). Optional only so
+    // hand-built unit instances keep compiling; Nest always injects it.
+    @Optional() private readonly prePay?: PrePayFactsService,
   ) {}
 
   async list(
@@ -126,26 +130,31 @@ export class PayerApplicantInboxService {
     ]);
     const agencyRow = indexAppliers(appliersByJob);
 
-    const applicants: InboxApplicantRowDto[] = [];
+    const rows: InboxApplicantRowDto[] = [];
     const shown: { jobId: string; row: ApplicantRowDto }[] = [];
     for (const ref of page) {
       if (ref.postingKind === "agency_job") {
         const row = agencyRow(ref.postingId, ref.workerId);
         if (!row) continue;
-        applicants.push({ ...row, posting: postingRef(ref, "agency_job"), ...stageOf(ref) });
+        rows.push({ ...row, posting: postingRef(ref, "agency_job"), ...stageOf(ref) });
         shown.push({ jobId: ref.postingId, row });
       } else {
         const row = candidateByApplication.get(ref.applicationId);
         if (!row) continue;
-        applicants.push({ ...row, posting: postingRef(ref, "company_posting"), ...stageOf(ref) });
+        rows.push({ ...row, posting: postingRef(ref, "company_posting"), ...stageOf(ref) });
       }
     }
 
-    const dropped = page.length - applicants.length;
+    const dropped = page.length - rows.length;
     if (dropped > 0) {
       // Counts only: the rows left out are opaque ids nobody needs in a log line.
       this.logger.warn(`payer inbox: ${dropped} page row(s) had no detail row; left out`);
     }
+
+    // #2747 — decorated BEFORE the impressions are written, so a failed read emits nothing.
+    const applicants: InboxApplicantRowDto[] = this.prePay
+      ? await this.prePay.decorate(rows, scope.tenantKey)
+      : rows;
 
     if (shown.length > 0) await this.reach.emitPayerFeedShown(shown, scope.actorPayerId, ctx);
 

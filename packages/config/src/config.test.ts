@@ -799,6 +799,19 @@ describe("loadServerConfig", () => {
         .FORM_TYPED_TENURE_DERIVE_ENABLED,
     ).toBe(true);
   });
+  it("FORM_TENURE_MONTHS_ENABLED (#2753 item 2) is OFF by default and for the empty string", () => {
+    // Off must be today's derivation exactly: a form worker's skills read 0 months.
+    const read = (value?: string): boolean =>
+      loadServerConfig(value === undefined ? {} : { FORM_TENURE_MONTHS_ENABLED: value })
+        .FORM_TENURE_MONTHS_ENABLED;
+    expect(read()).toBe(false);
+    expect(read("")).toBe(false);
+    expect(read("false")).toBe(false);
+    expect(read("0")).toBe(false);
+    expect(read("true")).toBe(true);
+    expect(read("1")).toBe(true);
+    expect(() => read("yes")).toThrow();
+  });
   it.each(["RESUME_OPTION_MAP_REQUIRES_AUTOFILL"] as const)(
     "%s (audit fix F4) is OFF by default and for the empty string — today's behaviour",
     (name) => {
@@ -856,6 +869,327 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "yes" })).toThrow();
   });
 
+  it("REFERRAL_HELPER_NAME_ENABLED (#2753 item 12) is OFF by default and for the empty string", () => {
+    // Off is a 404 that reads nothing; the owner turns it on.
+    expect(loadServerConfig({}).REFERRAL_HELPER_NAME_ENABLED).toBe(false);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "0" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "false" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "1" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(true);
+    expect(
+      loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "true" }).REFERRAL_HELPER_NAME_ENABLED,
+    ).toBe(true);
+    expect(() => loadServerConfig({ REFERRAL_HELPER_NAME_ENABLED: "yes" })).toThrow();
+  });
+
+  it("AVAILABILITY_ANSWERS_V2_ENABLED (#2753 item 3) is OFF by default and for the empty string", () => {
+    // Off is today's availability options exactly; writes accept both sets either way.
+    expect(loadServerConfig({}).AVAILABILITY_ANSWERS_V2_ENABLED).toBe(false);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "" }).AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "0" }).AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "false" })
+        .AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "1" }).AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(true);
+    expect(
+      loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "true" }).AVAILABILITY_ANSWERS_V2_ENABLED,
+    ).toBe(true);
+    expect(() => loadServerConfig({ AVAILABILITY_ANSWERS_V2_ENABLED: "yes" })).toThrow();
+  });
+
+  it("WORKER_ACTIVITY_ENABLED (#2753) is OFF by default and for the empty string", () => {
+    // Off is today exactly: nothing reads or writes worker_activity (migration 0168).
+    expect(loadServerConfig({}).WORKER_ACTIVITY_ENABLED).toBe(false);
+    expect(loadServerConfig({ WORKER_ACTIVITY_ENABLED: "" }).WORKER_ACTIVITY_ENABLED).toBe(false);
+    expect(loadServerConfig({ WORKER_ACTIVITY_ENABLED: "0" }).WORKER_ACTIVITY_ENABLED).toBe(false);
+    expect(loadServerConfig({ WORKER_ACTIVITY_ENABLED: "true" }).WORKER_ACTIVITY_ENABLED).toBe(
+      true,
+    );
+    expect(() => loadServerConfig({ WORKER_ACTIVITY_ENABLED: "yes" })).toThrow();
+  });
+
+  it("NOT_RECENTLY_ACTIVE_DAYS (#2753) defaults to 90 and refuses anything under 1", () => {
+    expect(loadServerConfig({}).NOT_RECENTLY_ACTIVE_DAYS).toBe(90);
+    expect(loadServerConfig({ NOT_RECENTLY_ACTIVE_DAYS: "30" }).NOT_RECENTLY_ACTIVE_DAYS).toBe(30);
+    // 0 would mark everyone not active today; a typo must fail the boot, not mark a whole list.
+    expect(() => loadServerConfig({ NOT_RECENTLY_ACTIVE_DAYS: "0" })).toThrow();
+    expect(() => loadServerConfig({ NOT_RECENTLY_ACTIVE_DAYS: "1.5" })).toThrow();
+  });
+
+  it("SEARCH_EXIT_ENABLED (#2753 item 6, leave company search) is OFF by default and for the empty string", () => {
+    // Off is today exactly: the worker routes 404 and nothing reads `worker_search_exits`.
+    expect(loadServerConfig({}).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "" }).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "0" }).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "false" }).SEARCH_EXIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "1" }).SEARCH_EXIT_ENABLED).toBe(true);
+    expect(loadServerConfig({ SEARCH_EXIT_ENABLED: "true" }).SEARCH_EXIT_ENABLED).toBe(true);
+    expect(() => loadServerConfig({ SEARCH_EXIT_ENABLED: "yes" })).toThrow();
+  });
+
+  it("HIRE_RECORDS_ENABLED (#2753 item 9) is OFF by default and for the empty string", () => {
+    // Off: nothing reads or writes `hires`, and GET /admin/hires is a 404.
+    expect(loadServerConfig({}).HIRE_RECORDS_ENABLED).toBe(false);
+    expect(loadServerConfig({ HIRE_RECORDS_ENABLED: "" }).HIRE_RECORDS_ENABLED).toBe(false);
+    expect(loadServerConfig({ HIRE_RECORDS_ENABLED: "0" }).HIRE_RECORDS_ENABLED).toBe(false);
+    expect(loadServerConfig({ HIRE_RECORDS_ENABLED: "true" }).HIRE_RECORDS_ENABLED).toBe(true);
+    expect(() => loadServerConfig({ HIRE_RECORDS_ENABLED: "yes" })).toThrow();
+  });
+
+  it("ADMIN_NUMBERS_ENABLED (#2755) is OFF by default and for the empty string", () => {
+    // Off: every /admin/numbers/* route is a neutral 404 before any query.
+    expect(loadServerConfig({}).ADMIN_NUMBERS_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_NUMBERS_ENABLED: "" }).ADMIN_NUMBERS_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_NUMBERS_ENABLED: "0" }).ADMIN_NUMBERS_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_NUMBERS_ENABLED: "false" }).ADMIN_NUMBERS_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_NUMBERS_ENABLED: "true" }).ADMIN_NUMBERS_ENABLED).toBe(true);
+    expect(loadServerConfig({ ADMIN_NUMBERS_ENABLED: "1" }).ADMIN_NUMBERS_ENABLED).toBe(true);
+    expect(() => loadServerConfig({ ADMIN_NUMBERS_ENABLED: "yes" })).toThrow();
+  });
+
+  it("STUDENT_MOVE_ENABLED (#2887) is OFF by default and for the empty string", () => {
+    // Off: nothing names the student-move tables and every /admin/students/* route is a 404.
+    expect(loadServerConfig({}).STUDENT_MOVE_ENABLED).toBe(false);
+    expect(loadServerConfig({ STUDENT_MOVE_ENABLED: "" }).STUDENT_MOVE_ENABLED).toBe(false);
+    expect(loadServerConfig({ STUDENT_MOVE_ENABLED: "false" }).STUDENT_MOVE_ENABLED).toBe(false);
+    expect(loadServerConfig({ STUDENT_MOVE_ENABLED: "true" }).STUDENT_MOVE_ENABLED).toBe(true);
+    expect(loadServerConfig({ STUDENT_MOVE_ENABLED: "1" }).STUDENT_MOVE_ENABLED).toBe(true);
+    expect(() => loadServerConfig({ STUDENT_MOVE_ENABLED: "yes" })).toThrow();
+  });
+
+  it("NUMBERS_FREEZE_AFTER_DAYS (#2755 part B) defaults to 3 (also when empty) and is at least 1", () => {
+    expect(loadServerConfig({}).NUMBERS_FREEZE_AFTER_DAYS).toBe(3);
+    expect(loadServerConfig({ NUMBERS_FREEZE_AFTER_DAYS: "" }).NUMBERS_FREEZE_AFTER_DAYS).toBe(3);
+    expect(loadServerConfig({ NUMBERS_FREEZE_AFTER_DAYS: "7" }).NUMBERS_FREEZE_AFTER_DAYS).toBe(7);
+    expect(loadServerConfig({ NUMBERS_FREEZE_AFTER_DAYS: "1" }).NUMBERS_FREEZE_AFTER_DAYS).toBe(1);
+    for (const bad of ["0", "-3", "2.5", "three"]) {
+      expect(() => loadServerConfig({ NUMBERS_FREEZE_AFTER_DAYS: bad }), bad).toThrow();
+    }
+  });
+
+  it("PAY_ON_JOINING_RECORDS_ENABLED (#2753 item 11) is OFF by default and for the empty string", () => {
+    // Off is today exactly: every pay-on-joining route is a 404 and nothing touches the table.
+    expect(loadServerConfig({}).PAY_ON_JOINING_RECORDS_ENABLED).toBe(false);
+    expect(
+      loadServerConfig({ PAY_ON_JOINING_RECORDS_ENABLED: "" }).PAY_ON_JOINING_RECORDS_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ PAY_ON_JOINING_RECORDS_ENABLED: "0" }).PAY_ON_JOINING_RECORDS_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ PAY_ON_JOINING_RECORDS_ENABLED: "true" }).PAY_ON_JOINING_RECORDS_ENABLED,
+    ).toBe(true);
+    expect(() => loadServerConfig({ PAY_ON_JOINING_RECORDS_ENABLED: "yes" })).toThrow();
+  });
+
+  it("POJ_PARTNER_SHARE_PERCENT (#2753 item 11) defaults to 70, also for the empty string, and takes 0..100 only", () => {
+    expect(loadServerConfig({}).POJ_PARTNER_SHARE_PERCENT).toBe(70);
+    expect(loadServerConfig({ POJ_PARTNER_SHARE_PERCENT: "" }).POJ_PARTNER_SHARE_PERCENT).toBe(70);
+    expect(loadServerConfig({ POJ_PARTNER_SHARE_PERCENT: " " }).POJ_PARTNER_SHARE_PERCENT).toBe(70);
+    // Both ends are real settings: 0 (the partner is owed nothing) and 100 (all of it).
+    expect(loadServerConfig({ POJ_PARTNER_SHARE_PERCENT: "0" }).POJ_PARTNER_SHARE_PERCENT).toBe(0);
+    expect(loadServerConfig({ POJ_PARTNER_SHARE_PERCENT: "100" }).POJ_PARTNER_SHARE_PERCENT).toBe(
+      100,
+    );
+    expect(loadServerConfig({ POJ_PARTNER_SHARE_PERCENT: "65" }).POJ_PARTNER_SHARE_PERCENT).toBe(
+      65,
+    );
+    for (const bad of ["-1", "101", "70.5", "70%", "seventy"]) {
+      expect(() => loadServerConfig({ POJ_PARTNER_SHARE_PERCENT: bad }), bad).toThrow();
+    }
+  });
+
+  describe("the company follow-up (#2753 item 10)", () => {
+    it("UNLOCK_FOLLOWUP_ENABLED is OFF by default and for the empty string", () => {
+      // Off: both routes are a 404 and nothing reads or writes `unlock_outcomes`.
+      expect(loadServerConfig({}).UNLOCK_FOLLOWUP_ENABLED).toBe(false);
+      expect(loadServerConfig({ UNLOCK_FOLLOWUP_ENABLED: "" }).UNLOCK_FOLLOWUP_ENABLED).toBe(false);
+      expect(loadServerConfig({ UNLOCK_FOLLOWUP_ENABLED: "0" }).UNLOCK_FOLLOWUP_ENABLED).toBe(
+        false,
+      );
+      expect(loadServerConfig({ UNLOCK_FOLLOWUP_ENABLED: "true" }).UNLOCK_FOLLOWUP_ENABLED).toBe(
+        true,
+      );
+      expect(() => loadServerConfig({ UNLOCK_FOLLOWUP_ENABLED: "yes" })).toThrow();
+    });
+
+    it("UNLOCK_FOLLOWUP_AFTER_DAYS defaults to 7 (also when empty) and is at least 1", () => {
+      expect(loadServerConfig({}).UNLOCK_FOLLOWUP_AFTER_DAYS).toBe(7);
+      expect(loadServerConfig({ UNLOCK_FOLLOWUP_AFTER_DAYS: "" }).UNLOCK_FOLLOWUP_AFTER_DAYS).toBe(
+        7,
+      );
+      expect(
+        loadServerConfig({ UNLOCK_FOLLOWUP_AFTER_DAYS: "14" }).UNLOCK_FOLLOWUP_AFTER_DAYS,
+      ).toBe(14);
+      expect(loadServerConfig({ UNLOCK_FOLLOWUP_AFTER_DAYS: "1" }).UNLOCK_FOLLOWUP_AFTER_DAYS).toBe(
+        1,
+      );
+      for (const bad of ["0", "-3", "2.5", "seven"]) {
+        expect(() => loadServerConfig({ UNLOCK_FOLLOWUP_AFTER_DAYS: bad })).toThrow();
+      }
+    });
+
+    it("PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR defaults to 600 and must be positive", () => {
+      expect(loadServerConfig({}).PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR).toBe(600);
+      expect(
+        loadServerConfig({ PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR: "50" })
+          .PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR,
+      ).toBe(50);
+      expect(() => loadServerConfig({ PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR: "0" })).toThrow();
+    });
+  });
+
+  describe('the monthly "still looking?" check (#2753 item 5)', () => {
+    it.each(["STILL_LOOKING_CHECK_ENABLED", "STILL_LOOKING_PUSH_ENABLED"] as const)(
+      "%s is OFF by default and for the empty string",
+      (key) => {
+        // Off: the check's routes are a 404 / the prompt never pushes.
+        expect(loadServerConfig({})[key]).toBe(false);
+        expect(loadServerConfig({ [key]: "" })[key]).toBe(false);
+        expect(loadServerConfig({ [key]: "0" })[key]).toBe(false);
+        expect(loadServerConfig({ [key]: "true" })[key]).toBe(true);
+        expect(() => loadServerConfig({ [key]: "yes" })).toThrow();
+      },
+    );
+
+    it("the two switches are independent: the push switch alone turns nothing else on", () => {
+      const pushOnly = loadServerConfig({ STILL_LOOKING_PUSH_ENABLED: "true" });
+      expect(pushOnly.STILL_LOOKING_PUSH_ENABLED).toBe(true);
+      expect(pushOnly.STILL_LOOKING_CHECK_ENABLED).toBe(false);
+    });
+
+    it("STILL_LOOKING_EVERY_DAYS defaults to 30 (also when empty) and is at least 7", () => {
+      expect(loadServerConfig({}).STILL_LOOKING_EVERY_DAYS).toBe(30);
+      expect(loadServerConfig({ STILL_LOOKING_EVERY_DAYS: "" }).STILL_LOOKING_EVERY_DAYS).toBe(30);
+      expect(loadServerConfig({ STILL_LOOKING_EVERY_DAYS: "7" }).STILL_LOOKING_EVERY_DAYS).toBe(7);
+      expect(loadServerConfig({ STILL_LOOKING_EVERY_DAYS: "45" }).STILL_LOOKING_EVERY_DAYS).toBe(
+        45,
+      );
+      for (const bad of ["6", "0", "-30", "30.5", "thirty", "30d"]) {
+        expect(() => loadServerConfig({ STILL_LOOKING_EVERY_DAYS: bad }), bad).toThrow();
+      }
+    });
+  });
+
+  describe("the Campus link (#2752)", () => {
+    const HASH_A = "a".repeat(64);
+    const HASH_B = "B".repeat(64);
+
+    it("CAMPUS_LINK_ENABLED is OFF by default and for the empty string", () => {
+      expect(loadServerConfig({}).CAMPUS_LINK_ENABLED).toBe(false);
+      expect(loadServerConfig({ CAMPUS_LINK_ENABLED: "" }).CAMPUS_LINK_ENABLED).toBe(false);
+      expect(loadServerConfig({ CAMPUS_LINK_ENABLED: "true" }).CAMPUS_LINK_ENABLED).toBe(true);
+      expect(() => loadServerConfig({ CAMPUS_LINK_ENABLED: "yes" })).toThrow();
+    });
+
+    it("CAMPUS_SERVICE_TOKEN_SHA256S reads absent and empty as no hashes, so nobody authenticates", () => {
+      expect(loadServerConfig({}).CAMPUS_SERVICE_TOKEN_SHA256S).toEqual([]);
+      expect(
+        loadServerConfig({ CAMPUS_SERVICE_TOKEN_SHA256S: "" }).CAMPUS_SERVICE_TOKEN_SHA256S,
+      ).toEqual([]);
+    });
+
+    it("CAMPUS_SERVICE_TOKEN_SHA256S keeps two hashes for a rotation, lower-cased and trimmed", () => {
+      expect(
+        loadServerConfig({ CAMPUS_SERVICE_TOKEN_SHA256S: ` ${HASH_A} , ${HASH_B} ` })
+          .CAMPUS_SERVICE_TOKEN_SHA256S,
+      ).toEqual([HASH_A, HASH_B.toLowerCase()]);
+    });
+
+    it("CAMPUS_SERVICE_TOKEN_SHA256S fails boot on a malformed entry or a third hash", () => {
+      expect(() => loadServerConfig({ CAMPUS_SERVICE_TOKEN_SHA256S: "not-a-hash" })).toThrow();
+      expect(() =>
+        loadServerConfig({ CAMPUS_SERVICE_TOKEN_SHA256S: `${HASH_A},${HASH_A},${HASH_A}` }),
+      ).toThrow();
+    });
+
+    it("CAMPUS_SERVICE_ALLOWED_IPS reads empty as no address, and fails boot on a non-address", () => {
+      expect(loadServerConfig({}).CAMPUS_SERVICE_ALLOWED_IPS).toEqual([]);
+      expect(
+        loadServerConfig({ CAMPUS_SERVICE_ALLOWED_IPS: "203.0.113.7, ::1" })
+          .CAMPUS_SERVICE_ALLOWED_IPS,
+      ).toEqual(["203.0.113.7", "::1"]);
+      expect(() => loadServerConfig({ CAMPUS_SERVICE_ALLOWED_IPS: "campus.rvmcad.org" })).toThrow();
+    });
+
+    it("RVM_STUDENT_API_* read absent and empty as unset, so every Student API read fails closed", () => {
+      for (const env of [{}, { RVM_STUDENT_API_BASE_URL: "", RVM_STUDENT_API_TOKEN: "" }]) {
+        const cfg = loadServerConfig(env);
+        expect(cfg.RVM_STUDENT_API_BASE_URL).toBeUndefined();
+        expect(cfg.RVM_STUDENT_API_TOKEN).toBeUndefined();
+      }
+      expect(loadServerConfig({ RVM_STUDENT_API_TIMEOUT_MS: "" }).RVM_STUDENT_API_TIMEOUT_MS).toBe(
+        5_000,
+      );
+    });
+
+    it("RVM_CONSENT_RECHECK_SECONDS defaults to 300 when absent or empty, and refuses zero or over a day", () => {
+      for (const env of [{}, { RVM_CONSENT_RECHECK_SECONDS: "" }]) {
+        expect(loadServerConfig(env).RVM_CONSENT_RECHECK_SECONDS).toBe(300);
+      }
+      expect(
+        loadServerConfig({ RVM_CONSENT_RECHECK_SECONDS: "60" }).RVM_CONSENT_RECHECK_SECONDS,
+      ).toBe(60);
+      expect(() => loadServerConfig({ RVM_CONSENT_RECHECK_SECONDS: "0" })).toThrow();
+      expect(() => loadServerConfig({ RVM_CONSENT_RECHECK_SECONDS: "86401" })).toThrow();
+    });
+
+    it("RVM_STUDENT_API_* refuse a non-URL base and a short token at boot", () => {
+      expect(() => loadServerConfig({ RVM_STUDENT_API_BASE_URL: "scheduler" })).toThrow();
+      expect(() => loadServerConfig({ RVM_STUDENT_API_TOKEN: "short" })).toThrow();
+    });
+
+    it("RVM_STUDENT_API_BASE_URL is https, with plain http only for a loopback host", () => {
+      expect(
+        loadServerConfig({ RVM_STUDENT_API_BASE_URL: "https://scheduler.rvmcad.org" })
+          .RVM_STUDENT_API_BASE_URL,
+      ).toBe("https://scheduler.rvmcad.org");
+      expect(
+        loadServerConfig({ RVM_STUDENT_API_BASE_URL: "http://127.0.0.1:4000" })
+          .RVM_STUDENT_API_BASE_URL,
+      ).toBe("http://127.0.0.1:4000");
+      expect(() =>
+        loadServerConfig({ RVM_STUDENT_API_BASE_URL: "http://scheduler.rvmcad.org" }),
+      ).toThrow();
+    });
+
+    it("CAMPUS_SERVICE_MAX_PER_MINUTE defaults to 600, also for the empty string", () => {
+      expect(loadServerConfig({}).CAMPUS_SERVICE_MAX_PER_MINUTE).toBe(600);
+      expect(
+        loadServerConfig({ CAMPUS_SERVICE_MAX_PER_MINUTE: "" }).CAMPUS_SERVICE_MAX_PER_MINUTE,
+      ).toBe(600);
+      expect(() => loadServerConfig({ CAMPUS_SERVICE_MAX_PER_MINUTE: "0" })).toThrow();
+    });
+
+    it("CAMPUS_DRIVE_MAX_OPEN_REQUESTS defaults to 3 (owner ruling, #2768), also for the empty string", () => {
+      expect(loadServerConfig({}).CAMPUS_DRIVE_MAX_OPEN_REQUESTS).toBe(3);
+      expect(
+        loadServerConfig({ CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "" }).CAMPUS_DRIVE_MAX_OPEN_REQUESTS,
+      ).toBe(3);
+      expect(
+        loadServerConfig({ CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "5" }).CAMPUS_DRIVE_MAX_OPEN_REQUESTS,
+      ).toBe(5);
+      // Zero would refuse every request: switching the feature off is the rollout switch's job.
+      expect(() => loadServerConfig({ CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "0" })).toThrow();
+      expect(() => loadServerConfig({ CAMPUS_DRIVE_MAX_OPEN_REQUESTS: "-1" })).toThrow();
+    });
+  });
+
   it("PAYER_APPLICANT_STAGE_MAX_PER_HOUR defaults to 600 and refuses a non-positive cap", () => {
     expect(loadServerConfig({}).PAYER_APPLICANT_STAGE_MAX_PER_HOUR).toBe(600);
     expect(
@@ -883,6 +1217,18 @@ describe("loadServerConfig", () => {
     expect(read("")).toBe(false);
     expect(read("false")).toBe(false);
     expect(read("true")).toBe(true);
+  });
+
+  it("CONSENT_NOTICE_URL (#2753 item 13) is absent by default and for the empty string, https only", () => {
+    // Absent is `notice_url: null` on GET /consent/notice: no published link yet, none invented.
+    expect(loadServerConfig({}).CONSENT_NOTICE_URL).toBeUndefined();
+    expect(loadServerConfig({ CONSENT_NOTICE_URL: "" }).CONSENT_NOTICE_URL).toBeUndefined();
+    expect(
+      loadServerConfig({ CONSENT_NOTICE_URL: "https://example.com/privacy" }).CONSENT_NOTICE_URL,
+    ).toBe("https://example.com/privacy");
+    // It opens in the worker's browser: a plain-http or malformed value refuses boot.
+    expect(() => loadServerConfig({ CONSENT_NOTICE_URL: "http://example.com/privacy" })).toThrow();
+    expect(() => loadServerConfig({ CONSENT_NOTICE_URL: "privacy notice" })).toThrow();
   });
 
   it("AI_RAW_PII_ENABLED (ADR-0047) is OFF by default, for the empty string and for 'false'", () => {
@@ -989,6 +1335,22 @@ describe("loadServerConfig", () => {
       expect(() => loadServerConfig({ PAYER_ORG_TENANCY_MODE: bad }), bad).toThrow();
     }
   });
+
+  it.each(["JOB_AUDIENCE_ROLLOUT", "CAMPUS_DRIVE_REQUESTS_ROLLOUT", "THEME_ROLLOUT"] as const)(
+    "%s (#2746, #2820) is 'off' when unset, empty or blank, and refuses anything but off/pilot/on",
+    (name) => {
+      const mode = (value?: string) =>
+        loadServerConfig(value === undefined ? {} : { [name]: value })[name];
+      expect(mode()).toBe("off");
+      expect(mode("")).toBe("off");
+      expect(mode("  ")).toBe("off");
+      for (const value of ["off", "pilot", "on"] as const) expect(mode(value)).toBe(value);
+      // Case and boolean spellings are refused, not coerced: a typo must not arm the switch.
+      for (const bad of ["ON", "Pilot", "true", "1", "enabled", " on"]) {
+        expect(() => loadServerConfig({ [name]: bad }), bad).toThrow();
+      }
+    },
+  );
 
   it("REFERRAL_SHORT_LINK_BASE accepts the interim payer-web origin and refuses a non-https one", () => {
     // #1800: staging now declares the origin that SERVES `/i/<code>`. The default stays the old

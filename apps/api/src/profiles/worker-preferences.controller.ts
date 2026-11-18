@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpCode, Put, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Header, HttpCode, Inject, Put, UseGuards } from "@nestjs/common";
 
 import {
   WorkerAuthGuard,
@@ -7,6 +7,7 @@ import {
 } from "../auth/worker-auth.guard";
 import { ConsentGuard } from "../auth/consent.guard";
 import { Ctx, type RequestContext } from "../common/request-context";
+import { SERVER_CONFIG } from "../config/config.module";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import {
   SetMyPreferencesSchema,
@@ -15,7 +16,10 @@ import {
 } from "./worker-preferences.dto";
 import { WorkerPreferencesService } from "./worker-preferences.service";
 import {
-  AVAILABILITY_STATUSES,
+  offeredAvailabilityStatuses,
+  type AvailabilityAnswersConfig,
+} from "./availability-answers.flag";
+import {
   DOCUMENTS_READY,
   JOB_TYPES,
   LANGUAGES,
@@ -62,6 +66,11 @@ export interface WorkPreferenceOptionsResponse {
    * WHEN the worker can start — `availability.status`'s closed set (ADR-0045 R4). The PUT has
    * validated `availability.status` against this dictionary since Layer A (c), but no page could
    * render it: the general form's terms page asks availability and needs the chips from here.
+   *
+   * WHICH SET IS SERVED IS THE SWITCH (#2753 item 3): the first four while
+   * `AVAILABILITY_ANSWERS_V2_ENABLED` is off, the brief's four while it is on. The key and the
+   * shape never change, so a client renders whichever arrives; the PUT accepts both sets either
+   * way.
    */
   readonly availability_status: Record<string, string>;
   /**
@@ -85,7 +94,13 @@ export interface WorkPreferenceOptionsResponse {
  */
 @Controller("workers")
 export class WorkerPreferencesController {
-  constructor(private readonly preferences: WorkerPreferencesService) {}
+  constructor(
+    private readonly preferences: WorkerPreferencesService,
+    // #2753 item 3 — `AVAILABILITY_ANSWERS_V2_ENABLED`, read by `options()` only. Optional only so
+    // a hand-built instance (the options contract test) without it fails closed to today's
+    // dictionary; Nest always injects the global config.
+    @Inject(SERVER_CONFIG) private readonly config?: AvailabilityAnswersConfig,
+  ) {}
 
   /**
    * The option sets, so the client renders chips from the SERVER's closed vocabulary.
@@ -116,6 +131,9 @@ export class WorkerPreferencesController {
    * ADDITIVE, so shipped builds are unaffected: the Flutter decoder reads named keys and ignores
    * the rest. `availability_status` and `work_types` (ADR-0045) follow the same rule: the general
    * form's terms page asks both, and no shipped build's decoder (`WorkPrefOptionsDto`) reads them.
+   *
+   * THE ONE FLAG-DEPENDENT VALUE HERE is `availability_status` (#2753 item 3,
+   * `offeredAvailabilityStatuses`). Everything else stays a static dictionary.
    */
   @Get("me/work-preferences/options")
   @UseGuards(WorkerAuthGuard, ConsentGuard)
@@ -128,7 +146,7 @@ export class WorkerPreferencesController {
       cities: CITY_CATALOGUE,
       states: STATE_CATALOGUE,
       city_hubs: CITY_HUBS,
-      availability_status: AVAILABILITY_STATUSES,
+      availability_status: offeredAvailabilityStatuses(this.config),
       work_types: WORK_TYPES,
     };
   }

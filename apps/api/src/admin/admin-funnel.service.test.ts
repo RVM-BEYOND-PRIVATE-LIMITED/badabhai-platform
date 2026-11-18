@@ -131,6 +131,30 @@ describe("AdminFunnelService.onboardingFunnel — counts, stops and splits", () 
     expect(delhi).toMatchObject({ total: 0, suppressed: true, stopped_at: [] });
   });
 
+  it("#2580: a trade cell carries the taxonomy role name as its label; nothing is guessed", async () => {
+    const welders = Array.from({ length: 5 }, (_, i) => W(`w${i}`));
+    const fitters = Array.from({ length: 5 }, (_, i) => W(`f${i}`));
+    const loners = [W("x1"), W("x2")];
+    const cohort = [...welders, ...fitters, ...loners];
+    const trades = new Map<string, string>([
+      ...welders.map((w) => [w.id, "role_welder"] as [string, string]),
+      // An id the taxonomy does not know keeps a null label: the portal shows the id.
+      ...fitters.map((w) => [w.id, "role_not_in_taxonomy"] as [string, string]),
+    ]);
+    const { svc } = make({ cohort, trades });
+    const res = await svc.onboardingFunnel({ testAccounts: "exclude" });
+
+    const byValue = Object.fromEntries(res.splits.trade.map((c) => [c.value, c]));
+    expect(byValue["role_welder"]).toMatchObject({ label: "Welder", total: 5 });
+    expect(byValue["role_not_in_taxonomy"]).toMatchObject({ label: null, total: 5 });
+    // The workers with no trade fall in `unknown`, labelled by nobody (and suppressed here).
+    expect(byValue["unknown"]).toMatchObject({ label: null, suppressed: true });
+    // Every other dimension carries no label: its value is already what the portal shows.
+    for (const dim of ["city", "language", "app_version"] as const) {
+      for (const cell of res.splits[dim]) expect(cell.label).toBeNull();
+    }
+  });
+
   it("split cells at/above the floor carry the stopped distribution", async () => {
     const cohort = Array.from({ length: 6 }, (_, i) => W(`w${i}`, { city: "Pune" }));
     const { svc } = make({

@@ -18,6 +18,7 @@ import { EventsRepository } from "../../events/events.repository";
 import { EventsService } from "../../events/events.service";
 import { JobPostingsRepository } from "../../job-postings/job-postings.repository";
 import { JobPostingsService } from "../../job-postings/job-postings.service";
+import { postingAudienceOver } from "../../job-postings/posting-audience.test-support";
 import { PayersRepository } from "../../payers/payers.repository";
 import { defaultModeResolver } from "../../payers/payer-tenant-scope.test-support";
 import { JobPostingChatRepository } from "./job-posting-chat.repository";
@@ -347,6 +348,8 @@ describe.skipIf(!RUN)(
         {} as never, // MatchSkillsService — a chat publish sends no match_skill_ids
         {} as never, // PostingTradesService
         tenancy,
+        // #2746 — the real audience service at the default (switch off); a chat publish sets none.
+        postingAudienceOver(client.db, eventsService),
       );
       publisher = new JobPostingChatService(
         chat,

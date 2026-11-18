@@ -107,8 +107,10 @@ pnpm --filter @badabhai/db db:bootstrap:admin -- --email you@example.com --name 
 **Verify all three:**
 
 1. It prints the created admin's id and role `super_admin`.
-2. `--with-totp` prints a TOTP seed **once**. Enrol it in your authenticator now — it is shown
-   once and recoverable from nowhere.
+2. `--with-totp` prints a TOTP seed **once** and switches two-step **on** for the account
+   (`mfa_enrolled` and `mfa_enabled` both true, #2924). Enrol it in your authenticator now — it
+   is shown once, recoverable from nowhere, and the first sign-in asks for a code from it. A
+   seed nobody scanned is recovered with `db:admin:reset-mfa`.
 3. **Run it a second time.** It must **refuse** and exit **0**, not create a second super_admin.
    This is the security property; a second row here is a critical finding.
 
@@ -117,6 +119,12 @@ pnpm --filter @badabhai/db db:bootstrap:admin -- --email you@example.com --name 
 > is [ADR-0038 §4](decisions/0038-admin-bootstrap-and-notification-layer.md).
 
 ## 4–7. Deliver, verify, enrol, get a session
+
+**Who gets the second factor** (ADR-0060 Amendment 2, owner ruling #2924, 2026-11-18): two-step
+is **required** for `super_admin` and `ops_admin`. The bootstrap creates a `super_admin`, so the
+steps below always reach the MFA step, with or without `--with-totp`. `support` and `analyst`
+keep the optional per-admin switch of Amendment 1 (off by default): for them the emailed code
+alone returns a session until they turn two-step on from the Account page.
 
 ```bash
 API=http://localhost:3001
@@ -141,7 +149,9 @@ curl -s -X POST $API/admin/login/verify -H 'content-type: application/json' \
 ```
 
 If you bootstrapped `--with-totp`, `needs_enrollment` is **false** and there is no `enrollment`
-block — you already hold the seed. Either way, add the secret to an authenticator app.
+block — you already hold the seed the bootstrap printed; use a code from it. Without
+`--with-totp`, scan the `enrollment` block's secret or QR into an authenticator app now: the code
+in step 7 is what switches two-step on for the account.
 
 ```bash
 # 7. session

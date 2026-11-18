@@ -1,5 +1,5 @@
-import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gte, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import {
   type Database,
   type Unlock,
@@ -10,21 +10,42 @@ import {
   type RoutingChannel,
   type PaymentOrder,
   type PaymentOrderStatus,
+  type ExpiredCreditLot,
+  type LotAlignment,
+  type WalletExpiryResult,
+  type WalletGrantResult,
+  CREDIT_LOT_SPEND_ORDER,
+  countOrphanWalletsWithDueLots,
+  expireWalletWithinTx,
+  findWalletsWithDueLots,
+  grantCreditsWithinTx,
+  returnExpiredPackCreditsWithinTx,
+  type PackReturnResult,
+  lotAlignmentWarning,
+  readSpendableCredits,
+  spendOneCreditWithinTx,
+  spendCreditsWithinTx,
+  type WalletSpendTake,
   unlocks,
   unlockRouting,
   payerCredits,
   creditLedger,
+  creditLots,
   paymentOrders,
   workers,
   jobs,
   jobPostings,
   workerProfiles,
   workerProfileSkills,
+  workerSkills,
+  workerInstituteLinks,
+  RVM_INSTITUTE_CODE,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { findOwnedJobRef, type OwnedJobRef } from "../payers/owned-job-ref";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { OPS_LIST_CAP } from "../common/pagination";
+import type { CreditLotSource, PaymentOrderOrigin } from "@badabhai/types";
 
 /**
  * The one payment provider this stream supports, and the value that must match
@@ -72,16 +93,120 @@ export interface WalletCredit {
   /**
    * The amount CHARGED, whole ₹ (D-6). Stamped onto the row so History renders what this
    * purchase ACTUALLY cost, immune to any later ops price edit. Null for ops grants /
-   * movements with no amount.
+   * movements with no amount. Since #2749 PR 3 a pack's charge is its GST-inclusive TOTAL.
    */
   priceInr?: number | null;
   /**
-   * EXACTLY-ONCE key for the ledger insert (the `credit_ledger_idempotency_key_uq` partial
-   * unique index). Optional: movements with no natural dedup key leave it null and never
-   * collide (NULLS DISTINCT). The real-payment path passes a key derived from the order row.
+   * EXACTLY-ONCE key for the ledger insert (`credit_ledger_idempotency_key_uq`, a full unique
+   * index on the nullable key). Optional: movements with no natural dedup key leave it null and
+   * never collide (NULLS DISTINCT). The real-payment path passes a key derived from the order row.
    */
   idempotencyKey?: string | null;
+  /**
+   * #2749 PR 3 — how long the pack lot's credits last, in days: the lot expires that many days
+   * after the grant, on the database clock (`now()` of the granting transaction). Null or absent =
+   * never expires.
+   */
+  validityDays?: number | null;
 }
+
+/**
+ * The money a payment order is stamped with at creation (#2749, migration 0176): the pack's GST
+ * price line, in integer paise (`gstPriceLine`). taxable + gst + roundOff = total, a whole rupee.
+ */
+export interface PaymentOrderMoney {
+  taxablePaise: number;
+  gstPaise: number;
+  roundOffPaise: number;
+  totalPaise: number;
+  gstRateBps: number;
+}
+
+/**
+ * What a held capture recorded (#2749 hardening 5): the provider's payment id, stamped on the row so
+ * ops can find the payment in the Razorpay dashboard to refund it. Opaque.
+ */
+export interface HoldPaymentOrderInput {
+  providerOrderId: string;
+  providerPaymentRef: string;
+  provider?: string;
+}
+
+/**
+ * The statuses a capture may move an order out of — to `paid` (the settle claim) or to `held`.
+ * `failed` is included on purpose: Razorpay lets a buyer retry a failed payment on the SAME order,
+ * and that later capture must still settle it. `paid` and `held` are terminal for a capture.
+ */
+const CAPTURABLE_ORDER_STATUSES = [
+  "created",
+  "failed",
+] as const satisfies readonly PaymentOrderStatus[];
+
+/**
+ * One OPEN lot of the tenant's wallet as `GET /payer/credits` returns it (#2749): what is left,
+ * what it granted, when it ends, and the pack it came from. No lot id, no payment reference.
+ */
+export interface OpenLotProjection {
+  source: CreditLotSource;
+  credits_remaining: number;
+  credits_granted: number;
+  /** ISO 8601, or null when the lot never expires. */
+  expires_at: string | null;
+  pack_code: string | null;
+}
+
+/**
+ * What {@link UnlocksRepository.tryDebit} answers when it spent a credit (#2749): the new balance,
+ * the lot, and the lots it expired first (absent = none). `undefined` keeps its pre-#2749 meaning,
+ * no credit to spend, and since the #2749 review it also means NOTHING was written. `ok` is
+ * optional so callers' fakes that return `{ balanceAfter, lotId }` keep their meaning.
+ */
+/**
+ * #2750 item 2 — one worker's price facts, as {@link UnlocksRepository.readContactCostFacts} reads
+ * them. The cost rule (`contact-cost-facts.ts`) turns these into `ContactCostFacts`.
+ */
+export interface ContactCostFactsRow {
+  /** His latest stated rung per trade, with his bucketed months in that trade (null = no row). */
+  rungs: { skillId: string; tradeLevel: string; months: number | null }[];
+  /** `experience.total_years` on his latest profile, or null. */
+  totalYears: number | null;
+  /** An ACTIVE RVM institute link. */
+  rvmStudent: boolean;
+  /** This company's unlock row for him (one per company and worker), or null. */
+  grant: { status: UnlockStatus; expiresAt: Date | null } | null;
+}
+
+/** `experience` JSONB → `total_years`, or null for anything missing or unparseable. */
+function totalYearsOf(experience: unknown): number | null {
+  if (typeof experience !== "object" || experience === null || Array.isArray(experience)) {
+    return null;
+  }
+  const years = (experience as Record<string, unknown>).total_years;
+  return typeof years === "number" && Number.isFinite(years) && years >= 0 ? years : null;
+}
+
+/** #2750 item 2 — what {@link UnlocksRepository.tryDebitCredits} spent: one take per lot. */
+export interface TryDebitCreditsResult {
+  balanceAfter: number;
+  takes: readonly WalletSpendTake[];
+  expiredLots: readonly ExpiredCreditLot[];
+}
+
+export interface TryDebitResult {
+  ok?: true;
+  balanceAfter: number;
+  lotId: string;
+  /** The lots this spend expired before it spent (absent = none). */
+  expiredLots?: readonly ExpiredCreditLot[];
+}
+
+/**
+ * A wallet key READ FROM `credit_lots` by {@link UnlocksRepository.findWalletsWithDueLots} — the
+ * expiry sweep's only input. Branded so the sweep can only expire a wallet the table itself named
+ * (the same rule as settlement, which credits only the wallet the claimed order row names): no
+ * request, body or caller supplies it, so it is not a tenant resolution and needs none.
+ */
+export type StoredWalletKey = string & { readonly __storedWalletKey: unique symbol };
 
 /** PII-free ops/list projection of an unlock row (NO routing token resolved). */
 export interface UnlockProjection {
@@ -124,6 +249,14 @@ export interface UnlockProjection {
  */
 @Injectable()
 export class UnlocksRepository {
+  /**
+   * #2749 — the one log line this repository writes, at ERROR: a wallet whose lots the
+   * credit-wallet helper just re-aligned with its balance (ids and numbers only). It reports the
+   * state of the write it made, so it lives beside the write; after the 0174 apply-to-deploy
+   * window it should never fire, and any occurrence means a writer bypassed the helpers.
+   */
+  private readonly walletLog = new Logger("CreditWallet");
+
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /** Run `work` inside a single DB transaction (the chokepoint's atomic boundary). */
@@ -150,20 +283,115 @@ export class UnlocksRepository {
         tradeLevel: workerProfileSkills.tradeLevel,
       })
       .from(workerProfiles)
-      .innerJoin(
-        workerProfileSkills,
-        eq(workerProfileSkills.workerProfileId, workerProfiles.id),
-      )
-      .where(
-        and(
-          eq(workerProfiles.workerId, workerId),
-          isNotNull(workerProfileSkills.tradeLevel),
-        ),
-      )
+      .innerJoin(workerProfileSkills, eq(workerProfileSkills.workerProfileId, workerProfiles.id))
+      .where(and(eq(workerProfiles.workerId, workerId), isNotNull(workerProfileSkills.tradeLevel)))
       .orderBy(workerProfileSkills.skillId, desc(workerProfiles.createdAt));
     return rows.flatMap((r) =>
       r.tradeLevel === null ? [] : [{ skillId: r.skillId, tradeLevel: r.tradeLevel }],
     );
+  }
+
+  /**
+   * #2750 item 2 — the facts the cost of opening each worker is priced from, for a page of
+   * workers at once (the quote) or one (the open). FACTS ALREADY ON THE CARD ONLY: his stated
+   * rungs, his experience, whether he is an actively linked RVM student, and whether THIS company
+   * already holds a contact for him. Nothing here reads consent, a limit or deletion state, so the
+   * price can never be a probe of those (#2750 private notes item 5). A worker id with no rows gets
+   * empty facts (the standard cost), exactly like a worker who stated nothing: the price says
+   * nothing about whether an id exists.
+   *
+   * Global-pool reads (never inside the advisory-locked transaction: the deadlock rule in
+   * UnlockService). Ids, closed rung keys and integers only.
+   */
+  async readContactCostFacts(
+    tenant: TenantKey,
+    workerIds: readonly string[],
+  ): Promise<Map<string, ContactCostFactsRow>> {
+    const out = new Map<string, ContactCostFactsRow>();
+    for (const id of workerIds) {
+      out.set(id, { rungs: [], totalYears: null, rvmStudent: false, grant: null });
+    }
+    const ids = [...out.keys()];
+    if (ids.length === 0) return out;
+
+    // Latest stated rung per (worker, trade), with his bucketed months in that trade.
+    const rungs = await this.db
+      .selectDistinctOn([workerProfiles.workerId, workerProfileSkills.skillId], {
+        workerId: workerProfiles.workerId,
+        skillId: workerProfileSkills.skillId,
+        tradeLevel: workerProfileSkills.tradeLevel,
+      })
+      .from(workerProfiles)
+      .innerJoin(workerProfileSkills, eq(workerProfileSkills.workerProfileId, workerProfiles.id))
+      .where(and(inArray(workerProfiles.workerId, ids), isNotNull(workerProfileSkills.tradeLevel)))
+      .orderBy(
+        workerProfiles.workerId,
+        workerProfileSkills.skillId,
+        desc(workerProfiles.createdAt),
+      );
+    const months = await this.db
+      .select({
+        workerId: workerSkills.workerId,
+        skillId: workerSkills.skillId,
+        months: workerSkills.monthsBucketed,
+      })
+      .from(workerSkills)
+      .where(inArray(workerSkills.workerId, ids));
+    const monthsOf = new Map(months.map((m) => [`${m.workerId}|${m.skillId}`, m.months]));
+    for (const r of rungs) {
+      if (r.tradeLevel === null) continue;
+      out.get(r.workerId)?.rungs.push({
+        skillId: r.skillId,
+        tradeLevel: r.tradeLevel,
+        months: monthsOf.get(`${r.workerId}|${r.skillId}`) ?? null,
+      });
+    }
+
+    // His total experience from the latest profile (the card's "x yrs" band comes from it).
+    const profiles = await this.db
+      .selectDistinctOn([workerProfiles.workerId], {
+        workerId: workerProfiles.workerId,
+        experience: workerProfiles.experience,
+      })
+      .from(workerProfiles)
+      .where(inArray(workerProfiles.workerId, ids))
+      .orderBy(workerProfiles.workerId, desc(workerProfiles.createdAt));
+    for (const p of profiles) {
+      const row = out.get(p.workerId);
+      if (row) row.totalYears = totalYearsOf(p.experience);
+    }
+
+    // The card's "RVM student" label (#2747 item 1): an ACTIVE RVM link.
+    const links = await this.db
+      .select({ workerId: workerInstituteLinks.workerId })
+      .from(workerInstituteLinks)
+      .where(
+        and(
+          inArray(workerInstituteLinks.workerId, ids),
+          eq(workerInstituteLinks.status, "active"),
+          eq(workerInstituteLinks.instituteCode, RVM_INSTITUTE_CODE),
+        ),
+      );
+    for (const l of links) {
+      const row = out.get(l.workerId);
+      if (row) row.rvmStudent = true;
+    }
+
+    // What this company already holds for him (the card shows an opened contact as opened).
+    const grants = await this.db
+      .select({
+        workerId: unlocks.workerId,
+        status: unlocks.status,
+        expiresAt: unlocks.expiresAt,
+      })
+      .from(unlocks)
+      .where(and(eq(unlocks.payerId, tenant), inArray(unlocks.workerId, ids)));
+    for (const g of grants) {
+      if (g.workerId === null) continue;
+      const row = out.get(g.workerId);
+      if (row) row.grant = { status: g.status, expiresAt: g.expiresAt };
+    }
+    return out;
   }
 
   /**
@@ -303,6 +531,56 @@ export class UnlocksRepository {
   }
 
   /**
+   * #2750 item 6 — the worker's NEW opens in the window, by EVERY company (pilot or not, B7-12):
+   * unlock rows granted since `since` that became a contact (granted, revealed, or since lapsed).
+   * A re-open of a held contact writes no new grant, so it is not counted; a denied row is not a
+   * contact. Tx-scoped, under the worker lock, so concurrent opens of one worker count each other.
+   */
+  async countOpensSince(tx: Tx, workerId: string, since: Date): Promise<number> {
+    const rows = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(unlocks)
+      .where(
+        and(
+          eq(unlocks.workerId, workerId),
+          gte(unlocks.grantedAt, since),
+          sql`${unlocks.status} in ('granted','revealed','expired')`,
+        ),
+      );
+    return rows[0]?.count ?? 0;
+  }
+
+  /**
+   * #2750 item 6 — the NEW opens this company (its tenant key) made since `since` (the IST day's
+   * start for the agency limit). Same row rule as {@link countOpensSince}. On the global pool for
+   * the pre-check, or on `tx` for the re-check under {@link lockTenantOpens}.
+   */
+  async countTenantOpensSince(tenant: TenantKey, since: Date, tx?: Tx): Promise<number> {
+    const rows = await (tx ?? this.db)
+      .select({ count: sql<number>`count(*)::int` })
+      .from(unlocks)
+      .where(
+        and(
+          eq(unlocks.payerId, tenant),
+          gte(unlocks.grantedAt, since),
+          sql`${unlocks.status} in ('granted','revealed','expired')`,
+        ),
+      );
+    return rows[0]?.count ?? 0;
+  }
+
+  /**
+   * #2750 item 6 — serialise one agency's new opens for the rest of the transaction, so two opens
+   * at once cannot both pass the daily limit. Taken AFTER the worker lock (lock order: worker →
+   * this → the wallet row the debit locks), never before it.
+   */
+  async lockTenantOpens(tx: Tx, tenant: TenantKey): Promise<void> {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`tenant_opens:${tenant}`}, 0))`,
+    );
+  }
+
+  /**
    * Upsert the GRANTED unlock for (tenant, worker) — idempotent on the unique
    * (payer_id, worker_id), which is one unlock per (org, worker) in mode `on`. Tx-scoped. Sets
    * status=granted, the routing token ref, granted_at, expires_at, clears any prior deny_reason.
@@ -404,6 +682,31 @@ export class UnlocksRepository {
   }
 
   /** Set an unlock to status=revealed and bump reveal_count by 1 (tx-scoped). */
+  /**
+   * #2747 (ADR-0064 §3.4) — store "open for good" on a grant and its relay row: both expiry dates
+   * move to `until`, and nothing else changes (status, reveal count, the routing token). Only ever
+   * moves a date LATER, so a re-run is a no-op and a concurrent writer can never shorten one. Run
+   * under the worker lock, inside the caller's transaction.
+   */
+  async extendOpenUntil(tx: Tx, unlockId: string, until: Date): Promise<void> {
+    await tx
+      .update(unlocks)
+      .set({ expiresAt: until, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(unlocks.id, unlockId),
+          inArray(unlocks.status, ["granted", "revealed"]),
+          // Column-aware comparisons: the driver maps `until` through the column type (a raw Date
+          // inside a hand-written fragment is not serialised).
+          or(isNull(unlocks.expiresAt), lt(unlocks.expiresAt, until)),
+        ),
+      );
+    await tx
+      .update(unlockRouting)
+      .set({ expiresAt: until })
+      .where(and(eq(unlockRouting.unlockId, unlockId), lt(unlockRouting.expiresAt, until)));
+  }
+
   async incrementReveal(tx: Tx, unlockId: string): Promise<number> {
     const rows = await tx
       .update(unlocks)
@@ -509,6 +812,16 @@ export class UnlocksRepository {
   // atomic conditional decrement below guarantee balance never goes negative.
   // -------------------------------------------------------------------------
 
+  /**
+   * #2749 — the credits the tenant wallet can SPEND now: its balance minus what its lots past
+   * `expires_at` still hold (non-tx read, 0 if no row). The unlock path's F-1 precondition reads
+   * THIS, not {@link getBalance}: a wallet whose credits are all past due is refused before any
+   * worker state is consulted.
+   */
+  async getSpendableBalance(tenant: TenantKey): Promise<number> {
+    return readSpendableCredits(this.db, tenant);
+  }
+
   /** The tenant wallet's current balance (non-tx read), or 0 if no row. */
   async getBalance(tenant: TenantKey): Promise<number> {
     const rows = await this.db
@@ -547,23 +860,77 @@ export class UnlocksRepository {
   }
 
   /**
-   * ATOMIC conditional debit of one credit (F-6): decrements balance only WHERE
-   * balance >= amount, returning the new balance — or undefined if there were
-   * insufficient credits (no row updated). Combined with the DB CHECK this makes a
-   * negative balance impossible even under concurrency. Tx-scoped.
-   *
-   * THE ORG WALLET LOCK (ADR-0053 §6). The UPDATE takes the wallet row's lock, keyed by the
-   * tenant: in mode `on` two members spending at once queue on the SAME row, and the second
-   * re-evaluates `balance >= amount` against the first's committed balance — so a team can
-   * never overdraw its one wallet, exactly as one payer never could.
+   * The tenant wallet's OPEN lots (#2749), in the order they are spent: the soonest `expires_at`
+   * first, a lot that never expires last. A non-tx read, like {@link getBalance}; a lot past its
+   * date still reads here until the spend path or the sweep expires it (at most one sweep tick).
    */
-  async tryDebit(tx: Tx, tenant: TenantKey, amount: number): Promise<number | undefined> {
-    const rows = await tx
-      .update(payerCredits)
-      .set({ balance: sql`${payerCredits.balance} - ${amount}`, updatedAt: sql`now()` })
-      .where(and(eq(payerCredits.payerId, tenant), gte(payerCredits.balance, amount)))
-      .returning({ balance: payerCredits.balance });
-    return rows[0]?.balance;
+  async listOpenLots(tenant: TenantKey): Promise<OpenLotProjection[]> {
+    const rows = await this.db
+      .select({
+        source: creditLots.source,
+        creditsRemaining: creditLots.creditsRemaining,
+        creditsGranted: creditLots.creditsGranted,
+        expiresAt: creditLots.expiresAt,
+        packCode: creditLots.packCode,
+      })
+      .from(creditLots)
+      .where(and(eq(creditLots.payerId, tenant), gt(creditLots.creditsRemaining, 0)))
+      .orderBy(...CREDIT_LOT_SPEND_ORDER);
+    return rows.map((r) => ({
+      source: r.source,
+      credits_remaining: r.creditsRemaining,
+      credits_granted: r.creditsGranted,
+      expires_at: r.expiresAt === null ? null : r.expiresAt.toISOString(),
+      pack_code: r.packCode,
+    }));
+  }
+
+  /**
+   * Debit ONE credit (F-6) from the soonest-expiring open lot (#2749): returns the new balance, the
+   * lot it came from and any lots it expired first — or `undefined` when no credit is spendable
+   * once due lots are counted out, in which case NOTHING was written (no expiry, no lot, no
+   * balance; F-1/F-3: the ledger never shows that a request reached the debit). Tx-scoped; the
+   * caller writes the `unlock_debit` ledger line with the returned `lotId` and the expired lots'
+   * events in the SAME transaction.
+   *
+   * THE ORG WALLET LOCK (ADR-0053 §6). `spendOneCreditWithinTx` takes the wallet row's lock
+   * (`SELECT … FOR UPDATE`), keyed by the tenant, before it reads a lot: in mode `on` two members
+   * spending at once queue on the SAME row, and the second reads the first's committed balance
+   * and lots — so a team can never overdraw its one wallet, or any lot in it, exactly as one payer
+   * never could. The DB CHECKs (balance >= 0, 0 <= remaining <= granted) are the backstop.
+   *
+   * A due lot is expired here too (one `expired` line, once per lot) — only when a credit is spent.
+   *
+   * `amount` stays in the signature for its callers; a spend is always one credit (one lot).
+   */
+  async tryDebit(tx: Tx, tenant: TenantKey, amount: 1): Promise<TryDebitResult | undefined> {
+    if (amount !== 1) throw new RangeError(`tryDebit spends one credit (asked for ${amount})`);
+    const spent = await spendOneCreditWithinTx(tx, tenant);
+    if (!spent.ok) return undefined;
+    this.reportRealigned(tenant, spent.alignment);
+    return {
+      ok: true,
+      balanceAfter: spent.balanceAfter,
+      lotId: spent.lotId,
+      expiredLots: spent.expiredLots,
+    };
+  }
+
+  /**
+   * #2750 item 2 — debit `credits` at once (the higher cost of a contact), across lots if need be.
+   * The same contract as {@link tryDebit}: tenant-keyed, under the wallet row lock, and
+   * `undefined` with NOTHING written when fewer than `credits` are spendable (never a partial
+   * spend). The caller writes ONE `unlock_debit` line per take, each naming its lot.
+   */
+  async tryDebitCredits(
+    tx: Tx,
+    tenant: TenantKey,
+    credits: number,
+  ): Promise<TryDebitCreditsResult | undefined> {
+    const spent = await spendCreditsWithinTx(tx, tenant, credits);
+    if (!spent.ok) return undefined;
+    this.reportRealigned(tenant, spent.alignment);
+    return { balanceAfter: spent.balanceAfter, takes: spent.takes, expiredLots: spent.expiredLots };
   }
 
   /**
@@ -580,6 +947,10 @@ export class UnlocksRepository {
       unlockId?: string | null;
       packCode?: string | null;
       paymentRef?: string | null;
+      /** #2749 — the lot the movement spent from ({@link tryDebit}'s `lotId`). */
+      lotId?: string | null;
+      /** #2750 item 5 — the exactly-once key (`waived:<unlock id>` for a waived open). */
+      idempotencyKey?: string | null;
     },
   ): Promise<void> {
     await tx.insert(creditLedger).values({
@@ -589,16 +960,19 @@ export class UnlocksRepository {
       unlockId: input.unlockId ?? null,
       packCode: input.packCode ?? null,
       paymentRef: input.paymentRef ?? null,
+      lotId: input.lotId ?? null,
+      idempotencyKey: input.idempotencyKey ?? null,
     });
   }
 
   /**
    * Credit a pack purchase / ops grant (NON-tx convenience for the mock top-up
-   * endpoint): upsert the balance row (+credits) and append the ledger in ONE
-   * transaction. Returns the new balance.
+   * endpoint): one `pack` lot (expiring `validityDays` after the grant when the pack sets one,
+   * #2749 PR 3; else never), one ledger line naming it and the balance, in ONE transaction.
+   * Returns the new balance.
    *
-   * ⚠️ Inserts `price_inr` EXPLICITLY (D-6) ⇒ requires migration 0043. APPLY BEFORE DEPLOY:
-   * against an unmigrated DB EVERY pack purchase fails on this insert.
+   * ⚠️ Inserts `price_inr` (D-6, migration 0043) and `lot_id` (#2749, migration 0174)
+   * EXPLICITLY ⇒ APPLY BEFORE DEPLOY: against an unmigrated DB EVERY pack purchase fails.
    */
   async creditPack(
     input: {
@@ -607,13 +981,16 @@ export class UnlocksRepository {
     } & WalletCredit,
   ): Promise<number> {
     const { payerId, ...credit } = input;
-    return this.db.transaction((tx) => this.creditWalletWithinTx(tx, payerId, credit));
+    const grant = await this.db.transaction((tx) => this.creditWalletWithinTx(tx, payerId, credit));
+    return grant.balanceAfter;
   }
 
   /**
    * The ONE wallet-credit implementation, inside the CALLER's transaction (the F-6 atomicity
-   * shape of {@link tryDebit}): upsert the balance row (+credits), append the ledger line on the
-   * SAME key. PRIVATE, and typed so only an authority names the wallet: a resolver-minted
+   * shape of {@link tryDebit}): `grantCreditsWithinTx` locks the wallet row, aligns its lots,
+   * writes one `pack` lot (for a paid order, naming it — one lot per order), one ledger line
+   * naming the lot, and the balance, all on the SAME key. PRIVATE, and typed so only an
+   * authority names the wallet: a resolver-minted
    * {@link TenantKey} ({@link creditPack}) or the row a payment-order claim RETURNED
    * ({@link claimAndCreditPaymentOrderWithinTx}). No caller can hand it an order it built.
    *
@@ -626,28 +1003,80 @@ export class UnlocksRepository {
     tx: Tx,
     wallet: TenantKey | PaymentOrder,
     credit: WalletCredit,
-  ): Promise<number> {
+  ): Promise<WalletGrantResult> {
     const walletKey = typeof wallet === "string" ? wallet : wallet.payerId;
-    const updated = await tx
-      .insert(payerCredits)
-      .values({ payerId: walletKey, balance: credit.credits })
-      .onConflictDoUpdate({
-        target: payerCredits.payerId,
-        set: { balance: sql`${payerCredits.balance} + ${credit.credits}`, updatedAt: sql`now()` },
-      })
-      .returning({ balance: payerCredits.balance });
-    await tx.insert(creditLedger).values({
+    const grant = await grantCreditsWithinTx(tx, {
       payerId: walletKey,
-      delta: credit.credits,
-      reason: credit.reason,
-      packCode: credit.packCode,
-      paymentRef: credit.paymentRef,
-      priceInr: credit.priceInr ?? null,
-      idempotencyKey: credit.idempotencyKey ?? null,
+      credits: credit.credits,
+      lot: {
+        source: "pack",
+        packCode: credit.packCode,
+        paymentOrderId: typeof wallet === "string" ? null : wallet.id,
+        // #2749 PR 3: `grant time + validityDays` on the DB clock (the mock pack's live tier, or
+        // the order's stamped `credit_validity_days`); null = never expires.
+        validityDays: credit.validityDays ?? null,
+      },
+      ledger: {
+        reason: credit.reason,
+        packCode: credit.packCode,
+        paymentRef: credit.paymentRef,
+        priceInr: credit.priceInr ?? null,
+        idempotencyKey: credit.idempotencyKey ?? null,
+      },
     });
-    const balance = updated[0]?.balance;
-    if (balance === undefined) throw new Error("Failed to credit pack");
-    return balance;
+    this.reportRealigned(walletKey, grant.alignment);
+    return grant;
+  }
+
+  /**
+   * Log, at ERROR, that the wallet helper re-aligned a wallet's lots with its balance (ids and
+   * numbers, the stable `credit-wallet: lots out of step with balance` prefix). The self-heal
+   * stays; after the 0174 apply-to-deploy window this should never fire, and any occurrence
+   * means some writer moved a balance without going through the wallet helpers.
+   */
+  private reportRealigned(walletKey: string, alignment: LotAlignment): void {
+    const line = lotAlignmentWarning(walletKey, alignment);
+    if (line !== null) this.walletLog.error(line);
+  }
+
+  // ===========================================================================
+  // credit_lots expiry sweep (#2749 item 4) — the `credit-lot-expiry` processor's two calls
+  // ===========================================================================
+
+  /**
+   * Up to `limit` wallets holding a lot past its `expires_at`, the longest-overdue first — the
+   * sweep's work list. Keys are READ FROM `credit_lots` (see {@link StoredWalletKey}), and only
+   * for wallets that have a `payer_credits` row (an orphan lot can never be expired, so it must
+   * not take a slot on every tick).
+   */
+  async findWalletsWithDueLots(limit: number): Promise<StoredWalletKey[]> {
+    const keys = await findWalletsWithDueLots(this.db, limit);
+    return keys as StoredWalletKey[];
+  }
+
+  /** Wallet keys holding a due lot but no `payer_credits` row — skipped by the sweep. */
+  async countOrphanWalletsWithDueLots(): Promise<number> {
+    return countOrphanWalletsWithDueLots(this.db);
+  }
+
+  /**
+   * Expire one wallet's due lots in its OWN transaction: lock the wallet row → align → one
+   * `expired` line per due lot → balance down → then `withinTx` (the sweep's events) on the SAME
+   * transaction, so a committed expiry can never lose its event and a failed event rolls the
+   * expiry back. The same lock order as a spend, so a sweep racing an unlock on the same wallet
+   * waits on the row lock and never deadlocks.
+   */
+  async expireDueLotsForWallet(
+    wallet: StoredWalletKey,
+    withinTx?: (tx: Tx, result: WalletExpiryResult) => Promise<void>,
+  ): Promise<WalletExpiryResult> {
+    const result = await this.db.transaction(async (tx) => {
+      const done = await expireWalletWithinTx(tx, wallet);
+      if (withinTx) await withinTx(tx, done);
+      return done;
+    });
+    this.reportRealigned(wallet, result.alignment);
+    return result;
   }
 
   // ===========================================================================
@@ -667,25 +1096,50 @@ export class UnlocksRepository {
    * The WALLET is stamped here too (ADR-0053 §6): `payer_id` is the tenant key at intent, and
    * settlement credits that wallet and never re-resolves — an order created before the flip
    * settles into the wallet it was created for.
+   *
+   * #2749 (migration 0176): the GST price line in paise (`money`; `amountInr` is then its
+   * whole-rupee total — the CHECKs refuse anything else), the pack's credit validity, and the
+   * purchase origin are stamped in the same insert. All optional here so a caller that has none
+   * (a test fixture) writes what a pre-0176 order held; the gateway always passes them.
+   * `originJobPostingId` must already be proven the tenant's own (the service does it).
    */
   async createPaymentOrder(input: {
+    /**
+     * The row id, when the caller minted it first (the gateway does, so the provider order's
+     * receipt and notes carry the SAME id as this row). Absent = the DB default.
+     */
+    id?: string;
     payerId: TenantKey;
     packCode: string;
     amountInr: number;
     creditsGranted: number;
     providerOrderId: string;
     provider?: string;
+    money?: PaymentOrderMoney | null;
+    creditValidityDays?: number | null;
+    origin?: PaymentOrderOrigin | null;
+    originJobPostingId?: string | null;
   }): Promise<PaymentOrder> {
     const rows = await this.db
       .insert(paymentOrders)
       .values({
+        ...(input.id !== undefined ? { id: input.id } : {}),
         payerId: input.payerId,
+        productKind: "credit_pack",
         packCode: input.packCode,
         amountInr: input.amountInr,
         creditsGranted: input.creditsGranted,
         provider: input.provider ?? RAZORPAY_PROVIDER,
         providerOrderId: input.providerOrderId,
         status: "created",
+        taxablePaise: input.money?.taxablePaise ?? null,
+        gstPaise: input.money?.gstPaise ?? null,
+        roundOffPaise: input.money?.roundOffPaise ?? null,
+        totalPaise: input.money?.totalPaise ?? null,
+        gstRateBps: input.money?.gstRateBps ?? null,
+        creditValidityDays: input.creditValidityDays ?? null,
+        origin: input.origin ?? null,
+        originJobPostingId: input.originJobPostingId ?? null,
       })
       .returning();
     const row = rows[0];
@@ -722,16 +1176,30 @@ export class UnlocksRepository {
    * credit helper is private. `undefined` when the claim matched no row (already paid, unknown,
    * or a concurrent settler won) — then nothing is credited.
    *
-   * Exactly-once, layer 3: the ledger line carries `payment_order:<row id>` under the partial
-   * unique index, so even a bypassed claim could not credit an order twice.
+   * Exactly-once, layer 3: the ledger line carries `payment_order:<row id>` (checked under the
+   * wallet lock, with `credit_ledger_idempotency_key_uq` as the backstop) and the lot names the
+   * order under the unique `credit_lots_payment_order_uq`, so even a bypassed claim could not
+   * credit an order twice: a key already on the ledger grants nothing and reads as a lost race.
    */
   async claimAndCreditPaymentOrderWithinTx(
     tx: Tx,
-    input: { providerOrderId: string; providerPaymentRef: string; provider?: string },
-  ): Promise<{ order: PaymentOrder; balanceAfter: number } | undefined> {
+    input: {
+      providerOrderId: string;
+      providerPaymentRef: string;
+      provider?: string;
+      /**
+       * #2750 item 9 — for a company under the credit rules: give back, in this transaction, the
+       * credits that expired unused on its earlier real paid packs (`returnedCreditsMax`,
+       * `returnedCreditsWindowMonths`). Absent = no return (every other company, today).
+       */
+      packReturn?: { max: number; windowMonths: number };
+    },
+  ): Promise<
+    { order: PaymentOrder; balanceAfter: number; packReturn: PackReturnResult | null } | undefined
+  > {
     const claimed = await this.claimPaymentOrderPaidWithinTx(tx, input);
     if (!claimed) return undefined;
-    const balanceAfter = await this.creditWalletWithinTx(tx, claimed, {
+    const grant = await this.creditWalletWithinTx(tx, claimed, {
       credits: claimed.creditsGranted,
       reason: "pack_purchase",
       packCode: claimed.packCode,
@@ -739,16 +1207,41 @@ export class UnlocksRepository {
       paymentRef: input.providerPaymentRef,
       priceInr: claimed.amountInr,
       idempotencyKey: `payment_order:${claimed.id}`,
+      // #2749 PR 3: the validity STAMPED at order time (hazard 8: the catalogue is not re-read),
+      // counted from this settle on the DB clock. Null (every pre-0176 order) = never expires.
+      validityDays: claimed.creditValidityDays,
     });
-    return { order: claimed, balanceAfter };
+    // Already credited under this order's key: nothing was granted now (the caller re-reads).
+    if (!grant.applied) return undefined;
+    if (input.packReturn === undefined) {
+      return { order: claimed, balanceAfter: grant.balanceAfter, packReturn: null };
+    }
+    // #2750 item 9 — after the new lot exists, under the same wallet lock, on the same key space.
+    const packReturn = await returnExpiredPackCreditsWithinTx(tx, {
+      payerId: claimed.payerId,
+      paymentOrderId: claimed.id,
+      newLotId: grant.lotId,
+      paymentRef: input.providerPaymentRef,
+      max: input.packReturn.max,
+      windowMonths: input.packReturn.windowMonths,
+    });
+    return {
+      order: claimed,
+      balanceAfter: packReturn.balanceAfter ?? grant.balanceAfter,
+      packReturn,
+    };
   }
 
   /**
-   * THE RACE CLOSURE — an atomic compare-and-set from any non-paid state to 'paid'.
+   * THE RACE CLOSURE — an atomic compare-and-set from `created` or `failed` to 'paid'.
    *
    * Returns the claimed row to EXACTLY ONE caller and `undefined` to every other, whether
    * the loser is a Razorpay webhook retry, a second webhook delivery, the browser verify
    * call, or all three arriving concurrently.
+   *
+   * #2749 hardening 5: a `held` order (a capture of the wrong amount) matches nothing here, so
+   * neither a webhook replay nor a verify can ever grant it. (Before 0176 this matched any status
+   * but `paid`; the two it now matches are the same two that existed then.)
    *
    * WHY THIS IS SAFE UNDER CONCURRENCY (READ COMMITTED, the Postgres default): two
    * transactions issue this UPDATE against the same row. The first takes the row lock and
@@ -776,8 +1269,9 @@ export class UnlocksRepository {
         and(
           eq(paymentOrders.provider, input.provider ?? RAZORPAY_PROVIDER),
           eq(paymentOrders.providerOrderId, input.providerOrderId),
-          // The compare half of the compare-and-set. A row already 'paid' matches nothing.
-          ne(paymentOrders.status, "paid"),
+          // The compare half of the compare-and-set. A row already 'paid' — or 'held' — matches
+          // nothing.
+          inArray(paymentOrders.status, [...CAPTURABLE_ORDER_STATUSES]),
         ),
       )
       .returning();
@@ -785,10 +1279,49 @@ export class UnlocksRepository {
   }
 
   /**
-   * Mark an order failed — but ONLY from a non-terminal state. `status <> 'paid'` is the
-   * same compare-and-set discipline as the grant: a late/out-of-order `payment.failed`
-   * delivery must never be able to walk back an order whose capture already granted
-   * credits (Razorpay does not guarantee webhook ordering).
+   * #2749 hardening 5 — HOLD an order whose capture carried the wrong amount: the same single-
+   * statement compare-and-set as the claim, from `created` or `failed` to `held`, stamping the
+   * provider payment id (opaque — what ops need to refund it in the Razorpay dashboard). Nothing is
+   * granted, here or ever: the claim never matches `held`. Returns the held row to exactly ONE
+   * caller; `undefined` when the order is unknown, already paid, already held, or a concurrent
+   * settle won (a matching capture on the same order), so a replayed mismatch emits nothing new.
+   *
+   * `withinTx` (the `payment.held` event) runs on the SAME transaction, only for the call that
+   * held the row, so the hold and its event commit together: an event that cannot be written rolls
+   * the hold back, the webhook answers 5xx, and Razorpay's redelivery tries both again.
+   */
+  async holdPaymentOrder(
+    input: HoldPaymentOrderInput,
+    withinTx?: (tx: Tx, held: PaymentOrder) => Promise<void>,
+  ): Promise<PaymentOrder | undefined> {
+    return this.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(paymentOrders)
+        .set({
+          status: "held",
+          providerPaymentRef: input.providerPaymentRef,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(paymentOrders.provider, input.provider ?? RAZORPAY_PROVIDER),
+            eq(paymentOrders.providerOrderId, input.providerOrderId),
+            inArray(paymentOrders.status, [...CAPTURABLE_ORDER_STATUSES]),
+          ),
+        )
+        .returning();
+      const held = rows[0];
+      if (held && withinTx) await withinTx(tx, held);
+      return held;
+    });
+  }
+
+  /**
+   * Mark an order failed — but ONLY from a non-terminal state (`created`, or an earlier
+   * `failed`). The same compare-and-set discipline as the grant: a late/out-of-order
+   * `payment.failed` delivery must never be able to walk back an order whose capture already
+   * granted credits (Razorpay does not guarantee webhook ordering), nor turn a `held` order —
+   * money captured, awaiting ops — into a `failed` one that reads as "no money moved".
    */
   async markPaymentOrderFailed(
     providerOrderId: string,
@@ -801,7 +1334,7 @@ export class UnlocksRepository {
         and(
           eq(paymentOrders.provider, provider),
           eq(paymentOrders.providerOrderId, providerOrderId),
-          ne(paymentOrders.status, "paid"),
+          inArray(paymentOrders.status, [...CAPTURABLE_ORDER_STATUSES]),
         ),
       )
       .returning();

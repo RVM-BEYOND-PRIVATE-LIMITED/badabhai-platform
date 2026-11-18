@@ -22,7 +22,7 @@ import { DevicesRepository } from "./devices.repository";
 import { PinHasher } from "./pin-hasher.service";
 import { PinRepository } from "./pin.repository";
 import { ConsentRepository } from "../consent/consent.repository";
-import { withConsentAccepted } from "../consent/consent-flag";
+import { consentAcceptedFrom, withConsentAccepted } from "../consent/consent-flag";
 import {
   readWorkerAccountState,
   WorkerAccountDeletedException,
@@ -487,7 +487,8 @@ export class PinService {
         // from the consent row the A5 gate above ALREADY fetched (no extra query).
         // A revoked consent threw the neutral 401 before reaching here, so the only
         // cases left are never-consented (false) and active (true).
-        consent_accepted: consent != null && consent.revokedAt === null,
+        // #2887 — a moved student's imported Campus consent reads as not yet accepted here.
+        consent_accepted: consentAcceptedFrom(consent),
       };
     }
 
