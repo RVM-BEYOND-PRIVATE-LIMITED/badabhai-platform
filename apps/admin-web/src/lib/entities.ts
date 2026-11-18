@@ -165,7 +165,28 @@ export function getPayer(id: string, opts: { faceless?: boolean } = {}) {
 export const creditLedgerItemSchema = z.object({
   id: z.string(),
   delta: z.number(),
-  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant"]),
+  // #2750 — welcome, goodwill, returned and waived lines (the credit rules).
+  reason: z.enum([
+    "pack_purchase",
+    "unlock_debit",
+    "refund",
+    "grant",
+    "expired",
+    "welcome",
+    "goodwill",
+    // #2750 item 11 — a super admin's correction under the credit rules.
+    "correction",
+    "returned",
+    "waived",
+    // #2754 item 9 — a moved company's unused Campus balance.
+    "campus_conversion",
+    // #2754 item 14 — a batch rollback took that balance back unspent.
+    "campus_conversion_reversed",
+    // #2750 item 9 — credits returned with the next real paid pack.
+    "pack_return",
+    // #2750 item 10 — an admin refund took the pack's credits back.
+    "pack_refund",
+  ]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),
   price_inr: z.number().nullable(),
@@ -373,7 +394,28 @@ function financePageOf<T extends z.ZodTypeAny>(item: T) {
 }
 
 export const reasonBucketSchema = z.object({
-  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant"]),
+  // #2750 — welcome, goodwill, returned and waived lines (the credit rules).
+  reason: z.enum([
+    "pack_purchase",
+    "unlock_debit",
+    "refund",
+    "grant",
+    "expired",
+    "welcome",
+    "goodwill",
+    // #2750 item 11 — a super admin's correction under the credit rules.
+    "correction",
+    "returned",
+    "waived",
+    // #2754 item 9 — a moved company's unused Campus balance.
+    "campus_conversion",
+    // #2754 item 14 — a batch rollback took that balance back unspent.
+    "campus_conversion_reversed",
+    // #2750 item 9 — credits returned with the next real paid pack.
+    "pack_return",
+    // #2750 item 10 — an admin refund took the pack's credits back.
+    "pack_refund",
+  ]),
   movements: z.number(),
   credits_delta: z.number(),
   amount_inr: z.number(),
@@ -400,6 +442,9 @@ export const financeSummarySchema = z.object({
   paid_orders: z.object({ count: z.number(), credits: z.number(), amount_inr: z.number() }),
   unsettled_orders: z.object({ count: z.number(), amount_inr: z.number() }),
   failed_orders: z.object({ count: z.number() }),
+  // #2749 — captured but not granted (amount mismatch), parked for ops. Optional: an API build
+  // from before it sends none.
+  held_orders: z.object({ count: z.number(), amount_inr: z.number() }).optional(),
   top_balances: z.array(topBalanceRowSchema),
 });
 export type FinanceSummary = z.infer<typeof financeSummarySchema>;
@@ -409,7 +454,28 @@ export const ledgerRowSchema = z.object({
   payer_id: z.string(),
   payer_role: payerRoleRefSchema,
   delta: z.number(),
-  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant"]),
+  // #2750 — welcome, goodwill, returned and waived lines (the credit rules).
+  reason: z.enum([
+    "pack_purchase",
+    "unlock_debit",
+    "refund",
+    "grant",
+    "expired",
+    "welcome",
+    "goodwill",
+    // #2750 item 11 — a super admin's correction under the credit rules.
+    "correction",
+    "returned",
+    "waived",
+    // #2754 item 9 — a moved company's unused Campus balance.
+    "campus_conversion",
+    // #2754 item 14 — a batch rollback took that balance back unspent.
+    "campus_conversion_reversed",
+    // #2750 item 9 — credits returned with the next real paid pack.
+    "pack_return",
+    // #2750 item 10 — an admin refund took the pack's credits back.
+    "pack_refund",
+  ]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),
   price_inr: z.number().nullable(),
@@ -421,11 +487,15 @@ export const orderRowSchema = z.object({
   id: z.string(),
   payer_id: z.string(),
   payer_role: payerRoleRefSchema,
-  pack_code: z.string(),
+  // Nullable since migration 0176 (a non-pack order, #2751); every credit-pack order names one.
+  pack_code: z.string().nullable(),
   amount_inr: z.number(),
+  // #2749 — the same total in paise; null before 0176, absent from an older API build.
+  total_paise: z.number().nullable().optional(),
   credits_granted: z.number(),
   provider: z.string(),
-  status: z.enum(["created", "paid", "failed"]),
+  // #2749 adds `held`: the capture did not match the order total; nothing was granted.
+  status: z.enum(["created", "paid", "failed", "held"]),
   created_at: z.string(),
   updated_at: z.string(),
 });

@@ -31,6 +31,8 @@ import { MatchSkillsService } from "../match/match-skills.service";
 import { PublishReachService } from "../match/publish-reach.service";
 import { ReachWidenRepository } from "../match/reach-widen.repository";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
+import { PostingChoiceRepository } from "../posting-choice/posting-choice.repository";
+import { PostingChoiceService } from "../posting-choice/posting-choice.service";
 import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import {
   defaultModeResolver,
@@ -55,6 +57,10 @@ import {
  *   - a company with no credits publishes any audience with no payment step;
  *   - the switch: off ignores the fields and 404s the options; `pilot` admits exactly the listed
  *     company (a `feature_pilot_payers` row, `added_by` + `reason`).
+ *   - #2751 (its own describe below, here because this file is one of CI's listed DB gates): the
+ *     publish records the posting choice ONCE in `job_posting_choices`, with its event in the same
+ *     transaction; a second record changes nothing; the switch off writes nothing; the welcome lot
+ *     read; and the row cascades with its posting.
  *
  * The agency refusal is the `PayerRoleGuard` 403 (`payer-job-postings-role-authz.test.ts`) plus
  * `job_postings_twin_audience_chk` (migration 0162's own test).
@@ -746,6 +752,168 @@ describe.skipIf(!RUN)("#2746 PR 4 — a company chooses who sees its job (Postgr
     await expect(svc.audienceOptionsForPayer(COMPANY)).rejects.toBeInstanceOf(NotFoundException);
     const unlisted = await svc.createForPayer(COMPANY, { ...DTO, audience: "both" }, CTX);
     expect((await storedAudience(unlisted.id)).audience).toBe("badabhai_workers");
+  }, 60_000);
+});
+
+describe.skipIf(!RUN)("#2751 — the posting choice on the company publish (Postgres)", () => {
+  // Its own describe and client, so the #2746 suite above is untouched.
+  let client!: DbClient;
+  let eventsService!: EventsService;
+  let publish!: PublishReachService;
+  let matchSkills!: MatchSkillsService;
+
+  /**
+   * The REAL recorder over the real repository and events. The switch is a stub (on or off) and the
+   * welcome and catalogue reads are stubbed: they have their own unit cases.
+   */
+  function recorder(on = true): PostingChoiceService {
+    return new PostingChoiceService(
+      loadServerConfig({ NODE_ENV: "test" }),
+      new PostingChoiceRepository(client.db),
+      { isEnabledFor: async (feature: string) => on && feature === "posting_choice" } as never,
+      { get: async () => ({ welcomeCredits: 5 }) } as never,
+      {
+        getActiveCatalog: async () => {
+          throw new Error("not read: real payments are off");
+        },
+      } as never,
+      eventsService,
+    );
+  }
+
+  function service(choice: PostingChoiceService): JobPostingsService {
+    return new JobPostingsService(
+      new JobPostingsRepository(client.db),
+      eventsService,
+      {} as never, // AiService — no skill phrases
+      {} as never, // AiCostRecorder
+      {} as never, // AiTraceRecorder
+      publish,
+      matchSkills,
+      {} as never, // PostingTradesService — no trade form is sent
+      defaultModeResolver(),
+      postingAudienceOver(client.db, eventsService, {}),
+      undefined, // WelcomeCreditsService — not exercised
+      choice,
+    );
+  }
+
+  async function choiceRows(id: string) {
+    return client.sql<{ payer_id: string; choice: string; surface: string }[]>`
+      SELECT payer_id::text AS payer_id, choice, surface FROM job_posting_choices
+       WHERE job_posting_id = ${id}::uuid`;
+  }
+
+  async function recordedEvents(id: string): Promise<Record<string, unknown>[]> {
+    const rows = await client.sql<{ payload: Record<string, unknown> }[]>`
+      SELECT payload FROM events
+       WHERE subject_id = ${id}::uuid AND event_name = 'job_posting.posting_choice_recorded'
+         AND correlation_id = ${CORRELATION}::uuid`;
+    return rows.map((r) => r.payload);
+  }
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL, { max: 2 });
+    await cleanup(client);
+    await seed(client);
+    eventsService = new EventsService(new EventsRepository(client.db), {
+      NODE_ENV: "test",
+    } as never);
+    const matchConfig = new MatchConfigService(new MatchConfigRepository(client.db));
+    const workerSkills = new WorkerSkillsRepository(client.db);
+    matchSkills = new MatchSkillsService(matchConfig, workerSkills);
+    publish = new PublishReachService(
+      matchSkills,
+      workerSkills,
+      eventsService,
+      new ReachWidenRepository(client.db),
+      matchConfig,
+    );
+  }, 60_000);
+
+  afterAll(async () => {
+    if (client !== undefined) {
+      await client.sql`DELETE FROM credit_lots WHERE payer_id = ${COMPANY}::uuid AND source = 'welcome'`;
+      await cleanup(client);
+      await client.sql.end({ timeout: 5 });
+    }
+  }, 60_000);
+
+  it("the publish records the choice ONCE, under the tenant, with its event in the same transaction", async () => {
+    const choice = recorder();
+    const svc = service(choice);
+    const draft = await svc.createForPayer(COMPANY, DTO, CTX);
+    const live = await svc.updateForPayer(
+      draft.id,
+      COMPANY,
+      { status: "open", posting_choice: "free_plus_pack", surface: "app" },
+      CTX,
+    );
+    expect(live.status).toBe("open");
+    // Real payments are off in this config: the choice is recorded, no checkout is handed out.
+    expect(live.posting_choice).toEqual({
+      choice: "free_plus_pack",
+      surface: "app",
+      recorded: true,
+      checkout: null,
+    });
+    expect(await choiceRows(draft.id)).toEqual([
+      { payer_id: COMPANY, choice: "free_plus_pack", surface: "app" },
+    ]);
+    expect(await recordedEvents(draft.id)).toEqual([
+      { job_posting_id: draft.id, choice: "free_plus_pack", surface: "app" },
+    ]);
+
+    // A second record for the same posting changes nothing: no second row, no second event.
+    const again = await choice.recordAfterPublish(
+      { scope: await ownScope(COMPANY), jobPostingId: draft.id, choice: "free", surface: "web" },
+      CTX,
+    );
+    expect(again?.recorded).toBe(false);
+    const rows = await choiceRows(draft.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.choice).toBe("free_plus_pack");
+    expect(await recordedEvents(draft.id)).toHaveLength(1);
+  }, 60_000);
+
+  it("switch off: the publish succeeds and nothing is written", async () => {
+    const svc = service(recorder(false));
+    const draft = await svc.createForPayer(COMPANY, DTO, CTX);
+    const live = await svc.updateForPayer(
+      draft.id,
+      COMPANY,
+      { status: "open", posting_choice: "free", surface: "web" },
+      CTX,
+    );
+    expect(live.status).toBe("open");
+    expect(live).not.toHaveProperty("posting_choice");
+    expect(await choiceRows(draft.id)).toEqual([]);
+    expect(await recordedEvents(draft.id)).toEqual([]);
+  }, 60_000);
+
+  it("the row goes with its posting (ON DELETE CASCADE): an erasure is never blocked", async () => {
+    const svc = service(recorder());
+    const draft = await svc.createForPayer(COMPANY, DTO, CTX);
+    await svc.updateForPayer(
+      draft.id,
+      COMPANY,
+      { status: "open", posting_choice: "free", surface: "web" },
+      CTX,
+    );
+    expect(await choiceRows(draft.id)).toHaveLength(1);
+    await client.sql`DELETE FROM job_reach WHERE job_posting_id = ${draft.id}::uuid`;
+    await client.sql`DELETE FROM job_postings WHERE id = ${draft.id}::uuid`;
+    expect(await choiceRows(draft.id)).toEqual([]);
+  }, 60_000);
+
+  it("the welcome read: no welcome lot, then one; another company's lot is not this one's", async () => {
+    const repo = new PostingChoiceRepository(client.db);
+    expect(await repo.hasWelcomeLot(COMPANY as never)).toBe(false);
+    await client.sql`
+      INSERT INTO credit_lots (payer_id, source, credits_granted, credits_remaining)
+      VALUES (${COMPANY}::uuid, 'welcome', 5, 0)`;
+    expect(await repo.hasWelcomeLot(COMPANY as never)).toBe(true);
+    expect(await repo.hasWelcomeLot(COMPANY_B as never)).toBe(false);
   }, 60_000);
 });
 

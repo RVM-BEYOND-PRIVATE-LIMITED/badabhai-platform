@@ -3,7 +3,7 @@ import type { AgencyJob, CandidateInboxRow, InboxPostingRef, PostingSummary } fr
 import { isPayerBadRequest } from "./payer-errors";
 import { FROM_PARAM } from "./list-range";
 import {
-  APPLICANT_STAGES,
+  BOARD_STAGES,
   isApplicantStage,
   STAGE_LABEL,
   type ApplicantStage,
@@ -240,7 +240,7 @@ export interface StageOption {
   id: ApplicantStage;
   label: string;
 }
-export const STAGE_OPTIONS: readonly StageOption[] = APPLICANT_STAGES.map((id) => ({
+export const STAGE_OPTIONS: readonly StageOption[] = BOARD_STAGES.map((id) => ({
   id,
   label: STAGE_LABEL[id],
 }));

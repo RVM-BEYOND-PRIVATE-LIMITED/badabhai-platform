@@ -1,6 +1,7 @@
 import { loadServerConfig } from "@badabhai/config";
 import type { Database } from "@badabhai/db";
 import type { EventsService } from "../events/events.service";
+import { FeaturePilotSubjectsRepository } from "../feature-rollout/feature-pilot-subjects.repository";
 import { FeaturePilotRepository } from "../feature-rollout/feature-pilot.repository";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import { PostingAudienceRepository } from "./posting-audience.repository";
@@ -18,7 +19,11 @@ export function postingAudienceOver(
 ): PostingAudienceService {
   const config = loadServerConfig({ NODE_ENV: "test", ...env });
   return new PostingAudienceService(
-    new FeatureRolloutService(config, new FeaturePilotRepository(db)),
+    new FeatureRolloutService(
+      config,
+      new FeaturePilotRepository(db),
+      new FeaturePilotSubjectsRepository(db),
+    ),
     new PostingAudienceRepository(db),
     events,
   );

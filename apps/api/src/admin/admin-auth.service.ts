@@ -15,6 +15,7 @@ import { passwordEpochOf } from "./admin-credential-epoch";
 import { ADMIN_ACTION_CODES } from "./admin-actions.service";
 import { emitAdminAccountAction } from "./admin-account-event";
 import { generateTotpEnrollment, verifyTotp } from "./admin-mfa";
+import { mfaRequiredForRole } from "./admin-mfa-policy";
 import type {
   AdminLoginRequestDto,
   AdminLoginVerifyDto,
@@ -38,9 +39,13 @@ export const MUST_CHANGE_VIA_PASSWORD =
  *
  * THE MFA GATE (`gateMfaThenMaybeMint`, shared by BOTH first factors). Must-fix #1 originally
  * made TOTP mandatory for every role; owner AMENDMENT 1 (2026-11-03) made it OPTIONAL, PER
- * ADMIN (`admin_users.mfa_enabled`, default off, switched from the Account page):
+ * ADMIN (`admin_users.mfa_enabled`, default off, switched from the Account page); owner
+ * AMENDMENT 2 (#2924, 2026-11-18) makes it REQUIRED again for super_admin and ops_admin
+ * (`admin-mfa-policy.ts`):
  *   - ADMIN_MFA_REQUIRED=false (config) → two-step off for everyone: mint after the first factor.
- *   - `mfa_enabled = false` → mint after the first factor. This is now the DEFAULT path.
+ *   - `mfa_enabled = false` on support / analyst → mint after the first factor.
+ *   - `mfa_enabled = false` on super_admin / ops_admin → the enrolment step (a FRESH seed), and
+ *     the first valid code at POST /admin/mfa/verify switches two-step ON for the account.
  *   - `mfa_enabled = true`  → a valid "trusted device" mints; otherwise NO session — an
  *     un-enrolled admin gets an enrolment step, an enrolled one a TOTP step (POST
  *     /admin/mfa/verify). The second factor stays enforced SERVER-SIDE at session-mint for
@@ -170,12 +175,37 @@ export class AdminAuthService {
     }
     await this.lockout.clear("mfa_login", account.id);
 
-    // First successful TOTP also confirms enrollment (idempotent if already enrolled).
-    if (!account.mfaEnrolled) await this.admins.setMfaEnrolled(account.id, true);
+    if (!account.mfaEnabled && mfaRequiredForRole(account.role)) {
+      // #2924 — a role that requires two-step, signing in with its switch still OFF: the gate
+      // issued a fresh seed and this code proves it, so two-step goes ON (enrolled + enabled
+      // together), recorded exactly as the Account page's own switch records it.
+      await this.switchOnAtSignIn(account, ctx);
+    } else if (!account.mfaEnrolled) {
+      // First successful TOTP also confirms enrollment (idempotent if already enrolled).
+      await this.admins.setMfaEnrolled(account.id, true);
+    }
 
     const session = await this.mintSession(account, ctx);
     if (!dto.trust_device) return session;
     return { ...session, ...(await this.trustThisDevice(account, ctx)) };
+  }
+
+  /**
+   * #2924 — switch two-step ON for a required role at its first completed second factor. The
+   * repository write is guarded (switch off, seed present), so a racing second verify writes and
+   * records nothing.
+   */
+  private async switchOnAtSignIn(account: AdminUser, ctx: RequestContext): Promise<void> {
+    await this.admins.withTransaction(async (tx) => {
+      if (!(await this.admins.enableMfa(account.id, tx))) return;
+      await emitAdminAccountAction(this.events, {
+        actorAdminId: account.id,
+        targetAdminId: account.id,
+        actionCode: ADMIN_ACTION_CODES.admin_mfa_enabled,
+        ctx,
+        tx,
+      });
+    });
   }
 
   /**
@@ -190,6 +220,8 @@ export class AdminAuthService {
       has_password: row.passwordHash !== null,
       must_change_password: row.mustChangePassword,
       mfa_enabled: row.mfaEnabled,
+      // #2924 — the role requires two-step (and config has not switched it off for everyone).
+      mfa_required: this.config.ADMIN_MFA_REQUIRED && mfaRequiredForRole(row.role),
     };
   }
 
@@ -279,7 +311,11 @@ export class AdminAuthService {
    * `verifyLogin`, or a password via `AdminPasswordService`) gets. The caller has already
    * proven the factor AND that the account is active; this method never re-checks either.
    *   - ADMIN_MFA_REQUIRED false (config: two-step off for everyone) → mint a session.
-   *   - the admin's own two-step is OFF (`mfa_enabled = false`, Amendment 1) → mint a session.
+   *   - the admin's own two-step is OFF (`mfa_enabled = false`, Amendment 1) and the role does
+   *     not require it → mint a session.
+   *   - the ROLE requires it (#2924: super_admin, ops_admin) but the switch is OFF → the
+   *     enrollment step with a FRESH secret, whatever seed is on file (it may never have been
+   *     scanned). No trusted device counts: none can exist without a second factor.
    *   - two-step ON + a valid trusted-device token for THIS admin → mint (TOTP skipped; 0144).
    *   - two-step ON + NOT enrolled → an enrollment step ONLY (a fresh TOTP secret), NO session.
    *   - two-step ON + enrolled → `mfa_required` with no enrollment material; the admin must
@@ -291,12 +327,18 @@ export class AdminAuthService {
     ctx: RequestContext,
     deviceToken?: string,
   ): Promise<AdminMfaRequiredResponse | AdminSessionResponse> {
-    if (!this.config.ADMIN_MFA_REQUIRED || !account.mfaEnabled) {
+    const roleRequires = mfaRequiredForRole(account.role);
+    if (!this.config.ADMIN_MFA_REQUIRED || (!account.mfaEnabled && !roleRequires)) {
       return this.mintSession(account, ctx);
     }
 
-    // Consulted ONLY when the browser presented one — no token, no Redis read.
-    if (deviceToken !== undefined && (await this.devices.isTrusted(deviceToken, account))) {
+    // Consulted ONLY when the browser presented one — no token, no Redis read — and only for an
+    // admin whose two-step is actually ON.
+    if (
+      account.mfaEnabled &&
+      deviceToken !== undefined &&
+      (await this.devices.isTrusted(deviceToken, account))
+    ) {
       return this.mintSession(account, ctx);
     }
 
@@ -304,7 +346,7 @@ export class AdminAuthService {
     // MFA branches so the subsequent TOTP step is reachable only after a fresh OTP success.
     await this.mfaStore.markOtpPassed(account.id, passwordEpochOf(account.passwordSetAt));
 
-    if (!account.mfaEnrolled) {
+    if (!account.mfaEnrolled || !account.mfaEnabled) {
       // Enrollment step ONLY — provision a fresh TOTP secret (account label = the opaque admin
       // id, NEVER the email, to keep PII out of the otpauth URI/QR). NO session is minted.
       const enrollment = generateTotpEnrollment(this.config.ADMIN_TOTP_ISSUER, account.id);

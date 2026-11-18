@@ -794,6 +794,35 @@ describe("#2746 — job audience at the payer posting edge", () => {
     expect(audienceOptionsForPayer).toHaveBeenCalledWith(PAYER_B.id);
   });
 
+  it("#2751 — GET posting-options is its own static route, declared BEFORE GET :id", () => {
+    const proto = PayerJobPostingsController.prototype as unknown as Record<string, object>;
+    expect(Reflect.getMetadata(PATH_METADATA, proto.postingOptions!)).toBe("posting-options");
+    expect(Reflect.getMetadata(METHOD_METADATA, proto.postingOptions!)).toBe(RequestMethod.GET);
+    const order = Object.getOwnPropertyNames(PayerJobPostingsController.prototype);
+    expect(order.indexOf("postingOptions")).toBeGreaterThan(-1);
+    expect(order.indexOf("postingOptions")).toBeLessThan(order.indexOf("getOne"));
+  });
+
+  it("#2751 — posting-options is keyed on the SESSION payer, nothing else", async () => {
+    const d = makeCtrl();
+    const options = { free: {}, free_plus_pack: {} };
+    const postingOptionsForPayer = vi.fn(async (_payerId: string) => options);
+    const ctrl = new PayerJobPostingsController(
+      { ...d.jobPostings, postingOptionsForPayer } as never,
+      d.postingPlans as never,
+      {} as never,
+    );
+    await expect(ctrl.postingOptions(PAYER_B)).resolves.toBe(options);
+    expect(postingOptionsForPayer).toHaveBeenCalledWith(PAYER_B.id);
+  });
+
+  it("#2751 — a publish carrying the posting choice reaches the service untouched", async () => {
+    const d = makeCtrl();
+    const dto = { status: "open" as const, posting_choice: "free_plus_pack" as const, surface: "app" as const };
+    await d.ctrl.update(POSTING, dto, PAYER_B, CTX);
+    expect(d.jobPostings.updateForPayer).toHaveBeenCalledWith(POSTING, PAYER_B.id, dto, CTX);
+  });
+
   it("an audience body reaches the service untouched (the controller decides nothing)", async () => {
     const d = makeCtrl();
     const dto = { audience: "both" as const, rvm_branch_ids: [1] };

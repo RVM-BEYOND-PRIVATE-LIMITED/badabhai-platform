@@ -168,6 +168,7 @@ Purchase `409` reasons: `price_mismatch` (#2085), `in_flight` and `no_active_pla
 | Per-payer candidate search / hour       | `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR` (default 120)                    | `POST /payer/candidates/search` pages (its own bucket — never the reach budget)                          |
 | Per-payer invite-mint / hour            | `AGENCY_INVITE_MINT_MAX_PER_HOUR` (default 60)                         | agency invite mint                                                                                       |
 | Per-payer applicant-stage writes / hour | `PAYER_APPLICANT_STAGE_MAX_PER_HOUR` (default 600)                     | `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` (its own bucket — never the reach read budget) |
+| Per-payer follow-up answers / hour      | `PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR` (default 600)                      | `POST /payer/unlocks/:unlockId/outcome` (its own bucket — never the disclosure budget)                   |
 | Global OTP sends / day                  | `PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY` (default 2000; `0` = kill-switch) | total payer email sends                                                                                  |
 
 Per-worker protection caps also gate unlocks server-side (`UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY` default 5, `UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK` default 10, `UNLOCK_MAX_ATTEMPTS_PER_UNLOCK` default 3) — these surface to you only as a neutral `unavailable`. The per-payer disclosure cap is **shared** across unlock + reveal + resume-disclosure.
@@ -193,17 +194,18 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 #### `POST /payer/login/request`
 
 - **Auth:** none (public, IP rate-limited).
-- **Body:** `{ email: string }`.
+- **Body:** `{ email: string }` or `{ phone: string }` (E.164, `+91…`; email wins when both are sent).
 - **Response:** `{ status: 'code_sent', resend_in_seconds: number }`.
-- **Events:** `payer.login_requested` (only if email matches an existing account; unknown → nothing emitted).
-- **Mobile gotchas:** No enumeration — unknown emails get the identical timing/response. Code is emailed only.
+- **Events:** `payer.login_requested` (only if the contact matches an existing account; unknown → nothing emitted). A code sent by SMS emits `payer.login_requested_v2` with `method: 'sms_otp'` instead (#2754).
+- **Phone sign-in by SMS (#2754, `PAYER_SMS_OTP_ENABLED`, default off):** with it on, an Indian mobile (`+91` followed by 10 digits starting 6–9) gets its code by SMS on the company DLT template **only if a company has PROVEN it** (#2754 item 3: `POST /payer/me/phone-proof`, below). The code goes to the ONE account that proved the phone (one account per proven phone), whichever other accounts also have it typed in. Any other phone never gets an SMS. A phone nobody has proven (typed at sign-up or in `PATCH /payer/me`), an unknown phone, a suspended or archived company's phone, and every phone while the proof table is not migrated get the same neutral response and no message; those companies keep email sign-in. A phone-only **sign-up** therefore gets no SMS code: a brand-new account's phone is unproven. With the switch off, a phone gets no SMS. Company SMS has its own daily ceiling (`PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY`, default 500; a breach is the same neutral 429 plus `payer.sms_send_cap_exceeded`). Arming it needs `FAST2SMS_PAYER_DLT_TEMPLATE_ID`: the deploy preflight and the boot guard both refuse the switch without it.
+- **Mobile gotchas:** No enumeration — unknown contacts get the identical timing/response.
 
 #### `POST /payer/login/verify`
 
 - **Auth:** none (public, IP rate-limited).
-- **Body:** `{ email: string, code: string (4–8 digits) }`.
+- **Body:** `{ email: string, code: string (4–8 digits) }` or `{ phone: string, code }` — the same contact the request carried.
 - **Response:** `{ access_token, token_type: 'Bearer', expires_in_seconds, payer_id (UUID), role: 'employer'|'agent', is_new_payer (always false) }`.
-- **Events:** `payer.session_started`.
+- **Events:** `payer.session_started`; an SMS-code sign-in emits `payer.session_started_v2` with `method: 'sms_otp'` instead (#2754). With SMS on, a phone signs in only the one account that PROVED it and still holds it (#2754 item 3); any other phone is the same `401`.
 - **Mobile gotchas:** Token is in the **body**, not `Set-Cookie`. Failure = single neutral `401`. **`is_new_payer` is always `false` — do not branch on it** (verified correction). Single-use code (deleted on success).
 
 #### `POST /payer/refresh`
@@ -236,7 +238,33 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Body:** `{ orgName?: string (2–120 graphemes), phone?: E.164 }` — at least one field; `.strict()` rejects unknown keys and any `email`/`role`/`status`/`payer_id`.
 - **Response:** same shape as `GET /payer/me` (including `postingOrgName`: an org founder who renames their org gets the new name back, and their teammates read it on their next `GET`).
 - **Events:** `payer.account_updated` (carries `changed_fields` = field **keys** only, never values).
+- **A new phone starts unproven (#2754 item 3):** changing `phone` drops the account's phone proof in the same write, so the new number cannot sign in by SMS code until the company proves it again (`POST /payer/me/phone-proof`). Saving the same number again keeps the proof. A real change also emails the account's own address the security notice used for password changes ("The phone number on your BadaBhai account was changed"; no number in it); a phone-only account gets none.
 - **Mobile gotchas:** `email`/`role`/`status` are immutable. Empty patch → `400`. `no-store`.
+
+#### `GET /payer/me/phone-proof` · `POST /payer/me/phone-proof` · `POST /payer/me/phone-proof/verify` (#2754 item 3)
+
+The signed-in company proves the phone on its account, so that phone signs it in by SMS code. One account per proven phone.
+
+- **Auth:** `PayerAuthGuard` (Bearer), `employer` and `agent` alike. The account is the token's; no id in the path or body. The two `POST`s carry the per-IP cap of the public sign-in routes.
+- **The switch:** all three routes are a plain `404` while `PAYER_SMS_OTP_ENABLED` is off.
+- **`GET /payer/me/phone-proof`:** **Response:** `{ proven: boolean }`. `true` only while a proof names the account's CURRENT phone; `false` for no phone, a phone not yet proven, a phone changed since its proof, and while the proof table is not migrated (never a `503`), so the screen simply offers to prove the number. A read: no per-IP cap, no events.
+- **`POST /payer/me/phone-proof`** (no body): sends a code by SMS to the account's CURRENT stored phone (company template). **Response:** `{ status: 'code_sent', resend_in_seconds: number }`. The same bounds as an SMS sign-in code: a resend cooldown, the per-number hourly cap (shared with sign-in codes to that number) and the company-SMS daily ceiling (`429`, plus `payer.sms_send_cap_exceeded`). `409 { reason: 'no_phone_on_account' }`: add a phone with `PATCH /payer/me` first. `409 { reason: 'phone_not_provable' }`: only an Indian mobile (`+91`, 10 digits from 6–9) can be confirmed by SMS. `502`: the SMS could not be sent; retry. `503`: Redis down, or the proof table not migrated yet (no SMS goes out).
+- **`POST /payer/me/phone-proof/verify`:** body `{ code: string (4–8 digits) }`, `.strict()`. **Response:** `{ status: 'proven' }`. `401` wrong or expired code (one message). `429` too many attempts. `409 { reason: 'phone_changed' }`: the phone changed after the code was sent; request a new one. `409 { reason: 'phone_linked_to_another_account' }`: another BadaBhai account already holds this phone's proof; the company contacts support, who move it by hand. `503` Redis or the table. **Send an `Idempotency-Key`**: a retry with the same key replays the first answer (the code is single-use, so a re-run would otherwise answer `401` to a company whose phone was in fact proven). A duplicate while the first is still running is `409 { reason: 'in_flight' }`.
+- **A proof code is not a sign-in code**, and a sign-in code is not a proof code: each fails the other door with the same `401`.
+- **Events:** `payer.phone_proven` v1 (`payer_id`, `method: 'sms_code'`) on a successful verify, in the same transaction as the proof. Never the number, its hash or the code.
+- **Mobile gotchas:** `no-store` on all three. Read `GET /payer/me/phone-proof` to decide whether to show "Confirm your number" (a `404` means the switch is off: show nothing). After `PATCH /payer/me` changes the phone, `proven` goes back to `false` and the company must confirm again.
+
+#### `GET /payer/me/display-prefs` · `PATCH /payer/me/display-prefs` (#2819)
+
+The login's own theme, saved on the server so payer-web and the payer app agree. Full reference (all three realms): [`display-prefs-api-reference.md`](./display-prefs-api-reference.md).
+
+- **Auth:** `PayerAuthGuard` (Bearer) only — `employer` and `agent` alike. Its own path, so it never collides with `GET`/`PATCH /payer/me`.
+- **Whose row:** the token's LOGIN (`payers.id`), a personal preference: two teammates keep two themes. No id is read from a path or the body.
+- **Body (`PATCH`):** `{ theme: 'light'|'dark'|'system' }`, `.strict()` — any other key (a `payer_id`, anything) or an empty body → `400`.
+- **Response (both):** `{ theme: 'light'|'dark'|'system', theme_open: boolean }`. No stored row → `light`. `PATCH` returns the resulting prefs; the same theme again writes nothing.
+- **The switch (`THEME_ROLLOUT`, #2820):** closed for this login (`off`, or `pilot` and the company is not listed by its tenant key) → `GET` answers `{ theme: 'light', theme_open: false }` whatever is stored, and `PATCH` a plain `404` that writes nothing; the stored choice waits for the pilot. A team member inherits the company's pilot place under `PAYER_ORG_TENANCY_MODE=on`; a tenancy refusal closes the theme, never a `403`. Before migration 0165: the same closed answers, never a `500`.
+- **Events:** one `display_prefs.changed` v1 per real change (`subject_kind: 'payer_user'`, the login id, `from`, `to`); none for a `GET` or a repeat.
+- **Mobile gotchas:** **`theme_open: false` → show no theme choice and use light** (also on any non-`200` `GET`). A `404` on `PATCH` means the switch closed: fall back to light. Printed output stays light. `no-store`.
 
 ### 4.2 Job Postings (Company / Employer)
 
@@ -405,14 +433,15 @@ Behind the `job_audience` switch (`JOB_AUDIENCE_ROLLOUT`: `off` | `pilot` | `on`
 
 #### Purchase idempotency (`Idempotency-Key`)
 
-Routes: `POST /payer/credits`, `POST /payer/capacity`, `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`.
+Routes: `POST /payer/credits`, `POST /payer/credits/order` (#2749), `POST /payer/capacity`, `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`.
 
 - **Optional.** No header (or a blank one) → the request runs exactly as before; nothing is reserved.
 - Mint **one key per confirmed purchase** and reuse it only for retries of that purchase. A new purchase (a renewal, a second top-up) needs a new key.
 - Keys are scoped per route **and** per session payer, and honoured for **180 s**.
 - **Same key, first attempt finished** → the stored outcome is replayed: the same `201` body, or the same error status **and the same error body** (#2103). The work does not run again, so nothing is charged twice and no event is emitted twice.
 - **Same key, first attempt still running** → `409` with `error.reason: "in_flight"` (#2111, on all five routes) and the route's in-flight message (unchanged). Re-read state (`GET /payer/capacity`, `GET /payer/job-postings/:id`, `GET /payer/credits`) rather than resubmitting. This `409` is never stored, so it is never replayed.
-- **Same key, different body** → **not** compared: the first purchase's outcome is replayed. The key names the intent; a client that changes the body under one key has a bug.
+- **Same key, different body** → on `POST /payer/credits/order` (#2749) the key is **bound to the body**: a different `pack_code`, `expected_price_inr`, `origin` or `origin_job_posting_id` under a used key is a `422` with `error.reason: "idempotency_key_reused"` (also while the first is still running), never a replay of the first order; nothing is stored for it. On the other routes the body is **not** compared: the first purchase's outcome is replayed. Either way the key names the intent; a client that changes the body under one key has a bug.
+- **After a 5xx, send a FRESH key.** A failure is stored and replayed like a success for the key's whole window (180 s), so retrying a `5xx` under the same key only replays that `5xx`. A retry after a timeout or a lost response (no status at all) keeps the key — that is what the key is for.
 - **Replayed error body (#2103):** identical to the first response's `error` object — every field, e.g. a replayed `409 price_mismatch` still carries `reason`, `expected_price_inr`, `current_price_inr`. Only the envelope's `requestId`/`path`/`timestamp` differ (they describe the retry). Outcomes stored by a pre-#2103 build (at most 180 s around the deploy) replay as `{ message }` only.
 - If Redis is unavailable the request runs undeduplicated (fail open at this one step; all money paths stay fail-closed).
 
@@ -444,19 +473,34 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 
 #### `GET /payer/pricing/catalog`
 
-- **Auth:** `PayerAuthGuard` (Bearer).
-- **Response:** `{ revision: int, source: 'db'|'default', products: Product[], prices: PayerTierPrice[], priced_at: ISO8601 }`. `products` is unchanged since D-6. `prices` + `priced_at` are additive (#2085):
+- **Auth:** `PayerAuthGuard` (Bearer). No role guard and no payer input: an agency account and an employer get the same body, so the same packs at the same prices (B2-48).
+- **Response:** `{ revision: int, source: 'db'|'default', products: Product[], prices: PayerTierPrice[], priced_at: ISO8601 }`. `prices` + `priced_at` are additive (#2085):
   `PayerTierPrice = { product_code, tier_code, base_price_inr: int, price_inr: int, discount_inr: int, offer: { code: string, ends_at: ISO8601 } | null }`.
 - `price_inr` is what a purchase of that tier is charged at `priced_at` without a coupon. It is computed by the same function the purchase routes charge through, so shown == charged. `offer` is the automatic ops offer applied, or `null`. Coupons and `floorPriceInr` never ship.
 - Credit packs (`contact_unlock`) are charged at list price and take no offer, so their `offer` is always `null`.
 - An offer can expire after `priced_at`; `expected_price_inr` catches that.
+- **`price` is what a purchase charges (#2749 part 3).** `POST /payer/credits/order` creates the Razorpay order for `price.totalPaise` (its `amount`). (The mock `POST /payer/credits`, which takes no money and is retired when real payments switch on, still stamps the list price `priceInr` on its ledger line.) `expected_price_inr` is still compared with `priceInr`, the list price **before** GST (`price_inr` in `prices`). Show `price.display` (`₹999 plus GST (₹1,179)`) or build from `price.totalPaise`.
+- **Credit packs (#2749): only packs that can be sold now, each with its GST price.** Only the `contact_unlock` product is listed (the one product the purchase routes sell; any other `credit_pack` product is never shown), and only its tiers that can be sold at `priced_at`; `prices` has rows only for those. A tier cannot be sold when the catalogue marks it `offered: false`, before 00:00 IST on its `onSaleFrom` date, or when its GST line cannot be computed (an impossibly large price; the tier is skipped and logged, the rest of the catalogue still answers). If the stored catalogue row fails validation, **no** pack is listed (the server falls back to the default catalogue for everything else, but never sells the default packs in place of a published catalogue; with no stored row at all, the default packs are listed as before). A hidden pack sends nothing: no tier, no price row, and its code, price and date are absent. If no pack can be sold, the `credit_pack` product is left out of `products`. `POST /payer/credits` and `POST /payer/credits/order` accept exactly the packs listed here (any other code → `404`, never a `409`, even with a wrong `expected_price_inr`).
+  Each credit-pack tier is built from a fixed list of keys. Other or future catalogue fields never ship, and `onSaleFrom` / `offered` are never sent:
+  ```
+  { code, priceInr: int,          // whole rupees, before GST (the catalogue contract)
+    credits: int,
+    windowDays: int,              // the OLD 14-day contact-access window; kept for older readers
+    validityDays: int | null,     // how long the credits last, in days; null = the catalogue sets none
+    price: { taxablePaise: int, gstPaise: int, roundOffPaise: int, totalPaise: int,
+             gstRateBps: int,     // 1800 = 18%
+             display: string } }  // e.g. "₹999 plus GST (₹1,179)"
+  ```
+  `price` is the charged price taxed, all in integer **paise**: taxable = price × 100; GST = 18% of it, rounded half-up to the paisa; total = taxable + GST rounded half-up to the whole rupee; `roundOffPaise` = total − taxable − GST (from −49 to +50; negative when the rupee rounds down). Example, ₹999: `99900 / 17982 / 18 / 117900`. `display` is the brief's line, with en-IN grouping (`₹1,599 plus GST (₹1,887)`).
+- Other products (posting plans, boosts, hiring capacity, quota top-ups) are unchanged: their tiers ship as the catalogue holds them.
+- **Mobile gotchas:** show `price.display` (or build from `price.totalPaise`); never compute GST on the client. Do not read `windowDays` as credit validity. Production serves the default catalogue today, whose packs set no `validityDays` (`null`): their credits never expire. Mobile apps never take a payment (CLAUDE.md §12).
 - **Events:** none (read-only).
 
 #### Pricing (read-only, ops-intent, unauthenticated)
 
 - `GET /pricing/catalog` → `{ catalog, revision, source: 'db'|'default' }`.
 - `GET /pricing/quote?product=&tier=&coupon=&payer_id=` → **VERIFIED CORRECTION:** the failure shape is `{ ok: false, reason: 'unavailable' }` (an enum `reason`, **not** a free-form `error` string); success is `{ ok: true, quote }`. The `payer_id` query param is accepted but **unused** by the quote path (coupon caps are enforced at purchase, not preview).
-- `PUT /pricing/catalog` is an ops-only write — not for mobile.
+- `PUT /pricing/catalog` is an ops-only write — not for mobile. Since #2749 it also refuses, with a `400` that names the field: an unknown key on a credit-pack tier (a misspelt `onSaleFrom` or `offered` would otherwise be dropped and the pack sold at once), and a credit pack whose `priceInr` exceeds `10,000,000`.
 - **Mobile gotchas:** These have no auth guard (ops-intent). If you display pricing, prefer reading it as part of an authed purchase flow rather than depending on these public endpoints in-product.
 
 ### 4.4 Unlock / Reveal & Credits
@@ -466,7 +510,9 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 #### `GET /payer/credits`
 
 - **Auth:** `PayerAuthGuard` (Bearer) only — any authenticated payer, any `org_role` (owner ruling 2026-10-07). With org tenancy `off` (production today) the balance is the **caller's own** `payer_id` wallet. With it `on` (PAY-DB-01; the code is complete since P3, arming is owner action O-8) it is the **org wallet** — the founder's — for every member (ADR-0053 O-1), and `payer_id` still echoes the caller. Shape unchanged.
-- **Response:** `{ payer_id, balance: number (≥0) }`.
+- **Response:** `{ payer_id, balance: number (≥0), lots: [{ source, credits_remaining, credits_granted, expires_at: string | null, pack_code: string | null }] }` (`PayerCreditsResponse` in `@badabhai/types`).
+- **Lots (#2749, additive):** the wallet's OPEN lots (`credits_remaining > 0`) in the order credits are spent — the soonest `expires_at` first, a lot that never expires (`expires_at: null`) last. `source` is one of `pack`, `welcome`, `goodwill`, `returned`, `migrated`, `legacy` (a balance held before lots existed, and the signup free-tier grant); `pack_code` is set only for a `pack` lot. `balance` = the sum of `credits_remaining`. No lot id and no payment reference are returned. A `pack` lot expires `validityDays` days after the grant (the purchase, or the Razorpay settle) when its pack sets `validityDays`, computed by the database clock; production's default packs set none, so today every lot reads `expires_at: null`. When a lot's date passes, its credits stop being spendable at once; the expiry sweep (every 15 minutes), or the next contact open that spends a credit, removes them with one `expired` line on `GET /payer/credits/ledger` and one `payer.credits_expired` event (`{ payer_id, lot_id, credits, source, expires_at, trigger: "spend" | "sweep" }`); until then the lot is still listed. The ops route `GET /payers/:payerId/credits` returns the same shape.
+- **Mobile gotchas:** a reader that knows only `{ payer_id, balance }` is unaffected (the field is additive). A ledger reader must accept the new `reason` value `expired` (a negative `delta`).
 
 #### `POST /payer/credits`
 
@@ -475,7 +521,20 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Body:** `{ pack_code: string, expected_price_inr?: int }` — code only; price/credits resolved server-side. `expected_price_inr` (#2085): mismatch → `409 price_mismatch`, no ledger row, no credits (see [Price confirmation](#price-confirmation-expected_price_inr)). `POST /payer/credits/order` accepts the same optional field; a mismatch creates no provider order and no `payment_orders` row.
 - **Response:** `{ payer_id, balance, credits, pack_code }`.
 - **Events:** `payment.authorized`, `payment.captured`.
-- **Mobile gotchas:** **MOCK money** (`real_call:false`). Unknown pack → `404`. `201`.
+- **Stamped:** the ledger line's `price_inr` is the pack's list price `priceInr` (before GST), and so is `amount_inr` on `payment.authorized` / `payment.captured` — unchanged by #2749, because this mock route takes no money and is retired when real payments switch on. A real order (below) charges the GST-inclusive total. Since #2749 part 3 the pack lot expires `validityDays` after the purchase when the pack sets one (see `GET /payer/credits`).
+- **Mobile gotchas:** **MOCK money** (`real_call:false`). Unknown pack → `404`; since #2749 so is any code `GET /payer/pricing/catalog` does not list right now (an off-sale pack, or an old code such as `pack_10` / `pack_25`). `201`.
+
+#### `POST /payer/credits/order`
+
+- **Real payments only.** With `PAYMENTS_ENABLE_REAL` off (production today) → a neutral `404`, the same as a route that does not exist. With it on, `POST /payer/credits` answers that `404` instead.
+- **Auth:** `PayerAuthGuard` (Bearer) only, like `POST /payer/credits`.
+- **Headers:** `Idempotency-Key?: string` (#2749) — see [Purchase idempotency](#purchase-idempotency-idempotency-key); scope `credits_order`. **Clients should send one per confirmed purchase**: a retry under the same key replays the first response (the same `order_id`) and creates no second Razorpay order; a duplicate while the first is running is `409` `in_flight` (`"This checkout is already being prepared; wait a moment before trying again"`). The key is bound to the body: the same key with any other body is `422` `idempotency_key_reused`. After a `5xx` send a **fresh** key (the failure is replayed for 180 s). Without the header every call creates a new provider order, as before.
+- **Body:** `{ pack_code: string, expected_price_inr?: int, origin?: string, origin_job_posting_id?: uuid }`. `expected_price_inr` is the pack's `priceInr`, the list price **before** GST (see [Price confirmation](#price-confirmation-expected_price_inr)). `origin` (#2749 item 9) is where the purchase started, one of `credits_page`, `unlock_prompt`, `candidate_search`, `posting_flow`, `dashboard`, `other` (anything else → `400`). `origin_job_posting_id` is the job posting it came from; it is stored only when it is a posting of the caller's own company, and any other id is dropped silently (never a `404`). Both are optional.
+- **Response `201`:** `{ order_id, key_id, amount: int, amount_inr: int, currency: 'INR', pack_code, credits, price: { taxable_paise, gst_paise, round_off_paise, total_paise, gst_rate_bps }, validity_days: int | null }`. **Since #2749 part 3 `amount` (paise) is the GST-inclusive total, equal to the pack's `price.totalPaise` on `GET /payer/pricing/catalog`** (₹999 → `117900`), and `amount_inr` is the same total in rupees (`1179`). `price` and `validity_days` are additive. `key_id` is the public `rzp_*` key id; no secret is ever returned.
+- **`503`** (`"Checkout is unavailable right now; nothing was charged. Please try again."`): Razorpay's order came back for a different amount or currency than the stamped total, so nothing was stored and no checkout is handed out. Retry with a fresh key.
+- **Settlement:** `POST /payments/razorpay/webhook` (`payment.captured`) is the source of truth, `POST /payer/credits/verify` the browser fallback; they settle the same order once. **Both check the captured amount first**: the webhook from its payment entity, the verify by reading the payment back from Razorpay (`GET /payments/:id`). A different amount, no amount, or a currency other than INR **grants nothing** and moves the order to `held` (one `payment.held` event: `{ payment_order_id, payer_id, pack_code, expected_paise, captured_paise, reason: 'amount_mismatch' | 'amount_missing' | 'currency_mismatch', order_status: 'held', real_call }`). A held order is never settled afterwards: a webhook replay no-ops and `/credits/verify` answers its neutral `404`. Ops resolve it in the Razorpay dashboard. If the verify cannot read the payment back (network, a Razorpay 5xx) it settles nothing and answers the same neutral `404`; retry, or let the webhook settle. A mismatched capture reported for an order **already paid** changes nothing (the grant stands) and records `payment.held` with `order_status: 'paid'`. The settled lot expires `validity_days` after the settle when set. **Returned credits (#2750 item 9, ADR-0066 §2.10):** for a company under the credit rules, the settle also gives back credits that expired unused on its earlier real paid packs (up to 20 in all, old pack expired within 6 months, only the first real pack after the expiry), in a `returned` lot that expires with the new pack; the verify answer carries `credits_returned` (already in `balance`; `0` when none or when the webhook settled first). The webhook path records `payer.pack_credits_returned`.
+- **Events:** `payment.authorized` (one per order row; `amount_inr` = the total).
+- **Mobile gotchas:** web only — mobile apps never take a payment (CLAUDE.md §12).
 
 #### `GET /payer/unlocks`
 
@@ -493,8 +552,31 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Body:** `{ worker_id: UUID, job_id: UUID|null }` — no `payer_id`. `job_id` is optional context and must be `null` or a job / posting the **session payer owns** (#1899): an owned `jobs` id (agency vacancy) is stored; an owned company posting's id is accepted, stored as `job_id: null` (#1903) and kept as `job_posting_id` (#2033, migration 0132; row-only — no event carries it). An unknown or another payer's id gets the neutral `200 { status: 'unavailable' }` body — byte-identical to every other deny — with nothing emitted, debited or written. A malformed id is a `400` (syntax only).
 - **Response:** SUCCESS `{ ok: true, unlock_id, status: 'granted', expires_at, open_until }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200` in both cases). `open_until` (#2747): `null` = open for good; otherwise the window's end. `expires_at` stays a date string.
 - **Open for good (#2747, ADR-0064, behind `CONTACT_RULES_ROLLOUT` — off | pilot | on, default off — AND only for a worker whose own consent notice describes it, ADR-0064 §3.8; a worker on the 2026-11-04 notice, which says "14 din tak", keeps the 14-day window whatever your switch says):** while it applies, a contact you opened never lapses and **re-opening it costs nothing** — a second `POST` for the same worker returns the same `unlock_id` with no debit, even for a contact opened under the old 14-day window. Off, the 14-day window applies (a lapsed grant re-opens with a new debit). A contact opened, re-opened or revealed while the rule was on stays open if it is later turned off. Erasure, a pending deletion, a suspension or a withdrawn consent still close a contact.
-- **Events:** on success `unlock.requested` + `unlock.granted` + `payment.authorized` + `payment.captured`; on deny `unlock.denied` (plus `unlock.cap_exceeded` if a per-worker cap is hit, or `payment.failed` if no credit). The deny **reason is internal-only**, never echoed in the response.
+- **A worker who left company search (#2753 item 6, behind `SEARCH_EXIT_ENABLED`, default off) can be opened only by a company he applied to** (an `applied` decision on one of your postings or agency jobs that he has not taken back), or by a company that already holds an open contact of him (a re-open or a reveal of it). Any other company — one holding his `worker_id` from a search page it loaded before he left, say — gets the same neutral `{ status: 'unavailable' }`, with no credit spent and no row written. Off, nothing changes.
+- **Events:** on success `unlock.requested` + `unlock.granted` + `payment.authorized` + `payment.captured`; on deny `unlock.denied` (plus `unlock.cap_exceeded` if a per-worker cap is hit, or `payment.failed` if no credit). The deny **reason is internal-only**, never echoed in the response. #2749: the no-credit check counts only SPENDABLE credits (a balance held in lots past their date does not count, and nothing is written then). When an open that does spend finds a lot past its date, it expires the lot first and writes one `payer.credits_expired` (`trigger: "spend"`) per expired lot in the same transaction.
 - **Mobile gotchas:** Spends 1 credit on grant. All denials (no credit / capped / no consent / protected) return the **same** neutral `unavailable` — never infer why. Fail-closed ordering (credit precondition → consent → cap → grant). Branch on the `ok` field, not the HTTP status.
+- **Credit rules (#2750, ADR-0066, behind `CREDIT_RULES_ROLLOUT`, which is off / pilot / on, default off):** for a company under the rules, an open costs what `POST /payer/unlocks/quotes` quoted: 1 or 2 credits by the worker's rung and experience, 1 for an RVM student, 0 for a contact you already hold.
+  - A success adds `credits_charged` (the credits taken; `0` on a re-open).
+  - **Placement-team waivers (#2750 item 5):** an RVM student who applied to a job of yours that RVM's placement team waived (that job, or your whole company) opens for `0` (`credits_charged: 0`), even with no credits. No payment events are written for it; your ledger gets a zero-credit `waived` line. If the waiver is cleared between the quote and the tap, that one open is refused (the neutral body); quote again.
+  - When you cannot afford the contact, the answer is `200 { status: 'insufficient_credits', credits_needed, credits_available }` instead of the neutral body. Nothing is debited or opened; offer a pack. This is decided before anything about the worker is read, so it says nothing about him.
+  - **Opening limits (#2750 item 6):** a worker opened 5 times in the last 7 days (by any company) answers `200 { status: 'worker_unavailable_this_week' }`, unless he applied to one of your jobs. An agency account that opened 40 new contacts today (IST) answers `200 { status: 'daily_limit_reached', daily_limit }`; employer accounts have no daily limit. Nothing is debited or opened. The numbers are the credit rules' settings. Under the rules these replace the old per-worker caps.
+  - Every other refusal is still the neutral `unavailable`.
+  - Off, nothing changes: one credit, no `credits_charged`, and no-credit is the neutral body.
+
+#### `POST /payer/unlocks/quotes` (#2750: the number on the open button)
+
+- **Auth:** `PayerAuthGuard` (Bearer). Not on the disclosure cap: it opens nothing.
+- **Body:** `{ worker_ids: UUID[] }`, 1 to 50 ids, no repeats, strict.
+- **Response:** `200 { quotes: [{ worker_id, credits, waived? }], credits_available }`. `waived: true` is present only when a placement-team waiver makes the contact free (`credits: 0`); show who made it free (for example "Free: RVM placement team"). Each worker is priced by the same rule as the open, from facts on his card only. A contact you hold open quotes `0`. An unknown id is priced like a worker who stated nothing, so the answer never tells you whether an id exists. `credits_available` is your spendable balance.
+- **Off** (`CREDIT_RULES_ROLLOUT` off for your company): `404`.
+- **Mobile gotchas:** Show "Open for N credit(s)" from `credits`, and the Starter pack when `credits > credits_available`. Re-quote after a purchase. The open charges the price at the tap; if the worker's card changed in between, that price can differ from the quote.
+
+#### `POST /payer/unlocks/:unlockId/couldnt-reach` and `GET` the same (#2750: the working-number guarantee)
+
+- **Auth:** `PayerAuthGuard` (Bearer). For a company under the credit rules only (`CREDIT_RULES_ROLLOUT`); off, both are `404`.
+- **POST (report):** empty body. Accepted up to day 7 after the open (IST calendar days; day 7 accepted, day 8 refused with `409 { code: "REPORT_WINDOW_CLOSED" }`). The open must be yours and a contact (`404` otherwise). Opens one case per open; a second report answers the same case (idempotent).
+- **Response (both):** `200 { case_id, unlock_id, status, reported_at, deadline_at, resolved_at, credits_returned }`. `status` is `open` until the worker desk closes it: `reached_interested`, `reached_declined`, or `not_reached`. Not reached gives back every credit the open took (`credits_returned`), as new credits that keep the spent credits' expiry while it is ahead, else 30 days. A case still open at `deadline_at` (48 hours) closes as `not_reached` on its own. **GET** is `404` when you never reported that open.
+- **Mobile gotchas:** Show "Couldn't reach?" on an opened contact for 7 days. After a report, show the case's status and, when `not_reached`, the credits returned. Your ledger shows a `returned` line naming the open.
 
 #### `POST /payer/unlocks/:unlockId/reveal`
 
@@ -513,6 +595,30 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Neutral when:** the unlock is not your company's (or unknown); the worker was erased; the row never opened; he is a sample candidate, pending deletion or suspended; he no longer consents to employer sharing (for an RVM student: the RVM rule closes him); or **his consent is on a notice that does not describe this** (the 2026-11-04 notice promises initials and 14 days, ADR-0064 §3.8 — today that is every BadaBhai worker). Open for good never outlives these.
 - **Events:** `contact.viewed` on every read (ids only — never the name or the number), written BEFORE the answer: if it cannot be written the request fails and nothing is shown. `contact.revealed` is unchanged.
 - **Mobile gotchas:** Read it when the contact screen opens; do not cache or log the body. `full_name` is `null` when he never gave one. Not a credit spend — the credit was spent on `POST /payer/unlocks`.
+
+#### The company follow-up (#2753 item 10) — what became of a contact you opened
+
+- **Only while `UNLOCK_FOLLOWUP_ENABLED` is on** (default off: both routes are a `404`, the route is not there). The answers are what the launch numbers count, so the switch goes on only after the `unlock_outcomes` migration is applied.
+- **"Due", defined.** A contact is due for the follow-up when ALL of these hold: it is your company's (the tenant's) unlock; it was opened — `granted`, `revealed` or lapsed (`expired`), never a request or a denial; it was granted at least `UNLOCK_FOLLOWUP_AFTER_DAYS` ago (default **7**, whole days of 24 hours; exactly 7 × 24 h counts); and either you have not answered, or your answer is `still_talking` and is itself at least that old. A `hired`, `not_hired` or the desk's `not_reached` closes it for good. A worker who was erased, is pending deletion or is suspended is never listed. "Due" is computed when you read the list — nothing is marked by a background job — so it is always current. There is no notification yet: read the list when the screen opens.
+
+#### `GET /payer/unlock-outcomes/due`
+
+- **Auth:** `PayerAuthGuard` (Bearer), either role. In org tenancy `on` a teammate sees the org's contacts (the `GET /payer/unlocks` rule). No rate limit (a read of your own unlocks, like `GET /payer/unlocks`).
+- **Query:** `limit` (1–50, default 20), `cursor` (the previous page's `nextCursor`, passed back untouched). Anything else, or a cursor the server did not mint, is a `400`.
+- **Response:** `{ items: [{ unlock_id, worker_id, granted_at, outcome: null | 'still_talking' }], nextCursor: string | null }` — ids only: no name, no phone, no posting. Oldest grant first. Sent with `Cache-Control: no-store`.
+- **Events:** none.
+- **Mobile gotchas:** an answered contact drops off the list, so walk it with the cursor rather than an offset; the position after an answered row stays valid.
+
+#### `POST /payer/unlocks/:unlockId/outcome`
+
+- **Auth:** `PayerAuthGuard` (Bearer), either role. Own per-payer hourly bucket (`payer_unlock_outcome`, `PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR`, default 600), one unit per request (a repeat and a `404` count too), charged before anything is read; fails closed (Redis down → the same `429`).
+- **Headers:** `Idempotency-Key?: string` — the [Purchase idempotency](#purchase-idempotency-idempotency-key) seam (scope `unlock_outcome`, per session payer, 180 s); in-flight duplicate → `409 in_flight` (`"This answer is already being saved; check the contact before trying again"`): re-read the due list, never re-post.
+- **Body:** `{ outcome: 'hired' | 'not_hired' | 'still_talking' }` — strict. `not_reached` is the desk's answer (#2750) and is a `400` here, like any other value or extra key (no `payer_id`). A malformed `:unlockId` is a `400`.
+- **Ownership:** the unlock must be your company's (the tenant's — the same check as reveal and the contact read) and an opened contact whose worker still exists. An unknown id, another company's unlock, a request, a denial or an erased worker is one bare `404`, byte-identical to the switch-off `404`. Not due yet is **not** a refusal: you may answer early.
+- **Response (200):** `{ unlock_id, worker_id, outcome, previous_outcome: string|null, answered_at, changed: boolean }`.
+- **One answer per contact:** a later answer replaces the earlier one (`still_talking` → `hired`); the history is on the spine. A repeat is `changed: false` and writes no event; a repeated `still_talking` moves `answered_at` (the contact waits the full period again before it is due), any other repeat changes nothing.
+- **Hire record:** a `hired` answer also confirms your company's hire record in the same transaction when `HIRE_RECORDS_ENABLED` is on **and** the unlock was opened from a posting (`job_posting_id` or `job_id`). An unlock opened from search names no posting: the answer is stored, no hire record is written. A later `not_hired` does not take a confirmed hire back (only the desk can).
+- **Events:** `unlock.outcome_recorded` `{ unlock_id, worker_id, outcome, answered_by: 'company' }` on each real change (ids only; the login that answered is the envelope's actor); `hire.recorded` (`source: company_answer`) when the hire record changes.
 
 #### `POST /payer/resume-disclosures` (masked résumé — VERIFIED LIVE)
 
@@ -540,7 +646,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   2. Otherwise an owned company posting → that posting's **actual applicants** (the V1 shape). Not gated by `FEED_POSTINGS_UNION_ENABLED`, so disarming the worker-feed union never hides people who already applied. Applications without a rank snapshot sort last.
   3. Otherwise → neutral `404` in the §3.2 envelope with `error.message = "Job not found"`. The `error` object is identical for an unknown id, another payer's job and another payer's posting (no existence oracle); only the per-request `path`, `requestId` and `timestamp` differ.
 - **Membership:** neither list ever includes a worker inside the account-deletion grace window (ADR-0031 ruling (b)); a cancelled deletion puts him back.
-- **`stage` (owner ruling 2026-10-07; server-side filter #2737 — behind `PAYER_APPLICANT_STAGES_ENABLED`, default on):** while the flag is on, **every row in both shapes below also carries `stage: 'new' | 'shortlist' | 'passed'`**, appended as the row's last key — the applicant's place on the payer's saved New / Shortlist / Passed board for this posting (`new` when nobody has moved him). The feed then returns only the requested `stage` (default `new`); `?stage=all` is the full labelled board. Every other key and value is unchanged by the filter. While the flag is off **no row carries `stage`** — treat its absence as "the server does not persist stages" and keep the local board. Set it with `PUT …/applicants/:workerId/stage` below.
+- **`stage` (owner ruling 2026-10-07; server-side filter #2737 — behind `PAYER_APPLICANT_STAGES_ENABLED`, default on):** while the flag is on, **every row in both shapes below also carries `stage: 'new' | 'shortlist' | 'passed' | 'selected' | 'hired'`** (`selected` / `hired` since #2747: only a company with `OUTCOME_STAGES_ROLLOUT` on can set them, but a stored one is always reported as itself, so accept all five), appended as the row's last key — the applicant's place on the payer's saved New / Shortlist / Passed board for this posting (`new` when nobody has moved him). The feed then returns only the requested `stage` (default `new`); `?stage=all` is the full labelled board. Every other key and value is unchanged by the filter. While the flag is off **no row carries `stage`** — treat its absence as "the server does not persist stages" and keep the local board. Set it with `PUT …/applicants/:workerId/stage` below.
 - **Response (agency `jobs` row — its appliers):**
   ```
   { jobId, applicants: [ {
@@ -569,6 +675,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   ```
 - **`source` and the facts before paying (#2747, brief 4B.3 and 4B.5).** Both shapes above, the inbox rows below and the search rows (§4.8) carry these keys, appended after the row's own keys:
   - `source` — **always present**: `'rvm_student'` for an applicant with an active BadaBhai Campus link (the same fact as `instituteCode: "rvm"`), else `'badabhai_worker'`. One list shows both, each labelled. A label, not a filter: nobody is added, removed or reordered by it.
+  - `notRecentlyActive` — boolean, **present on every row only while `WORKER_ACTIVITY_ENABLED` is on** (#2753 item 7; default off, and then the key is absent): `true` when his last active day is **more than** `NOT_RECENTLY_ACTIVE_DAYS` (default 90) days before today in India, so a worker last active 90 days ago is not marked and 91 days ago is. A worker never seen is `false`. Any activity clears it: opening the app, an apply, a reply to you, a Campus application. A mark, not a filter: nobody is hidden or reordered by it. Like `source` it does not depend on `APPLICANT_FACTS_ROLLOUT` or on his consent. His last active day is one definition, the later of the newest day he used the app (`worker_activity`) and the newest day a device of his signed in.
   - **Only while `APPLICANT_FACTS_ROLLOUT` is on for your company** (`off` | `pilot` | `on`, default `off`; `pilot` = the companies in `feature_pilot_payers` for `applicant_facts`), every row also carries all six keys below. Each key is always present then, and `null` means **"not given"** — print it so. While off, none of the six is sent.
     ```
     firstName,      // the first word of the name he gave, after any title or initial ("Md. Aslam Khan" → "Aslam"); null for a "name" with a digit or "@"
@@ -576,10 +683,11 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
     expectedSalary, // as the résumé prints it: "₹24,000 – ₹28,000 / month", "₹18,000 / month", "₹50,000+ / month", "₹800 / day"
     machines,       // [ label ] from the closed vocabulary, at most 8; null when none
     area,           // a gazetteer city; for an RVM student, his branch's city when the branch name is a known city
-    lastActiveOn    // 'yyyy-mm-dd', the IST day he was last active; null when never seen
+    lastActiveOn    // 'yyyy-mm-dd', the IST day he was last active; null when never seen (see below)
     ```
   - The salary follows the résumé's precedence (an admin correction, then the profile's extraction, then the worker's own band) and never invents a range: a one-sided band prints one figure. A live admin correction also applies to `area` and `tradeLine`.
   - **Consent decides, row by row.** A worker whose latest consent was given on a notice that does not describe facts before paying (the 2026-11-04 notice says his name is not shown before an unlock — ADR-0064 §3.8; today that is every BadaBhai worker), or no longer shares his profile with employers (he used the "stop employer contact" exit, or an under-18 declaration withdrew it) still appears on a list he applied to, but every one of the six facts is `null`. An actively linked RVM student is decided by the RVM rule instead (#2752).
+  - `lastActiveOn` is the newest day a device of his signed in. **While `WORKER_ACTIVITY_ENABLED` is on** it is the same one definition `notRecentlyActive` reads (the later of that and the newest day he used the app), so the date and the mark on a card always agree. A date only, never a time. The card's activity band (`lastActiveBand`, #2736) is unchanged for older clients.
   - Still withheld before paying: surname, phone number, photo, employer names, address and anything he typed in his own words. Contact details are bought through `/payer/unlocks`.
 - **"Level needed" sort (engine v1.1, CEO ruling 30 Oct 2026, [ADR-0061](../decisions/0061-level-needed-applicant-sort.md) — behind `LEVEL_NEEDED_SORT_ENABLED`, default off). Company postings only.** When the flag is on, a posting whose `role_kind` is `cnc_turner`, `vmc_milling`, `cnc_grinding` or `cam_programmer` and whose `trade_level` names a rung ("Setter needed" = Setter **and above**) groups its applicants **inside each trade group** (after the effective tier, before months): `meets` first, then `not_confirmed` (no rung stated, a rung this trade's ladder does not know, or an upper rung whose separating question he answered "koi aur" — tag the card **"Level not confirmed"**), then `below`. Months, industry months and recency order each group as before. **Nobody is added or removed**, and the related-trade floor (36 months) is unchanged. The group comes from the rung **frozen on the application at apply time**, so a worker who edits his level later never moves; applications from before migration 0153 have no frozen rung and sit in `not_confirmed`. `levelFit` is `null` on every row when the list has no level sort: the flag is off, the posting says "Any level" (`trade_level` null), or its trade is not one of the four — and then the order is exactly the previous one. `levelFit` is additive: a client that ignores it keeps working.
 - **Events:** agency `jobs` list only: `feed.shown` (one per rendered applier — none for an empty list, actor `payer`, batch all-or-nothing; payload `worker_id`/`job_id`/`rank`/`score`/`hot` — PII-free). The posting list emits nothing (people who already applied are not a feed impression), so a posting-list read is rate-limited (Redis, hourly) but **not durably audited**.
@@ -623,7 +731,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
   - `posting.id` is the id the per-posting route and the unlock's `job_id` context take; `posting.title` is the payer's own title (`jobs.title` / `job_postings.role_title`); branch on `posting.kind` (or, as on the per-posting route, on `score` vs `applicationId`).
   - `rank` (and `hot` on an agency row) is the applicant's position on **his posting's** list ("#2 on Welder"), not his position in this inbox. A worker who applied to two of your postings is two rows. On a "Level needed" posting (engine v1.1, see the per-posting route) that rank includes the level group, and `levelFit` is his group on that posting.
   - `stage` — present on every row **only while `PAYER_APPLICANT_STAGES_ENABLED` is on**: the same value the per-posting route shows for him on that posting (a worker's two rows have two independent stages, one per posting). Absent while off.
-  - `source`, and the six facts while `APPLICANT_FACTS_ROLLOUT` is on for your company — exactly as on the per-posting route (§4.5, "`source` and the facts before paying").
+  - `source`, `notRecentlyActive` while `WORKER_ACTIVITY_ENABLED` is on, and the six facts while `APPLICANT_FACTS_ROLLOUT` is on for your company — exactly as on the per-posting route (§4.5, "`source` and the facts before paying").
 
 - **Membership:** the per-posting lists' — `action = 'applied'` only, never a worker inside the deletion grace window (ADR-0031 (b)), and an agency applier only if he has a profile row (the agency list ranks profiles). An application that names both one of your agency jobs and one of your postings is listed once, under the agency job. The per-posting company list stops at 500 rows; this list is paginated instead, so a company posting's applicants ranked 501st and below appear only here, with their true posting `rank`.
 - **Faceless:** the rows carry exactly the per-posting projection — opaque ids, banded chips and rank inputs; no name, phone, employer or contact, except the first name among the six facts while `APPLICANT_FACTS_ROLLOUT` is on for your company (#2747). Identity is still bought through `/payer/unlocks`.
@@ -637,7 +745,8 @@ Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved ser
 
 - **Auth:** `PayerAuthGuard` (Bearer), either role. No role gate: like the feed it annotates, the board is governed by **posting ownership** alone — an agent's agency job and an employer's company posting alike. Own per-payer hourly bucket (`payer_applicant_stage`, `PAYER_APPLICANT_STAGE_MAX_PER_HOUR`, default 600), one unit per request (a no-op and a `404` count too), charged before any read; fails closed (Redis down → the same `429`).
 - **Path:** `jobId` — the id `GET /payer/reach/jobs/:jobId/applicants` takes: an agency `jobs` id **or** a company `job_postings` id; the server resolves which, exactly as the feed does (jobs first). `workerId` — the row's `workerId`. Both UUIDs (malformed → `400`).
-- **Body:** `{ "stage": "new" | "shortlist" | "passed" }` — strict; any other key (`payer_id`, a note, a posting kind) is a `400`. `new` moves the applicant back to New.
+- **Body:** `{ "stage": "new" | "shortlist" | "passed" | "selected" | "hired" }` — strict; any other key (`payer_id`, a note, a posting kind) is a `400`. `new` moves the applicant back to New.
+- **The outcome stages `selected` and `hired` (#2747, brief 4B.8)** — a company marks an applicant selected, then hired. **Only while `OUTCOME_STAGES_ROLLOUT` is on for your company** (`off` | `pilot` | `on`, default `off`; `pilot` = the companies in `feature_pilot_payers` for `outcome_stages`). While it is off, either value gets **the same `400` body it always got** (the body validation error naming the three stages), before the posting is looked up. Unlike before, the request reaches that check first: it is charged one unit of the hourly write cap (so it can be a `429`), and a re-send of a stage the row already holds is that `400` too, not `changed: false`. Moving an applicant **out** of an outcome stage (back to Shortlist, say) works whatever the switch says. Requires migration 0166 on the database first.
 - **Who may set it:** the session payer must **own** the posting (`jobs.payer_id` / `job_postings.payer_id` — the same check the feed uses), **and** the worker must be on that posting's applicant feed (applied, not withdrawn/skipped, not inside the deletion grace window, and — on an agency job — with a profile, exactly the feed's membership). Otherwise → `404` with `error.message = "Job not found"`, **identical** to the feed's 404 for an unknown id, another payer's posting, or a worker who is not an applicant (no existence oracle). When org tenancy lands (PAY-DB-01) ownership widens to the org and so does the board — the route does not change.
 - **Response `200`** (the same shape for a change and for a no-op):
   ```
@@ -646,9 +755,28 @@ Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved ser
   ```
   `previousStage` is what the board held before this request (`new` if nobody had moved him). `changed: false` = he already held `stage`: nothing written, no event.
 - **Idempotent:** retrying the same body is safe (`changed: false`, same body otherwise). Two sessions moving the same applicant at once serialise; the last write wins, and each response's `previousStage` is the stage it actually replaced.
-- **Events:** one `payer.applicant_stage_changed` v1 per **real** change, in the same transaction as the write — actor `payer` (the session payer), subject `worker`, payload `{ posting_kind, posting_id, worker_id, stage, previous_stage }` (ids + closed enums only). A no-op emits nothing.
-- **Errors:** `400` bad ids / body; `401` no session; `404` flag off, or not settable (above); `429` cap or Redis down; a DB failure is a `5xx`, never folded into the `404`.
-- **Web gotchas:** read `stage` from the feed rows (absent ⇒ the flag is off ⇒ keep the local board and do not call this route). Update the row optimistically, then reconcile with the response's `stage`; on `404` re-fetch the feed (the applicant left it). Stages are per posting: the same worker on two postings has two independent stages.
+- **Events:** one event per **real** change, in the same transaction as the write — actor `payer` (the session payer), subject `worker`, payload `{ posting_kind, posting_id, worker_id, stage, previous_stage }` (ids + closed enums only). A move between `new`, `shortlist` and `passed` is `payer.applicant_stage_changed` v1, exactly as before; a move to or from `selected` / `hired` is `payer.applicant_stage_changed_v2` (#2747). No move is reported under both names. A no-op emits nothing.
+- **The signal to RVM (#2747 part D):** a real move into `selected` or `hired` of a worker who is an actively linked RVM student also queues one signal to RVM in the same transaction, while `OUTBOUND_SIGNALS_ROLLOUT` is on for your company. It is sent ten minutes later, and only if the mark still stands then. RVM then asks the student for proof and opens a verification task; your mark alone never releases any reward. The response does not change. If the pilot list cannot be read, the move answers `503` and nothing is saved; retry it. The same mark is signalled once, ever: moving him back and marking him again sends nothing new, and an undo sends nothing.
+- **The hire record (#2753 item 9):** while `HIRE_RECORDS_ENABLED` is on (default off), a real move into `hired` also confirms your company's hire record for that worker and posting, and a real move out of `hired` takes it back when nothing else (your follow-up answer, the worker desk) confirmed it. Same transaction, nothing in the response changes, and a no-op writes nothing. The records are an admin read (`GET /admin/hires`, [reference](./admin-hires-api-reference.md)).
+- **Errors:** `400` bad ids / body, or an outcome stage while `OUTCOME_STAGES_ROLLOUT` is off for your company; `401` no session; `404` flag off, or not settable (above); `429` cap or Redis down; a DB failure is a `5xx`, never folded into the `404`.
+- **Web gotchas:** read `stage` from the feed rows (absent ⇒ the flag is off ⇒ keep the local board and do not call this route). Update the row optimistically, then reconcile with the response's `stage`; on `404` re-fetch the feed (the applicant left it). Stages are per posting: the same worker on two postings has two independent stages. payer-web's board still draws three tabs: until the outcome stages get their own, a `selected` or `hired` row shows under Shortlist (`boardTabOf`) with its own badge and no move buttons. The inbox's `?stage=shortlist` filter matches the stored stage exactly, so it does not include them; `?stage=selected` / `?stage=hired` do. **Draw Selected / Hired only when `GET /payer/reach/applicant-stages` says `outcomeStages: true`** (below), not by trying a move.
+
+#### `GET /payer/reach/applicant-stages` — what this company's board may do now (#2747, #2852)
+
+So a screen can draw the Selected and Hired controls only when a move would be accepted, and say that RVM is told only when it is.
+
+- **Auth:** `PayerAuthGuard` (Bearer), either role, then the board flag: **`404` while `PAYER_APPLICANT_STAGES_ENABLED` is off**, exactly like the stage route. No write cap and no event. Sent with `Cache-Control: no-store`.
+- **Request:** no params, no query, no body. The company is the session payer's (its tenant key, the same key the stage route uses).
+- **Response `200`:**
+  ```
+  { stages: ('new'|'shortlist'|'passed'|'selected'|'hired')[], outcomeStages: boolean, rvmSignal: boolean }
+  ```
+
+  - `stages` — the stages a move may target now, in board order: `['new','shortlist','passed']`, plus `'selected','hired'` while `OUTCOME_STAGES_ROLLOUT` is on for your company.
+  - `outcomeStages` — `true` exactly when `stages` includes `selected` and `hired`.
+  - `rvmSignal` — `true` when a move into `selected` or `hired` of an **RVM student** (a feed row with `source: 'rvm_student'`) is also sent to RVM: `OUTBOUND_SIGNALS_ROLLOUT` on for your company, and `outcomeStages` too. A BadaBhai worker's mark is never sent, whatever this says.
+- **Fails closed, never `5xx` for a switch:** a pilot list that cannot be read answers `false`. Both switches are read at each request, so the answer is a forecast: a move can still be refused (`400`) or answer `503` if a switch changes in between. Re-read on either.
+- **Web gotchas:** read it once per board load (and again after a `400` on an outcome move). While `outcomeStages` is `false`, keep today's board: a stored `selected` / `hired` row shows under Shortlist with its badge and no move buttons, and moving it back out still works. Show "RVM is told" only on an `rvm_student` row when `rvmSignal` is `true`; never mention a reward.
 
 ### 4.6 Agency (role `agent` only)
 
@@ -737,6 +865,10 @@ Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved ser
 - **Response:** `{ skills: [{ skill_id, label, industry_id, related_skill_ids }], max_skills_per_posting }`. `skills` is the same closed vocabulary `GET /payer/match/skills` serves, sorted by `skill_id`. `max_skills_per_posting` is the live `match_config` cap that the PUT enforces, read on every call.
 - **Events:** none. It is a read-only route, and the PUT records the decision taken with it.
 
+#### The numbers screen — **Admin Portal** (#2755)
+
+- `GET /admin/numbers/definitions` (the catalogue of the weekly figures), `PUT|DELETE /admin/numbers/test-accounts/:payerId` (mark or unmark a test company, `payers.is_test_account`) and `GET /admin/numbers/weekly?city=&trade=&weeks=` (every figure with this week, last week, the change and the series, read only from the `numbers_weekly` snapshot a nightly sweep keeps; 503 before its migration). Capability `read_business_numbers` (super_admin, ops_admin), NOT the `read_entities` floor that `GET /admin/finance/summary` uses; a neutral 404 while `ADMIN_NUMBERS_ENABLED` is off. Contract: [admin-numbers-api-reference.md](./admin-numbers-api-reference.md).
+
 ### 4.7 Admin posting detail (NOT a payer/mobile route — for reference)
 
 #### `GET /admin/job-postings/:id`
@@ -763,6 +895,7 @@ Owner rulings 2026-11-03: payer-web's **Candidates** opens on **All candidates**
   - `strict` — default `false`. Opt-in, never remembered (ADR-0040 Decision 2).
   - `limit` `1..50` (default 20); `cursor` — the previous `nextCursor`, untouched.
 - **Who is in the pool (membership, never a filter, both modes):** the worker's LATEST consent row is unrevoked and lists `employer_sharing` (a tie on `accepted_at` must pass on every tied row); `deletion_scheduled_at IS NULL`; `status` `pending` or `active`; at least one `worker_skill` with `wants = true`. Nobody else is served or counted. Skills a worker switched off are invisible (never matched, never on the card).
+- **A worker who left company search is not in it (#2753 item 6, behind `SEARCH_EXIT_ENABLED`, default off):** a worker can turn "companies can find me" off in the worker app while keeping his consent. While he is out he is absent from every company's search, its counts and the `cities` filter — a student your company holds a named-company search grant for included — and he comes back when he turns it on again. A company he applied to still sees him on its applicant lists and can still open him (below). Off, nothing changes.
 - **Filters reorder by default (ADR-0040 Decision 1):** candidates whose RECORDED values match every filter lead; everyone else follows by the rank key; nobody is removed. `strict: true` drops only the definite non-matches. An **unrecorded** value is neither a match nor a "no": strict keeps it, and it is counted in `unrecorded`, never in `matched` (Decision 4). Unrecorded means: a NULL city or one the gazetteer does not recognise; 0 role months; and no industry-tenure row or a 0-month one (the derivation writes 0 for "we do not know"). The counts arrive with every page, empty or not (Decision 3).
 - **Order:** `filter_match DESC`, then the ADR-0036 §2 key with the role filter standing in for the posting's skills: effective tier (asked role 1, related role 2 — promoted to 1 at the live `tier_floor_months` — neither 3) ASC, role months DESC, industry months DESC (unrecorded last), last-active day DESC, worker id ASC. No score, no weight; nothing a payer buys enters it.
 - **Response:**
@@ -781,7 +914,7 @@ Owner rulings 2026-11-03: payer-web's **Candidates** opens on **All candidates**
 
   `workerId` is the id `POST /payer/unlocks` takes (`job_id: null` for a search row). **Masked:** no name, phone, photo, employer, salary, address or free text — identity is only released by an unlock.
 
-  **#2747:** every row also carries `source` (`'rvm_student'` only for a student your company holds a named-company search grant for, §4.5), and, while `APPLICANT_FACTS_ROLLOUT` is on for your company, the six facts before paying (`firstName`, `tradeLine`, `expectedSalary`, `machines`, `area`, `lastActiveOn`; §4.5). With the switch on, the "no name, no salary" line above becomes "no surname, no phone".
+  **#2747:** every row also carries `source` (`'rvm_student'` only for a student your company holds a named-company search grant for, §4.5), `notRecentlyActive` while `WORKER_ACTIVITY_ENABLED` is on (#2753, §4.5; a mark only, the search order is unchanged), and, while `APPLICANT_FACTS_ROLLOUT` is on for your company, the six facts before paying (`firstName`, `tradeLine`, `expectedSalary`, `machines`, `area`, `lastActiveOn`; §4.5). With the switch on, the "no name, no salary" line above becomes "no surname, no phone".
 
 - **Sample candidates (R74, 2026-11-04):** `isSample: true` marks a synthetic-workforce seed row shown for demos, not a person. Clients badge the card "Sample candidate" and offer no unlock. `POST /payer/unlocks` for a sample worker returns the normal neutral `unavailable` body with **no credit debited and no unlock row written** (only `unlock.requested` is recorded). Sample rows are ranked and counted like any other candidate.
 - **Cursor:** opaque base64url of `{ v: 1, f: <search fingerprint>, w: <last worker served>, o: <rows served> }` — it names who you were last shown, never a sort key. Bound to its search: reused under different filters or `strict` → `400`. The next page resumes after that worker's current position (or, if he has left the pool, at position `o`).

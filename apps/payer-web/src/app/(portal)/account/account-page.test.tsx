@@ -28,10 +28,14 @@ const AGENT: PayerSession = {
 
 const requirePayer = vi.fn<() => Promise<PayerSession>>();
 const getAgencyKyc = vi.fn<() => Promise<AgencyKyc | null>>();
+const getPhoneProofStatus = vi.fn<() => Promise<{ proven: boolean } | null>>();
 const flags = { agencyPortalEnabled: true };
 
 vi.mock("../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
-vi.mock("../../../lib/payer-api", () => ({ getAgencyKyc: () => getAgencyKyc() }));
+vi.mock("../../../lib/payer-api", () => ({
+  getAgencyKyc: () => getAgencyKyc(),
+  getPhoneProofStatus: () => getPhoneProofStatus(),
+}));
 vi.mock("../../../lib/config", () => ({ agencyFlags: () => flags }));
 vi.mock("next/link", async () => {
   const React = await vi.importActual<typeof ReactModule>("react");
@@ -69,6 +73,7 @@ const links = (markup: string) =>
 beforeEach(() => {
   requirePayer.mockReset().mockResolvedValue(AGENT);
   getAgencyKyc.mockReset().mockResolvedValue(KYC);
+  getPhoneProofStatus.mockReset().mockResolvedValue(null);
   flags.agencyPortalEnabled = true;
 });
 

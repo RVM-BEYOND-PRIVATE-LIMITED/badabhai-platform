@@ -49,6 +49,11 @@ const STEP_BLURBS: Record<JourneyStepKey, string> = {
   interview_kit: "Kit downloads attributed to this worker. The download route is anonymous by design, so attribution only exists from migration 0079 forward.",
 };
 
+/** Is `key` one of the seven journey steps? (The funnel's stop keys add `completed`.) */
+export function isJourneyStepKey(key: string): key is JourneyStepKey {
+  return Object.prototype.hasOwnProperty.call(STEP_TITLES, key);
+}
+
 export function stepTitle(key: JourneyStepKey): string {
   return STEP_TITLES[key];
 }

@@ -61,9 +61,12 @@ describe("PayerApplicantInboxQueryPipe — flag OFF is the pre-stage query, byte
 });
 
 describe("PayerApplicantInboxQueryPipe — flag ON adds the optional stage filter", () => {
-  it.each(["new", "shortlist", "passed"] as const)("?stage=%s parses", (stage) => {
-    expect(pipe(true).transform({ stage })).toEqual({ stage, limit: 20, cursor: undefined });
-  });
+  it.each(["new", "shortlist", "passed", "selected", "hired"] as const)(
+    "?stage=%s parses",
+    (stage) => {
+      expect(pipe(true).transform({ stage })).toEqual({ stage, limit: 20, cursor: undefined });
+    },
+  );
 
   it("composes with postingId, limit and cursor", () => {
     const postingId = "0c000000-0000-4000-8000-0000000000a1";

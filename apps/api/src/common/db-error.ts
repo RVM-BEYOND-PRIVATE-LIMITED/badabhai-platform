@@ -104,6 +104,19 @@ export function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
+ * The constraint (or unique index) a Postgres error names — `constraint_name` on the driver error,
+ * itself or drizzle's `cause` (#1811) — or undefined. Lets a caller tell WHICH unique index fired
+ * when several statements share one transaction (#2749: the admin grant's ledger key).
+ */
+export function constraintOf(err: unknown): string | undefined {
+  for (const candidate of [err, (err as { cause?: unknown } | null)?.cause]) {
+    const name = (candidate as { constraint_name?: unknown } | null | undefined)?.constraint_name;
+    if (typeof name === "string") return name;
+  }
+  return undefined;
+}
+
+/**
  * A log-safe REASON for a failure on a path that writes a worker's own words (#1744 review).
  *
  * `redactQueryParams` strips a query error's bound parameters but hands every OTHER error back

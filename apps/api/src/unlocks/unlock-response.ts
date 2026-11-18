@@ -50,6 +50,48 @@ export interface UnlockGrantedResponse {
   readonly expires_at: string;
   /** #2747 — when the contact stops being open; `null` = no end (`contact_rules` on). */
   readonly open_until: string | null;
+  /**
+   * #2750 — credits this open took from the wallet: the cost on the button for a new open, 0 for a
+   * contact the company already held. Present ONLY while the credit rules are on for the company,
+   * so a company outside the pilot gets exactly the body it parses today.
+   */
+  readonly credits_charged?: number;
+}
+
+/**
+ * #2750 item 3 (ADR-0066) — the SECOND distinguishable answer, for a company under the credit
+ * rules only: it does not hold enough credits for this contact. Nothing was debited, opened or
+ * recorded against the worker. It reveals nothing the company did not already know: the cost is
+ * the one on the button (priced from facts on the card only), and the balance is its own. Every
+ * other refusal, consent included, stays the one neutral body.
+ */
+export interface InsufficientCreditsResponse {
+  readonly status: "insufficient_credits";
+  /** What this contact costs (the number on the button). */
+  readonly credits_needed: number;
+  /** The company's spendable credits now. */
+  readonly credits_available: number;
+}
+
+/**
+ * #2750 item 6 (ADR-0066 §2.7) — a company under the credit rules may not open this worker this
+ * week: he was opened the weekly number of times (`workerWeeklyOpenLimit`, rolling 7 days, by all
+ * companies) and this company is not one he applied to. Nothing was debited, opened or charged.
+ * The brief's chosen answer (#2750 question 2): it says he is in demand, and nothing else.
+ */
+export interface WorkerUnavailableThisWeekResponse {
+  readonly status: "worker_unavailable_this_week";
+}
+
+/**
+ * #2750 item 6 (ADR-0066 §2.7) — an agency account under the credit rules has opened its daily
+ * number of new contacts (`agencyDailyOpenLimit`, the IST calendar day). Decided from the
+ * company's own count before anything about the worker is read. Nothing was debited or opened.
+ */
+export interface DailyLimitReachedResponse {
+  readonly status: "daily_limit_reached";
+  /** The limit in force: new contacts per IST day. */
+  readonly daily_limit: number;
 }
 
 /**
@@ -71,4 +113,24 @@ export interface ContactRevealedResponse {
   readonly relay_handle: string;
   readonly channel: "in_app_relay" | "proxy_number";
   readonly expires_at: string;
+}
+
+/**
+ * #2750 item 3 — `POST /payer/unlocks/quotes`: what opening each worker on a page costs this
+ * company, from the facts on his card only (never consent or a limit). The same cost rule prices
+ * the open, so the number on the button is the number debited (unless his card changes between
+ * the quote and the tap). A contact the company already holds quotes 0.
+ */
+export interface ContactQuotesResponse {
+  readonly quotes: readonly {
+    readonly worker_id: string;
+    readonly credits: number;
+    /**
+     * #2750 item 5 — present (true) only when a placement-team waiver makes this contact free (an
+     * RVM student who applied to a waived job or company). Additive: absent means not waived.
+     */
+    readonly waived?: true;
+  }[];
+  /** The company's spendable credits now, so the button can say when a contact is out of reach. */
+  readonly credits_available: number;
 }

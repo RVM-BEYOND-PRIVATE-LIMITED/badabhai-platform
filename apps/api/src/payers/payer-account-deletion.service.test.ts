@@ -1,7 +1,9 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { ConflictException } from "@nestjs/common";
-import { payerOrgs, payers } from "@badabhai/db";
+import { displayPrefs, payerOrgs, payers } from "@badabhai/db";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
 import { PayerAccountDeletionService } from "./payer-account-deletion.service";
 
 const CTX = { requestId: "req-1", correlationId: "corr-1" } as const;
@@ -16,6 +18,8 @@ function mockDb(
   payerDeleteFails = false,
 ) {
   const deletedTables: unknown[] = [];
+  /** The WHERE of every delete, in order (compiled by the tests that read it). */
+  const deleteWheres: unknown[] = [];
   /** The executor the row delete ran on: the db itself, or the transaction's handle. */
   const executors: unknown[] = [];
   const TX = { name: "tx" };
@@ -43,9 +47,16 @@ function mockDb(
   function deleteOn(executor: unknown, table: unknown) {
     deletedTables.push(table);
     executors.push(executor);
-    order.push(table === payers ? "delete:payers" : "delete:other");
+    order.push(
+      table === payers
+        ? "delete:payers"
+        : table === displayPrefs
+          ? "delete:display_prefs"
+          : "delete:other",
+    );
     return {
-      where: vi.fn(async () => {
+      where: vi.fn(async (where: unknown) => {
+        deleteWheres.push(where);
         if (table === payers && payerDeleteFails) {
           // What a foreign key still holding the row (employer_profiles) raises.
           throw Object.assign(new Error("violates foreign key constraint"), { code: "23503" });
@@ -54,7 +65,7 @@ function mockDb(
       }),
     };
   }
-  return { deletedTables, executors, db, TX };
+  return { deletedTables, deleteWheres, executors, db, TX };
 }
 
 function makeService(opts: {
@@ -66,7 +77,7 @@ function makeService(opts: {
   payerDeleteFails?: boolean;
 }) {
   const order: string[] = [];
-  const { deletedTables, db, executors, TX } = mockDb(
+  const { deletedTables, deleteWheres, db, executors, TX } = mockDb(
     opts.orgRows ?? [],
     opts.memberRows ?? [],
     order,
@@ -103,6 +114,7 @@ function makeService(opts: {
     sessions,
     events,
     deletedTables,
+    deleteWheres,
     db,
     driveContacts,
     order,
@@ -131,8 +143,8 @@ describe("PayerAccountDeletionService.execute (QA immediate seam)", () => {
     const out = await svc.execute(PAYER, { ...CTX });
     expect(out).toEqual({ deleted: true, sessionsRevoked: 2, soloOrgDeleted: true });
     expect(sessions.revokeAllForPayer).toHaveBeenCalledWith(PAYER);
-    // members + org + payer row removed (3 deletes).
-    expect(deletedTables).toHaveLength(3);
+    // members + org + payer row + the login's theme row (#2837) removed (4 deletes).
+    expect(deletedTables).toHaveLength(4);
     expect(events.emit).toHaveBeenCalledOnce();
     const emitMock = events.emit as unknown as { mock: { calls: Array<[Record<string, unknown>]> } };
     const emitCall = emitMock.mock.calls[0]![0];
@@ -180,7 +192,31 @@ describe("PayerAccountDeletionService.execute (QA immediate seam)", () => {
     expect(driveContacts.eraseEnteredBy).toHaveBeenCalledWith(PAYER, TX);
     expect(executors.at(-1)).toBe(TX);
     // The row delete first: the erasure's stamp lands just before the commit.
-    expect(order).toEqual(["tx:begin", "delete:payers", "erase:drive_contacts", "tx:commit"]);
+    expect(order).toEqual([
+      "tx:begin",
+      "delete:payers",
+      "delete:display_prefs",
+      "erase:drive_contacts",
+      "tx:commit",
+    ]);
+  });
+
+  it("#2837: deletes the LOGIN's display_prefs row on the transaction, after the payer row", async () => {
+    const { svc, deletedTables, deleteWheres, executors, TX } = makeService({
+      rowFound: true,
+      orgRows: [],
+    });
+    await svc.execute(PAYER, { ...CTX });
+    const at = deletedTables.indexOf(displayPrefs);
+    // After the row delete, which waits for a theme PATCH holding the row (FOR KEY SHARE).
+    expect(at).toBe(deletedTables.indexOf(payers) + 1);
+    expect(executors[at]).toBe(TX);
+    // The login's own kind and id: a worker or admin row with the same uuid is another login's.
+    const where = new PgDialect().sqlToQuery(deleteWheres[at] as SQL);
+    expect(where.sql).toBe(
+      '("display_prefs"."subject_kind" = $1 and "display_prefs"."subject_id" = $2)',
+    );
+    expect(where.params).toEqual(["payer_user", PAYER]);
   });
 
   it("#2746: a payer row delete that fails aborts the transaction before the erasure, and emits nothing", async () => {
@@ -190,7 +226,7 @@ describe("PayerAccountDeletionService.execute (QA immediate seam)", () => {
       payerDeleteFails: true,
     });
     await expect(svc.execute(PAYER, { ...CTX })).rejects.toMatchObject({ code: "23503" });
-    // The failing delete aborts the transaction before any contact is touched.
+    // The failing delete aborts the transaction before any contact or theme row is touched.
     expect(order).toEqual(["tx:begin", "delete:payers", "tx:rollback"]);
     expect(events.emit).not.toHaveBeenCalled();
   });

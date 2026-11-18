@@ -50,6 +50,31 @@ import {
 import { workerProfilingTiers } from "./worker-profiling-tier";
 import { workerResumeSkins } from "./worker-resume-skin";
 import { payerApplicantStages } from "./payer-applicant-stage";
+import { outboundSignals } from "./outbound-signal";
+import { workerActivity } from "./worker-activity";
+import { workerSearchExits } from "./worker-search-exit";
+import { hires } from "./hire";
+import { payOnJoiningHires } from "./pay-on-joining";
+import { unlockOutcomes } from "./unlock-outcome";
+import { stillLookingChecks } from "./still-looking";
+import { payerPhoneProofs } from "./payer-phone-proof";
+import { numbersRecomputeLog, numbersWeekly } from "./numbers-weekly";
+import { creditCallLog } from "./credit-call-log";
+import { creditRulesConfig } from "./credit-rules";
+import { rvmApplicantWaivers, rvmWaiverUses } from "./rvm-waivers";
+import { contactReachAttempts, contactReachCases } from "./contact-reach";
+import { paymentRefunds } from "./payment-refunds";
+import { jobPostingChoices } from "./job-posting-choice";
+import {
+  studentImportBatches,
+  studentImportRows,
+  studentImportSubjects,
+  studentVisibility,
+  workerFieldSources,
+} from "./student-move";
+import { jobPostingWorkerVisibility } from "./job-worker-visibility";
+import { launchTestCohort, launchTestShares } from "./launch-test";
+import { companyImportBatches, companyImportRows } from "./company-import";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -64,6 +89,7 @@ import {
 import { applications, jobPostings, jobs } from "./job";
 import {
   creditLedger,
+  creditLots,
   payerCapacity,
   payerCredits,
   payerFormDrafts,
@@ -116,7 +142,8 @@ import { aiCallTraces } from "./ai-trace";
 import { deleteForensics } from "./delete-forensics";
 import { jobPostingInstituteReviews, rvmTargetingOptions } from "./job-audience";
 import { campusDriveRequests } from "./campus-drive";
-import { featurePilotPayers } from "./feature-pilot";
+import { featurePilotPayers, featurePilotSubjects } from "./feature-pilot";
+import { displayPrefs } from "./display-prefs";
 
 export * from "./worker";
 export * from "./skill";
@@ -161,6 +188,45 @@ export * from "./campus-drive";
 export * from "./feature-pilot";
 // #2752 — named-company search grants and Campus applications.
 export * from "./institute-campus";
+// #2819 — one login's display preference (the theme).
+export * from "./display-prefs";
+// #2747 — marks BadaBhai owes another system (the RVM selection signal).
+export * from "./outbound-signal";
+// #2753 - the days a worker was active (the one read of his last-active day).
+export * from "./worker-activity";
+// #2753 item 6 — a worker who left company search.
+export * from "./worker-search-exit";
+// #2753 item 9 — one hire record per company, worker and posting.
+export * from "./hire";
+// #2753 item 11 — the pay-on-joining pilot's hire record (admin-written, money in paise).
+export * from "./pay-on-joining";
+// #2753 item 10 — what became of one opened contact (the company follow-up).
+export * from "./unlock-outcome";
+// #2753 item 5 — the monthly "still looking?" check (one row per prompt).
+export * from "./still-looking";
+// #2754 item 3 — a company proved the phone on its account (one account per proven phone).
+export * from "./payer-phone-proof";
+// #2755 items 4 and 11 — the numbers screen's weekly snapshot and its recompute log.
+export * from "./numbers-weekly";
+// #2755 item 8 — the out-of-credits call log (one row per call, a closed result code).
+export * from "./credit-call-log";
+export * from "./credit-rules";
+// #2750 item 5 - the placement team's waivers of the contact cost, and their uses.
+export * from "./rvm-waivers";
+// #2750 item 7 - the couldn't-reach guarantee: cases and the desk's call attempts.
+export * from "./contact-reach";
+// #2750 item 10 - admin refunds of real paid packs.
+export * from "./payment-refunds";
+// #2751 items 1 to 3 - which posting button a company tapped, one row per posting.
+export * from "./job-posting-choice";
+// #2887 - moving RVM students into BadaBhai: the import ledger, field sources and visibility.
+export * from "./student-move";
+// #2891 - BadaBhai worker visibility of a Campus-origin posting (off until an admin opens it).
+export * from "./job-worker-visibility";
+// #2755 item 9 — launch test A: the factories, what each was sent, its payment link and result.
+export * from "./launch-test";
+// #2754 item 4 — the Campus company import: one row per batch, one row per source record moved.
+export * from "./company-import";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -223,6 +289,9 @@ export type PayerCredit = typeof payerCredits.$inferSelect;
 export type NewPayerCredit = typeof payerCredits.$inferInsert;
 export type CreditLedger = typeof creditLedger.$inferSelect;
 export type NewCreditLedger = typeof creditLedger.$inferInsert;
+// #2749 — a wallet's balance as expiring lots (migration 0174).
+export type CreditLot = typeof creditLots.$inferSelect;
+export type NewCreditLot = typeof creditLots.$inferInsert;
 export type UnlockRouting = typeof unlockRouting.$inferSelect;
 export type NewUnlockRouting = typeof unlockRouting.$inferInsert;
 // E0 — the payer↔worker in-app relay message store (docs/agent/phases/E0_BUILD.md item 2).
@@ -354,6 +423,8 @@ export const schema = {
   applications,
   unlocks,
   payerCredits,
+  // #2749 — the lots a balance is made of (migration 0174).
+  creditLots,
   creditLedger,
   unlockRouting,
   relayMessages,
@@ -463,4 +534,55 @@ export const schema = {
   instituteSearchGrants,
   instituteApplications,
   instituteCompanies,
+  // #2820 - the pilot list for workers and admins behind THEME_ROLLOUT (migration 0164).
+  featurePilotSubjects,
+  // #2819 - one login's theme: a worker, a company or agency login, an admin (migration 0165).
+  displayPrefs,
+  // #2747 - marks owed to RVM, sent once (migration 0167).
+  outboundSignals,
+  // #2753 - the days a worker was active, one row per IST day (migration 0168).
+  workerActivity,
+  // #2753 item 6 - a worker who left company search (migration 0169).
+  workerSearchExits,
+  // #2753 item 9 - one hire record per company, worker and posting (behind HIRE_RECORDS_ENABLED).
+  hires,
+  // #2753 item 11 - the pay-on-joining pilot's hire record (migration 0171).
+  payOnJoiningHires,
+  // #2753 item 10 - one follow-up answer per opened contact (behind UNLOCK_FOLLOWUP_ENABLED).
+  unlockOutcomes,
+  // #2753 item 5 - the monthly "still looking?" check (behind STILL_LOOKING_CHECK_ENABLED).
+  stillLookingChecks,
+  // #2754 item 3 - a company proved its sign-in phone (read only while PAYER_SMS_OTP_ENABLED is on).
+  payerPhoneProofs,
+  // #2755 - the numbers screen's weekly snapshot and its recompute log (behind ADMIN_NUMBERS_ENABLED).
+  numbersWeekly,
+  numbersRecomputeLog,
+  // #2755 item 8 - the out-of-credits call log (behind ADMIN_NUMBERS_ENABLED).
+  creditCallLog,
+  // #2750 item 1 - the credit rules settings, one row per revision (read only while CREDIT_RULES_ROLLOUT is on).
+  creditRulesConfig,
+  // #2750 item 5 - the placement team's waivers and the opens they paid for (read only while CREDIT_RULES_ROLLOUT is on).
+  rvmApplicantWaivers,
+  rvmWaiverUses,
+  // #2750 item 7 - the couldn't-reach cases and the desk's call attempts (read only while CREDIT_RULES_ROLLOUT is on).
+  contactReachCases,
+  contactReachAttempts,
+  // #2750 item 10 - admin refunds of real paid packs (read only once credit notes exist).
+  paymentRefunds,
+  // #2751 items 1 to 3 - the posting choice, one row per posting (read and written only while POSTING_CHOICE_ROLLOUT is on).
+  jobPostingChoices,
+  // #2887 - the bulk student move: import ledger, field source markers, visibility (read only while STUDENT_MOVE_ENABLED is on).
+  studentImportBatches,
+  studentImportRows,
+  studentImportSubjects,
+  workerFieldSources,
+  studentVisibility,
+  // #2755 item 9 - launch test A records (read and written only while ADMIN_NUMBERS_ENABLED is on).
+  launchTestCohort,
+  launchTestShares,
+  // #2754 item 4 - the Campus company import ledger (written only by import-campus-companies.cli).
+  companyImportBatches,
+  companyImportRows,
+  // #2891 - a Campus-origin posting held from BadaBhai workers until an admin opens it (read by reachesBadaBhaiWorkers).
+  jobPostingWorkerVisibility,
 };

@@ -55,9 +55,28 @@ import {
   FREE_CHAT_LANGUAGE_TRIGGERS,
   APPLICANT_POSTING_KINDS,
   APPLICANT_STAGES,
+  APPLICANT_STAGES_V1,
+  APPLICANT_OUTCOME_STAGES,
   PROFILING_TURN_INTENTS,
   PROFILING_EDIT_OPS,
   PROFILING_EDIT_CANCEL_REASONS,
+  DISPLAY_THEMES,
+  DISPLAY_PREFS_SUBJECT_KINDS,
+  HIRE_STATUSES,
+  HIRE_RECORD_SOURCES,
+  UNLOCK_OUTCOMES,
+  UNLOCK_OUTCOME_ANSWERERS,
+  CREDIT_LOT_SOURCES,
+  CREDIT_LOT_EXPIRY_TRIGGERS,
+  CREDIT_CALL_RESULTS,
+  PAYMENT_HOLD_REASONS,
+  PAYMENT_HELD_ORDER_STATUSES,
+  PAYMENT_REFUND_FAILURES,
+  PAYMENT_REFUND_RULES,
+  PAYMENT_REFUND_STATUSES,
+  LAUNCH_TEST_RESULTS,
+  POSTING_CHOICES,
+  POSTING_SURFACES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -582,6 +601,21 @@ export type WorkerOtpSendCapExceededPayload = z.infer<typeof WorkerOtpSendCapExc
 
 export const PayerOtpSendCapExceededPayload = z.object(otpSendCapExceededShape);
 export type PayerOtpSendCapExceededPayload = z.infer<typeof PayerOtpSendCapExceededPayload>;
+
+/**
+ * #2754 item 2 — the company sign-in SMS path's own daily ceiling tripped
+ * (`PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY`). Its own event, not a third `channel` on the shape
+ * above: that enum is closed. The same aggregate, PII-free facts: the cap kind, the limit and the
+ * UTC day. No payer id, phone, IP or code.
+ */
+export const PayerSmsSendCapExceededPayload = z
+  .object({
+    cap: otpSendCapExceededShape.cap,
+    limit: otpSendCapExceededShape.limit,
+    window: otpSendCapExceededShape.window,
+  })
+  .strict();
+export type PayerSmsSendCapExceededPayload = z.infer<typeof PayerSmsSendCapExceededPayload>;
 
 // ---------------------------------------------------------------------------
 // worker.otp_send_failed — F4 (#168): provider-side SMS send-failure signal on the
@@ -1903,6 +1937,36 @@ export const UnlockCapExceededPayload = z.object({
 });
 
 /**
+ * #2750 item 6 (brief 4C.8, B4C-17, B4C-18) — which credit-rules opening limit refused a NEW open:
+ * `worker_weekly_opens` (the worker was opened `max` times in the rolling 7 days, across all
+ * companies) or `agency_daily_opens` (this agency account opened `max` contacts this IST day).
+ */
+export const UNLOCK_LIMIT_KINDS = ["worker_weekly_opens", "agency_daily_opens"] as const;
+
+/**
+ * #2750 item 6 — an open refused by a credit-rules limit, for a company under the credit rules.
+ * A NEW name beside `unlock.cap_exceeded` (whose cap enum stays as shipped, invariant #8): those
+ * are the env caps every company outside the pilot keeps.
+ *
+ * FACELESS: the tenant key, the worker (null for the agency limit, which is decided before the
+ * worker is read), the closed limit kind and the limit in force. Nothing else.
+ */
+export const UnlockLimitReachedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    worker_id: uuidSchema.nullable(),
+    limit: z.enum(UNLOCK_LIMIT_KINDS),
+    /** The limit in force (`workerWeeklyOpenLimit` / `agencyDailyOpenLimit` at the time). */
+    max: z.number().int().positive(),
+  })
+  .strict()
+  .refine((p) => (p.limit === "agency_daily_opens") === (p.worker_id === null), {
+    message: "worker_id is null exactly for the agency limit",
+    path: ["worker_id"],
+  });
+export type UnlockLimitReachedPayload = z.infer<typeof UnlockLimitReachedPayload>;
+
+/**
  * A routed contact was revealed — channel KIND + counts ONLY. The number / handle /
  * relay destination / routing token NEVER appears here (F-5, non-tradeable #2).
  */
@@ -1942,6 +2006,23 @@ export const UnlockReopenedPayload = z
   })
   .strict();
 
+/**
+ * #2753 item 10 — what became of an opened contact: the company's follow-up answer (`hired`,
+ * `not_hired`, `still_talking`) or the desk's `not_reached` (#2750), stored on
+ * `unlock_outcomes` (one row per unlock; a later answer replaces it). ONE PER REAL CHANGE, in the
+ * same transaction as the row: the first answer, or a different outcome or answerer. A repeat
+ * writes no event, so the sequence of these events IS the answer history the row does not keep.
+ * IDS AND CLOSED VALUES ONLY; whoever answered rides the envelope (a payer login or an admin).
+ */
+export const UnlockOutcomeRecordedPayload = z
+  .object({
+    unlock_id: uuidSchema,
+    worker_id: uuidSchema,
+    outcome: z.enum(UNLOCK_OUTCOMES),
+    answered_by: z.enum(UNLOCK_OUTCOME_ANSWERERS),
+  })
+  .strict();
+
 /** A (mock) credit hold was authorized. `real_call:false` in alpha (mock honesty). */
 export const PaymentAuthorizedPayload = z.object({
   unlock_id: uuidSchema.nullable().default(null),
@@ -1969,6 +2050,90 @@ export const PaymentFailedPayload = z.object({
   reason: PaymentFailureReason,
   real_call: z.boolean().default(false),
 });
+
+/**
+ * #2749 hardening 5 — a verified Razorpay capture whose amount is NOT the order total: NOTHING was
+ * granted and the order moved to `held` (from `created` or `failed`, never from `paid`), where no
+ * webhook replay or browser verify can settle it. Ops resolve it (a refund in the Razorpay
+ * dashboard until BB-D-05). ONE PER ORDER (idempotency key `payment.held:order:<order id>`),
+ * emitted by whichever delivery moved the order.
+ *
+ * ALSO A LATE MISMATCH: the same kind of capture reported for an order ALREADY `paid` (the browser
+ * verify settled it first) changes nothing — the grant stands — but is recorded here with
+ * `order_status: "paid"`, under the same per-order key. `order_status: "held"` is the hold itself.
+ *
+ * A NEW EVENT, NOT A `payment.failed` REASON: the money WAS captured, so readers that treat
+ * `payment.failed` as "no money moved" must never see this; and `payment.failed` v1 carries no
+ * amounts. FACELESS: opaque ids, a pack code, integer paise and a closed reason. No provider payment
+ * id, no buyer contact, no secret.
+ */
+export const PaymentHeldPayload = z
+  .object({
+    /** Our order row (`payment_orders.id`). */
+    payment_order_id: uuidSchema,
+    /** The wallet the order was stamped with (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    pack_code: z.string().min(1).max(64).nullable(),
+    /** What the order expected: `total_paise`, or `amount_inr` × 100 on a pre-0176 row. */
+    expected_paise: z.number().int().positive(),
+    /** What the provider reported as captured, in paise; null when the capture carried none. */
+    captured_paise: z.number().int().nonnegative().nullable(),
+    reason: z.enum(PAYMENT_HOLD_REASONS),
+    /**
+     * The order's status after this capture: `held` = this capture held it (nothing granted);
+     * `paid` = it was already paid, so nothing changed and the grant stands (ops reconcile).
+     */
+    order_status: z.enum(PAYMENT_HELD_ORDER_STATUSES),
+    /** Always true: only the real Razorpay path can hold an order. */
+    real_call: z.boolean(),
+  })
+  .strict();
+export type PaymentHeldPayload = z.infer<typeof PaymentHeldPayload>;
+
+/**
+ * #2750 item 10 — a super admin refunded a real paid pack, in the SAME transaction as the refund row,
+ * the `pack_refund` ledger lines that took its credits back and the audit row (idempotency key
+ * `payment.refund_requested:<refund id>`: one per refund, and an order is refunded once). Razorpay is
+ * called after this commits; `payment.refund_status_changed` follows it. The actor is the admin.
+ * FACELESS: opaque ids, a closed rule, integer paise and credits. No provider id, no reason text.
+ */
+export const PaymentRefundRequestedPayload = z
+  .object({
+    refund_id: uuidSchema,
+    payment_order_id: uuidSchema,
+    /** The wallet the order was stamped with (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    rule: z.enum(PAYMENT_REFUND_RULES),
+    /** The whole order total, GST included: refunds are always full. */
+    amount_paise: z.number().int().positive(),
+    /** The credits taken back: the unused pack and any credits that came back with it. */
+    credits_removed: z.number().int().nonnegative(),
+  })
+  .strict();
+export type PaymentRefundRequestedPayload = z.infer<typeof PaymentRefundRequestedPayload>;
+
+/**
+ * #2750 item 10 — a refund moved with Razorpay: accepted and processing (`pending`), the money sent
+ * back (`processed`), or `failed` (the call errored, or Razorpay failed it; the credits stay
+ * removed and an admin retries). One per refund and status (idempotency key
+ * `payment.refund_status_changed:<refund id>:<status>`; a failure retried and failed again is
+ * recorded once per attempt with the attempt's key suffix). `failure_code` is set exactly when
+ * failed. FACELESS: ids and closed codes.
+ */
+export const PaymentRefundStatusChangedPayload = z
+  .object({
+    refund_id: uuidSchema,
+    payment_order_id: uuidSchema,
+    payer_id: uuidSchema,
+    status: z.enum(PAYMENT_REFUND_STATUSES).exclude(["requested"]),
+    failure_code: z.enum(PAYMENT_REFUND_FAILURES).nullable(),
+  })
+  .strict()
+  .refine((p) => (p.status === "failed") === (p.failure_code !== null), {
+    message: "failure_code is set exactly when the refund failed",
+    path: ["failure_code"],
+  });
+export type PaymentRefundStatusChangedPayload = z.infer<typeof PaymentRefundStatusChangedPayload>;
 
 // ---------------------------------------------------------------------------
 // Monetization + Pricing Engine (ADR-0013) — PII-FREE: ids + CODES + enums +
@@ -2496,6 +2661,51 @@ export const PayerSessionStartedPayload = z.object({
   is_new_payer: z.boolean().default(false),
 });
 export type PayerSessionStartedPayload = z.infer<typeof PayerSessionStartedPayload>;
+
+/**
+ * #2754 item 1 — the login methods of the v2 login events: every v1 method plus `sms_otp`, a
+ * one-time code sent by SMS to a company's phone. A NEW enum rather than a wider v1 one: v1
+ * payloads keep their closed set, and only an SMS sign-in emits a v2 event (every other method
+ * stays on v1), so a reader of the login funnel unions the two names.
+ */
+export const PayerLoginMethodV2Enum = z.enum([...PayerLoginMethodEnum.options, "sms_otp"]);
+export type PayerLoginMethodV2Enum = z.infer<typeof PayerLoginMethodV2Enum>;
+
+/** `payer.login_requested` for an SMS code (#2754): the same facts, the v2 method set. */
+export const PayerLoginRequestedV2Payload = z
+  .object({ payer_id: uuidSchema, method: PayerLoginMethodV2Enum })
+  .strict();
+export type PayerLoginRequestedV2Payload = z.infer<typeof PayerLoginRequestedV2Payload>;
+
+/** `payer.session_started` for an SMS code (#2754): the same facts, the v2 method set. */
+export const PayerSessionStartedV2Payload = z
+  .object({
+    payer_id: uuidSchema,
+    method: PayerLoginMethodV2Enum,
+    is_new_payer: z.boolean().default(false),
+  })
+  .strict();
+export type PayerSessionStartedV2Payload = z.infer<typeof PayerSessionStartedV2Payload>;
+
+/**
+ * #2754 item 3 — how a company proved the phone on its account. Mirrors
+ * `PAYER_PHONE_PROOF_METHODS` (packages/db, the `payer_phone_proofs_method_chk` CHECK): `sms_code`
+ * = the signed-in company entered a code sent to the phone; `campus_import` = an imported Campus
+ * company's sign-in phone, which Campus verified by its own OTP. A new value is a new version.
+ */
+export const PayerPhoneProofMethodEnum = z.enum(["sms_code", "campus_import"]);
+export type PayerPhoneProofMethodEnum = z.infer<typeof PayerPhoneProofMethodEnum>;
+
+/**
+ * `payer.phone_proven` (#2754 item 3) — a company proved the phone on its account, so that phone
+ * now signs it in by SMS code (while `PAYER_SMS_OTP_ENABLED` is on). FACELESS: the opaque payer id
+ * and the closed method only — never the number, its hash or the code. Emitted in the transaction
+ * that writes the proof.
+ */
+export const PayerPhoneProvenPayload = z
+  .object({ payer_id: uuidSchema, method: PayerPhoneProofMethodEnum })
+  .strict();
+export type PayerPhoneProvenPayload = z.infer<typeof PayerPhoneProvenPayload>;
 
 /**
  * A payer session was minted through the TEST-LOGIN seam rather than a real OTP verification
@@ -3310,6 +3520,10 @@ export type AdminPiiRevealCapExceededPayload = z.infer<typeof AdminPiiRevealCapE
 // #2564 — `company_profiles` (ADDITIVE member): the company record's contact PII (GSTIN, address,
 // company phone/email, contact person) on GET /admin/companies/:id. `result_count` counts the
 // non-empty FIELDS disclosed for the one company, never their values.
+// #2755 item 9 — `launch_test_factories` (ADDITIVE member): launch test A's factory names on
+// GET /admin/launch-tests/cohort → `launch_test_cohort.factory_name_enc`. A separate surface because
+// a launch-test factory is not (yet) a BadaBhai company: its name is the desk's record, not a
+// `payers` row's. The factory's phone is never disclosed on any surface.
 export const ADMIN_IDENTITY_SURFACES = [
   "workers",
   "payers",
@@ -3317,6 +3531,7 @@ export const ADMIN_IDENTITY_SURFACES = [
   "payer_logins",
   "candidates",
   "company_profiles",
+  "launch_test_factories",
 ] as const;
 export const AdminIdentitySurface = z.enum(ADMIN_IDENTITY_SURFACES);
 export type AdminIdentitySurface = z.infer<typeof AdminIdentitySurface>;
@@ -3981,6 +4196,26 @@ export const JobPostingAudienceSetPayload = z
   .strict();
 export type JobPostingAudienceSetPayload = z.infer<typeof JobPostingAudienceSetPayload>;
 
+/**
+ * #2751 items 1 to 3 (brief 4B.7) — a company published a job with one of the two posting buttons:
+ * `free` ("Post free") or `free_plus_pack` ("Post free + Starter"), on `web` or the `app`. Emitted
+ * ONCE PER POSTING, in the transaction that wrote its `job_posting_choices` row (keyed on the
+ * posting), so the numbers screen can count the share per button. The job is live either way;
+ * whether a paid tap then bought a pack is on `payment_orders.origin_job_posting_id`.
+ *
+ * IDS AND ENUMS ONLY: no label, no price, no company data.
+ */
+export const JobPostingPostingChoiceRecordedPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    choice: z.enum(POSTING_CHOICES),
+    surface: z.enum(POSTING_SURFACES),
+  })
+  .strict();
+export type JobPostingPostingChoiceRecordedPayload = z.infer<
+  typeof JobPostingPostingChoiceRecordedPayload
+>;
+
 /** #2746 PR 5 — the RVM review's institute (`job_posting_institute_reviews.institute_code`). */
 const RVM_REVIEW_INSTITUTE_VALUES = ["rvm"] as const;
 
@@ -4150,6 +4385,187 @@ export const PayerCreditsExhaustedPayload = z
   })
   .strict();
 export type PayerCreditsExhaustedPayload = z.infer<typeof PayerCreditsExhaustedPayload>;
+
+/**
+ * #2749 — a credit lot passed its `expires_at` and its unspent credits left the wallet.
+ *
+ * ONE EVENT PER LOT, EVER: written in the SAME transaction as the lot's one `expired` ledger line
+ * (idempotency key `payer.credits_expired:<lot id>`, the same identity as the ledger line's
+ * `credit_lot_expired:<lot id>`), so the two commit or roll back together, by whichever closed it
+ * first — a contact open that spent a credit and found the lot past its date (`trigger: spend`)
+ * or the `credit-lot-expiry` sweep (`trigger: sweep`).
+ *
+ * FACELESS: the wallet key (`payer_id`, the tenant key — the same key `payer.credits_exhausted`
+ * carries), the opaque lot id, integers, two closed codes and a date. No pack price, no payment
+ * reference, no name.
+ */
+export const PayerCreditsExpiredPayload = z
+  .object({
+    /** The wallet the credits left (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    /** The expired lot (opaque `credit_lots.id`). */
+    lot_id: uuidSchema,
+    /** The lot's credits that were still unspent and are now gone (the ledger line's −delta). */
+    credits: z.number().int().positive(),
+    /** Where the lot came from (`CREDIT_LOT_SOURCES`). */
+    source: z.enum(CREDIT_LOT_SOURCES),
+    /** The lot's expiry date (ISO 8601). */
+    expires_at: isoDateTimeSchema,
+    /** What closed it (`CREDIT_LOT_EXPIRY_TRIGGERS`). */
+    trigger: z.enum(CREDIT_LOT_EXPIRY_TRIGGERS),
+  })
+  .strict();
+export type PayerCreditsExpiredPayload = z.infer<typeof PayerCreditsExpiredPayload>;
+
+/** #2750 item 4 — what made a company's welcome credits due (`payer.welcome_credits_granted`). */
+export const WELCOME_CREDITS_TRIGGERS = [
+  /** An admin or ops approval of a posting (or an agency job) made the company eligible. */
+  "posting_approved",
+  /** An admin edit of the company record (approval, GSTIN) made it eligible. */
+  "company_updated",
+  /** The Campus company move (#2754) brought an already-eligible company across. */
+  "company_import",
+] as const;
+
+/**
+ * #2750 item 4 (brief 4C.6, B2-20, B4C-11) — a verified company received its welcome credits, ONCE
+ * per company, ever: written in the SAME transaction as the `welcome` lot and its ledger line
+ * (idempotency key `payer.welcome_credits_granted:<payer id>`, the ledger line's own key
+ * `welcome_credits:<payer id>`), so the two commit or roll back together.
+ *
+ * FACELESS: the wallet key (the tenant key), the opaque lot id, a positive count, the lot's expiry
+ * and the closed trigger. No company name, no GSTIN, no phone.
+ */
+export const PayerWelcomeCreditsGrantedPayload = z
+  .object({
+    /** The wallet credited (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    /** The `welcome` lot (opaque `credit_lots.id`). */
+    lot_id: uuidSchema,
+    /** Credits granted (`welcomeCredits` in the credit rules at the time). */
+    credits: z.number().int().positive(),
+    /** When the lot expires (ISO 8601): `welcomeValidityDays` after the grant. */
+    expires_at: isoDateTimeSchema,
+    trigger: z.enum(WELCOME_CREDITS_TRIGGERS),
+  })
+  .strict();
+export type PayerWelcomeCreditsGrantedPayload = z.infer<typeof PayerWelcomeCreditsGrantedPayload>;
+
+/** #2750 item 5 — who a placement-team waiver frees: one company's RVM applicants, or one job's. */
+export const RVM_WAIVER_SCOPES = ["company", "job"] as const;
+/** #2750 item 5 — where a waiver was set or cleared: Campus's placement team, or a BadaBhai admin. */
+export const RVM_WAIVER_SOURCES = ["campus", "admin"] as const;
+
+/**
+ * #2750 item 5 (brief 4C.7, B6-05) — the placement team's waiver of the contact cost was SET
+ * (`payer.rvm_waiver_set`) or CLEARED (`payer.rvm_waiver_cleared`): written in the SAME transaction
+ * as the `rvm_applicant_waivers` row change (idempotency key `<event name>:<waiver id>`, so each
+ * happens once per waiver).
+ *
+ * FACELESS: the company's tenant key, the opaque waiver and posting ids and closed codes. No staff
+ * name (stored encrypted on the row) and no reason text (the staff member's own words stay on the
+ * row and on `audit_logs`).
+ */
+export const PayerRvmWaiverChangedPayload = z
+  .object({
+    /** The waiver (opaque `rvm_applicant_waivers.id`). */
+    waiver_id: uuidSchema,
+    /** The company whose RVM applicants it frees (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    scope: z.enum(RVM_WAIVER_SCOPES),
+    /** The job a `job` waiver frees; null for a `company` waiver. */
+    job_posting_id: uuidSchema.nullable(),
+    /** Where THIS change was made (a waiver set from Campus may be cleared by an admin). */
+    source: z.enum(RVM_WAIVER_SOURCES),
+  })
+  .strict()
+  .refine((p) => (p.scope === "job") === (p.job_posting_id !== null), {
+    message: "job_posting_id is set exactly for a job waiver",
+    path: ["job_posting_id"],
+  });
+export type PayerRvmWaiverChangedPayload = z.infer<typeof PayerRvmWaiverChangedPayload>;
+
+/** #2750 item 7 — how a couldn't-reach case closed. */
+export const CONTACT_REACH_OUTCOMES = ["reached_interested", "reached_declined", "not_reached"] as const;
+/** #2750 item 7 — who closed it: a desk staff member, or the deadline (nobody closed it in time). */
+export const CONTACT_REACH_RESOLVERS = ["desk", "deadline"] as const;
+
+/**
+ * #2750 item 7 (brief 4C.9, B7-13) — a company reported it could not reach a worker it opened: a
+ * desk case is open until `deadline_at`. Written in the SAME transaction as the
+ * `contact_reach_cases` row (idempotency key `payer.contact_reach_reported:<case id>`).
+ *
+ * FACELESS: ids and a time. No name, no phone.
+ */
+export const PayerContactReachReportedPayload = z
+  .object({
+    case_id: uuidSchema,
+    unlock_id: uuidSchema,
+    /** The company's tenant key (ADR-0053): the wallet any return goes to. */
+    payer_id: uuidSchema,
+    deadline_at: isoDateTimeSchema,
+  })
+  .strict();
+export type PayerContactReachReportedPayload = z.infer<typeof PayerContactReachReportedPayload>;
+
+/**
+ * #2750 item 7 — a couldn't-reach case closed, by the desk or at its deadline, in the SAME
+ * transaction as the case row and any `returned` credits (idempotency key
+ * `payer.contact_reach_resolved:<case id>`: a case closes once). `credits_returned` is 0 unless
+ * the worker was not reached (and 0 for a free open).
+ */
+export const PayerContactReachResolvedPayload = z
+  .object({
+    case_id: uuidSchema,
+    unlock_id: uuidSchema,
+    payer_id: uuidSchema,
+    status: z.enum(CONTACT_REACH_OUTCOMES),
+    credits_returned: z.number().int().min(0),
+    resolved_by: z.enum(CONTACT_REACH_RESOLVERS),
+  })
+  .strict()
+  .refine((p) => p.status === "not_reached" || p.credits_returned === 0, {
+    message: "credits come back only when the worker was not reached",
+    path: ["credits_returned"],
+  })
+  .refine((p) => p.resolved_by === "desk" || p.status === "not_reached", {
+    message: "a case closed at its deadline is not reached",
+    path: ["status"],
+  });
+export type PayerContactReachResolvedPayload = z.infer<typeof PayerContactReachResolvedPayload>;
+
+/**
+ * #2750 item 9 — a real paid pack brought back credits that expired unused on the company's
+ * earlier real paid packs, in the SAME transaction as the settle, the `returned` lots and their
+ * `pack_return` lines (idempotency key `payer.pack_credits_returned:order:<order id>`: one per
+ * order). Emitted only when credits came back. `lots` names each old lot and the lot its credits
+ * went into; `expires_at` is the new pack's (null = never expires). Ids, integers and a date.
+ */
+export const PayerPackCreditsReturnedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    payment_order_id: uuidSchema,
+    credits: z.number().int().min(1),
+    lots: z
+      .array(
+        z
+          .object({
+            from_lot_id: uuidSchema,
+            lot_id: uuidSchema,
+            credits: z.number().int().min(1),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+    expires_at: isoDateTimeSchema.nullable(),
+  })
+  .strict()
+  .refine((p) => p.lots.reduce((sum, l) => sum + l.credits, 0) === p.credits, {
+    message: "credits is the sum of the lots' credits",
+    path: ["credits"],
+  });
+export type PayerPackCreditsReturnedPayload = z.infer<typeof PayerPackCreditsReturnedPayload>;
 
 /**
  * MOMENT ④ — `feed.shown`, VERSION 2 (ADR-0036 "feed.shown gets a v2 payload").
@@ -6115,9 +6531,36 @@ export type ChatFreeChatNewsServedPayload = z.infer<typeof ChatFreeChatNewsServe
  *
  * IDS AND CLOSED ENUMS ONLY, `.strict()`: the posting kind (which table `posting_id` names) and
  * id, the worker id, two stages. Never a posting title, a note or anything a payer typed. BECAUSE
- * A SHIPPED PAYLOAD IS FROZEN, a new stage or posting kind is a new event version.
+ * A SHIPPED PAYLOAD IS FROZEN, a new stage or posting kind is a new event version: both stages are
+ * pinned to `APPLICANT_STAGES_V1`, and a move to or from `selected` / `hired` (#2747) is
+ * `payer.applicant_stage_changed_v2`.
  */
 export const PayerApplicantStageChangedPayload = z
+  .object({
+    posting_kind: z.enum(APPLICANT_POSTING_KINDS),
+    posting_id: uuidSchema,
+    worker_id: uuidSchema,
+    stage: z.enum(APPLICANT_STAGES_V1),
+    previous_stage: z.enum(APPLICANT_STAGES_V1),
+  })
+  .strict()
+  .refine((v) => v.stage !== v.previous_stage, {
+    message: "a stage change must change the stage (an unchanged stage emits nothing)",
+  });
+export type PayerApplicantStageChangedPayload = z.infer<typeof PayerApplicantStageChangedPayload>;
+
+/**
+ * #2747 item 7 (brief 4B.8) — `payer.applicant_stage_changed` VERSION 2: the same move, on the
+ * board widened with the outcome stages `selected` and `hired`.
+ *
+ * WHICH VERSION A MOVE IS: v2 exactly when either stage is an outcome stage; a move between two
+ * of the first three stages stays v1, byte for byte. So the two never report the same move, and
+ * a reader of every stage change reads both names. Hence the second refine.
+ *
+ * Emitted, like v1, only for a persisted real change, in the same transaction as the write. The
+ * same fields as v1 and the same rules: ids and closed enums only, `.strict()`, never a note.
+ */
+export const PayerApplicantStageChangedV2Payload = z
   .object({
     posting_kind: z.enum(APPLICANT_POSTING_KINDS),
     posting_id: uuidSchema,
@@ -6128,8 +6571,16 @@ export const PayerApplicantStageChangedPayload = z
   .strict()
   .refine((v) => v.stage !== v.previous_stage, {
     message: "a stage change must change the stage (an unchanged stage emits nothing)",
-  });
-export type PayerApplicantStageChangedPayload = z.infer<typeof PayerApplicantStageChangedPayload>;
+  })
+  .refine(
+    (v) =>
+      (APPLICANT_OUTCOME_STAGES as readonly string[]).includes(v.stage) ||
+      (APPLICANT_OUTCOME_STAGES as readonly string[]).includes(v.previous_stage),
+    { message: "a move between the board's first three stages is payer.applicant_stage_changed v1" },
+  );
+export type PayerApplicantStageChangedV2Payload = z.infer<
+  typeof PayerApplicantStageChangedV2Payload
+>;
 
 /**
  * ADR-0051 §11 (#2181, R41) — A WORKER ANSWERED "Kya aage ki saari baat {Language} mein karein?"
@@ -6577,3 +7028,430 @@ export const CampusDriveCancelledPayload = z
   })
   .strict();
 export type CampusDriveCancelledPayload = z.infer<typeof CampusDriveCancelledPayload>;
+
+// ---------------------------------------------------------------------------
+// #2819 — DISPLAY PREFERENCES (`display_prefs`, migration 0165). One login chose a theme through
+// its realm's `PATCH …/me/display-prefs`, while `THEME_ROLLOUT` was open for it. Written in the
+// same transaction as the row.
+//
+// IDS AND ENUMS ONLY. `subject_id` is the login the realm's auth guard attached: `workers.id`,
+// `payers.id` (the person, never the tenant key) or `admin_users.id`, per `subject_kind`.
+// ---------------------------------------------------------------------------
+
+const DisplayThemeEnum = z.enum(DISPLAY_THEMES);
+
+/**
+ * #2819 — a login's theme changed. ONE PER REAL CHANGE: `from` is the theme in force before (a
+ * login with no stored row was on `light`), `to` the one now stored, and they always differ — the
+ * same theme again writes nothing and emits nothing.
+ */
+export const DisplayPrefsChangedPayload = z
+  .object({
+    subject_kind: z.enum(DISPLAY_PREFS_SUBJECT_KINDS),
+    subject_id: uuidSchema,
+    from: DisplayThemeEnum,
+    to: DisplayThemeEnum,
+  })
+  .strict()
+  .refine((v) => v.from !== v.to, { message: "from and to must differ: a repeat emits nothing" });
+export type DisplayPrefsChangedPayload = z.infer<typeof DisplayPrefsChangedPayload>;
+
+// ---------------------------------------------------------------------------
+// #2753 item 6 — LEAVE COMPANY SEARCH (`worker_search_exits`, migration 0169). A worker turned
+// "companies can find me" off or back on, while `SEARCH_EXIT_ENABLED` was on. Written in the same
+// transaction as the row.
+//
+// IDS AND CLOSED VALUES ONLY. His consent is not part of this event and is never changed by it:
+// leaving search keeps every consent row as it was.
+// ---------------------------------------------------------------------------
+
+/**
+ * Which surface made the change: `worker` (his own switch, `PUT /workers/me/search-visibility`) or
+ * `monthly_check` (a later part: his "not now" on the monthly check). The same values as the
+ * `worker_search_exits_via_chk` CHECK. A new value is a new event version.
+ */
+export const SEARCH_VISIBILITY_VIAS = ["worker", "monthly_check"] as const;
+export type SearchVisibilityVia = (typeof SEARCH_VISIBILITY_VIAS)[number];
+
+/**
+ * #2753 item 6 — the worker left company search (`visible: false`) or came back to it
+ * (`visible: true`). ONE PER REAL CHANGE: leaving again while out, or coming back while in, writes
+ * nothing and emits nothing. The actor and the subject are the worker himself.
+ */
+export const WorkerSearchVisibilityChangedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    visible: z.boolean(),
+    via: z.enum(SEARCH_VISIBILITY_VIAS),
+  })
+  .strict();
+export type WorkerSearchVisibilityChangedPayload = z.infer<
+  typeof WorkerSearchVisibilityChangedPayload
+>;
+
+// ---------------------------------------------------------------------------
+// #2753 item 5 — THE MONTHLY "STILL LOOKING?" CHECK (`still_looking_checks`, migration 0173),
+// while `STILL_LOOKING_CHECK_ENABLED` is on. The sweep opens a check (`prompted`) and the worker
+// answers it with one tap (`answered`). Each event is written in the same transaction as its row.
+//
+// IDS AND CLOSED VALUES ONLY: the worker, the check and (answered) the closed answer. No name,
+// phone, device, availability or company ever rides along.
+// ---------------------------------------------------------------------------
+
+/**
+ * The worker's three answers: `yes` (still looking), `not_now` (not looking now) and `hired` (he
+ * found work). The same values as the `still_looking_checks_answer_chk` CHECK. A new value is a
+ * new event version.
+ */
+export const STILL_LOOKING_CHECK_ANSWERS = ["yes", "not_now", "hired"] as const;
+export type StillLookingCheckAnswer = (typeof STILL_LOOKING_CHECK_ANSWERS)[number];
+
+/**
+ * #2753 item 5 — the sweep asked a worker "still looking?": one open check per worker, at most once
+ * every STILL_LOOKING_EVERY_DAYS. ONE PER CHECK OPENED (the open-check unique index is the
+ * guard, so two sweeps racing emit one). The actor is the system; the subject is the worker. Its
+ * Alerts entry and (with STILL_LOOKING_PUSH_ENABLED) its push copy are the static template.
+ */
+export const WorkerStillLookingPromptedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    check_id: uuidSchema,
+  })
+  .strict();
+export type WorkerStillLookingPromptedPayload = z.infer<typeof WorkerStillLookingPromptedPayload>;
+
+/**
+ * #2753 item 5 — the worker answered the check (an open one, or one opened by his answer from
+ * Settings). ONE PER ANSWER STORED: repeating the answer he already gave writes nothing and emits
+ * nothing. A `hired` is his own report (owner question 2 default); no hire record is confirmed by
+ * it. The actor and the subject are the worker himself.
+ */
+export const WorkerStillLookingAnsweredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    check_id: uuidSchema,
+    answer: z.enum(STILL_LOOKING_CHECK_ANSWERS),
+  })
+  .strict();
+export type WorkerStillLookingAnsweredPayload = z.infer<typeof WorkerStillLookingAnsweredPayload>;
+
+// #2753 item 9 — HIRE RECORDS (`hires`). One record per company, worker and posting, moved by the
+// company's board (a move into or out of `hired`), the company's follow-up answer, the worker's own
+// answer and the worker desk. Written in the same transaction as the row, while
+// `HIRE_RECORDS_ENABLED` is on.
+//
+// IDS AND CLOSED VALUES ONLY: the record, the worker, the posting, the status it now holds and the
+// source that moved it. Never a name, a phone, a title or a note, and never the company's tenant
+// key (whoever acted rides the envelope).
+// ---------------------------------------------------------------------------
+
+/** The sources that confirm a hire: each one leaves the record `confirmed`. */
+const HIRE_CONFIRMING_SOURCES: readonly string[] = [
+  "company_mark",
+  "company_answer",
+  "desk_confirm",
+];
+/** The sources that take a hire back: each one leaves the record `rejected`. */
+const HIRE_TAKE_BACK_SOURCES: readonly string[] = ["company_unmark", "desk_reject"];
+
+/**
+ * #2753 item 9 — a hire record changed. ONE PER REAL CHANGE: the record was created, its status
+ * moved, or a source said "hired" for the first time. A repeat of a source already recorded writes
+ * nothing and emits nothing.
+ *
+ * THE STATUS FOLLOWS THE SOURCE: a company mark, a company answer or a desk confirmation leaves it
+ * `confirmed`; an undone mark or a desk rejection leaves it `rejected`; the worker's own answer
+ * leaves it `reported`, or `confirmed` when it already was (owner question 2 default).
+ */
+export const HireRecordedPayload = z
+  .object({
+    hire_id: uuidSchema,
+    worker_id: uuidSchema,
+    posting_kind: z.enum(APPLICANT_POSTING_KINDS),
+    posting_id: uuidSchema,
+    status: z.enum(HIRE_STATUSES),
+    source: z.enum(HIRE_RECORD_SOURCES),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      HIRE_CONFIRMING_SOURCES.includes(v.source)
+        ? v.status === "confirmed"
+        : HIRE_TAKE_BACK_SOURCES.includes(v.source)
+          ? v.status === "rejected"
+          : v.status !== "rejected",
+    { message: "the status must be the one its source leaves the record in" },
+  );
+export type HireRecordedPayload = z.infer<typeof HireRecordedPayload>;
+
+// ---------------------------------------------------------------------------
+// #2753 item 11 — THE PAY-ON-JOINING PILOT'S HIRE RECORD (`pay_on_joining_hires`, migration 0171).
+// An admin records each hire of the pilot by hand: the factory, the job, the worker, the partner,
+// the joining date, the 30-day check, the fee and the invoice and payment dates. Nothing on it is
+// automated: no invoice is raised, no money moves, no factory is chosen by code.
+//
+// IDS, PAISE INTEGERS AND CLOSED VALUES ONLY. The admin's `note` never rides the spine (only its
+// KEY in `changed_fields`), and the record holds no name, phone or company name to leak. Dates stay
+// on the row: the spine carries where the money STANDS (`payment_state`), not when.
+// ---------------------------------------------------------------------------
+
+/**
+ * The fields an admin writes on a hire record, by KEY. `partner_share_percent` and
+ * `partner_share_paise` are not among them: the server copies the one from the setting and
+ * computes the other, so no client ever sends either.
+ */
+export const POJ_HIRE_FIELDS = [
+  "factory_payer_id",
+  "job_posting_id",
+  "worker_id",
+  "partner_payer_id",
+  "joined_on",
+  "stay_checked_on",
+  "stayed_30_days",
+  "fee_paise",
+  "invoiced_on",
+  "factory_paid_on",
+  "partner_paid_on",
+  "note",
+] as const;
+export type PojHireField = (typeof POJ_HIRE_FIELDS)[number];
+
+/**
+ * Where a hire's money stands, DERIVED from the recorded dates (never set directly):
+ *   - `awaiting_factory` — the factory has not paid (`factory_paid_on` is empty);
+ *   - `partner_due`      — the factory paid, a partner is owed a share above zero, and has not
+ *                          been paid (the partner is paid when the factory pays);
+ *   - `settled`          — the factory paid and no partner is owed anything more.
+ */
+export const POJ_PAYMENT_STATES = ["awaiting_factory", "partner_due", "settled"] as const;
+export type PojPaymentState = (typeof POJ_PAYMENT_STATES)[number];
+
+/** Which write recorded the hire: the first (`created`) or a later edit (`updated`). */
+export const POJ_RECORD_CHANGES = ["created", "updated"] as const;
+export type PojRecordChange = (typeof POJ_RECORD_CHANGES)[number];
+
+/** An amount in integer paise: whole, never negative, never past a safe JavaScript integer. */
+const PaiseSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+
+/**
+ * #2753 item 11 — an admin created or edited a pay-on-joining hire record. Emitted in the SAME
+ * transaction as the row and its `audit_logs` row, once per real change (an edit that changes
+ * nothing writes and emits nothing).
+ *
+ * `changed_fields` names the KEYS the write set (every key the admin supplied on `created`, the
+ * keys whose value moved on `updated`), never a value. The record's ids, money and state ride
+ * along as they stand AFTER the write, so a reader of the spine can total the pilot without the
+ * table. The share is pinned to the server's arithmetic: floor(fee * percent / 100), in integers.
+ */
+export const PayOnJoiningRecordedPayload = z
+  .object({
+    hire_id: uuidSchema,
+    change: z.enum(POJ_RECORD_CHANGES),
+    changed_fields: z.array(z.enum(POJ_HIRE_FIELDS)).min(1).max(POJ_HIRE_FIELDS.length),
+    factory_payer_id: uuidSchema,
+    partner_payer_id: uuidSchema.nullable(),
+    job_posting_id: uuidSchema.nullable(),
+    worker_id: uuidSchema,
+    fee_paise: PaiseSchema,
+    partner_share_percent: z.number().int().min(0).max(100),
+    partner_share_paise: PaiseSchema,
+    stayed_30_days: z.boolean().nullable(),
+    payment_state: z.enum(POJ_PAYMENT_STATES),
+  })
+  .strict()
+  .refine((v) => new Set(v.changed_fields).size === v.changed_fields.length, {
+    message: "changed_fields must not repeat a key",
+  })
+  .refine(
+    (v) =>
+      BigInt(v.partner_share_paise) ===
+      (BigInt(v.fee_paise) * BigInt(v.partner_share_percent)) / 100n,
+    { message: "partner_share_paise must be floor(fee_paise * partner_share_percent / 100)" },
+  );
+export type PayOnJoiningRecordedPayload = z.infer<typeof PayOnJoiningRecordedPayload>;
+
+// ---------------------------------------------------------------------------
+// #2755 item 2 — A TEST COMPANY, MARKED OR UNMARKED. `payers.is_test_account` (migration 0162) is
+// the one company test marker: every company figure of the numbers screen leaves a marked company
+// out, and the rows it creates copy the mark. Set by `PUT /admin/numbers/test-accounts/:payerId`
+// (an admin) or by the `mark-synthetic-test-payers` backfill (no admin: `admin_id` null), cleared
+// by `DELETE` on the same path. One event per REAL change: a re-mark or a second unmark writes
+// nothing and emits nothing.
+//
+// IDS AND ONE CLOSED CODE ONLY, strict. The reason is a code, never text; no email, name or phone
+// of the company ever rides along (the backfill reads the sign-in email in process and keeps it
+// there).
+// ---------------------------------------------------------------------------
+
+/** Why a company is a test company. */
+export const PAYER_TEST_ACCOUNT_REASONS = [
+  // Its sign-in email is in the reserved synthetic domain (`isSyntheticPayerEmail`).
+  "synthetic_sign_in",
+  // A company the team runs for itself.
+  "staff",
+  // A rehearsal account of the company move (#2754).
+  "rehearsal",
+  // A pilot test account (#2754, the launch tests).
+  "pilot_test",
+] as const;
+export const PayerTestAccountReason = z.enum(PAYER_TEST_ACCOUNT_REASONS);
+export type PayerTestAccountReason = z.infer<typeof PayerTestAccountReason>;
+
+export const AdminPayerTestAccountMarkedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    reason: PayerTestAccountReason,
+    /** The admin who marked it; null when the backfill marked it. */
+    admin_id: uuidSchema.nullable(),
+  })
+  .strict();
+export type AdminPayerTestAccountMarkedPayload = z.infer<typeof AdminPayerTestAccountMarkedPayload>;
+
+export const AdminPayerTestAccountUnmarkedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    admin_id: uuidSchema,
+  })
+  .strict();
+export type AdminPayerTestAccountUnmarkedPayload = z.infer<
+  typeof AdminPayerTestAccountUnmarkedPayload
+>;
+
+// ---------------------------------------------------------------------------
+// #2755 item 8 — A CALL TO A COMPANY WHOSE CREDITS RAN OUT, LOGGED. The telecaller works the call
+// list (`GET /admin/numbers/out-of-credits`) and records each call with
+// `POST /admin/numbers/out-of-credits/:payerId/calls`; one `credit_call_log` row and this event are
+// written in the same transaction, once per call (a retried POST carries the same Idempotency-Key,
+// from which the row id is derived, and emits nothing again).
+//
+// IDS AND ONE CLOSED CODE ONLY, strict. The result is one of `CREDIT_CALL_RESULTS` (@badabhai/types),
+// never text; no name, phone or note of the company ever rides along.
+// ---------------------------------------------------------------------------
+
+/** What a call came to (`CREDIT_CALL_RESULTS`). */
+export const CreditCallResultSchema = z.enum(CREDIT_CALL_RESULTS);
+
+export const AdminCreditCallLoggedPayload = z
+  .object({
+    /** The company called (its wallet key). */
+    payer_id: uuidSchema,
+    /** The `credit_call_log` row. */
+    call_id: uuidSchema,
+    /** The admin who logged the call. */
+    admin_id: uuidSchema,
+    result: CreditCallResultSchema,
+  })
+  .strict();
+export type AdminCreditCallLoggedPayload = z.infer<typeof AdminCreditCallLoggedPayload>;
+
+// ---------------------------------------------------------------------------
+// #2755 item 9 — LAUNCH TEST A: a factory recorded by the desk, or its record changed
+// (`POST` / `PATCH /admin/launch-tests/cohort`). The desk sends five worker profiles and a payment
+// link to each factory by hand and records what it did and what the factory did back; nothing on
+// the server sends, links or charges.
+//
+// IDS, COUNTS AND CLOSED CODES ONLY, strict. Never the factory's name or phone (both are ciphertext
+// on the row), never the payment link's text, never a worker id (the shares are on the row, where
+// a worker's erasure removes them; the spine is append-only).
+// ---------------------------------------------------------------------------
+
+/** The parts of a factory's record a change can touch (`admin.launch_test_factory_updated`). */
+export const LAUNCH_TEST_FACTORY_FIELDS = [
+  // The payment link's ref and its creation time.
+  "payment_link",
+  // The result, and when it paid.
+  "result",
+  // The factory's BadaBhai account.
+  "payer",
+  // The real paid order it paid with.
+  "payment_order",
+] as const;
+export const LaunchTestFactoryField = z.enum(LAUNCH_TEST_FACTORY_FIELDS);
+export type LaunchTestFactoryField = z.infer<typeof LaunchTestFactoryField>;
+
+/** A factory recorded, with the profiles sent to it. */
+export const AdminLaunchTestFactoryRecordedPayload = z
+  .object({
+    cohort_id: uuidSchema,
+    /** The admin who recorded it (and sent the profiles). */
+    admin_id: uuidSchema,
+    /** How many worker profiles were sent: 1 to 5. */
+    share_count: z.number().int().min(1).max(5),
+    /** Whether a phone was recorded (the number itself never rides the spine). */
+    has_phone: z.boolean(),
+    /** The factory's BadaBhai account, when it has one. */
+    payer_id: uuidSchema.nullable(),
+  })
+  .strict();
+export type AdminLaunchTestFactoryRecordedPayload = z.infer<
+  typeof AdminLaunchTestFactoryRecordedPayload
+>;
+
+/** A factory's record changed: which parts, and where they stand now. One per real change. */
+export const AdminLaunchTestFactoryUpdatedPayload = z
+  .object({
+    cohort_id: uuidSchema,
+    admin_id: uuidSchema,
+    /** The parts that changed, each once. */
+    changed: z
+      .array(LaunchTestFactoryField)
+      .min(1)
+      .max(LAUNCH_TEST_FACTORY_FIELDS.length)
+      .refine((fields) => new Set(fields).size === fields.length, {
+        message: "each changed field is listed once",
+      }),
+    /** The result after the change. */
+    result: z.enum(LAUNCH_TEST_RESULTS),
+    payer_id: uuidSchema.nullable(),
+    payment_order_id: uuidSchema.nullable(),
+  })
+  .strict();
+export type AdminLaunchTestFactoryUpdatedPayload = z.infer<
+  typeof AdminLaunchTestFactoryUpdatedPayload
+>;
+
+/**
+ * #2887 — an admin turned ONE moved student's visibility on or off (`PUT
+ * /admin/students/:workerId/visibility`). Written in the same transaction as the
+ * `student_visibility` row change. On: he is an ordinary BadaBhai worker (matched, searchable);
+ * off: out of matching and kept from companies by #2752's rules.
+ *
+ * FACELESS: the worker id and the new state. The admin is the event's actor; the reason lives on
+ * the `audit_logs` row of the same transaction.
+ */
+export const AdminStudentVisibilityChangedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    visible: z.boolean(),
+  })
+  .strict();
+export type AdminStudentVisibilityChangedPayload = z.infer<
+  typeof AdminStudentVisibilityChangedPayload
+>;
+
+/** #2887 — how a bulk visibility change chose its students. */
+export const STUDENT_VISIBILITY_SELECTORS = ["batch", "branch", "course"] as const;
+
+/**
+ * #2887 — an admin turned visibility on or off for MANY moved students at once (`POST
+ * /admin/students/visibility`): one import run, one branch or one course. One event per call, in
+ * the same transaction as the row changes.
+ *
+ * FACELESS: the selector kind, the import run's id (for `batch`, else null), the new state and how
+ * many students changed. The branch or course name itself lives on the `audit_logs` row.
+ */
+export const AdminStudentVisibilityBulkChangedPayload = z
+  .object({
+    selector: z.enum(STUDENT_VISIBILITY_SELECTORS),
+    batch_id: uuidSchema.nullable(),
+    visible: z.boolean(),
+    changed: z.number().int().min(0),
+  })
+  .strict()
+  .refine((p) => (p.selector === "batch") === (p.batch_id !== null), {
+    message: "batch_id is set exactly for the batch selector",
+    path: ["batch_id"],
+  });
+export type AdminStudentVisibilityBulkChangedPayload = z.infer<
+  typeof AdminStudentVisibilityBulkChangedPayload
+>;

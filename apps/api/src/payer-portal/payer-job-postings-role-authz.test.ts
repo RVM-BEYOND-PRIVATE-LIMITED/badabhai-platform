@@ -64,9 +64,10 @@ const COMPANY_WRITES = [
 const COMPANY_READS = ["list", "getOne"] as const;
 /**
  * #2746 — reads that are employer-only anyway: an agency can never set an audience, so it has no
- * use for the targeting options. Same metadata, same 403.
+ * use for the targeting options. Same metadata, same 403. #2751: an agency posts no company job,
+ * so it is not offered the posting buttons either.
  */
-const EMPLOYER_ONLY_READS = ["audienceOptions"] as const;
+const EMPLOYER_ONLY_READS = ["audienceOptions", "postingOptions"] as const;
 
 describe("PayerJobPostingsController — writes are employer-only (#1885)", () => {
   it("attaches the agency guard pair at the class level", () => {

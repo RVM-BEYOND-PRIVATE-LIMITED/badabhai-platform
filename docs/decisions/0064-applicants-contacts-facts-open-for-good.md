@@ -26,8 +26,8 @@ What the code did before #2747: cards were faceless (opaque ids, bands and close
 | Phone only inside the résumé PDF (18 Sep 2026); `reveal` returns a relay handle | Phone number shown after opening | B |
 | An unlock lasts 14 days; after that a new grant debits again | Open for good; re-opening costs nothing | B |
 | `UNLOCK_MAX_ATTEMPTS_PER_UNLOCK` (3) refuses a fourth reveal; the per-worker daily cap (5) counts reveals and résumé disclosures together | These limits are kept for FIRST opens only; they never stop a company reading a contact it already opened | B |
-| Three pipeline stages | `selected` and `hired` added | C |
-| Nothing leaves BadaBhai | A selected or hired mark on an RVM student is sent to RVM once | D |
+| Three pipeline stages | `selected` and `hired` added | C (built) |
+| Nothing leaves BadaBhai | A selected or hired mark on an RVM student is sent to RVM once | D (built) |
 
 ## 3. Decision
 
@@ -87,17 +87,56 @@ Residuals, accepted for the pilot:
 - **A zero-balance company re-opening by `POST`** still meets the credit precondition (F-1) first and gets the neutral body; its contact read and résumé work without it. Kept so the precondition stays worker-state independent.
 - **The relay of a lapsed past open** resolves on stored dates, so it works again once the company re-opens or reveals it (both free).
 
-### 3.5 Selected and hired (part C, planned)
+### 3.5 Selected and hired (part C, built, `OUTCOME_STAGES_ROLLOUT`)
 
-`payer_applicant_stages_stage_chk` and `APPLICANT_STAGES` gain `selected` and `hired`. The CHECK is a drop and re-add, applied by hand and verified with `pg_get_constraintdef` before the switch goes on. The old `payer.applicant_stage_changed` payload is pinned to the three old stages first; the wider set is a new versioned event. A company may mark an applicant it never opened (a student met at a campus drive); RVM's verification, not the mark, decides the reward.
+`APPLICANT_STAGES` gains `selected` and `hired` (`APPLICANT_OUTCOME_STAGES`). The first three are frozen as `APPLICANT_STAGES_V1`. Migration 0166 widens `payer_applicant_stages_stage_chk` by a drop and re-add. It is applied by hand and verified with `pg_get_constraintdef` before the switch goes on.
 
-### 3.6 The outbound signal to RVM (part D, planned)
+- **The write.** `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` accepts an outcome stage only while `OUTCOME_STAGES_ROLLOUT` (`outcome_stages`) is on for the company. Off, either value gets the same `400` body it got before: the same validation body, produced by the same pipe over the old schema. It is checked before the posting is looked up, so the refusal says nothing about any posting. Unlike before, the request reaches that check first, so it is charged one unit of the hourly write cap. A re-send of a stage already held is that `400` too, not `changed: false`.
+- **Stored state is honoured.** Every read (both feeds, the inbox, `?stage=`) reports a stored outcome stage as itself, whatever the switch says. Moving an applicant out of one, back to Shortlist for example, is allowed with the switch off.
+- **The events.** `payer.applicant_stage_changed` v1 is pinned to the first three stages and still reports every move between them, byte for byte. A move to or from `selected` or `hired` is `payer.applicant_stage_changed_v2`, with the same fields over the wide set. A refine stops v2 carrying a move v1 can carry, so no move is reported twice.
+- **Switched on before 0166.** The write fails the CHECK (23514) and the transaction rolls back, so nothing is written and no event is emitted. The request answers 500 and the log line names the missing migration.
+- **payer-web** keeps its three tabs. A `selected` or `hired` row shows under Shortlist (`boardTabOf`), with its own badge and no move buttons, so nobody undoes a mark without seeing it. The outcome stages get their own UI from Rishi (#2852).
+- **What a screen may draw.** `GET /payer/reach/applicant-stages` answers `{ stages, outcomeStages, rvmSignal }` for the session's company, from the same two switch reads a move makes. A screen draws Selected and Hired only while `outcomeStages` is true, and says RVM is told (on an RVM student's row) only while `rvmSignal` is true. A pilot list that cannot be read answers false.
+
+A company may mark an applicant it never opened (a student met at a campus drive). RVM's verification, not the mark, decides the reward. RVM's systems learn of a mark on an RVM student two ways:
+
+- Campus's application-status read (#2752, `GET` of a Campus application) already returns the stored stage, `selected` and `hired` included, while `CAMPUS_LINK_ENABLED` is on. A mark, and an undo of it, shows there as soon as it is saved.
+- The proof prompt and the placement team's task come only from part D's signal (§3.6), behind its own switch. The event plays no part in either.
+
+### 3.6 The outbound signal to RVM (part D, built, `OUTBOUND_SIGNALS_ROLLOUT`)
 
 A table `outbound_signals` (`destination`, `kind`, unique `dedupe_key`, `payload`, `status`, `attempts`, `next_attempt_at`, `delivered_at`), written in the stage transaction, and a BullMQ processor that posts each mark on an RVM student once to RVM's `POST /internal/campus/selection-events` (Scheduler_Backend#162) with a service token, back-off and a dead-letter state. The body is the student ref, company name, job title, `selected` or `hired` and the date — no phone, no student name, no money field. The payload stores ids and the body is built at send time, so the company name (encrypted at rest) is not kept in clear a second time. Dedupe key: posting id + worker id + stage. An undone mark sends nothing (#2771 proposes a withdrawal signal). The token and URL live in the GitHub `production` environment.
 
+As built (migration 0167, `apps/api/src/outbound-signals`):
+
+- **Queued in the stage transaction** (`OutboundSignalsService.recordMark`). Only a real move into `selected` or `hired` queues anything, and only for a worker whose RVM link is `active` at that moment, by a company with `OUTBOUND_SIGNALS_ROLLOUT` (`outbound_signals`) on. A no-op, a move out, a BadaBhai worker and a company without the switch queue nothing. The switch is read before the transaction; the link is read inside it. A pilot list that cannot be read refuses the mark with a 503 rather than save it with its signal silently lost.
+- **Due ten minutes after the mark.** A mis-tap undone in that window never reaches RVM.
+- **The payload** is `{posting_kind, posting_id, worker_id, stage, marked_on}`, where `marked_on` is the IST day.
+- **The sweep** (`OutboundSignalsSender`, a repeatable BullMQ tick every minute) claims up to 25 due rows with `FOR UPDATE SKIP LOCKED`. Each claim counts as an attempt. The lease outlasts a whole batch timing out, and is never under five minutes. A row a sender keeps crashing on is given up as `abandoned`.
+- **Still true when sent.** Before anything leaves, the sweep re-reads three things and cancels the row when one has changed:
+  - the stage the board holds now: a `selected` row goes while he is `selected` or `hired`, a `hired` row only while he is `hired` (`mark_undone`);
+  - the worker: suspended or scheduled for deletion (`worker_inactive`);
+  - his RVM link: ended (`link_inactive`).
+- **The body** is built at send time:
+  - `event_id` is the row id, which is also the Idempotency-Key;
+  - the student ref;
+  - the posting title;
+  - the company as students see it: a company posting's own `org_label`, the name Campus shows, never the account's; an agency job's owner account name, decrypted only here;
+  - the stage and the day.
+
+  It is checked against the contract before it is sent, so an off-contract body is dead at once rather than retried.
+- **RVM's answers.**
+  - Any 2xx: `delivered`.
+  - RVM's `404 NOT_AVAILABLE`: `dead` (`not_available`).
+  - 400, 413, 415 or 422: `dead` (`rejected`).
+  - Anything else is retried after 1, 2, 4 … minutes, capped at six hours: a timeout, a dropped connection, 401/403, 409, 429, a 5xx, a bare 404. A 409 can be RVM still working on the same event, or a retry whose rebuilt body differs from one RVM already holds. The row is `dead` after 14 attempts, about 32 hours.
+- **The kill switch.** The sweep claims nothing while the switch is off everywhere, or while RVM's settings are not set. Queued rows wait and keep their attempts. Taking one company off the pilot list stops new marks being queued for it; rows already queued still go.
+- **The dead-letter view** and replay in the admin console are #2770.
+- **Logs** carry the signal id, closed failure codes and an HTTP status only, never the body.
+
 ### 3.7 Switches
 
-One per part, all through `FeatureRolloutService` (off | pilot | on, keyed by the company's tenant key, fail closed): `applicant_facts` (A), the contact rules (B), the outcome stages (C) and the outbound sender (D). A switch gates what is shown or accepted, never stored state: turning a switch off never re-charges an open contact or deletes a stage already saved.
+One per part, all through `FeatureRolloutService` (off | pilot | on, keyed by the company's tenant key, fail closed): `applicant_facts` (A), `contact_rules` (B), `outcome_stages` (C) and `outbound_signals` (D). A switch gates what is shown or accepted, never stored state: turning a switch off never re-charges an open contact or deletes a stage already saved.
 
 ### 3.8 The worker's own notice decides (per worker, whatever the switch)
 
@@ -165,6 +204,37 @@ Workers then move onto it as they re-consent (the one-time prompt).
 - **Residual: rollback lag on the résumé.** A PDF rendered with the full name is re-signed for its short TTL (`RESUME_SIGNED_URL_TTL_SECONDS`) after the switch goes off, and an ops request for the same company, worker and posting can re-sign it in that window. Same company, minutes long; accepted.
 
 Parts C and D each get their own review before merge.
+
+## 4c. Security review (part C)
+
+An independent review of the stage change found no HIGH or MEDIUM issue. It confirmed that the switch is read with the tenant key and fails closed. It found no existence oracle, and the off-switch `400` is the old body. Every real move emits exactly one event, and the CHECK widening keeps every 0134 stage. Its LOW findings were fixed or written down:
+
+- **The off-switch `400`** is reached after the hourly cap is charged. A re-send of a held outcome stage is that `400` too (§3.5, API reference).
+- **payer-web:** an outcome row showed "Shortlisted" with one-click Pass and Move to New, so a teammate could undo a mark without seeing it. It now shows its own badge and no move buttons.
+- **The inbox Shortlist filter** does not include outcome rows, which the API reference now says.
+- **Campus's application-status read** already shows a stored outcome stage while `CAMPUS_LINK_ENABLED` is on (§3.5).
+
+## 4d. Security review (part D)
+
+An independent review found nothing HIGH. It confirmed four things:
+
+- no PII is stored or logged, and the token cannot follow a redirect;
+- queueing needs a real move, both switches, an active link inside the transaction and feed membership on the company's own posting;
+- the CHECKs match the repository's updates;
+- erasure is covered by the cascade.
+
+Its findings, all fixed:
+
+- **MEDIUM:** an undone mark, or a worker frozen after the mark, was still sent. The sender now re-reads the board, the worker and the link, and a row waits ten minutes after the mark.
+- **MEDIUM:** a 409 was treated as a permanent refusal, which could kill a signal RVM still holds. It is now retried.
+- **LOW:**
+  - missing RVM settings used up attempts; the sweep now idles until they are set;
+  - the company name differed from the one Campus shows; a company posting now sends its own `org_label`;
+  - non-RVM errors were retried silently, and an emoji name could fail the 200-character check 14 times; the body is now validated before sending, capped by the contract's own count, and the error class is logged;
+  - a pilot-list read failure lost the signal; the mark is now refused with a 503;
+  - the lease could be shorter than a slow batch; it now outlasts one;
+  - the migration header lacked lock guidance;
+  - a crashing row could be re-claimed forever; each claim now counts, and the row is given up as `abandoned`.
 
 ## 5. Arming and rollback
 

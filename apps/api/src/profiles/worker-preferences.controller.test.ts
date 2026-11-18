@@ -6,9 +6,13 @@ import type { WorkerPreferencesService } from "./worker-preferences.service";
 import type { AuthenticatedWorker } from "../auth/worker-auth.guard";
 import type { RequestContext } from "../common/request-context";
 import { CITY_CATALOGUE, STATE_CATALOGUE } from "./worker-cities.catalogue";
+import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import type { AvailabilityAnswersConfig } from "./availability-answers.flag";
 import { SetMyPreferencesSchema } from "./worker-preferences.dto";
 import {
-  AVAILABILITY_STATUSES,
+  AVAILABILITY_STATUSES_ALL,
+  AVAILABILITY_STATUSES_V1,
+  AVAILABILITY_STATUSES_V2,
   DOCUMENTS_READY,
   JOB_TYPES,
   LANGUAGES,
@@ -30,9 +34,12 @@ import {
  * dependency. Passing a null service is the assertion — if this ever starts needing one, the
  * response has stopped being static and the docstring's "NO WORKER DATA" claim needs re-earning.
  */
-function controller(): WorkerPreferencesController {
-  return new WorkerPreferencesController(null as unknown as WorkerPreferencesService);
+function controller(config?: AvailabilityAnswersConfig): WorkerPreferencesController {
+  return new WorkerPreferencesController(null as unknown as WorkerPreferencesService, config);
 }
+
+const FLAG_OFF: AvailabilityAnswersConfig = { AVAILABILITY_ANSWERS_V2_ENABLED: false };
+const FLAG_ON: AvailabilityAnswersConfig = { AVAILABILITY_ANSWERS_V2_ENABLED: true };
 
 describe("GET /workers/me/work-preferences/options", () => {
   it("serves exactly nine option sets", () => {
@@ -83,7 +90,7 @@ describe("GET /workers/me/work-preferences/options", () => {
     expect(res.documents_ready).toBe(DOCUMENTS_READY);
     expect(res.job_type).toBe(JOB_TYPES);
     expect(res.shift).toBe(SHIFTS);
-    expect(res.availability_status).toBe(AVAILABILITY_STATUSES);
+    expect(res.availability_status).toBe(AVAILABILITY_STATUSES_V1);
     expect(res.work_types).toBe(WORK_TYPES);
     // ONE DICTIONARY UNDER TWO KEYS (`WORK_TYPES === JOB_TYPES`), so the multi and the single can
     // never offer different options or print different English for one slug.
@@ -141,6 +148,84 @@ describe("GET /workers/me/work-preferences/options", () => {
     expect(JSON.stringify(res.availability_status).length).toBeLessThan(512);
     expect(JSON.stringify(res.work_types).length).toBeLessThan(512);
   });
+});
+
+/**
+ * #2753 item 3 — `AVAILABILITY_ANSWERS_V2_ENABLED`. The options route is the switch: off serves the
+ * first four, byte for byte; on serves the brief's four. The PUT accepts both sets either way.
+ */
+describe("the availability answers switch (#2753 item 3)", () => {
+  it.each([
+    ["no config at all (a hand-built instance)", undefined],
+    ["the flag off", FLAG_OFF],
+  ] as const)("with %s, availability_status is today's dictionary exactly", (_label, config) => {
+    const res = controller(config).options();
+    expect(res.availability_status).toBe(AVAILABILITY_STATUSES_V1);
+    // The wire bytes a shipped build decodes today, pinned, so "off" cannot drift.
+    expect(JSON.stringify(res.availability_status)).toBe(
+      '{"immediate":"Immediately","within_week":"Within a week","within_month":"Within a month","serving_notice":"Serving notice"}',
+    );
+  });
+
+  it("with the flag on, availability_status is the brief's four, in the brief's order", () => {
+    const res = controller(FLAG_ON).options();
+    expect(res.availability_status).toBe(AVAILABILITY_STATUSES_V2);
+    expect(Object.entries(res.availability_status)).toEqual([
+      ["join_now", "Can join now"],
+      ["in_15_days", "Can join in 15 days"],
+      ["in_30_days", "Can join in 30 days"],
+      ["working_open", "Working, open to a better offer"],
+    ]);
+  });
+
+  it("changes nothing else in the response", () => {
+    const { availability_status: _off, ...off } = controller(FLAG_OFF).options();
+    const { availability_status: _on, ...on } = controller(FLAG_ON).options();
+    expect(Object.keys(on).sort()).toEqual(Object.keys(off).sort());
+    for (const key of Object.keys(off) as (keyof typeof off)[]) expect(on[key]).toBe(off[key]);
+  });
+
+  it.each([
+    ["off", FLAG_OFF],
+    ["on", FLAG_ON],
+  ] as const)("with the flag %s, every served chip is one the PUT accepts", (_label, config) => {
+    for (const status of Object.keys(controller(config).options().availability_status)) {
+      expect(SetMyPreferencesSchema.safeParse({ availability: { status } }).success, status).toBe(
+        true,
+      );
+    }
+  });
+
+  it.each([
+    ["off", FLAG_OFF],
+    ["on", FLAG_ON],
+  ] as const)(
+    "with the flag %s, the PUT takes a key of EITHER set through its real pipe",
+    async (_label, config) => {
+      // Installed builds keep sending the first set after the switch, and a key of the second can
+      // arrive before it; refusing either would 400 the whole `.strict()` page save.
+      const preferences = {
+        setForWorker: vi.fn(async () => ({ worker_id: "w-1", keys_written: 1, keys_cleared: 0 })),
+      };
+      const c = new WorkerPreferencesController(
+        preferences as unknown as WorkerPreferencesService,
+        config,
+      );
+      const pipe = new ZodValidationPipe(SetMyPreferencesSchema);
+      for (const status of Object.keys(AVAILABILITY_STATUSES_ALL)) {
+        const dto = pipe.transform({ availability: { status } });
+        await c.setMyPreferences({ id: "w-1", sid: "s-1" }, dto, { requestId: "r" } as never);
+        expect(preferences.setForWorker).toHaveBeenLastCalledWith(
+          "w-1",
+          { availability: { status } },
+          expect.anything(),
+        );
+      }
+      expect(preferences.setForWorker).toHaveBeenCalledTimes(8);
+      // Still a closed set: a status neither dictionary knows is refused, flag on or off.
+      expect(() => pipe.transform({ availability: { status: "next_week" } })).toThrow();
+    },
+  );
 });
 
 describe("PUT /workers/me/work-preferences", () => {

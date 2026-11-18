@@ -68,6 +68,23 @@ describe("Fast2SmsProvider.sendOtp", () => {
     expect(init.headers.authorization).toBe("test-api-key");
   });
 
+  it("#2754 — sends on the caller's own approved template when one is named", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ return: true }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new Fast2SmsProvider(fast2smsConfig, pii);
+    await provider.sendOtp({ phoneE164: PHONE, code: CODE, templateId: "777888" });
+
+    const url = fetchMock.mock.calls[0]![0] as string;
+    expect(url).toContain("message=777888");
+    expect(url).not.toContain("message=123456");
+    expect(url).toContain(`variables_values=${CODE}`);
+  });
+
   it("throws when the provider returns return:false — SmsSendError('provider_rejected') (F4)", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

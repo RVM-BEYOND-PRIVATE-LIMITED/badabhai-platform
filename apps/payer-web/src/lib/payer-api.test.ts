@@ -1898,3 +1898,85 @@ describe("#2085 L1 — topUpPostingQuota buys the confirmed tier or nothing", ()
     expect(topUpPosts()).toEqual([]);
   });
 });
+
+/**
+ * #2754 item 3 — the account page's phone-proof read. A 404 (the switch is off) is `null`, so
+ * the page renders exactly as before; a 200 carries `{ proven }`.
+ */
+describe("getPhoneProofStatus — GET /payer/me/phone-proof", () => {
+  it("a 200 returns { proven }", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ proven: true }));
+    const { getPhoneProofStatus } = await import("./payer-api");
+    await expect(getPhoneProofStatus()).resolves.toEqual({ proven: true });
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain("/payer/me/phone-proof");
+  });
+
+  it("a 404 (the switch is off) returns null — the page shows nothing", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: "Not found" }, 404));
+    const { getPhoneProofStatus } = await import("./payer-api");
+    await expect(getPhoneProofStatus()).resolves.toBeNull();
+  });
+
+  it("a transient failure also returns null rather than breaking the account page", async () => {
+    fetchMock.mockRejectedValue(new Error("network"));
+    const { getPhoneProofStatus } = await import("./payer-api");
+    await expect(getPhoneProofStatus()).resolves.toBeNull();
+  });
+});
+
+describe("#2750 — getUnlockQuotes: the page's contact prices", () => {
+  const W1 = "44444444-4444-4444-8444-444444444444";
+  const W2 = "55555555-5555-4555-8555-555555555555";
+
+  it("posts the worker ids only and maps worker_id → credits", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        quotes: [
+          { worker_id: W1, credits: 2 },
+          { worker_id: W2, credits: 0 },
+        ],
+        credits_available: 1,
+      }),
+    );
+    const { getUnlockQuotes } = await import("./payer-api");
+    const res = await getUnlockQuotes([W1, W2]);
+    expect(res).toEqual({ quotes: { [W1]: 2, [W2]: 0 }, creditsAvailable: 1 });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/payer/unlocks/quotes");
+    expect(JSON.parse(init.body as string)).toEqual({ worker_ids: [W1, W2] });
+    expect(JSON.parse(init.body as string)).not.toHaveProperty("payer_id");
+  });
+
+  it("a company outside the credit rules (404) is null — the screens keep today's button", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}, 404));
+    const { getUnlockQuotes } = await import("./payer-api");
+    expect(await getUnlockQuotes([W1])).toBeNull();
+  });
+
+  it("maps insufficient_credits and credits_charged on the unlock answer", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        ok: true,
+        unlock_id: "22222222-2222-4222-8222-222222222222",
+        status: "granted",
+        expires_at: "2026-12-01T00:00:00.000Z",
+        credits_charged: 2,
+      }),
+    );
+    const { requestUnlock } = await import("./payer-api");
+    expect(await requestUnlock({ postingId: null, workerId: W1 })).toMatchObject({
+      ok: true,
+      creditsCharged: 2,
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ status: "insufficient_credits", credits_needed: 2, credits_available: 1 }),
+    );
+    expect(await requestUnlock({ postingId: null, workerId: W1 })).toEqual({
+      status: "insufficient_credits",
+      creditsNeeded: 2,
+      creditsAvailable: 1,
+    });
+  });
+});

@@ -53,19 +53,39 @@ describe("BADABHAI_WORKER_AUDIENCES", () => {
   });
 });
 
+/** #2891 — the Campus hold, as every rendering of the fragment ends. */
+const hold = (id: string) =>
+  `AND NOT EXISTS (SELECT 1 FROM job_posting_worker_visibility jpwv WHERE jpwv.job_posting_id = ${id} AND jpwv.state <> 'on'))`;
+
 describe("reachesBadaBhaiWorkers", () => {
-  it("defaults to the job_postings column and is positive membership, never a negation", () => {
+  it("defaults to the job_postings columns: the audience as positive membership, then the hold", () => {
     const { sql: text, params } = compile(reachesBadaBhaiWorkers());
-    expect(text).toBe(`"job_postings"."audience" IN ('badabhai_workers', 'both')`);
+    expect(text).toBe(
+      `("job_postings"."audience" IN ('badabhai_workers', 'both') ${hold('"job_postings"."id"')}`,
+    );
     // Literal, not bound: the closed set adds no parameter wherever the fragment lands.
     expect(params).toEqual([]);
-    expect(text).not.toMatch(/<>|!=|NOT IN/i);
+    // The AUDIENCE part is positive membership, never a negation (#2746).
+    const audiencePart = text.slice(0, text.indexOf(" AND NOT EXISTS"));
+    expect(audiencePart).not.toMatch(/<>|!=|NOT IN/i);
   });
 
-  it("renders a raw alias verbatim for an aliased raw statement", () => {
-    const { sql: text, params } = compile(reachesBadaBhaiWorkers(sql`jp.audience`));
-    expect(text).toBe(`jp.audience IN ('badabhai_workers', 'both')`);
+  it("the hold fails closed: anything but 'on' holds, so a new state added later never opens", () => {
+    const { sql: text } = compile(reachesBadaBhaiWorkers());
+    expect(text).toContain("jpwv.state <> 'on'");
+    expect(text).not.toContain("jpwv.state = 'off'");
+  });
+
+  it("renders a raw alias for both columns of an aliased raw statement", () => {
+    const { sql: text, params } = compile(reachesBadaBhaiWorkers("jp"));
+    expect(text).toBe(`(jp.audience IN ('badabhai_workers', 'both') ${hold("jp.id")}`);
     expect(params).toEqual([]);
+  });
+
+  it("refuses an alias that is not a plain SQL identifier (it is spliced into the text)", () => {
+    for (const bad of ["jp; DROP TABLE x", "JP", "1jp", "jp.x", ""]) {
+      expect(() => reachesBadaBhaiWorkers(bad), bad).toThrow(/bad SQL alias/);
+    }
   });
 
   it("composes inside a drizzle .where(and(...)) without moving the other bindings", () => {
@@ -75,7 +95,7 @@ describe("reachesBadaBhaiWorkers", () => {
       .where(and(eq(jobPostings.status, "open"), reachesBadaBhaiWorkers()))
       .toSQL();
     expect(query.sql).toContain(
-      `("job_postings"."status" = $1 and "job_postings"."audience" IN ('badabhai_workers', 'both'))`,
+      `("job_postings"."status" = $1 and ("job_postings"."audience" IN ('badabhai_workers', 'both') ${hold('"job_postings"."id"')})`,
     );
     expect(query.params).toEqual(["open"]);
   });
@@ -84,17 +104,17 @@ describe("reachesBadaBhaiWorkers", () => {
     const id = "22222222-2222-4222-8222-222222222222";
     const { sql: text, params } = compile(sql`
       SELECT 1 FROM job_postings jp
-      WHERE jp.id = ${id}::uuid AND ${reachesBadaBhaiWorkers(sql`jp.audience`)}
+      WHERE jp.id = ${id}::uuid AND ${reachesBadaBhaiWorkers("jp")}
     `);
     expect(text).toContain(
-      `WHERE jp.id = $1::uuid AND jp.audience IN ('badabhai_workers', 'both')`,
+      `WHERE jp.id = $1::uuid AND (jp.audience IN ('badabhai_workers', 'both') ${hold("jp.id")}`,
     );
     expect(params).toEqual([id]);
   });
 
   it("lists exactly BADABHAI_WORKER_AUDIENCES — the literal and the constant cannot drift", () => {
-    const { sql: text } = compile(reachesBadaBhaiWorkers(sql`a`));
-    const listed = /^a IN \((.*)\)$/.exec(text)?.[1]?.split(", ") ?? [];
+    const { sql: text } = compile(reachesBadaBhaiWorkers("a"));
+    const listed = /^\(a\.audience IN \((.*?)\) AND NOT EXISTS/.exec(text)?.[1]?.split(", ") ?? [];
     expect(listed).toEqual(BADABHAI_WORKER_AUDIENCES.map((audience) => `'${audience}'`));
   });
 });

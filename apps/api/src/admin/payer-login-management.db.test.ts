@@ -15,6 +15,7 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 import type { RequestContext } from "../common/request-context";
 import { PayerAuthService } from "../payer-portal/payer-auth.service";
 import { DEFAULT_ORG_NAME, PayersRepository } from "../payers/payers.repository";
+import { PayerPhoneProofsRepository } from "../payers/payer-phone-proofs.repository";
 import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { AdminPayerLoginsService } from "./admin-payer-logins.service";
@@ -150,6 +151,8 @@ describe.skipIf(!RUN)("payer login management — REAL default status (#2563)", 
       tenancy,
       { client: Promise.resolve(redis) } as never,
       notice as never,
+      // #2754 item 3 — the SMS sign-in rule; this suite signs in by email and password only.
+      new PayerPhoneProofsRepository(db),
     );
     members = new PayerOrgMembersService(
       orgsRepo,

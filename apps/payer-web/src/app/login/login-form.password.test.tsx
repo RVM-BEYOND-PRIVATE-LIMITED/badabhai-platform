@@ -78,7 +78,8 @@ beforeEach(() => {
 const render = () => h.render(LoginForm as (props: undefined) => ReactElement, undefined);
 const passwordForm = (tree: ReactNode) => findByType(tree, PasswordSignInForm)[0];
 const changeStep = (tree: ReactNode) => findByType(tree, SetNewPasswordStep)[0];
-const emailField = (tree: ReactNode) => findByType(tree, Input).find((i) => propsOf(i).label === "Email");
+const emailField = (tree: ReactNode) =>
+  findByType(tree, Input).find((i) => propsOf(i).id === "login-email");
 /** Play a child's event: call the prop the card handed it. */
 const play = (el: ReactElement | undefined, prop: string, ...args: unknown[]) => {
   expect(el, `element for ${prop}`).toBeDefined();

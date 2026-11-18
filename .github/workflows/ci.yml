@@ -1429,9 +1429,128 @@ jobs:
       #                    profile by CURRENT_PROFILE_ORDER, the salary attributes, the last
       #                    device seen, the encrypted name passed through as ciphertext, and only
       #                    an ACTIVE institute link labelling an RVM student.
+      #   * theme-rollout.db — #2820, THEME_ROLLOUT and its pilot lists: `pilot` opens exactly
+      #                    the listed company (a team member inherits it under org tenancy on),
+      #                    worker and admin by the (feature, kind, id) key; off and on read no
+      #                    list; feature_pilot_subjects' CHECKs and PK; and with the table dropped
+      #                    in a rolled-back transaction the read is 42P01 and the answer false.
       #   * open-grant.db — #2747, contacts open for good: extendOpenUntil moves the grant and its
       #                    relay row to the for-good date, only ever later, never on a non-grant;
       #                    the résumé route's SQL is the twin of isOpenGrant (src/unlocks).
+      #   * outbound-signals.db — #2747, the RVM selection signal (migration 0167): one row per
+      #                    mark on an active RVM student, in the stage transaction, ids only;
+      #                    the sweep's SKIP LOCKED claim, the body built at send time, and the
+      #                    delivered / retried / cancelled states (src/outbound-signals).
+      #   * worker-activity.db — #2753, the days a worker was active (migration 0168): one row
+      #                    per worker per IST day however often it is written, the cascade on
+      #                    erasure, the last-active day merged with real device rows across the
+      #                    18:30 UTC boundary, and RLS forced with no grant (src/worker-activity).
+      #   * worker-search-exits.db — #2753 item 6, leave company search (migration 0169): the real
+      #                    search leaves out a worker with an exit row (the whole pool, a granted
+      #                    student included) and takes him back, consent untouched; the unlock
+      #                    rule against real application rows (the applicant read is the feeds'
+      #                    twin; requestUnlock grants a company he applied to, refuses any other
+      #                    with no debit and no row); the cascade on hardDelete; the CHECK; RLS
+      #                    forced with no grants (src/search-exit).
+      #   * hires.db — #2753 item 9, hire records (migration 0170): the REAL stage transaction
+      #                    writes one record per company, worker and posting (a move into
+      #                    `hired` confirms it, out rejects it, a re-mark confirms it again);
+      #                    a mark, a company answer and a worker answer give ONE row; the unique
+      #                    key, the CHECKs, both FKs, the hardDelete cascade and RLS forced with
+      #                    no grant (src/hires).
+      #   * pay-on-joining-hires.db — #2753 item 11, the pay-on-joining pilot's hire record
+      #                    (migration 0171): the CHECKs (paise, percent, the floor share, the
+      #                    30-day pair), the unique hire key NULLS NOT DISTINCT, the worker
+      #                    hardDelete cascade, RLS forced with no grants, and a real create then
+      #                    patch with its audit row and event (src/pay-on-joining).
+      #   * unlock-outcomes.db — #2753 item 10, the company follow-up (migration 0172): the due
+      #                    list over REAL unlock rows (the boundary day, still_talking due again,
+      #                    answered / denied / erased / frozen / another company's never; the
+      #                    microsecond keyset), the one-row upsert and its event, the hires link,
+      #                    the desk's not_reached, the CHECKs, both FKs, the hardDelete cascade and
+      #                    RLS forced with no grant (src/unlock-outcomes).
+      #   * still-looking.db — #2753 item 5, the monthly "still looking?" check (migration
+      #                    0173): the REAL sweep statement opens one check per worker across two
+      #                    concurrent runs, does not re-prompt inside the window and does after
+      #                    it; not_now hides him from the REAL candidate search and yes restores
+      #                    him; the CHECKs, the open-check unique index, the hardDelete cascade
+      #                    and RLS forced with no grant (src/still-looking).
+      #   * credit-lots.db — #2749, expiring credit lots (migration 0174): a spend takes the lot
+      #                    that expires soonest (day 10 before day 50, never-expiring last); a
+      #                    due lot is expired once, by the spend path or the sweep, with one
+      #                    `expired` line; a settle makes one lot per order and a replay none; the
+      #                    pack, admin and free-tier grants each make one lot; a balance moved
+      #                    without lots re-aligns at the next touch; ten concurrent spends never
+      #                    overdraw the balance or a lot; and balance = Σ lots = Σ ledger after
+      #                    each. Row locks, CHECKs and the spend order need a real Postgres
+      #                    (src/unlocks).
+      #   * login-keyed-rows.db — #2837 (R87, R88), the rows keyed on a login's id with no FK: the
+      #                    worker erasure, Campus's link-created delete and the payer login
+      #                    deletion leave no display_prefs / feature_pilot_subjects row of that
+      #                    login (another login's, and the same id under another kind, survive);
+      #                    a theme PATCH after the erasure is the guard's 401, and racing it on two
+      #                    connections in either order leaves no row (FOR KEY SHARE on the login's
+      #                    row) (src/common).
+      #   * payer-phone-proofs.db — #2754 item 3, proven company sign-in phones (migration
+      #                    payer_phone_proofs): one account per proven phone (the unique index, and
+      #                    two concurrent proofs of one phone end with one winner); the SMS sign-in
+      #                    lookup resolves only a proof that names the account's CURRENT phone; a
+      #                    phone change drops the proof in its transaction (a rollback keeps it, a
+      #                    racing proof never survives on the old number); the import's savepoint;
+      #                    the CHECK, the FK cascade and RLS forced with no grant (src/payers).
+      #   * campus-company-import.db - #2754 item 6, placing Campus companies on BadaBhai
+      #                    accounts (migration company_import): a batch creates each company once
+      #                    (pending account, profile, Campus-proven phone, test mark, ledger row, no
+      #                    credits); a second run adds nothing; a new batch matches by phone, e-mail
+      #                    or GSTIN instead of creating; a shared phone or an archived match is an
+      #                    exception; a batch key is bound to its bundle (src/payers/campus-import).
+      #   * admin-numbers.db — #2755 part A, the numbers screen's test companies: the mark /
+      #                    unmark round trip on payers.is_test_account (migration 0162) with its
+      #                    events in one transaction (a re-mark and a second unmark write nothing;
+      #                    a failing emit rolls the column back), excludeTestPayers on real rows
+      #                    (a deleted company's order kept), each worker exclusion rule (test
+      #                    account, sample id, Campus row never signed in) and the synthetic-
+      #                    sign-in backfill's real read and mark (src/admin/numbers).
+      #   * admin-launch-tests.db — #2755 part D, the two launch-test records (migration
+      #                    launch_tests): the CHECKs (result, paid_at iff paid, the link and its
+      #                    time, the phone pair), one row per factory phone and per paid order, the
+      #                    SET NULLs and CASCADEs, RLS forced with no grant; the create on real rows
+      #                    (the Campus refusal, the auto-linked account, part A's worker rules, the
+      #                    replay); the paid-order check against real orders; the factory name
+      #                    through the real identity service (audited first); and test B's report
+      #                    equal to a hand-written SQL (src/admin/launch-tests).
+      #   * numbers-weekly.db — #2755 part B, the numbers screen's weekly snapshot: the PARITY check
+      #                    (every stored figure equals a hand-written SQL query over the same tables:
+      #                    paying companies, companies that posted, completed profiles, active workers,
+      #                    hires, contacts per hire, revenue by pack, the form-worker gap), test /
+      #                    sample / linked rows out, small worker cells suppressed, the route reading
+      #                    the snapshot only, a frozen week unchanged by the next sweep, the logged
+      #                    recompute (dry run writes nothing; apply rewrites and logs ONE row), and two
+      #                    racing sweeps leaving one set of rows (src/admin/numbers).
+      #   * numbers-repeat-calls.db — #2755 part C: repeat buying equals a hand-written SQL (first and
+      #                    second paid order per company, the 30/60/90-day windows, pending cohorts
+      #                    store no share, unpaid orders and mock ledger rows never count), the freeze
+      #                    keyed on the longest window (frozen rows never move, open cohort rows do),
+      #                    the out-of-credits call list equals a hand-written SQL in the same order
+      #                    page by page, the usable balance agrees with readSpendableCredits wallet by
+      #                    wallet, and the call log (one row and two events per call, a retry writes
+      #                    nothing, 404s, the result CHECK, the cascade, RLS) (src/admin/numbers).
+      #   * payment-orders.db — #2749 PR 3, checkout (migration 0176): the money CHECKs (the parts
+      #                    sum to a whole-rupee total = amount_inr x 100, all five or none), a
+      #                    credit-pack order's pack code and positive grant, the closed status /
+      #                    kind / origin sets and the origin-posting FK (SET NULL); an order
+      #                    charges the GST total and stamps only an OWNED posting; two concurrent
+      #                    order calls under one Idempotency-Key make ONE provider order and ONE
+      #                    row (the real controller and seam, a fake Razorpay client); a matching
+      #                    webhook settles once, a replay adds nothing, and the lot expires
+      #                    credit_validity_days after the settle on the DB clock; a mismatched
+      #                    capture holds the order with one payment.held, and no replay, verify
+      #                    or failure moves it; the held CAS never beats a paid order
+      #                    (src/unlocks).
+      #   * credit-rules.db — #2750 item 1, the credit rules settings (migration
+      #                    credit_rules_config): a revision commits with its audit row and becomes
+      #                    the only active row; a stale revision writes nothing; two saves of one
+      #                    revision end with one winner (src/credit-rules).
       #
       # They need nothing but a MIGRATED Postgres, which the steps above already built:
       # this job's service container gets the whole chain (journal-driven, 0000 → head —
@@ -1445,7 +1564,7 @@ jobs:
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a six-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + candidate search + payer org tenancy + org tenancy census + free-chat probe + companion history + deletion event tx + admin candidate detail + admin funnel parity + admin empty-feed parity + payer login management + worker account actions + PIN-reset gate + admin posting control + admin cost ledger + admin company records + admin candidates search + admin candidate corrections + job audience visibility + payer job audience + campus review + Campus student link, tag rules and admin scope + Campus jobs and search grants + campus drives + pre-pay facts + open for good)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + candidate search + payer org tenancy + org tenancy census + free-chat probe + companion history + deletion event tx + admin candidate detail + admin funnel parity + admin empty-feed parity + payer login management + worker account actions + PIN-reset gate + admin posting control + admin cost ledger + admin company records + admin candidates search + admin candidate corrections + job audience visibility + payer job audience + campus review + Campus student link, tag rules and admin scope + Campus jobs and search grants + campus drives + pre-pay facts + open for good + theme rollout + display prefs + outbound signals + worker activity + leave company search + hire records + pay-on-joining hires + unlock outcomes + still looking + credit lots + login-keyed rows + company phone proofs + numbers screen test companies + payment orders + numbers weekly snapshot + credit rules + launch-test records + numbers repeat buying and call list)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -1473,7 +1592,7 @@ jobs:
           # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
           # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
           # 2820-test `node` suite is database-free and has no shared state to race on.
-          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db payer-job-audience.db campus-review.db campus-jobs.db institute-grants.db campus-drives.db pre-pay-facts.db open-grant.db 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db payer-job-audience.db campus-review.db campus-jobs.db institute-grants.db campus-drives.db pre-pay-facts.db open-grant.db theme-rollout.db display-prefs.db outbound-signals.db pay-on-joining-hires.db worker-activity.db worker-search-exits.db hires.db unlock-outcomes.db still-looking.db credit-lots.db login-keyed-rows.db payer-phone-proofs.db admin-numbers.db payment-orders.db numbers-weekly.db credit-rules.db admin-launch-tests.db numbers-repeat-calls.db campus-company-import.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
@@ -1491,13 +1610,26 @@ jobs:
           # `hard-delete-event-tx.db` under src/workers and `admin-candidate-detail.db` +
           # `admin-empty-feed.db` under src/admin (already in the alternation), and
           # `admin-postings.db` under src/admin-postings and `admin-companies.db` under
-          # src/admin/companies and `admin-corrections.db` under src/admin/corrections (nested paths need
+          # src/admin/companies and `admin-corrections.db` under src/admin/corrections and
+          # `theme-rollout.db` under src/feature-rollout and `display-prefs.db` under src/display-prefs
+          # and `worker-activity.db` under src/worker-activity
+          # and `worker-search-exits.db` under src/search-exit
+          # and `hires.db` under src/hires
+          # and `pay-on-joining-hires.db` under src/pay-on-joining
+          # and `unlock-outcomes.db` under src/unlock-outcomes
+          # and `still-looking.db` under src/still-looking
+          # and `login-keyed-rows.db` under src/common (already in the alternation)
+          # and `admin-numbers.db` under src/admin/numbers
+          # and `admin-launch-tests.db` under src/admin/launch-tests
+          # and `numbers-weekly.db` under src/admin/numbers (already in the alternation)
+          # and `numbers-repeat-calls.db` under src/admin/numbers (already in the alternation)
+          # (nested paths need
           # and against a regex
           # missing any one of them
           # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
           # gate lands in a new directory.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db payer-job-audience.db campus-review.db campus-jobs.db institute-grants.db campus-drives.db pre-pay-facts.db open-grant.db; do
-            line=$(grep -E "src/(ai|admin|admin/companies|admin/corrections|admin-postings|agency-twin|applications|auth|campus-drives|campus-link|candidates|chat-companion|common|match|profiles|jobs|resume|payers|payer-portal|payer-portal/job-posting-chat|profiling/free-chat|unlocks|workers)/${f}\.test\.ts" db-gates.log | head -1 || true)
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db job-audience-visibility.db payer-job-audience.db campus-review.db campus-jobs.db institute-grants.db campus-drives.db pre-pay-facts.db open-grant.db theme-rollout.db display-prefs.db outbound-signals.db pay-on-joining-hires.db worker-activity.db worker-search-exits.db hires.db unlock-outcomes.db still-looking.db credit-lots.db login-keyed-rows.db payer-phone-proofs.db admin-numbers.db payment-orders.db numbers-weekly.db credit-rules.db admin-launch-tests.db numbers-repeat-calls.db campus-company-import.db; do
+            line=$(grep -E "src/(admin|admin-postings|admin/companies|admin/corrections|admin/launch-tests|admin/numbers|agency-twin|ai|applications|auth|campus-drives|campus-link|candidates|chat-companion|common|credit-rules|display-prefs|feature-rollout|hires|jobs|match|outbound-signals|pay-on-joining|payer-portal|payer-portal/job-posting-chat|payers|payers/campus-import|profiles|profiling/free-chat|resume|search-exit|still-looking|unlock-outcomes|unlocks|worker-activity|workers)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
               exit 1
@@ -1514,8 +1646,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +49 passed \(49\)' db-gates.log; then
-            echo "::error::Expected exactly the 49 gate files to run - the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +68 passed \(68\)' db-gates.log; then
+            echo "::error::Expected exactly the 68 gate files to run - the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
@@ -2210,6 +2342,11 @@ jobs:
           # Token-audit fix Q10: a typed tenure answer resolves the form's experience gates.
           # Unset/empty resolves to off at the compose level, which is today's behaviour.
           FORM_TYPED_TENURE_DERIVE_ENABLED: ${{ secrets.FORM_TYPED_TENURE_DERIVE_ENABLED }}
+          # #2753 item 2: a trade form's experience band fills worker_skill.months_bucketed. Unset/
+          # empty resolves to off through compose's `:-false`: today's derivation. It changes rank
+          # inputs, so set it only after the engine_version ruling (ADR-0036), then rebuild with
+          # db:backfill:worker-skills + db:materialize:reach. true/false/1/0/empty only.
+          FORM_TENURE_MONTHS_ENABLED: ${{ secrets.FORM_TENURE_MONTHS_ENABLED }}
           # Résumé skins (#1801). Unset/empty resolves to off at the compose level, which is
           # today's behaviour. Needs migration 0128 applied before it is set.
           RESUME_SKINS_ENABLED: ${{ secrets.RESUME_SKINS_ENABLED }}
@@ -2252,11 +2389,85 @@ jobs:
           # under-18 answer is refused either way). Set only once the worker-app release that
           # sends `age_18_plus` is live. Values: lowercase true/false/1/0/empty only.
           SIGNUP_AGE_GATE_ENABLED: ${{ secrets.SIGNUP_AGE_GATE_ENABLED }}
+          # #2753 item 13 — the published privacy notice link, served by GET /consent/notice.
+          # Unset/empty resolves to `notice_url: null` through compose's `:-`. Not a secret in
+          # content, but a secret is the bridge. An https URL or empty only; the deploy preflight
+          # refuses anything else.
+          CONSENT_NOTICE_URL: ${{ secrets.CONSENT_NOTICE_URL }}
           # "Level needed" applicant sort (engine v1.1, CEO ruling 30 Oct 2026, ADR-0061, #2613).
           # Unset/empty resolves to off through compose's `:-false`: today's applicant list. On, a
           # 4-CNC-trade posting that names a rung sorts its applicants meets → not confirmed →
           # below. Migration 0153 is already applied. true/false/1/0/empty only.
           LEVEL_NEEDED_SORT_ENABLED: ${{ secrets.LEVEL_NEEDED_SORT_ENABLED }}
+          # #2753 item 12 — the helper's name before sign-in (GET /referrals/helper). Unset/empty
+          # resolves to off through compose's `:-false`: the route is a 404 and reads nothing. On,
+          # an agency code answers the agency's company name. NEEDS THE OWNER'S OK BEFORE IT IS
+          # SET (it reverses the attribute route's no-oracle rule). No migration.
+          # true/false/1/0/empty only.
+          REFERRAL_HELPER_NAME_ENABLED: ${{ secrets.REFERRAL_HELPER_NAME_ENABLED }}
+          # #2753 item 3 — the brief's four availability answers. Unset/empty resolves to off
+          # through compose's `:-false`: today's options. On, the options route
+          # (GET /workers/me/work-preferences/options) serves the four; writes accept both sets
+          # either way. No migration. true/false/1/0/empty only.
+          AVAILABILITY_ANSWERS_V2_ENABLED: ${{ secrets.AVAILABILITY_ANSWERS_V2_ENABLED }}
+          # #2753 — last active, one definition. Unset/empty resolves to off through compose's
+          # `:-false`: nothing reads or writes worker_activity and every response is today's. On,
+          # worker requests and Campus applications record the IST day, and applicant / inbox /
+          # search rows carry `notRecentlyActive`. Apply migration 0168 FIRST (on without it,
+          # activity is lost and the last-active day falls back to the device sighting; nothing
+          # answers 500). true/false/1/0/empty only.
+          WORKER_ACTIVITY_ENABLED: ${{ secrets.WORKER_ACTIVITY_ENABLED }}
+          # Leave company search (#2753 item 6). Unset/empty resolves to off through compose's
+          # `:-false`: the worker routes 404 and nothing reads `worker_search_exits`. Apply
+          # migration 0169 BEFORE setting this (on without it, search and unlocks fail open and
+          # the worker routes answer 503).
+          # true/false/1/0/empty only.
+          SEARCH_EXIT_ENABLED: ${{ secrets.SEARCH_EXIT_ENABLED }}
+          # Hire records (#2753 item 9). Unset/empty resolves to off through compose's `:-false`:
+          # nothing reads or writes `hires` and GET /admin/hires is a 404. Set it true only after
+          # the `hires` migration is applied. true/false/1/0/empty only.
+          HIRE_RECORDS_ENABLED: ${{ secrets.HIRE_RECORDS_ENABLED }}
+          # #2753 item 11 — the pay-on-joining pilot's hire record (/admin/pay-on-joining-hires).
+          # Unset/empty resolves to off through compose's `:-false`: every route a 404, nothing
+          # touches the table. Needs migration 0171 first. true/false/1/0/empty only. The partner's
+          # share (whole percent, 0..100) is a plain tuning number: absent, compose's `:-70` holds
+          # it at the pilot's 70; the preflight refuses anything else before a container moves.
+          PAY_ON_JOINING_RECORDS_ENABLED: ${{ secrets.PAY_ON_JOINING_RECORDS_ENABLED }}
+          POJ_PARTNER_SHARE_PERCENT: ${{ secrets.POJ_PARTNER_SHARE_PERCENT }}
+          # The company follow-up (#2753 item 10). Unset/empty resolves to off through compose's
+          # `:-false`: both routes are a 404 and nothing reads or writes `unlock_outcomes`. Set it
+          # true only after the `unlock_outcomes` migration is applied. true/false/1/0/empty only.
+          UNLOCK_FOLLOWUP_ENABLED: ${{ secrets.UNLOCK_FOLLOWUP_ENABLED }}
+          # The follow-up wait in days (default 7). A plain tuning number, bridged like
+          # CAMPUS_DRIVE_MAX_OPEN_REQUESTS: absent, compose's `:-7` holds it at the owner's 7.
+          UNLOCK_FOLLOWUP_AFTER_DAYS: ${{ secrets.UNLOCK_FOLLOWUP_AFTER_DAYS }}
+          # The monthly "still looking?" check (#2753 item 5). Unset/empty resolves to off through
+          # compose's `:-false`: both routes are a 404 and nothing reads or writes
+          # `still_looking_checks`. Set it true only after the `still_looking_checks` migration is
+          # applied. true/false/1/0/empty only.
+          STILL_LOOKING_CHECK_ENABLED: ${{ secrets.STILL_LOOKING_CHECK_ENABLED }}
+          # Its push (needs the check on too). A NON-SECURITY push: leave it unset (off) until the
+          # owner widens the ADR-0034 push ruling. true/false/1/0/empty only.
+          STILL_LOOKING_PUSH_ENABLED: ${{ secrets.STILL_LOOKING_PUSH_ENABLED }}
+          # How often a worker is asked, in days (default 30, at least 7). A plain tuning number,
+          # bridged like UNLOCK_FOLLOWUP_AFTER_DAYS: absent, compose's `:-30` holds it at 30.
+          STILL_LOOKING_EVERY_DAYS: ${{ secrets.STILL_LOOKING_EVERY_DAYS }}
+          # The numbers screen (#2755): /admin/numbers/*. Unset/empty resolves to off through
+          # compose's `:-false`: every route is a 404 before any query. It needs no migration of its
+          # own; keep it off until the weekly figures ship. true/false/1/0/empty only.
+          ADMIN_NUMBERS_ENABLED: ${{ secrets.ADMIN_NUMBERS_ENABLED }}
+          # How many days after a week ends the numbers sweep freezes it (#2755 part B, default 3).
+          # A plain tuning number, bridged like UNLOCK_FOLLOWUP_AFTER_DAYS: absent, compose's `:-3`
+          # holds it at 3.
+          NUMBERS_FREEZE_AFTER_DAYS: ${{ secrets.NUMBERS_FREEZE_AFTER_DAYS }}
+          # The bulk student move (#2887). Unset/empty resolves to off through compose's `:-false`:
+          # nothing names the student-move tables and /admin/students/* is a 404. Apply the
+          # `student_move` migration BEFORE turning it on. true/false/1/0/empty only.
+          STUDENT_MOVE_ENABLED: ${{ secrets.STUDENT_MOVE_ENABLED }}
+          # The admin AI-calls tab (#2739): GET /admin/ai-traces and /admin/ai-traces/:id, read_ai_traces
+          # (super_admin only). Unset/empty resolves to off through compose's `:-false`: both routes are a
+          # neutral 404 for every role. Turn it on only with the owner's sign-off. true/false/1/0/empty only.
+          ADMIN_AI_TRACE_READ_ENABLED: ${{ secrets.ADMIN_AI_TRACE_READ_ENABLED }}
           # Loud AI alerts (B13, #2567). INERT UNTIL THE SECRETS EXIST: absent, compose's
           # `:-` defaults resolve to today's thresholds (24h window, 10-call minimum, 0.5
           # share) and email OFF — the spine events + admin API carry the signal regardless.
@@ -2288,14 +2499,19 @@ jobs:
           # #2746 — the rollout switches (off | pilot | on), api only. INERT UNTIL THE SECRET
           # EXISTS: absent, it renders empty and compose's `${VAR:-off}` resolves it to off. The
           # deploy preflight refuses anything but off/pilot/on/empty before a container moves.
-          # `pilot` opens the feature to the companies in feature_pilot_payers only.
+          # `pilot` opens the feature to the companies in feature_pilot_payers only (and, for
+          # THEME_ROLLOUT, #2820, to the workers and admins in feature_pilot_subjects).
           JOB_AUDIENCE_ROLLOUT: ${{ secrets.JOB_AUDIENCE_ROLLOUT }}
           CAMPUS_DRIVE_REQUESTS_ROLLOUT: ${{ secrets.CAMPUS_DRIVE_REQUESTS_ROLLOUT }}
           APPLICANT_FACTS_ROLLOUT: ${{ secrets.APPLICANT_FACTS_ROLLOUT }}
           CONTACT_RULES_ROLLOUT: ${{ secrets.CONTACT_RULES_ROLLOUT }}
+          THEME_ROLLOUT: ${{ secrets.THEME_ROLLOUT }}
           # #2768 — open drive requests one company may hold. A plain tuning number, bridged like
           # PAYER_AUTH_MAX_PER_IP_PER_HOUR: absent, compose's `:-3` holds it at the owner's 3.
           CAMPUS_DRIVE_MAX_OPEN_REQUESTS: ${{ secrets.CAMPUS_DRIVE_MAX_OPEN_REQUESTS }}
+          OUTCOME_STAGES_ROLLOUT: ${{ secrets.OUTCOME_STAGES_ROLLOUT }}
+          OUTBOUND_SIGNALS_ROLLOUT: ${{ secrets.OUTBOUND_SIGNALS_ROLLOUT }}
+          CREDIT_RULES_ROLLOUT: ${{ secrets.CREDIT_RULES_ROLLOUT }}
           # #2752 — THE CAMPUS LINK. Declared in docker-compose.staging.yml since #2794 but never
           # bridged, so a production secret could not reach the container and the link could not
           # be switched on. INERT UNTIL THE SECRETS EXIST: absent, each renders empty and compose
@@ -2308,6 +2524,14 @@ jobs:
           RVM_STUDENT_API_TOKEN: ${{ secrets.RVM_STUDENT_API_TOKEN }}
           RVM_STUDENT_API_TIMEOUT_MS: ${{ secrets.RVM_STUDENT_API_TIMEOUT_MS }}
           RVM_CONSENT_RECHECK_SECONDS: ${{ secrets.RVM_CONSENT_RECHECK_SECONDS }}
+          # #2754 — company sign-in by SMS code. INERT UNTIL THE SECRETS EXIST: absent, they render
+          # empty and compose resolves them to off / unset / 500. Arming PAYER_SMS_OTP_ENABLED
+          # without FAST2SMS_PAYER_DLT_TEMPLATE_ID (the company template's DLT id) refuses to boot, and
+          # staging-deploy.sh refuses that pair before a container moves. Since #2754 item 3 an SMS
+          # code signs in only a company that PROVED its phone: apply payer_phone_proofs first.
+          PAYER_SMS_OTP_ENABLED: ${{ secrets.PAYER_SMS_OTP_ENABLED }}
+          FAST2SMS_PAYER_DLT_TEMPLATE_ID: ${{ secrets.FAST2SMS_PAYER_DLT_TEMPLATE_ID }}
+          PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY: ${{ secrets.PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY }}
 
           # #2509 — per-IP hourly cap on the PUBLIC payer auth endpoints (signup /
           # login request / verify). INERT UNTIL THE SECRET EXISTS: absent, it renders
@@ -2483,7 +2707,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,RESUME_OPTION_MAP_REQUIRES_AUTOFILL,PROFILING_TIERS_ENABLED,FORM_TYPED_TENURE_DERIVE_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_TURN_UNDERSTANDING_ENABLED,PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED,CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED,CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,CHAT_FREE_CHAT_DISABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,ADMIN_NAME_TOKEN_KEYS,ADMIN_NAME_TOKEN_ACTIVE_KID,AI_RAW_PII_ENABLED,MATCH_V1_ENABLED,FEED_POSTINGS_UNION_ENABLED,AGENCY_TWIN_SYNC_ENABLED,PAYER_APPLICANT_STAGES_ENABLED,LEVEL_NEEDED_SORT_ENABLED,ADMIN_ENGINE_VIEW_ALLOW_PHONES,PAYER_LOGIN_METHOD,PAYER_ORG_TENANCY_MODE,JOB_AUDIENCE_ROLLOUT,CAMPUS_DRIVE_REQUESTS_ROLLOUT,CAMPUS_DRIVE_MAX_OPEN_REQUESTS,APPLICANT_FACTS_ROLLOUT,CONTACT_RULES_ROLLOUT,CAMPUS_LINK_ENABLED,CAMPUS_SERVICE_TOKEN_SHA256S,CAMPUS_SERVICE_ALLOWED_IPS,CAMPUS_SERVICE_MAX_PER_MINUTE,RVM_STUDENT_API_BASE_URL,RVM_STUDENT_API_TOKEN,RVM_STUDENT_API_TIMEOUT_MS,RVM_CONSENT_RECHECK_SECONDS,PAYER_AUTH_MAX_PER_IP_PER_HOUR,SIGNUP_AGE_GATE_ENABLED,TRUST_PROXY_HOP_COUNT,AI_FALLBACK_ALERT_WINDOW_HOURS,AI_FALLBACK_ALERT_MIN_CALLS,AI_FALLBACK_ALERT_SHARE,AI_ALERT_EMAIL_ENABLED,AI_ALERT_EMAIL_TO
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,RESUME_OPTION_MAP_REQUIRES_AUTOFILL,PROFILING_TIERS_ENABLED,FORM_TYPED_TENURE_DERIVE_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_TURN_UNDERSTANDING_ENABLED,PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED,CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED,CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,CHAT_FREE_CHAT_DISABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,ADMIN_NAME_TOKEN_KEYS,ADMIN_NAME_TOKEN_ACTIVE_KID,AI_RAW_PII_ENABLED,MATCH_V1_ENABLED,FEED_POSTINGS_UNION_ENABLED,AGENCY_TWIN_SYNC_ENABLED,PAYER_APPLICANT_STAGES_ENABLED,LEVEL_NEEDED_SORT_ENABLED,ADMIN_ENGINE_VIEW_ALLOW_PHONES,PAYER_LOGIN_METHOD,PAYER_ORG_TENANCY_MODE,JOB_AUDIENCE_ROLLOUT,CAMPUS_DRIVE_REQUESTS_ROLLOUT,CAMPUS_LINK_ENABLED,CAMPUS_SERVICE_TOKEN_SHA256S,CAMPUS_SERVICE_ALLOWED_IPS,CAMPUS_SERVICE_MAX_PER_MINUTE,RVM_STUDENT_API_BASE_URL,RVM_STUDENT_API_TOKEN,RVM_STUDENT_API_TIMEOUT_MS,RVM_CONSENT_RECHECK_SECONDS,PAYER_SMS_OTP_ENABLED,FAST2SMS_PAYER_DLT_TEMPLATE_ID,PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY,PAYER_AUTH_MAX_PER_IP_PER_HOUR,SIGNUP_AGE_GATE_ENABLED,TRUST_PROXY_HOP_COUNT,AI_FALLBACK_ALERT_WINDOW_HOURS,AI_FALLBACK_ALERT_MIN_CALLS,AI_FALLBACK_ALERT_SHARE,AI_ALERT_EMAIL_ENABLED,AI_ALERT_EMAIL_TO,SEARCH_EXIT_ENABLED,REFERRAL_HELPER_NAME_ENABLED,AVAILABILITY_ANSWERS_V2_ENABLED,PAY_ON_JOINING_RECORDS_ENABLED,POJ_PARTNER_SHARE_PERCENT,WORKER_ACTIVITY_ENABLED,CAMPUS_DRIVE_MAX_OPEN_REQUESTS,APPLICANT_FACTS_ROLLOUT,CONTACT_RULES_ROLLOUT,OUTCOME_STAGES_ROLLOUT,OUTBOUND_SIGNALS_ROLLOUT,CREDIT_RULES_ROLLOUT,THEME_ROLLOUT,HIRE_RECORDS_ENABLED,UNLOCK_FOLLOWUP_ENABLED,UNLOCK_FOLLOWUP_AFTER_DAYS,STILL_LOOKING_CHECK_ENABLED,STILL_LOOKING_PUSH_ENABLED,STILL_LOOKING_EVERY_DAYS,ADMIN_NUMBERS_ENABLED,NUMBERS_FREEZE_AFTER_DAYS,STUDENT_MOVE_ENABLED,ADMIN_AI_TRACE_READ_ENABLED,FORM_TENURE_MONTHS_ENABLED,CONSENT_NOTICE_URL
           #
           # ⚠ FIVE LINKS, AND A SECRET ONLY BUYS THE FIRST. A value reaches a container by:
           #   1. existing as a GitHub environment secret

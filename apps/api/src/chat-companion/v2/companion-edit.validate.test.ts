@@ -1045,3 +1045,44 @@ describe("qualification whole-entry deletes are Profile-only (TD151(1), 2026-10-
     for (const entry of qualifications) expect(entry.ops).toEqual(["edit"]);
   });
 });
+
+describe("availability_status — both answer sets are legal edits (#2753 item 3)", () => {
+  // The edit layer reads no flag: the writer's DTO accepts either set whatever
+  // AVAILABILITY_ANSWERS_V2_ENABLED says, so the card may carry either, each in its own words.
+  it("a key of the brief's four over a stored old answer: kept, and both sides labelled as said", async () => {
+    const h = setup({
+      parse: parse([
+        row({ op: "edit", section: "preferences", ref: "pref", field: "availability_status", value: "in_15_days" }),
+      ]),
+      preferenceValues: {
+        availability: { status: "within_week", available_from: null, notice_period_days: null },
+      },
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "15 din mein join kar sakta hoon", CTX);
+    expect(savedRows(h).map((r) => r.value)).toEqual(["in_15_days"]);
+    expect(turn.edit_proposal?.rows[0]).toMatchObject({
+      field_label: "Kab join kar sakte hain",
+      before: "within_week",
+      after: "in_15_days",
+      before_display: "Within a week",
+      after_display: "Can join in 15 days",
+    });
+  });
+
+  it("an old key over a stored new answer is still a legal edit (an installed build's words)", async () => {
+    const h = setup({
+      parse: parse([
+        row({ op: "edit", section: "preferences", ref: "pref", field: "availability_status", value: "serving_notice" }),
+      ]),
+      preferenceValues: {
+        availability: { status: "working_open", available_from: null, notice_period_days: null },
+      },
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "notice pe hoon", CTX);
+    expect(savedRows(h).map((r) => r.value)).toEqual(["serving_notice"]);
+    expect(turn.edit_proposal?.rows[0]).toMatchObject({
+      before_display: "Working, open to a better offer",
+      after_display: "Serving notice",
+    });
+  });
+});

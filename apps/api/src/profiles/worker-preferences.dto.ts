@@ -3,7 +3,7 @@ import { canonicalCity } from "@badabhai/profiling-lexicon";
 
 import { credentialYearSchema } from "./credential-year";
 import {
-  AVAILABILITY_STATUSES,
+  AVAILABILITY_STATUSES_ALL,
   DOCUMENTS_READY,
   EDUCATION_COUNCILS,
   EDUCATION_CREDENTIALS,
@@ -157,10 +157,15 @@ export const SetMyPreferencesSchema = z
      * `available_from` IS A DATE STRING, not a parsed Date: it is the worker's stated day, it
      * prints as stated (day precision, no timezone arithmetic), and a Date in a jsonb column
      * would round-trip through UTC and shift under IST.
+     *
+     * `status` ACCEPTS BOTH SETS, WHATEVER `AVAILABILITY_ANSWERS_V2_ENABLED` SAYS (#2753 item 3).
+     * The flag decides which chips the options route OFFERS; it never narrows what a save may
+     * carry. An installed build keeps sending the first set after the switch, and this schema is
+     * `.strict()` on the whole page, so refusing one old key would lose every other answer too.
      */
     availability: z
       .object({
-        status: z.enum(optionsOf(AVAILABILITY_STATUSES)).nullable().optional(),
+        status: z.enum(optionsOf(AVAILABILITY_STATUSES_ALL)).nullable().optional(),
         available_from: z
           .string()
           .regex(/^\d{4}-\d{2}-\d{2}$/, "available_from must be YYYY-MM-DD")

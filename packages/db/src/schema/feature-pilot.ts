@@ -36,3 +36,46 @@ export const featurePilotPayers = pgTable(
     check("fpp_reason_chk", sql`char_length(${t.reason}) BETWEEN 1 AND 500`),
   ],
 ).enableRLS();
+
+/** The logins a pilot can name one by one; a company is listed by tenant key above instead. */
+export const FEATURE_PILOT_SUBJECT_KINDS = ["worker", "admin"] as const;
+export type FeaturePilotSubjectKind = (typeof FEATURE_PILOT_SUBJECT_KINDS)[number];
+
+/**
+ * The pilot list for the logins that are not a company (#2820): one row per (feature, kind,
+ * login). `subject_id` is `workers.id` for a worker and `admin_users.id` for an admin, always the
+ * id the auth guard put on the request. The company list keeps its tenant meaning, so a company is
+ * never listed here.
+ *
+ * NO FOREIGN KEY, on purpose. One column names a row in one of two tables, so no single FK fits,
+ * and a pilot row must never block or delay deleting a worker (a DPDP erasure) or an admin. So no
+ * cascade erases it: every worker deletion path deletes his rows itself, on its own transaction
+ * (`eraseLoginKeyedRows` in the api, #2837, risk R87). No admin deletion exists. `reason` still
+ * never names the person (an owner may type it, and it is read beside the id); say why the login
+ * is piloted, not who it is.
+ *
+ * Same rules as the company list: `added_by` and `reason` on every row, written by the owner
+ * (SQL) or a later admin route, never by the login itself, and a read error means "not listed".
+ */
+export const featurePilotSubjects = pgTable(
+  "feature_pilot_subjects",
+  {
+    feature: text("feature").notNull(),
+    subjectKind: text("subject_kind").$type<FeaturePilotSubjectKind>().notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    /** As `feature_pilot_payers.added_by`: an admin id or a fixed token, never a name. */
+    addedBy: text("added_by").notNull(),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({
+      name: "feature_pilot_subjects_pk",
+      columns: [t.feature, t.subjectKind, t.subjectId],
+    }),
+    check("fps_feature_chk", sql`${t.feature} ~ '^[a-z][a-z0-9_]{1,63}$'`),
+    check("fps_subject_kind_chk", sql`${t.subjectKind} IN ('worker', 'admin')`),
+    check("fps_added_by_chk", sql`${t.addedBy} ~ '^[A-Za-z0-9._:-]{1,128}$'`),
+    check("fps_reason_chk", sql`char_length(${t.reason}) BETWEEN 1 AND 500`),
+  ],
+).enableRLS();

@@ -1,0 +1,52 @@
+-- ===========================================================================
+-- 0166 - payer_applicant_stages.stage: the outcome stages 'selected' and 'hired'
+--
+-- #2747 item 7 (brief 4B.8). A company marks an applicant selected, then hired, on
+-- the same per-posting board as New / Shortlist / Passed (migration 0134).
+--
+-- ONE CHANGE, ADDITIVE. `payer_applicant_stages_stage_chk` is WIDENED to admit
+-- 'selected' and 'hired' (DROP + ADD). Every value 0134 allowed is still allowed,
+-- so no stored row can fail the re-added constraint. No column, no index, no row.
+--
+-- DEPLOY ORDER - APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY. No column changes,
+-- so no select anywhere is affected by a build that reaches the database first.
+-- The only write that needs this migration - PUT .../applicants/:workerId/stage
+-- with 'selected' or 'hired' - is refused with a 400 while OUTCOME_STAGES_ROLLOUT
+-- (feature key `outcome_stages`, default off) is off for the company. With the
+-- switch on before 0166 the write fails this CHECK (23514): the transaction rolls
+-- back, nothing is written, no event is emitted, the request answers 500, and
+-- PayerApplicantStagesService logs "is migration 0166 applied?".
+--
+-- LOCKS. DROP CONSTRAINT and a validated ADD CONSTRAINT ... CHECK take ACCESS
+-- EXCLUSIVE on `payer_applicant_stages` and the ADD scans it. The table holds one
+-- row per moved applicant, so the scan is small; the real risk is queueing behind
+-- a long transaction while both applicant feeds wait. Applied by hand: wrap BOTH
+-- statements in ONE explicit BEGIN/COMMIT (psql -f would otherwise commit the DROP
+-- alone and leave a window with no stage constraint) with
+-- `SET LOCAL lock_timeout = '3s';`, and retry on 55P03 (the 0129/0130 precedent).
+--
+-- VERIFY AFTER APPLYING, BEFORE THE SWITCH GOES ON. `db:audit:schema-contract` and
+-- adoption see the constraint, not its list:
+--   SELECT pg_get_constraintdef(oid) FROM pg_constraint
+--   WHERE conname = 'payer_applicant_stages_stage_chk';
+-- must list all five stages, 'selected' and 'hired' included.
+--
+-- ROLLBACK. A CODE rollback needs no schema change: the widened CHECK admits every
+-- value an older build writes, and an older build reads a stored 'selected' or
+-- 'hired' as 'new'. A SCHEMA rollback (switch off first) is valid only while no
+-- outcome row exists - check
+--   SELECT count(*) FROM payer_applicant_stages WHERE stage IN ('selected', 'hired');
+-- is 0 - then:
+--   ALTER TABLE "payer_applicant_stages" DROP CONSTRAINT "payer_applicant_stages_stage_chk";
+--   ALTER TABLE "payer_applicant_stages" ADD CONSTRAINT "payer_applicant_stages_stage_chk"
+--     CHECK ("payer_applicant_stages"."stage" IN ('new', 'shortlist', 'passed'));
+-- and delete this migration's row from drizzle.__drizzle_migrations (the one whose
+-- created_at is this entry's journal `when`), or drizzle's watermark skips
+-- re-applying 0166 forever. Once a company has marked anyone, the re-add fails
+-- validation and the rollback needs an owner decision (move those rows to another
+-- stage, or re-add the old CHECK `NOT VALID`).
+--
+-- SAFE TO RE-RUN: no (plain DROP/ADD CONSTRAINT). Apply once.
+-- ===========================================================================
+ALTER TABLE "payer_applicant_stages" DROP CONSTRAINT "payer_applicant_stages_stage_chk";--> statement-breakpoint
+ALTER TABLE "payer_applicant_stages" ADD CONSTRAINT "payer_applicant_stages_stage_chk" CHECK ("payer_applicant_stages"."stage" IN ('new', 'shortlist', 'passed', 'selected', 'hired'));

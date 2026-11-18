@@ -23,6 +23,9 @@ import { ApplicationsRepository } from "./applications.repository";
  */
 
 const dialect = new PgDialect();
+/** #2891 — the Campus hold `reachesBadaBhaiWorkers()` ends with (its own NOT EXISTS). */
+const HOLD_CLAUSE =
+  / AND NOT EXISTS \(SELECT 1 FROM job_posting_worker_visibility jpwv WHERE jpwv\.job_posting_id = [^)]+ AND jpwv\.state <> 'on'\)/;
 /**
  * Compile one projection/predicate node to text. Wrapped in a `sql` template because a
  * Drizzle selection mixes SQL nodes (`coalesce(...)`) with BARE COLUMN references
@@ -136,6 +139,45 @@ describe("findApplicationsByWorker — the location_label boundary", () => {
     expect(projection).not.toContain("payer_id");
     expect(projection).not.toContain("pay_min");
     expect(projection).not.toContain("pay_max");
+  });
+});
+
+/**
+ * #2753 item 8 — `via` is read IN THIS STATEMENT. The service only maps the bit, and every
+ * service test mocks this method, so only a statement-level test sees that it is one EXISTS (no
+ * fourth join that could fan a decision out, no read per row) and that it counts a LIVE Campus
+ * record that OWNS the application only (`via` names who created it). That Postgres agrees is
+ * campus-jobs.db.test.ts.
+ */
+describe("findApplicationsByWorker — `via` from a live Campus record that owns it (#2753)", () => {
+  it("projects one EXISTS over institute_applications, correlated on the application AND the worker", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findApplicationsByWorker(WORKER);
+    const via = col(captured, "viaCampus");
+
+    expect(via).toMatch(/^exists \( select 1 from "institute_applications"/i);
+    expect(via).toContain('"institute_applications"."application_id" = "applications"."id"');
+    // The worker id puts it on `institute_applications_worker_idx` (no index on application_id).
+    expect(via).toContain('"institute_applications"."worker_id" = "applications"."worker_id"');
+    // WHO CREATED it: a Campus record that points at his own app apply does not make it Campus's.
+    expect(via).toMatch(/and "institute_applications"\."owns_application" and/);
+    expect(via).toContain('"institute_applications"."withdrawn_at" is null');
+    // Still three joins: the Campus record is never joined, so it cannot multiply a row.
+    expect(captured.joins).toHaveLength(3);
+    expect(captured.joins.map((j) => render(j.on)).join(" | ")).not.toContain(
+      "institute_applications",
+    );
+  });
+
+  it("projects a bit only — never the Campus ref, the student ref or the Campus record's id", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findApplicationsByWorker(WORKER);
+    const via = col(captured, "viaCampus");
+
+    for (const column of ["external_ref", "student_ref", "campus_applied_at"]) {
+      expect(via).not.toContain(column);
+    }
+    expect(via).toMatch(/select 1 /i);
   });
 });
 
@@ -535,12 +577,19 @@ describe("#1823 findOpenPostingsForFeed — the §2.1 predicates, each separate"
   it("(1c) #2746 — only an audience a BadaBhai worker may see, by the shared fragment", async () => {
     const { sql: text, params } = await whereOf({ wantedSkillIds: [] });
     expect(text).toContain(`"job_postings"."audience" IN ('badabhai_workers', 'both')`);
+    // #2891 — and the Campus hold, on the same posting.
+    expect(text).toMatch(HOLD_CLAUSE);
+    expect(text).toContain(`jpwv.job_posting_id = "job_postings"."id"`);
     // Literal, not bound: the fragment adds no parameter.
     expect(params).not.toContain("badabhai_workers");
   });
 
   it("(3a)(3b)(4) are THREE separate NOT EXISTS — the applied anti-joins and the twin guard", async () => {
-    const { sql: text, params } = await whereOf({ wantedSkillIds: [] });
+    const { sql: whole, params } = await whereOf({ wantedSkillIds: [] });
+    // The #2891 Campus hold inside the shared fragment is its own NOT EXISTS; set it aside (its
+    // presence is pinned in the (1c) test above) so the split below sees only these three.
+    const text = whole.replace(HOLD_CLAUSE, "");
+    expect(whole.length - text.length).toBeGreaterThan(0);
     // Split at each NOT EXISTS: [prefix, (3a), (3b), (4)].
     const [, a3 = "", b3 = "", twin = ""] = text.split(/not exists/i);
     expect(text.match(/not exists/gi)).toHaveLength(3);

@@ -38,6 +38,18 @@ export class OtpSendCapExceededException extends HttpException {
   }
 }
 
+/**
+ * #2754 — the company sign-in SMS path's own daily ceiling tripped
+ * (`PAYER_SMS_OTP_GLOBAL_MAX_SENDS_PER_DAY`). A sibling of {@link OtpSendCapExceededException},
+ * not a third channel on it: the breach event's channel enum is closed, so this one is reported
+ * as `payer.sms_send_cap_exceeded`. The same neutral 429 and the same aggregate facts.
+ */
+export class PayerSmsSendCapExceededException extends HttpException {
+  constructor(public readonly breach: Omit<OtpSendCapBreach, "channel">) {
+    super(OTP_SEND_CAP_THROTTLE_MESSAGE, HttpStatus.TOO_MANY_REQUESTS);
+  }
+}
+
 /** UTC-day stamp `YYYYMMDD` — the global breaker's window namespace + event `window`. */
 export function utcDayStamp(now: Date = new Date()): string {
   const y = now.getUTCFullYear();

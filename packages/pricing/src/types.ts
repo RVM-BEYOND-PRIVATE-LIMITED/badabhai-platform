@@ -9,7 +9,8 @@
  * INVARIANTS (ADR-0013 §A.3):
  *  - PII-FREE: codes, ids, integer ₹ amounts, percentages, ISO timestamps ONLY.
  *    Never a payer name, a worker identity, or any free text beyond stable codes.
- *  - Money is WHOLE INDIAN RUPEES (₹), integer — never paise, never float.
+ *  - Money is WHOLE INDIAN RUPEES (₹), integer — never paise, never float. (The GST line in
+ *    gst.ts is integer paise, DERIVED from these rupees; it is never stored in the catalog.)
  *  - Deterministic: the catalog is data; resolvePrice() (resolve.ts) is pure math.
  *  - Fail-closed: a row that would yield a zero/negative/garbage price fails Zod
  *    here and is rejected by safeParseCatalog() (catalog.ts) — never served.
@@ -19,6 +20,7 @@
  * booster, and the contact-unlock credit packs (absorbed from credit-packs.ts).
  */
 import { z } from "zod";
+import { istDayStartMs } from "./on-sale";
 
 /** A stable, machine code (product/tier/offer/coupon id). No spaces, lowercase. */
 export const codeSchema = z
@@ -70,22 +72,55 @@ export const boostTierSchema = z.object({
 });
 export type BoostTier = z.infer<typeof boostTierSchema>;
 
+/** The longest a credit pack's credits may last, in days: ten years (#2749). */
+export const MAX_CREDIT_VALIDITY_DAYS = 3660;
+
+/**
+ * A calendar date `YYYY-MM-DD`, read as that day in India (IST). The date must exist:
+ * `2027-02-30` and `2027-13-01` fail.
+ */
+export const istCalendarDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD")
+  .refine((date) => istDayStartMs(date) !== null, "date must be a real calendar date");
+
 /**
  * A credit pack tier (contact-unlock packs, absorbed from credit-packs.ts).
  *
- * ⚠️ PAYER-VISIBLE (D-6) — see {@link postingTierSchema}: these fields ship to the portal
- * via `GET /payer/pricing/catalog`, AND since D-6 they are the CHARGE source too
- * (`PaymentGateway.resolvePack` resolves `priceInr`/`credits` from this tier, with the
- * legacy `CREDIT_PACKS` constants as the fallback) — so editing a value here changes what
- * a payer is both SHOWN and CHARGED. PII-free, non-secret values only.
+ * CHARGE SOURCE (D-6, #2749): `PaymentGateway.resolvePack` charges `priceInr` and grants
+ * `credits` from this tier, and ONLY for a tier that is on sale ({@link isCreditPackOnSale}).
+ * There is no constant fallback any more, so editing a value here changes what a payer is
+ * CHARGED.
+ *
+ * PAYER PROJECTION (#2749): `GET /payer/pricing/catalog` no longer ships these tiers whole. It
+ * builds each one from a whitelist (`PricingService.getPayerCatalog`), shows only tiers on sale,
+ * and never ships `onSaleFrom` or `offered`. A field added here is therefore NOT payer-visible
+ * until that whitelist names it. PII-free, non-secret values only.
+ *
+ * Every field after `windowDays` is OPTIONAL: a stored catalogue written before it must still
+ * validate, because a row that fails validation is not served at all (the engine falls back to
+ * DEFAULT_CATALOG).
  */
 export const creditPackTierSchema = z.object({
   code: codeSchema,
   priceInr: priceInrSchema,
   /** Credits granted by buying this pack. */
   credits: positiveIntSchema,
-  /** Access-window days a granted entitlement is valid for. */
+  /**
+   * The OLD 14-day contact-access window a granted unlock is valid for. Kept because older
+   * readers require it; it is NOT how long the credits last (that is `validityDays`).
+   */
   windowDays: positiveIntSchema,
+  /**
+   * How long the credits from this pack last, in days (#2749). Absent or null = not set. Null is
+   * accepted because the payer catalogue ships `validityDays: null` for an unset pack and the
+   * portal parses that response with this same schema.
+   */
+  validityDays: z.number().int().min(1).max(MAX_CREDIT_VALIDITY_DAYS).nullish(),
+  /** The pack is hidden and cannot be ordered before 00:00 IST on this date (#2749). */
+  onSaleFrom: istCalendarDateSchema.optional(),
+  /** `false` takes the pack off sale; absent means offered (#2749). */
+  offered: z.boolean().optional(),
 });
 export type CreditPackTier = z.infer<typeof creditPackTierSchema>;
 

@@ -666,13 +666,54 @@ export const unlockGrantedSchema = z.object({
   unlockId: z.string().uuid(),
   status: z.literal("granted"),
   expiresAt: z.string(),
+  /** #2750: the credits the open took (0 on a re-open); absent outside the credit rules. */
+  creditsCharged: z.number().int().nonnegative().optional(),
 });
 
 /** The byte-identical neutral body shared by every deny branch (XB-C / no-oracle). */
 export const unlockNeutralSchema = z.object({ status: z.literal("unavailable") });
 
-export const unlockResultSchema = z.union([unlockGrantedSchema, unlockNeutralSchema]);
+/**
+ * #2750 — the honest "not enough credits" refusal for a company under the credit rules.
+ * Distinguishable from the neutral deny ONLY here; every other refusal stays neutral.
+ */
+export const unlockInsufficientSchema = z.object({
+  status: z.literal("insufficient_credits"),
+  creditsNeeded: z.number().int().nonnegative(),
+  creditsAvailable: z.number().int().nonnegative(),
+});
+
+/** #2750 part D — the worker reached his weekly opening limit; nothing was charged. */
+export const unlockWorkerWeekSchema = z.object({
+  status: z.literal("worker_unavailable_this_week"),
+});
+
+/** #2750 part D — an agency reached its IST-day opening limit; nothing was charged. */
+export const unlockDailyLimitSchema = z.object({
+  status: z.literal("daily_limit_reached"),
+  dailyLimit: z.number().int().positive(),
+});
+
+export const unlockResultSchema = z.union([
+  unlockGrantedSchema,
+  unlockInsufficientSchema,
+  unlockWorkerWeekSchema,
+  unlockDailyLimitSchema,
+  unlockNeutralSchema,
+]);
 export type UnlockResult = z.infer<typeof unlockResultSchema>;
+
+/**
+ * `POST /payer/unlocks/quotes` — one page's contact prices (#2750), camelCase at the seam.
+ * `quotes` is worker id → credits (0 = already open / free); `creditsAvailable` is the
+ * company's spendable balance. The route answers 404 for a company outside the credit rules.
+ */
+export interface UnlockQuotes {
+  quotes: Record<string, number>;
+  creditsAvailable: number;
+  /** #2750 part C — workers whose open is free because of an RVM waiver. */
+  waived?: Record<string, true>;
+}
 
 /* ── Reveal → ROUTED contact handle (LIVE: POST /payer/unlocks/:id/reveal) ─────── */
 
@@ -931,6 +972,21 @@ export const payerMeWireSchema = z.object({
 export type PayerMeWire = z.infer<typeof payerMeWireSchema>;
 
 /**
+ * `GET /payer/me/phone-proof` (#2754 item 3) — whether the account's CURRENT phone is proven
+ * (it signs this company in by SMS code). A 404 means company SMS sign-in is switched off.
+ */
+export const payerPhoneProofStatusWireSchema = z.object({ proven: z.boolean() });
+
+/** `POST /payer/me/phone-proof` — a code is on its way to the account's CURRENT phone. */
+export const payerPhoneProofCodeWireSchema = z.object({
+  status: z.literal("code_sent"),
+  resend_in_seconds: z.number(),
+});
+
+/** `POST /payer/me/phone-proof/verify` — the account's current phone is proven. */
+export const payerPhoneProofVerifiedWireSchema = z.object({ status: z.literal("proven") });
+
+/**
  * The agency's OWN account identity for the dashboard identity card (mapped from
  * GET /payer/me). Carries ONLY the agency's own non-PII fields — role, account
  * status, and the org's own display label. NEVER a worker name/phone (faceless).
@@ -987,9 +1043,42 @@ export const unlockGrantedWireSchema = z.object({
   unlock_id: z.string().uuid(),
   status: z.literal("granted"),
   expires_at: z.string(),
+  /** #2750, additive: absent for a company outside the credit rules. */
+  credits_charged: z.number().int().nonnegative().optional(),
 });
 export const neutralWireSchema = z.object({ status: z.literal("unavailable") });
-export const unlockResultWireSchema = z.union([unlockGrantedWireSchema, neutralWireSchema]);
+export const unlockInsufficientWireSchema = z.object({
+  status: z.literal("insufficient_credits"),
+  credits_needed: z.number().int().nonnegative(),
+  credits_available: z.number().int().nonnegative(),
+});
+export const unlockWorkerWeekWireSchema = z.object({
+  status: z.literal("worker_unavailable_this_week"),
+});
+export const unlockDailyLimitWireSchema = z.object({
+  status: z.literal("daily_limit_reached"),
+  daily_limit: z.number().int().positive(),
+});
+export const unlockResultWireSchema = z.union([
+  unlockGrantedWireSchema,
+  unlockInsufficientWireSchema,
+  unlockWorkerWeekWireSchema,
+  unlockDailyLimitWireSchema,
+  neutralWireSchema,
+]);
+
+/** POST /payer/unlocks/quotes — snake_case (#2750). */
+export const unlockQuoteWireSchema = z.object({
+  worker_id: z.string().uuid(),
+  credits: z.number().int().nonnegative(),
+  /** Present only when true: the RVM placement team waived this open. */
+  waived: z.literal(true).optional(),
+});
+export const unlockQuotesWireSchema = z.object({
+  quotes: z.array(unlockQuoteWireSchema),
+  credits_available: z.number().int().nonnegative(),
+});
+export type UnlockQuotesWire = z.infer<typeof unlockQuotesWireSchema>;
 
 /**
  * POST /payer/credits — buy a credit pack (LIVE, @HttpCode(201)). The request body

@@ -17,8 +17,11 @@ import {
   type InstituteCode,
   type InstituteStudentStatus,
   type WorkerOriginKind,
+  studentVisibilityPresent,
 } from "@badabhai/db";
+import { eraseLoginKeyedRows } from "../common/login-keyed-rows";
 import { DATABASE } from "../database/database.module";
+import { warnStudentVisibilityMissingOnce } from "../student-move/student-visibility-missing";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 
 export type InstituteLinkRow = typeof workerInstituteLinks.$inferSelect;
@@ -128,6 +131,24 @@ export class InstituteLinkRepository {
    * His live link, or undefined. On the global pool: the open gate reads it before the unlock's
    * advisory lock, beside the consent read it stands in for (the pool-vs-lock deadlock rule).
    */
+  /**
+   * #2887 — a moved student's visibility: `visible`, `hidden`, or null for a worker who was never
+   * moved. Asked only while STUDENT_MOVE_ENABLED is on. A missing `student_visibility` (the switch
+   * set before the migration) reads as null, logged once: today's rules, never a guess.
+   */
+  async studentVisibilityOf(workerId: string): Promise<"visible" | "hidden" | null> {
+    if (!(await studentVisibilityPresent(this.db))) {
+      warnStudentVisibilityMissingOnce();
+      return null;
+    }
+    const rows = (await this.db.execute(sql`
+      SELECT visible FROM student_visibility WHERE worker_id = ${workerId}::uuid
+    `)) as unknown as { visible: boolean }[];
+    const row = rows[0];
+    if (row === undefined) return null;
+    return row.visible ? "visible" : "hidden";
+  }
+
   async findActiveByWorker(workerId: string): Promise<InstituteLinkRow | undefined> {
     const rows = await this.db
       .select()
@@ -279,6 +300,10 @@ export class InstituteLinkRepository {
    * cascades his link, origin and applications and sets his billing rows' worker to null, as the
    * DPDP erasure's own delete does; with no account there are no sessions, files or transcripts
    * for `AccountDeletionService` to sweep. False when nothing was deleted.
+   *
+   * #2837 — when the row went, the rows keyed on his id that no cascade reaches go with it on `tx`
+   * ({@link eraseLoginKeyedRows}: a theme a pre-consent screen saved, an owner-added pilot place),
+   * after the row delete as on every erasure path. A row that stays keeps them: it is his account.
    */
   async deleteLinkCreatedPendingWorker(
     tx: Database,
@@ -324,7 +349,9 @@ export class InstituteLinkRepository {
         ),
       )
       .returning({ id: workers.id });
-    return rows.length > 0;
+    if (rows.length === 0) return false;
+    await eraseLoginKeyedRows(tx, { kind: "worker", id: workerId });
+    return true;
   }
 
   /**

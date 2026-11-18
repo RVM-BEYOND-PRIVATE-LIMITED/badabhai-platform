@@ -21,10 +21,14 @@ import { isSyntheticPayerEmail } from "../payers/payer-test-login.guard";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 // #2497's never-matching scrypt token — now shared with the admin password door (0144).
 import { DUMMY_PASSWORD_HASH } from "../common/password-policy";
-import { OtpSendCapExceededException } from "../common/otp-send-cap";
+import {
+  OtpSendCapExceededException,
+  PayerSmsSendCapExceededException,
+} from "../common/otp-send-cap";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { PayersRepository, CURRENT_PASSWORD_PEPPER_VERSION } from "../payers/payers.repository";
+import { PayerPhoneProofsRepository } from "../payers/payer-phone-proofs.repository";
 import { PayerOrgsRepository, type ResolvedOrg } from "../payers/payer-orgs.repository";
 import { PayerSessionService } from "../payers/payer-session.service";
 import { barredPayerMessage, isBarredPayerStatus } from "../payers/payer-barred-status";
@@ -32,7 +36,11 @@ import { payerPasswordAttemptsKey } from "../payers/payer-password-lockout";
 import { PayerSecurityNoticeService } from "../payers/payer-security-notice.service";
 import { resolveSessionOrgClaim } from "../payers/payer-session-org-claim";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
-import { PayerOtpService, type PayerOtpIssued } from "../payers/payer-otp.service";
+import {
+  PayerOtpService,
+  type PayerOtpIssued,
+  type PayerOtpRoute,
+} from "../payers/payer-otp.service";
 import { FreeTierService } from "../match/free-tier.service";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import type {
@@ -52,6 +60,9 @@ import type {
  * both calls, so the rule has to be deterministic AND identical everywhere.
  */
 type PayerLoginContact = { kind: "email"; value: string } | { kind: "phone"; value: string };
+
+/** #2754 — the only numbers a company SMS code may go to: an Indian mobile, in E.164. */
+export const INDIAN_MOBILE_E164 = /^\+91[6-9]\d{9}$/;
 
 /** Minimal typed view of the raw Redis commands the password lockout needs. */
 interface RedisPasswordClient {
@@ -99,6 +110,8 @@ export class PayerAuthService {
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
     // #2563 — the credential-change security notice (best-effort, after commit).
     private readonly notice: PayerSecurityNoticeService,
+    // #2754 item 3 — which account PROVED a phone: the only way an SMS code resolves an account.
+    private readonly phoneProofs: PayerPhoneProofsRepository,
   ) {}
 
   private get method(): PayerLoginMethodEnum {
@@ -178,7 +191,11 @@ export class PayerAuthService {
         // UNKNOWN contact: run the IDENTICAL reserve (cooldown/cap/store) WITHOUT delivery so
         // the observable timing/response + 429s match a known account. No event is emitted
         // (no subject), and that asymmetry is not caller-observable (the body is identical).
-        issued = await this.otp.issueWithoutDelivery(this.contactHash(contact));
+        // The route comes from the contact alone (#2754), so the daily ceiling counted is the same.
+        issued = await this.otp.issueWithoutDelivery(
+          this.contactHash(contact),
+          this.routeFor(contact),
+        );
       }
       return this.codeResponse(issued);
     } catch (err) {
@@ -280,7 +297,14 @@ export class PayerAuthService {
 
     // A reserved code for an UNKNOWN contact (issued for timing parity) can verify, but a
     // session is minted ONLY for a real account — otherwise return the SAME 401 (no oracle).
-    const account = await this.findByContact(contact);
+    // #2754 item 3 — an SMS code signs in ONLY the account that PROVED this phone (and still holds
+    // it): never the first row of a phone two companies share, never an unproven typed number.
+    // An unproven, stale or unknown phone (or the proof table missing, 42P01) is the same 401.
+    const route = this.routeFor(contact);
+    const account =
+      route === "sms"
+        ? await this.phoneProofs.findProvenAccount(this.contactHash(contact))
+        : await this.findByContact(contact);
     if (!account) throw new UnauthorizedException("Incorrect or expired code");
 
     // Guarantee the payer's solo org + owner membership (ADR-0027 / B5). Cheap common case
@@ -333,14 +357,27 @@ export class PayerAuthService {
     // PayerOrgRoleGuard re-reads the CURRENT role on every owner-only request.
     const session = await this.sessions.create(account.id, account.role, org);
     await this.recordLogin(account.id);
-    await this.events.emit({
-      event_name: "payer.session_started",
-      actor: { actor_type: "payer", actor_id: account.id },
-      subject: { subject_type: "payer", subject_id: account.id },
-      payload: { payer_id: account.id, method: this.method, is_new_payer: false },
+    const sessionEvent = {
+      actor: { actor_type: "payer" as const, actor_id: account.id },
+      subject: { subject_type: "payer" as const, subject_id: account.id },
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
-    });
+    };
+    // #2754 — an SMS sign-in is `sms_otp`, a method only the v2 event carries; every other
+    // sign-in keeps emitting v1 exactly as before.
+    if (route === "sms") {
+      await this.events.emit({
+        ...sessionEvent,
+        event_name: "payer.session_started_v2",
+        payload: { payer_id: account.id, method: "sms_otp", is_new_payer: false },
+      });
+    } else {
+      await this.events.emit({
+        ...sessionEvent,
+        event_name: "payer.session_started",
+        payload: { payer_id: account.id, method: this.method, is_new_payer: false },
+      });
+    }
 
     return {
       access_token: session.token,
@@ -394,17 +431,41 @@ export class PayerAuthService {
    * `payer.login_requested` (login path) — never on the signup path (it has `payer.created`).
    */
   private async issueForExistingAccount(
-    payerId: string,
+    candidateId: string,
     supplied: { email?: string; phone?: string },
     ctx: RequestContext,
     emitRequested: boolean,
   ): Promise<PayerOtpIssued> {
-    const row = await this.payers.findById(payerId);
-
     // The OTP key is the keyed hash of the SUPPLIED contact (#2497 — the same key the
     // request/verify doors reserve under, whether it is an email or a phone).
     const contact = PayerAuthService.mustContact(supplied);
     const contactHash = this.contactHash(contact);
+    // #2754 — a phone contact goes by SMS while PAYER_SMS_OTP_ENABLED is on; anything else by
+    // the configured channel. Every reserve below runs on this route, so its ceiling is the same.
+    const route = this.routeFor(contact);
+
+    // #2754 item 3 — ON THE SMS ROUTE THE ACCOUNT IS THE ONE THAT PROVED THE PHONE, never the
+    // caller's candidate (the first row of a phone lookup, or a sign-up's create-or-get). A phone
+    // nobody has proven — typed at sign-up or in PATCH /payer/me, possibly mistyped or planted —
+    // gets no code: the same neutral reserve as an unknown phone. The unique index on the proof
+    // makes "the account that proved it" one account at most, so a phone two companies share
+    // reaches the one that proved it (a planted duplicate no longer locks it out) and a typo'd
+    // number reaches nobody. Checked here, the chokepoint sign-up and sign-in share, BEFORE any
+    // contact is decrypted. The proof table missing (42P01) reads as unproven: fail closed.
+    let payerId = candidateId;
+    let row: Awaited<ReturnType<PayersRepository["findById"]>>;
+    if (route === "sms") {
+      row = await this.phoneProofs.findProvenAccount(contactHash);
+      if (row === undefined) {
+        this.logger.log(
+          `payer sms login: no proven account for the phone candidate=${candidateId.slice(0, 8)}…`,
+        );
+        return await this.otp.issueWithoutDelivery(contactHash, route);
+      }
+      payerId = row.id;
+    } else {
+      row = await this.payers.findById(candidateId);
+    }
 
     // ADR-0037 Decision 5 — RESERVE but do NOT DELIVER for a suspended account.
     //
@@ -428,7 +489,7 @@ export class PayerAuthService {
     //
     // #2564 - an ARCHIVED company is suppressed the same way; the spine reason says which.
     if (isBarredPayerStatus(row?.status)) {
-      const issued = await this.otp.issueWithoutDelivery(contactHash);
+      const issued = await this.otp.issueWithoutDelivery(contactHash, route);
       // Emitted INSTEAD of `payer.login_requested`, not alongside it: no login code was
       // delivered, so counting one would overstate the login funnel and would bury repeated
       // probing of a banned account inside ordinary traffic.
@@ -462,16 +523,18 @@ export class PayerAuthService {
     // `supabase` is intentionally NOT diverted: the adapter is documented-inert and
     // its throw is today's behavior.)
     const deliverable =
-      this.method === "email_otp"
-        ? deliverEmail !== ""
-        : this.method === "whatsapp"
-          ? deliverPhone !== null
-          : true;
+      route === "sms"
+        ? deliverPhone !== null
+        : this.method === "email_otp"
+          ? deliverEmail !== ""
+          : this.method === "whatsapp"
+            ? deliverPhone !== null
+            : true;
     if (!deliverable) {
       this.logger.warn(
         `payer login code not deliverable for active channel payer=${payerId.slice(0, 8)}…`,
       );
-      return await this.otp.issueWithoutDelivery(contactHash);
+      return await this.otp.issueWithoutDelivery(contactHash, route);
     }
 
     let issued: PayerOtpIssued;
@@ -481,6 +544,7 @@ export class PayerAuthService {
         email: deliverEmail,
         phone: deliverPhone,
         payerId,
+        route,
       });
     } catch (err) {
       // Swallow ONLY a delivery failure (502) → neutral. 429 (cooldown/cap) and 503 (Redis)
@@ -496,14 +560,26 @@ export class PayerAuthService {
     }
 
     if (emitRequested) {
-      await this.events.emit({
-        event_name: "payer.login_requested",
-        actor: { actor_type: "payer", actor_id: payerId },
-        subject: { subject_type: "payer", subject_id: payerId },
-        payload: { payer_id: payerId, method: this.method },
+      const requested = {
+        actor: { actor_type: "payer" as const, actor_id: payerId },
+        subject: { subject_type: "payer" as const, subject_id: payerId },
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
-      });
+      };
+      // #2754 — an SMS code is `sms_otp`, carried only by the v2 event; email stays on v1.
+      if (route === "sms") {
+        await this.events.emit({
+          ...requested,
+          event_name: "payer.login_requested_v2",
+          payload: { payer_id: payerId, method: "sms_otp" },
+        });
+      } else {
+        await this.events.emit({
+          ...requested,
+          event_name: "payer.login_requested",
+          payload: { payer_id: payerId, method: this.method },
+        });
+      }
     }
     return issued;
   }
@@ -568,6 +644,25 @@ export class PayerAuthService {
     if (contact.kind === "email") return this.payers.findByEmail(contact.value);
     const [first] = await this.payers.findByPhone(contact.value);
     return first;
+  }
+
+  /**
+   * #2754 — how a code for this contact travels: an Indian mobile number goes by SMS while
+   * `PAYER_SMS_OTP_ENABLED` is on; an email, any other phone, or a phone while it is off, by the
+   * configured channel. Decided from the contact alone, never from the account, so it cannot be
+   * an oracle.
+   *
+   * `+91` MOBILES ONLY (security review): Fast2SMS delivers to the LAST TEN DIGITS of whatever it
+   * is given, so `+1`, `+44`, `+7`... followed by an Indian number would each be a fresh contact
+   * hash (fresh per-number caps) all landing on the same handset, and a genuinely foreign number
+   * would deliver a company's code to a stranger in India.
+   */
+  private routeFor(contact: PayerLoginContact): PayerOtpRoute {
+    return contact.kind === "phone" &&
+      this.config.PAYER_SMS_OTP_ENABLED &&
+      INDIAN_MOBILE_E164.test(contact.value)
+      ? "sms"
+      : "default";
   }
 
   /**
@@ -973,20 +1068,33 @@ export class PayerAuthService {
     err: unknown,
     ctx: RequestContext,
   ): Promise<PayerAuthCodeResponse> {
-    if (!(err instanceof OtpSendCapExceededException)) throw err;
-    await this.events.emit({
-      event_name: "payer.otp_send_cap_exceeded",
-      actor: { actor_type: "system" },
-      subject: { subject_type: "payer" },
-      payload: {
-        channel: err.breach.channel,
-        cap: "global_daily",
-        limit: err.breach.limit,
-        window: err.breach.window,
-      },
-      correlationId: ctx.correlationId,
-      requestId: ctx.requestId,
-    });
+    if (err instanceof PayerSmsSendCapExceededException) {
+      // #2754 — the company-SMS ceiling: its own event (the v1 channel enum is closed).
+      await this.events.emit({
+        event_name: "payer.sms_send_cap_exceeded",
+        actor: { actor_type: "system" },
+        subject: { subject_type: "payer" },
+        payload: { cap: "global_daily", limit: err.breach.limit, window: err.breach.window },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    } else if (err instanceof OtpSendCapExceededException) {
+      await this.events.emit({
+        event_name: "payer.otp_send_cap_exceeded",
+        actor: { actor_type: "system" },
+        subject: { subject_type: "payer" },
+        payload: {
+          channel: err.breach.channel,
+          cap: "global_daily",
+          limit: err.breach.limit,
+          window: err.breach.window,
+        },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    } else {
+      throw err;
+    }
     // The neutral "code_sent" response the unknown-account path returns (no code is ever echoed).
     return {
       status: "code_sent",

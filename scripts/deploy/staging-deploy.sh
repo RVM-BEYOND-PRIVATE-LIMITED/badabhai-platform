@@ -81,6 +81,15 @@ if [ -n "${ADMIN_ENGINE_VIEW_ALLOW_PHONES-}" ] &&
   exit 1
 fi
 
+# #2753 item 13: CONSENT_NOTICE_URL — the privacy notice link GET /consent/notice serves. The
+# api's config throws at boot on anything but empty or an https URL, and a crash-looping api has
+# no automatic rollback — so the shape is checked here, before any prune, pull or recreate.
+if [ -n "${CONSENT_NOTICE_URL-}" ] &&
+  ! printf '%s' "${CONSENT_NOTICE_URL}" | grep -Eq '^https://[^[:space:]]+$'; then
+  echo "::error::CONSENT_NOTICE_URL must be empty or one https:// URL with no spaces. Fix the production secret and re-run. Nothing was deployed."
+  exit 1
+fi
+
 # #1904 / ADR-0036 §8: MATCH_V1_ENABLED — the same boot-time grammar, the same reason.
 # The api's `booleanFromString` throws at boot on anything but true/false/1/0/empty, the api `up`
 # has no automatic rollback, and the secret cannot be read back — so a typo would take the api
@@ -171,6 +180,41 @@ case "${CONTACT_RULES_ROLLOUT-}" in
     exit 1
     ;;
 esac
+case "${THEME_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::THEME_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set THEME_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+case "${OUTCOME_STAGES_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::OUTCOME_STAGES_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set OUTCOME_STAGES_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+case "${CREDIT_RULES_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::CREDIT_RULES_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set CREDIT_RULES_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+case "${POSTING_CHOICE_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::POSTING_CHOICE_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set POSTING_CHOICE_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+case "${OUTBOUND_SIGNALS_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::OUTBOUND_SIGNALS_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set OUTBOUND_SIGNALS_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
 
 # #2542 / TD25: TRUST_PROXY_HOP_COUNT — how many X-Forwarded-For hops the api trusts for `req.ip`.
 # The box has exactly ONE appending nginx in front of the api, so the only correct values are 0
@@ -187,6 +231,55 @@ case "${TRUST_PROXY_HOP_COUNT-}" in
     ;;
 esac
 
+# #2753 item 11: POJ_PARTNER_SHARE_PERCENT — the partner's share of a pay-on-joining fee, a whole
+# percent. The api parses it as an integer 0..100 at boot (z.coerce.number), so "70%" or "seventy"
+# would crash-loop it with no automatic rollback. Only empty or 0..100 pass, checked here before any
+# prune, pull or recreate. Empty means 70 through compose's `${POJ_PARTNER_SHARE_PERCENT:-70}`.
+case "${POJ_PARTNER_SHARE_PERCENT-}" in
+  "" | [0-9] | [1-9][0-9] | 100) ;;
+  *)
+    echo "::error::POJ_PARTNER_SHARE_PERCENT must be a whole number from 0 to 100, or empty (empty means 70). Fix the production secret (gh secret set POJ_PARTNER_SHARE_PERCENT --env production --body 70) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
+# #2753 item 10: UNLOCK_FOLLOWUP_AFTER_DAYS — the company follow-up's wait, whole days. The api parses
+# it as a positive integer at boot (positiveIntFromString), so "0", "7d" or "seven" would crash-loop
+# it with no automatic rollback. Only empty or 1..999 pass, checked here before any prune, pull or
+# recreate. Empty means 7 through compose's `${UNLOCK_FOLLOWUP_AFTER_DAYS:-7}`.
+case "${UNLOCK_FOLLOWUP_AFTER_DAYS-}" in
+  "" | [1-9] | [1-9][0-9] | [1-9][0-9][0-9]) ;;
+  *)
+    echo "::error::UNLOCK_FOLLOWUP_AFTER_DAYS must be a whole number from 1 to 999, or empty (empty means 7). Fix the production secret (gh secret set UNLOCK_FOLLOWUP_AFTER_DAYS --env production --body 7) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
+# #2753 item 5: STILL_LOOKING_EVERY_DAYS — how often the monthly check asks, whole days. The api
+# parses it as an integer of at least 7 at boot, so "5", "30d" or "thirty" would crash-loop it
+# with no automatic rollback. Only empty or 7..999 pass, checked here before any prune, pull or
+# recreate. Empty means 30 through compose's `${STILL_LOOKING_EVERY_DAYS:-30}`.
+case "${STILL_LOOKING_EVERY_DAYS-}" in
+  "" | [7-9] | [1-9][0-9] | [1-9][0-9][0-9]) ;;
+  *)
+    echo "::error::STILL_LOOKING_EVERY_DAYS must be a whole number from 7 to 999, or empty (empty means 30). Fix the production secret (gh secret set STILL_LOOKING_EVERY_DAYS --env production --body 30) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
+# #2755 part B: NUMBERS_FREEZE_AFTER_DAYS — how many days after a week ends the numbers sweep freezes
+# it, whole days. The api parses it as a positive integer at boot (positiveIntFromString), so "0",
+# "3d" or "three" would crash-loop it with no automatic rollback. Only empty or 1..999 pass,
+# checked here before any prune, pull or recreate. Empty means 3 through compose's
+# `${NUMBERS_FREEZE_AFTER_DAYS:-3}`.
+case "${NUMBERS_FREEZE_AFTER_DAYS-}" in
+  "" | [1-9] | [1-9][0-9] | [1-9][0-9][0-9]) ;;
+  *)
+    echo "::error::NUMBERS_FREEZE_AFTER_DAYS must be a whole number from 1 to 999, or empty (empty means 3). Fix the production secret (gh secret set NUMBERS_FREEZE_AFTER_DAYS --env production --body 3) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
 # EVERY OTHER BRIDGED BOOLEAN — the same boot-time grammar, the same reason. Each name below is
 # in the deploy job's `envs:` list in ci.yml AND parsed by the api's `booleanFromString`
 # (packages/config/src/server.ts), which throws at boot on anything but true/false/1/0/empty.
@@ -196,10 +289,13 @@ esac
 # bridged-boolean-flags-preflight.guard.test.ts fails if a bridged booleanFromString flag is
 # missing from this list, so adding one to `envs:` without adding it here turns CI red.
 BRIDGED_BOOLEAN_FLAGS=(
+  ADMIN_AI_TRACE_READ_ENABLED
+  ADMIN_NUMBERS_ENABLED
   AGENCY_PAYOUTS_ENABLED
   AGENCY_TWIN_SYNC_ENABLED
   AI_ALERT_EMAIL_ENABLED
   AI_ENABLE_REAL_CALLS
+  AVAILABILITY_ANSWERS_V2_ENABLED
   CAMPUS_LINK_ENABLED
   CHAT_COMPANION_ENABLED
   CHAT_COMPANION_V2_CAREER_ENABLED
@@ -214,19 +310,30 @@ BRIDGED_BOOLEAN_FLAGS=(
   CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED
   CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED
   CHAT_TURN_UNDERSTANDING_ENABLED
+  FORM_TENURE_MONTHS_ENABLED
   FORM_TYPED_TENURE_DERIVE_ENABLED
+  HIRE_RECORDS_ENABLED
   LEVEL_NEEDED_SORT_ENABLED
   PAYER_APPLICANT_STAGES_ENABLED
+  PAYER_SMS_OTP_ENABLED
+  PAY_ON_JOINING_RECORDS_ENABLED
   PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED
   PROFILING_TIERS_ENABLED
+  REFERRAL_HELPER_NAME_ENABLED
   RESUME_AUTOFILL_ENABLED
   RESUME_CHAT_UPDATE_OFFER_ENABLED
   RESUME_OPTION_MAP_REQUIRES_AUTOFILL
   RESUME_QR_SCAN_ENABLED
   RESUME_SKINS_ENABLED
+  SEARCH_EXIT_ENABLED
   SIGNUP_AGE_GATE_ENABLED
+  STILL_LOOKING_CHECK_ENABLED
+  STILL_LOOKING_PUSH_ENABLED
+  STUDENT_MOVE_ENABLED
   TEST_IMMEDIATE_DELETE_ENABLED
+  UNLOCK_FOLLOWUP_ENABLED
   WORK_HISTORY_POLISH_ENABLED
+  WORKER_ACTIVITY_ENABLED
 )
 _bad_flags=0
 for _flag in "${BRIDGED_BOOLEAN_FLAGS[@]}"; do
@@ -238,6 +345,22 @@ for _flag in "${BRIDGED_BOOLEAN_FLAGS[@]}"; do
       ;;
   esac
 done
+# #2754 — company sign-in by SMS code, armed: the company's own DLT template id must be set. The
+# api refuses to boot armed without FAST2SMS_PAYER_DLT_TEMPLATE_ID (assertPayerAuthConfig), and a
+# refused boot is an outage the deploy gate does not roll back, so stop here, before a container
+# moves. (#2754 item 3 replaced the blanket refusal that stood here: an SMS code now signs in only
+# the one account that PROVED the phone, so arming no longer makes an unproven number a credential.
+# Apply the payer_phone_proofs migration before arming; until then every SMS sign-in fails closed.)
+# The value is never echoed — only the names.
+case "${PAYER_SMS_OTP_ENABLED-}" in
+  true | 1)
+    _payer_sms_template="${FAST2SMS_PAYER_DLT_TEMPLATE_ID-}"
+    if [ -z "${_payer_sms_template//[[:space:]]/}" ]; then
+      echo "::error::PAYER_SMS_OTP_ENABLED is armed but FAST2SMS_PAYER_DLT_TEMPLATE_ID is not set (the company sign-in template's DLT id); the api would refuse to boot. Set the production secret (gh secret set FAST2SMS_PAYER_DLT_TEMPLATE_ID --env production) or set PAYER_SMS_OTP_ENABLED to false, and re-run. Nothing was deployed."
+      _bad_flags=1
+    fi
+    ;;
+esac
 # Every bad flag is reported above before this exits, so one run names them all.
 if [ "$_bad_flags" -ne 0 ]; then
   exit 1

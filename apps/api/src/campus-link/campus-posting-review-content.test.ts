@@ -77,6 +77,8 @@ const COMPANY_KEYS_NOT_SHOWN_TO_CAMPUS: Record<string, string> = {
   match_skill_ids: "match inputs, not in the projection",
   unticked_related_ids: "match inputs, not in the projection",
   clear: "names fields to unset; each name is classified below",
+  posting_choice: "#2751 which posting button was tapped; job_posting_choices, not a posting column",
+  surface: "#2751 the client the posting button was tapped on; job_posting_choices",
 };
 
 /** A company key and the column it writes, where the names differ. */

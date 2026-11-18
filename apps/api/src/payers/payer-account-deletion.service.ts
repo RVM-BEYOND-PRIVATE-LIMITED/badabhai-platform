@@ -12,6 +12,7 @@ import {
   payerOrgs,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import { eraseLoginKeyedRows } from "../common/login-keyed-rows";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { CampusDriveContactErasureRepository } from "../campus-drives/campus-drive-contact-erasure.repository";
@@ -30,11 +31,13 @@ import { PayerSessionService } from "./payer-session.service";
  *      org with ANY other linked payer member 409s — a test tap must never
  *      destroy a team's shared org;
  *   3. in ONE transaction: hard-delete the `payers` row (the requests of the login's own tenant
- *      go with it: `campus_drive_requests.payer_id` ON DELETE CASCADE), then erase the campus-drive
- *      contacts this login ENTERED on the requests that survive (#2746: `created_by`; under org
- *      tenancy `on` a team member's requests belong to the company and outlive the login). A
+ *      go with it: `campus_drive_requests.payer_id` ON DELETE CASCADE), then the login's
+ *      `display_prefs` row, which no FK reaches (#2837, `eraseLoginKeyedRows`), then erase the
+ *      campus-drive contacts this login ENTERED on the requests that survive (#2746:
+ *      `created_by`; under org tenancy `on` a team member's requests belong to the company and
+ *      outlive the login). A
  *      delete that fails rolls the transaction back before the erasure runs, so a refused deletion
- *      erases nothing; Billing rails (`credit_ledger`,
+ *      erases nothing; Billing rails (`credit_ledger`, `credit_lots` (#2749),
  *      `payment_orders`, plans, `unlocks`, disclosures) are opaque payer_id
  *      rails with NO FK to `payers` — they intentionally SURVIVE (B2: the cost
  *      ledger survives account deletion) as PII-free orphans, exactly like the
@@ -109,9 +112,14 @@ export class PayerAccountDeletionService {
     // requests that outlive it (a team member's, kept by the company). The row delete goes FIRST:
     // a delete that fails (a foreign key still holding the row) aborts the transaction before any
     // contact is touched, and the erasure's `updated_at` stamp lands just before the commit.
+    //
+    // #2837 — the login's theme row has no FK, so no cascade takes it: deleted here, AFTER the row
+    // delete, which waits for a theme PATCH holding the row (`FOR KEY SHARE`), so a choice
+    // committed mid-deletion is seen and deleted too.
     await this.db.transaction(async (tx: unknown) => {
       const executor = tx as Database;
       await executor.delete(payers).where(eq(payers.id, payerId));
+      await eraseLoginKeyedRows(executor, { kind: "payer_user", id: payerId });
       await this.driveContacts.eraseEnteredBy(payerId, executor);
     });
 

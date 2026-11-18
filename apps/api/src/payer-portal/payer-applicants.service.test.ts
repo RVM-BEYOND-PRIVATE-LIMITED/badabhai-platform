@@ -494,6 +494,10 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
       { emit: vi.fn() } as never,
       { PAYER_APPLICANT_STAGES_ENABLED: true },
       defaultModeResolver(),
+      { isEnabledFor: async () => false } as never,
+      { signalsStateFor: async () => "off", recordMark: async () => "not_rvm" } as never,
+      // #2753 item 9 — hire records off: the stage write calls nothing on it.
+      { enabled: false } as never,
     );
     return {
       repo,

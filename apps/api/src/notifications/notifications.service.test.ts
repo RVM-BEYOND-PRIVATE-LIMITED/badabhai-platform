@@ -366,7 +366,19 @@ describe("notifications allowlist — validity + faceless copy", () => {
       "voice_note.transcription_completed",
       "worker.device_registered",
       "worker.logged_out_all",
+      // #2753 item 5 — the worker's OWN lifecycle: the monthly check asked him (system actor).
+      "worker.still_looking_prompted",
     ]);
+  });
+
+  it("worker.still_looking_prompted surfaces as a faceless `still_looking` alert — #2753 item 5", async () => {
+    const { svc } = setup([row("worker.still_looking_prompted", "e-sl", "2026-11-16T10:00:00.000Z")]);
+    const out = await svc.getForWorker("w-1");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.type).toBe("still_looking");
+    expect(out[0]!.title).toBe(NOTIFICATION_TEMPLATES["worker.still_looking_prompted"]!.copy["hi"]!.title);
+    // Not a security alert: it takes no reserved slot.
+    expect(SECURITY_EVENT_NAMES).not.toContain("worker.still_looking_prompted");
   });
 
   it("profile.viewed_v2 surfaces as a faceless `profile_viewed` alert — the E0 C-1 signal", async () => {

@@ -101,6 +101,51 @@ NestJS boot assertion).
   `scripts/deploy/staging-deploy.sh` accepts exactly `off`, `pilot`, `on` and empty, and refuses
   anything else before a container moves. Arm: `gh secret set JOB_AUDIENCE_ROLLOUT --env
   production --body pilot`, then redeploy.
+- **Theme switch (#2820)** — `THEME_ROLLOUT` (`off` | `pilot` | `on`): who may use a theme other
+  than the app's default (Light) in every BadaBhai app, for every kind of login. Same grammar,
+  wiring and preflight as the two switches above (`${THEME_ROLLOUT:-off}` on the `api` service
+  only, bridged from the `production` secret of the same name; **absent = `off`**). Its one
+  question is `FeatureRolloutService.isThemeOpenFor(caller)`, where the caller is built from what
+  the auth guard attached (the worker, the company's tenant scope, the admin), never from a body or
+  a path; it never throws. A company login's display preference (#2819) asks
+  `isThemeOpenForPayer` instead, with the tenancy resolve lazy: `off` and `on` answer without
+  reading memberships, and only `pilot` resolves the tenant key.
+  - `off` (the default, and what an empty value reads as): nobody. Every display-preference GET
+    (#2819) answers `light` with `theme_open: false` whatever is stored, and every PATCH answers
+    404 and writes nothing. A stored choice is kept for when the person is piloted again.
+  - `pilot`: a company listed for feature `theme` in `feature_pilot_payers` (by tenant key, as
+    above: with `PAYER_ORG_TENANCY_MODE=on` a team member inherits the company's place; in `off` /
+    `shadow` list each login), and a worker or an admin listed in `feature_pilot_subjects`
+    (migration 0164; `subject_kind` `worker` is a `workers.id`, `admin` an `admin_users.id`).
+    Everyone else gets `false`. A failed list read, or a database without 0164, answers `false`
+    and logs `sqlstate=` and ids only; never a 500.
+  - `on`: everyone; no list is read.
+  - Both open states also need migration 0165 (`display_prefs`, #2819), where the choices are
+    stored. Open on a database without it, the login's GET answers `light` / `theme_open: false`
+    and its PATCH 404 (`sqlstate=42P01` and ids in the log); never a 500. The routes are in
+    `docs/api/display-prefs-api-reference.md`.
+
+  **Adding a pilot company, worker or admin** is an owner step in the release flow, like a
+  migration apply (`MIGRATIONS.md`): after 0164 and 0165 are applied, with the ids agreed in the pilot issue
+  (#2818), in one transaction. `added_by` is an id or a fixed token such as `owner_sql`; `reason`
+  says why, never who (a worker's row outlives his account: the table has no foreign key).
+
+  ```sql
+  BEGIN;
+  INSERT INTO feature_pilot_payers (feature, payer_id, added_by, reason)
+    VALUES ('theme', '<tenant key: the company anchor payers.id>', 'owner_sql', '#2818 theme pilot');
+  INSERT INTO feature_pilot_subjects (feature, subject_kind, subject_id, added_by, reason)
+    VALUES ('theme', 'worker', '<workers.id>', 'owner_sql', '#2818 theme pilot, worker app'),
+           ('theme', 'admin', '<admin_users.id>', 'owner_sql', '#2818 theme pilot, admin-web');
+  COMMIT;
+  ```
+
+  The list is read on every request, so a row added or removed (`DELETE FROM
+  feature_pilot_subjects WHERE feature = 'theme' AND subject_kind = 'worker' AND subject_id =
+  '<id>'`) counts from the next request. Arm: `gh secret set THEME_ROLLOUT --env production
+  --body pilot`, then redeploy. **Rollback** is closing the switch: `gh secret set THEME_ROLLOUT
+  --env production --body off`, then redeploy (no code change, no migration); every GET answers
+  `light` from the first request on the new container, and the pilot rows can stay.
 - **Payer org tenancy** — `PAYER_ORG_TENANCY_MODE` (`off` | `shadow` | `on`; ADR-0053,
   PAY-DB-01). `off` (the default, and what an empty value reads as) keys every payer read to the
   login, the pre-ADR behaviour; `shadow` serves `off` and logs what `on` would decide
@@ -141,6 +186,24 @@ NestJS boot assertion).
   ho gaye") at read time and uses them to resolve the experience gates, so a veteran is not shown
   fresher questions. Never stored; the question stays on screen; an ambiguous answer (two figures,
   a negated one, none, or outside 0–60) derives nothing.
+- **A trade form's experience band as match months (#2753 item 2)** — `FORM_TENURE_MONTHS_ENABLED`
+  (api, environment secret, `booleanFromString`; default `false`, today's derivation and no extra
+  query). `true` gives each skill a trade form derived that form's band years as
+  `worker_skill.months_bucketed`, through the existing 6-month bucketing (fresher and under one year
+  0, 1–3 years 24 months, 3–5 years 48, 5–10 years 84, over 10 years 144), and only where the
+  profile's own `total_years` buckets to 0 — a stated tenure is never overridden. A typed tenure
+  counts only with `FORM_TYPED_TENURE_DERIVE_ENABLED` on too. Rank input only, never printed on the
+  sheet. Bridged like its neighbours (compose `${FORM_TENURE_MONTHS_ENABLED:-false}` on `api`,
+  `ci.yml` `env:` + `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`).
+  `db:backfill:worker-skills` reads the SAME two names from the operator's own environment and
+  prints them; its `--apply` refuses (exit 1, one line naming the variable) unless
+  `FORM_TENURE_MONTHS_ENABLED` is set explicitly, and `FORM_TYPED_TENURE_DERIVE_ENABLED` too when the
+  first is true, so an operator's shell cannot silently write different months from the live path.
+  A dry run assumes false for an unset switch and prints `(assumed: unset)`.
+  Arming changes rank inputs for every form worker, so it waits for the owner's `engine_version`
+  ruling (ADR-0036), then: the secret `true` plus a redeploy, then from a tree equal to origin/main
+  `pnpm --filter @badabhai/db db:backfill:worker-skills --apply` (both switches exported) and
+  `pnpm --filter @badabhai/db db:materialize:reach --apply`.
 - **Stopping AI calls nobody uses (token-audit fixes, 2026-10-22)** — every one defaults to
   today's behaviour, and each is switched on separately:
   - `AI_REAL_CALL_TASKS_DENY` (ai-service, box only, never bridged; default empty) — tasks
@@ -337,6 +400,14 @@ NestJS boot assertion).
   (compose `${SIGNUP_AGE_GATE_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
   `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; off again
   is `false` plus a redeploy. Values lowercase `true`/`false`/`1`/`0`/empty only.
+- **Privacy notice link (#2753 item 13)** — `CONSENT_NOTICE_URL`, api only (`optionalSecret`, an
+  https URL). `GET /consent/notice` (worker-authed, `no-store`) serves
+  `{ version, employer_contact_versions, notice_url }`: `CURRENT_CONSENT_VERSION`,
+  `EMPLOYER_CONTACT_NOTICE_VERSIONS` and this value, or `notice_url: null` while it is unset (the
+  default; no link is invented). Not a switch. A plain-http or malformed value refuses boot.
+  Bridged through the GitHub `production` environment secret of the same name (compose
+  `${CONSENT_NOTICE_URL:-}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Setting it is the secret plus a redeploy.
 - **"Level needed" applicant sort (engine v1.1, CEO ruling 30 Oct 2026, ADR-0061)** —
   `LEVEL_NEEDED_SORT_ENABLED`, api only (`booleanFromString`, default off). Off is today's
   applicant list exactly: no extra query, the v1.0 ORDER BY, `levelFit: null` on every row. On, a
@@ -349,6 +420,181 @@ NestJS boot assertion).
   `scripts/deploy/staging-deploy.sh`; the bridge shipped in #2613, after #2552). Arming is the
   secret set to `true` plus a redeploy, on the CEO's go-ahead; values lowercase
   `true`/`false`/`1`/`0`/empty only.
+- **The helper's name before sign-in (#2753 item 12)** — `REFERRAL_HELPER_NAME_ENABLED`, api
+  only (`booleanFromString`, default off). Off, `GET /referrals/helper` is a neutral 404 that
+  touches neither the rate limiter nor the database. On, the unauthenticated route answers
+  `{ "display_name": … }`: the agency's company name for a live agency code, `null` for every
+  other code (a worker referrer's, unknown, expired, spent, malformed) with the same 200 body;
+  never a worker's name. Capped per address by `REFERRAL_ATTRIBUTE_MAX_PER_IP_PER_HOUR` in its own
+  bucket. **Needs the owner's OK before it goes on:** it reverses the no-oracle rule of
+  `POST /referrals/attribute` and opens a code-to-name lookup to anyone; the screen's copy ("[Name]
+  helped you make this profile. Confirm with the OTP only if the details are yours and you have
+  not paid anyone.") waits for a lawyer's check. **No migration.** Contract:
+  `docs/api/worker-referrals-api-reference.md`. Bridged through the GitHub `production`
+  environment secret of the same name (compose `${REFERRAL_HELPER_NAME_ENABLED:-false}` on `api`,
+  `ci.yml` `env:` + `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`). Arming is the
+  secret set to `true` plus a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only.
+- **The brief's four availability answers (#2753 item 3)** —
+  `AVAILABILITY_ANSWERS_V2_ENABLED`, api only (`booleanFromString`, default off). Off is today's
+  `GET /workers/me/work-preferences/options` exactly. On, its `availability_status` serves `join_now` / `in_15_days` / `in_30_days` /
+  `working_open` ("Can join now", "Can join in 15 days", "Can join in 30 days", "Working, open to a
+  better offer") in place of the first four, and clients render what they are served. **The flag
+  never narrows a write:** the worker PUT, admin corrections and the chat edit layer accept both
+  sets either way, because installed builds keep sending the old keys. Every reader (résumé, admin
+  candidate detail, applicant card) labels a stored key of either set in its own words; an old
+  answer is never shown in the new words. **No migration** (the answer lives in the `availability`
+  json attribute). Turn it on with the app release that renders the served chips. Bridged through
+  the GitHub `production` environment secret of the same name (compose
+  `${AVAILABILITY_ANSWERS_V2_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; values
+  lowercase `true`/`false`/`1`/`0`/empty only.
+- **Last active, one definition (#2753 items 4 and 7)** — `WORKER_ACTIVITY_ENABLED`, api only
+  (`booleanFromString`, default off). On, every signed-in worker request and every Campus
+  application records the worker's IST day in `worker_activity` (migration 0168; fire-and-forget,
+  never fails the request), and the one last-active read is the later of that table's newest day
+  and the IST day of his newest device sighting: the #2747 pre-pay fact `lastActiveOn`, the agency
+  referred-workers `lastActiveOn`, and `notRecentlyActive` on every applicant, inbox and company
+  search row. Off is today exactly: nothing reads or writes the table, no row carries
+  `notRecentlyActive`, and `lastActiveOn` is the device sighting. The card's activity band, the
+  search order and the `worker.active` event never read it. Migration 0168 is
+  APPLY-BEFORE-THE-SWITCH: on without the table nothing answers 500 (the writes are lost and the
+  reads fall back to the device day, with one warning per process), but every day of activity
+  until the apply is lost.
+  Bridged through the GitHub `production` environment secret of the same name (compose
+  `${WORKER_ACTIVITY_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; values
+  lowercase `true`/`false`/`1`/`0`/empty only. `NOT_RECENTLY_ACTIVE_DAYS` (integer, default 90, at
+  least 1) is the mark's threshold: more than that many days since the last active day (IST) marks
+  him, so day 90 is not marked and day 91 is. Not bridged (like `PAYER_APPLICANT_STAGE_MAX_PER_HOUR`):
+  production runs the default until a bridge is added.
+- **Leave company search (#2753 item 6)** — `SEARCH_EXIT_ENABLED`, api only (`booleanFromString`,
+  default off). Off is today exactly: `GET`/`PUT /workers/me/search-visibility` are the plain 404
+  of an unmounted route, the candidate search statement is byte-identical, the unlock path reads
+  nothing, and nothing names `worker_search_exits`. On, a worker can leave company search while
+  keeping his consent: he is absent from every company's search (its city facet and the admin card
+  read too), and only a company he applied to, or one already holding an open contact, can open
+  him. Migration 0169 is APPLY-BEFORE-THE-SWITCH, but on without it nothing answers 500: search,
+  its city facet, the admin card read and the unlock gate FAIL OPEN (everyone visible, one warning
+  per process), and the two worker routes answer 503 until it is applied. Bridged through the GitHub `production` environment secret of the same name
+  (compose `${SEARCH_EXIT_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is 0169 applied, then the secret set to `true` plus
+  a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only.
+- **Hire records (#2753 item 9)** — `HIRE_RECORDS_ENABLED`, api only (`booleanFromString`, default
+  off). Off is today's API exactly: nothing reads or writes `hires`, a stage move is unchanged, and
+  `GET /admin/hires` is a 404. On, a company's real move of an applicant INTO `hired` confirms the
+  hire record in the stage transaction (one row per company, worker and posting), a move OUT takes
+  back a mark nothing else confirmed (`rejected`), and `GET /admin/hires` lists the records. The
+  migration `hires` is APPLY-BEFORE-THE-SWITCH: on without it, a move into or out of `hired` fails
+  (42P01) and rolls back. Bridged through the GitHub `production` environment secret of the same
+  name (compose `${HIRE_RECORDS_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted
+  in `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+- **The pay-on-joining pilot's hire record (#2753 item 11)** — api only, two variables
+  (contract: `docs/api/admin-pay-on-joining-api-reference.md`; runbook:
+  `docs/ops/pay-on-joining-pilot-runbook.md`).
+  - `PAY_ON_JOINING_RECORDS_ENABLED` (`booleanFromString`, default off): off, every
+    `/admin/pay-on-joining-hires` route is a neutral 404 for every admin role before any query,
+    and nothing reads or writes `pay_on_joining_hires`. **Needs migration 0171 applied first**
+    (APPLY BEFORE THE SWITCH, not before the deploy). A record only: no invoice, no payout, no
+    eligibility rule. Bridged through the GitHub `production` environment secret of the same name
+    (compose `${PAY_ON_JOINING_RECORDS_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`,
+    preflighted in `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty.
+  - `POJ_PARTNER_SHARE_PERCENT` (integer 0..100, default **70**, empty reads as the default): the
+    partner's share of a hire's fee in whole percent; BadaBhai keeps the rest. COPIED onto each hire
+    when it is recorded, so changing it never rewrites a recorded hire; the share in paise is
+    `floor(fee * percent / 100)`. Bridged like `CAMPUS_DRIVE_MAX_OPEN_REQUESTS` (compose
+    `${POJ_PARTNER_SHARE_PERCENT:-70}`, `ci.yml` `env:` + `envs:`); the deploy preflight refuses
+    anything but empty or a whole number 0..100 before a container moves, because a bad value would
+    stop the api booting.
+- **The company follow-up (#2753 item 10)** — api only, three variables.
+  - `UNLOCK_FOLLOWUP_ENABLED` (`booleanFromString`, default off). Off is today's API exactly:
+    `GET /payer/unlock-outcomes/due` and `POST /payer/unlocks/:unlockId/outcome` are a neutral 404
+    and nothing reads or writes `unlock_outcomes`. On, a company lists its opened contacts due for
+    an answer and answers `hired` / `not_hired` / `still_talking` (one row per unlock; a later
+    answer replaces the earlier one); a `hired` answer also confirms the hire record when
+    `HIRE_RECORDS_ENABLED` is on and the unlock names a posting. The migration `unlock_outcomes` is
+    APPLY-BEFORE-THE-SWITCH: on without it, the due list and every answer fail (42P01) and nothing
+    is written. Bridged through the GitHub `production` environment secret of the same name
+    (compose `${UNLOCK_FOLLOWUP_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+    `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+  - `UNLOCK_FOLLOWUP_AFTER_DAYS` (`positiveIntFromString`, default 7, at least 1; empty reads as
+    7): how many whole days of 24 hours after the grant a contact is due, and how long a
+    `still_talking` answer waits before it is due again. Bridged like
+    `CAMPUS_DRIVE_MAX_OPEN_REQUESTS` (compose `${UNLOCK_FOLLOWUP_AFTER_DAYS:-7}`, `ci.yml` `env:` +
+    `envs:`); the deploy preflight refuses anything but empty or a whole number 1..999 before a
+    container moves, because a bad value would stop the api booting.
+  - `PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR` (default 600 per company login per UTC hour, its own Redis
+    bucket `payer_unlock_outcome`, fail-closed): the answer route's write cap. Runs on its default;
+    neither compose file forwards it.
+- **The monthly "still looking?" check (#2753 item 5)** — api only, three variables.
+  - `STILL_LOOKING_CHECK_ENABLED` (`booleanFromString`, default off). Off is today's API exactly:
+    `GET`/`POST /workers/me/still-looking` are the plain 404 of an unmounted route, the daily
+    `still-looking-sweep` tick returns at once, and nothing reads or writes `still_looking_checks`.
+    On, the sweep opens one check per active, consented worker with no open check and none opened or
+    answered in the last `STILL_LOOKING_EVERY_DAYS`, and emits `worker.still_looking_prompted` (the
+    in-app card and an Alerts entry); the worker answers `yes` / `not_now` / `hired`. With
+    `SEARCH_EXIT_ENABLED` on as well, `not_now` takes him out of company search (via
+    `monthly_check`) and `yes` brings him back; `hired` is stored only (no hire record: the answer
+    names no company or posting). The migration `still_looking_checks` is APPLY-BEFORE-THE-SWITCH:
+    on without it, both routes answer 503 and the sweep logs one warning per process and opens
+    nothing. Bridged through the GitHub `production` environment secret of the same name (compose
+    `${STILL_LOOKING_CHECK_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+    `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+  - `STILL_LOOKING_PUSH_ENABLED` (`booleanFromString`, default off): the prompt also goes out as a
+    push, ONLY while `STILL_LOOKING_CHECK_ENABLED` is on too (the template's `pushRequires`, read by
+    `PushService` at delivery, and the sweep enqueues nothing while it is off). **An owner call
+    first:** under the ADR-0034 ruling every push is a security alert (ADR-0062 added the
+    correction notices); this is a new, NON-security push, so the ruling must be widened before the
+    secret is set. As a non-security push it counts against `PUSH_GLOBAL_MAX_SENDS_PER_DAY` and
+    respects the worker's own notifications toggle; security pushes stay exempt from both. With it
+    off the check still opens and the card and the Alerts entry still show. Bridged like the check
+    (compose `${STILL_LOOKING_PUSH_ENABLED:-false}`, `ci.yml` `env:` + `envs:`, preflighted).
+  - `STILL_LOOKING_EVERY_DAYS` (integer, default 30, at least 7; empty reads as 30): how often a
+    worker is asked, in whole days of 24 hours from his last check (the later of when it opened and
+    when he answered it). Bridged like `UNLOCK_FOLLOWUP_AFTER_DAYS` (compose
+    `${STILL_LOOKING_EVERY_DAYS:-30}`, `ci.yml` `env:` + `envs:`); the deploy preflight refuses
+    anything but empty or a whole number 7..999 before a container moves, because a bad value would
+    stop the api booting.
+- **The bulk student move (#2887)** — api only.
+  - `STUDENT_MOVE_ENABLED` (`booleanFromString`, default off). Off: the company-search, open-gate
+    and pre-pay statements are byte-identical to before, a worker's own edit writes no field
+    marker, and every `/admin/students/*` route is a neutral 404. On: a moved student whose
+    visibility is off is kept from companies by #2752's rules; once an admin turns it on he is an
+    ordinary worker. (`job_reach` is not switched — reach depends on no switch, #2746 M2: a hidden
+    moved student is out of reach whenever the `student_visibility` table exists) (contract: `docs/api/admin-student-move-api-reference.md`). Needs the
+    `student_move` migration, APPLY BEFORE THE SWITCH (on without it: the routes answer 503 and
+    the hot reads fall back to their off text). Bridged through the GitHub `production`
+    environment secret of the same name (compose `${STUDENT_MOVE_ENABLED:-false}` on `api`,
+    `ci.yml` `env:` + `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`); values
+    lowercase `true`/`false`/`1`/`0`/empty only.
+- **The numbers screen (#2755)** — api only, two variables (contract:
+  `docs/api/admin-numbers-api-reference.md`).
+  - `ADMIN_NUMBERS_ENABLED` (`booleanFromString`, default off). Off is today exactly: every
+    `/admin/numbers/*` route (`GET definitions`, `PUT|DELETE test-accounts/:payerId`, `GET weekly`;
+    the call list and the launch-test records in later parts) is a neutral 404 for every role,
+    before any pipe or query, and the nightly numbers sweep returns at once without a query. On,
+    the routes answer to `read_business_numbers` (super_admin, ops_admin) and the sweep keeps
+    `numbers_weekly` current (its first run backfills history). The company test marker is
+    `payers.is_test_account` (migration 0162); the weekly snapshot needs the `numbers_weekly`
+    migration, APPLY BEFORE THE SWITCH (on without it: `GET weekly` answers 503, the sweep logs
+    and skips). Bridged through the GitHub `production` environment secret of the same name
+    (compose `${ADMIN_NUMBERS_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+    `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+  - `ADMIN_AI_TRACE_READ_ENABLED` (`booleanFromString`, default off; #2739). Off is today exactly:
+    `GET /admin/ai-traces` and `GET /admin/ai-traces/:id` are a neutral 404 for every role, so the
+    admin portal's AI calls tab shows "unavailable". On, `read_ai_traces` (super_admin only) reads
+    the list and the per-call detail. Bridged through the GitHub `production` environment secret
+    of the same name (compose `${ADMIN_AI_TRACE_READ_ENABLED:-false}` on `api`, `ci.yml` `env:` +
+    `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`); values lowercase
+    `true`/`false`/`1`/`0`/empty only. Arm it only with the owner's sign-off. The prompt and reply
+    text are stored only while the ai-service's `AI_CALL_TRACE_TEXT_ENABLED` is on, which the box
+    does not declare, so until then each call's detail shows its metadata with no text.
+  - `NUMBERS_FREEZE_AFTER_DAYS` (`positiveIntFromString`, default 3, at least 1; empty reads as
+    the default): how many whole days after a week ends (Sunday 23:59:59 India time) the sweep
+    freezes it. A frozen week is never recomputed by the sweep; only the logged recompute tool
+    (`recompute-numbers.cli.ts`) changes it. Bridged like `UNLOCK_FOLLOWUP_AFTER_DAYS` (compose
+    `${NUMBERS_FREEZE_AFTER_DAYS:-3}`, `ci.yml` `env:` + `envs:`); the deploy preflight refuses
+    anything but empty or a whole number 1..999 before a container moves, because a bad value
+    would stop the api booting.
 - **The Campus link (#2752)** — api only, four variables, all read by `CampusServiceGuard` on
   `/internal/campus/v1` (contract: `docs/api/campus-link-v1-api-reference.md`).
   - `CAMPUS_LINK_ENABLED` (`booleanFromString`, default off): off, every Campus route is a neutral
@@ -421,7 +667,10 @@ NestJS boot assertion).
     `X-Forwarded-For $proxy_add_x_forwarded_for` (append), `X-Real-IP $remote_addr`,
     `X-Forwarded-Proto $scheme`, `Host $host`; no `real_ip` directives; port 80 is certbot
     redirects only. There is NO admin-web server block (admin-web is `127.0.0.1:3003`,
-    tunnel-only). The api and payer-web publish on loopback only (#2542), so nginx is the only
+    tunnel-only), and since 2026-11-18 (#2925, R89) the api host's block ALSO has
+    `location = /admin` and `location ^~ /admin/`, both `return 404`, before its `location /`:
+    the admin API is not public; admin-web reaches it at `http://api:3001`. A rebuilt box must
+    re-add them (backup of the edited file: `/etc/nginx/backup-2925/`). The api and payer-web publish on loopback only (#2542), so nginx is the only
     way in. payer-web forwards the visitor (the last entry nginx appended, public addresses only)
     as its own `X-Forwarded-For`, which the hop-1 api reads as `req.ip`.
   - **Not 2 or more** on this topology: Express would then trust an entry the client wrote. A CDN

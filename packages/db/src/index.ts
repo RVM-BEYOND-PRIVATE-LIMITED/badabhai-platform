@@ -7,6 +7,13 @@
 export * from "./schema";
 export * from "./client";
 export * from "./credit-packs";
+// #2749 — the wallet as expiring lots: the ONE implementation of every balance move (unlock
+// debit, packs, settle, admin and free-tier grants, the expiry sweep). Exported because the api
+// and the `db:grant:free-tier` script here must both use it; a second copy would let the
+// balance, the lots and the ledger drift apart.
+export * from "./credit-wallet";
+// #2750 item 9 — credits returned with the next real pack.
+export * from "./credit-pack-return";
 export * from "./crypto";
 // The one ordering that decides which `worker_profiles` row IS a worker's profile. Exported
 // because the readers are spread across apps/api repositories AND the D2 backfill in this
@@ -17,9 +24,17 @@ export * from "./current-profile";
 // Exported because the worker reads live in apps/api and the reach materialization lives here;
 // both must test the same membership, and a second spelling is how an RVM-only job leaks.
 export * from "./job-visibility";
+// #2891 — the one writer of a Campus-origin posting's worker-visibility hold.
+export * from "./job-worker-visibility";
 // #2746 — the one content hash and the one "approved for RVM students" predicate. The payer and
 // admin reads use them now; the Campus approval and the student-facing read will, so one copy.
 export * from "./job-review";
+// #2753 item 2 — a trade form's experience band as a `worker_skill` input, and the typed-tenure
+// reader it shares with the form's own gates. Exported because the live rebuild (apps/api) and
+// `db:backfill:worker-skills` (here) must read the same answer with the same SQL and the same rule.
+export * from "./form-tenure";
+export * from "./stated-tenure";
+export * from "./typed-tenure";
 // The family fallback chain. Its own header says it exists so "Phase 7's production
 // QuestionPackService" can make this decision without a database — which requires that the
 // service can actually IMPORT it. Unexported, the guarantee it offers (one decision, SQL-parity
@@ -184,6 +199,8 @@ export {
 // and its `db:sync:agency-twins` CLI (apps/api) must run the SAME plan, diff and write, and the
 // api's posting publish runs the same `job_reach` materialization statement.
 export * from "./agency-twin";
+// #2887 — the bulk student move: the hidden-student SQL the reach and search statements splice in.
+export * from "./student-visibility";
 // The ops TARGET guard (DATABASE_URL decides, not NODE_ENV). Exported so a runner that lives in
 // `apps/api` — ADR-0050's `sync-agency-twins` CLI — is held to the SAME production-write rule as
 // every `db:*` runner here, rather than restating it. Pure; no IO.
@@ -210,7 +227,14 @@ export {
 // R74 (owner ruling 2026-11-04) — the synthetic-workforce seed's id namespace. Exported so the api
 // can badge a seeded worker as a SAMPLE candidate and refuse to unlock one, from the same
 // definition the seed writes with. Pure; no IO.
-export { isSampleWorkerId, WORKFORCE_ID_PREFIX, workforceUuid } from "./sample-workers";
+export {
+  isSampleWorkerId,
+  sampleWorkerIdLikePatterns,
+  samplePayerIdLikePatterns,
+  samplePostingIdLikePatterns,
+  WORKFORCE_ID_PREFIX,
+  workforceUuid,
+} from "./sample-workers";
 
 // B2 (#2555) — the cost-ledger backfill planner. Exported so the api's CI DB gate can run
 // it against seeded completions (idempotency + re-tag counts). Side-effect free at import

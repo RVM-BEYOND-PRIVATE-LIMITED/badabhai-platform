@@ -12,6 +12,7 @@ import {
   workerInstituteLinks,
   workerSkills,
   workers,
+  materializeJobReachWithin,
   type DbClient,
 } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
@@ -28,6 +29,26 @@ import { InstituteAiGate, InstituteAiRefusedError } from "./institute-ai-gate.se
 import { InstituteLinkRepository } from "./institute-link.repository";
 import { InstituteLinkService } from "./institute-link.service";
 import { InstituteOpenGate } from "./institute-open-gate.service";
+import { WorkerSkillsRepository } from "../match/worker-skills.repository";
+import { consentAcceptedFrom } from "../consent/consent-flag";
+import { readCampusStudentBundle } from "../student-import/campus-student-bundle";
+import {
+  importCampusStudents,
+  rollbackStudentImport,
+} from "../student-import/import-campus-students";
+import {
+  syntheticStudent,
+  TEST_PASSPHRASE,
+  writeSyntheticBundle,
+} from "../student-import/student-bundle.test-support";
+import { StudentVisibilityRepository } from "../student-move/student-visibility.repository";
+import { StudentVisibilityService } from "../student-move/student-visibility.service";
+import { toProfileSummary } from "../workers/profile-summary.mapper";
+import { recordImportedConsent } from "../student-move/imported-consent";
+import {
+  markWorkerEditedWithin,
+  WorkerFieldSourcesRepository,
+} from "../student-move/worker-field-sources";
 import {
   RvmStudentApiUnavailableError,
   type RvmStudentApiClient,
@@ -232,6 +253,12 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
       .where(
         and(eq(events.subjectId, workerId), eq(events.eventName, "worker.institute_unlinked")),
       );
+  /** #2753 item 13 — the erasure record every path that deletes a workers row writes once. */
+  const accountDeletedEvents = (workerId: string) =>
+    client.db
+      .select()
+      .from(events)
+      .where(and(eq(events.subjectId, workerId), eq(events.eventName, "worker.account_deleted")));
 
   describe("the open gate", () => {
     it("leaves a worker who is not linked to the caller's own rule", async () => {
@@ -356,6 +383,63 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
         worker_deleted: true,
       });
       expect(JSON.stringify(ended[0])).not.toContain(ref);
+      // #2753 item 13 — and exactly one erasure record, written with the delete.
+      const erased = await accountDeletedEvents(workerId);
+      expect(erased).toHaveLength(1);
+      expect(erased[0]!.payload).toEqual({
+        worker_id: workerId,
+        sessions_revoked: 0,
+        devices_revoked: 0,
+        storage_objects_deleted: 0,
+        storage_objects_failed: 0,
+        had_pin: false,
+      });
+      expect(erased[0]!.actorType).toBe("system");
+      expect(erased[0]!.idempotencyKey).toBe(`worker.account_deleted:${workerId}`);
+      expect(JSON.stringify(erased[0])).not.toContain(ref);
+    });
+
+    // #2753 item 13 — the unlink is one transaction whatever ACCOUNT_DELETION_EVENT_IN_TX says, so
+    // the switch changes nothing on this path: one record with it on, one with it off.
+    it.each([false, true])(
+      "writes exactly one worker.account_deleted with ACCOUNT_DELETION_EVENT_IN_TX=%s",
+      async (eventInTx) => {
+        const own = new InstituteLinkService(
+          new InstituteLinkRepository(client.db),
+          workersRepo,
+          {
+            readStudent: async (ref: string) => {
+              const answer = answers.get(ref);
+              if (answer === undefined || answer instanceof Error) throw new Error("no answer");
+              return answer;
+            },
+          } as unknown as RvmStudentApiClient,
+          pii,
+          new EventsService(new EventsRepository(client.db), { NODE_ENV: "test" } as never),
+          {
+            RVM_CONSENT_RECHECK_SECONDS: RECHECK_SECONDS,
+            ACCOUNT_DELETION_EVENT_IN_TX: eventInTx,
+          } as never,
+        );
+        const { workerId, ref } = await linkedStudent();
+
+        await own.unlinkStudent(ref, "campus_request", CTX);
+        await own.unlinkStudent(ref, "campus_request", CTX);
+
+        expect(await workerOf(workerId)).toBeUndefined();
+        expect(await accountDeletedEvents(workerId)).toHaveLength(1);
+      },
+    );
+
+    it("writes no worker.account_deleted when the row stays (only the link ends)", async () => {
+      const s = student();
+      const own = await ownWorker(s.phone);
+      const { ref } = await linkedStudent(s);
+
+      await links.unlinkStudent(ref, "campus_request", CTX);
+
+      expect(await workerOf(own.id)).toBeDefined();
+      expect(await accountDeletedEvents(own.id)).toHaveLength(0);
     });
 
     it("keeps a worker with his own BadaBhai account and erases only what came from RVM", async () => {
@@ -527,4 +611,412 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
       expect(await search.findCardRow(own.id)).not.toBeNull();
     });
   });
+});
+
+/**
+ * #2887 — moved students against real Postgres: a hidden one is reached by no posting (always, once the
+ * table exists) and is out of company search (STUDENT_MOVE_ENABLED on); one an admin made visible is reached and searchable like
+ * any worker; a worker who was never moved is untouched. Plus the field marker and the imported
+ * consent row.
+ */
+describe.skipIf(!RUN)("#2887 moved students — reach, search, markers, consent", () => {
+  let client: ReturnType<typeof createDbClient>;
+  const SKILL = "mskill_cnc_turner";
+  const MFG = "ind_industrial_manufacturing";
+  const T = randomUUID().slice(0, 8);
+  const COMPANY = randomUUID();
+  const POSTING = randomUUID();
+  const HIDDEN = randomUUID();
+  const VISIBLE = randomUUID();
+  const NEVER = randomUUID();
+  const workersAll = [HIDDEN, VISIBLE, NEVER];
+  let batchId: string;
+  const on = { STUDENT_MOVE_ENABLED: true };
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL, { max: 4 });
+    const { sql } = client;
+    await sql`
+      INSERT INTO skill (skill_id, label_en, domain_id, source, status, kind, industry_id)
+      VALUES (${SKILL}, 'CNC Turner', 'cnc-machining', 'rvm', 'active', 'match_skill', ${MFG})
+      ON CONFLICT (skill_id) DO NOTHING`;
+    await sql`
+      INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+      VALUES (${COMPANY}::uuid, 'employer', ${`enc:2887-${T}`}, ${`hash:2887-${T}`},
+              ${`enc:co-${T}`}, 'active')`;
+    await sql`
+      INSERT INTO job_postings
+        (id, created_by, payer_id, org_label, role_title, vacancy_band, status, verification_status,
+         match_skill_ids, reach_skill_ids)
+      VALUES (${POSTING}::uuid, ${COMPANY}::uuid, ${COMPANY}::uuid, 'Move Co', 'CNC Turner', '1',
+              'open', 'verified', ${JSON.stringify([SKILL])}::jsonb, ${JSON.stringify([SKILL])}::jsonb)`;
+    const [batch] = await sql<{ id: string }[]>`
+      INSERT INTO student_import_batches (source, label) VALUES ('campus', ${`test ${T}`})
+      RETURNING id`;
+    batchId = batch!.id;
+    for (const id of workersAll) {
+      await sql`
+        INSERT INTO workers (id, phone_e164, phone_hash, status)
+        VALUES (${id}::uuid, ${`enc:2887-${T}-${id}`}, ${`hash:2887-${T}-${id}`}, 'pending')`;
+      await sql`
+        INSERT INTO worker_skill (worker_id, skill_id, industry_id, months_bucketed, wants, source)
+        VALUES (${id}::uuid, ${SKILL}, ${MFG}, 24, true, 'ops')`;
+      await client.db.transaction((tx) =>
+        recordImportedConsent(tx as never, id, {
+          campusConsentVersion: "v3",
+          campusConsentedAt: new Date("2026-08-01T10:00:00Z"),
+        }),
+      );
+    }
+    await sql`
+      INSERT INTO student_visibility (worker_id, visible, batch_id)
+      VALUES (${HIDDEN}::uuid, false, ${batchId}::uuid), (${VISIBLE}::uuid, true, ${batchId}::uuid)`;
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      const { sql } = client;
+      await sql`DELETE FROM job_reach WHERE job_posting_id = ${POSTING}::uuid`;
+      await sql`DELETE FROM job_postings WHERE id = ${POSTING}::uuid`;
+      await sql`DELETE FROM workers WHERE phone_hash LIKE ${`hash:2887-${T}-%`}`;
+      await sql`DELETE FROM student_import_batches WHERE id = ${batchId}::uuid`;
+      await sql`DELETE FROM payers WHERE id = ${COMPANY}::uuid`;
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  const reached = async (): Promise<string[]> => {
+    const rows = await client.sql<{ worker_id: string }[]>`
+      SELECT worker_id FROM job_reach WHERE job_posting_id = ${POSTING}::uuid ORDER BY worker_id`;
+    return rows.map((r) => r.worker_id).filter((w) => (workersAll as string[]).includes(w));
+  };
+
+  it("publish: the hidden student is not reached; the visible and never-moved are", async () => {
+    await client.db.transaction((tx) =>
+      materializeJobReachWithin(tx as never, POSTING, [SKILL], [SKILL]),
+    );
+    expect(await reached()).toEqual([VISIBLE, NEVER].sort());
+  });
+
+  it("an admin turns him visible: his reconcile reaches him; hidden again: his row goes", async () => {
+    const repo = new WorkerSkillsRepository(client.db);
+    await client.sql`UPDATE student_visibility SET visible = true WHERE worker_id = ${HIDDEN}::uuid`;
+    await repo.reconcileReachForWorker(HIDDEN, [SKILL]);
+    expect(await reached()).toContain(HIDDEN);
+    await client.sql`UPDATE student_visibility SET visible = false WHERE worker_id = ${HIDDEN}::uuid`;
+    await repo.reconcileReachForWorker(HIDDEN, [SKILL]);
+    expect(await reached()).not.toContain(HIDDEN);
+    // The posting side agrees: made visible, a re-materialization reaches him; hidden again, the
+    // next one purges his row.
+    await client.sql`UPDATE student_visibility SET visible = true WHERE worker_id = ${HIDDEN}::uuid`;
+    await client.db.transaction((tx) =>
+      materializeJobReachWithin(tx as never, POSTING, [SKILL], [SKILL]),
+    );
+    expect(await reached()).toContain(HIDDEN);
+    await client.sql`UPDATE student_visibility SET visible = false WHERE worker_id = ${HIDDEN}::uuid`;
+    await client.db.transaction((tx) =>
+      materializeJobReachWithin(tx as never, POSTING, [SKILL], [SKILL]),
+    );
+    expect(await reached()).not.toContain(HIDDEN);
+  });
+
+  it("company search with the switch on: hidden out, visible in (his imported consent shares him)", async () => {
+    const search = new CandidateSearchRepository(client.db, { ...on, SEARCH_EXIT_ENABLED: false });
+    expect(await search.findCardRow(HIDDEN)).toBeNull();
+    expect(await search.findCardRow(VISIBLE)).not.toBeNull();
+    expect(await search.findCardRow(NEVER)).not.toBeNull();
+    // Off: nothing about the move is read — the hidden student is an ordinary consenting worker.
+    expect(await new CandidateSearchRepository(client.db).findCardRow(HIDDEN)).not.toBeNull();
+  });
+
+  it("the field marker: his own edit makes a field his; the import may still write the rest", async () => {
+    await client.db.transaction((tx) => markWorkerEditedWithin(tx as never, VISIBLE, ["skills"]));
+    const sources = new WorkerFieldSourcesRepository(client.db);
+    await client.db.transaction((tx) =>
+      sources.markImported(tx as never, VISIBLE, ["skills", "experience"], batchId),
+    );
+    expect([...(await sources.importableFields(VISIBLE, ["skills", "experience"]))]).toEqual([
+      "experience",
+    ]);
+    const rows = await client.sql<{ field_key: string; source: string }[]>`
+      SELECT field_key, source FROM worker_field_sources WHERE worker_id = ${VISIBLE}::uuid
+      ORDER BY field_key`;
+    expect(rows.map((r) => [r.field_key, r.source])).toEqual([
+      ["experience", "campus_import"],
+      ["skills", "worker"],
+    ]);
+  });
+
+  it("the imported consent is his latest, active, and reads as not yet accepted at sign-in", async () => {
+    const latest = await new ConsentRepository(client.db).findLatestByWorker(HIDDEN);
+    expect(latest).toMatchObject({ consentVersion: "campus_import:v3", revokedAt: null });
+    expect(latest!.purposes).toContain("employer_sharing");
+    expect(consentAcceptedFrom(latest)).toBe(false);
+  });
+});
+
+/**
+ * #2887 step 3 — THE MOVE, END TO END, against real Postgres, from a synthetic Campus bundle
+ * (format v1, encrypted as the doc says):
+ *   - the import creates hidden, `pending` workers with their profile, match skills, certificates,
+ *     work history, an imported consent and a visibility row OFF; it holds a phone that is not his
+ *     own and never takes over an existing BadaBhai worker;
+ *   - a second run of the same bundle changes nothing; a changed record rewrites only the fields
+ *     the student did not edit on BadaBhai;
+ *   - THE PROOF: the student signs in on the same phone and lands on the SAME worker (activated, the
+ *     consent screen still due), his profile shows the imported facts, no posting reaches him while
+ *     hidden, and once the visibility service turns him visible the posting reaches him;
+ *   - a rollback removes only the workers that run created who never signed in.
+ */
+describe.skipIf(!RUN)("#2887 the student move — import, sign-in, reach, rollback", () => {
+  let client: DbClient;
+  let pii: PiiCryptoService;
+  const T = randomUUID().slice(0, 8);
+  const COMPANY = randomUUID();
+  const POSTING = randomUUID();
+  const SKILL_3D = "mskill_cad_designer_3d";
+  const SKILL_2D = "mskill_designer";
+  const MFG = "ind_industrial_manufacturing";
+  const PHONE_A = phone10();
+  const PHONE_B = phone10();
+  const PHONE_EXISTING = phone10();
+  const A = `cand-a-${T}`;
+  const B = `cand-b-${T}`;
+  const C = `cand-c-${T}`;
+  const D = `cand-d-${T}`;
+  const created: string[] = [];
+  const batches: string[] = [];
+  let existingWorker: string;
+  const dirs: string[] = [];
+
+  const bundle = async (students: Record<string, unknown>[]) => {
+    const dir = await writeSyntheticBundle({
+      students,
+      problems: [{ kind: "phone_missing", candidate_source_id: C, detail: null }],
+    });
+    dirs.push(dir);
+    return readCampusStudentBundle(dir, TEST_PASSPHRASE);
+  };
+  const run = async (students: Record<string, unknown>[], label: string) => {
+    const report = await importCampusStudents(client.db, pii, await bundle(students), {
+      apply: true,
+      batchLabel: label,
+      since: false,
+    });
+    batches.push(report.batchId!);
+    for (const o of report.students) if (o.workerId && !created.includes(o.workerId)) created.push(o.workerId);
+    return report;
+  };
+  const workerOf = (report: Awaited<ReturnType<typeof run>>, id: string): string =>
+    report.students.find((o) => o.sourceId === id)!.workerId!;
+  const students = () => [
+    syntheticStudent(A, PHONE_A),
+    syntheticStudent(B, PHONE_B, {
+      profile: { job_role: "CAM Programmer", skills: ["Mastercam", "ANSYS"], total_experience_months: 6 },
+    }),
+    syntheticStudent(C, null),
+    syntheticStudent(D, PHONE_EXISTING),
+  ];
+  let first: Awaited<ReturnType<typeof run>>;
+
+  beforeAll(async () => {
+    assertLocalDatabase(DATABASE_URL);
+    client = createDbClient(DATABASE_URL, { max: 4 });
+    pii = new PiiCryptoService({
+      PII_HASH_PEPPER: `student-move-test-pepper-${T}`,
+      PII_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString("base64"),
+      PIN_PEPPER: "student-move-test-pin",
+    } as never);
+    const { sql } = client;
+    for (const [skill, label] of [
+      [SKILL_3D, "3D CAD Designer"],
+      [SKILL_2D, "2D CAD Draughtsman"],
+      ["mskill_cam_programmer", "CAM Programmer"],
+    ] as const) {
+      await sql`
+        INSERT INTO skill (skill_id, label_en, domain_id, source, status, kind, industry_id)
+        VALUES (${skill}, ${label}, 'cnc-machining', 'rvm', 'active', 'match_skill', ${MFG})
+        ON CONFLICT (skill_id) DO NOTHING`;
+    }
+    await sql`
+      INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+      VALUES (${COMPANY}::uuid, 'employer', ${`enc:2887m-${T}`}, ${`hash:2887m-${T}`},
+              ${`enc:co-${T}`}, 'active')`;
+    await sql`
+      INSERT INTO job_postings
+        (id, created_by, payer_id, org_label, role_title, vacancy_band, status, verification_status,
+         match_skill_ids, reach_skill_ids)
+      VALUES (${POSTING}::uuid, ${COMPANY}::uuid, ${COMPANY}::uuid, 'Design Co', '3D CAD Designer',
+              '1', 'open', 'verified', ${JSON.stringify([SKILL_3D])}::jsonb,
+              ${JSON.stringify([SKILL_3D])}::jsonb)`;
+    // A BadaBhai worker who signed up on his own, on D's phone.
+    const e164 = `+91${PHONE_EXISTING}`;
+    const [w] = await sql<{ id: string }[]>`
+      INSERT INTO workers (phone_e164, phone_hash, status)
+      VALUES (${pii.encrypt(e164)}, ${pii.hashPhone(e164)}, 'active') RETURNING id`;
+    existingWorker = w!.id;
+    first = await run(students(), `test move ${T}`);
+  }, 120_000);
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      const { sql } = client;
+      await sql`DELETE FROM job_reach WHERE job_posting_id = ${POSTING}::uuid`;
+      await sql`DELETE FROM job_postings WHERE id = ${POSTING}::uuid`;
+      for (const id of [...created, existingWorker]) await sql`DELETE FROM workers WHERE id = ${id}::uuid`;
+      for (const b of batches) {
+        await sql`DELETE FROM student_import_subjects WHERE first_batch_id = ${b}::uuid OR last_batch_id = ${b}::uuid`;
+        await sql`DELETE FROM student_import_batches WHERE id = ${b}::uuid`;
+      }
+      await sql`DELETE FROM payers WHERE id = ${COMPANY}::uuid`;
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  const reached = async (): Promise<string[]> =>
+    (
+      await client.sql<{ worker_id: string }[]>`
+        SELECT worker_id FROM job_reach WHERE job_posting_id = ${POSTING}::uuid`
+    ).map((r) => r.worker_id);
+
+  it("imports the good students hidden, holds the rest, and writes their profile", async () => {
+    expect(first.totals).toMatchObject({ created: 2, held: 2, failed: 0 });
+    expect(first.heldByReason).toEqual({ phone_missing: 1, already_badabhai_worker: 1 });
+    expect(first.problemsByKind).toEqual({ phone_missing: 1 });
+    const a = workerOf(first, A);
+    const { sql } = client;
+    const [w] = await sql<{ status: string; current_city: string | null }[]>`
+      SELECT status, current_city FROM workers WHERE id = ${a}::uuid`;
+    expect(w).toEqual({ status: "pending", current_city: "Pune" });
+    const [vis] = await sql<{ visible: boolean }[]>`
+      SELECT visible FROM student_visibility WHERE worker_id = ${a}::uuid`;
+    expect(vis!.visible).toBe(false);
+    const [origin] = await sql<{ kind: string; ref: string }[]>`
+      SELECT kind, ref FROM worker_origins WHERE worker_id = ${a}::uuid`;
+    expect(origin).toEqual({ kind: "institute", ref: "rvm" });
+    const skills = await sql<{ skill_id: string; months_bucketed: number; source: string; wants: boolean }[]>`
+      SELECT skill_id, months_bucketed, source, wants FROM worker_skill WHERE worker_id = ${a}::uuid
+      ORDER BY skill_id`;
+    expect(skills.map((r) => [r.skill_id, Number(r.months_bucketed), r.source, r.wants])).toEqual([
+      [SKILL_3D, 12, "ops", true],
+      [SKILL_2D, 0, "ops", true],
+    ]);
+    const certs = await sql<{ name: string }[]>`
+      SELECT name FROM worker_certificate WHERE worker_id = ${a}::uuid ORDER BY sort_order`;
+    expect(certs.map((c) => c.name)).toEqual([
+      "RVM CAD certification: Product Design Engineer",
+      "GD&T Basics",
+    ]);
+    const [job] = await sql<{ start_ym: string; end_ym: string }[]>`
+      SELECT start_ym, end_ym FROM worker_employment WHERE worker_id = ${a}::uuid`;
+    expect(job).toEqual({ start_ym: "2024-01", end_ym: "2025-02" });
+    const latest = await new ConsentRepository(client.db).findLatestByWorker(a);
+    expect(latest?.consentVersion).toBe("campus_import:bulk_move_ruling");
+    // The existing worker was not touched: still active, no visibility row, no subject.
+    const [ex] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM student_visibility WHERE worker_id = ${existingWorker}::uuid`;
+    expect(Number(ex!.n)).toBe(0);
+    // The unmapped report names what had no certain skill.
+    expect(first.unmapped).toEqual([{ field: "skill", value: "ANSYS", students: 1 }]);
+  });
+
+  it("the same bundle again changes nothing", async () => {
+    const again = await run(students(), `test rerun ${T}`);
+    expect(again.totals).toMatchObject({ created: 0, updated: 0, unchanged: 2, held: 2 });
+  }, 60_000);
+
+  it("a changed record rewrites only what the student did not edit on BadaBhai", async () => {
+    const a = workerOf(first, A);
+    await client.db.transaction((tx) => markWorkerEditedWithin(tx as never, a, ["skills"]));
+    const changed = students();
+    changed[0] = syntheticStudent(A, PHONE_A, {
+      city: "Nashik",
+      profile: { job_role: "CAM Programmer", skills: ["Mastercam"], total_experience_months: 18 },
+      skill_experience: [],
+      experience: [],
+      rvm_certifications: [],
+      rvm: { status: "current", course: "Mastercam", branch: { id: 2, name: "Pune" } },
+    });
+    const report = await run(changed, `test change ${T}`);
+    expect(report.students.find((o) => o.sourceId === A)).toMatchObject({ action: "updated" });
+    const { sql } = client;
+    const skills = await sql<{ skill_id: string }[]>`
+      SELECT skill_id FROM worker_skill WHERE worker_id = ${a}::uuid ORDER BY skill_id`;
+    expect(skills.map((r) => r.skill_id)).toEqual([SKILL_3D, SKILL_2D]);
+    const [w] = await sql<{ current_city: string }[]>`
+      SELECT current_city FROM workers WHERE id = ${a}::uuid`;
+    expect(w!.current_city).toBe("Nashik");
+  }, 60_000);
+
+  it("THE PROOF: he signs in on the same phone, sees his profile, and is reached once visible", async () => {
+    const a = workerOf(first, A);
+    const workersRepo = new WorkersRepository(client.db);
+    // (a) sign-in: the OTP path finds the row by the phone's hash and activates the pending row.
+    const e164 = `+91${PHONE_A}`;
+    const found = await workersRepo.findByPhoneHash(pii.hashPhone(e164));
+    expect(found?.id).toBe(a);
+    await workersRepo.activatePending(a, pii.hashPhone(e164));
+    const [w] = await client.sql<{ status: string }[]>`SELECT status FROM workers WHERE id = ${a}::uuid`;
+    expect(w!.status).toBe("active");
+    // His imported consent is active but still reads as not accepted: the app shows BadaBhai's
+    // own consent screen (with the 18+ tick) once.
+    const latest = await new ConsentRepository(client.db).findLatestByWorker(a);
+    expect(consentAcceptedFrom(latest)).toBe(false);
+
+    // (b) the profile the app reads.
+    const profile = await workersRepo.latestProfile(a);
+    const summary = toProfileSummary({
+      ...profile!,
+      hasPhoto: false,
+      workerCity: "Nashik",
+      formFacts: null,
+    } as never);
+    expect(summary.profile_status).toBe("confirmed");
+    expect(summary.skills).toEqual(["AutoCAD", "SolidWorks"]);
+    expect(summary.experience_years).toBe(1.5);
+    // The role label was not his edit, so the changed record rewrote it.
+    expect(summary.trade.display_name).toBe("CAM Programmer");
+
+    // (c) reach: hidden, the posting does not reach him; visible, it does.
+    await client.db.transaction((tx) =>
+      materializeJobReachWithin(tx as never, POSTING, [SKILL_3D], [SKILL_3D]),
+    );
+    expect(await reached()).not.toContain(a);
+    const wsRepo = new WorkerSkillsRepository(client.db);
+    const service = new StudentVisibilityService(
+      new StudentVisibilityRepository(client.db),
+      new EventsService(new EventsRepository(client.db), { NODE_ENV: "test" } as never),
+      {
+        rebuildQuietly: async (workerId: string) => {
+          await wsRepo.reconcileReachForWorker(workerId, await wsRepo.listWantedSkillIds(workerId));
+        },
+      } as never,
+      { STUDENT_MOVE_ENABLED: true },
+    );
+    const admin = randomUUID();
+    const out = await service.setOne(admin, a, { visible: true, reason: "Placement team cleared the batch" }, CTX);
+    expect(out.changed).toBe(true);
+    expect(await reached()).toContain(a);
+  }, 60_000);
+
+  it("rollback removes only the never-signed-in workers that run created", async () => {
+    const a = workerOf(first, A); // signed in above
+    const b = workerOf(first, B); // never signed in
+    const events = new EventsService(new EventsRepository(client.db), { NODE_ENV: "test" } as never);
+    const report = await rollbackStudentImport(client.db, first.batchId!, events);
+    expect(report).toMatchObject({ alreadyRolledBack: false, removed: 1, keptSignedIn: [a] });
+    const { sql } = client;
+    const rows = await sql<{ id: string }[]>`SELECT id FROM workers WHERE id IN (${a}::uuid, ${b}::uuid)`;
+    expect(rows.map((r) => r.id)).toEqual([a]);
+    // One erasure record for the removed row, as on every other exit path (#2753 item 13).
+    const erased = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM events
+      WHERE event_name = 'worker.account_deleted' AND subject_id = ${b}::uuid`;
+    expect(Number(erased[0]!.n)).toBe(1);
+    expect((await rollbackStudentImport(client.db, first.batchId!, events)).alreadyRolledBack).toBe(true);
+  }, 60_000);
 });

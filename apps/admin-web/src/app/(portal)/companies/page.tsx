@@ -65,6 +65,7 @@ export default async function CompaniesPage({
   const session = await requireCapability("read_entities");
   const mayReadEvents = can(session.capabilities, "read_events");
   const mayManage = can(session.capabilities, "manage_companies");
+  const mayTestCompany = can(session.capabilities, "read_business_numbers");
 
   const sp = await searchParams;
   const one = (value: string | string[] | undefined) =>
@@ -260,6 +261,7 @@ export default async function CompaniesPage({
           }}
           mayManage={mayManage}
           mayReadEvents={mayReadEvents}
+          mayTestCompany={mayTestCompany}
           timelineHref={mayReadEvents ? `${customerHref(row.id)}/timeline` : null}
         />
       ),

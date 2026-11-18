@@ -117,15 +117,25 @@ describe("PushService — the allowlist IS the boundary (ADR-0034)", () => {
     expect(Object.keys(NOTIFICATION_TEMPLATES)).not.toContain("worker.push_send_failed");
   });
 
-  it("the ruled scope is security PLUS the ADR-0062 correction notices", () => {
+  it("the ruled scope is security PLUS the ADR-0062 correction notices PLUS the switched monthly prompt", () => {
     // ADR-0062 §3.10 amends the 2026-07-17 security-only scope for exactly two events: an
     // admin corrected a profile fact, or reverted one. The copy is faceless; one save = one push.
+    // #2753 item 5 adds the monthly "still looking?" prompt — allowlisted, but it pushes ONLY
+    // while both of its switches are on (below), and the push switch stays off until the owner
+    // widens the ADR-0034 ruling.
     expect([...PUSH_EVENT_NAMES].sort()).toEqual([
       "admin.candidate_field_corrected",
       "admin.candidate_field_reverted",
       "worker.device_registered",
       "worker.logged_out_all",
+      "worker.still_looking_prompted",
     ]);
+    // Every OTHER push template is switch-free: a switch never gates a security alert.
+    for (const name of PUSH_EVENT_NAMES) {
+      const t = NOTIFICATION_TEMPLATES[name]!;
+      if (name === "worker.still_looking_prompted") continue;
+      expect(t.pushRequires, name).toBeUndefined();
+    }
   });
 });
 
@@ -326,5 +336,77 @@ describe("PushService — the worker's notifications toggle (#643)", () => {
     const res = await svc.deliver(job({ eventName: SYNTHETIC }));
     expect(res.sent).toBe(1);
     expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PushService — the monthly \"still looking?\" prompt's two switches (#2753 item 5)", () => {
+  const PROMPT = "worker.still_looking_prompted";
+  const both = { STILL_LOOKING_CHECK_ENABLED: true, STILL_LOOKING_PUSH_ENABLED: true };
+
+  it("is allowlisted for push, non-security, and names BOTH switches", () => {
+    const t = NOTIFICATION_TEMPLATES[PROMPT]!;
+    expect(t.push).toBe(true);
+    expect(t.type).not.toBe("security");
+    expect([...(t.pushRequires ?? [])].sort()).toEqual([
+      "STILL_LOOKING_CHECK_ENABLED",
+      "STILL_LOOKING_PUSH_ENABLED",
+    ]);
+  });
+
+  it.each([
+    [true, true, 1],
+    [true, false, 0],
+    [false, true, 0],
+    [false, false, 0],
+    [undefined, undefined, 0],
+  ])("check %s, push %s → sent %s", async (check, push, expected) => {
+    const { svc, provider, events } = setup({
+      config: {
+        STILL_LOOKING_CHECK_ENABLED: check,
+        STILL_LOOKING_PUSH_ENABLED: push,
+      } as Partial<ServerConfig>,
+    });
+    const res = await svc.deliver(job({ eventName: PROMPT }));
+    expect(res.sent).toBe(expected);
+    expect(provider.send).toHaveBeenCalledTimes(expected);
+    if (expected === 0) {
+      // Refused at the boundary: not a delivery failure, so no event and no quota slot.
+      expect(events.emit).not.toHaveBeenCalled();
+    }
+  });
+
+  it("both on: the static copy (never the payload), routed home, as a NON-security push", async () => {
+    const { svc, sent } = setup({ config: both });
+    await svc.deliver(job({ eventName: PROMPT }));
+    const copy = templateCopy(NOTIFICATION_TEMPLATES[PROMPT]!, "hi");
+    expect(sent[0]).toMatchObject({
+      title: copy.title,
+      body: copy.body,
+      type: "still_looking",
+      route: "home",
+    });
+  });
+
+  it("both on: it falls under the numeric daily ceiling (security pushes stay exempt)", async () => {
+    const s = setup({ config: { ...both, PUSH_GLOBAL_MAX_SENDS_PER_DAY: 1 } });
+    expect((await s.svc.deliver(job({ eventName: PROMPT }))).sent).toBe(1);
+    expect(s.redisClient!.incr).toHaveBeenCalledTimes(1);
+    // The ceiling is reached: the next prompt is refused with the quota reason...
+    const second = await s.svc.deliver(
+      job({ eventName: PROMPT, sourceEventId: "55555555-5555-4555-8555-555555555555" }),
+    );
+    expect(second.sent).toBe(0);
+    // ...and a security alert still goes out, without touching the counter.
+    const security = await s.svc.deliver(
+      job({ sourceEventId: "66666666-6666-4666-8666-666666666666" }),
+    );
+    expect(security.sent).toBe(1);
+    expect(s.redisClient!.incr).toHaveBeenCalledTimes(2);
+  });
+
+  it("both on: the worker's own notifications toggle silences it", async () => {
+    const { svc, provider } = setup({ config: both, notificationsEnabled: false });
+    expect((await svc.deliver(job({ eventName: PROMPT }))).sent).toBe(0);
+    expect(provider.send).not.toHaveBeenCalled();
   });
 });

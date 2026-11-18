@@ -1,8 +1,17 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { sql as dsql, type SQL } from "drizzle-orm";
-import type { Database } from "@badabhai/db";
+import { isVisibleStudent, notHiddenStudent, type Database } from "@badabhai/db";
+import { sqlStateOf } from "../common/db-error";
+import { SERVER_CONFIG } from "../config/config.module";
 import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
+import { searchExitEnabled, type SearchExitConfig } from "../search-exit/search-exit.flag";
+import { studentMoveEnabled, type StudentMoveConfig } from "../student-move/student-move.flag";
+import { warnStudentVisibilityMissingOnce } from "../student-move/student-visibility-missing";
+import {
+  PG_UNDEFINED_TABLE,
+  warnSearchExitsTableMissingOnce,
+} from "../search-exit/search-exit-missing-table";
 
 /**
  * DB access for the payer's ALL-CANDIDATES search (`POST /payer/candidates/search`, ADR-0040,
@@ -33,6 +42,15 @@ import type { TenantKey } from "../payers/payer-tenant-scope";
  * named-company search grant for is in THAT company's pool only, on the grant's skill (months
  * unrecorded), with no BadaBhai consent row needed: his own yes for that company was read from the
  * institute. No other company's search ever sees the grant.
+ * ONE WAY OUT THAT KEEPS CONSENT (#2753 item 6, only while SEARCH_EXIT_ENABLED is on): a worker
+ * with a `worker_search_exits` row left company search, and is out of the WHOLE pool, the grant
+ * branch included (a student who left search left it for named-company search too). It feeds the
+ * city facet and the admin card read (`onlyWorkerId`) as well, which then says "not in the pool".
+ * With the switch off the statement is byte-identical to the one before #2753 and the table is
+ * never named (`candidate-search.search-exit.test.ts`). With it on and the table MISSING (0169 not
+ * applied), each reader FAILS OPEN: on 42P01 it re-runs the switch-off statement byte for byte
+ * (nobody can have left search without the table, since leaving writes it) and the first fallback
+ * logs one warning per process. Any other error propagates.
  * NEVER WIDEN THIS TO MAKE ROWS APPEAR (E2_BUILD "THE EMPTY-RESULT TRAP"): a search that returns
  * a worker who never consented has already disclosed him.
  *
@@ -113,6 +131,18 @@ export interface CandidatePoolQuery {
    * skill his course maps to. Absent = no grant is read at all (the admin card read passes none).
    */
   tenant?: TenantKey;
+  /**
+   * #2753 item 6 — leave out every worker who left company search (`worker_search_exits`). Set by
+   * {@link CandidateSearchRepository} from SEARCH_EXIT_ENABLED, never by a service: absent or false,
+   * the statement is byte-identical to the one before #2753 and the table is never named.
+   */
+  excludeSearchExits?: boolean;
+  /**
+   * #2887 — STUDENT_MOVE_ENABLED: a moved student whose visibility is off is out of the pool, and one
+   * an admin made visible is in it like any worker (#2752's active-link exclusion lifts for him).
+   * Set by {@link CandidateSearchRepository} from the switch, never by a service.
+   */
+  studentMove?: boolean;
 }
 
 /** One candidate in the pool, before labelling. */
@@ -139,6 +169,12 @@ export interface CandidatePoolCounts {
   unrecorded: number;
 }
 
+/** The two switches a pool statement carries (#2753 item 6, #2887). */
+interface PoolSwitches {
+  excludeSearchExits: boolean;
+  studentMove: boolean;
+}
+
 /** One wanted skill of a page worker, most months first. */
 export interface CandidateRoleRow {
   workerId: string;
@@ -151,7 +187,36 @@ export interface CandidateRoleRow {
  * worker row's `updated_at`. Shared by the search and the city facet so the two can never
  * disagree about who is in the population.
  */
-function consentingWorkers(onlyWorkerId: string | null = null, tenant?: TenantKey): SQL {
+function consentingWorkers(
+  onlyWorkerId: string | null = null,
+  tenant?: TenantKey,
+  excludeSearchExits = false,
+  studentMove = false,
+): SQL {
+  // #2887 — off: the empty fragments, so the text is byte-identical to before. On: an active
+  // #2752 link hides a student only while he is not made visible, and a hidden moved student is out
+  // whether or not he has a link row.
+  const linkHides = studentMove
+    ? dsql`
+          AND (
+            NOT EXISTS (
+              SELECT 1 FROM worker_institute_links il
+              WHERE il.worker_id = w.id AND il.status = 'active'
+            )
+            OR ${isVisibleStudent(dsql`w.id`)}
+          )
+          AND ${notHiddenStudent(dsql`w.id`)}`
+    : dsql`
+          AND NOT EXISTS (
+            SELECT 1 FROM worker_institute_links il
+            WHERE il.worker_id = w.id AND il.status = 'active'
+          )`;
+  // #2753 item 6 — over the WHOLE pool (after the grant branch's OR), so a granted student who
+  // left search is out of that company's pool too. Off: the empty fragment, so the text is unchanged.
+  const exits = excludeSearchExits
+    ? dsql`
+      AND NOT EXISTS (SELECT 1 FROM worker_search_exits x WHERE x.worker_id = w.id)`
+    : dsql``;
   const only =
     onlyWorkerId === null
       ? dsql``
@@ -189,13 +254,9 @@ function consentingWorkers(onlyWorkerId: string | null = null, tenant?: TenantKe
           ) IS TRUE
           AND EXISTS (
             SELECT 1 FROM worker_skill ws0 WHERE ws0.worker_id = w.id AND ws0.wants
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM worker_institute_links il
-            WHERE il.worker_id = w.id AND il.status = 'active'
-          )
+          )${linkHides}
         )${granted}
-      )${only}`;
+      )${exits}${only}`;
 }
 
 /**
@@ -294,8 +355,15 @@ export function candidateSearchStatement(q: CandidatePoolQuery): SQL {
       FROM (${liveGrantRows(q.tenant)}) ws
       JOIN consenting cw ON cw.worker_id = ws.worker_id`;
 
+  const pool = consentingWorkers(
+    q.onlyWorkerId ?? null,
+    q.tenant,
+    q.excludeSearchExits === true,
+    q.studentMove === true,
+  );
+
   return dsql`
-    WITH consenting AS (${consentingWorkers(q.onlyWorkerId ?? null, q.tenant)}),
+    WITH consenting AS (${pool}),
     wanted AS (
       SELECT ws.worker_id, ws.skill_id, ws.industry_id AS ws_industry_id, ws.months_bucketed,
              ${matchClass} AS match_class
@@ -398,15 +466,59 @@ type SearchSqlRow = {
 
 @Injectable()
 export class CandidateSearchRepository {
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  /** #2753 item 6 — SEARCH_EXIT_ENABLED, read once. Off (or no config at all) is today. */
+  private readonly excludeSearchExits: boolean;
+
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    // Optional only so the hand-built instances (unit and DB suites) keep compiling; absent reads as
+    // off. Nest always injects it (AppConfigModule is @Global).
+    @Optional() @Inject(SERVER_CONFIG) config?: SearchExitConfig & StudentMoveConfig,
+  ) {
+    this.excludeSearchExits = searchExitEnabled(config);
+    this.studentMove = studentMoveEnabled(config);
+  }
+
+  /** #2887 — STUDENT_MOVE_ENABLED, read once. Off (or no config at all) is today. */
+  private readonly studentMove: boolean;
+
+  /**
+   * Run one pool statement with the SWITCH's predicate (never the caller's), FAILING OPEN when the
+   * switch is on but `worker_search_exits` is missing: on 42P01 the switch-off statement is run
+   * instead, byte for byte, and the first such fallback in the process logs one warning. The
+   * fallback is a separate statement on the global pool, never inside a transaction (a failed
+   * statement aborts a Postgres transaction). Off, or any other error: exactly one attempt.
+   */
+  private async executeFailOpen<T>(statement: (flags: PoolSwitches) => SQL): Promise<T[]> {
+    const on: PoolSwitches = {
+      excludeSearchExits: this.excludeSearchExits,
+      studentMove: this.studentMove,
+    };
+    try {
+      return (await this.db.execute(statement(on))) as unknown as T[];
+    } catch (err) {
+      if ((!on.excludeSearchExits && !on.studentMove) || sqlStateOf(err) !== PG_UNDEFINED_TABLE) {
+        throw err;
+      }
+      // The off statement differs only by the switches' predicates: if it succeeds, the missing
+      // relation was `worker_search_exits` or `student_visibility` (#2887); if another table is
+      // missing, it throws its own 42P01 here.
+      const rows = (await this.db.execute(
+        statement({ excludeSearchExits: false, studentMove: false }),
+      )) as unknown as T[];
+      if (on.excludeSearchExits) warnSearchExitsTableMissingOnce("search");
+      if (on.studentMove) warnStudentVisibilityMissingOnce();
+      return rows;
+    }
+  }
 
   /** The counts and one page of the pool, in the search order. */
   async searchPool(
     q: CandidatePoolQuery,
   ): Promise<{ counts: CandidatePoolCounts; rows: CandidatePoolRow[] }> {
-    const raw = (await this.db.execute<SearchSqlRow>(
-      candidateSearchStatement(q),
-    )) as unknown as SearchSqlRow[];
+    const raw = await this.executeFailOpen<SearchSqlRow>((flags) =>
+      candidateSearchStatement({ ...q, ...flags }),
+    );
     const head = raw[0];
     // The counts CTE always yields exactly one row; none at all is a defect, never data.
     if (!head) throw new Error("candidate search: the counts row is missing");
@@ -448,10 +560,12 @@ export class CandidateSearchRepository {
 
   /** Every trimmed raw city the eligible pool records — the city facet's source. */
   async listPoolCities(): Promise<string[]> {
-    const rows = (await this.db.execute<{ city: string }>(dsql`
-      WITH consenting AS (${consentingWorkers()})
+    const rows = await this.executeFailOpen<{ city: string }>(
+      (flags) => dsql`
+      WITH consenting AS (${consentingWorkers(null, undefined, flags.excludeSearchExits, flags.studentMove)})
       SELECT DISTINCT current_city AS city FROM consenting WHERE current_city IS NOT NULL
-    `)) as unknown as { city: string }[];
+    `,
+    );
     return rows.map((r) => r.city);
   }
 

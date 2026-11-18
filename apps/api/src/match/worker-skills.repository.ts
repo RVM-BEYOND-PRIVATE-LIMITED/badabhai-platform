@@ -1,10 +1,15 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, eq, inArray, isNull, notInArray, sql as dsql } from "drizzle-orm";
+import type { FormTenureFill } from "@badabhai/match-engine";
 import {
   CURRENT_PROFILE_ORDER,
   type Database,
+  type FormTenureSwitches,
   jobPostings,
+  loadFormTenureFills,
   materializeJobReachWithin,
+  notHiddenStudent,
+  studentVisibilityPresent,
   PROFILE_SOURCE_SESSION_ANSWERS,
   reachesBadaBhaiWorkers,
   skills,
@@ -70,6 +75,20 @@ export type Tx = Database;
 @Injectable()
 export class WorkerSkillsRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
+
+  /**
+   * #2887 — is this worker a moved student whose visibility is OFF? A hidden student is reached by
+   * nothing: his wanted set reads as empty. Keyed on the TABLE, never on a switch (reach depends on
+   * none, #2746 M2): before the `student_move` migration there is no table and no student is hidden.
+   */
+  private async isHiddenStudentWithin(executor: Tx, workerId: string): Promise<boolean> {
+    if (!(await studentVisibilityPresent(executor as unknown as Database))) return false;
+    const rows = (await executor.execute(dsql`
+      SELECT 1 AS hidden FROM student_visibility
+      WHERE worker_id = ${workerId}::uuid AND NOT visible
+    `)) as unknown as unknown[];
+    return rows.length > 0;
+  }
 
   /**
    * The worker's CURRENT profile signals, or undefined when he has no profile yet.
@@ -170,6 +189,23 @@ export class WorkerSkillsRepository {
       const answer = packAnswerFromStoredRow(row);
       return answer === null ? [] : [answer];
     });
+  }
+
+  /**
+   * #2753 item 2 — the years each trade form's experience band states, for a batch of workers.
+   *
+   * THE SHARED READ, NOT A SECOND ONE. `loadFormTenureFills` (@badabhai/db) is the statement and the
+   * band/typed rule `db:backfill:worker-skills` runs too: ONE query for all `workerIds`, against
+   * `worker_pack_answer` (the record of what he answered), and a typed answer only with
+   * `switches.typed` on. With `switches.months` off it issues no query and returns an empty map.
+   *
+   * PRIVACY: ids, a status and a number leave this method — never the typed words it may parse.
+   */
+  async findFormTenureFills(
+    workerIds: readonly string[],
+    switches: FormTenureSwitches,
+  ): Promise<Map<string, FormTenureFill[]>> {
+    return loadFormTenureFills(this.db, workerIds, switches);
   }
 
   /**
@@ -505,6 +541,8 @@ export class WorkerSkillsRepository {
     `);
 
     if (wantedSkillIds.length === 0) return; // he supplies nothing: reaches nobody.
+    // #2887 — a hidden moved student reaches nobody until an admin turns his visibility on.
+    if (await this.isHiddenStudentWithin(tx, workerId)) return;
 
     const skills = dsql.param([...wantedSkillIds]);
     // 2. Re-insert. The GROUP BY is per posting (the materializer groups per worker for
@@ -525,7 +563,7 @@ export class WorkerSkillsRepository {
        AND ws.wants
        AND jp.reach_skill_ids @> to_jsonb(ws.skill_id)
       WHERE jp.status IN ('open', 'paused')
-        AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
+        AND ${reachesBadaBhaiWorkers("jp")}
         AND jp.reach_skill_ids ?| ${skills}::text[]
       GROUP BY jp.id
       ON CONFLICT (job_posting_id, worker_id) DO UPDATE
@@ -546,10 +584,15 @@ export class WorkerSkillsRepository {
   async countWorkersReachedBy(skillIds: readonly string[]): Promise<number> {
     if (skillIds.length === 0) return 0;
     const ids = dsql.param([...skillIds]);
+    // #2887 — a hidden moved student is in no reach total (once `student_visibility` exists).
+    const hidden =
+      (await studentVisibilityPresent(this.db))
+        ? dsql` AND ${notHiddenStudent(dsql`ws.worker_id`)}`
+        : dsql``;
     const rows = await this.db.execute<{ n: number }>(dsql`
       SELECT count(DISTINCT ws.worker_id)::int AS n
       FROM worker_skill ws
-      WHERE ws.skill_id = ANY(${ids}::text[]) AND ws.wants
+      WHERE ws.skill_id = ANY(${ids}::text[]) AND ws.wants${hidden}
     `);
     const list = rows as unknown as { n: number }[];
     return list[0]?.n ?? 0;
@@ -691,7 +734,7 @@ export class WorkerSkillsRepository {
         -- #2566 — hidden leaves every worker surface, apply included. Hiding keeps the reach
         -- rows, so without this a worker holding a card could still apply to a hidden job.
         AND jp.hidden_at IS NULL
-        AND ${reachesBadaBhaiWorkers(dsql`jp.audience`)}
+        AND ${reachesBadaBhaiWorkers("jp")}
       LIMIT 1
     `);
     const list = rows as unknown as { match_tier: number; matched_skill_id: string }[];

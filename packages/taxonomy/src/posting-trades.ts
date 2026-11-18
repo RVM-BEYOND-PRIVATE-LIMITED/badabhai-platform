@@ -495,6 +495,16 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         confirmed: true,
         priceTier: "higher",
       },
+      // #2753 item 1 — the worker pack's @3 splits "Senior / Programmer", so the posting can ask
+      // for a programmer apart from a senior operator. The 16-trade reference has no row for it:
+      // the evidence is the sheet's own separating question, the months floor the senior's.
+      {
+        rung: "programmer",
+        monthsFloor: "6+",
+        evidence: "own nesting / press-brake programs",
+        confirmed: true,
+        priceTier: "higher",
+      },
       {
         rung: "supervisor",
         monthsFloor: "8+",
