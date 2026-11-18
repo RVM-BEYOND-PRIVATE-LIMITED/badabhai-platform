@@ -420,6 +420,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /STUDENT_MOVE_ENABLED:\s*\$\{\{\s*secrets\.STUDENT_MOVE_ENABLED\s*\}\}/,
       /envs:[^\n]*\bSTUDENT_MOVE_ENABLED\b/,
     ],
+    // #2739 — the admin AI-calls tab (/admin/ai-traces). A plain boolean on the api only, turned on
+    // in production ONLY by the environment secret, with the owner's sign-off.
+    [
+      "ADMIN_AI_TRACE_READ_ENABLED",
+      /ADMIN_AI_TRACE_READ_ENABLED:\s*\$\{\{\s*secrets\.ADMIN_AI_TRACE_READ_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bADMIN_AI_TRACE_READ_ENABLED\b/,
+    ],
     // #2755 part B — how many days after a week ends the numbers sweep freezes it, a tuning number
     // like the follow-up wait above; absent, compose holds it at 3.
     [
@@ -612,6 +619,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["NUMBERS_FREEZE_AFTER_DAYS", "3"],
     // #2887 — off is today: nothing names the student-move tables, /admin/students/* is a 404.
     ["STUDENT_MOVE_ENABLED", "false"],
+    // #2739 — off is today: both /admin/ai-traces routes are a neutral 404 for every role.
+    ["ADMIN_AI_TRACE_READ_ENABLED", "false"],
     // #2752 — off is no Campus route at all: a neutral 404 before any token, address or audit.
     ["CAMPUS_LINK_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.
