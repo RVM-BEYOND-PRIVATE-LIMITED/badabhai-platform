@@ -1921,6 +1921,26 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. The table records which admin called which case when and what happened; an open " +
       "grant lets any PostgREST role read the desk's work or forge attempts on a case",
   },
+  // #2750 item 10: admin refunds of real paid packs. Nothing names the table until GST credit
+  // notes exist (every refund route answers 503 first), and with them a 42P01 is a 503 on the
+  // routes and a logged acknowledgement on the refund webhook, so a deploy ahead of the migration
+  // breaks no request and it is not a `table` entry. Listed for its lock (the 0134 rule). APPLY
+  // BEFORE REFUNDS ARE TURNED ON (migration header). The id and tag carry the slot number:
+  // regenerated with the migration when the slot moves.
+  {
+    id: "0186-payment-refunds-rls",
+    migration: "0186_payment_refunds",
+    kind: "rls",
+    table: "payment_refunds",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which payments were refunded and drives the webhook's status " +
+      "updates; an open grant lets any PostgREST role read the company refunds or forge a row " +
+      "that marks a refund processed",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

@@ -190,6 +190,9 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
         // #2750 items 7 and 12 — the worker desk (super_admin, ops_admin, support). Not the
         // journey's: it closes couldn't-reach cases and reads no funnel step.
         "work_reach_desk",
+        // #2750 items 10 and 12 — refunds (super_admin). Not the journey's: it sends money back and
+        // reads no funnel step.
+        "refund_payments",
         // #2887 — the moved students' visibility switch (super_admin, ops_admin). Not the
         // journey's: it changes who is matched and shown, and reads no funnel step.
         "manage_student_visibility",

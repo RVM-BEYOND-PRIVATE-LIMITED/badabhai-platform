@@ -184,6 +184,8 @@ export const creditLedgerItemSchema = z.object({
     "campus_conversion_reversed",
     // #2750 item 9 — credits returned with the next real paid pack.
     "pack_return",
+    // #2750 item 10 — an admin refund took the pack's credits back.
+    "pack_refund",
   ]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),
@@ -411,6 +413,8 @@ export const reasonBucketSchema = z.object({
     "campus_conversion_reversed",
     // #2750 item 9 — credits returned with the next real paid pack.
     "pack_return",
+    // #2750 item 10 — an admin refund took the pack's credits back.
+    "pack_refund",
   ]),
   movements: z.number(),
   credits_delta: z.number(),
@@ -469,6 +473,8 @@ export const ledgerRowSchema = z.object({
     "campus_conversion_reversed",
     // #2750 item 9 — credits returned with the next real paid pack.
     "pack_return",
+    // #2750 item 10 — an admin refund took the pack's credits back.
+    "pack_refund",
   ]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),

@@ -63,6 +63,7 @@ import { creditCallLog } from "./credit-call-log";
 import { creditRulesConfig } from "./credit-rules";
 import { rvmApplicantWaivers, rvmWaiverUses } from "./rvm-waivers";
 import { contactReachAttempts, contactReachCases } from "./contact-reach";
+import { paymentRefunds } from "./payment-refunds";
 import {
   studentImportBatches,
   studentImportRows,
@@ -213,6 +214,8 @@ export * from "./credit-rules";
 export * from "./rvm-waivers";
 // #2750 item 7 - the couldn't-reach guarantee: cases and the desk's call attempts.
 export * from "./contact-reach";
+// #2750 item 10 - admin refunds of real paid packs.
+export * from "./payment-refunds";
 // #2887 - moving RVM students into BadaBhai: the import ledger, field sources and visibility.
 export * from "./student-move";
 // #2891 - BadaBhai worker visibility of a Campus-origin posting (off until an admin opens it).
@@ -561,6 +564,8 @@ export const schema = {
   // #2750 item 7 - the couldn't-reach cases and the desk's call attempts (read only while CREDIT_RULES_ROLLOUT is on).
   contactReachCases,
   contactReachAttempts,
+  // #2750 item 10 - admin refunds of real paid packs (read only once credit notes exist).
+  paymentRefunds,
   // #2887 - the bulk student move: import ledger, field source markers, visibility (read only while STUDENT_MOVE_ENABLED is on).
   studentImportBatches,
   studentImportRows,

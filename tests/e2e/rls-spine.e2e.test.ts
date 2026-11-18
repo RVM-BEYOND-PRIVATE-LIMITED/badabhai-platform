@@ -307,6 +307,10 @@ const LOCKED_TABLES = [
   // code, a time). RLS+FORCE+REVOKE in the hand-written tail of `*_contact_reach_cases`.
   "contact_reach_cases",
   "contact_reach_attempts",
+  // #2750 item 10: admin refunds of real paid packs (opaque order / tenant / posting / admin ids,
+  // closed rule, status and failure codes, integers, an opaque provider refund id and times).
+  // RLS+FORCE+REVOKE in the hand-written tail of `*_payment_refunds`.
+  "payment_refunds",
   // #2887: the bulk student move - the import ledger (runs, per-candidate rows, the candidate ->
   // worker map), the per-field source markers and the visibility switch. Ids, closed codes,
   // counts, hashes and times. RLS+FORCE+REVOKE in the hand-written tail of `*_student_move`.

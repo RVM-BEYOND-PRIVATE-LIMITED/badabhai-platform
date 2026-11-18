@@ -217,7 +217,10 @@ export class AdminPaymentHistoryRepository {
             ? "credit_grant"
             : l.reason === "refund" || l.reason === "returned"
               ? "credit_refund"
-              : l.reason === "expired" || l.reason === "campus_conversion_reversed"
+              : l.reason === "expired" ||
+                  l.reason === "campus_conversion_reversed" ||
+                  // #2750 item 10 — a refund took the pack's unused credits back: a removal.
+                  l.reason === "pack_refund"
                 ? "credit_expired"
                 : "credit_spend";
       items.push({

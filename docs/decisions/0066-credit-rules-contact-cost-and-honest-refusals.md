@@ -123,6 +123,22 @@ It runs in the settle's own transaction, after the new pack's lot, under the wal
 
 **Fails safe to no return.** By the time of the settle the money has been taken. If the pilot list or the settings cannot be read, the pack settles without a return and the error is logged; that purchase still counts as the next pack. A wallet whose tenant no longer resolves to the order's stamped wallet gets no return.
 
+### 2.11 Refunds (items 10 and 12)
+
+A super admin can refund a company's real paid pack **in full**, through Razorpay, under one of two rules (brief 4C.12, B4C-26, B4C-27). Owner rulings, 2026-11-18:
+
+- **Rule 1 (`unused`):** the pack is unused, within `refundUnusedWithinDays` (7) days of its purchase.
+- **Rule 2 (`low_match`):** the pack is unused, within `refundLowMatchWithinDays` (30) days, and its job drew fewer than `refundLowMatchMinWorkers` (3) **applicants**. The job is the one the order was bought from, or one of the company's jobs the admin names.
+- **Who:** `refund_payments`, super_admin only: money leaving the business.
+- **Which orders:** any real paid order, pilot company or not.
+- **Off until GST credit notes exist:** every refund route answers 503 until #2749's invoices bind a credit-note issuer.
+
+**Credits first, money second.** One transaction locks the order, checks the rule and takes back the pack's credits, plus any credits that came back with it (§2.10), with one `pack_refund` line per lot. The same transaction writes the `payment_refunds` row, the audit row (with the admin's words) and `payment.refund_requested`. Only then is Razorpay asked, so a company can never spend credits whose money is on its way back.
+
+A provider failure leaves the credits removed and the refund `failed`; an admin retries it. A retry first looks the refund up at Razorpay by our row id, so a lost answer is never paid twice. Razorpay's refund webhooks move the row to `processed` or `failed`.
+
+One refund per order, ever (unique index, and the order row lock serialises two admins).
+
 ## 3. Consequences
 
 - The number on the button equals the credits debited, unless the worker's card changes between the quote and the tap. In that case the open charges the price at the tap; the price is always from the card he shows then.
@@ -146,6 +162,7 @@ It runs in the settle's own transaction, after the new pack's lot, under the wal
 - **The desk:** a report needs the company's own open (the tenant key) within the window; the desk's routes never return a number (the reveal stays `reveal_pii`, reason-gated and audited). A close returns credits only through the wallet helper, once per spent lot (idempotency key), in one transaction with the close, the audit row and the event; a closed case refuses a second close (409). Attempts and closes carry no free text but the admin's reason, which refuses hard identifiers.
 - **Grants:** under the rules, goodwill is capped per quarter under a per-company lock (DB-tested with concurrent grants) and a correction is super-admin only and names its ledger row; every grant is audited with the staff member. The ops pack route `POST /payers/:payerId/credits` sells a catalogue pack through the mock checkout; it grants no free credits, but it stays a second way to add credits on the ops token and should be reviewed with the real-payments switch.
 - **Returned credits:** no route and no client input: the settle computes them from the company's own wallet (the order's stamped wallet, never a re-resolved one) under the wallet lock, once per old pack (idempotency key and the unique ledger key behind it), and a replayed or racing settle claims nothing and returns nothing (DB test). They count only real paid packs, so the mock checkout cannot farm them.
+- **Refunds:** super_admin only and off until credit notes exist; no company route. The amount is the order's stamped total, never a body field. The rule is re-checked under the order's row lock; the credits are removed in that transaction before any provider call. Our row id rides the provider refund's notes, so a retry adopts a refund already made instead of paying twice. The webhook acts only on refunds this code created (by provider id or our row id) and never on a dashboard refund.
 - **Settings:** super_admin only; the reason text refuses hard identifiers; one audited transaction; 409 on a stale or racing edit.
 
 ## 5. Arming and rollback
