@@ -4,6 +4,7 @@ import { companiesPosted } from "./companies-posted";
 import { completedProfiles } from "./completed-profiles";
 import { confirmedHires } from "./confirmed-hires";
 import { contactsPerHire } from "./contacts-per-hire";
+import { couldntReach, creditsWaived, welcomeCredits } from "./credit-rules";
 import { formCompletedUnconfirmed } from "./form-completed-unconfirmed";
 import { payingCompanies } from "./paying-companies";
 import { cohortOf, repeatPurchase } from "./repeat-purchase";
@@ -18,7 +19,10 @@ import {
   type NumbersHireRow,
   type NumbersOpenedContactRow,
   type NumbersPaidOrderRow,
+  type NumbersReachCaseRow,
+  type NumbersWaivedOpenRow,
   type NumbersWeekWindow,
+  type NumbersWelcomeRunOutRow,
 } from "./types";
 
 /**
@@ -39,6 +43,12 @@ export interface NumbersWeekSources {
   confirmedHires(window: NumbersWeekWindow): Promise<NumbersHireRow[]>;
   openedContacts(window: NumbersWeekWindow): Promise<NumbersOpenedContactRow[]>;
   formCompletions(window: NumbersWeekWindow): Promise<NumbersFormCompletionRow[]>;
+  /** #2750 — welcome lots that ran out by the week's end, with the first paid order after. */
+  welcomeRunOuts(window: NumbersWeekWindow): Promise<NumbersWelcomeRunOutRow[]>;
+  /** #2750 — couldn't-reach cases reported or closed in the week. */
+  reachCases(window: NumbersWeekWindow): Promise<NumbersReachCaseRow[]>;
+  /** #2750 — opens a placement-team waiver paid for in the week. */
+  waivedOpens(window: NumbersWeekWindow): Promise<NumbersWaivedOpenRow[]>;
   companyDims(payerIds: readonly string[]): Promise<Map<string, NumbersDims>>;
   workerDims(workerIds: readonly string[]): Promise<Map<string, NumbersDims>>;
 }
@@ -68,6 +78,9 @@ export async function computeNumbersWeek(
   const profiles = await sources.currentProfiles(w);
   const activity = await sources.activity(w);
   const completions = await sources.formCompletions(w);
+  const welcome = await sources.welcomeRunOuts(w);
+  const reach = await sources.reachCases(w);
+  const waived = await sources.waivedOpens(w);
 
   const companies = lookup(
     await sources.companyDims([
@@ -76,6 +89,9 @@ export async function computeNumbersWeek(
       ...hires.map((h) => h.payerId),
       ...opened.map((o) => o.payerId),
       ...cohortOf(w, cohortOrders).map((c) => c.payerId),
+      ...welcome.map((r) => r.payerId),
+      ...reach.map((r) => r.payerId),
+      ...waived.map((r) => r.payerId),
     ]),
   );
   const workers = lookup(
@@ -96,6 +112,9 @@ export async function computeNumbersWeek(
     ...contactsPerHire(w, opened, hires, companies),
     ...revenueByPack(w, orders, companies),
     ...repeatPurchase(w, cohortOrders, companies, asOf),
+    ...welcomeCredits(w, welcome, companies),
+    ...couldntReach(w, reach, companies),
+    ...creditsWaived(w, waived, companies),
   ];
 }
 

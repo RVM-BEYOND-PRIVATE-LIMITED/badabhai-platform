@@ -64,7 +64,7 @@ The catalogue as code holds it. Reads no table: every field comes from code, and
         | {
             status: "not_available";
             reason: string;
-            waits_on: "#2749" | "#2750" | "#2751";
+            waits_on: "#2749" | "#2751";
           };
       kind: "headline" | "diagnostic"; // a diagnostic measures a headline's known gap
       list_route?: string; // a live figure served as a LIST by its own route (group 10)
@@ -75,7 +75,7 @@ The catalogue as code holds it. Reads no table: every field comes from code, and
 }
 ```
 
-A metric with no live source is `not_available` with its reason and the issue it waits on — never a zero. Live today in the weekly snapshot: paying companies (in the week, and ever), repeat buying (paid again within 30, 60 and 90 days, by first-payment cohort), companies that posted their first job (in the week, and ever), completed profiles (in the week, and in total), active workers (30 days), confirmed hires (in the week, and in total), contacts per hire, revenue by pack as charged, and the form-worker gap DIAGNOSTIC (`form_completed_unconfirmed`, not a headline). Live as a LIST: group 10, the companies whose credits ran out (`out_of_credits_companies`, `list_route: "GET /admin/numbers/out-of-credits"`, never a weekly number). Waiting: the posting-button shares (#2751), welcome credits, couldn't-reach claims and waivers (#2750), the GST split (#2749 part 3) and Managed Hiring revenue (#2751).
+A metric with no live source is `not_available` with its reason and the issue it waits on — never a zero. Live today in the weekly snapshot: paying companies (in the week, and ever), repeat buying (paid again within 30, 60 and 90 days, by first-payment cohort), companies that posted their first job (in the week, and ever), completed profiles (in the week, and in total), active workers (30 days), confirmed hires (in the week, and in total), contacts per hire, revenue by pack as charged, and since definition version 2 (#2755 part E) the credit-rules figures of #2750: welcome credits used up and then bought, couldn't-reach claims and the credits they returned, and credits waived (one per waived open); and the form-worker gap DIAGNOSTIC (`form_completed_unconfirmed`, not a headline). Live as a LIST: group 10, the companies whose credits ran out (`out_of_credits_companies`, `list_route: "GET /admin/numbers/out-of-credits"`, never a weekly number). Waiting: the posting-button shares (#2751), the GST split (#2749 part 3: the columns exist since #2872, the figure needs a follow-up) and Managed Hiring revenue (#2751).
 
 ## `GET /admin/numbers/weekly`
 
@@ -108,7 +108,7 @@ Response `200`:
     kind: "headline" | "diagnostic";
     availability: "live" | "not_available";
     reason?: string; // not_available only
-    waits_on?: "#2749" | "#2750" | "#2751"; // not_available only
+    waits_on?: "#2749" | "#2751"; // not_available only
     pack?: string; // revenue_by_pack:<code> only
     list_route?: string; // group 10 only: served by that route, no values here
     latest_complete?: Point | null; // repeat buying only: the newest CLOSED cohort (see below)
@@ -151,6 +151,7 @@ Response `200`:
 - **Past weeks and the device sighting.** "Active in the last 30 days" is #2753's one last-active day (`lastActiveDayOf`), read as of the week's Sunday: `worker_activity` days up to it, and device sightings before the week's end. A device keeps only its newest sighting, so a past week rests on `worker_activity` and on the devices not seen since; the figure is final at the freeze.
 - **Repeat buying** (part C). A company's cohort is the week its FIRST paid order ever settled (`payment_orders` with status paid, the same real-money rule: the mock route writes no order row, and `credit_ledger.price_inr` / `payment.captured` are never read). It paid again within N days when its SECOND paid order settled at most N × 24 hours after the first (two settled at one instant count). A window is pending until N days after the cohort week ends (the latest first payment the cohort can hold). Test and sample companies are out; cells use the company's latest posting, as for paying companies.
 - **The freeze of repeat rows is keyed on the end of the longest window.** A week's rows are two FREEZE CLASSES. Its `cohort` rows (the three repeat windows) freeze `NUMBERS_FREEZE_AFTER_DAYS` after its 90-day window has closed (90 + 3 days after the week ends by default), and the sweep keeps recomputing them nightly until then; its `week` rows (every other metric) freeze 3 days after the week ends, as before. Each class is replaced and frozen on its own, so a frozen row NEVER changes (only the logged recompute rewrites it, re-freezing each class on its own time). A week is skipped only when both classes are frozen; a week frozen before part C shipped gets its cohort rows on the next sweep (frozen at once when due).
+- **Credit rules (version 2, #2755 part E).** `welcome_credits_used_up`: companies whose welcome lot ran out in the week (the running sum of its `unlock_debit` lines reached its size; a lot that expired unspent did not run out). `welcome_then_bought`: of those, the ones with a real paid order settled after the run-out and before the week's end. `couldnt_reach_claims`: cases reported in the week. `couldnt_reach_credits_returned`: credits returned by cases closed in the week. `credits_waived`: opens a placement-team waiver paid for in the week, one credit each (a waiver frees only an RVM applicant, whose open costs one credit). Test and sample companies are left out of all five; each is split by the company's city and trade. Weeks frozen before version 2 have no rows for these five until a logged recompute (`recompute-numbers`) fills them.
 - **Revenue.** `payment_orders.amount_inr × 100`, as charged. The orders carry no GST split until #2749 part 3 (#2872) lands, so `revenue_gst_split` stays `not_available`; when it lands, the before-GST figure moves to its paise columns (a definition-version bump and a recompute).
 
 ## The logged recompute
