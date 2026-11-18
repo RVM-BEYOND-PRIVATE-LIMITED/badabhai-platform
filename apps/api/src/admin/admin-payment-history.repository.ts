@@ -211,7 +211,9 @@ export class AdminPaymentHistoryRepository {
               l.reason === "campus_conversion" ||
               // #2750 item 11 — an admin grant under the credit rules is a grant too.
               l.reason === "goodwill" ||
-              l.reason === "correction"
+              l.reason === "correction" ||
+              // #2750 item 9 — expired credits given back with the next paid pack: a grant.
+              l.reason === "pack_return"
             ? "credit_grant"
             : l.reason === "refund" || l.reason === "returned"
               ? "credit_refund"

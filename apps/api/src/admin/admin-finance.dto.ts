@@ -82,6 +82,8 @@ export const AdminLedgerQuerySchema = z
         "goodwill",
         "correction",
         "campus_conversion_reversed",
+        // #2750 item 9 — credits returned with the next real paid pack.
+        "pack_return",
       ])
       .optional(),
   })

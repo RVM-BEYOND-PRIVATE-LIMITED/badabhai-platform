@@ -12,6 +12,8 @@ export * from "./credit-packs";
 // and the `db:grant:free-tier` script here must both use it; a second copy would let the
 // balance, the lots and the ledger drift apart.
 export * from "./credit-wallet";
+// #2750 item 9 — credits returned with the next real pack.
+export * from "./credit-pack-return";
 export * from "./crypto";
 // The one ordering that decides which `worker_profiles` row IS a worker's profile. Exported
 // because the readers are spread across apps/api repositories AND the D2 backfill in this

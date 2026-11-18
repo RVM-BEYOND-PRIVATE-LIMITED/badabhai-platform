@@ -19,6 +19,8 @@ import {
   expireWalletWithinTx,
   findWalletsWithDueLots,
   grantCreditsWithinTx,
+  returnExpiredPackCreditsWithinTx,
+  type PackReturnResult,
   lotAlignmentWarning,
   readSpendableCredits,
   spendOneCreditWithinTx,
@@ -1181,8 +1183,20 @@ export class UnlocksRepository {
    */
   async claimAndCreditPaymentOrderWithinTx(
     tx: Tx,
-    input: { providerOrderId: string; providerPaymentRef: string; provider?: string },
-  ): Promise<{ order: PaymentOrder; balanceAfter: number } | undefined> {
+    input: {
+      providerOrderId: string;
+      providerPaymentRef: string;
+      provider?: string;
+      /**
+       * #2750 item 9 — for a company under the credit rules: give back, in this transaction, the
+       * credits that expired unused on its earlier real paid packs (`returnedCreditsMax`,
+       * `returnedCreditsWindowMonths`). Absent = no return (every other company, today).
+       */
+      packReturn?: { max: number; windowMonths: number };
+    },
+  ): Promise<
+    { order: PaymentOrder; balanceAfter: number; packReturn: PackReturnResult | null } | undefined
+  > {
     const claimed = await this.claimPaymentOrderPaidWithinTx(tx, input);
     if (!claimed) return undefined;
     const grant = await this.creditWalletWithinTx(tx, claimed, {
@@ -1199,7 +1213,23 @@ export class UnlocksRepository {
     });
     // Already credited under this order's key: nothing was granted now (the caller re-reads).
     if (!grant.applied) return undefined;
-    return { order: claimed, balanceAfter: grant.balanceAfter };
+    if (input.packReturn === undefined) {
+      return { order: claimed, balanceAfter: grant.balanceAfter, packReturn: null };
+    }
+    // #2750 item 9 — after the new lot exists, under the same wallet lock, on the same key space.
+    const packReturn = await returnExpiredPackCreditsWithinTx(tx, {
+      payerId: claimed.payerId,
+      paymentOrderId: claimed.id,
+      newLotId: grant.lotId,
+      paymentRef: input.providerPaymentRef,
+      max: input.packReturn.max,
+      windowMonths: input.packReturn.windowMonths,
+    });
+    return {
+      order: claimed,
+      balanceAfter: packReturn.balanceAfter ?? grant.balanceAfter,
+      packReturn,
+    };
   }
 
   /**

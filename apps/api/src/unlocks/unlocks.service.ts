@@ -7,6 +7,7 @@ import {
   UNLOCK_WINDOW_DAYS,
   type Database,
   type ExpiredCreditLot,
+  type PackReturnResult,
   type PaymentOrder,
   type UnlockDenyReason,
   type UnlockRouting,
@@ -1483,6 +1484,11 @@ export class UnlockService {
         credits: number;
         /** Always set for a credit-pack order (`payment_orders_pack_code_chk`); typed as the column. */
         pack_code: string | null;
+        /**
+         * #2750 item 9 — credits that expired on earlier paid packs and came back with this one
+         * (already in `balance`). 0 when none, and when the webhook settled the order first.
+         */
+        credits_returned: number;
       }
     | { verified: false }
   > {
@@ -1521,6 +1527,7 @@ export class UnlockService {
           balance: result.balanceAfter,
           credits: result.credits,
           pack_code: result.order.packCode,
+          credits_returned: result.creditsReturned,
         };
       case "already_settled": {
         // The webhook won the race. This is a SUCCESS for the payer — report the real
@@ -1534,6 +1541,7 @@ export class UnlockService {
           balance,
           credits: 0, // already credited by the winning channel; nothing added here
           pack_code: result.order.packCode,
+          credits_returned: 0,
         };
       }
       case "held":
@@ -1639,6 +1647,9 @@ export class UnlockService {
       // `order_status: "paid"` (nothing changed; under the same per-order key).
       onPaidMismatch: (paid, mismatch) =>
         this.emitPaymentHeld(paid, mismatch, "paid", ctx, undefined),
+      // #2750 item 9 — credits that expired on earlier paid packs come back with this one.
+      packReturnFor: (order) => this.packReturnFor(order),
+      onPackReturn: (tx, order, returned) => this.emitPackCreditsReturned(tx, order, returned, ctx),
     });
     if (result.outcome === "granted") {
       const wallet = result.order.payerId;
@@ -2391,6 +2402,77 @@ export class UnlockService {
    * actor is `system` and the subject is the wallet the order was stamped with. Keyed on the order
    * row: one per order (a held order is never paid, and a paid one never held).
    */
+  /**
+   * #2750 item 9 — the returned-credits rule for a settling real order, or null (no return).
+   *
+   * The pilot list is keyed by the TENANT; the order names its WALLET (`payer_id`, stamped at
+   * intent and never re-resolved, ADR-0053 §6). They are the same key unless the company's tenancy
+   * moved since; then nothing is returned, never credits into a wallet the rules were not read for.
+   *
+   * FAILS SAFE TO NO RETURN, never to an error: by now the money has been taken, so no read here
+   * may turn a capture into a 5xx (Razorpay would redeliver a payment that must settle). An
+   * unreadable pilot list or settings row is logged at ERROR and the pack settles without its
+   * return. Note the owner's "only the next pack" rule: that purchase still counts as the next pack.
+   */
+  private async packReturnFor(
+    order: PaymentOrder,
+  ): Promise<{ max: number; windowMonths: number } | null> {
+    if (this.rollout === undefined || this.creditRules === undefined) return null;
+    try {
+      const scope = await this.tenancy.resolveReadOnly(order.payerId);
+      if (scope === null || scope.tenantKey !== order.payerId) return null;
+      const state = await this.rollout.stateFor("credit_rules", scope.tenantKey);
+      if (state === "unavailable") {
+        this.logger.error(
+          `returned credits skipped: the credit rules pilot list could not be read order_row=${order.id}`,
+        );
+        return null;
+      }
+      if (state !== "on") return null;
+      const rules = await this.creditRules.get();
+      if (rules.returnedCreditsMax <= 0) return null;
+      return { max: rules.returnedCreditsMax, windowMonths: rules.returnedCreditsWindowMonths };
+    } catch (err) {
+      this.logger.error(
+        `returned credits skipped: the credit rules could not be read order_row=${order.id} ` +
+          `(${err instanceof Error ? err.name : "UnknownError"})`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * #2750 item 9 — `payer.pack_credits_returned`, ONE per order, on the settle's transaction (it
+   * commits with the returned lots and their `pack_return` lines, or neither does).
+   */
+  private async emitPackCreditsReturned(
+    tx: Tx,
+    order: PaymentOrder,
+    returned: PackReturnResult,
+    ctx: RequestContext,
+  ): Promise<void> {
+    await this.events.emit({
+      event_name: "payer.pack_credits_returned",
+      actor: { actor_type: "system", actor_id: null },
+      subject: { subject_type: "payer", subject_id: order.payerId },
+      payload: {
+        payer_id: order.payerId,
+        payment_order_id: order.id,
+        credits: returned.credits,
+        lots: returned.lines.map((l) => ({
+          from_lot_id: l.fromLotId,
+          lot_id: l.lotId,
+          credits: l.credits,
+        })),
+        expires_at: returned.expiresAt === null ? null : returned.expiresAt.toISOString(),
+      },
+      idempotencyKey: `payer.pack_credits_returned:order:${order.id}`,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+      tx: tx as unknown as Database,
+    });
+  }
+
   private async emitPaymentHeld(
     order: PaymentOrder,
     mismatch: CaptureMismatch,

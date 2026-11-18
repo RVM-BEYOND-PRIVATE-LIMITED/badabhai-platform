@@ -107,6 +107,22 @@ For a company under the credit rules, an admin credit grant (`POST /admin/payers
 
 Every grant now carries a written reason and is audited: the ledger line names the reason (`goodwill` / `correction` under the rules), and an `audit_logs` row in the same transaction names the staff member, the reason code, their words and the corrected row. The staff member is not a ledger column (adding one to `credit_ledger` would make every ledger write depend on the migration); the audit row is tied to the ledger line by id.
 
+### 2.10 Returned credits on the next paid pack (item 9)
+
+When a company under the credit rules pays for a pack through a real Razorpay order, credits that expired unused on its earlier real paid packs come back with it (brief 4C.10, B4C-24, B7-09, B7-10). Owner rulings, 2026-11-18:
+
+- **Only the next pack.** An old pack is settled by the first real pack bought after it expired. Up to `returnedCreditsMax` (20) come back in all; anything left over is gone, and a later pack brings back nothing more for it.
+- **Real paid orders only, on both sides.** The expired lot is a `pack` lot naming a payment order, and only a real order's settle returns anything. Mock packs, welcome, goodwill, Campus-moved and desk-returned credits never count.
+- **The window** is `returnedCreditsWindowMonths` (6) from the old pack's expiry date (`expires_at`).
+- **Validity:** the returned credits sit in a `returned` lot that expires with the new pack (copied to the microsecond).
+- **The ledger** gets one `pack_return` line per old pack, keyed `pack_return:<old lot id>`, so no old pack is ever returned twice. Payment history counts it as a grant.
+
+It runs in the settle's own transaction, after the new pack's lot, under the wallet lock. One `payer.pack_credits_returned` event (one per order, only when something came back) commits with it.
+
+**What counts as expired** is the lot's one `expired` line, written by the expiry sweep or a spend. The settle does not expire lots itself, because `payer.credits_expired` v1 has a frozen trigger list. So "the next pack" is judged from when the lot was actually expired (`expired_at`): a pack bought in the minutes between an old pack's date and the sweep does not use up its return.
+
+**Fails safe to no return.** By the time of the settle the money has been taken. If the pilot list or the settings cannot be read, the pack settles without a return and the error is logged; that purchase still counts as the next pack. A wallet whose tenant no longer resolves to the order's stamped wallet gets no return.
+
 ## 3. Consequences
 
 - The number on the button equals the credits debited, unless the worker's card changes between the quote and the tap. In that case the open charges the price at the tap; the price is always from the card he shows then.
@@ -129,6 +145,7 @@ Every grant now carries a written reason and is audited: the ledger line names t
 - **Limits:** the weekly answer is the one deliberate new signal (he is in demand), given only after the consent, deletion and search-exit gates passed, so it is never an answer about a worker the company could not open anyway. The agency answer reads only the company's own count, before any worker read. Both counts are taken under locks, so they cannot be raced past.
 - **The desk:** a report needs the company's own open (the tenant key) within the window; the desk's routes never return a number (the reveal stays `reveal_pii`, reason-gated and audited). A close returns credits only through the wallet helper, once per spent lot (idempotency key), in one transaction with the close, the audit row and the event; a closed case refuses a second close (409). Attempts and closes carry no free text but the admin's reason, which refuses hard identifiers.
 - **Grants:** under the rules, goodwill is capped per quarter under a per-company lock (DB-tested with concurrent grants) and a correction is super-admin only and names its ledger row; every grant is audited with the staff member. The ops pack route `POST /payers/:payerId/credits` sells a catalogue pack through the mock checkout; it grants no free credits, but it stays a second way to add credits on the ops token and should be reviewed with the real-payments switch.
+- **Returned credits:** no route and no client input: the settle computes them from the company's own wallet (the order's stamped wallet, never a re-resolved one) under the wallet lock, once per old pack (idempotency key and the unique ledger key behind it), and a replayed or racing settle claims nothing and returns nothing (DB test). They count only real paid packs, so the mock checkout cannot farm them.
 - **Settings:** super_admin only; the reason text refuses hard identifiers; one audited transaction; 409 on a stale or racing edit.
 
 ## 5. Arming and rollback
