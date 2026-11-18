@@ -38,6 +38,8 @@ const order = (payerId: string, settledAt: Date): NumbersPaidOrderRow => ({
   payerId,
   packCode: "pack_50",
   amountInr: 2000,
+  taxablePaise: null,
+  gstPaise: null,
   settledAt,
 });
 const byId = (metrics: NumbersMetricCells[], id: string) => metrics.find((m) => m.metric === id)!;

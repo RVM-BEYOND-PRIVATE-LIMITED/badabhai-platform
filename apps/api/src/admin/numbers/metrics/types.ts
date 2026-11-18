@@ -61,6 +61,12 @@ export interface NumbersPaidOrderRow {
   readonly packCode: string | null;
   /** Whole rupees, as `payment_orders.amount_inr` stores it. */
   readonly amountInr: number;
+  /**
+   * #2755 — the GST split stamped on the order by #2749 part 3 (migration 0176), in paise: the price
+   * before GST and the GST. Both null on an order from before 0176 (it carries no split).
+   */
+  readonly taxablePaise: number | null;
+  readonly gstPaise: number | null;
   /** `updated_at` at the move to paid. */
   readonly settledAt: Date;
 }

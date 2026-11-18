@@ -8,7 +8,7 @@ import { confirmedHires } from "./confirmed-hires";
 import { contactsPerHire } from "./contacts-per-hire";
 import { formCompletedUnconfirmed } from "./form-completed-unconfirmed";
 import { payingCompanies } from "./paying-companies";
-import { revenueByPack } from "./revenue-by-pack";
+import { revenueByPack, revenueGstSplit } from "./revenue-by-pack";
 import { weekWindow, type NumbersDimsLookup } from "./types";
 
 /**
@@ -54,6 +54,8 @@ describe("payingCompanies", () => {
     payerId,
     packCode: "pack_50",
     amountInr: 2000,
+    taxablePaise: null,
+    gstPaise: null,
     settledAt,
   });
   const dims = dimsOf({ a: PUNE_CNC, b: NCR_CAD, c: PUNE_CNC });
@@ -222,6 +224,8 @@ describe("revenueByPack", () => {
     payerId,
     packCode,
     amountInr,
+    taxablePaise: null,
+    gstPaise: null,
     settledAt,
   });
   const out = revenueByPack(
@@ -288,14 +292,23 @@ describe("computeNumbersWeek", () => {
     const sources: NumbersWeekSources = {
       paidOrders: async () => {
         calls.push("paidOrders");
-        return [{ payerId: "a", packCode: "pack_50", amountInr: 2000, settledAt: MONDAY_START }];
+        return [
+          {
+            payerId: "a",
+            packCode: "pack_50",
+            amountInr: 2000,
+            taxablePaise: 169500,
+            gstPaise: 30510,
+            settledAt: MONDAY_START,
+          },
+        ];
       },
       cohortOrders: async () => {
         calls.push("cohortOrders");
         // "a" first paid in the week; "c" paid before it (not in the cohort).
         return [
-          { payerId: "a", packCode: "pack_50", amountInr: 2000, settledAt: MONDAY_START },
-          { payerId: "c", packCode: "pack_50", amountInr: 2000, settledAt: BEFORE },
+          { payerId: "a", packCode: "pack_50", amountInr: 2000, taxablePaise: null, gstPaise: null, settledAt: MONDAY_START },
+          { payerId: "c", packCode: "pack_50", amountInr: 2000, taxablePaise: null, gstPaise: null, settledAt: BEFORE },
         ];
       },
       firstPublications: async () => {
@@ -361,6 +374,9 @@ describe("computeNumbersWeek", () => {
       "contacts_per_hire",
       "revenue_by_pack",
       "revenue_by_pack:pack_50",
+      // Version 3: the GST split of the same orders.
+      "revenue_gst_split",
+      "revenue_gst",
       "repeat_purchase_30d",
       "repeat_purchase_60d",
       "repeat_purchase_90d",
@@ -380,5 +396,38 @@ describe("computeNumbersWeek", () => {
     });
     expect(total(byId(out, "contacts_per_hire"))).toBe(100);
     expect(at(byId(out, "companies_posted"), "unknown", "unknown").value).toBe(1);
+  });
+});
+
+describe("revenueGstSplit (version 3)", () => {
+  const order = (
+    payerId: string,
+    settledAt: Date,
+    split: { taxablePaise: number; gstPaise: number } | null,
+  ) => ({
+    payerId,
+    packCode: "pack_20",
+    amountInr: 1179,
+    taxablePaise: split?.taxablePaise ?? null,
+    gstPaise: split?.gstPaise ?? null,
+    settledAt,
+  });
+  const out = revenueGstSplit(
+    W,
+    [
+      order("a", MONDAY_START, { taxablePaise: 99900, gstPaise: 17982 }),
+      order("b", SUNDAY_END, { taxablePaise: 99900, gstPaise: 17982 }),
+      order("a", MONDAY_START, null), // a pre-0176 order: no split, left out of both
+      order("a", BEFORE, { taxablePaise: 99900, gstPaise: 17982 }), // the week before
+      order("b", NEXT_MONDAY, { taxablePaise: 99900, gstPaise: 17982 }), // the week after
+    ],
+    dimsOf({ a: PUNE_CNC, b: NCR_CAD }),
+  );
+
+  it("sums the price before GST and the GST of the week's split orders, in paise", () => {
+    expect(total(byId(out, "revenue_gst_split"))).toBe(199800);
+    expect(total(byId(out, "revenue_gst"))).toBe(35964);
+    expect(at(byId(out, "revenue_gst_split"), "pune", "cnc_operator").value).toBe(99900);
+    expect(at(byId(out, "revenue_gst"), "ncr", "all").value).toBe(17982);
   });
 });
