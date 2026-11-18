@@ -205,3 +205,27 @@ export async function writeRow(tx: Database, write: LedgerWrite): Promise<void> 
       setWhere: sql`${companyImportRows.state} NOT IN ('created', 'matched')`,
     });
 }
+
+export interface BatchRecord {
+  id: string;
+  batchKey: string;
+  manifestSha256: string;
+  isTest: boolean;
+  state: "applying" | "applied" | "rolled_back";
+}
+
+/** The batch of that key, or undefined. Read only. */
+export async function findBatch(db: Database, batchKey: string): Promise<BatchRecord | undefined> {
+  const [row] = await db
+    .select({
+      id: companyImportBatches.id,
+      batchKey: companyImportBatches.batchKey,
+      manifestSha256: companyImportBatches.manifestSha256,
+      isTest: companyImportBatches.isTest,
+      state: companyImportBatches.state,
+    })
+    .from(companyImportBatches)
+    .where(eq(companyImportBatches.batchKey, batchKey))
+    .limit(1);
+  return row;
+}

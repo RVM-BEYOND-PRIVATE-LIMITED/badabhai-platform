@@ -38,10 +38,22 @@
  * build sha from the production /health and run
  * `git merge-base --is-ancestor fdabdc17b4167deaaf26f3c297fb1ffba797ec78 <build sha>` (#2903). Without the flag the jobs step
  * prints that it is waiting and imports no job. A created posting that is not held is closed and
- * the step stops. Applications are a later part; the batch stays `applying`.
+ * the step stops.
  *
- * NOT YET BUILT (each refuses with a message, never a partial run):
- *   --report --batch <key>      the per-company verification report (item 11)
+ * Then, only when the jobs step ran, each open application of a moved job moves onto its posting
+ * with its stage (#2754 item 8): a moved or linked RVM student, or an outside candidate who already
+ * has a consenting BadaBhai account on that phone; everyone else is held with no personal detail.
+ * A contact the company had opened on Campus is carried over, opened for good and free (item 9).
+ * The batch stays `applying` until the rollback lands.
+ *
+ * REPORT (#2754 item 11), read only:
+ *   node apps/api/dist/payers/import-campus-companies.cli.js --report --batch <key>  *        --bundle <the same folder> [--plan-quota <file>] [--out <empty folder>]
+ * For every company of the bundle, Campus's side (from the bundle, by the import's own rules) next
+ * to BadaBhai's (the ledger and the real rows it names), written as `companies.csv`, `jobs.csv` and
+ * `differences.csv` (`verify-report.ts`). It refuses a bundle other than the one the batch was
+ * opened with. Exit code 2 when any difference is unexplained: the runbook stops there.
+ *
+ * NOT YET BUILT (refuses with a message, never a partial run):
  *   --rollback --batch <key>    reverse a batch (item 14)
  *
  * TARGET SAFETY: `--apply` goes through the shared ops guard — a write to a production-like
@@ -76,15 +88,27 @@ import {
 } from "./campus-import/import-balances";
 import {
   CampusImportRefusal,
+  findBatch,
   importLedgerExists,
   openBatch,
 } from "./campus-import/import-ledger.repository";
+import {
+  compareSides,
+  readBadaBhaiFacts,
+  REPORT_FILES,
+  writeReportFiles,
+  type VerificationReport,
+} from "./campus-import/verify-report";
 import {
   importJobs,
   workerVisibilityTableExists,
   type JobImportSummary,
 } from "./campus-import/import-jobs";
 import { buildJobImportDeps } from "./campus-import/job-import-wiring";
+import {
+  importApplications,
+  type ApplicationImportSummary,
+} from "./campus-import/import-applications";
 
 export const IMPORT_CAMPUS_COMPANIES_SCRIPT = "import-campus-companies";
 
@@ -101,9 +125,10 @@ export type ImportCampusCompaniesArgs =
       creditValidityDays: number;
       workerHoldLive: boolean;
     }
-  | { mode: "synthetic"; out: string; companies: number; seed: string; phones: string[] };
+  | { mode: "synthetic"; out: string; companies: number; seed: string; phones: string[] }
+  | { mode: "report"; bundle: string; planQuota: Record<string, number>; batch: string; out: string };
 
-const NOT_YET = ["report", "rollback"] as const;
+const NOT_YET = ["rollback"] as const;
 const BATCH_KEY = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 function readJson(path: string, what: string): unknown {
@@ -135,6 +160,7 @@ export function parseImportCampusCompaniesArgs(argv: readonly string[]): ImportC
       companies: { type: "string" },
       seed: { type: "string" },
       phones: { type: "string" },
+      out: { type: "string" },
       [PRODUCTION_WRITE_FLAG.replace(/^--/, "")]: { type: "boolean", default: false },
     },
     strict: true,
@@ -177,6 +203,21 @@ export function parseImportCampusCompaniesArgs(argv: readonly string[]): ImportC
     }
     planQuota = raw as Record<string, number>;
   }
+  if (values.report) {
+    if (values.apply) throw new Error("--report and --apply cannot be combined");
+    for (const flag of ["run-by", "agents", "credit-validity-days"] as const) {
+      if (values[flag] !== undefined) throw new Error(`--${flag} needs --apply`);
+    }
+    if (values.test || values.rehearsal || values["worker-hold-live"]) {
+      throw new Error("--test, --rehearsal and --worker-hold-live need --apply");
+    }
+    if (!values.batch || !BATCH_KEY.test(values.batch)) {
+      throw new Error("--report needs --batch <key>: lower-case letters, digits and dashes, up to 64");
+    }
+    const out = values.out ?? `campus-import-report-${values.batch}`;
+    return { mode: "report", bundle: values.bundle, planQuota, batch: values.batch, out };
+  }
+  if (values.out !== undefined) throw new Error("--out needs --report");
   if (!values.apply) {
     for (const flag of ["batch", "run-by", "agents", "credit-validity-days"] as const) {
       if (values[flag] !== undefined) throw new Error(`--${flag} needs --apply`);
@@ -266,6 +307,14 @@ export function formatJobSummary(s: JobImportSummary): string[] {
   ];
 }
 
+export function formatApplicationSummary(s: ApplicationImportSummary): string[] {
+  return [
+    `applications: moved=${s.moved} (reused an existing apply=${s.reusedApplication}) already_done=${s.alreadyDone} ` +
+      `held: ${fmt(s.held)} skipped: ${fmt(s.skipped)}`,
+    `  stages: ${fmt(s.stages)}; contacts carried over as opened: ${s.carriedAccess}`,
+  ];
+}
+
 export function formatBalanceSummary(s: BalanceImportSummary): string {
   return (
     `balances: converted=${s.converted} credits=${s.credits} already_done=${s.alreadyDone} ` +
@@ -341,8 +390,63 @@ async function apply(
         correlationId: batch.id,
       });
       for (const line of formatJobSummary(jobs)) log(line);
+      const apps = await importApplications(db, pii, batch, bundle, summary.placed, jobs.placed);
+      for (const line of formatApplicationSummary(apps)) log(line);
     }
-    log("applications: not built yet (#2754, a later part); the batch stays open");
+    log("the batch stays open until the verification report and the rollback land (#2754 items 11, 14)");
+    return 0;
+  } finally {
+    await client.sql.end({ timeout: 5 });
+  }
+}
+
+/** The `--report` printout: totals only; the per-company detail is in the files. */
+export function formatReportTotals(report: VerificationReport): string[] {
+  const t = report.totals;
+  return [
+    `companies: ${t.companies} in the bundle, ${t.companiesOnBadaBhai} on BadaBhai`,
+    `live jobs: campus=${t.campusLiveJobs} badabhai_open=${t.badabhaiOpenPostings}`,
+    `applicants of live jobs: campus=${t.campusApplicants} badabhai_moved=${t.badabhaiApplicantsMoved} ` +
+      `held=${t.badabhaiApplicantsHeld}`,
+    `converted credits: campus=${t.campusCredits} badabhai=${t.badabhaiCredits}`,
+    `differences: explained=${t.explained} unexplained=${t.unexplained}`,
+  ];
+}
+
+async function report(
+  args: Extract<ImportCampusCompaniesArgs, { mode: "report" }>,
+  log: (line: string) => void,
+): Promise<number> {
+  const bundle = readCampusBundle(args.bundle);
+  const { connectionString } = enforceOpsGuard({
+    script: IMPORT_CAMPUS_COMPANIES_SCRIPT,
+    connectionString: process.env.DATABASE_URL,
+    mutating: false,
+  });
+  const client = createDbClient(connectionString, { max: 1 });
+  try {
+    const db = client.db;
+    if (!(await importLedgerExists(db))) {
+      throw new CampusImportRefusal("migration company_import is not applied on this database");
+    }
+    const batch = await findBatch(db, args.batch);
+    if (!batch) throw new CampusImportRefusal(`no import batch ${args.batch}`);
+    if (batch.manifestSha256 !== bundle.manifestSha256) {
+      throw new CampusImportRefusal(
+        `batch ${args.batch} was opened with another bundle; report on the bundle it imported`,
+      );
+    }
+    const result = compareSides(bundle, args.planQuota, await readBadaBhaiFacts(db, bundle));
+    writeReportFiles(args.out, result);
+    log(
+      `[${IMPORT_CAMPUS_COMPANIES_SCRIPT}] REPORT batch ${args.batch} (${batch.state}${batch.isTest ? ", test" : ""}) ` +
+        `written to ${args.out}: ${REPORT_FILES.join(", ")}`,
+    );
+    for (const line of formatReportTotals(result)) log(line);
+    if (result.totals.unexplained > 0) {
+      log("UNEXPLAINED DIFFERENCES: read differences.csv (explained=false) before going on");
+      return 2;
+    }
     return 0;
   } finally {
     await client.sql.end({ timeout: 5 });
@@ -355,6 +459,7 @@ export async function run(
 ): Promise<number> {
   const args = parseImportCampusCompaniesArgs(argv);
   if (args.mode === "apply") return apply(args, log);
+  if (args.mode === "report") return report(args, log);
   if (args.mode === "synthetic") {
     writeSyntheticBundle(args.out, {
       companies: args.companies,

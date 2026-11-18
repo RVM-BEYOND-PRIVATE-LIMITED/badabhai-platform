@@ -377,10 +377,8 @@ describe("the CLI arguments", () => {
     expect(parseImportCampusCompaniesArgs(["--bundle", "x"])).toEqual({ mode: "plan", bundle: "x", planQuota: {} });
   });
 
-  it("refuses --report and --rollback until their parts are built", () => {
-    for (const flag of ["--report", "--rollback"]) {
-      expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", flag])).toThrow("is not built yet");
-    }
+  it("refuses --rollback until its part is built", () => {
+    expect(() => parseImportCampusCompaniesArgs(["--bundle", "x", "--rollback"])).toThrow("is not built yet");
   });
 
   it("--apply needs a batch key and who is running it", () => {
