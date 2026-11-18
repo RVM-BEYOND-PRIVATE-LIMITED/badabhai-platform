@@ -44,6 +44,9 @@
  * with its stage (#2754 item 8): a moved or linked RVM student, or an outside candidate who already
  * has a consenting BadaBhai account on that phone; everyone else is held with no personal detail.
  * A contact the company had opened on Campus is carried over, opened for good and free (item 9).
+ * Then each placed company is offered #2750's welcome credits, once ever (item 10): granted only
+ * when `credit_rules` is on for it and it is verified with a GSTIN or a proven phone and an approved
+ * posting (a moved live job approved on Campus counts). The sign-up grant never fires.
  * The batch is marked `applied` once a run has been through every step (jobs and applications
  * included); a run without `--worker-hold-live` leaves it `applying`.
  *
@@ -111,7 +114,8 @@ import {
   workerVisibilityTableExists,
   type JobImportSummary,
 } from "./campus-import/import-jobs";
-import { buildJobImportDeps, buildRollbackDeps } from "./campus-import/job-import-wiring";
+import { buildJobImportDeps, buildRollbackDeps, buildWelcomeCredits } from "./campus-import/job-import-wiring";
+import { offerWelcomeCredits } from "./campus-import/import-welcome";
 import {
   importApplications,
   type ApplicationImportSummary,
@@ -410,6 +414,11 @@ async function apply(
       for (const line of formatJobSummary(jobs)) log(line);
       const apps = await importApplications(db, pii, batch, bundle, summary.placed, jobs.placed);
       for (const line of formatApplicationSummary(apps)) log(line);
+      const welcome = await offerWelcomeCredits(buildWelcomeCredits(db, config, events), summary.placed, {
+        requestId: `campus-import:${batch.batchKey}:welcome`,
+        correlationId: batch.id,
+      });
+      log(`welcome credits (#2750's rule, behind credit_rules): ${fmt(welcome as Record<string, number>)}`);
       await markBatchApplied(db, batch.id);
       log(`batch ${batch.batchKey} applied; next: --report --batch ${batch.batchKey} on the same bundle`);
       return 0;

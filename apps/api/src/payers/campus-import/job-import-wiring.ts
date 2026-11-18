@@ -27,6 +27,10 @@ import { PayerTenantScopeService } from "../payer-tenant-scope.service";
 import { PayerOrgsRepository } from "../payer-orgs.repository";
 import { postingIsHeld, type JobImportDeps } from "./import-jobs";
 import type { RollbackDeps } from "./rollback";
+import { WelcomeCreditsService } from "../../credit-rules/welcome-credits.service";
+import { WelcomeCreditsRepository } from "../../credit-rules/welcome-credits.repository";
+import { CreditRulesService } from "../../credit-rules/credit-rules.service";
+import { CreditRulesRepository } from "../../credit-rules/credit-rules.repository";
 
 /** A collaborator the import must never reach: every property is a function that throws. */
 export function unavailableInImport(name: string): never {
@@ -117,4 +121,23 @@ export function buildRollbackDeps(db: Database, config: ServerConfig, events: Ev
       return "closed";
     },
   };
+}
+
+/**
+ * #2754 item 10 — #2750's welcome grant, built by hand as Nest would build it. The rollout service
+ * reads only the company pilot list for `credit_rules`; the worker and admin lists are stand-ins.
+ */
+export function buildWelcomeCredits(db: Database, config: ServerConfig, events: EventsService): WelcomeCreditsService {
+  const rollout = new FeatureRolloutService(
+    config,
+    new FeaturePilotRepository(db),
+    unavailableInImport("the worker and admin pilot lists"),
+  );
+  return new WelcomeCreditsService(
+    new WelcomeCreditsRepository(db),
+    new CreditRulesService(new CreditRulesRepository(db), events, rollout),
+    rollout,
+    new PayerTenantScopeService(config, new PayerOrgsRepository(db)),
+    events,
+  );
 }
