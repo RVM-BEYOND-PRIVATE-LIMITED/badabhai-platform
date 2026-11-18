@@ -884,3 +884,169 @@ describe.skipIf(!RUN)("goodwill grants — against real Postgres", () => {
     expect(used).toBe(4);
   });
 });
+
+/**
+ * #2750 item 9 — returned credits on pack capture, through the real settle
+ * (`claimAndCreditPaymentOrderWithinTx`) against real Postgres. Owner rulings: up to the cap, only
+ * from real paid packs that expired inside the window, only the NEXT real pack after the expiry
+ * (any leftover is gone), one `pack_return` line per old pack, expiring with the new pack.
+ */
+describe.skipIf(!RUN)("returned credits on pack capture — against real Postgres", () => {
+  let client: DbClient;
+  let repo: UnlocksRepository;
+  const T = randomUUID().slice(0, 8);
+  const NEXT_ONLY = randomUUID();
+  const OUTSIDE = randomUUID();
+  const MOCK = randomUUID();
+  const TWO_OLD = randomUUID();
+  const companies = [NEXT_ONLY, OUTSIDE, MOCK, TWO_OLD];
+  const RULE = { max: 20, windowMonths: 6 };
+
+  /** A real order for `credits`, settled; returns the new pack lot id and order id. */
+  const buyPack = async (
+    company: string,
+    credits: number,
+    packReturn?: { max: number; windowMonths: number },
+  ) => {
+    const providerOrderId = `order_${T}_${randomUUID().slice(0, 12)}`;
+    const order = await repo.createPaymentOrder({
+      payerId: company as TenantKey,
+      packCode: "pack_test",
+      amountInr: 999,
+      creditsGranted: credits,
+      providerOrderId,
+      creditValidityDays: 30,
+    });
+    const settled = await client.db.transaction((tx) =>
+      repo.claimAndCreditPaymentOrderWithinTx(tx as never, {
+        providerOrderId,
+        providerPaymentRef: `pay_${T}_${randomUUID().slice(0, 8)}`,
+        ...(packReturn ? { packReturn } : {}),
+      }),
+    );
+    const [lot] = await client.sql<{ id: string }[]>`
+      SELECT id FROM credit_lots WHERE payment_order_id = ${order.id}::uuid`;
+    return { orderId: order.id, providerOrderId, lotId: lot!.id, settled };
+  };
+
+  /** Move a lot's date into the past and expire it through the sweep's own pass. */
+  const expireLot = async (company: string, lotId: string, ago: string) => {
+    await client.sql`
+      UPDATE credit_lots SET expires_at = now() - ${ago}::interval WHERE id = ${lotId}::uuid`;
+    await repo.expireDueLotsForWallet(company as never);
+  };
+
+  const returnLines = (company: string) =>
+    client.sql<{ delta: number; key: string; lot_id: string }[]>`
+      SELECT delta, idempotency_key AS key, lot_id FROM credit_ledger
+      WHERE payer_id = ${company}::uuid AND reason = 'pack_return' ORDER BY created_at, delta`;
+
+  const balance = async (company: string) => {
+    const [row] = await client.sql<{ balance: number }[]>`
+      SELECT balance FROM payer_credits WHERE payer_id = ${company}::uuid`;
+    return Number(row!.balance);
+  };
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL);
+    repo = new UnlocksRepository(client.db);
+    const { sql } = client;
+    for (const id of companies) {
+      await sql`
+        INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+        VALUES (${id}::uuid, 'employer', ${`enc:2750r-${T}-${id}`}, ${`hash:2750r-${T}-${id}`},
+                ${`enc:co-${T}`}, 'active')`;
+    }
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      const { sql } = client;
+      for (const id of companies) {
+        await sql`DELETE FROM credit_ledger WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM credit_lots WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM payment_orders WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM payer_credits WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM payers WHERE id = ${id}::uuid`;
+      }
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  it("the next real pack brings back up to the cap, expiring with it; a replay and a later pack add nothing", async () => {
+    const old = await buyPack(NEXT_ONLY, 30);
+    await expireLot(NEXT_ONLY, old.lotId, "10 days");
+    expect(await balance(NEXT_ONLY)).toBe(0);
+
+    const next = await buyPack(NEXT_ONLY, 20, RULE);
+    expect(next.settled?.packReturn?.credits).toBe(20);
+    expect(next.settled?.balanceAfter).toBe(40);
+    const lines = await returnLines(NEXT_ONLY);
+    expect(lines.map((l) => [Number(l.delta), l.key])).toEqual([[20, `pack_return:${old.lotId}`]]);
+    const [returnedLot] = await client.sql<{ source: string; same: boolean }[]>`
+      SELECT r.source, r.expires_at = n.expires_at AS same
+      FROM credit_lots r, credit_lots n
+      WHERE r.id = ${lines[0]!.lot_id}::uuid AND n.id = ${next.lotId}::uuid`;
+    expect(returnedLot).toEqual({ source: "returned", same: true });
+
+    // A replayed settle claims nothing and returns nothing.
+    const replay = await client.db.transaction((tx) =>
+      repo.claimAndCreditPaymentOrderWithinTx(tx as never, {
+        providerOrderId: next.providerOrderId,
+        providerPaymentRef: "pay_replay",
+        packReturn: RULE,
+      }),
+    );
+    expect(replay).toBeUndefined();
+
+    // Only the next pack: the 10 left over above the cap are gone.
+    const later = await buyPack(NEXT_ONLY, 20, RULE);
+    expect(later.settled?.packReturn?.credits).toBe(0);
+    expect(await returnLines(NEXT_ONLY)).toHaveLength(1);
+    expect(await balance(NEXT_ONLY)).toBe(60);
+  });
+
+  it("an old pack that expired before the window brings nothing back", async () => {
+    const old = await buyPack(OUTSIDE, 10);
+    await expireLot(OUTSIDE, old.lotId, "7 months");
+    const next = await buyPack(OUTSIDE, 20, RULE);
+    expect(next.settled?.packReturn?.credits).toBe(0);
+    expect(await returnLines(OUTSIDE)).toHaveLength(0);
+  });
+
+  it("a mock pack's expired credits never count", async () => {
+    await repo.creditPack({
+      payerId: MOCK as TenantKey,
+      credits: 10,
+      reason: "pack_purchase",
+      packCode: "pack_test",
+      paymentRef: null,
+      priceInr: 999,
+      validityDays: 30,
+    });
+    const [mockLot] = await client.sql<{ id: string }[]>`
+      SELECT id FROM credit_lots WHERE payer_id = ${MOCK}::uuid`;
+    await expireLot(MOCK, mockLot!.id, "1 day");
+    const next = await buyPack(MOCK, 20, RULE);
+    expect(next.settled?.packReturn?.credits).toBe(0);
+  });
+
+  it("two old packs: the oldest expiry first, one line each, capped in all", async () => {
+    const first = await buyPack(TWO_OLD, 8);
+    const second = await buyPack(TWO_OLD, 15);
+    await expireLot(TWO_OLD, first.lotId, "20 days");
+    await expireLot(TWO_OLD, second.lotId, "5 days");
+    const next = await buyPack(TWO_OLD, 20, RULE);
+    expect(next.settled?.packReturn?.credits).toBe(20);
+    const lines = await returnLines(TWO_OLD);
+    expect(lines.map((l) => [Number(l.delta), l.key]).sort()).toEqual(
+      [
+        [12, `pack_return:${second.lotId}`],
+        [8, `pack_return:${first.lotId}`],
+      ].sort(),
+    );
+    expect(await balance(TWO_OLD)).toBe(40);
+  });
+});

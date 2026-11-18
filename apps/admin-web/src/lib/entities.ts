@@ -182,6 +182,8 @@ export const creditLedgerItemSchema = z.object({
     "campus_conversion",
     // #2754 item 14 — a batch rollback took that balance back unspent.
     "campus_conversion_reversed",
+    // #2750 item 9 — credits returned with the next real paid pack.
+    "pack_return",
   ]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),
@@ -407,6 +409,8 @@ export const reasonBucketSchema = z.object({
     "campus_conversion",
     // #2754 item 14 — a batch rollback took that balance back unspent.
     "campus_conversion_reversed",
+    // #2750 item 9 — credits returned with the next real paid pack.
+    "pack_return",
   ]),
   movements: z.number(),
   credits_delta: z.number(),
@@ -463,6 +467,8 @@ export const ledgerRowSchema = z.object({
     "campus_conversion",
     // #2754 item 14 — a batch rollback took that balance back unspent.
     "campus_conversion_reversed",
+    // #2750 item 9 — credits returned with the next real paid pack.
+    "pack_return",
   ]),
   unlock_id: z.string().nullable(),
   pack_code: z.string().nullable(),

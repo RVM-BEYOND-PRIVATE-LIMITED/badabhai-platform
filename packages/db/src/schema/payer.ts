@@ -345,7 +345,13 @@ export type CreditReason =
    * #2754 item 14 — a batch rollback took back what a `campus_conversion` lot still held (one
    * compensating line per lot, keyed `campus_conversion_reversed:<lot id>`). Not credits USED.
    */
-  | "campus_conversion_reversed";
+  | "campus_conversion_reversed"
+  /**
+   * #2750 item 9 — credits that expired unused on an earlier real paid pack, given back when the
+   * next real pack is paid inside the window (one line per old pack, keyed
+   * `pack_return:<old lot id>`; a `returned` lot that expires with the new pack).
+   */
+  | "pack_return";
 
 /**
  * Routed-channel kind (ADR-0010 §D2). Alpha ships `in_app_relay` ONLY — it

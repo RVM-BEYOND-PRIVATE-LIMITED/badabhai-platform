@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
-import { DEFAULT_CATALOG } from "@badabhai/pricing";
+import { DEFAULT_CATALOG, DEFAULT_CREDIT_RULES } from "@badabhai/pricing";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
@@ -14,7 +14,7 @@ import { UnlockService } from "./unlocks.service";
 import type { UnlocksRepository, Tx } from "./unlocks.repository";
 import { PaymentGateway } from "./payment-gateway";
 import type { RazorpayClient } from "./razorpay.client";
-import type { PaymentOrder, PaymentOrderStatus } from "@badabhai/db";
+import type { PackReturnResult, PaymentOrder, PaymentOrderStatus } from "@badabhai/db";
 import {
   CreateCreditOrderSchema,
   toPaymentEvent,
@@ -106,6 +106,10 @@ function makeFakeRepo() {
   const ledger: LedgerRow[] = [];
   const ledgerKeys = new Set<string>(); // the partial UNIQUE index on idempotency_key
   const balances = new Map<string, number>();
+  // #2750 item 9 — what the repository's pack return gives back when the settle asks for one.
+  const packReturn: { result: PackReturnResult } = {
+    result: { lines: [], credits: 0, expiresAt: null },
+  };
 
   const key = (provider: string, providerOrderId: string): string =>
     `${provider}:${providerOrderId}`;
@@ -254,7 +258,12 @@ function makeFakeRepo() {
     claimAndCreditPaymentOrderWithinTx: vi.fn(
       async (
         tx: Tx,
-        input: { providerOrderId: string; providerPaymentRef: string; provider?: string },
+        input: {
+          providerOrderId: string;
+          providerPaymentRef: string;
+          provider?: string;
+          packReturn?: { max: number; windowMonths: number };
+        },
       ) => {
         const row = orders.get(key(input.provider ?? "razorpay", input.providerOrderId));
         // `status IN ('created','failed')`: a paid or HELD row matches nothing.
@@ -275,7 +284,11 @@ function makeFakeRepo() {
           idempotencyKey: `payment_order:${claimed.id}`,
           validityDays: claimed.creditValidityDays,
         });
-        return { order: claimed, balanceAfter };
+        return {
+          order: claimed,
+          balanceAfter: balanceAfter + (input.packReturn ? packReturn.result.credits : 0),
+          packReturn: input.packReturn ? packReturn.result : null,
+        };
       },
     ),
 
@@ -323,7 +336,7 @@ function makeFakeRepo() {
     getBalance: vi.fn(async (payerId: string) => balances.get(payerId) ?? 0),
   };
 
-  return { repo, orders, ledger, balances, seedOrder, key, owned };
+  return { repo, orders, ledger, balances, seedOrder, key, owned, packReturn };
 }
 
 function makeService(
@@ -331,6 +344,8 @@ function makeService(
     payerStatus?: "pending" | "active" | "suspended";
     /** ADR-0053: the tenant resolver (default: mode `off`, every caller its own tenant). */
     tenancy?: PayerTenantScopeService;
+    /** #2750 item 9 — the credit rules switch for the order's company (absent: no rules at all). */
+    creditRules?: { state: "on" | "off" | "unavailable"; readFails?: boolean; max?: number };
   } = {},
 ) {
   const fake = makeFakeRepo();
@@ -397,6 +412,21 @@ function makeService(
     opts.tenancy ?? tenancyService("off"),
     // #2752 — the institute open gate: nobody here is an institute student.
     { decide: vi.fn(async () => "not_linked") } as never,
+    ...(opts.creditRules
+      ? [
+          { stateFor: vi.fn(async () => opts.creditRules!.state) } as never,
+          {
+            get: vi.fn(async () => {
+              if (opts.creditRules!.readFails) throw new Error("settings row unreadable");
+              return {
+                ...DEFAULT_CREDIT_RULES,
+                returnedCreditsMax: opts.creditRules!.max ?? 20,
+                returnedCreditsWindowMonths: 6,
+              };
+            }),
+          } as never,
+        ]
+      : []),
   );
   return { svc, payments, events, razorpay, pricing, payers, ...fake };
 }
@@ -1264,6 +1294,8 @@ describe("ADR-0053 — real orders are stamped with the org wallet at intent; se
       balance: 50,
       credits: 50,
       pack_code: "pack_50",
+      // #2750 item 9 — not under the credit rules: nothing came back.
+      credits_returned: 0,
     });
     expect(d.balances.get(ANCHOR)).toBe(50);
     expect(d.balances.get(MEMBER)).toBeUndefined(); // the personal wallet is untouched (O-2)
@@ -1936,5 +1968,81 @@ describe("#2749 — the browser verify reads the payment back and runs the webho
     );
     expect(out).toEqual({ verified: false });
     expect(d.razorpay.fetchPayment).not.toHaveBeenCalled();
+  });
+});
+
+describe("#2750 item 9 — credits expired on earlier paid packs come back with the next real pack", () => {
+  const LOT_OLD = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+  const LOT_NEW = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+  const EXPIRES = new Date("2026-12-18T10:00:00.000Z");
+  const returned = (): PackReturnResult => ({
+    lines: [{ fromLotId: LOT_OLD, lotId: LOT_NEW, ledgerId: "l1", credits: 12 }],
+    credits: 12,
+    expiresAt: EXPIRES,
+    balanceAfter: 62,
+  });
+
+  it("under the credit rules the settle asks for the return with the rules' numbers and emits one event on its transaction", async () => {
+    const d = makeService({ creditRules: { state: "on" } });
+    d.seedOrder();
+    d.packReturn.result = returned();
+    await expect(d.svc.handleRazorpayEvent(captureEvent(), CTX)).resolves.toEqual({
+      result: "granted",
+    });
+    expect(d.repo.claimAndCreditPaymentOrderWithinTx).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ packReturn: { max: 20, windowMonths: 6 } }),
+    );
+    expect(emitted(d.events)).toEqual(["payer.pack_credits_returned", "payment.captured"]);
+    const call = d.events.emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(call).toMatchObject({
+      payload: {
+        payer_id: PAYER,
+        payment_order_id: ORDER_ROW,
+        credits: 12,
+        lots: [{ from_lot_id: LOT_OLD, lot_id: LOT_NEW, credits: 12 }],
+        expires_at: EXPIRES.toISOString(),
+      },
+      idempotencyKey: `payer.pack_credits_returned:order:${ORDER_ROW}`,
+    });
+    expect(call.tx).toBeDefined();
+  });
+
+  it("nothing came back: no event", async () => {
+    const d = makeService({ creditRules: { state: "on" } });
+    d.seedOrder();
+    await d.svc.handleRazorpayEvent(captureEvent(), CTX);
+    expect(emitted(d.events)).toEqual(["payment.captured"]);
+  });
+
+  it.each([
+    ["the switch is off for the company", { state: "off" as const }],
+    ["the pilot list cannot be read", { state: "unavailable" as const }],
+    ["the settings row cannot be read", { state: "on" as const, readFails: true }],
+    ["the cap is set to 0", { state: "on" as const, max: 0 }],
+  ])("%s: the pack settles with no return asked", async (_case, creditRules) => {
+    const d = makeService({ creditRules });
+    d.seedOrder();
+    d.packReturn.result = returned();
+    await expect(d.svc.handleRazorpayEvent(captureEvent(), CTX)).resolves.toEqual({
+      result: "granted",
+    });
+    const input = d.repo.claimAndCreditPaymentOrderWithinTx.mock.calls[0]![1] as Record<
+      string,
+      unknown
+    >;
+    expect(input.packReturn).toBeUndefined();
+    expect(emitted(d.events)).toEqual(["payment.captured"]);
+  });
+
+  it("no credit rules service at all (today's wiring in older tests): no return asked", async () => {
+    const d = makeService();
+    d.seedOrder();
+    await d.svc.handleRazorpayEvent(captureEvent(), CTX);
+    const input = d.repo.claimAndCreditPaymentOrderWithinTx.mock.calls[0]![1] as Record<
+      string,
+      unknown
+    >;
+    expect(input.packReturn).toBeUndefined();
   });
 });

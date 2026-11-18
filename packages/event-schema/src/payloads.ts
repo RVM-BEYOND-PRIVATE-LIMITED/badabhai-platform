@@ -4465,6 +4465,39 @@ export const PayerContactReachResolvedPayload = z
 export type PayerContactReachResolvedPayload = z.infer<typeof PayerContactReachResolvedPayload>;
 
 /**
+ * #2750 item 9 — a real paid pack brought back credits that expired unused on the company's
+ * earlier real paid packs, in the SAME transaction as the settle, the `returned` lots and their
+ * `pack_return` lines (idempotency key `payer.pack_credits_returned:order:<order id>`: one per
+ * order). Emitted only when credits came back. `lots` names each old lot and the lot its credits
+ * went into; `expires_at` is the new pack's (null = never expires). Ids, integers and a date.
+ */
+export const PayerPackCreditsReturnedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    payment_order_id: uuidSchema,
+    credits: z.number().int().min(1),
+    lots: z
+      .array(
+        z
+          .object({
+            from_lot_id: uuidSchema,
+            lot_id: uuidSchema,
+            credits: z.number().int().min(1),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+    expires_at: isoDateTimeSchema.nullable(),
+  })
+  .strict()
+  .refine((p) => p.lots.reduce((sum, l) => sum + l.credits, 0) === p.credits, {
+    message: "credits is the sum of the lots' credits",
+    path: ["credits"],
+  });
+export type PayerPackCreditsReturnedPayload = z.infer<typeof PayerPackCreditsReturnedPayload>;
+
+/**
  * MOMENT ④ — `feed.shown`, VERSION 2 (ADR-0036 "feed.shown gets a v2 payload").
  *
  * WHY A NEW NAME AND NOT A VERSION BUMP IN PLACE. Invariant #8 forbids mutating a

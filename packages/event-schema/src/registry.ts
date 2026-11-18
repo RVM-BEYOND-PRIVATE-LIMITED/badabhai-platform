@@ -967,6 +967,13 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerContactReachResolvedPayload,
   },
+  // #2750 item 9 — a real paid pack brought back credits expired on earlier paid packs: ONE per
+  // order, in the settle's transaction. v1.
+  "payer.pack_credits_returned": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerPackCreditsReturnedPayload,
+  },
   // MOMENT ④ — `feed.shown` VERSION 2. `feed.shown` above KEEPS its v1 entry,
   // unmodified, as history (invariant #8): `validateEvent` allows exactly one version
   // per NAME, so a bump in place would invalidate every shipped emitter the moment it

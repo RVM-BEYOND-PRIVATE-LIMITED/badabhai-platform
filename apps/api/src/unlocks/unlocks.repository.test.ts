@@ -798,7 +798,8 @@ describe("UnlocksRepository.claimAndCreditPaymentOrderWithinTx — settlement cr
       providerOrderId: "order_X",
       providerPaymentRef: "pay_X",
     });
-    expect(out).toEqual({ order: claimedRow, balanceAfter: 50 });
+    // #2750 item 9 — no return asked (the company is not under the credit rules): none given.
+    expect(out).toEqual({ order: claimedRow, balanceAfter: 50, packReturn: null });
     expect(captured.updateTable).toBe(paymentOrders);
     expect(params(captured.where)).toEqual([RAZORPAY_PROVIDER, "order_X", "created", "failed"]);
     const [grantTx, grant] = vi.mocked(grantCreditsWithinTx).mock.calls[0]!;
