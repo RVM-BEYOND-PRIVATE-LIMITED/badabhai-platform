@@ -66,7 +66,7 @@ describe("the catalogue", () => {
     }
   });
 
-  it("live today: groups 1, 2, 3, 4, 6, 7, 8, 9 (as charged) and 10 (a list); waiting: 5, the GST split and Managed Hiring", () => {
+  it("live today: groups 1, 2, 3, 4, 6, 7, 8, 9 (as charged and the GST split) and 10 (a list); waiting: 5 and Managed Hiring", () => {
     const statusOf = (groupNumber: number) =>
       NUMBERS_METRIC_GROUPS.find((g) => g.number === groupNumber)!.metrics.map(
         (m) => `${m.id}:${m.availability.status}`,
@@ -88,16 +88,14 @@ describe("the catalogue", () => {
     );
     // Nothing waits on this screen's own parts any more.
     // #2750's figures went live in version 2 (#2755 part E).
-    expect([...NUMBERS_WAITS_ON]).toEqual(["#2749", "#2751"]);
+    expect([...NUMBERS_WAITS_ON]).toEqual(["#2751"]);
     for (const s of statusOf(5)) expect(s).toMatch(/:not_available$/);
     for (const n of [6, 7, 8]) {
       for (const s of statusOf(n)) expect(s).toMatch(/:live$/);
     }
     expect(numbersMetric("revenue_by_pack")?.availability.status).toBe("live");
-    expect(numbersMetric("revenue_gst_split")?.availability).toMatchObject({
-      status: "not_available",
-      waits_on: "#2749",
-    });
+    expect(numbersMetric("revenue_gst_split")?.availability).toEqual({ status: "live" });
+    expect(numbersMetric("revenue_gst")?.availability).toEqual({ status: "live" });
     expect(numbersMetric("revenue_managed_hiring")?.availability).toMatchObject({
       status: "not_available",
       waits_on: "#2751",
@@ -223,6 +221,6 @@ describe("the catalogue", () => {
 
   it("an unknown id is undefined, and the version is the groups' version", () => {
     expect(numbersMetric("nope")).toBeUndefined();
-    expect(NUMBERS_DEFINITION_VERSION).toBe(2);
+    expect(NUMBERS_DEFINITION_VERSION).toBe(3);
   });
 });

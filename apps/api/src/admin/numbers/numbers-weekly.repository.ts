@@ -428,6 +428,8 @@ export class NumbersWeeklyRepository {
         payerId: paymentOrders.payerId,
         packCode: paymentOrders.packCode,
         amountInr: paymentOrders.amountInr,
+        taxablePaise: paymentOrders.taxablePaise,
+        gstPaise: paymentOrders.gstPaise,
         settledAt: paymentOrders.updatedAt,
       })
       .from(paymentOrders)
@@ -454,6 +456,8 @@ export class NumbersWeeklyRepository {
         payerId: paymentOrders.payerId,
         packCode: paymentOrders.packCode,
         amountInr: paymentOrders.amountInr,
+        taxablePaise: paymentOrders.taxablePaise,
+        gstPaise: paymentOrders.gstPaise,
         settledAt: paymentOrders.updatedAt,
       })
       .from(paymentOrders)
