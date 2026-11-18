@@ -1,6 +1,6 @@
 # ADR-0066: Credit rules: settings, what a contact costs, and the honest "not enough credits" answer
 
-- **Status:** Proposed. Awaiting owner sign-off (Akshit for the brief's rulings; Prakash as the other backend developer). `CREDIT_RULES_ROLLOUT` is not armed in production before this is signed.
+- **Status:** Accepted. Signed by the owner on 2026-11-18 (§2.1–§2.11, including the refund rules and the honest refusals that amend ADR-0010 Decision 4). `CREDIT_RULES_ROLLOUT` may be armed (§5).
 - **Date:** 2026-11-17
 - **Owner:** Divyanshu (Backend Platform).
 - **Issue:** #2750 (BB-D-05; brief 4C.5 to 4C.12, section 7). Built in parts, all behind one switch (§3.5).
