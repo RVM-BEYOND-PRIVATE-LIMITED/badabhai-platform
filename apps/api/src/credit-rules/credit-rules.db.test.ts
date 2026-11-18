@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   auditLogs,
@@ -19,6 +19,8 @@ import { UnlocksRepository } from "../unlocks/unlocks.repository";
 import { ReachDeskRepository } from "../reach-desk/reach-desk.repository";
 import { AdminActionsRepository } from "../admin/admin-actions.repository";
 import { istQuarterStart } from "../admin/admin-actions.service";
+import { PaymentRefundsRepository } from "../payment-refunds/payment-refunds.repository";
+import { PaymentRefundsService } from "../payment-refunds/payment-refunds.service";
 
 /**
  * #2750 item 1 — the credit rules' revisions against real Postgres.
@@ -1048,5 +1050,154 @@ describe.skipIf(!RUN)("returned credits on pack capture — against real Postgre
       ].sort(),
     );
     expect(await balance(TWO_OLD)).toBe(40);
+  });
+});
+
+/**
+ * #2750 item 10 — an admin refund against real Postgres, through the real service and repository
+ * (Razorpay faked): the pack's credits and the credits that came back with it are taken back with
+ * `pack_refund` lines before the provider is asked; one refund per order, even when two admins press
+ * at once; a used pack is refused with nothing written.
+ */
+describe.skipIf(!RUN)("admin refunds — against real Postgres", () => {
+  let client: DbClient;
+  let unlocksRepo: UnlocksRepository;
+  let service: PaymentRefundsService;
+  const razorpay = {
+    isLive: true,
+    findRefundForRow: vi.fn(async () => null),
+    refundPayment: vi.fn(async () => ({ id: `rfnd_${randomUUID().slice(0, 8)}`, status: "pending", amountPaise: 117900 })),
+  };
+  const T = randomUUID().slice(0, 8);
+  const REFUNDED = randomUUID();
+  const RACE = randomUUID();
+  const USED = randomUUID();
+  const companies = [REFUNDED, RACE, USED];
+  const ADMIN_ID = randomUUID();
+  const REASON = "Company bought the wrong pack by mistake";
+  const CTX = { correlationId: randomUUID(), requestId: "req-2750-10" };
+
+  /** A real order for 20 credits, settled; returns its order id and its provider payment id. */
+  const paidPack = async (company: string) => {
+    const providerOrderId = `order_${T}_${randomUUID().slice(0, 12)}`;
+    const paymentRef = `pay_${T}_${randomUUID().slice(0, 8)}`;
+    const order = await unlocksRepo.createPaymentOrder({
+      payerId: company as TenantKey,
+      packCode: "pack_test",
+      amountInr: 1179,
+      creditsGranted: 20,
+      providerOrderId,
+      money: { taxablePaise: 99900, gstPaise: 17982, roundOffPaise: 18, totalPaise: 117900, gstRateBps: 1800 },
+      creditValidityDays: 30,
+    });
+    await client.db.transaction((tx) =>
+      unlocksRepo.claimAndCreditPaymentOrderWithinTx(tx as never, {
+        providerOrderId,
+        providerPaymentRef: paymentRef,
+      }),
+    );
+    return { orderId: order.id, paymentRef };
+  };
+
+  const balance = async (company: string) => {
+    const [row] = await client.sql<{ balance: number }[]>`
+      SELECT balance FROM payer_credits WHERE payer_id = ${company}::uuid`;
+    return Number(row!.balance);
+  };
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL);
+    unlocksRepo = new UnlocksRepository(client.db);
+    const rules = { get: vi.fn(async () => ({ ...DEFAULT_CREDIT_RULES })) };
+    service = new PaymentRefundsService(
+      new PaymentRefundsRepository(client.db),
+      rules as never,
+      razorpay as never,
+      { emit: vi.fn(async () => undefined) } as never,
+      { available: true },
+    );
+    const { sql } = client;
+    for (const id of companies) {
+      await sql`
+        INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+        VALUES (${id}::uuid, 'employer', ${`enc:2750x-${T}-${id}`}, ${`hash:2750x-${T}-${id}`},
+                ${`enc:co-${T}`}, 'active')`;
+    }
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      const { sql } = client;
+      for (const id of companies) {
+        await sql`DELETE FROM audit_logs WHERE entity_type = 'payment_refund' AND actor_id = ${ADMIN_ID}::uuid`;
+        await sql`DELETE FROM payment_refunds WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM credit_ledger WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM credit_lots WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM payment_orders WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM payer_credits WHERE payer_id = ${id}::uuid`;
+        await sql`DELETE FROM payers WHERE id = ${id}::uuid`;
+      }
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  it("takes the pack and the credits that came back with it before asking Razorpay; one pack_refund line each", async () => {
+    const { orderId, paymentRef } = await paidPack(REFUNDED);
+    // 3 credits that came back with this pack (#2750 item 9), keyed to its payment id.
+    await client.db.transaction((tx) =>
+      grantCreditsWithinTx(tx as never, {
+        payerId: REFUNDED,
+        credits: 3,
+        lot: { source: "returned", expiresAt: null },
+        ledger: { reason: "pack_return", paymentRef, idempotencyKey: `pack_return:${randomUUID()}` },
+      }),
+    );
+    expect(await balance(REFUNDED)).toBe(23);
+
+    const view = await service.refund(ADMIN_ID, orderId, { rule: "unused", reason_text: REASON }, CTX);
+    expect(view).toMatchObject({ status: "pending", amount_paise: 117900, credits_removed: 23 });
+    expect(await balance(REFUNDED)).toBe(0);
+    const lines = await client.sql<{ delta: number; key: string }[]>`
+      SELECT delta, idempotency_key AS key FROM credit_ledger
+      WHERE payer_id = ${REFUNDED}::uuid AND reason = 'pack_refund' ORDER BY delta`;
+    expect(lines.map((l) => Number(l.delta))).toEqual([-20, -3]);
+    expect(lines.every((l) => l.key.startsWith("pack_refund:"))).toBe(true);
+    const [audit] = await client.sql<{ action: string }[]>`
+      SELECT action FROM audit_logs WHERE entity_id = ${view.id}::uuid`;
+    expect(audit?.action).toBe("payment_refund_requested");
+
+    // An order is refunded once.
+    await expect(
+      service.refund(ADMIN_ID, orderId, { rule: "unused", reason_text: REASON }, CTX),
+    ).rejects.toMatchObject({ response: { code: "ALREADY_REFUNDED" } });
+  });
+
+  it("two admins refunding one order at once: exactly one refund, the credits taken once", async () => {
+    const { orderId } = await paidPack(RACE);
+    const attempt = () =>
+      service
+        .refund(ADMIN_ID, orderId, { rule: "unused", reason_text: REASON }, CTX)
+        .then(() => true)
+        .catch(() => false);
+    const results = await Promise.all([attempt(), attempt()]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const [rows] = await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM payment_refunds WHERE payment_order_id = ${orderId}::uuid`;
+    expect(Number(rows!.n)).toBe(1);
+    expect(await balance(RACE)).toBe(0);
+  });
+
+  it("a pack with a credit spent is refused, and nothing is written", async () => {
+    const { orderId } = await paidPack(USED);
+    await client.db.transaction((tx) => spendCreditsWithinTx(tx as never, USED, 1));
+    await expect(
+      service.refund(ADMIN_ID, orderId, { rule: "unused", reason_text: REASON }, CTX),
+    ).rejects.toMatchObject({ response: { code: "REFUND_RULE_NOT_MET", refusal: "pack_used" } });
+    expect(await balance(USED)).toBe(19);
+    const [rows] = await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM payment_refunds WHERE payment_order_id = ${orderId}::uuid`;
+    expect(Number(rows!.n)).toBe(0);
   });
 });

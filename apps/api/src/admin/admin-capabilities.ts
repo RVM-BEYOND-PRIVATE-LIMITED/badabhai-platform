@@ -315,6 +315,15 @@ export const ADMIN_CAPABILITIES = [
    * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
    */
   "work_reach_desk",
+  /**
+   * #2750 items 10 and 12 — refund a company's real paid pack in full through Razorpay
+   * (`/admin/payment-orders/:id/refund`, `/admin/payment-refunds/*`), under the brief's two refund
+   * rules, removing the pack's credits. Money leaving the business: owner ruling 2026-11-18,
+   * `super_admin` only, the same narrow row as the credit rules settings and the waivers.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "refund_payments",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -403,6 +412,8 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   // #2750 items 7 and 12 — the worker desk. Owner ruling 2026-11-17: super_admin, ops_admin and
   // support. `analyst` denied (a close returns credits: a write).
   work_reach_desk: ["super_admin", "ops_admin", "support"],
+  // #2750 items 10 and 12 — refunds of real paid packs. Owner ruling 2026-11-18: `super_admin` only.
+  refund_payments: ["super_admin"],
 } as const;
 
 /**

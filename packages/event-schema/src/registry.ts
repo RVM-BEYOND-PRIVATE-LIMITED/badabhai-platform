@@ -437,6 +437,17 @@ export const EVENT_REGISTRY = {
   // #2749 hardening 5 — a capture whose amount is not the order total: nothing granted, the order
   // parked in `held` for ops. One per order; ids + paise + a closed reason, strict. v1.
   "payment.held": { version: 1, domain: "payment", payload: p.PaymentHeldPayload },
+  // #2750 item 10 — an admin refund of a real paid pack, and its progress with Razorpay. v1.
+  "payment.refund_requested": {
+    version: 1,
+    domain: "payment",
+    payload: p.PaymentRefundRequestedPayload,
+  },
+  "payment.refund_status_changed": {
+    version: 1,
+    domain: "payment",
+    payload: p.PaymentRefundStatusChangedPayload,
+  },
 
   // Monetization + Pricing Engine (ADR-0013) — PII-FREE: ids + codes + enums + integer
   // ₹ amounts + counts only. `payment.*` above is reused for the money movement of every

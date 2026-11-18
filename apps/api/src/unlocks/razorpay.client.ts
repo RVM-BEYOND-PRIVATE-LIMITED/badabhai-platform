@@ -74,6 +74,16 @@ export interface FetchedPayment {
 }
 
 /**
+ * #2750 item 10 — one provider refund, as the refund path reads it: the opaque `rfnd_*` id, its
+ * status (`pending` | `processed` | `failed`) and the amount in paise. Nothing else is read.
+ */
+export interface ProviderRefund {
+  id: string;
+  status: string;
+  amountPaise: number;
+}
+
+/**
  * A provider amount as an integer number of paise, or a thrown error. Razorpay types amounts as
  * `number | string`; anything that is not a non-negative safe integer is refused, never coerced.
  */
@@ -173,6 +183,61 @@ export class RazorpayClient implements RazorpayOrderClient {
     }
   }
 
+  /**
+   * #2750 item 10 — refund a captured payment IN FULL (`POST /payments/:id/refund`). The notes and
+   * receipt carry only our refund row id (opaque), so a retry can find a refund already made
+   * ({@link findRefundForRow}). Throws on any provider failure.
+   */
+  async refundPayment(input: {
+    paymentId: string;
+    amountPaise: number;
+    refundRowId: string;
+  }): Promise<ProviderRefund> {
+    const sdk = this.resolveClient();
+    if (!Number.isSafeInteger(input.amountPaise) || input.amountPaise <= 0) {
+      throw new Error("amountPaise must be a positive integer");
+    }
+    try {
+      const refund = await sdk.payments.refund(input.paymentId, {
+        amount: input.amountPaise,
+        speed: "normal",
+        receipt: input.refundRowId,
+        notes: { payment_refund_id: input.refundRowId },
+      });
+      return toProviderRefund(refund);
+    } catch (err) {
+      // CLASS only: a provider error body can echo payment details.
+      this.logger.error(
+        `refund failed refund_row=${input.refundRowId} error_class=${
+          err instanceof Error ? err.constructor.name : typeof err
+        }`,
+      );
+      throw new Error("payment provider refund failed");
+    }
+  }
+
+  /**
+   * #2750 item 10 — the refund on `paymentId` that names our row in its notes, or null. A retry
+   * reads it first, so a refund whose answer was lost is adopted, never made twice.
+   */
+  async findRefundForRow(paymentId: string, refundRowId: string): Promise<ProviderRefund | null> {
+    const sdk = this.resolveClient();
+    try {
+      const page = await sdk.payments.fetchMultipleRefund(paymentId, { count: 100 });
+      const match = (page.items ?? []).find(
+        (r) => (r.notes as Record<string, unknown> | undefined)?.payment_refund_id === refundRowId,
+      );
+      return match ? toProviderRefund(match) : null;
+    } catch (err) {
+      this.logger.error(
+        `refund lookup failed refund_row=${refundRowId} error_class=${
+          err instanceof Error ? err.constructor.name : typeof err
+        }`,
+      );
+      throw new Error("payment provider refund lookup failed");
+    }
+  }
+
   /** Build (once) or return the SDK client. Throws when real payments are not fully enabled. */
   private resolveClient(): Razorpay {
     if (this.client) return this.client;
@@ -185,4 +250,15 @@ export class RazorpayClient implements RazorpayOrderClient {
     this.client = new Razorpay({ key_id: creds.keyId, key_secret: creds.keySecret });
     return this.client;
   }
+}
+
+/** The three fields of a provider refund the refund path reads; anything malformed throws. */
+function toProviderRefund(refund: { id?: unknown; status?: unknown; amount?: unknown }): ProviderRefund {
+  const id = typeof refund.id === "string" ? refund.id : "";
+  if (id.length === 0) throw new Error("provider returned a refund without an id");
+  return {
+    id,
+    status: typeof refund.status === "string" ? refund.status : "",
+    amountPaise: providerPaise(refund.amount),
+  };
 }

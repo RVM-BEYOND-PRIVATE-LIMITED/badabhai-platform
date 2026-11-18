@@ -351,7 +351,12 @@ export type CreditReason =
    * next real pack is paid inside the window (one line per old pack, keyed
    * `pack_return:<old lot id>`; a `returned` lot that expires with the new pack).
    */
-  | "pack_return";
+  | "pack_return"
+  /**
+   * #2750 item 10 — an admin refund of a real paid pack took its unused credits back (and any
+   * credits that came back with it): one line per lot, keyed `pack_refund:<lot id>`.
+   */
+  | "pack_refund";
 
 /**
  * Routed-channel kind (ADR-0010 §D2). Alpha ships `in_app_relay` ONLY — it
