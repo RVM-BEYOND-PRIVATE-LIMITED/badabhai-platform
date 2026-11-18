@@ -254,5 +254,14 @@ overrides:
 # is a HIGH/CRITICAL advisory that does NOT apply to this codebase, rationale logged
 # in the tech-debt register. Scoped to specific GHSA ids so the audit STILL fails on
 # any NEW high/critical advisory.
-# (empty — previously tracked GHSA-gpj5-g38j-94v9 was fixed by the drizzle-orm 0.45
-# bump in TD49.)
+# (GHSA-gpj5-g38j-94v9 was fixed by the drizzle-orm 0.45 bump in TD49.)
+#   - GHSA-fc5q-39xc-vjpf (TD157, 2026-11-18): picomatch ReDoS through single-branch
+#     repeated extglobs, raised to HIGH on 2026-11-17. Every version up to 4.0.7, the
+#     latest, is affected and there is NO patched release, so no override can clear it.
+#     picomatch is in no production dependency tree (`pnpm why picomatch -r --prod` is
+#     empty; `pnpm audit --prod` has no high finding): only vite, vitest, fdir and other
+#     build and test tooling use it, on glob patterns written in this repo. Remove the
+#     entry the day a patched picomatch ships (TD157's trigger).
+auditConfig:
+  ignoreGhsas:
+    - GHSA-fc5q-39xc-vjpf
