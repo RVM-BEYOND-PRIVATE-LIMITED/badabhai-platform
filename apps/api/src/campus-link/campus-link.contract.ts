@@ -784,6 +784,39 @@ export const CampusDriveDecisionResponseSchema = z.object({
   changed_at: IsoDateTime,
 });
 
+// ─── PUT applications-check (#2890) ──────────────────────────────────────────
+
+/** A count Campus reports. A day's backlog, never near this bound. */
+const CheckCount = z.number().int().min(0).max(1_000_000);
+
+/**
+ * Campus's nightly applications check (Campus #155 item 13), reported to BadaBhai's daily flow
+ * check, which cannot read Campus's outbox or application table itself. COUNTS AND A FLAG ONLY: the
+ * findings (Campus and BadaBhai ids) stay in Campus's own run record. Send it after every
+ * successful run, including a clean one: while the link is on, BadaBhai treats no report for a day
+ * as a breach of its own. A neutral 404 while BadaBhai's flow check is off.
+ */
+export const CampusApplicationsCheckBodySchema = z.strictObject({
+  /** When the check ran, by Campus's clock. */
+  checked_at: IsoDateTime,
+  /**
+   * `badabhai.apply` and `badabhai.withdraw` outbox rows not delivered (pending, sending, failed or
+   * given up) that were made at least an hour before `checked_at`.
+   */
+  outbox_undelivered: CheckCount,
+  /** The run's `missing_on_badabhai` findings: Campus holds a BadaBhai id BadaBhai does not. */
+  missing_on_badabhai: CheckCount,
+  /** The run's `not_sent` findings: neither on BadaBhai nor refused, past the retry window. */
+  not_sent: CheckCount,
+  /** Was `integration_outbox_dispatch_enabled` on when the check ran? */
+  dispatcher_on: z.boolean(),
+});
+
+export const CampusApplicationsCheckResponseSchema = z.object({
+  /** False when the same Idempotency-Key was already recorded: the replay changed nothing. */
+  recorded: z.boolean(),
+});
+
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 /** The api's one error envelope (`AllExceptionsFilter`), with Campus's `code` inside `error`. */

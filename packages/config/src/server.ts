@@ -11,6 +11,7 @@ import {
   isDevEnv,
   formatEnvError,
 } from "./shared";
+import { flowCheckThresholdsFromString } from "./flow-check";
 
 /**
  * Server-side (secret-bearing) configuration.
@@ -1089,6 +1090,20 @@ export const serverEnvSchema = z.object({
   //
   // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the daily tick returns at once without a call or a query.
   RAZORPAY_RECONCILE_ENABLED: booleanFromString,
+  // THE DAILY FLOW CHECK (#2890, with #2769 and #2782 folded in). With it on, a daily READ-ONLY
+  // tick counts each step of the posting → reach → application flow across BadaBhai and Campus
+  // (jobs posted, RVM reviews waiting too long, live jobs with zero reach, Campus applications,
+  // Campus ids whose BadaBhai row is gone, untouched applications, and what Campus last reported
+  // about its outbox), records ONE `flow_check.day_recorded` per IST day for the admin's 14-day
+  // read, and emits ONE `flow_check.breached` (counts only) when a count passes its threshold,
+  // which the admin dashboard's breach counter shows. It also opens Campus's
+  // `PUT applications-check` route (still behind CAMPUS_LINK_ENABLED and the Campus credential).
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the tick returns at once without a query, and
+  // `GET /admin/flow-check` and Campus's report route are a neutral 404.
+  FLOW_CHECK_ENABLED: booleanFromString,
+  // The flow check's thresholds, `key=value` pairs (`./flow-check.ts`); empty = every default.
+  FLOW_CHECK_THRESHOLDS: flowCheckThresholdsFromString,
 
   // ── LEARN label producer (migration 0091): spine events → training labels ──
   // Cadence (hours) of the sweep tick. The cursor + UNIQUE impression key in the store

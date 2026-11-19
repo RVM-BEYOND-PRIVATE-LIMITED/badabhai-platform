@@ -434,6 +434,18 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /RAZORPAY_RECONCILE_ENABLED:\s*\$\{\{\s*secrets\.RAZORPAY_RECONCILE_ENABLED\s*\}\}/,
       /envs:[^\n]*\bRAZORPAY_RECONCILE_ENABLED\b/,
     ],
+    // #2890 — the daily flow check. A plain read-only boolean on the api, turned on in production
+    // only by its environment secret; its thresholds ride beside it as one key=value string.
+    [
+      "FLOW_CHECK_ENABLED",
+      /FLOW_CHECK_ENABLED:\s*\$\{\{\s*secrets\.FLOW_CHECK_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bFLOW_CHECK_ENABLED\b/,
+    ],
+    [
+      "FLOW_CHECK_THRESHOLDS",
+      /FLOW_CHECK_THRESHOLDS:\s*\$\{\{\s*secrets\.FLOW_CHECK_THRESHOLDS\s*\}\}/,
+      /envs:[^\n]*\bFLOW_CHECK_THRESHOLDS\b/,
+    ],
     // #2887 — the bulk student move. A plain boolean on the api only, turned on in production
     // ONLY by the environment secret, after the `student_move` migration is applied.
     [
@@ -676,6 +688,10 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["CREDIT_BALANCE_AUDIT_ENABLED", "false"],
     // #2773 — off is today: the nightly reconciliation's tick returns at once without a call.
     ["RAZORPAY_RECONCILE_ENABLED", "false"],
+    // #2890 — off is today: the flow check's tick returns at once and both routes 404. Empty
+    // thresholds are every default (the api reads "" as no override).
+    ["FLOW_CHECK_ENABLED", "false"],
+    ["FLOW_CHECK_THRESHOLDS", ""],
     // #2755 part B — the zod default: a week freezes 3 days after it ends.
     ["NUMBERS_FREEZE_AFTER_DAYS", "3"],
     // #2887 — off is today: nothing names the student-move tables, /admin/students/* is a 404.

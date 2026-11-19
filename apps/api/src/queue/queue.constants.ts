@@ -399,3 +399,12 @@ export const CREDIT_BALANCE_AUDIT_SCHEDULER_ID = "credit-balance-audit";
  */
 export const RAZORPAY_RECONCILE_QUEUE = "razorpay-reconcile";
 export const RAZORPAY_RECONCILE_SCHEDULER_ID = "razorpay-reconcile";
+
+/**
+ * #2890 — the daily flow check. A repeatable tick at 05:00 IST (after Campus's 03:30 IST check
+ * reports in) with no payload: the check is one read-only snapshot, so a lost or duplicated Redis
+ * job is harmless (the next tick reads the same tables, and the day's record and alert are keyed on
+ * the IST day). Inert while FLOW_CHECK_ENABLED is off: a tick returns at once without a query.
+ */
+export const FLOW_CHECK_QUEUE = "flow-check";
+export const FLOW_CHECK_SCHEDULER_ID = "flow-check";

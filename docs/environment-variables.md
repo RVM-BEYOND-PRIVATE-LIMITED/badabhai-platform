@@ -702,6 +702,30 @@ NestJS boot assertion).
     through the GitHub `production` environment secret of the same name (compose
     `${RAZORPAY_RECONCILE_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
     `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+  - `FLOW_CHECK_ENABLED` (`booleanFromString`, default off; #2890, with #2769 and #2782). Off is
+    today exactly: the daily `flow-check` tick (23:30 UTC = 05:00 IST) returns at once without a
+    query, and `GET /admin/flow-check` and Campus's `PUT /internal/campus/v1/applications-check` are
+    a neutral 404. On, it reads one read-only snapshot of the posting → reach → application flow
+    (jobs published in the last day, applications and Campus applications received, open RVM-audience
+    jobs whose placement-team review has waited past the threshold, open worker-visible jobs with no
+    reach row, live Campus applications whose BadaBhai row is gone, applications no company moved or
+    opened) plus Campus's latest report of its outbox and its ids that never reached BadaBhai. It
+    records one `flow_check.day_recorded` per IST day (the admin's 14-day read) and, when a count
+    passes its threshold, one `flow_check.breached` (counts only) on the admin dashboard's breach
+    counter. While `CAMPUS_LINK_ENABLED` is on, no Campus report within the allowed age is itself a
+    breach (unless both `outbox_undelivered_max` and `campus_missing_max` are `off`, the setting for
+    a link switched on before Campus sends reports). It writes no row. No migration. Bridged through the GitHub `production` environment
+    secret of the same name (compose `${FLOW_CHECK_ENABLED:-false}` on `api`, `ci.yml` `env:` +
+    `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`); values lowercase
+    `true`/`false`/`1`/`0`/empty only.
+  - `FLOW_CHECK_THRESHOLDS` (string, default empty = every default; #2890). Comma-separated
+    `key=value` pairs; a key left out keeps its default. `*_hours` keys take whole hours 1–720,
+    `*_max` keys take 0–100000 or `off` (still counted, never alerts); `0` means any one is a breach.
+    Keys and defaults: `review_wait_hours=48`, `review_overdue_max=0`, `zero_reach_grace_hours=24`,
+    `zero_reach_max=0`, `untouched_hours=72`, `untouched_max=off`, `campus_unlinked_max=0`,
+    `outbox_undelivered_max=0`, `campus_missing_max=0`, `campus_report_max_age_hours=26`. A
+    malformed pair, an unknown key or a key given twice fails boot; the deploy preflight refuses the
+    same before a container moves. Bridged like the switch (compose `${FLOW_CHECK_THRESHOLDS:-}`).
   - `ADMIN_AI_TRACE_READ_ENABLED` (`booleanFromString`, default off; #2739). Off is today exactly:
     `GET /admin/ai-traces` and `GET /admin/ai-traces/:id` are a neutral 404 for every role, so the
     admin portal's AI calls tab shows "unavailable". On, `read_ai_traces` (super_admin only) reads

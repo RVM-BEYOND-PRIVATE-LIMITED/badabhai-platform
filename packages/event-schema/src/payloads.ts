@@ -4567,6 +4567,119 @@ export const PaymentReconciliationFailedPayload = z
   );
 export type PaymentReconciliationFailedPayload = z.infer<typeof PaymentReconciliationFailedPayload>;
 
+/**
+ * #2890 — the daily flow check's checks that can BREACH, in the order the admin read shows them.
+ * The informational counts (jobs posted, applications received, Campus applications) have no
+ * threshold and never breach.
+ *  - `rvm_review_overdue`: open, visible RVM-audience jobs whose placement-team review has been
+ *    pending longer than `review_wait_hours` (#2769).
+ *  - `live_zero_reach`: open jobs a BadaBhai worker may see, published longer than
+ *    `zero_reach_grace_hours` ago, with no reach row.
+ *  - `campus_unlinked`: live Campus applications whose BadaBhai application row is gone (#2782,
+ *    BadaBhai's half).
+ *  - `applications_untouched`: applications that crossed `untouched_hours` in the last day with no
+ *    company stage move and no contact open.
+ *  - `campus_outbox_undelivered`, `campus_ids_missing`: what Campus last reported about its outbox
+ *    and about its application ids that never reached BadaBhai (#2782, Campus's half).
+ *  - `campus_report_missing`: the Campus link is on, one of the two Campus counts can alert, and
+ *    Campus sent no report within `campus_report_max_age_hours`, so those counts are unknown.
+ */
+export const FLOW_CHECK_NAMES = [
+  "rvm_review_overdue",
+  "live_zero_reach",
+  "campus_unlinked",
+  "applications_untouched",
+  "campus_outbox_undelivered",
+  "campus_ids_missing",
+  "campus_report_missing",
+] as const;
+export type FlowCheckName = (typeof FLOW_CHECK_NAMES)[number];
+
+const flowCount = z.number().int().nonnegative();
+
+/**
+ * The counts one daily flow check read, shared by `flow_check.day_recorded` and
+ * `flow_check.breached`. COUNTS, CLOSED NAMES, ONE DAY AND ONE TIME ONLY: no posting, application,
+ * worker or company id ever rides here (the ids go to the server log for whoever investigates).
+ */
+const FlowCheckCountsShape = {
+  /** The IST calendar day the run belongs to (`YYYY-MM-DD`). One record per day. */
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** The window the per-day counts cover, ending at the run. */
+  window_hours: z.number().int().positive().max(168),
+  /** Jobs published in the window. */
+  jobs_posted: flowCount,
+  /** Applications (worker app and Campus) to job postings in the window. */
+  applications_received: flowCount,
+  /** Of those, applications that came from Campus. */
+  campus_applications: flowCount,
+  rvm_review_overdue: flowCount,
+  live_zero_reach: flowCount,
+  campus_unlinked: flowCount,
+  applications_untouched: flowCount,
+  /** Null when no Campus report was in time, or the Campus link is off. */
+  campus_outbox_undelivered: flowCount.nullable(),
+  /** Null when no Campus report was in time, or the Campus link is off. */
+  campus_ids_missing: flowCount.nullable(),
+  /** When Campus ran the check it reported (Campus's clock); null as above. */
+  campus_reported_at: isoDateTimeSchema.nullable(),
+  /** The thresholds the run used, by key; null = that maximum is off. */
+  thresholds: z.record(
+    z.string().regex(/^[a-z_]{1,40}$/),
+    z.number().int().nonnegative().nullable(),
+  ),
+  /** The checks that breached, in {@link FLOW_CHECK_NAMES} order, each once. */
+  breached: z
+    .array(z.enum(FLOW_CHECK_NAMES))
+    .max(FLOW_CHECK_NAMES.length)
+    .refine((names) => new Set(names).size === names.length, { message: "a check is named twice" }),
+};
+
+/**
+ * #2890 — one day of the flow check, recorded whether or not anything breached: the source of the
+ * admin's 14-day read (`GET /admin/flow-check`). ONE PER IST DAY (keyed on `day`), however many
+ * ticks or replicas run. Actor `system`; subject the aggregate `job_posting` with a null id (no
+ * single posting is meant). v1.
+ */
+export const FlowCheckDayRecordedPayload = z.object(FlowCheckCountsShape).strict();
+export type FlowCheckDayRecordedPayload = z.infer<typeof FlowCheckDayRecordedPayload>;
+
+/**
+ * #2890 — the day's flow check found at least one count past its threshold. ONE PER IST DAY, an
+ * alert counted on the admin dashboard's breach counter (`AdminEventsService.BREACH_EVENTS`). The
+ * same counts as the day's record, so the alert reads on its own. v1.
+ */
+export const FlowCheckBreachedPayload = z
+  .object(FlowCheckCountsShape)
+  .strict()
+  .refine((p) => p.breached.length > 0, { message: "a breach names at least one check" });
+export type FlowCheckBreachedPayload = z.infer<typeof FlowCheckBreachedPayload>;
+
+/**
+ * #2890 — Campus reported its nightly applications check (`PUT applications-check`, Campus #155
+ * item 13): what only Campus can see. BadaBhai cannot read Campus's outbox or its application
+ * table, so the flow check reads the latest of these. COUNTS, A FLAG AND CAMPUS'S TIME ONLY: the
+ * findings themselves (Campus and BadaBhai ids) stay in Campus's own run record. Actor `system`
+ * (the Campus service credential, as every Campus write); subject the aggregate `job_posting`. v1.
+ */
+export const FlowCheckCampusReportReceivedPayload = z
+  .object({
+    /** When Campus's check ran, Campus's clock. */
+    checked_at: isoDateTimeSchema,
+    /** `badabhai.apply` / `badabhai.withdraw` outbox rows not delivered an hour or more after they were made. */
+    outbox_undelivered: flowCount,
+    /** Campus holds BadaBhai's application id, but BadaBhai's feed has no such application. */
+    missing_on_badabhai: flowCount,
+    /** Neither on BadaBhai nor refused, past Campus's retry window. */
+    not_sent: flowCount,
+    /** Was Campus's outbox dispatcher switched on when it checked? */
+    dispatcher_on: z.boolean(),
+  })
+  .strict();
+export type FlowCheckCampusReportReceivedPayload = z.infer<
+  typeof FlowCheckCampusReportReceivedPayload
+>;
+
 /** #2750 item 4 — what made a company's welcome credits due (`payer.welcome_credits_granted`). */
 export const WELCOME_CREDITS_TRIGGERS = [
   /** An admin or ops approval of a posting (or an agency job) made the company eligible. */

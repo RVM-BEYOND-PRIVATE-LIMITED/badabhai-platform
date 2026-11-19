@@ -50,6 +50,7 @@ import { SearchExitModule } from "./search-exit/search-exit.module";
 import { StillLookingModule } from "./still-looking/still-looking.module";
 import { CreditBalanceAuditModule } from "./credit-audit/credit-balance-audit.module";
 import { RazorpayReconcileModule } from "./payment-reconcile/razorpay-reconcile.module";
+import { FlowCheckModule } from "./flow-check/flow-check.module";
 import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
 import { AdminModule } from "./admin/admin.module";
 import { AdminPostingsModule } from "./admin-postings/admin-postings.module";
@@ -188,6 +189,10 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // #2773 — the nightly Razorpay reconciliation (read-only). INERT until
     // RAZORPAY_RECONCILE_ENABLED is on: the daily tick returns at once without a call or a query.
     RazorpayReconcileModule,
+    // #2890 — the daily flow check (read-only), Campus's applications-check report and the admin's
+    // 14-day read. INERT until FLOW_CHECK_ENABLED is on: the tick returns at once without a query
+    // and both routes are a neutral 404.
+    FlowCheckModule,
     ReferralAttributionModule,
     // Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1): the 4th principal
     // (`/admin/*` route group behind AdminAuthGuard). Auth + RBAC + MFA only; the feature

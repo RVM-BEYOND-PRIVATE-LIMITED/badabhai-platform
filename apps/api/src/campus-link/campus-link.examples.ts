@@ -1,5 +1,7 @@
 import type { z } from "zod";
 import type {
+  CampusApplicationsCheckBodySchema,
+  CampusApplicationsCheckResponseSchema,
   CampusApplicationPageSchema,
   CampusApplicationSchema,
   CampusApplyBodySchema,
@@ -248,3 +250,16 @@ export const DRIVE_DECISION_RESPONSE_EXAMPLE: z.input<typeof CampusDriveDecision
   decided_at: "2026-11-20T09:00:00.000+05:30",
   changed_at: "2026-11-20T03:30:00.412851Z",
 };
+
+/** #2890 — Campus reports its nightly applications check: nothing missing, one stuck outbox row. */
+export const APPLICATIONS_CHECK_BODY_EXAMPLE: z.input<typeof CampusApplicationsCheckBodySchema> = {
+  checked_at: "2026-11-20T03:30:00.000+05:30",
+  outbox_undelivered: 1,
+  missing_on_badabhai: 0,
+  not_sent: 0,
+  dispatcher_on: true,
+};
+
+export const APPLICATIONS_CHECK_RESPONSE_EXAMPLE: z.input<
+  typeof CampusApplicationsCheckResponseSchema
+> = { recorded: true };
