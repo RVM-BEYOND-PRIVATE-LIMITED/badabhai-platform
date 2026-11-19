@@ -1,6 +1,6 @@
 # ADR-0064: Applicants and contacts — the source label, facts before paying, contacts open for good, selected and hired
 
-- **Status:** Proposed — awaiting owner sign-off (Akshit for the brief's rulings; Prakash as the other backend developer). No switch in this ADR is armed in production before it is signed.
+- **Status:** Accepted — signed off by Akshit (the brief's rulings) and Prakash (the other backend developer), reported by Divyanshu on 2026-11-19. §6 is answered with every default as written. Each switch is still armed one at a time, in `pilot` first (§5, #2850).
 - **Date:** 2026-11-15
 - **Owner:** Divyanshu (Backend Platform).
 - **Issue:** #2747 (brief 4B.3–4B.8, plan 4.2). Built in parts, each behind its own switch (§3.7).
@@ -242,6 +242,8 @@ Its findings, all fixed:
 Every switch defaults to `off`. For BadaBhai workers the switches do nothing until a notice describing the brief ships (§3.8). Arming is `gh secret set <SWITCH> --env production --body pilot` plus `feature_pilot_payers` rows for the pilot companies, then a redeploy — and only after this ADR is signed. Rollback is the same secret set to `off`. In `pilot`, a pilot list that cannot be read answers "unavailable": everything reads as off, except that `POST /payer/unlocks` refuses (neutral, no charge) a re-grant over a contact the company already holds, so a pilot company is never charged twice on a guess.
 
 ## 6. Open questions (for Akshit; built with the default)
+
+**Answered 2026-11-19: every default below stands, as written.** In particular, `contact_rules` stays off for companies that hire RVM students until RVM confirms its consent line covers the phone "for good", or students get a notice of their own.
 
 - **RVM students and the phone "for good".** RVM's consent line ("Share my profile with companies I apply to", brief 9) says nothing about the phone number or "for good"; the build treats an actively linked student as covered (the issue's defaults for his card). Confirm with RVM, or give students a notice of their own; until then keep `contact_rules` off for companies that hire RVM students.
 
