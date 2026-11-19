@@ -390,3 +390,12 @@ export const NUMBERS_WEEKLY_SWEEP_SCHEDULER_ID = "numbers-weekly-sweep";
  */
 export const CREDIT_BALANCE_AUDIT_QUEUE = "credit-balance-audit";
 export const CREDIT_BALANCE_AUDIT_SCHEDULER_ID = "credit-balance-audit";
+
+/**
+ * #2773 — the nightly Razorpay reconciliation. A repeatable daily tick with no payload: each run
+ * reads the last 48 hours of Razorpay payments and our payment_orders, so a lost or duplicated
+ * Redis job is harmless (the windows overlap, and the alert's per-day key raises it once). Inert
+ * while RAZORPAY_RECONCILE_ENABLED is off: a tick returns at once without a call or a query.
+ */
+export const RAZORPAY_RECONCILE_QUEUE = "razorpay-reconcile";
+export const RAZORPAY_RECONCILE_SCHEDULER_ID = "razorpay-reconcile";

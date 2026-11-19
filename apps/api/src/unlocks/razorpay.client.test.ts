@@ -96,6 +96,83 @@ describe("RazorpayClient.fetchPayment — GET /payments/:id, five fields, no buy
   });
 });
 
+describe("RazorpayClient.listPayments — GET /payments by window (#2773), five fields, no buyer data", () => {
+  const FROM = new Date("2026-11-17T21:30:00.000Z");
+  const TO = new Date("2026-11-19T21:00:00.000Z");
+  const item = (n: number) => ({
+    id: `pay_${n}`,
+    order_id: `order_${n}`,
+    amount: 117900,
+    currency: "INR",
+    status: "captured",
+    email: "buyer@example.com",
+    contact: "+919876543210",
+    card: { last4: "4242" },
+  });
+
+  it("pages 100 at a time in unix seconds until a short page, and drops the buyer's data", async () => {
+    const all = vi.fn(async ({ skip }: { skip: number }) => ({
+      entity: "collection",
+      count: skip === 0 ? 100 : 2,
+      items: skip === 0 ? Array.from({ length: 100 }, (_, i) => item(i)) : [item(100), item(99)], // pay_99 again: a page that moved is de-duplicated
+    }));
+    const out = await clientWith({ payments: { all } }).listPayments({
+      from: FROM,
+      to: TO,
+      maxPages: 10,
+    });
+    expect(all).toHaveBeenCalledTimes(2);
+    expect(all).toHaveBeenNthCalledWith(1, {
+      from: 1794951000,
+      to: 1795122000,
+      count: 100,
+      skip: 0,
+    });
+    expect(all).toHaveBeenNthCalledWith(2, {
+      from: 1794951000,
+      to: 1795122000,
+      count: 100,
+      skip: 100,
+    });
+    expect(out.truncated).toBe(false);
+    expect(out.payments).toHaveLength(101);
+    expect(out.payments[0]).toEqual({
+      id: "pay_0",
+      orderId: "order_0",
+      amountPaise: 117900,
+      currency: "INR",
+      status: "captured",
+    });
+    expect(JSON.stringify(out)).not.toMatch(/buyer|9876543210|4242/);
+  });
+
+  it("stops at maxPages and says the list was truncated", async () => {
+    const all = vi.fn(async () => ({
+      entity: "collection",
+      count: 100,
+      items: Array.from({ length: 100 }, (_, i) => item(i)),
+    }));
+    const out = await clientWith({ payments: { all } }).listPayments({
+      from: FROM,
+      to: TO,
+      maxPages: 3,
+    });
+    expect(all).toHaveBeenCalledTimes(3);
+    expect(out.truncated).toBe(true);
+  });
+
+  it("a provider failure throws a neutral error and logs the class only", async () => {
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const all = vi.fn(async () => {
+      throw new Error("401 rzp_live_key buyer@example.com");
+    });
+    await expect(
+      clientWith({ payments: { all } }).listPayments({ from: FROM, to: TO, maxPages: 1 }),
+    ).rejects.toThrow("payment provider payment list failed");
+    expect(error).toHaveBeenCalledWith("payment list failed error_class=Error");
+  });
+});
+
 describe("providerPaise", () => {
   it("takes a non-negative safe integer (or its digit string) and refuses anything else", () => {
     expect(providerPaise(117900)).toBe(117900);

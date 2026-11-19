@@ -427,6 +427,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CREDIT_BALANCE_AUDIT_ENABLED:\s*\$\{\{\s*secrets\.CREDIT_BALANCE_AUDIT_ENABLED\s*\}\}/,
       /envs:[^\n]*\bCREDIT_BALANCE_AUDIT_ENABLED\b/,
     ],
+    // #2773 — the nightly Razorpay reconciliation. A plain read-only boolean on the api, turned on in
+    // production only by its environment secret.
+    [
+      "RAZORPAY_RECONCILE_ENABLED",
+      /RAZORPAY_RECONCILE_ENABLED:\s*\$\{\{\s*secrets\.RAZORPAY_RECONCILE_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bRAZORPAY_RECONCILE_ENABLED\b/,
+    ],
     // #2887 — the bulk student move. A plain boolean on the api only, turned on in production
     // ONLY by the environment secret, after the `student_move` migration is applied.
     [
@@ -667,6 +674,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["ADMIN_JOB_AUDIENCE_ENABLED", "false"],
     // #2774 — off is today: the nightly balance audit's tick returns at once without a query.
     ["CREDIT_BALANCE_AUDIT_ENABLED", "false"],
+    // #2773 — off is today: the nightly reconciliation's tick returns at once without a call.
+    ["RAZORPAY_RECONCILE_ENABLED", "false"],
     // #2755 part B — the zod default: a week freezes 3 days after it ends.
     ["NUMBERS_FREEZE_AFTER_DAYS", "3"],
     // #2887 — off is today: nothing names the student-move tables, /admin/students/* is a 404.
