@@ -1746,8 +1746,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "or rewrite the count the placement team reads",
   },
   {
-    id: "0191-rvm-waiver-end-dates-rls",
-    migration: "0191_rvm_waiver_end_dates",
+    id: "0192-rvm-waiver-end-dates-rls",
+    migration: "0192_rvm_waiver_end_dates",
     kind: "rls",
     table: "rvm_waiver_end_dates",
     requiredBy:
