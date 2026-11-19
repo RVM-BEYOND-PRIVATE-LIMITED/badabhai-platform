@@ -1,6 +1,7 @@
 import 'candidate_search_models.dart';
 import 'job_posting_chat_models.dart';
 import 'models.dart';
+import 'managed_hiring_models.dart';
 
 /// The data seam for the payer app. Two implementations bind to it:
 /// [MockPayerApiClient] (canned, PII-free — demo builds behind `USE_MOCKS=true`
@@ -114,6 +115,17 @@ abstract class PayerApiClient {
   /// One owned posting (`GET /payer/job-postings/:id`). A neutral 404 (unknown or
   /// foreign) returns `null`, never an exception.
   Future<JobPosting?> getJob(String id);
+
+  /// #2751 — the Managed Hiring quote for one job. Null on the switch's neutral 404, which means
+  /// "do not show Managed Hiring at all".
+  Future<ManagedHiringQuote?> fetchManagedHiringQuote(String jobId);
+
+  /// #2751 — the company's Managed Hiring orders for one job (newest first).
+  Future<List<ManagedHiringOrder>> fetchManagedHiringOrders(String jobId);
+
+  /// #2751 — ask for a call on a job above the largest tier. Returns the request id, or null
+  /// when the route is off.
+  Future<String?> requestManagedHiringCallback(String jobId);
 
   /// Patch an owned posting (`PATCH /payer/job-postings/:id`). Pass ≥1 field;
   /// [status] may only be `'open'` (publish a draft). 400 no-op / 409 closed or
