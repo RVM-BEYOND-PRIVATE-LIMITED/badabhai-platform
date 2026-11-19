@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   CampusApplicationPageSchema,
   CampusApplicationSchema,
+  CampusApplicationsCheckResponseSchema,
   CampusErrorBodySchema,
   CampusPostingPageSchema,
   CampusReviewResponseSchema,
   CampusTargetingOptionsResponseSchema,
 } from "../campus-link.contract";
 import {
+  APPLICATIONS_CHECK_BODY_EXAMPLE,
   APPLY_BODY_EXAMPLE,
   POSTING_EXAMPLE,
   REVIEW_BODY_EXAMPLE,
@@ -177,5 +179,22 @@ describe("Campus contract mock", () => {
     );
     expect(noKey.status).toBe(400);
     expect(CampusErrorBodySchema.parse(noKey.body).error.code).toBe("IDEMPOTENCY_KEY_REQUIRED");
+  });
+
+  it("records an applications-check report once per Idempotency-Key and refuses an extra field (#2890)", () => {
+    const handle = createCampusLinkMock({ token: TOKEN });
+    const put = (body: unknown, key = "check:20261120") =>
+      handle(request("PUT", "applications-check", { body, key }));
+
+    const first = put(APPLICATIONS_CHECK_BODY_EXAMPLE);
+    const replay = put(APPLICATIONS_CHECK_BODY_EXAMPLE);
+    const next = put(APPLICATIONS_CHECK_BODY_EXAMPLE, "check:20261121");
+    const extra = put({ ...APPLICATIONS_CHECK_BODY_EXAMPLE, findings: [] }, "check:20261122");
+
+    expect(CampusApplicationsCheckResponseSchema.parse(first.body)).toEqual({ recorded: true });
+    expect(replay.body).toEqual({ recorded: false });
+    expect(next.body).toEqual({ recorded: true });
+    expect(extra.status).toBe(400);
+    expect(CampusErrorBodySchema.parse(extra.body).error.code).toBe("VALIDATION_FAILED");
   });
 });

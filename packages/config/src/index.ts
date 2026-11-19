@@ -14,6 +14,8 @@ export * from "./occupation-tuning";
 // ADR-0050 Q3 — the agency twin's fixed system actor + neutral org label. Constants, not env.
 export * from "./agency-twin";
 export * from "./server";
+// #2890 — the daily flow check's thresholds setting: keys, defaults and the parser.
+export * from "./flow-check";
 // Public config is re-exported for convenience in backend code, but frontends
 // should import the dedicated "@badabhai/config/public" entry point.
 export { publicEnvSchema, loadPublicConfig, type PublicConfig } from "./public";

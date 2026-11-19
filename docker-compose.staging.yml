@@ -509,6 +509,14 @@ services:
       # matching payment_orders and alerts on a disagreement; it never changes money. A rzp_test_ key
       # skips the run. No migration. `:-false` because this bool rejects "".
       RAZORPAY_RECONCILE_ENABLED: ${RAZORPAY_RECONCILE_ENABLED:-false}
+      # THE DAILY FLOW CHECK (#2890). Off is today exactly: the daily tick returns at once without a
+      # query, and GET /admin/flow-check and Campus's PUT applications-check are a neutral 404. On,
+      # it READS the posting → reach → application flow once a day (05:00 IST), records the day's
+      # counts and raises one counts-only breach alert per day; it writes no row. No migration.
+      # `:-false` because this bool rejects "". Its thresholds are one key=value string, empty =
+      # every default (`:-` passes the empty string, which the api reads as "all defaults").
+      FLOW_CHECK_ENABLED: ${FLOW_CHECK_ENABLED:-false}
+      FLOW_CHECK_THRESHOLDS: ${FLOW_CHECK_THRESHOLDS:-}
       # THE BULK STUDENT MOVE (#2887). Off is today exactly: nothing names the student-move tables
       # and every /admin/students/* route is a 404. Apply the `student_move` migration before
       # switching it on (on without it: the routes answer 503, the hot reads fall back). `:-false`

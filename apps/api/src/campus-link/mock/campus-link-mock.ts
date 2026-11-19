@@ -4,6 +4,7 @@ import {
   CAMPUS_IDEMPOTENCY_KEY_HEADER,
   CAMPUS_LINK_BASE_PATH,
   CAMPUS_SERVICE_TOKEN_HEADER,
+  CampusApplicationsCheckBodySchema,
   CampusApplicationsQuerySchema,
   CampusApplyBodySchema,
   CampusCompanyQuerySchema,
@@ -68,6 +69,8 @@ export function createCampusLinkMock(options: { token: string }) {
   /** The newest decision / list held, by Campus's own time, and what it was. */
   let review: { at: number; fingerprint: string; state: string } | null = null;
   let targeting: { at: number; fingerprint: string } | null = null;
+  /** #2890 — the Idempotency-Keys of the applications-check reports taken. */
+  const checkReports = new Set<string>();
 
   return function handle(req: MockRequest): MockResponse {
     const url = new URL(req.url, "http://mock");
@@ -224,6 +227,16 @@ export function createCampusLinkMock(options: { token: string }) {
           app.changed_at = now;
         }
         return ok(toApplication(app));
+      }
+
+      // #2890 — the nightly check's report: recorded once per Idempotency-Key, as BadaBhai does.
+      case "PUT applications-check": {
+        const body = parseBody(req.body, CampusApplicationsCheckBodySchema, url.pathname);
+        if ("status" in body) return body;
+        const key = req.headers[CAMPUS_IDEMPOTENCY_KEY_HEADER] ?? "";
+        const recorded = !checkReports.has(key);
+        checkReports.add(key);
+        return ok({ recorded });
       }
 
       case "PUT search-grants/:id": {

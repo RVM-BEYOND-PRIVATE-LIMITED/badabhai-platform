@@ -130,6 +130,10 @@ export class AdminEventsService {
     // #2773 — the nightly Razorpay reconciliation found captured payments and paid orders that
     // disagree.
     "payment.reconciliation_failed",
+    // #2890 — the daily flow check found a step of posting → reach → application past its
+    // threshold (one per IST day, counts only; #2769's overdue review and #2782's missing Campus
+    // ids are two of its checks).
+    "flow_check.breached",
   ] as const;
 
   constructor(

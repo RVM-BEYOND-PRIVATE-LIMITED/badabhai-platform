@@ -78,11 +78,13 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 | `DELETE students/:student_ref`      | Unlink a student (consent withdrawn or deleted)         | **live**   |
 | `GET drive-requests`                | Companies' campus-drive requests, with contacts         | **live**   |
 | `POST drive-requests/:id/decision`  | Schedule, decline or complete a drive request           | **live**   |
+| `PUT applications-check`            | Campus reports its nightly applications check           | #2890      |
 | `PUT waivers`                       | Set or clear the waiver of one company or one job       | #2750      |
 | `GET waivers`                       | The waivers in force, with the opens each paid for      | #2750      |
 
 The two waiver routes (#2750 item 5) answer a neutral 404 until BadaBhai's credit rules are
-switched on (`CREDIT_RULES_ROLLOUT` pilot or on); see `PUT waivers` below.
+switched on (`CREDIT_RULES_ROLLOUT` pilot or on); see `PUT waivers` below. `PUT applications-check`
+(#2890) answers a neutral 404 until BadaBhai's daily flow check is switched on (`FLOW_CHECK_ENABLED`).
 
 ### GET ping
 
@@ -651,6 +653,42 @@ A decision that changed the request writes, in one transaction, the request, the
 `campus_drive.decided` v1 (ids, enums and dates: never the reason text) and an `audit_logs` row
 whose actor is `decided_by_ref` (`actor_type` `campus_staff`) and which names this call's
 `X-Campus-Call-Id`.
+
+### PUT applications-check
+
+Campus's nightly applications check (Campus #155 item 13), reported to BadaBhai's daily flow check
+(#2890). BadaBhai cannot read Campus's outbox or its application table, so these two counts reach
+its alerts only this way. Send it after **every** successful run, including a clean one.
+
+```json
+{
+  "checked_at": "2026-11-20T03:30:00.000+05:30",
+  "outbox_undelivered": 1,
+  "missing_on_badabhai": 0,
+  "not_sent": 0,
+  "dispatcher_on": true
+}
+```
+
+- `checked_at`: when the check ran, Campus's clock (offset within ±14:00).
+- `outbox_undelivered`: `badabhai.apply` and `badabhai.withdraw` outbox rows not delivered (pending,
+  sending, failed or given up) that were made at least an hour before `checked_at`.
+- `missing_on_badabhai` and `not_sent`: the run's findings of those two kinds. BadaBhai adds them up
+  as "Campus application ids with no BadaBhai row" (#2782).
+- `dispatcher_on`: whether `integration_outbox_dispatch_enabled` was on. It is logged with a breach,
+  so "the dispatcher is off" reads at once.
+- Counts and the flag only: the findings and their ids stay in Campus's `sync_runs`.
+
+Answers `200 { "recorded": true }`, or `{ "recorded": false }` for the same `Idempotency-Key` again
+(stored with the report, so a retry records once). A neutral 404 while BadaBhai's
+`FLOW_CHECK_ENABLED` is off, as every route is while `CAMPUS_LINK_ENABLED` is.
+
+BadaBhai's flow check runs at 05:00 IST and reads the newest report it **received** in the last
+26 hours (`campus_report_max_age_hours`). While the link is on, no report in that time is itself a
+breach (`campus_report_missing`): a Campus that stopped checking, or cannot reach BadaBhai, is what
+it is there to catch. Any `outbox_undelivered` or missing id above zero is a breach by default.
+Until Campus sends the report, BadaBhai sets `outbox_undelivered_max=off,campus_missing_max=off` in
+`FLOW_CHECK_THRESHOLDS`, which also stops the missing report from alerting.
 
 ## Decisions behind this shape (answers to Campus's points of 13 Nov 2026)
 

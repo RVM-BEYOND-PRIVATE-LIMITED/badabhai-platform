@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import {
   CAMPUS_EARLIEST_DECISION_TIME,
+  CampusApplicationsCheckBodySchema,
+  CampusApplicationsCheckResponseSchema,
   CAMPUS_ERROR_CODES,
   CAMPUS_TARGETING_LIMITS,
   CourseIdSchema,
@@ -77,6 +79,16 @@ const PAIRS: ReadonlyArray<[string, z.ZodType, unknown]> = [
     "drive decision response",
     CampusDriveDecisionResponseSchema,
     examples.DRIVE_DECISION_RESPONSE_EXAMPLE,
+  ],
+  [
+    "applications-check body",
+    CampusApplicationsCheckBodySchema,
+    examples.APPLICATIONS_CHECK_BODY_EXAMPLE,
+  ],
+  [
+    "applications-check response",
+    CampusApplicationsCheckResponseSchema,
+    examples.APPLICATIONS_CHECK_RESPONSE_EXAMPLE,
   ],
 ];
 
@@ -558,5 +570,33 @@ describe("Campus contract v1 — a targeting label must show something", () => {
 
   it("accepts joiners beside a visible character", () => {
     expect(label("x" + ZWJ_V)).toBe(true);
+  });
+});
+
+describe("Campus contract v1 — PUT applications-check (#2890)", () => {
+  const body = examples.APPLICATIONS_CHECK_BODY_EXAMPLE;
+
+  it("is strict: the findings and their ids stay on Campus", () => {
+    for (const extra of [{ findings: [] }, { application_ids: ["app_12345678"] }, { note: "x" }]) {
+      expect(CampusApplicationsCheckBodySchema.safeParse({ ...body, ...extra }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it("needs every count and the dispatcher flag", () => {
+    for (const key of Object.keys(body)) {
+      const partial: Record<string, unknown> = { ...body };
+      delete partial[key];
+      expect(CampusApplicationsCheckBodySchema.safeParse(partial).success, key).toBe(false);
+    }
+  });
+
+  it("refuses a negative or fractional count, and an offset wider than 14 hours", () => {
+    const parse = (over: Record<string, unknown>) =>
+      CampusApplicationsCheckBodySchema.safeParse({ ...body, ...over }).success;
+    expect(parse({ not_sent: -1 })).toBe(false);
+    expect(parse({ outbox_undelivered: 1.5 })).toBe(false);
+    expect(parse({ checked_at: "2026-11-20T03:30:00+15:00" })).toBe(false);
   });
 });

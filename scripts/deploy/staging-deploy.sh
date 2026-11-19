@@ -326,6 +326,7 @@ BRIDGED_BOOLEAN_FLAGS=(
   CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED
   CHAT_TURN_UNDERSTANDING_ENABLED
   CREDIT_BALANCE_AUDIT_ENABLED
+  FLOW_CHECK_ENABLED
   FORM_TENURE_MONTHS_ENABLED
   FORM_TYPED_TENURE_DERIVE_ENABLED
   HIRE_RECORDS_ENABLED
@@ -450,6 +451,49 @@ if [ -n "${_payments_key//[[:space:]]/}" ]; then
   fi
 fi
 _payments_key=""
+# #2890: FLOW_CHECK_THRESHOLDS — the daily flow check's thresholds, comma-separated key=value pairs
+# (packages/config/src/flow-check.ts). The api parses it at boot and refuses a malformed pair, an
+# unknown key, a key given twice or an out-of-range value, which would crash-loop it with no
+# automatic rollback. The same grammar, keys and ranges are checked here, before any prune, pull or
+# recreate; the value is never echoed. Empty means every default.
+# flow-check-thresholds-preflight.guard.test.ts keeps this key list equal to the api's.
+FLOW_CHECK_THRESHOLD_KEYS=" review_wait_hours review_overdue_max zero_reach_grace_hours zero_reach_max untouched_hours untouched_max campus_unlinked_max outbox_undelivered_max campus_missing_max campus_report_max_age_hours "
+_ft_value="${FLOW_CHECK_THRESHOLDS-}"
+if [[ -n "${_ft_value//[[:space:]]/}" ]]; then
+  _ft_ok=1
+  _ft_seen=" "
+  case "$_ft_value" in ,* | *, | *,,*) _ft_ok=0 ;; esac
+  IFS=',' read -r -a _ft_pairs <<< "$_ft_value"
+  for _ft_pair in "${_ft_pairs[@]}"; do
+    if [[ "$_ft_pair" =~ ^[[:space:]]*([a-z_]+)[[:space:]]*=[[:space:]]*([0-9]{1,6}|off)[[:space:]]*$ ]]; then
+      _ft_key="${BASH_REMATCH[1]}"
+      _ft_val="${BASH_REMATCH[2]}"
+    else
+      _ft_ok=0
+      continue
+    fi
+    case "$FLOW_CHECK_THRESHOLD_KEYS" in *" ${_ft_key} "*) ;; *) _ft_ok=0 ;; esac
+    case "$_ft_seen" in *" ${_ft_key} "*) _ft_ok=0 ;; esac
+    _ft_seen="${_ft_seen}${_ft_key} "
+    case "$_ft_key" in
+      *_hours)
+        if [ "$_ft_val" = off ] || [ $((10#$_ft_val)) -lt 1 ] || [ $((10#$_ft_val)) -gt 720 ]; then
+          _ft_ok=0
+        fi
+        ;;
+      *)
+        if [ "$_ft_val" != off ] && [ $((10#$_ft_val)) -gt 100000 ]; then
+          _ft_ok=0
+        fi
+        ;;
+    esac
+  done
+  if [ "$_ft_ok" -ne 1 ]; then
+    echo "::error::FLOW_CHECK_THRESHOLDS must be comma-separated key=value pairs with known keys, each once: *_hours a whole number 1 to 720, *_max 0 to 100000 or off (for example review_wait_hours=72,zero_reach_max=5), or empty for every default. Fix the production secret (gh secret set FLOW_CHECK_THRESHOLDS --env production, the value entered at the prompt) and re-run. Nothing was deployed."
+    _bad_flags=1
+  fi
+fi
+_ft_value=""
 # Every bad flag is reported above before this exits, so one run names them all.
 if [ "$_bad_flags" -ne 0 ]; then
   exit 1

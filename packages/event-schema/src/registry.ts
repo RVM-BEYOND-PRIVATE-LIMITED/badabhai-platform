@@ -2059,6 +2059,24 @@ export const EVENT_REGISTRY = {
     domain: "payment",
     payload: p.PaymentReconciliationFailedPayload,
   },
+  // #2890 — the daily flow check: one record per IST day (the admin's 14-day read), one breach
+  // alert per IST day (the breach counter), and Campus's nightly report of what only it can see.
+  // Counts only. v1.
+  "flow_check.day_recorded": {
+    version: 1,
+    domain: "flow_check",
+    payload: p.FlowCheckDayRecordedPayload,
+  },
+  "flow_check.breached": {
+    version: 1,
+    domain: "flow_check",
+    payload: p.FlowCheckBreachedPayload,
+  },
+  "flow_check.campus_report_received": {
+    version: 1,
+    domain: "flow_check",
+    payload: p.FlowCheckCampusReportReceivedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
