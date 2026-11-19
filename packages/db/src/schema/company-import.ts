@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { payers } from "./payer";
 
 /** The system an import reads from. Only BadaBhai Campus today (#2754). */
 export type CompanyImportSourceSystem = "campus";
@@ -156,6 +157,70 @@ export const companyImportRows = pgTable(
     check(
       "company_import_rows_text_chk",
       sql`char_length(${t.sourceId}) BETWEEN 1 AND 200 AND (${t.companySourceId} IS NULL OR char_length(${t.companySourceId}) BETWEEN 1 AND 200)`,
+    ),
+  ],
+).enableRLS();
+
+/** How a moved company is told about the move (#2787). */
+export const COMPANY_IMPORT_NOTICE_CHANNELS = ["email", "sms"] as const;
+export type CompanyImportNoticeChannel = (typeof COMPANY_IMPORT_NOTICE_CHANNELS)[number];
+
+/**
+ * One notice's outcome. Only `sent` is final: a `failed` or `skipped` notice is tried again by the
+ * next `--notify --send` run (a missing SMS template today, supplied later, sends then).
+ */
+export const COMPANY_IMPORT_NOTICE_STATES = ["sent", "failed", "skipped"] as const;
+export type CompanyImportNoticeState = (typeof COMPANY_IMPORT_NOTICE_STATES)[number];
+
+// ---------------------------------------------------------------------------
+// company_import_notices — the send log of the first sign-in message to a moved company (#2787).
+//
+// After a batch is applied and its verification report is clean, `import-campus-companies.cli.ts
+// --notify --send` tells each company the batch placed how to sign in on BadaBhai, by email and (once
+// an approved DLT template exists) by SMS. ONE ROW PER COMPANY PER CHANNEL, EVER: unique on
+// (payer_id, channel), so a second run, or a later batch that matches the same company, sends
+// nothing more on a channel already `sent`. The issue's "keep the send log reference" is this table.
+//
+// `reason` is a short machine code (`no_email`, `template_missing`, `send_failed`, ...); never an
+// address, a number or a provider message. `run_by` is the operator's own label, as on the batch.
+//
+// `payer_id` cascades: erasing a company erases its notice log with it. `batch_id` restricts, like
+// the ledger rows: a batch with a log cannot be deleted from under it.
+//
+// No PII. RLS forced, every role revoked (the migration's hand-written tail).
+// ---------------------------------------------------------------------------
+export const companyImportNotices = pgTable(
+  "company_import_notices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id")
+      .notNull()
+      .references(() => companyImportBatches.id, { onDelete: "restrict" }),
+    payerId: uuid("payer_id")
+      .notNull()
+      .references(() => payers.id, { onDelete: "cascade" }),
+    channel: text("channel").$type<CompanyImportNoticeChannel>().notNull(),
+    state: text("state").$type<CompanyImportNoticeState>().notNull(),
+    reason: text("reason"),
+    attempts: integer("attempts").notNull().default(1),
+    runBy: text("run_by").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("company_import_notices_payer_channel_uq").on(t.payerId, t.channel),
+    index("company_import_notices_batch_idx").on(t.batchId, t.state),
+    check("company_import_notices_channel_chk", sql`${t.channel} IN ('email', 'sms')`),
+    check("company_import_notices_state_chk", sql`${t.state} IN ('sent', 'failed', 'skipped')`),
+    // A sent notice has a time and no reason; anything else has a reason and no time.
+    check(
+      "company_import_notices_outcome_chk",
+      sql`(${t.state} = 'sent') = (${t.sentAt} IS NOT NULL) AND (${t.state} = 'sent') = (${t.reason} IS NULL) AND (${t.reason} IS NULL OR char_length(${t.reason}) BETWEEN 1 AND 64)`,
+    ),
+    check(
+      "company_import_notices_text_chk",
+      sql`char_length(${t.runBy}) BETWEEN 1 AND 128 AND ${t.attempts} >= 1`,
     ),
   ],
 ).enableRLS();

@@ -2135,6 +2135,24 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. The list decides which trades an admin may send to Campus; an open grant lets any " +
       "PostgREST role add a trade RVM does not teach, so jobs in it can reach RVM students",
   },
+  // #2787: the send log of the first sign-in message to a moved company. Only the import CLI names
+  // it (no route, sweep or read path), so a deploy ahead of the migration breaks nothing and it is
+  // not a `table` entry. Listed for its locks (the 0134 rule). The id and tag carry the slot number:
+  // regenerated with the migration when the slot moves.
+  {
+    id: "0193-company-import-notices-rls",
+    migration: "0193_company_import_notices",
+    kind: "rls",
+    table: "company_import_notices",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which moved companies were sent their first sign-in message; an " +
+      "open grant lets any PostgREST role mark a notice sent so a company is never told how to sign in, " +
+      "or erase the log so every company is messaged again",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

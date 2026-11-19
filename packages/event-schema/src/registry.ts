@@ -2089,6 +2089,13 @@ export const EVENT_REGISTRY = {
     domain: "flow_check",
     payload: p.FlowCheckSyntheticRunFailedPayload,
   },
+  // #2787 (parent #2754) — a moved Campus company was sent its first sign-in message on one channel.
+  // Once per company per channel, ever. PII-free: ids, the channel and how it was told to sign in. v1.
+  "payer.move_notice_sent": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerMoveNoticeSentPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

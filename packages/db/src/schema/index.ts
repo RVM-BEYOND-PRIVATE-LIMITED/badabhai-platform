@@ -87,7 +87,7 @@ import {
 import { jobPostingWorkerVisibility } from "./job-worker-visibility";
 import { campusTrades, jobPostingAudienceDecisions } from "./admin-job-audience";
 import { launchTestCohort, launchTestShares } from "./launch-test";
-import { companyImportBatches, companyImportRows } from "./company-import";
+import { companyImportBatches, companyImportNotices, companyImportRows } from "./company-import";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -608,6 +608,8 @@ export const schema = {
   // #2754 item 4 - the Campus company import ledger (written only by import-campus-companies.cli).
   companyImportBatches,
   companyImportRows,
+  // #2787 - the send log of the first sign-in message to a moved company (written only by the import CLI).
+  companyImportNotices,
   // #2891 - a Campus-origin posting held from BadaBhai workers until an admin opens it (read by reachesBadaBhaiWorkers).
   jobPostingWorkerVisibility,
   // #2956 / #2957 - the admin audience decision and the Campus trade list (read only while ADMIN_JOB_AUDIENCE_ENABLED is on).

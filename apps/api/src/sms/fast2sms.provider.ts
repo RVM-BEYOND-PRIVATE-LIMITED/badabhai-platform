@@ -28,11 +28,36 @@ export class Fast2SmsProvider implements SmsProvider {
   ) {}
 
   async sendOtp(input: { phoneE164: string; code: string; templateId?: string }): Promise<void> {
-    const apiKey = this.config.FAST2SMS_API_KEY;
-    const senderId = this.config.FAST2SMS_SENDER_ID;
     // A caller with its own approved template (the company sign-in message) names it; the
     // worker sign-in template stays the default.
-    const templateId = input.templateId ?? this.config.FAST2SMS_DLT_TEMPLATE_ID;
+    await this.deliver(
+      { phoneE164: input.phoneE164, templateId: input.templateId ?? this.config.FAST2SMS_DLT_TEMPLATE_ID, variables: [input.code] },
+      "OTP",
+    );
+  }
+
+  /**
+   * #2787 — send any other approved DLT template (the first sign-in message to a moved company).
+   * NOT part of {@link SmsProvider}: only the Campus import's `--notify` step calls it, with the
+   * template id the operator supplies. `variables` fill the template's `{#var#}` slots in order
+   * (pipe-separated on the wire); a variable may not itself contain a pipe. Same failure contract
+   * and the same privacy rule as {@link sendOtp}: throws {@link SmsSendError} on a delivery failure
+   * and never logs the number or a variable.
+   */
+  async sendTemplate(input: { phoneE164: string; templateId: string; variables: readonly string[] }): Promise<void> {
+    if (input.variables.some((v) => v.includes("|"))) {
+      throw new Error("a DLT template variable cannot contain a pipe");
+    }
+    await this.deliver(input, "template SMS");
+  }
+
+  private async deliver(
+    input: { phoneE164: string; templateId: string | undefined; variables: readonly string[] },
+    label: string,
+  ): Promise<void> {
+    const apiKey = this.config.FAST2SMS_API_KEY;
+    const senderId = this.config.FAST2SMS_SENDER_ID;
+    const templateId = input.templateId;
     // assertAuthConfig guarantees these are present in non-dev; guard anyway so a
     // misconfig fails CLOSED (throws) rather than sending a malformed request.
     if (!apiKey || !senderId || !templateId) {
@@ -46,11 +71,12 @@ export class Fast2SmsProvider implements SmsProvider {
     // template's {#var#}. If the template carries multiple variables the order is
     // pipe-separated; today the OTP is a single variable. Tweak here when the
     // exact approved template/variable order is supplied.
+    // Same parameter order as before #2787; a template with no variables sends none.
     const params = new URLSearchParams({
       route: this.config.FAST2SMS_ROUTE,
       sender_id: senderId,
       message: templateId,
-      variables_values: input.code,
+      ...(input.variables.length > 0 ? { variables_values: input.variables.join("|") } : {}),
       numbers: number,
       flash: "0",
     });
@@ -103,7 +129,7 @@ export class Fast2SmsProvider implements SmsProvider {
       throw new SmsSendError("provider_rejected", "SMS delivery failed (provider rejected)");
     }
 
-    this.logger.log(`OTP sent phone_hash=${phoneHashPrefix} status=ok`);
+    this.logger.log(`${label} sent phone_hash=${phoneHashPrefix} status=ok`);
   }
 
   /**

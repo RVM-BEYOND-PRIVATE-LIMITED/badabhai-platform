@@ -7967,3 +7967,20 @@ export const ManagedHiringCallbackRequestedPayload = z
 export type ManagedHiringCallbackRequestedPayload = z.infer<
   typeof ManagedHiringCallbackRequestedPayload
 >;
+
+/**
+ * #2787 (parent #2754) — a company moved from BadaBhai Campus was sent its first sign-in message on
+ * one channel. Once per company per channel, ever (the import's send log is unique on both).
+ * PII-FREE: the company's id, the channel, the import batch and whether the message told the
+ * company to sign in by SMS code (a proven phone) or by email code. Never the address, the number or
+ * the text.
+ */
+export const PayerMoveNoticeSentPayload = z
+  .object({
+    payer_id: uuidSchema,
+    batch_id: uuidSchema,
+    channel: z.enum(["email", "sms"]),
+    sign_in_by: z.enum(["sms_code", "email_code"]),
+  })
+  .strict();
+export type PayerMoveNoticeSentPayload = z.infer<typeof PayerMoveNoticeSentPayload>;

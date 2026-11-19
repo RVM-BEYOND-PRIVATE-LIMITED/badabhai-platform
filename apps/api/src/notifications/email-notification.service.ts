@@ -37,7 +37,10 @@ export type EmailPurpose =
   // #2751 item 9 — a company's Managed Hiring order changed (started, met, extended, closed). Its
   // own purpose: a burst of failures is a company not told about the service it paid for, not a
   // credential or AI signal.
-  | "managed_hiring_update";
+  | "managed_hiring_update"
+  // #2787 — the first sign-in message to a company moved from BadaBhai Campus. Its own purpose: a
+  // burst of failures is moved companies not told how to sign in, not a credential signal.
+  | "move_notice";
 
 export interface EmailMessage {
   /** The recipient address. Used to send and to derive a log hash — never logged raw. */
