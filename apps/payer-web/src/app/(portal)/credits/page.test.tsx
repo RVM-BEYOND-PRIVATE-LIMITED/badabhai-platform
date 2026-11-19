@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import { DEFAULT_CATALOG } from "@badabhai/pricing";
 import { lowBalanceThreshold, offeredCreditPacks } from "../../../lib/pricing-config";
-import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
+import type { CreditLot, CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
 
 /**
  * CREDITS PAGE render tests — assert the page actually surfaces the nudge / history (and no
@@ -72,12 +72,30 @@ const topUp = (over: Partial<CreditTopUp> = {}): CreditTopUp => ({
   ...over,
 });
 
-function dashboard(balance: number, unlocks: UnlockHistoryItem[] = []): Dashboard {
-  return { credits: { payerId: PAYER, balance }, unlocks, postings: [] };
+const lot = (over: Partial<CreditLot> = {}): CreditLot => ({
+  source: "purchased",
+  creditsRemaining: 50,
+  creditsGranted: 50,
+  expiresAt: null,
+  packCode: "pack_50",
+  ...over,
+});
+
+function dashboard(
+  balance: number,
+  unlocks: UnlockHistoryItem[] = [],
+  lots: CreditLot[] = [],
+): Dashboard {
+  return { credits: { payerId: PAYER, balance, lots }, unlocks, postings: [] };
 }
 
-function setData(opts: { balance: number; unlocks?: UnlockHistoryItem[]; topUps?: CreditTopUp[] }) {
-  getDashboard.mockResolvedValue(dashboard(opts.balance, opts.unlocks ?? []));
+function setData(opts: {
+  balance: number;
+  unlocks?: UnlockHistoryItem[];
+  topUps?: CreditTopUp[];
+  lots?: CreditLot[];
+}) {
+  getDashboard.mockResolvedValue(dashboard(opts.balance, opts.unlocks ?? [], opts.lots ?? []));
   getCreditTopUps.mockResolvedValue(opts.topUps ?? []);
 }
 
@@ -131,6 +149,7 @@ async function render(opts: {
   balance: number;
   unlocks?: UnlockHistoryItem[];
   topUps?: CreditTopUp[];
+  lots?: CreditLot[];
 }) {
   setData(opts);
   const tree = (await CreditsPage()) as ReactElement;
@@ -251,18 +270,51 @@ describe("credits page — (b) history renders unlock + top-up rows", () => {
   });
 });
 
-describe("credits page — (c) #2741: nothing the server does not do", () => {
-  it("shows no credit expiry, validity date or invoice promise", async () => {
+describe("credits page — (c) #2939: expiry is the wallet's real lot timestamp", () => {
+  it("shows the migrated lot's real 30-day expiry, never purchase + 12 months", async () => {
     const purchased = "2026-01-10T08:00:00.000Z";
-    const { joined } = await render({ balance: 50, topUps: [topUp({ createdAt: purchased })] });
+    const { joined } = await render({
+      balance: 68,
+      topUps: [topUp({ createdAt: purchased })],
+      lots: [
+        lot({
+          source: "migrated",
+          creditsRemaining: 18,
+          creditsGranted: 18,
+          expiresAt: "2026-12-18T00:00:00.000Z",
+          packCode: null,
+        }),
+        lot({
+          source: "legacy",
+          creditsRemaining: 50,
+          creditsGranted: 50,
+          expiresAt: null,
+          packCode: null,
+        }),
+      ],
+    });
     expect(joined).toContain("2026-01-10"); // the purchase itself still shows in the history
-    // The server stores no expiry, spends credits in no set order and issues no invoice (BB-D-04).
-    expect(joined).not.toMatch(/Credit Expiry/i);
-    expect(joined).not.toMatch(/valid until|valid for|validity/i);
-    expect(joined).not.toMatch(/expir/i);
-    expect(joined).not.toMatch(/oldest credits/i);
+    expect(joined).toMatch(/Credit Expiry/i);
+    expect(joined).toContain("2026-12-18"); // the migrated lot's real expiry
+    expect(joined).toContain("Moved from Campus");
+    expect(joined).toContain("Older balance");
+    expect(joined).toContain("No expiry"); // the legacy lot never expires
+    expect(joined).toMatch(/NEXT EXPIRY/);
+    expect(joined).toMatch(/18 credits expire on/);
+    // The removed bug: a purchase + 12 months date must never appear.
+    expect(joined).not.toContain("2027-01-10");
+    // No invoice promise on this page — that arrives only with the invoices list (#2944).
     expect(joined).not.toMatch(/invoice/i);
-    expect(joined).not.toContain("2027-01-10"); // no browser-computed +12-month date
+  });
+
+  it("shows 'No expiry' when no open lot lapses", async () => {
+    const { joined } = await render({
+      balance: 50,
+      lots: [lot({ source: "legacy", creditsRemaining: 50, expiresAt: null })],
+    });
+    expect(joined).toMatch(/NEXT EXPIRY No expiry/);
+    expect(joined).toContain("Older balance"); // the open lot still lists, with "No expiry"
+    expect(joined).toMatch(/No expiry/);
   });
 });
 
@@ -494,8 +546,8 @@ describe("credits page — (h) PR-D2 wallet hero + scrollable ledgers", () => {
     expect(classes.some((c) => c.includes("cred-hero__num"))).toBe(true);
   });
 
-  it("#2744: the hero holds the balance only — no unlock value, no average rate paid", async () => {
-    setData({ balance: 50 });
+  it("#2744/#2939: the hero holds the balance and the real next expiry — no ₹ value or rate", async () => {
+    setData({ balance: 50, lots: [lot({ expiresAt: "2026-12-18T00:00:00.000Z" })] });
     const tree = (await CreditsPage()) as ReactElement;
     const [hero] = byClass(tree, "cred-hero");
     expect(hero).toBeDefined();
@@ -503,7 +555,9 @@ describe("credits page — (h) PR-D2 wallet hero + scrollable ledgers", () => {
     expect(text).toContain("50");
     expect(text).not.toMatch(/₹|unlock value|rate paid|\/ unlock/i);
     expect(byClass(hero!, "cred-hero__sub")).toHaveLength(0);
-    expect(byClass(hero!, "cred-hero__stats")).toHaveLength(0);
+    // The next expiry is the server's lot timestamp, not a computed validity term.
+    expect(text).toMatch(/NEXT EXPIRY/);
+    expect(text).toContain("Dec 18, 2026");
   });
 
   it("the ledger is a focusable, labelled region wrapping a no-wrap table", async () => {

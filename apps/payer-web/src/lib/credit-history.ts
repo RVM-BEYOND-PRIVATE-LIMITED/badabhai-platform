@@ -1,4 +1,4 @@
-import type { CreditTopUp, UnlockHistoryItem } from "./contracts";
+import type { CreditLot, CreditTopUp, UnlockHistoryItem } from "./contracts";
 
 /**
  * PURE credit-history math — merge + sort (ADR-0019 Phase 1). No credit expiry is worked out
@@ -53,4 +53,72 @@ export function buildTransactionHistory(input: {
     packCode: t.packCode,
   }));
   return [...tops, ...spends].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+}
+
+/** Human label for a wallet lot's `source` (server vocabulary, #2749/#2750). */
+const LOT_SOURCE_LABELS: Record<string, string> = {
+  purchased: "Purchased",
+  migrated: "Moved from Campus",
+  welcome: "Welcome",
+  goodwill: "Goodwill",
+  legacy: "Older balance",
+  returned: "Returned credits",
+};
+
+export function lotSourceLabel(source: string): string {
+  const known = LOT_SOURCE_LABELS[source];
+  if (known) return known;
+  return source.length > 0 ? source[0]!.toUpperCase() + source.slice(1) : "Credits";
+}
+
+/** One wallet lot as the credits page's expiry table shows it. PII-free. */
+export interface CreditLotExpiry {
+  key: string;
+  credits: number;
+  source: string;
+  sourceLabel: string;
+  expiresAt: string | null;
+}
+
+/**
+ * The credit-expiry schedule from the WALLET's open lots, soonest-expiring first (lots that
+ * never expire last). Pure. Uses the server's real `expires_at` — NEVER a computed
+ * purchase + 12 months (#2939). Only lots with credits remaining are listed.
+ */
+export function creditLotSchedule(lots: CreditLot[]): CreditLotExpiry[] {
+  return lots
+    .filter((l) => l.creditsRemaining > 0)
+    .map((l, index) => ({
+      key: `${l.source}-${index}`,
+      credits: l.creditsRemaining,
+      source: l.source,
+      sourceLabel: lotSourceLabel(l.source),
+      expiresAt: l.expiresAt,
+    }))
+    .sort((a, b) => {
+      if (a.expiresAt === null && b.expiresAt === null) return 0;
+      if (a.expiresAt === null) return 1;
+      if (b.expiresAt === null) return -1;
+      return a.expiresAt < b.expiresAt ? -1 : a.expiresAt > b.expiresAt ? 1 : 0;
+    });
+}
+
+/**
+ * The NEXT expiry across open lots: the earliest real `expires_at`, with the credits that
+ * lapse then (summed when several lots share the date). `null` when no open lot expires.
+ */
+export function nextCreditExpiry(lots: CreditLot[]): { credits: number; expiresAt: string } | null {
+  const dated = lots.filter(
+    (l): l is CreditLot & { expiresAt: string } =>
+      l.creditsRemaining > 0 && l.expiresAt !== null,
+  );
+  if (dated.length === 0) return null;
+  const earliest = dated.reduce(
+    (min, l) => (l.expiresAt < min ? l.expiresAt : min),
+    dated[0]!.expiresAt,
+  );
+  const credits = dated
+    .filter((l) => l.expiresAt === earliest)
+    .reduce((sum, l) => sum + l.creditsRemaining, 0);
+  return { credits, expiresAt: earliest };
 }

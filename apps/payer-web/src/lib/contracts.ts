@@ -39,10 +39,35 @@ export const postingSummarySchema = z.object({
 });
 export type PostingSummary = z.infer<typeof postingSummarySchema>;
 
+/**
+ * One open credit lot in the wallet (GET /payer/credits, #2749). Spend order is
+ * soonest-expiry-first; `expires_at` is null for credits that never lapse. PII-free.
+ */
+export const creditLotWireSchema = z.object({
+  source: z.string(),
+  credits_remaining: z.number().int().nonnegative(),
+  credits_granted: z.number().int().nonnegative(),
+  expires_at: z.string().nullable(),
+  pack_code: z.string().nullable(),
+});
+export type CreditLotWire = z.infer<typeof creditLotWireSchema>;
+
+/** One wallet lot, mapped from the wire. PII-free: source, credits and a timestamp only. */
+export const creditLotSchema = z.object({
+  source: z.string(),
+  creditsRemaining: z.number().int().nonnegative(),
+  creditsGranted: z.number().int().nonnegative(),
+  expiresAt: z.string().nullable(),
+  packCode: z.string().nullable(),
+});
+export type CreditLot = z.infer<typeof creditLotSchema>;
+
 /** A payer's own credit balance — the one legitimately-knowable signal (no-oracle). */
 export const creditBalanceSchema = z.object({
   payerId: z.string().uuid(),
   balance: z.number().int().nonnegative(),
+  /** Wallet lots, soonest expiry first. Absent for a pre-#2749 API build. */
+  lots: z.array(creditLotSchema).optional(),
 });
 export type CreditBalance = z.infer<typeof creditBalanceSchema>;
 
@@ -998,10 +1023,11 @@ export const agencyAccountSchema = z.object({
 });
 export type AgencyAccount = z.infer<typeof agencyAccountSchema>;
 
-/** GET /payer/credits — `{ payer_id, balance }`. */
+/** GET /payer/credits — `{ payer_id, balance, lots }` (#2749; `lots` optional on older builds). */
 export const creditsWireSchema = z.object({
   payer_id: z.string().uuid(),
   balance: z.number().int().nonnegative(),
+  lots: z.array(creditLotWireSchema).optional().default([]),
 });
 
 /**

@@ -2,7 +2,11 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { getCreditTopUps, getDashboard } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { lowBalanceThreshold, offeredCreditPacks } from "../../../lib/pricing-config";
-import { buildTransactionHistory } from "../../../lib/credit-history";
+import {
+  buildTransactionHistory,
+  creditLotSchedule,
+  nextCreditExpiry,
+} from "../../../lib/credit-history";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import { payerServerConfig } from "../../../lib/server-config";
 import { formatInr } from "../../../lib/format";
@@ -81,6 +85,16 @@ export default async function CreditsPage() {
     topUps = [];
   }
 
+  // The wallet's REAL open lots (#2749): every expiry below is the server's, never a
+  // purchase + 12 months computed here (#2939).
+  const lots = dashboard?.credits.lots ?? [];
+  const expiry = creditLotSchedule(lots);
+  const nextExpiry = nextCreditExpiry(lots);
+  const nextExpiryLabel = nextExpiry
+    ? `${nextExpiry.credits} credit${nextExpiry.credits === 1 ? "" : "s"} expire on ${new Date(
+        nextExpiry.expiresAt,
+      ).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}`
+    : "No expiry";
   const unlocks: UnlockHistoryItem[] = dashboard?.unlocks ?? [];
   const history = buildTransactionHistory({ unlocks, topUps });
   const balance = dashboard?.credits.balance ?? null;
@@ -164,8 +178,14 @@ export default async function CreditsPage() {
                 <span className="cred-hero__unit">available unlocks</span>
               </p>
             </div>
-            {/* The balance only. No per-unlock value or rate (#2744), and no credit validity /
-                expiry: the server applies none yet (BB-D-04, #2741). */}
+            {/* The balance only. No per-unlock value or rate (#2744). The expiry is the
+                wallet's real earliest `expires_at` (#2939), never a computed term. */}
+            <div className="cred-hero__stats">
+              <div>
+                <span>NEXT EXPIRY</span>
+                <strong>{nextExpiryLabel}</strong>
+              </div>
+            </div>
           </section>
 
           {/* `anchor-target`: the notice's link lands this below the sticky header. */}
@@ -274,6 +294,61 @@ export default async function CreditsPage() {
           <span>All candidate identities protected</span>
           <span className="cred-panel__footend">
             <Icon name="shield-check" /> Encrypted Audit
+          </span>
+        </div>
+      </section>
+
+      <section className="cred-panel">
+        <div className="cred-panel__head">
+          <div>
+            <h2 className="cred-panel__title">Credit Expiry &amp; Policy</h2>
+            <p className="cred-panel__sub">
+              Each credit lot keeps its own expiry, oldest credits used first
+            </p>
+          </div>
+          <span className="cred-pill">
+            <Icon name="hourglass" /> Oldest credits used first
+          </span>
+        </div>
+        <div className="cred-panel__body">
+          {expiry.length > 0 ? (
+            <div className="tablewrap" tabIndex={0} role="region" aria-label="Credit expiry">
+              <table className="table table--nowrap">
+                <thead>
+                  <tr>
+                    <th className="num">Credits</th>
+                    <th>Source</th>
+                    <th>Expires</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {expiry.map((e) => (
+                    <tr key={e.key}>
+                      <td className="num">{e.credits}</td>
+                      <td>{e.sourceLabel}</td>
+                      <td className="mono">{e.expiresAt ? day(e.expiresAt) : "No expiry"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="cred-empty">
+              <span className="cred-empty__icon cred-empty__icon--green">
+                <Icon name="hourglass" />
+              </span>
+              <h3 className="cred-empty__title">No credits expiring</h3>
+              <p className="cred-empty__body">
+                No open credit lot has an expiry date. Every expiry shown here comes from your
+                wallet — we never invent one.
+              </p>
+            </div>
+          )}
+        </div>
+        <div className="cred-panel__foot">
+          <span>Expiry set per credit lot</span>
+          <span className="cred-panel__footend cred-panel__footend--green">
+            <Icon name="check-circle" /> 100% Active
           </span>
         </div>
       </section>

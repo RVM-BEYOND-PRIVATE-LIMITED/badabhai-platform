@@ -252,10 +252,20 @@ async function sessionOrgLabel(): Promise<string> {
   return postingOrgLabel(me);
 }
 
-/** GET /payer/credits — the caller's OWN balance (the one knowable signal). */
+/** GET /payer/credits — the caller's OWN balance + wallet lots (the one knowable signal). */
 export async function getCredits(): Promise<CreditBalance> {
   const wire = await payerFetch("/payer/credits", { schema: creditsWireSchema });
-  return { payerId: wire.payer_id, balance: wire.balance };
+  return {
+    payerId: wire.payer_id,
+    balance: wire.balance,
+    lots: wire.lots.map((l) => ({
+      source: l.source,
+      creditsRemaining: l.credits_remaining,
+      creditsGranted: l.credits_granted,
+      expiresAt: l.expires_at,
+      packCode: l.pack_code,
+    })),
+  };
 }
 
 /** GET /payer/unlocks — the caller's OWN unlock history (PII-free projection). */
