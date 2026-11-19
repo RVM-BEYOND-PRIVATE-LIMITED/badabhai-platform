@@ -2045,6 +2045,13 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerCandidateSearchVolumeAlertPayload,
   },
+  // #2774 — the nightly credit balance audit found wallets whose balance, ledger and lots
+  // disagree. ONE per failing run (an alert, counts only). v1.
+  "payer.credit_balance_audit_failed": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerCreditBalanceAuditFailedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

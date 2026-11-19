@@ -1071,6 +1071,15 @@ export const serverEnvSchema = z.object({
   // Per-tick cap on WALLETS processed (each in its own transaction) — a backlog drains across
   // ticks, never one unbounded run (same posture as REACH_WIDEN_EXPIRY_BATCH_LIMIT).
   CREDIT_LOT_EXPIRY_BATCH_LIMIT: z.coerce.number().int().positive().default(200),
+  // THE NIGHTLY CREDIT BALANCE AUDIT (#2774). With it on, a daily READ-ONLY check compares every
+  // wallet's `payer_credits.balance` with the sum of its `credit_ledger` deltas and the sum of its
+  // lots' `credits_remaining` (the invariant `credit-wallet.ts` keeps), and counts wallet keys that
+  // hold ledger lines or lots but no balance row. Any mismatch logs the wallet ids and emits ONE
+  // `payer.credit_balance_audit_failed` (counts only), which the admin dashboard's breach counter
+  // shows. It never writes a wallet: repair stays a deliberate, separate step.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the daily tick returns at once without a query.
+  CREDIT_BALANCE_AUDIT_ENABLED: booleanFromString,
 
   // ── LEARN label producer (migration 0091): spine events → training labels ──
   // Cadence (hours) of the sweep tick. The cursor + UNIQUE impression key in the store

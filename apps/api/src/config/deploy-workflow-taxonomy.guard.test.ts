@@ -413,6 +413,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /ADMIN_NUMBERS_ENABLED:\s*\$\{\{\s*secrets\.ADMIN_NUMBERS_ENABLED\s*\}\}/,
       /envs:[^\n]*\bADMIN_NUMBERS_ENABLED\b/,
     ],
+    // #2774 — the nightly credit balance audit. A plain read-only boolean on the api, turned on in
+    // production only by its environment secret.
+    [
+      "CREDIT_BALANCE_AUDIT_ENABLED",
+      /CREDIT_BALANCE_AUDIT_ENABLED:\s*\$\{\{\s*secrets\.CREDIT_BALANCE_AUDIT_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCREDIT_BALANCE_AUDIT_ENABLED\b/,
+    ],
     // #2887 — the bulk student move. A plain boolean on the api only, turned on in production
     // ONLY by the environment secret, after the `student_move` migration is applied.
     [
@@ -649,6 +656,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["STILL_LOOKING_EVERY_DAYS", "30"],
     // #2755 — off is no numbers route at all: a neutral 404 before any query.
     ["ADMIN_NUMBERS_ENABLED", "false"],
+    // #2774 — off is today: the nightly balance audit's tick returns at once without a query.
+    ["CREDIT_BALANCE_AUDIT_ENABLED", "false"],
     // #2755 part B — the zod default: a week freezes 3 days after it ends.
     ["NUMBERS_FREEZE_AFTER_DAYS", "3"],
     // #2887 — off is today: nothing names the student-move tables, /admin/students/* is a 404.

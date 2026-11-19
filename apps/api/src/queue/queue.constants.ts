@@ -381,3 +381,12 @@ export const STILL_LOOKING_SWEEP_SCHEDULER_ID = "still-looking-sweep";
  */
 export const NUMBERS_WEEKLY_SWEEP_QUEUE = "numbers-weekly-sweep";
 export const NUMBERS_WEEKLY_SWEEP_SCHEDULER_ID = "numbers-weekly-sweep";
+
+/**
+ * #2774 — the nightly credit balance audit. A repeatable daily tick with no payload: the audit is
+ * one read-only snapshot of every wallet, so a lost or duplicated Redis job is harmless (the next
+ * tick reads the same books, and the alert's per-day key raises it once). Inert while
+ * CREDIT_BALANCE_AUDIT_ENABLED is off: a tick returns at once without a query.
+ */
+export const CREDIT_BALANCE_AUDIT_QUEUE = "credit-balance-audit";
+export const CREDIT_BALANCE_AUDIT_SCHEDULER_ID = "credit-balance-audit";
