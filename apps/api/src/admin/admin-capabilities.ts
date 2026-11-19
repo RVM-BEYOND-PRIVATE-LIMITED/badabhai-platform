@@ -335,6 +335,14 @@ export const ADMIN_CAPABILITIES = [
    * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
    */
   "work_managed_hiring",
+  /**
+   * #2957 — the trades RVM trains and certifies (`/admin/campus-trades`): only a job in one of
+   * these trades may be sent to Campus by an admin (#2956, ADR-0068). A policy list, so
+   * `super_admin` only, as in the issue.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "manage_campus_trades",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -428,6 +436,8 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   // #2751 items 8 and 12 — the Managed Hiring desk. Owner ruling 2026-11-18: the reach desk's
   // roles. `analyst` denied (adding a worker to a tracker makes his contact free: a write).
   work_managed_hiring: ["super_admin", "ops_admin", "support"],
+  // #2957 — the Campus trade list (which trades may go to Campus). A policy list: super_admin only.
+  manage_campus_trades: ["super_admin"],
 } as const;
 
 /**

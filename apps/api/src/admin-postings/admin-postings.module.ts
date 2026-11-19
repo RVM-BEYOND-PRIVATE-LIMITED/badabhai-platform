@@ -14,6 +14,9 @@ import { AdminPostingWorkerVisibilityService } from "./admin-posting-worker-visi
 import { AdminPostingAudienceController } from "./admin-posting-audience.controller";
 import { AdminPostingAudienceRepository } from "./admin-posting-audience.repository";
 import { AdminPostingAudienceService } from "./admin-posting-audience.service";
+import { AdminCampusTradesController } from "./admin-campus-trades.controller";
+import { AdminCampusTradesRepository } from "./admin-campus-trades.repository";
+import { AdminCampusTradesService } from "./admin-campus-trades.service";
 
 /**
  * #2566 — the ADMIN posting-control write surface.
@@ -41,6 +44,8 @@ import { AdminPostingAudienceService } from "./admin-posting-audience.service";
     AdminPostingsController,
     AdminPostingWorkerVisibilityController,
     AdminPostingAudienceController,
+    // #2957 — the trades RVM trains (who may be sent to Campus).
+    AdminCampusTradesController,
   ],
   providers: [
     AdminPostingsRepository,
@@ -49,6 +54,8 @@ import { AdminPostingAudienceService } from "./admin-posting-audience.service";
     AdminPostingWorkerVisibilityService,
     AdminPostingAudienceRepository,
     AdminPostingAudienceService,
+    AdminCampusTradesRepository,
+    AdminCampusTradesService,
   ],
 })
 export class AdminPostingsModule {}

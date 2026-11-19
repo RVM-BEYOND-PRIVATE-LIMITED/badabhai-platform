@@ -94,6 +94,9 @@ export const ADMIN_CAPABILITIES = [
   // #2751 — the Managed Hiring desk (orders and the confirmed-interest tracker).
   // Vocabulary only: this file carries no role mapping.
   "work_managed_hiring",
+  // #2957 — the trades RVM trains (only these may be sent to Campus).
+  // Vocabulary only: this file carries no role mapping.
+  "manage_campus_trades",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -147,6 +150,7 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   manage_student_visibility: "Turn moved RVM students' visibility on or off",
   refund_payments: "Refund a company's paid credit pack",
   work_managed_hiring: "Work the Managed Hiring desk",
+  manage_campus_trades: "Choose the trades that can be sent to Campus",
 };
 
 /** Narrow an unknown string to a known capability (anything else is dropped, not trusted). */

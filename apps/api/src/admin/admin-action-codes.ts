@@ -94,6 +94,9 @@ export const ADMIN_ACTION_CODES = {
   // before and after, the Campus hold and the RVM review live on the `audit_logs` row; the spine
   // carries the CODE (and `job_posting.audience_set`, with the admin as actor, the audience).
   posting_audience_set: "posting_audience_set",
+  // #2957 — the Campus trade list replaced. Target = the list (`target_type: "campus_trades"`,
+  // one fixed id); the reason and the trades added and removed live on the `audit_logs` row.
+  campus_trades_set: "campus_trades_set",
   // ── #2564 — company records ─────────────────────────────────────────────────────────────
   // Target = the org's ROOT payer (`target_type: "payer"`). The reason, the edited values and
   // the archived member logins live on `audit_logs` and the lifecycle events; the spine's

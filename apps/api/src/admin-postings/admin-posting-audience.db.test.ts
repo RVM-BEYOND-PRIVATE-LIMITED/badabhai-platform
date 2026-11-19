@@ -11,6 +11,8 @@ import type { FeatureRolloutService } from "../feature-rollout/feature-rollout.s
 import type { JobPostingsService } from "../job-postings/job-postings.service";
 import { PostingAudienceRepository } from "../job-postings/posting-audience.repository";
 import { PostingAudienceService } from "../job-postings/posting-audience.service";
+import { AdminCampusTradesRepository } from "./admin-campus-trades.repository";
+import { AdminCampusTradesService } from "./admin-campus-trades.service";
 import { AdminPostingAudienceRepository } from "./admin-posting-audience.repository";
 import { AdminPostingAudienceService } from "./admin-posting-audience.service";
 import { AdminPostingsRepository } from "./admin-postings.repository";
@@ -62,6 +64,7 @@ describe.skipIf(!RUN)("#2956 an admin decides where each job shows", () => {
   let service!: AdminPostingAudienceService;
   let feed!: CampusPostingsRepository;
   let repo!: AdminPostingAudienceRepository;
+  let trades!: AdminCampusTradesService;
 
   async function workersSee(id: string): Promise<boolean> {
     const rows = (await client.db.execute(sql`
@@ -88,6 +91,7 @@ describe.skipIf(!RUN)("#2956 an admin decides where each job shows", () => {
       NODE_ENV: "test",
     } as never);
     repo = new AdminPostingAudienceRepository(client.db);
+    trades = new AdminCampusTradesService(new AdminCampusTradesRepository(client.db), eventsService);
     feed = new CampusPostingsRepository(client.db);
     service = new AdminPostingAudienceService(
       repo,
@@ -177,6 +181,25 @@ describe.skipIf(!RUN)("#2956 an admin decides where each job shows", () => {
     expect(closed?.audience).toBe("rvm_students");
   }, 30_000);
 
+  it("#2957 the trade list: adding painting lets the painter job go to Campus; removing it keeps the job where it is", async () => {
+    const added = await trades.replace(
+      ADMIN,
+      { trade_keys: ["cnc_turner", "painter_coating"], ...REASON },
+      CTX,
+    );
+    expect(added.added).toEqual(["painter_coating"]);
+    expect(
+      (await service.set(ADMIN, P_PAINT, { audience: "both", ...REASON }, CTX)).shown_to,
+    ).toBe("both");
+    const removed = await trades.replace(ADMIN, { trade_keys: ["cnc_turner"], ...REASON }, CTX);
+    expect(removed.removed).toEqual(["painter_coating"]);
+    // A list decides new writes, never stored state: the job stays on Campus until an admin moves it.
+    expect((await campusFeed()).map((r) => r.id)).toContain(P_PAINT);
+    expect(
+      (await service.set(ADMIN, P_PAINT, { audience: "rvm_students", ...REASON }, CTX)).outcome,
+    ).toBe("trade_not_taught_at_campus");
+  }, 30_000);
+
   it("a Campus-origin job: Campus only records its hold as an admin decision; both needs a trade", async () => {
     expect(
       (await service.set(ADMIN, P_CAMPUS, { audience: "rvm_students", ...REASON }, CTX)).outcome,
@@ -235,7 +258,8 @@ async function cleanup(client: DbClient): Promise<void> {
   // Decisions, review rows and holds cascade with their postings; the audit rows do not.
   await q`DELETE FROM audit_logs WHERE actor_id = ${ADMIN}::uuid`;
   for (const id of ALL) await q`DELETE FROM job_postings WHERE id = ${id}::uuid`;
-  await q`DELETE FROM campus_trades WHERE added_by_admin_id = ${ADMIN}::uuid`;
+  await q`DELETE FROM campus_trades WHERE added_by_admin_id = ${ADMIN}::uuid OR removed_by_admin_id = ${ADMIN}::uuid`;
+  await q`DELETE FROM audit_logs WHERE entity_type = 'campus_trades' AND actor_id = ${ADMIN}::uuid`;
   await q`DELETE FROM payers WHERE id = ${PAYER}::uuid`;
   await client.db.delete(events).where(eq(events.correlationId, CORRELATION));
 }

@@ -218,6 +218,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     // #2750 items 10 and 12 - refunds of real paid packs. Owner ruling 2026-11-18: super_admin only.
     refund_payments: ["super_admin"],
     work_managed_hiring: ["super_admin", "ops_admin", "support"],
+    // #2957 — the Campus trade list. A policy list: super_admin only.
+    manage_campus_trades: ["super_admin"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -288,6 +290,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "refund_payments",
       // #2751 - a tracker row makes a contact free: a write.
       "work_managed_hiring",
+      // #2957 - changing which trades may go to Campus is a write.
+      "manage_campus_trades",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }

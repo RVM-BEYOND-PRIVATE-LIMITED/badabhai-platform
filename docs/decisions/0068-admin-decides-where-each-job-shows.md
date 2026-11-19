@@ -90,8 +90,11 @@ postings, oldest first:
 - The company's audience write (`POST`/`PATCH /payer/job-postings` fields and
   `GET /payer/job-postings/audience-options`) is removed in #2956's next part. Until then it stays
   unreachable: `JOB_AUDIENCE_ROLLOUT` is `pilot` with an empty pilot list.
-- The Campus trade list routes (#2957). Until a trade is on the list, only BadaBhai only is
-  possible for a company job.
+- The Campus trade list (#2957): `GET /admin/campus-trades` (`read_entities`) lists every trade
+  kind with whether RVM trains it; `PUT /admin/campus-trades` (`manage_campus_trades`,
+  super_admin only) replaces the whole list with a reason, one `audit_logs` row and
+  `admin.action_performed` (`campus_trades_set`). Until a trade is on the list, only BadaBhai only
+  is possible for a company job.
 - The admin screens (#2958).
 
 ## 3. Owner questions (built with the defaults)
