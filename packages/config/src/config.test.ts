@@ -1274,6 +1274,17 @@ describe("loadServerConfig", () => {
       expect(() => parseFlowCheckThresholds(value)).toThrow(why);
     });
 
+    it("FLOW_SYNTHETIC_RUN_ENABLED (#2967) is OFF by default and for the empty string", () => {
+      expect(loadServerConfig({}).FLOW_SYNTHETIC_RUN_ENABLED).toBe(false);
+      expect(loadServerConfig({ FLOW_SYNTHETIC_RUN_ENABLED: "" }).FLOW_SYNTHETIC_RUN_ENABLED).toBe(
+        false,
+      );
+      expect(
+        loadServerConfig({ FLOW_SYNTHETIC_RUN_ENABLED: "true" }).FLOW_SYNTHETIC_RUN_ENABLED,
+      ).toBe(true);
+      expect(() => loadServerConfig({ FLOW_SYNTHETIC_RUN_ENABLED: "yes" })).toThrow();
+    });
+
     it("every key is either an hours key or a maximum", () => {
       for (const key of FLOW_CHECK_THRESHOLD_KEYS) {
         expect(key.endsWith("_hours") || key.endsWith("_max"), key).toBe(true);

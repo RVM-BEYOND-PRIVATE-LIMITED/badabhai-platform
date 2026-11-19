@@ -453,6 +453,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /RVM_WAIVER_END_DATES_ENABLED:\s*\$\{\{\s*secrets\.RVM_WAIVER_END_DATES_ENABLED\s*\}\}/,
       /envs:[^\n]*\bRVM_WAIVER_END_DATES_ENABLED\b/,
     ],
+    // #2967 — the daily synthetic run. A plain boolean on the api, on in production only by its
+    // environment secret.
+    [
+      "FLOW_SYNTHETIC_RUN_ENABLED",
+      /FLOW_SYNTHETIC_RUN_ENABLED:\s*\$\{\{\s*secrets\.FLOW_SYNTHETIC_RUN_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bFLOW_SYNTHETIC_RUN_ENABLED\b/,
+    ],
     // #2887 — the bulk student move. A plain boolean on the api only, turned on in production
     // ONLY by the environment secret, after the `student_move` migration is applied.
     [
@@ -701,6 +708,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["FLOW_CHECK_THRESHOLDS", ""],
     // #2778 — off is today: nothing names rvm_waiver_end_dates, every waiver runs until cleared.
     ["RVM_WAIVER_END_DATES_ENABLED", "false"],
+    // #2967 — off is today: the synthetic run's tick returns at once and its route 404s.
+    ["FLOW_SYNTHETIC_RUN_ENABLED", "false"],
     // #2755 part B — the zod default: a week freezes 3 days after it ends.
     ["NUMBERS_FREEZE_AFTER_DAYS", "3"],
     // #2887 — off is today: nothing names the student-move tables, /admin/students/* is a 404.

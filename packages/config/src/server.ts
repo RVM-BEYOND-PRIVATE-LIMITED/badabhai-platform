@@ -1115,6 +1115,18 @@ export const serverEnvSchema = z.object({
   // and the reads ignore end dates, logged once). Turning it OFF again makes dated waivers
   // open-ended until cleared.
   RVM_WAIVER_END_DATES_ENABLED: booleanFromString,
+  // THE DAILY SYNTHETIC RUN (#2967, #2890 item 4). With it on, once a day (04:30 IST) the api walks
+  // the whole flow through its real services on accounts it makes for the run: a company posts and
+  // publishes a job, an admin opens it to RVM students as well, reach is built, the Campus feed lists
+  // it approved, a worker applies in the app, an RVM student applies from Campus, the company lists
+  // its applicants and opens the student's contact. ALL OF IT RUNS IN ONE TRANSACTION THAT IS ALWAYS
+  // ROLLED BACK: no row, event or credit stays, nobody sees the job, and RVM is never called (the
+  // run's student is answered in-process). One `flow_check.synthetic_run_recorded` per run, and ONE
+  // `flow_check.synthetic_run_failed` per IST day on a failure (the admin breach counter).
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the tick returns at once, and the ops trigger
+  // (`POST /flow-check/synthetic-run`, ops token) is a neutral 404.
+  FLOW_SYNTHETIC_RUN_ENABLED: booleanFromString,
 
   // ── LEARN label producer (migration 0091): spine events → training labels ──
   // Cadence (hours) of the sweep tick. The cursor + UNIQUE impression key in the store

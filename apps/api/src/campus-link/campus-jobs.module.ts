@@ -43,5 +43,7 @@ import { WorkerActivityModule } from "../worker-activity/worker-activity.module"
     CampusPostingsService,
     RequestIdempotency,
   ],
+  // #2967 — the daily synthetic run reads the feed and applies as Campus does, in-process.
+  exports: [CampusPostingsService, CampusApplicationsService],
 })
 export class CampusJobsModule {}

@@ -4680,6 +4680,99 @@ export type FlowCheckCampusReportReceivedPayload = z.infer<
   typeof FlowCheckCampusReportReceivedPayload
 >;
 
+/**
+ * #2967 — the daily synthetic run's steps, in the order it walks them. `setup` makes the run's own
+ * company, worker and credits; the rest are the flow of #2890: the company posts and publishes, an
+ * admin opens the job to RVM students too, reach is built, Campus's feed lists it approved, a worker
+ * applies in the app, an RVM student applies from Campus, the company lists its applicants and opens
+ * the student's contact.
+ */
+export const FLOW_SYNTHETIC_STEPS = [
+  "setup",
+  "posted",
+  "published",
+  "rvm_audience",
+  "reached",
+  "campus_listed",
+  "worker_applied",
+  "campus_applied",
+  "applicants_listed",
+  "contact_opened",
+] as const;
+export type FlowSyntheticStep = (typeof FLOW_SYNTHETIC_STEPS)[number];
+
+/**
+ * Why a step failed, as a closed code (the message goes to the server log only).
+ *  - `no_campus_trade`: no trade on the Campus trade list is a postable trade, so no job can go to
+ *    Campus (`rvm_audience`).
+ *  - `refused`: the step answered, but not what the flow needs (an audience refused, a neutral
+ *    unlock answer, an applicant missing from the list).
+ *  - `not_found` / `conflict` / `invalid` / `unavailable`: the step threw the HTTP error of that kind
+ *    (404, 409, 400, 503).
+ *  - `timeout`: a statement or lock timed out inside the run's transaction.
+ *  - `error`: anything else thrown.
+ */
+export const FLOW_SYNTHETIC_FAILURES = [
+  "no_campus_trade",
+  "refused",
+  "not_found",
+  "conflict",
+  "invalid",
+  "unavailable",
+  "timeout",
+  "error",
+] as const;
+export type FlowSyntheticFailure = (typeof FLOW_SYNTHETIC_FAILURES)[number];
+
+const FlowSyntheticRunShape = {
+  /** The IST calendar day the run belongs to (`YYYY-MM-DD`). */
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** The daily tick, or an operator's run-now. */
+  trigger: z.enum(["schedule", "ops"]),
+  passed: z.boolean(),
+  /** How many steps passed before the first failure (all of them on a pass). */
+  steps_passed: z.number().int().min(0).max(FLOW_SYNTHETIC_STEPS.length),
+  failed_step: z.enum(FLOW_SYNTHETIC_STEPS).nullable(),
+  failure: z.enum(FLOW_SYNTHETIC_FAILURES).nullable(),
+  /** The whole run, transaction included. */
+  duration_ms: z.number().int().nonnegative(),
+};
+
+const consistentRun = (p: {
+  passed: boolean;
+  steps_passed: number;
+  failed_step: FlowSyntheticStep | null;
+  failure: FlowSyntheticFailure | null;
+}) =>
+  p.passed
+    ? p.failed_step === null && p.failure === null && p.steps_passed === FLOW_SYNTHETIC_STEPS.length
+    : p.failed_step !== null &&
+      p.failure !== null &&
+      FLOW_SYNTHETIC_STEPS.indexOf(p.failed_step) === p.steps_passed;
+
+/**
+ * #2967 — one synthetic run, passed or failed: the source of the admin read's synthetic rows. One
+ * per run (a run-now adds one). COUNTS, CLOSED CODES AND A DAY ONLY: nothing the run made survives
+ * it, so no id would mean anything. Actor `system`; subject the aggregate `job_posting`. v1.
+ */
+export const FlowCheckSyntheticRunRecordedPayload = z
+  .object(FlowSyntheticRunShape)
+  .strict()
+  .refine(consistentRun, { message: "passed, steps_passed and the failure must agree" });
+export type FlowCheckSyntheticRunRecordedPayload = z.infer<
+  typeof FlowCheckSyntheticRunRecordedPayload
+>;
+
+/**
+ * #2967 — the synthetic run failed a step: ONE PER IST DAY, an alert on the admin dashboard's breach
+ * counter (`AdminEventsService.BREACH_EVENTS`). The same fields as the run's record. v1.
+ */
+export const FlowCheckSyntheticRunFailedPayload = z
+  .object(FlowSyntheticRunShape)
+  .strict()
+  .refine((p) => !p.passed && consistentRun(p), { message: "a failure names its step and code" });
+export type FlowCheckSyntheticRunFailedPayload = z.infer<typeof FlowCheckSyntheticRunFailedPayload>;
+
 /** #2750 item 4 — what made a company's welcome credits due (`payer.welcome_credits_granted`). */
 export const WELCOME_CREDITS_TRIGGERS = [
   /** An admin or ops approval of a posting (or an agency job) made the company eligible. */

@@ -738,6 +738,22 @@ NestJS boot assertion).
     same name (compose `${RVM_WAIVER_END_DATES_ENABLED:-false}` on `api`, `ci.yml` `env:` +
     `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`); values lowercase
     `true`/`false`/`1`/`0`/empty only.
+  - `FLOW_SYNTHETIC_RUN_ENABLED` (`booleanFromString`, default off; #2967, #2890 item 4). Off is
+    today exactly: the daily `flow-synthetic-run` tick (23:00 UTC = 04:30 IST) returns at once and
+    `POST /flow-check/synthetic-run` (ops token) is a neutral 404. On, the api walks the flow
+    through its real services on a company, worker and RVM student it makes for the run: post,
+    publish, the admin audience `both` (approving the RVM part), reach, the Campus feed listing it
+    approved, an app apply, a Campus apply, the applicant list and opening the student's contact.
+    ALL OF IT RUNS IN ONE TRANSACTION THAT IS ALWAYS ROLLED BACK (`apps/api/src/database/
+    synthetic-scope.ts`): no row, event or credit is kept, nobody sees the job, and RVM's Student
+    API is never called (the run's student is answered in-process). It keeps one
+    `flow_check.synthetic_run_recorded` per run and, on a failure, one
+    `flow_check.synthetic_run_failed` per IST day (the admin breach counter); the admin read
+    (`GET /admin/flow-check`) lists the runs. With no postable trade on the Campus trade list it
+    fails at `rvm_audience` (`no_campus_trade`) every day: list a trade first. No migration.
+    Bridged through the GitHub `production` environment secret of the same name (compose
+    `${FLOW_SYNTHETIC_RUN_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+    `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
   - `ADMIN_AI_TRACE_READ_ENABLED` (`booleanFromString`, default off; #2739). Off is today exactly:
     `GET /admin/ai-traces` and `GET /admin/ai-traces/:id` are a neutral 404 for every role, so the
     admin portal's AI calls tab shows "unavailable". On, `read_ai_traces` (super_admin only) reads

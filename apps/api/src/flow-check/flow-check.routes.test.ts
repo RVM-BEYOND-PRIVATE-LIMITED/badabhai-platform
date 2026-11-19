@@ -61,8 +61,10 @@ describe("GET /admin/flow-check", () => {
 
   it("answers the window, the thresholds in force, the check names and the days", async () => {
     const days = vi.fn(async () => []);
+    const syntheticRuns = vi.fn(async () => []);
     const controller = new AdminFlowCheckController({
       days,
+      syntheticRuns,
       thresholds: () => ({ review_wait_hours: 48 }),
     } as unknown as FlowCheckService);
     const body = await controller.read({ days: 5 });
@@ -70,9 +72,12 @@ describe("GET /admin/flow-check", () => {
       window_hours: 24,
       thresholds: { review_wait_hours: 48 },
       days: [],
+      synthetic_runs: [],
     });
     expect(body.checks).toContain("campus_report_missing");
     expect(days).toHaveBeenCalledWith(5, expect.any(Date));
+    // #2967 — the synthetic runs of the same days, read at the same instant.
+    expect(syntheticRuns).toHaveBeenCalledWith(5, (days.mock.calls[0] as unknown[])[1]);
   });
 });
 

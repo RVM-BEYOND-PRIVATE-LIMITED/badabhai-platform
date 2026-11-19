@@ -11,6 +11,7 @@ import {
   FLOW_CHECK_WINDOW_HOURS,
   FlowCheckService,
   type FlowCheckDay,
+  type FlowSyntheticRunRow,
 } from "./flow-check.service";
 
 export const AdminFlowCheckQuerySchema = z
@@ -30,6 +31,11 @@ export interface AdminFlowCheck {
   readonly checks: readonly FlowCheckName[];
   /** One entry per IST day that has a record, newest first; a day with no run is absent. */
   readonly days: readonly FlowCheckDay[];
+  /**
+   * #2967 — the daily synthetic runs over the same days, newest first (empty until the synthetic
+   * run is switched on): passed, or the step it failed at and a closed code.
+   */
+  readonly synthetic_runs: readonly FlowSyntheticRunRow[];
 }
 
 /**
@@ -56,11 +62,13 @@ export class AdminFlowCheckController {
   async read(
     @Query(new ZodValidationPipe(AdminFlowCheckQuerySchema)) query: AdminFlowCheckQueryDto,
   ): Promise<AdminFlowCheck> {
+    const now = new Date();
     return {
       window_hours: FLOW_CHECK_WINDOW_HOURS,
       thresholds: this.flowCheck.thresholds(),
       checks: FLOW_CHECK_NAMES,
-      days: await this.flowCheck.days(query.days, new Date()),
+      days: await this.flowCheck.days(query.days, now),
+      synthetic_runs: await this.flowCheck.syntheticRuns(query.days, now),
     };
   }
 }

@@ -408,3 +408,12 @@ export const RAZORPAY_RECONCILE_SCHEDULER_ID = "razorpay-reconcile";
  */
 export const FLOW_CHECK_QUEUE = "flow-check";
 export const FLOW_CHECK_SCHEDULER_ID = "flow-check";
+
+/**
+ * #2967 — the daily synthetic run of the posting → application flow. A repeatable tick at 04:30 IST
+ * with no payload: each tick is one walk inside a transaction that is always rolled back, so a lost
+ * or duplicated Redis job is harmless (the day's alert is keyed on the IST day). Inert while
+ * FLOW_SYNTHETIC_RUN_ENABLED is off: a tick returns at once.
+ */
+export const FLOW_SYNTHETIC_RUN_QUEUE = "flow-synthetic-run";
+export const FLOW_SYNTHETIC_RUN_SCHEDULER_ID = "flow-synthetic-run";
