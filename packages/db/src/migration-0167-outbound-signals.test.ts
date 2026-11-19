@@ -107,11 +107,36 @@ describe("deny by default", () => {
 describe("the vocabularies", () => {
   it.each([
     ["outbound_signals_destination_chk", OUTBOUND_SIGNAL_DESTINATIONS],
-    ["outbound_signals_kind_chk", OUTBOUND_SIGNAL_KINDS],
     ["outbound_signals_status_chk", OUTBOUND_SIGNAL_STATUSES],
-    ["outbound_signals_failure_chk", OUTBOUND_SIGNAL_FAILURES],
   ] as const)("%s admits exactly its shared constant", (constraint, values) => {
     expect(checkValues(constraint)).toEqual([...values]);
+  });
+
+  // FROZEN records: 0191 (#2771) widens these two, and its test pins the live constants.
+  it("the kind and failure CHECKs close exactly what 0167 was written with", () => {
+    expect(checkValues("outbound_signals_kind_chk")).toEqual([
+      "applicant_selected",
+      "applicant_hired",
+    ]);
+    expect(checkValues("outbound_signals_failure_chk")).toEqual([
+      "not_configured",
+      "timeout",
+      "network",
+      "http_status",
+      "contract",
+      "not_available",
+      "rejected",
+      "link_inactive",
+      "context_missing",
+      "mark_undone",
+      "worker_inactive",
+      "abandoned",
+    ]);
+    // …each a prefix of today's constant: a later migration only ever adds.
+    expect(OUTBOUND_SIGNAL_KINDS.slice(0, 2)).toEqual(checkValues("outbound_signals_kind_chk"));
+    expect(OUTBOUND_SIGNAL_FAILURES.slice(0, 12)).toEqual(
+      checkValues("outbound_signals_failure_chk"),
+    );
   });
 
   it("the failure code is nullable (a row that has never failed)", () => {

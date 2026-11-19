@@ -1,0 +1,59 @@
+-- ===========================================================================
+-- 0191 - outbound_signals: the withdrawal of an undone selected / hired mark
+--
+-- #2771 (Prakash, 19 Nov 2026: ships before OUTBOUND_SIGNALS_ROLLOUT goes on). A company
+-- that undoes a selected or hired mark RVM was sent now queues ONE withdrawal row, in
+-- the stage transaction, after the selection it withdraws. Without it RVM keeps a
+-- placement the company took back.
+--
+-- TWO CHECKS WIDENED, ADDITIVE. DROP + ADD of
+--   outbound_signals_kind_chk     + 'applicant_mark_withdrawn'
+--   outbound_signals_failure_chk  + 'mark_never_sent', 'mark_restored', 'mark_already_sent'
+-- Every value 0167 allowed is still allowed, so no stored row can fail the re-add.
+-- No column, no index, no row. The chain a withdrawal belongs to lives in the
+-- existing `payload` (`after_signal_id`) and `dedupe_key` (`<first key>:after:<id>`).
+--
+-- DEPLOY ORDER - APPLY BEFORE THE SWITCH, NOT BEFORE THE DEPLOY, AND AFTER 0167. No
+-- column changes, so no select is affected by a build that reaches the database
+-- first. Nothing writes `outbound_signals` while OUTBOUND_SIGNALS_ROLLOUT (feature key
+-- `outbound_signals`, default off) is off. With the switch on before 0191, an undo of
+-- a mark RVM was sent fails this CHECK (23514): the stage transaction rolls back, the
+-- undo is not saved, the request answers 500. Apply 0167 first (the table), then this.
+--
+-- LOCKS. DROP CONSTRAINT and a validated ADD CONSTRAINT ... CHECK take ACCESS
+-- EXCLUSIVE on `outbound_signals` and the ADD scans it (one row per signalled mark, so
+-- the scan is small; the risk is queueing behind a long transaction while a stage
+-- write waits). Applied by hand: wrap ALL FOUR statements in ONE explicit
+-- BEGIN/COMMIT (psql -f would otherwise commit a DROP alone and leave a window with
+-- no constraint) with `SET LOCAL lock_timeout = '3s';`, and retry on 55P03 (the
+-- 0129 / 0130 / 0166 precedent).
+--
+-- VERIFY AFTER APPLYING, BEFORE THE SWITCH GOES ON. `db:audit:schema-contract` and
+-- adoption see the constraints, not their lists:
+--   SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+--   WHERE conname IN ('outbound_signals_kind_chk', 'outbound_signals_failure_chk');
+-- the kind CHECK must list 'applicant_mark_withdrawn'; the failure CHECK must list
+-- 'mark_never_sent', 'mark_restored' and 'mark_already_sent'.
+--
+-- ROLLBACK. A CODE rollback needs no schema change: the widened CHECKs admit every
+-- value an older build writes. An older sender claims a queued withdrawal and gives it
+-- up as dead / contract (its payload is not a selection's), sending nothing. A SCHEMA
+-- rollback (switch off first) is valid only while no withdrawal row exists - check
+--   SELECT count(*) FROM outbound_signals
+--   WHERE kind = 'applicant_mark_withdrawn'
+--      OR last_failure IN ('mark_never_sent', 'mark_restored', 'mark_already_sent');
+-- is 0 - then, in one transaction:
+--   ALTER TABLE "outbound_signals" DROP CONSTRAINT "outbound_signals_kind_chk";
+--   ALTER TABLE "outbound_signals" DROP CONSTRAINT "outbound_signals_failure_chk";
+--   ALTER TABLE "outbound_signals" ADD CONSTRAINT "outbound_signals_kind_chk" CHECK ("outbound_signals"."kind" IN ('applicant_selected', 'applicant_hired'));
+--   ALTER TABLE "outbound_signals" ADD CONSTRAINT "outbound_signals_failure_chk" CHECK ("outbound_signals"."last_failure" IS NULL OR "outbound_signals"."last_failure" IN ('not_configured', 'timeout', 'network', 'http_status', 'contract', 'not_available', 'rejected', 'link_inactive', 'context_missing', 'mark_undone', 'worker_inactive', 'abandoned'));
+-- and delete this migration's row from drizzle.__drizzle_migrations (the one whose
+-- created_at is this entry's journal `when`), or drizzle's watermark skips
+-- re-applying 0191 forever.
+--
+-- SAFE TO RE-RUN: no (plain DROP/ADD CONSTRAINT). Apply once.
+-- ===========================================================================
+ALTER TABLE "outbound_signals" DROP CONSTRAINT "outbound_signals_kind_chk";--> statement-breakpoint
+ALTER TABLE "outbound_signals" DROP CONSTRAINT "outbound_signals_failure_chk";--> statement-breakpoint
+ALTER TABLE "outbound_signals" ADD CONSTRAINT "outbound_signals_kind_chk" CHECK ("outbound_signals"."kind" IN ('applicant_selected', 'applicant_hired', 'applicant_mark_withdrawn'));--> statement-breakpoint
+ALTER TABLE "outbound_signals" ADD CONSTRAINT "outbound_signals_failure_chk" CHECK ("outbound_signals"."last_failure" IS NULL OR "outbound_signals"."last_failure" IN ('not_configured', 'timeout', 'network', 'http_status', 'contract', 'not_available', 'rejected', 'link_inactive', 'context_missing', 'mark_undone', 'worker_inactive', 'abandoned', 'mark_never_sent', 'mark_restored', 'mark_already_sent'));

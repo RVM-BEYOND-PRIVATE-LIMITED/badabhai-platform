@@ -6,8 +6,9 @@ import {
   type Database,
   type OutboundSignalFailure,
   type OutboundSignalKind,
+  type OutboundSignalStatus,
 } from "@badabhai/db";
-import type { ApplicantPostingKind } from "@badabhai/types";
+import type { ApplicantOutcomeStage, ApplicantPostingKind } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
 
 /** The ids a selection signal stores (ADR-0064 §3.6): never a name, a title or a reference. */
@@ -18,6 +19,38 @@ export interface SelectionSignalPayload {
   readonly stage: "selected" | "hired";
   /** The day of the mark, India time (`YYYY-MM-DD`). */
   readonly marked_on: string;
+  /** #2771 — a re-mark after a withdrawal: the row this one follows in the mark's chain. */
+  readonly after_signal_id?: string;
+}
+
+/**
+ * #2771 — the ids a withdrawal stores: the mark undone (`stage`), the IST day of the undo, and the
+ * row it follows in the chain (the selection it withdraws, or a later one).
+ */
+export interface WithdrawalSignalPayload {
+  readonly posting_kind: ApplicantPostingKind;
+  readonly posting_id: string;
+  readonly worker_id: string;
+  readonly stage: ApplicantOutcomeStage;
+  readonly undone_on: string;
+  readonly after_signal_id: string;
+}
+
+/** One row of a mark's chain (#2771), as the recorder and the sender walk it. */
+export interface ChainRow {
+  readonly id: string;
+  readonly kind: OutboundSignalKind;
+  readonly status: OutboundSignalStatus;
+  /** The row this one follows; null for the mark's first selection. */
+  readonly afterId: string | null;
+}
+
+/** Which mark a chain belongs to. */
+export interface ChainKey {
+  readonly postingKind: ApplicantPostingKind;
+  readonly postingId: string;
+  readonly workerId: string;
+  readonly stage: ApplicantOutcomeStage;
 }
 
 /** One claimed row, as the sender needs it. `attempts` already counts this claim. */
@@ -71,15 +104,55 @@ export class OutboundSignalsRepository {
   }
 
   /**
-   * Queue one selection signal in the caller's transaction, due at `sendAfter`. `false` when this
-   * mark was signalled before (the unique `dedupe_key`): a student moved back and marked again
-   * sends nothing new.
+   * Every row of one mark's chain (#2771): its selections and withdrawals, in no order (the caller
+   * walks `afterId`). `db` is the stage transaction when the recorder reads it, so the chain is read
+   * under the stage row's lock and cannot move underneath it.
    */
-  async insertSelection(
+  async chainFor(key: ChainKey, db: Database = this.db): Promise<ChainRow[]> {
+    const rows = await db.execute<{
+      id: string;
+      kind: OutboundSignalKind;
+      status: OutboundSignalStatus;
+      after_id: string | null;
+    }>(sql`
+      SELECT id, kind, status, payload->>'after_signal_id' AS after_id
+      FROM outbound_signals
+      WHERE worker_id = ${key.workerId}::uuid
+        AND destination = 'rvm_selection_events'
+        AND payload->>'posting_kind' = ${key.postingKind}
+        AND payload->>'posting_id' = ${key.postingId}
+        AND payload->>'stage' = ${key.stage}`);
+    return rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      status: r.status,
+      afterId: r.after_id ?? null,
+    }));
+  }
+
+  /** The stage the board holds now for this applicant on this posting; null for no row (`new`). */
+  async currentStage(
+    postingKind: ApplicantPostingKind,
+    postingId: string,
+    workerId: string,
+  ): Promise<string | null> {
+    const [row] = await this.db.execute<{ stage: string }>(sql`
+      SELECT stage FROM payer_applicant_stages
+      WHERE posting_kind = ${postingKind} AND posting_id = ${postingId}::uuid
+        AND worker_id = ${workerId}::uuid`);
+    return row?.stage ?? null;
+  }
+
+  /**
+   * Queue one signal (a selection, or #2771's withdrawal) in the caller's transaction, due at
+   * `sendAfter`. `false` when its `dedupe_key` is taken: this mark was signalled before, or this
+   * chain row already has its successor.
+   */
+  async insertSignal(
     input: {
       readonly dedupeKey: string;
       readonly kind: OutboundSignalKind;
-      readonly payload: SelectionSignalPayload;
+      readonly payload: SelectionSignalPayload | WithdrawalSignalPayload;
       readonly at: Date;
       readonly sendAfter: Date;
     },
@@ -110,6 +183,10 @@ export class OutboundSignalsRepository {
    *
    * First, a due row that has already been claimed `maxAttempts` times without an outcome (a sender
    * crashing on it every time) is given up as `dead` / `abandoned`, so it cannot loop forever.
+   *
+   * IN CHAIN ORDER (#2771): a row whose predecessor (`payload.after_signal_id`) is still `pending`
+   * is not due, and is not claimed (so the wait costs it no attempt). A withdrawal therefore never
+   * overtakes the selection it withdraws, and the sender decides it on what RVM really received.
    */
   async claimDue(
     now: Date,
@@ -138,6 +215,11 @@ export class OutboundSignalsRepository {
         SELECT id FROM outbound_signals
         WHERE status = 'pending' AND attempts < ${maxAttempts}
           AND next_attempt_at <= ${at}::timestamptz
+          AND NOT EXISTS (
+            SELECT 1 FROM outbound_signals p
+            WHERE p.status = 'pending'
+              AND p.id::text = outbound_signals.payload->>'after_signal_id'
+          )
         ORDER BY next_attempt_at, id
         LIMIT ${limit}
         FOR UPDATE SKIP LOCKED
