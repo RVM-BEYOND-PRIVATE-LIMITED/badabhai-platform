@@ -1072,6 +1072,18 @@ export const unlockGrantedWireSchema = z.object({
   /** #2750, additive: absent for a company outside the credit rules. */
   credits_charged: z.number().int().nonnegative().optional(),
 });
+/** #2750 item 7 — POST/GET /payer/unlocks/:unlockId/couldnt-reach. */
+export const reachCaseWireSchema = z.object({
+  case_id: z.string().uuid(),
+  unlock_id: z.string().uuid(),
+  status: z.enum(["open", "reached_interested", "reached_declined", "not_reached"]),
+  reported_at: z.string(),
+  deadline_at: z.string(),
+  resolved_at: z.string().nullable(),
+  credits_returned: z.number().int().nonnegative(),
+});
+export type ReachCaseWire = z.infer<typeof reachCaseWireSchema>;
+
 export const neutralWireSchema = z.object({ status: z.literal("unavailable") });
 export const unlockInsufficientWireSchema = z.object({
   status: z.literal("insufficient_credits"),

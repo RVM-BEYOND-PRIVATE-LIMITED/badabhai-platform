@@ -677,7 +677,7 @@ describe("all candidates — the list and its counts (ADR-0040 Decision 3)", () 
       unrecordable: false, // a role filter can never meet an unrecorded value
     });
     expect(props.unlocked).toEqual({
-      [W1]: { kind: "granted", unlockId: unlock(W1).unlockId, expiresAt: FUTURE },
+      [W1]: { kind: "granted", grantedAt: "2026-09-01T00:00:00.000Z", unlockId: unlock(W1).unlockId, expiresAt: FUTURE },
     });
   });
 

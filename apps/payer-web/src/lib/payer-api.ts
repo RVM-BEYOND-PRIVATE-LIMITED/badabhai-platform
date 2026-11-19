@@ -40,6 +40,7 @@ import {
   jobPostingWireSchema,
   matchSkillListWireSchema,
   postingTradeListWireSchema,
+  reachCaseWireSchema,
   reachPreviewWireSchema,
   maskedResumeResultSchema,
   maskedResumeWireSchema,
@@ -292,6 +293,45 @@ export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
         jobPostingId: u.job_posting_id ?? null,
       }))
   );
+}
+
+/** #2750 item 7 — the couldn't-reach case for one of this payer's opens, or null when none. */
+export async function getReachCase(unlockId: string) {
+  try {
+    const wire = await payerFetch(
+      `/payer/unlocks/${encodeURIComponent(unlockId)}/couldnt-reach`,
+      { schema: reachCaseWireSchema },
+    );
+    return {
+      caseId: wire.case_id,
+      unlockId: wire.unlock_id,
+      status: wire.status,
+      reportedAt: wire.reported_at,
+      deadlineAt: wire.deadline_at,
+      resolvedAt: wire.resolved_at,
+      creditsReturned: wire.credits_returned,
+    };
+  } catch (e) {
+    if (isPayerStatus(e, 404)) return null;
+    throw e;
+  }
+}
+
+/** #2750 item 7 — report that this company could not reach the worker it opened. */
+export async function reportCouldntReach(unlockId: string) {
+  const wire = await payerFetch(
+    `/payer/unlocks/${encodeURIComponent(unlockId)}/couldnt-reach`,
+    { method: "POST", body: {}, schema: reachCaseWireSchema },
+  );
+  return {
+    caseId: wire.case_id,
+    unlockId: wire.unlock_id,
+    status: wire.status,
+    reportedAt: wire.reported_at,
+    deadlineAt: wire.deadline_at,
+    resolvedAt: wire.resolved_at,
+    creditsReturned: wire.credits_returned,
+  };
 }
 
 /**

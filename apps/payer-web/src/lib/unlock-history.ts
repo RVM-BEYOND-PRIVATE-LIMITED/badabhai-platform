@@ -52,7 +52,12 @@ export function liveUnlocksFor(
     // The unique index allows one row per worker; if two ever arrive, keep the later window.
     const held = out[u.workerId];
     if (held && Date.parse(held.expiresAt) >= Date.parse(u.expiresAt)) continue;
-    out[u.workerId] = { kind: "granted", unlockId: u.unlockId, expiresAt: u.expiresAt };
+    out[u.workerId] = {
+      kind: "granted",
+      unlockId: u.unlockId,
+      expiresAt: u.expiresAt,
+      grantedAt: unlockedAt(u),
+    };
   }
   return out;
 }

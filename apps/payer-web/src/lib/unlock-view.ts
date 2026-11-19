@@ -50,7 +50,14 @@ export function mapContactResult(result: RevealResult): ContactView {
 }
 
 export type UnlockView =
-  | { kind: "granted"; unlockId: string; expiresAt: string; creditsCharged?: number }
+  | {
+      kind: "granted";
+      unlockId: string;
+      expiresAt: string;
+      /** #2750 — when this grant was opened, for the couldn't-reach 7-day window. */
+      grantedAt?: string;
+      creditsCharged?: number;
+    }
   | {
       kind: "insufficient";
       creditsNeeded: number;

@@ -439,7 +439,7 @@ describe("applicants page — rows the payer already unlocked start unlocked (F1
     });
     const props = await feedProps();
     expect(props.unlocked).toEqual({
-      [A.workerId]: { kind: "granted", unlockId: unlock(A.workerId).unlockId, expiresAt: FUTURE },
+      [A.workerId]: { kind: "granted", grantedAt: "2026-09-01T00:00:00.000Z", unlockId: unlock(A.workerId).unlockId, expiresAt: FUTURE },
     });
   });
 

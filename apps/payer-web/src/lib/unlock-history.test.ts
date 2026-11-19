@@ -70,7 +70,7 @@ describe("liveUnlocksFor — the feed's live grants, keyed by worker", () => {
       NOW,
     );
     expect(out).toEqual({
-      [W1]: { kind: "granted", unlockId: "u-1", expiresAt: "2026-10-15T09:00:00.000Z" },
+      [W1]: { kind: "granted", unlockId: "u-1", expiresAt: "2026-10-15T09:00:00.000Z", grantedAt: "2026-10-01T09:00:00.000Z" },
     });
   });
 
@@ -78,7 +78,7 @@ describe("liveUnlocksFor — the feed's live grants, keyed by worker", () => {
     // A company unlock now records the posting it was made from (#2033), but the grant is the
     // worker's (ADR-0010 sign-off 1): that context never ties it to one feed.
     const history = [item({ unlockId: "u-1", workerId: W1, jobPostingId: P1 })];
-    const held = { kind: "granted", unlockId: "u-1", expiresAt: "2026-10-15T09:00:00.000Z" };
+    const held = { kind: "granted", unlockId: "u-1", expiresAt: "2026-10-15T09:00:00.000Z", grantedAt: "2026-10-01T09:00:00.000Z" };
     expect(liveUnlocksFor(history, [W1, W2], NOW)).toEqual({ [W1]: held });
     expect(liveUnlocksFor(history, [W3, W1], NOW)).toEqual({ [W1]: held });
   });

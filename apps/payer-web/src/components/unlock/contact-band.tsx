@@ -21,6 +21,7 @@ import type { ReactElement } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { ContactView, RevealView, UnlockView } from "../../lib/unlock-view";
 import { isoDay } from "../../lib/unlock-history";
+import { CouldntReach } from "./couldnt-reach";
 import {
   creditsLabel,
   openButtonLabel,
@@ -169,6 +170,8 @@ export function contactBand({
             <div aria-live="polite">
               {row.contactError ? <p className="applicant__error">{row.contactError}</p> : null}
             </div>
+            {/* #2750 item 7 — a report window on this open (hidden after day 7). */}
+            <CouldntReach unlockId={granted.unlockId} openedAt={granted.grantedAt ?? null} />
           </div>
           <div className="applicant__reveal">
             {row.resume?.kind === "masked" ? (
