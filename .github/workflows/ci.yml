@@ -1104,6 +1104,11 @@ jobs:
       # companies on feature_pilot_payers (the production pilot path), and every other suite keeps
       # the production default (off). The suite skips without it.
       CONTACT_RULES_ROLLOUT: "pilot"
+      # #2750 — the credit rules in PILOT mode: contact-reach-guarantee.e2e.test.ts puts its own
+      # companies on feature_pilot_payers (credit_rules) and drives the working-number guarantee;
+      # every company not on the list keeps the production default (one credit, env caps). The
+      # suite skips without it.
+      CREDIT_RULES_ROLLOUT: "pilot"
       # Set EXPLICITLY rather than inherited. The default is 200/day and it is a GLOBAL,
       # IP-INDEPENDENT counter — unlike OTP_MAX_SENDS_PER_HOUR above, raising the per-IP
       # cap does not cover it. A fresh Redis per job makes 200 probably sufficient today,
