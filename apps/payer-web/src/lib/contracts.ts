@@ -1512,6 +1512,9 @@ export const jobPostingWireSchema = z.object({
   match_skill_ids: z.array(z.string()).nullable().optional(),
   unticked_related_ids: z.array(z.string()).nullable().optional(),
   created_at: z.string(),
+  // #2956 / #2958 — where the job shows, set by a BadaBhai admin (the company does not choose).
+  // Sent only when it is not the default (BadaBhai workers); read-only on the job page.
+  audience: z.enum(["rvm_students", "both", "badabhai_workers"]).optional(),
   updated_at: z.string(),
   closed_at: z.string().nullable(),
 });

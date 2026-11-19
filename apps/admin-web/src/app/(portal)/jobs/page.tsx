@@ -109,12 +109,20 @@ export default async function JobsPage({
           <p>Company and role text are shown exactly as the poster typed them.</p>
         }
         secondaryActions={
-          mayOpenAgencyPostings ? (
-            <Link className="btn btn--ghost" href={AGENCY_POSTINGS_HREF}>
-              <Icon name="tag" />
-              Agency postings
-            </Link>
-          ) : null
+          <>
+            {/* #2958 — where each job shows (Campus only, both, BadaBhai only). */}
+            {can(session.capabilities, "manage_postings") ? (
+              <Link className="btn btn--ghost" href="/jobs/audience">
+                Where jobs show
+              </Link>
+            ) : null}
+            {mayOpenAgencyPostings ? (
+              <Link className="btn btn--ghost" href={AGENCY_POSTINGS_HREF}>
+                <Icon name="tag" />
+                Agency postings
+              </Link>
+            ) : null}
+          </>
         }
         filters={
           /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */

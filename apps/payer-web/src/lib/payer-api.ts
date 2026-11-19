@@ -1685,6 +1685,11 @@ export interface PostingDetail {
    * an older revision remounts instead of keeping stale values (and a stale `clear` diff).
    */
   updatedAt: string;
+  /**
+   * #2958 — where the job shows, as a BadaBhai admin set it (read-only). Absent = BadaBhai
+   * workers only, the default.
+   */
+  audience?: "rvm_students" | "both" | "badabhai_workers";
 }
 
 /**
@@ -1710,6 +1715,7 @@ export async function getPostingDetail(postingId: string): Promise<PostingDetail
       tradeLevel: wire.trade_level ?? null,
       tradeAnswers: wire.trade_answers ?? null,
       updatedAt: wire.updated_at,
+      ...(wire.audience !== undefined ? { audience: wire.audience } : {}),
     };
   } catch (e) {
     if (isPayerStatus(e, 404)) return null;

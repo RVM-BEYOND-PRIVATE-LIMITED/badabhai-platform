@@ -264,6 +264,17 @@ export const jobPostingDetailSchema = jobPostingListItemSchema.extend({
   applied_count: z.number(),
   skipped_count: z.number(),
   updated_at: z.string(),
+  /**
+   * #2746 / #2956 — where the job shows (`rvm_students` | `both` | `badabhai_workers`) and the
+   * RVM review, read-only here; an admin changes them through `/admin/postings/audience`.
+   * Optional, so an older server without the fields still parses.
+   */
+  audience: z.enum(["rvm_students", "both", "badabhai_workers"]).optional(),
+  rvm_review: z
+    .object({ state: z.enum(["pending", "approved", "rejected"]) })
+    .passthrough()
+    .nullable()
+    .optional(),
 });
 export type JobPostingDetail = z.infer<typeof jobPostingDetailSchema>;
 

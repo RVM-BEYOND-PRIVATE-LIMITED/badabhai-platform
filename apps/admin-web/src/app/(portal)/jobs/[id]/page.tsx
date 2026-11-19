@@ -8,6 +8,7 @@ import { getJobPosting, listApplications } from "../../../../lib/entities";
 import { isAdminRequestError } from "../../../../lib/admin-http";
 import { getWaivers } from "../../../../lib/waivers";
 import { WaiverSwitch } from "../../waivers/waiver-switch";
+import { AudiencePanel } from "./audience-panel";
 import {
   formatCount,
   formatExperienceBand,
@@ -136,6 +137,14 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           postingId={job.id}
           active={jobWaiver.active}
           setBy={jobWaiver.setBy}
+        />
+      ) : null}
+
+      {can(session.capabilities, "manage_postings") && job.audience !== undefined ? (
+        <AudiencePanel
+          postingId={job.id}
+          audience={job.audience}
+          reviewState={job.rvm_review?.state ?? null}
         />
       ) : null}
 

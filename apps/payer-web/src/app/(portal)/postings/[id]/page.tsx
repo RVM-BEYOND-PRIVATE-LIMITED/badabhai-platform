@@ -156,6 +156,22 @@ export default async function PostingDetailPage({
             </div>
           </div>
         ) : null}
+
+        {/* #2958 — where the job shows is decided by BadaBhai, not by the company; shown read-only
+            only when it is not the default (BadaBhai workers). */}
+        {detail.audience !== undefined && detail.audience !== "badabhai_workers" ? (
+          <div className="alert alert--info">
+            <Icon name="info" className="alert__icon" />
+            <div className="alert__text">
+              <p className="alert__title">
+                {detail.audience === "rvm_students"
+                  ? "Shown to RVM students on BadaBhai Campus"
+                  : "Shown to RVM students on BadaBhai Campus and to BadaBhai workers"}
+              </p>
+              <p className="alert__body">BadaBhai decides where each job is shown.</p>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <section className="panel">

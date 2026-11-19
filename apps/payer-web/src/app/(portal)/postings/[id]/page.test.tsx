@@ -152,3 +152,28 @@ describe("PostingDetailPage — Reached N workers (post-publish confirmation)", 
     expect(out.indexOf('<div class="posting-layout posting-layout--detail">')).toBe(0);
   });
 });
+
+describe("PostingDetailPage — where the job shows (#2958), read-only", () => {
+  async function withAudience(audience?: string): Promise<string> {
+    getPostingDetail.mockResolvedValueOnce({ ...DETAIL, ...(audience ? { audience } : {}) });
+    const el = (await PostingDetailPage({ params: Promise.resolve({ id: ID }) })) as ReactElement;
+    return renderToStaticMarkup(el);
+  }
+
+  it("Campus only: says so, and that BadaBhai decides", async () => {
+    const out = await withAudience("rvm_students");
+    expect(out).toContain("Shown to RVM students on BadaBhai Campus");
+    expect(out).toContain("BadaBhai decides where each job is shown.");
+  });
+
+  it("both: names both groups", async () => {
+    expect(await withAudience("both")).toContain(
+      "Shown to RVM students on BadaBhai Campus and to BadaBhai workers",
+    );
+  });
+
+  it("the default (absent, or BadaBhai workers): no line at all, as before", async () => {
+    expect(await withAudience()).not.toContain("BadaBhai decides where each job is shown.");
+    expect(await withAudience("badabhai_workers")).not.toContain("Shown to RVM students");
+  });
+});
