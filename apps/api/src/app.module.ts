@@ -48,6 +48,7 @@ import { CampusDrivesModule } from "./campus-drives/campus-drives.module";
 import { DisplayPrefsModule } from "./display-prefs/display-prefs.module";
 import { SearchExitModule } from "./search-exit/search-exit.module";
 import { StillLookingModule } from "./still-looking/still-looking.module";
+import { CreditBalanceAuditModule } from "./credit-audit/credit-balance-audit.module";
 import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
 import { AdminModule } from "./admin/admin.module";
 import { AdminPostingsModule } from "./admin-postings/admin-postings.module";
@@ -180,6 +181,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // sweep. INERT until STILL_LOOKING_CHECK_ENABLED is on: both routes are a plain 404 and the sweep
     // reads nothing. Its push also needs STILL_LOOKING_PUSH_ENABLED (default off).
     StillLookingModule,
+    // #2774 — the nightly credit balance audit (read-only). INERT until CREDIT_BALANCE_AUDIT_ENABLED
+    // is on: the daily tick returns at once without a query.
+    CreditBalanceAuditModule,
     ReferralAttributionModule,
     // Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1): the 4th principal
     // (`/admin/*` route group behind AdminAuthGuard). Auth + RBAC + MFA only; the feature

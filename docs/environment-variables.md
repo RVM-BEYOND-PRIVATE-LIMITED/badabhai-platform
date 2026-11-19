@@ -679,6 +679,16 @@ NestJS boot assertion).
     and skips). Bridged through the GitHub `production` environment secret of the same name
     (compose `${ADMIN_NUMBERS_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
     `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+  - `CREDIT_BALANCE_AUDIT_ENABLED` (`booleanFromString`, default off; #2774). Off is today exactly:
+    the daily `credit-balance-audit` tick returns at once without a query. On, it reads every wallet
+    in one read-only snapshot and checks the invariant `credit-wallet.ts` keeps: `payer_credits.balance`
+    = Σ `credit_ledger.delta` = Σ `credit_lots.credits_remaining`, and no wallet key holds ledger lines
+    or lots without a balance row. A mismatch logs the wallet ids (opaque) and emits one
+    `payer.credit_balance_audit_failed` (counts only), counted on the admin dashboard's breach
+    counter. It never writes: a repair is a separate, deliberate step. No migration. Bridged
+    through the GitHub `production` environment secret of the same name (compose
+    `${CREDIT_BALANCE_AUDIT_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+    `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
   - `ADMIN_AI_TRACE_READ_ENABLED` (`booleanFromString`, default off; #2739). Off is today exactly:
     `GET /admin/ai-traces` and `GET /admin/ai-traces/:id` are a neutral 404 for every role, so the
     admin portal's AI calls tab shows "unavailable". On, `read_ai_traces` (super_admin only) reads

@@ -498,6 +498,11 @@ services:
       # NUMBERS_FREEZE_AFTER_DAYS (`:-3`), bridged from the `production` secret of the same name.
       ADMIN_NUMBERS_ENABLED: ${ADMIN_NUMBERS_ENABLED:-false}
       NUMBERS_FREEZE_AFTER_DAYS: ${NUMBERS_FREEZE_AFTER_DAYS:-3}
+      # THE NIGHTLY CREDIT BALANCE AUDIT (#2774). Off is today exactly: the daily tick returns at
+      # once without a query. On, it READS every wallet (balance vs ledger sum vs open lots) and
+      # alerts on a mismatch; it never writes one. No migration. `:-false` because this bool
+      # rejects "".
+      CREDIT_BALANCE_AUDIT_ENABLED: ${CREDIT_BALANCE_AUDIT_ENABLED:-false}
       # THE BULK STUDENT MOVE (#2887). Off is today exactly: nothing names the student-move tables
       # and every /admin/students/* route is a 404. Apply the `student_move` migration before
       # switching it on (on without it: the routes answer 503, the hot reads fall back). `:-false`

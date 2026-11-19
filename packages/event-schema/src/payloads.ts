@@ -4494,6 +4494,42 @@ export const PayerCreditsExpiredPayload = z
   .strict();
 export type PayerCreditsExpiredPayload = z.infer<typeof PayerCreditsExpiredPayload>;
 
+/**
+ * #2774 — the nightly credit balance audit found wallets that break the wallet invariant
+ * (`credit-wallet.ts`): `payer_credits.balance` = Σ `credit_ledger.delta` = Σ
+ * `credit_lots.credits_remaining`, and no wallet key holding ledger lines or lots without a
+ * balance row.
+ *
+ * ONE EVENT PER FAILING RUN, never one per wallet: it is an alert ("the books do not add up
+ * tonight"), counted on the admin dashboard's breach counter. A clean run emits nothing.
+ *
+ * COUNTS ONLY: how many wallets were read and how many fall in each class, plus the net gaps in
+ * credits. The wallet ids go to the server log for whoever repairs them, never onto the spine.
+ * Actor `system`; subject the aggregate `payer` with a null id (no single wallet breached). v1.
+ */
+export const PayerCreditBalanceAuditFailedPayload = z
+  .object({
+    /** Wallet keys the run read (balance rows, plus keys found only on the ledger or lots). */
+    wallets_checked: z.number().int().nonnegative(),
+    /** Wallets whose balance differs from the sum of their ledger lines. */
+    ledger_mismatches: z.number().int().nonnegative(),
+    /** Wallets whose balance differs from the sum of their lots' remaining credits. */
+    lot_mismatches: z.number().int().nonnegative(),
+    /** Wallet keys holding ledger lines or lots but no `payer_credits` row. */
+    orphan_wallets: z.number().int().nonnegative(),
+    /** Σ (balance − ledger sum) over the ledger mismatches, in credits (signed). */
+    ledger_gap_credits: z.number().int(),
+    /** Σ (balance − lots sum) over the lot mismatches, in credits (signed). */
+    lot_gap_credits: z.number().int(),
+  })
+  .strict()
+  .refine((p) => p.ledger_mismatches + p.lot_mismatches + p.orphan_wallets > 0, {
+    message: "an audit failure names at least one mismatch",
+  });
+export type PayerCreditBalanceAuditFailedPayload = z.infer<
+  typeof PayerCreditBalanceAuditFailedPayload
+>;
+
 /** #2750 item 4 — what made a company's welcome credits due (`payer.welcome_credits_granted`). */
 export const WELCOME_CREDITS_TRIGGERS = [
   /** An admin or ops approval of a posting (or an agency job) made the company eligible. */

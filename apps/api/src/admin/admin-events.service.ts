@@ -125,6 +125,8 @@ export class AdminEventsService {
     // for a call.
     "managed_hiring.order_closed_unmet",
     "managed_hiring.callback_requested",
+    // #2774 — the nightly credit balance audit found wallets whose balance, ledger and lots disagree.
+    "payer.credit_balance_audit_failed",
   ] as const;
 
   constructor(

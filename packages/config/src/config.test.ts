@@ -1189,6 +1189,17 @@ describe("loadServerConfig", () => {
     });
   });
 
+  describe("the nightly credit balance audit (#2774)", () => {
+    it("CREDIT_BALANCE_AUDIT_ENABLED is OFF by default and for the empty string", () => {
+      // Off: the daily tick returns at once without a query.
+      expect(loadServerConfig({}).CREDIT_BALANCE_AUDIT_ENABLED).toBe(false);
+      expect(loadServerConfig({ CREDIT_BALANCE_AUDIT_ENABLED: "" }).CREDIT_BALANCE_AUDIT_ENABLED).toBe(false);
+      expect(loadServerConfig({ CREDIT_BALANCE_AUDIT_ENABLED: "0" }).CREDIT_BALANCE_AUDIT_ENABLED).toBe(false);
+      expect(loadServerConfig({ CREDIT_BALANCE_AUDIT_ENABLED: "true" }).CREDIT_BALANCE_AUDIT_ENABLED).toBe(true);
+      expect(() => loadServerConfig({ CREDIT_BALANCE_AUDIT_ENABLED: "yes" })).toThrow();
+    });
+  });
+
   describe('the monthly "still looking?" check (#2753 item 5)', () => {
     it.each(["STILL_LOOKING_CHECK_ENABLED", "STILL_LOOKING_PUSH_ENABLED"] as const)(
       "%s is OFF by default and for the empty string",
