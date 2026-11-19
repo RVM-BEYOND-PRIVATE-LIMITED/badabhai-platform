@@ -212,6 +212,9 @@ importers:
 
   apps/marketing-web:
     dependencies:
+      '@badabhai/design-tokens':
+        specifier: workspace:*
+        version: link:../../packages/design-tokens
       next:
         specifier: ^15.5.28
         version: 15.5.28(@types/node@22.19.20)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

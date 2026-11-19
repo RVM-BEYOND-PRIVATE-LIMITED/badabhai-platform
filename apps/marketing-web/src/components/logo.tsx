@@ -1,48 +1,62 @@
 /**
- * BadaBhai brand mark + Anek wordmark — trimmed port of
- * apps/payer-web/src/components/ds/logo.tsx (mark geometry + token references
- * are byte-identical; the `theme`/`wavy` props and per-letter animation are
- * dropped — this static page never runs in the ink theme and needs no
- * client-side animation).
+ * BadaBhai brand lockup — Sept 2026 brand kit (two-figure monogram +
+ * official BADABHAI logotype).
  *
- * Pure SVG + text, no hooks — safe in a Server Component. Colors resolve from
- * design tokens via inline `style` (no raw hex in source).
+ * The artwork lives in @badabhai/design-tokens (brand/) and is drawn as
+ * CSS backgrounds by the shared `.bb-lockup*` rules, so this page shows
+ * the same brand as payer-web/admin-web from one copy. Decorative —
+ * the root carries the accessible name. Server-component safe (no hooks).
  */
-export interface BadaBhaiLogoProps {
+import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
+
+export interface BadaBhaiLogoProps extends HTMLAttributes<HTMLSpanElement> {
   /** @default 'full' */
   variant?: "full" | "mark" | "wordmark";
-  /** Mark size in px; wordmark scales from it. @default 32 */
+  /** Surface it sits on — `ink` drops the tile and switches to the white logotype. @default 'paper' */
+  theme?: "paper" | "ink";
+  /** Mark (tile) size in px; the logotype height is derived from it. @default 32 */
   size?: number;
-  className?: string;
+  /** Optional caption under the logotype (ignored for `variant="mark"`). */
+  sub?: ReactNode;
 }
 
-export function BadaBhaiLogo({ variant = "full", size = 32, className = "" }: BadaBhaiLogoProps) {
+export function BadaBhaiLogo({
+  variant = "full",
+  theme = "paper",
+  size = 32,
+  sub,
+  className = "",
+  style,
+  ...rest
+}: BadaBhaiLogoProps) {
+  const sizeVar = { "--bb-lockup-size": `${size}px` } as CSSProperties;
   const mark = (
-    <svg viewBox="0 0 512 512" width={size} height={size} className="bb-logo__mark" aria-hidden="true">
-      <rect width="512" height="512" rx="128" style={{ fill: "var(--brand)" }} />
-      <path
-        d="M150 124h212a40 40 0 0 1 40 40v132a40 40 0 0 1-40 40H252l-78 62a12 12 0 0 1-19.4-9.4V336h-4.6a40 40 0 0 1-40-40V164a40 40 0 0 1 40-40Z"
-        style={{ fill: "var(--paper-0)" }}
-      />
-      <path
-        d="M196 268l60-58 60 58"
-        style={{ stroke: "var(--success)" }}
-        strokeWidth={32}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-    </svg>
+    <span className="bb-lockup__tile" aria-hidden="true">
+      <span className="bb-lockup__mark" />
+    </span>
   );
+  const word = <span className="bb-lockup__wordmark" aria-hidden="true" />;
 
   return (
-    <span className={["bb-logo", className].filter(Boolean).join(" ")} role="img" aria-label="BadaBhai">
+    <span
+      className={["bb-lockup", theme === "ink" ? "bb-lockup--on-ink" : "", className]
+        .filter(Boolean)
+        .join(" ")}
+      role="img"
+      aria-label="BadaBhai"
+      style={{ ...sizeVar, ...style }}
+      {...rest}
+    >
       {variant !== "wordmark" && mark}
-      {variant !== "mark" && (
-        <span className="bb-logo__word" style={{ fontSize: Math.round(size * 0.92) }}>
-          Bada<span style={{ color: "var(--brand-press)" }}>Bhai</span>
-        </span>
-      )}
+      {variant !== "mark" &&
+        (sub != null ? (
+          <span className="bb-lockup__text">
+            {word}
+            <span className="bb-lockup__sub">{sub}</span>
+          </span>
+        ) : (
+          word
+        ))}
     </span>
   );
 }

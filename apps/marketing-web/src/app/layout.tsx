@@ -4,12 +4,11 @@ import { Anek_Latin, Inter } from "next/font/google";
 import "./globals.css";
 
 /**
- * Both fonts are SELF-HOSTED by Next at build time (next/font/google downloads and
- * serves them from this app's own origin) — zero third-party request, zero
- * render-blocking `<link>`, and no layout shift. `variable` publishes each family as a
- * CSS custom property on <html>, which tokens.css's `--font-display` / `--font-sans`
- * chains reference — so the token layer stays the single place a component looks up a
- * font, exactly like the payer-web port.
+ * Brand fonts: Inter is self-hosted by Next at build time (next/font/google).
+ * Headings render Kilimanjaro Sans via the shared @badabhai/design-tokens
+ * @font-face (Sept 2026 brand kit, bundled woff); Anek Latin stays behind it
+ * for glyphs the display face lacks (₹, Devanagari). `variable` publishes
+ * each family as a CSS custom property on <html>.
  */
 const anekLatin = Anek_Latin({
   subsets: ["latin"],
