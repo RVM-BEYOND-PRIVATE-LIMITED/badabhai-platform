@@ -135,7 +135,7 @@ describe("AdminNumbersWeeklyService.weekly", () => {
       "pune",
       "cnc_operator",
     );
-    expect(out).toMatchObject({ city: "pune", trade: "cnc_operator", definition_version: 4 });
+    expect(out).toMatchObject({ city: "pune", trade: "cnc_operator", definition_version: 5 });
     // …and the newest closed cohort of each repeat window, for the same filter, up to this week.
     expect(repo.readLatestCompleteCohorts).toHaveBeenCalledWith(THIS, "pune", "cnc_operator");
   });
@@ -271,16 +271,13 @@ describe("AdminNumbersWeeklyService.weekly", () => {
     });
   });
 
-  it("a not_available figure carries its reason and the issue it waits on, never a zero", async () => {
-    const { service, query } = setup([]);
+  it("no figure is not_available since version 5: Managed Hiring revenue is served from its stored row", async () => {
+    const { service, query } = setup([row(THIS, "revenue_managed_hiring", 472_000)]);
     const out = await service.weekly(query(), NOW);
-    for (const id of ["revenue_managed_hiring"]) {
-      const m = metricOf(out, id);
-      expect(m.availability, id).toBe("not_available");
-      expect(m.reason?.length, id).toBeGreaterThan(5);
-      expect(m.waits_on, id).toMatch(/^#27\d\d$/);
-      expect(m).toMatchObject({ this_week: null, last_week: null, change: null, series: [] });
-    }
+    const m = metricOf(out, "revenue_managed_hiring");
+    expect(m).toMatchObject({ availability: "live", this_week: 472_000 });
+    expect(m.waits_on).toBeUndefined();
+    expect(out.metrics.filter((x) => x.availability === "not_available")).toEqual([]);
   });
 
   it("the call list is live as a LIST: its route, no values and no series, never a zero", async () => {

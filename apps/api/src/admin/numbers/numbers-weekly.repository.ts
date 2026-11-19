@@ -428,6 +428,7 @@ export class NumbersWeeklyRepository {
     return tx
       .select({
         payerId: paymentOrders.payerId,
+        productKind: paymentOrders.productKind,
         packCode: paymentOrders.packCode,
         amountInr: paymentOrders.amountInr,
         taxablePaise: paymentOrders.taxablePaise,
@@ -456,6 +457,7 @@ export class NumbersWeeklyRepository {
     return tx
       .select({
         payerId: paymentOrders.payerId,
+        productKind: paymentOrders.productKind,
         packCode: paymentOrders.packCode,
         amountInr: paymentOrders.amountInr,
         taxablePaise: paymentOrders.taxablePaise,
