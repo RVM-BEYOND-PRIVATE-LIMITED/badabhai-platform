@@ -6,7 +6,7 @@ import 'package:badabhai_worker_app/core/api/api_client.dart'
         WorkAvailabilityDto,
         WorkPrefOptionsDto,
         WorkPreferencesDto,
-        kAvailabilityStatusLabels;
+        kAvailabilityStatusLabelsV1;
 import 'package:badabhai_worker_app/core/config/remote_config.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/availability_prompt/data/availability_prompt_store.dart';
@@ -162,14 +162,14 @@ void main() {
         availabilityPromptOptions(
           _options(availabilityStatus: const <String, String>{}),
         ),
-        kAvailabilityStatusLabels,
+        kAvailabilityStatusLabelsV1,
       );
     });
 
     test('the static copy carries exactly today\'s server slugs', () {
       // A slug the strict enum does not know fails the WHOLE save with a 400.
       expect(
-        kAvailabilityStatusLabels.keys.toList(),
+        kAvailabilityStatusLabelsV1.keys.toList(),
         _kServerAvailabilityStatuses,
       );
     });

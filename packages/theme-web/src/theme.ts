@@ -73,8 +73,21 @@ export function readThemeCookieClient(
   cookieName: string = THEME_COOKIE_NAME,
 ): ThemePreference | undefined {
   if (typeof document === "undefined") return undefined;
-  const m = document.cookie.match(new RegExp("(?:^|; )" + cookieName + "=([^;]*)"));
-  return parseThemePreference(m ? decodeURIComponent(m[1]!) : undefined);
+  // Split and compare the name exactly: no RegExp built from the name (semgrep
+  // detect-non-literal-regexp), and a name with regex characters cannot mis-match.
+  const prefix = `${cookieName}=`;
+  const pair = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+  if (pair === undefined) return parseThemePreference(undefined);
+  let raw: string;
+  try {
+    raw = decodeURIComponent(pair.slice(prefix.length));
+  } catch {
+    return parseThemePreference(undefined);
+  }
+  return parseThemePreference(raw);
 }
 
 /** Persist the theme preference to the SSR-readable cookie (client only). No PII; not httpOnly. */
