@@ -1080,6 +1080,15 @@ export const serverEnvSchema = z.object({
   //
   // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the daily tick returns at once without a query.
   CREDIT_BALANCE_AUDIT_ENABLED: booleanFromString,
+  // THE NIGHTLY RAZORPAY RECONCILIATION (#2773). With it on, a daily READ-ONLY job lists the
+  // payments Razorpay created in the last 48 hours and compares them with `payment_orders`: a
+  // captured payment whose order is not paid on it, a paid order with no captured payment (and no
+  // refund of ours), and an amount that differs. Any finding logs the order and payment ids and
+  // emits ONE `payment.reconciliation_failed` per day (counts only), which the admin dashboard's
+  // breach counter shows. It never changes money. A `rzp_test_` key id skips the run.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the daily tick returns at once without a call or a query.
+  RAZORPAY_RECONCILE_ENABLED: booleanFromString,
 
   // ── LEARN label producer (migration 0091): spine events → training labels ──
   // Cadence (hours) of the sweep tick. The cursor + UNIQUE impression key in the store

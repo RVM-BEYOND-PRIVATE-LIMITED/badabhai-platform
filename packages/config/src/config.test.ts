@@ -1200,6 +1200,17 @@ describe("loadServerConfig", () => {
     });
   });
 
+  describe("the nightly Razorpay reconciliation (#2773)", () => {
+    it("RAZORPAY_RECONCILE_ENABLED is OFF by default and for the empty string", () => {
+      // Off: the daily tick returns at once without a provider call or a query.
+      expect(loadServerConfig({}).RAZORPAY_RECONCILE_ENABLED).toBe(false);
+      expect(loadServerConfig({ RAZORPAY_RECONCILE_ENABLED: "" }).RAZORPAY_RECONCILE_ENABLED).toBe(false);
+      expect(loadServerConfig({ RAZORPAY_RECONCILE_ENABLED: "0" }).RAZORPAY_RECONCILE_ENABLED).toBe(false);
+      expect(loadServerConfig({ RAZORPAY_RECONCILE_ENABLED: "true" }).RAZORPAY_RECONCILE_ENABLED).toBe(true);
+      expect(() => loadServerConfig({ RAZORPAY_RECONCILE_ENABLED: "yes" })).toThrow();
+    });
+  });
+
   describe('the monthly "still looking?" check (#2753 item 5)', () => {
     it.each(["STILL_LOOKING_CHECK_ENABLED", "STILL_LOOKING_PUSH_ENABLED"] as const)(
       "%s is OFF by default and for the empty string",

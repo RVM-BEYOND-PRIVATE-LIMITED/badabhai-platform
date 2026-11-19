@@ -127,6 +127,9 @@ export class AdminEventsService {
     "managed_hiring.callback_requested",
     // #2774 — the nightly credit balance audit found wallets whose balance, ledger and lots disagree.
     "payer.credit_balance_audit_failed",
+    // #2773 — the nightly Razorpay reconciliation found captured payments and paid orders that
+    // disagree.
+    "payment.reconciliation_failed",
   ] as const;
 
   constructor(

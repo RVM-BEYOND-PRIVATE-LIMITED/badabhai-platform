@@ -73,6 +73,15 @@ export interface FetchedPayment {
   status: string;
 }
 
+/** #2773 — Razorpay's largest page for `GET /payments`. */
+export const RAZORPAY_LIST_PAGE_SIZE = 100;
+
+/** #2773 — the payments one window holds, five fields each, and whether the page cap cut it. */
+export interface ListedPayments {
+  payments: FetchedPayment[];
+  truncated: boolean;
+}
+
 /**
  * #2750 item 10 — one provider refund, as the refund path reads it: the opaque `rfnd_*` id, its
  * status (`pending` | `processed` | `failed`) and the amount in paise. Nothing else is read.
@@ -181,22 +190,55 @@ export class RazorpayClient implements RazorpayOrderClient {
   async fetchPayment(paymentId: string): Promise<FetchedPayment> {
     const sdk = this.resolveClient();
     try {
-      const payment = await sdk.payments.fetch(paymentId);
-      // Only these five fields are read. The entity also carries the buyer's email, contact, card
-      // and VPA; none of it is copied, returned or logged.
-      return {
-        id: typeof payment.id === "string" ? payment.id : "",
-        orderId: typeof payment.order_id === "string" ? payment.order_id : null,
-        amountPaise: providerPaise(payment.amount),
-        currency: typeof payment.currency === "string" ? payment.currency : "",
-        status: typeof payment.status === "string" ? payment.status : "",
-      };
+      return toFetchedPayment(await sdk.payments.fetch(paymentId));
     } catch (err) {
       // CLASS only, as for createOrder: a provider error body can echo payment details.
       this.logger.error(
         `payment fetch failed error_class=${err instanceof Error ? err.constructor.name : typeof err}`,
       );
       throw new Error("payment provider payment fetch failed");
+    }
+  }
+
+  /**
+   * #2773 — every payment Razorpay CREATED in `[from, to]` (`GET /payments?from&to`, any status),
+   * paged {@link RAZORPAY_LIST_PAGE_SIZE} at a time, at most `maxPages` pages. Each one is reduced
+   * to the same five fields as {@link fetchPayment}; the buyer's email, contact, card and VPA are
+   * never copied, returned or logged. `truncated` is true when the page cap stopped the read with
+   * more to come. Throws on any provider failure.
+   *
+   * Razorpay lists newest first, so a payment created while paging pushes the older ones one place
+   * down; a `to` in the past keeps the list still, and the result is de-duplicated by id anyway.
+   */
+  async listPayments(input: { from: Date; to: Date; maxPages: number }): Promise<ListedPayments> {
+    const sdk = this.resolveClient();
+    const from = Math.floor(input.from.getTime() / 1000);
+    const to = Math.floor(input.to.getTime() / 1000);
+    const byId = new Map<string, FetchedPayment>();
+    try {
+      for (let page = 0; page < input.maxPages; page++) {
+        const res = await sdk.payments.all({
+          from,
+          to,
+          count: RAZORPAY_LIST_PAGE_SIZE,
+          skip: page * RAZORPAY_LIST_PAGE_SIZE,
+        });
+        const items = res.items ?? [];
+        for (const item of items) {
+          const payment = toFetchedPayment(item);
+          if (payment.id.length > 0) byId.set(payment.id, payment);
+        }
+        if (items.length < RAZORPAY_LIST_PAGE_SIZE) {
+          return { payments: [...byId.values()], truncated: false };
+        }
+      }
+      return { payments: [...byId.values()], truncated: true };
+    } catch (err) {
+      // CLASS only, as for fetchPayment: a provider error body can echo payment details.
+      this.logger.error(
+        `payment list failed error_class=${err instanceof Error ? err.constructor.name : typeof err}`,
+      );
+      throw new Error("payment provider payment list failed");
     }
   }
 
@@ -267,6 +309,26 @@ export class RazorpayClient implements RazorpayOrderClient {
     this.client = new Razorpay({ key_id: creds.keyId, key_secret: creds.keySecret });
     return this.client;
   }
+}
+
+/**
+ * The five fields of a provider payment this app reads. The entity also carries the buyer's email,
+ * contact, card and VPA; none of it is copied. A non-integer amount throws ({@link providerPaise}).
+ */
+function toFetchedPayment(payment: {
+  id?: unknown;
+  order_id?: unknown;
+  amount?: unknown;
+  currency?: unknown;
+  status?: unknown;
+}): FetchedPayment {
+  return {
+    id: typeof payment.id === "string" ? payment.id : "",
+    orderId: typeof payment.order_id === "string" ? payment.order_id : null,
+    amountPaise: providerPaise(payment.amount),
+    currency: typeof payment.currency === "string" ? payment.currency : "",
+    status: typeof payment.status === "string" ? payment.status : "",
+  };
 }
 
 /** The three fields of a provider refund the refund path reads; anything malformed throws. */
