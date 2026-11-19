@@ -112,6 +112,7 @@ export async function CompanyDetailRoute({
       maySuspend={can(session.capabilities, "suspend_payer")}
       mayGrantCredits={can(session.capabilities, "grant_credits")}
       mayReadIdentity={can(session.capabilities, "read_identity")}
+      isSuperAdmin={session.role === "super_admin"}
       mayOpenAccounts={can(session.capabilities, "manage_payer_credentials")}
       companyWaiver={companyWaiver}
       mayManageWaivers={mayManageWaivers}

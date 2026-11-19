@@ -1,13 +1,13 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog } from "./dialog";
 import {
   AdminActionResultBanner,
   timelineLink,
 } from "./admin-action-result-banner";
-import { grantCreditsAction } from "./payer-actions";
+import { getGrantLedgerRowsAction, grantCreditsAction, type GrantLedgerRow } from "./payer-actions";
 import {
   ADMIN_CREDIT_GRANT_MAX,
   CREDIT_GRANT_REASONS,
@@ -31,6 +31,7 @@ export function GrantCreditsDialog({
   companyId,
   balance,
   mayGrant,
+  isSuperAdmin = false,
   timelineHref,
 }: {
   open: boolean;
@@ -38,23 +39,54 @@ export function GrantCreditsDialog({
   companyId: string;
   balance: number | null;
   mayGrant: boolean;
+  isSuperAdmin?: boolean;
   timelineHref: string | null;
 }) {
   const router = useRouter();
   const [idempotencyKey, setIdempotencyKey] = useState(mintKey);
   const [amount, setAmount] = useState("");
   const [reasonCode, setReasonCode] = useState<CreditGrantReason>(CREDIT_GRANT_REASONS[0]);
+  const [reasonText, setReasonText] = useState("");
+  const [correctsLedgerId, setCorrectsLedgerId] = useState("");
+  const [ledgerRows, setLedgerRows] = useState<GrantLedgerRow[]>([]);
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<AdminActionOutcome | null>(null);
   const ids = useId();
+
+  const reasons = CREDIT_GRANT_REASONS.filter((code) => code !== "correction" || isSuperAdmin);
+
+  // The correction picker reads this company's own ledger rows (never another company's).
+  useEffect(() => {
+    if (!open || !isSuperAdmin) return;
+    let live = true;
+    void getGrantLedgerRowsAction(companyId).then((res) => {
+      if (!live) return;
+      if (res.ok) {
+        setLedgerRows(res.rows);
+        setLedgerError(null);
+      } else {
+        setLedgerError(res.error);
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, [open, isSuperAdmin, companyId]);
 
   if (!mayGrant) return null;
 
   const parsed = Number(amount);
-  const valid = amount.trim() !== "" && Number.isInteger(parsed) && parsed > 0 && parsed <= ADMIN_CREDIT_GRANT_MAX;
+  const amountValid =
+    amount.trim() !== "" && Number.isInteger(parsed) && parsed > 0 && parsed <= ADMIN_CREDIT_GRANT_MAX;
+  const reasonValid = reasonText.trim().length >= 15 && reasonText.trim().length <= 500;
+  const correctionValid = reasonCode !== "correction" || correctsLedgerId !== "";
+  const valid = amountValid && reasonValid && correctionValid;
 
   function close() {
     onClose();
     setAmount("");
+    setReasonText("");
+    setCorrectsLedgerId("");
     setOutcome(null);
   }
 
@@ -64,6 +96,8 @@ export function GrantCreditsDialog({
       amount: parsed,
       reasonCode,
       idempotencyKey,
+      reasonText: reasonText.trim(),
+      ...(reasonCode === "correction" ? { correctsLedgerId } : {}),
     });
     setOutcome(result);
     const next = applyCreditGrantOutcome({ idempotencyKey, amount }, result, mintKey);
@@ -140,15 +174,56 @@ export function GrantCreditsDialog({
             id={`${ids}-reason`}
             className="field__input"
             value={reasonCode}
-            onChange={(e) => setReasonCode(e.target.value as CreditGrantReason)}
+            onChange={(e) => {
+              setReasonCode(e.target.value as CreditGrantReason);
+              setCorrectsLedgerId("");
+            }}
           >
-            {CREDIT_GRANT_REASONS.map((code) => (
+            {reasons.map((code) => (
               <option key={code} value={code}>
                 {CREDIT_GRANT_REASON_LABELS[code]}
               </option>
             ))}
           </select>
         </label>
+        <label className="field" htmlFor={`${ids}-reason-text`}>
+          <span className="field__label">
+            Written reason<span className="req">*</span>
+          </span>
+          <textarea
+            id={`${ids}-reason-text`}
+            className="field__input"
+            rows={3}
+            minLength={15}
+            maxLength={500}
+            value={reasonText}
+            onChange={(e) => setReasonText(e.target.value)}
+            placeholder="Why this grant is needed (15–500 characters, no phone number)"
+            aria-invalid={reasonText !== "" && !reasonValid ? true : undefined}
+          />
+          <span className="field__hint">{reasonText.trim().length} / 500</span>
+        </label>
+        {reasonCode === "correction" && isSuperAdmin ? (
+          <label className="field" htmlFor={`${ids}-corrects`}>
+            <span className="field__label">
+              Corrects ledger row<span className="req">*</span>
+            </span>
+            <select
+              id={`${ids}-corrects`}
+              className="field__input"
+              value={correctsLedgerId}
+              onChange={(e) => setCorrectsLedgerId(e.target.value)}
+            >
+              <option value="">Choose a row…</option>
+              {ledgerRows.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.label}
+                </option>
+              ))}
+            </select>
+            {ledgerError ? <span className="field__hint">{ledgerError}</span> : null}
+          </label>
+        ) : null}
       </form>
       {outcome ? (
         <AdminActionResultBanner

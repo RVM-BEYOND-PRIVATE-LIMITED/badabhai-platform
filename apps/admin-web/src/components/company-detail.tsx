@@ -43,6 +43,8 @@ export interface CompanyDetailViewProps {
   maySuspend: boolean;
   mayGrantCredits: boolean;
   mayReadIdentity: boolean;
+  /** #2750 item 11 — a correction is a super admin's grant. */
+  isSuperAdmin?: boolean;
   /** Whether User accounts (and its filtered view) is open to this role. */
   mayOpenAccounts: boolean;
   /** #2750 part C: undefined = waiver read off/failed; null = read but none. */
@@ -84,6 +86,7 @@ export function CompanyDetailView(props: CompanyDetailViewProps) {
     maySuspend,
     mayGrantCredits,
     mayReadIdentity,
+    isSuperAdmin = false,
     mayOpenAccounts,
     companyWaiver,
     mayManageWaivers,
@@ -125,6 +128,7 @@ export function CompanyDetailView(props: CompanyDetailViewProps) {
             mayGrantCredits={mayGrantCredits}
             mayReadEvents={mayReadEvents}
             mayReadIdentity={mayReadIdentity}
+            isSuperAdmin={isSuperAdmin}
             timelineHref={timelineHref}
           />
         }
