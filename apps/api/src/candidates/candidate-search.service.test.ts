@@ -83,6 +83,36 @@ function setup(opts: {
 const search = (h: Harness, body: CandidateSearchInput) =>
   h.service.search(PAYER, CandidateSearchSchema.parse(body), CTX);
 
+describe("CandidateSearchService.search — the daily facts cap (#2838)", () => {
+  it("asks the pre-pay facts for THIS search's daily cap, with the searching login and request", async () => {
+    const TENANT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const repo = {
+      searchPool: vi.fn(async () => ({
+        counts: { total: 1, matched: 1, unrecorded: 0 },
+        rows: [poolRow(W1)],
+      })),
+      listPoolCities: vi.fn(async () => ["Pune"]),
+      listWantedRoles: vi.fn(async () => []),
+    };
+    const prePay = { decorate: vi.fn(async (rows: unknown[]) => rows) };
+    const service = new CandidateSearchService(
+      repo as unknown as CandidateSearchRepository,
+      { listStatedTradeLevels: vi.fn(async () => []) } as unknown as WorkerSkillsRepository,
+      { get: vi.fn(async () => ({ tierFloorMonths: 36 })) } as unknown as MatchConfigService,
+      { emit: vi.fn(async () => undefined) } as unknown as EventsService,
+      undefined,
+      { resolve: vi.fn(async () => ({ tenantKey: TENANT })) } as unknown as ConstructorParameters<
+        typeof CandidateSearchService
+      >[5],
+      prePay as unknown as ConstructorParameters<typeof CandidateSearchService>[6],
+    );
+    await service.search(PAYER, CandidateSearchSchema.parse({}), CTX);
+    expect(prePay.decorate).toHaveBeenCalledWith(expect.any(Array), TENANT, undefined, {
+      searchCap: { actorPayerId: PAYER, ctx: CTX },
+    });
+  });
+});
+
 describe("CandidateSearchService.search", () => {
   it("passes the resolved filters to the pool read, one row past the page", async () => {
     const h = setup();

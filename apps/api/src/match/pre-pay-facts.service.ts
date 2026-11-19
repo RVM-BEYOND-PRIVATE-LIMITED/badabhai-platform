@@ -14,6 +14,20 @@ import {
 } from "./pre-pay-facts";
 import { PrePayFactsRepository } from "./pre-pay-facts.repository";
 import { WorkerActivityService } from "../worker-activity/worker-activity.service";
+import {
+  PrePayFactsDailyCapService,
+  type SearchCapCaller,
+} from "./pre-pay-facts-daily-cap.service";
+
+/**
+ * How a caller asks for the facts. `searchCap` (#2838) is set by the all-candidates search only:
+ * the page then counts against the company's daily cap on distinct workers shown with facts, and
+ * a worker past the cap reads "not given". The applicant lists never set it (owner ruling,
+ * 19 Nov 2026: those workers applied to this company).
+ */
+export interface DecorateOptions {
+  readonly searchCap?: SearchCapCaller;
+}
 
 /** What every labelled row gains: always the source; the facts only while the switch is on. */
 export type WithPrePayFacts<R> = R & { source: ApplicantSource } & Partial<PrePayFacts> & {
@@ -49,6 +63,11 @@ export type WithPrePayFacts<R> = R & { source: ApplicantSource } & Partial<PrePa
  *    shown for at all.
  * Off, no row carries `notRecentlyActive`, `lastActiveOn` is his newest device sighting as before,
  * and `worker_activity` is never read.
+ *
+ * #2838 — THE SEARCH'S DAILY CAP. With `searchCap`, the workers on the page whose facts would be
+ * shown are counted against the company's IST day (`PrePayFactsDailyCapService`); those it does not
+ * admit get every fact as "not given", like an unconsented worker. The row, `source` and the
+ * activity mark stay. Fails closed: no cap service, or a Redis failure, shows no facts.
  */
 @Injectable()
 export class PrePayFactsService {
@@ -64,6 +83,9 @@ export class PrePayFactsService {
     // #2753 — the one last-active read. Optional so a hand-built unit instance compiles; MatchModule
     // imports WorkerActivityModule, so Nest always injects it (worker-activity.module.test.ts).
     @Optional() private readonly activity?: WorkerActivityService,
+    // #2838 — the search's daily cap. Optional so a hand-built unit instance compiles; MatchModule
+    // provides it. A search page asking for the cap without it shows no facts (fail closed).
+    @Optional() private readonly dailyCap?: PrePayFactsDailyCapService,
   ) {}
 
   /** Is `applicant_facts` on for this company? Fails closed (the rollout service's rule). */
@@ -79,6 +101,7 @@ export class PrePayFactsService {
     rows: readonly R[],
     tenantKey: TenantKey,
     now: Date = new Date(),
+    opts: DecorateOptions = {},
   ): Promise<WithPrePayFacts<R>[]> {
     if (rows.length === 0) return [];
     const on = await this.factsEnabledFor(tenantKey);
@@ -103,13 +126,40 @@ export class PrePayFactsService {
         : { notRecentlyActive: this.activity.notRecentlyActive(days, row.workerId, now) };
     if (!on) return rows.map((row) => ({ ...row, source: sourceOf(row), ...markOf(row) }));
 
-    const facts = await this.factsFor(ids, links, now, days);
+    const all = await this.factsFor(ids, links, now, days);
+    const facts = opts.searchCap ? await this.capped(all, ids, tenantKey, opts.searchCap) : all;
     return rows.map((row) => ({
       ...row,
       source: sourceOf(row),
       ...(facts.get(row.workerId.toLowerCase()) ?? EMPTY_PRE_PAY_FACTS),
       ...markOf(row),
     }));
+  }
+
+  /**
+   * #2838 — keep the facts only for the workers the company's daily cap admits. Only workers who
+   * would actually be shown facts are counted (an unconsented worker already reads "not given"),
+   * in page order, so the cap admits the top of the page first.
+   */
+  private async capped(
+    facts: ReadonlyMap<string, PrePayFacts>,
+    ids: readonly string[],
+    tenantKey: TenantKey,
+    caller: SearchCapCaller,
+  ): Promise<Map<string, PrePayFacts>> {
+    const shown = ids
+      .map((id) => id.toLowerCase())
+      .filter((key) => {
+        const f = facts.get(key);
+        return f !== undefined && f !== EMPTY_PRE_PAY_FACTS;
+      });
+    // Every page is counted (the alert reports pages), even one with nobody to show facts for.
+    const admitted = this.dailyCap
+      ? await this.dailyCap.admit(tenantKey, shown, caller)
+      : new Set<string>();
+    const out = new Map<string, PrePayFacts>();
+    for (const [key, f] of facts) out.set(key, admitted.has(key) ? f : EMPTY_PRE_PAY_FACTS);
+    return out;
   }
 
   private async activeLinks(ids: readonly string[]): Promise<Map<string, PrePayInstituteLink>> {

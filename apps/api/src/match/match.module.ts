@@ -22,6 +22,7 @@ import { MatchCandidatesService } from "./match-candidates.service";
 import { FreeTierService } from "./free-tier.service";
 import { PrePayFactsRepository } from "./pre-pay-facts.repository";
 import { PrePayFactsService } from "./pre-pay-facts.service";
+import { PrePayFactsDailyCapService } from "./pre-pay-facts-daily-cap.service";
 import { WorkerActivityModule } from "../worker-activity/worker-activity.module";
 
 /**
@@ -76,6 +77,8 @@ import { WorkerActivityModule } from "../worker-activity/worker-activity.module"
     FreeTierService,
     PrePayFactsRepository,
     PrePayFactsService,
+    // #2838 — the search's daily cap on distinct workers shown pre-pay facts.
+    PrePayFactsDailyCapService,
   ],
   exports: [
     MatchConfigService,
