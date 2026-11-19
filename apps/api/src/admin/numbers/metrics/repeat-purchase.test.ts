@@ -36,6 +36,7 @@ const dimsOf =
 
 const order = (payerId: string, settledAt: Date): NumbersPaidOrderRow => ({
   payerId,
+  productKind: "credit_pack",
   packCode: "pack_50",
   amountInr: 2000,
   taxablePaise: null,

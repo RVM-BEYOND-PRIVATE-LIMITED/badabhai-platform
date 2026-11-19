@@ -314,7 +314,7 @@ describe("snapshotRowsOf", () => {
         numerator: null,
         denominator: null,
         suppressed: false,
-        definitionVersion: 4,
+        definitionVersion: 5,
       },
     ]);
   });

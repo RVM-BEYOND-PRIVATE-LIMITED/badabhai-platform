@@ -9,7 +9,7 @@ import { formCompletedUnconfirmed } from "./form-completed-unconfirmed";
 import { payingCompanies } from "./paying-companies";
 import { postingChoiceShares } from "./posting-choice";
 import { cohortOf, repeatPurchase } from "./repeat-purchase";
-import { revenueByPack, revenueGstSplit } from "./revenue-by-pack";
+import { revenueByPack, revenueGstSplit, revenueManagedHiring } from "./revenue-by-pack";
 import {
   weekWindow,
   type NumbersActivityRow,
@@ -119,6 +119,8 @@ export async function computeNumbersWeek(
     ...contactsPerHire(w, opened, hires, companies),
     ...revenueByPack(w, orders, companies),
     ...revenueGstSplit(w, orders, companies),
+    // Version 5: Managed Hiring revenue (#2751), out of revenue by pack.
+    ...revenueManagedHiring(w, orders, companies),
     ...repeatPurchase(w, cohortOrders, companies, asOf),
     ...welcomeCredits(w, welcome, companies),
     ...couldntReach(w, reach, companies),
