@@ -2,6 +2,7 @@ import { Global, Module, type OnModuleDestroy, Inject, Logger } from "@nestjs/co
 import { createDbClient, type Database, type DbClient } from "@badabhai/db";
 import { resolveDbPoolMax, type ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
+import { scopedDatabase } from "./synthetic-scope";
 
 /** DI token for the Drizzle `Database` instance (use in repositories). */
 export const DATABASE = "DATABASE";
@@ -35,7 +36,9 @@ export const DB_CLIENT = "DB_CLIENT";
     {
       provide: DATABASE,
       inject: [DB_CLIENT],
-      useFactory: (client: DbClient): Database => client.db,
+      // #2967 — the pool, except inside a synthetic run, where every query joins the run's
+      // always-rolled-back transaction (`./synthetic-scope.ts`). No request is ever in a run.
+      useFactory: (client: DbClient): Database => scopedDatabase(client.db),
     },
   ],
   exports: [DATABASE, DB_CLIENT],

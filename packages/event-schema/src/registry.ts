@@ -2077,6 +2077,18 @@ export const EVENT_REGISTRY = {
     domain: "flow_check",
     payload: p.FlowCheckCampusReportReceivedPayload,
   },
+  // #2967 — the daily synthetic run: one record per run, one breach alert per IST day. Closed
+  // codes only. v1.
+  "flow_check.synthetic_run_recorded": {
+    version: 1,
+    domain: "flow_check",
+    payload: p.FlowCheckSyntheticRunRecordedPayload,
+  },
+  "flow_check.synthetic_run_failed": {
+    version: 1,
+    domain: "flow_check",
+    payload: p.FlowCheckSyntheticRunFailedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

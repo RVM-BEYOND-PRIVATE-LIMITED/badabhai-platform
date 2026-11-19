@@ -3,6 +3,7 @@ import type { FlowCheckThresholds, ServerConfig } from "@badabhai/config";
 import {
   FlowCheckCampusReportReceivedPayload,
   FlowCheckDayRecordedPayload,
+  FlowCheckSyntheticRunRecordedPayload,
   FLOW_CHECK_NAMES,
   type FlowCheckName,
 } from "@badabhai/event-schema";
@@ -51,6 +52,15 @@ export interface CampusReportCounts {
   readonly idsMissing: number;
   readonly dispatcherOn: boolean;
 }
+
+/** At most this many synthetic runs in the admin read (one a day, plus run-nows). */
+export const FLOW_SYNTHETIC_MAX_RUNS = 50;
+
+/** One synthetic run, as the admin read shows it. */
+export type FlowSyntheticRunRow = FlowCheckSyntheticRunRecordedPayload & {
+  /** When BadaBhai recorded it. */
+  readonly recorded_at: string;
+};
 
 /** One day's record, as the admin read shows it. */
 export type FlowCheckDay = FlowCheckDayRecordedPayload & {
@@ -234,6 +244,27 @@ export class FlowCheckService {
       seen.add(parsed.data.day);
       out.push({ ...parsed.data, recorded_at: row.occurredAt.toISOString() });
       if (out.length === days) break;
+    }
+    return out;
+  }
+
+  /**
+   * #2967 — the synthetic runs of the same days, newest first (a run-now adds one to its day), at
+   * most {@link FLOW_SYNTHETIC_MAX_RUNS}. Unreadable rows are skipped.
+   */
+  async syntheticRuns(days: number, now: Date): Promise<FlowSyntheticRunRow[]> {
+    const rows = await this.spine.listKeyset(
+      {
+        eventName: ["flow_check.synthetic_run_recorded"],
+        occurredFrom: new Date(now.getTime() - (days + 1) * 24 * HOUR_MS),
+      },
+      FLOW_SYNTHETIC_MAX_RUNS,
+      null,
+    );
+    const out: FlowSyntheticRunRow[] = [];
+    for (const row of rows) {
+      const parsed = FlowCheckSyntheticRunRecordedPayload.safeParse(row.payload);
+      if (parsed.success) out.push({ ...parsed.data, recorded_at: row.occurredAt.toISOString() });
     }
     return out;
   }

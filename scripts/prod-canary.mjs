@@ -153,6 +153,8 @@ export const OPS_ROUTES = [
 
   // ── raw event ingestion ──
   ["POST", "/actions", {}],
+  // #2967 — the daily synthetic run's run-now (one rolled-back walk; 404 while switched off).
+  ["POST", "/flow-check/synthetic-run", {}],
   ["POST", "/actions/batch", {}],
 ];
 

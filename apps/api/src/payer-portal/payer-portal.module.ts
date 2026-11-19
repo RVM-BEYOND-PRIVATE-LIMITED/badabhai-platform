@@ -234,5 +234,7 @@ import {
       },
     },
   ],
+  // #2967 — the daily synthetic run lists the applicants as the company does.
+  exports: [PayerApplicantsService],
 })
 export class PayerPortalModule {}

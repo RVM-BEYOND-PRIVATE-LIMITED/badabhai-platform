@@ -134,6 +134,8 @@ export class AdminEventsService {
     // threshold (one per IST day, counts only; #2769's overdue review and #2782's missing Campus
     // ids are two of its checks).
     "flow_check.breached",
+    // #2967 — the daily synthetic run of the flow failed a step (one per IST day, closed codes).
+    "flow_check.synthetic_run_failed",
   ] as const;
 
   constructor(

@@ -57,5 +57,7 @@ import { AdminCampusTradesService } from "./admin-campus-trades.service";
     AdminCampusTradesRepository,
     AdminCampusTradesService,
   ],
+  // #2967 — the daily synthetic run records its audience decision through the admin path.
+  exports: [AdminPostingAudienceService],
 })
 export class AdminPostingsModule {}

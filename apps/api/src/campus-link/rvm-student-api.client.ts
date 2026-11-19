@@ -10,6 +10,7 @@ import {
   StudentRefSchema,
 } from "./campus-link.contract";
 import { isCanonicalUuid } from "../common/uuid";
+import { syntheticStudentFor } from "../database/synthetic-scope";
 
 /** Injection token for the `fetch` the client calls; tests substitute a stub. */
 export const RVM_STUDENT_API_FETCH = Symbol("RVM_STUDENT_API_FETCH");
@@ -202,6 +203,14 @@ export class RvmStudentApiClient {
     // Checked here as well as by callers: the ref goes into the URL path, and a value such as
     // `..` survives encodeURIComponent and would point the token at another route.
     const ref = StudentRefSchema.parse(studentRef);
+    // #2967 — the daily synthetic run's own student, created for the run and gone with its rolled-
+    // back transaction, is answered from the run's scope: the run never calls RVM. Only a run
+    // (`runRolledBack`, in-process, never reachable from a request) can put a student there, and
+    // every other ref is read from RVM below as always.
+    const synthetic = syntheticStudentFor(ref);
+    if (synthetic !== undefined) {
+      return { kind: "available", student: RvmStudentReadSchema.parse(synthetic) };
+    }
     const reply = await this.get(
       `/internal/campus/students/${encodeURIComponent(ref)}`,
       MAX_BODY_CHARS,
