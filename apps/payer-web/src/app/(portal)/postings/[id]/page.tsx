@@ -7,6 +7,13 @@ import { Badge } from "../../../../components/ds";
 import { PageHeader, type PageHeaderAction } from "../../../../components/page-header";
 import { JobCardPreview } from "../../../../components/job-card-preview";
 import { toJobCardView } from "../../../../lib/job-card-view";
+import {
+  getManagedHiringQuote,
+  listManagedHiringOrders,
+  type ManagedHiringOrder,
+  type ManagedHiringQuote,
+} from "../../../../lib/managed-hiring";
+import { ManagedHiringCard } from "./managed-hiring-card";
 import { jobRoleLabel } from "../../../../lib/job-roles";
 import { FIND_MATCHING_LABEL, matchingWorkersHref } from "../../../../lib/job-matching";
 import { readPostingTrades } from "../../../../lib/posting-trades.server";
@@ -114,6 +121,22 @@ export default async function PostingDetailPage({
     ? []
     : [...(findMatching === undefined ? [] : [findMatching]), ...(isDraft ? [] : [edit])];
 
+  // #2751 — Managed Hiring. A 404 from any of its routes means "do not show it at all", so every
+  // failure here (including a transport one) hides the card rather than breaking the page.
+  let managedQuote: ManagedHiringQuote | null = null;
+  let managedOrder: ManagedHiringOrder | null = null;
+  if (!readOnly && !isDraft) {
+    try {
+      managedQuote = await getManagedHiringQuote(id);
+      if (managedQuote?.offer === "order") {
+        const { orders } = await listManagedHiringOrders(id);
+        managedOrder = orders[0] ?? null;
+      }
+    } catch {
+      managedQuote = null;
+    }
+  }
+
   return (
     <div className="posting-layout posting-layout--detail">
       <div className="posting-layout__head">
@@ -155,6 +178,10 @@ export default async function PostingDetailPage({
               </p>
             </div>
           </div>
+        ) : null}
+
+        {managedQuote ? (
+          <ManagedHiringCard jobPostingId={id} quote={managedQuote} order={managedOrder} />
         ) : null}
       </div>
 
