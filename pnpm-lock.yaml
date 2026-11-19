@@ -488,6 +488,9 @@ importers:
       '@types/node':
         specifier: ^22.10.5
         version: 22.19.20
+      bullmq:
+        specifier: ^5.78.0
+        version: 5.78.0
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
