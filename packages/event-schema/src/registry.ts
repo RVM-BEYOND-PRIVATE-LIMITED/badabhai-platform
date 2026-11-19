@@ -2052,6 +2052,13 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerCreditBalanceAuditFailedPayload,
   },
+  // #2773 — the nightly Razorpay reconciliation found captured payments and paid orders that
+  // disagree. ONE per failing day (an alert, counts only). v1.
+  "payment.reconciliation_failed": {
+    version: 1,
+    domain: "payment",
+    payload: p.PaymentReconciliationFailedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
