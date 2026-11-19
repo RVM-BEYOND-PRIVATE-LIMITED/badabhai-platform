@@ -5,6 +5,17 @@
  * this public site can never drift from the portals' brand. */
 @import "@badabhai/design-tokens/tokens.css";
 
+/* The shared token chain names "Anek" by family name, but this app self-hosts
+ * Anek through next/font, which publishes it as --font-anek instead. Bridge
+ * the two so glyphs Kilimanjaro Sans lacks (₹, Devanagari) reach the real
+ * Anek face rather than falling straight to system-ui. */
+:root {
+  --font-display:
+    "Kilimanjaro Sans", var(--font-anek), "Anek Latin", "Anek Devanagari", system-ui,
+    -apple-system, "Segoe UI", sans-serif;
+  --font-sans: var(--font-inter), "Inter", "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
 /* ------------------------------------------------------------------
  * PAGE-LOCAL COMPONENT LAYER (prefixed `mkt-`). Every value resolves
  * from a token — no raw hex/px literals.
@@ -233,6 +244,9 @@ body {
   margin-top: var(--space-4);
   color: var(--text-muted);
   font-size: var(--text-sm);
+}
+.mkt-cta-block {
+  margin-top: var(--space-4);
 }
 
 /* ---- legal / compliance article ---- */

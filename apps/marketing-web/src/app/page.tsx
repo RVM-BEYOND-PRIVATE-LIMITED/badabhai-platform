@@ -148,7 +148,7 @@ export default function HomePage() {
               ))}
             </div>
             <p className="mkt-gst-note">
-              <a className="mkt-btn mkt-btn--primary" href="/pricing" style={{ marginTop: "var(--space-4)" }}>
+              <a className="mkt-btn mkt-btn--primary mkt-cta-block" href="/pricing">
                 See full pricing
               </a>
             </p>

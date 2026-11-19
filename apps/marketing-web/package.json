@@ -9,7 +9,7 @@
     "start": "next start -p 3004",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "clean": "rimraf --glob .next .turbo *.tsbuildinfo"
+    "clean": "rimraf --glob .next .next-build .turbo *.tsbuildinfo"
   },
   "dependencies": {
     "@badabhai/design-tokens": "workspace:*",

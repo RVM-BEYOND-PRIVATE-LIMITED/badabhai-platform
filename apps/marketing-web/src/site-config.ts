@@ -19,9 +19,13 @@ export const SITE = {
     "Faridabad – 121006, Haryana, India",
   ],
   supportEmail: "support@badabhai.ai",
-  /** PLACEHOLDER — replace with the real support number before Razorpay submission. */
-  supportPhoneDisplay: "+91-XXXXXXXXXX",
-  supportPhoneHref: "tel:+91XXXXXXXXXX",
+  /**
+   * Real support number — set NEXT_PUBLIC_SUPPORT_PHONE (e.g. "+911294000000")
+   * before deploying. The fallback is a visible placeholder so an unfilled
+   * number can never ship silently; Razorpay rejects a dummy support line.
+   */
+  supportPhoneDisplay: process.env.NEXT_PUBLIC_SUPPORT_PHONE || "+91-XXXXXXXXXX",
+  supportPhoneHref: `tel:${(process.env.NEXT_PUBLIC_SUPPORT_PHONE || "").replace(/[^\d+]/g, "") || "+91XXXXXXXXXX"}`,
   supportHours: "Mon–Sat, 10:00 AM – 6:00 PM IST",
   jurisdiction: "Faridabad, Haryana, India",
   governingLaw: "the laws of India, with exclusive jurisdiction of the courts at Faridabad, Haryana",
