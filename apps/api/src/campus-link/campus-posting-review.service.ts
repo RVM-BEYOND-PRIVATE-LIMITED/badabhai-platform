@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import {
@@ -15,7 +17,12 @@ import {
 import type { z } from "zod";
 import { isCanonicalUuid } from "../common/uuid";
 import { EventsService } from "../events/events.service";
+import { SERVER_CONFIG } from "../config/config.module";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
+import {
+  adminJobAudienceEnabled,
+  type AdminJobAudienceConfig,
+} from "../job-postings/admin-job-audience.flag";
 import { PostingAudienceRepository } from "../job-postings/posting-audience.repository";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { CampusCall } from "./campus-call";
@@ -126,6 +133,9 @@ export class CampusPostingReviewService {
     private readonly rollout: FeatureRolloutService,
     private readonly tenancy: PayerTenantScopeService,
     private readonly events: EventsService,
+    // #2956 — while an admin decides where each job shows, a job the admin sent to Campus is
+    // reviewable without the company's own `job_audience` pilot. Optional: tests built before it.
+    @Optional() @Inject(SERVER_CONFIG) private readonly config?: AdminJobAudienceConfig,
   ) {}
 
   async review(
@@ -139,14 +149,19 @@ export class CampusPostingReviewService {
     if (!isCanonicalUuid(postingId)) throw neutralNotFound();
     // Off everywhere: no read at all. In `pilot` this is true for every company; the owner check
     // below is the pilot-list read.
-    if (!this.rollout.isLiveForServiceCaller("job_audience")) throw neutralNotFound();
+    // #2956: with the admin audience control on, the admin (not the company) put the job on
+    // Campus, so neither the company switch nor its pilot list gates the review.
+    const adminDecides = adminJobAudienceEnabled(this.config);
+    if (!adminDecides && !this.rollout.isLiveForServiceCaller("job_audience")) {
+      throw neutralNotFound();
+    }
 
     const id = postingId.toLowerCase();
     const target = await this.repo.findTarget(id);
     if (target === undefined || !reviewable(target)) throw neutralNotFound();
     // Before the transaction: the tenancy and pilot reads use their own connections, and a
     // transaction holding a pool connection while waiting for another can starve the pool.
-    if (!(await this.liveForOwner(target.ownerPayerId))) throw neutralNotFound();
+    if (!adminDecides && !(await this.liveForOwner(target.ownerPayerId))) throw neutralNotFound();
 
     const reason = cleanReviewReason(decision.reason) ?? null;
     const write: DecisionWrite = {

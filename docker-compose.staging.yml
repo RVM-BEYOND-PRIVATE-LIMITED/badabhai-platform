@@ -497,6 +497,7 @@ services:
       # 503 and the sweep skips). `:-false` because this bool rejects "". The freeze wait is
       # NUMBERS_FREEZE_AFTER_DAYS (`:-3`), bridged from the `production` secret of the same name.
       ADMIN_NUMBERS_ENABLED: ${ADMIN_NUMBERS_ENABLED:-false}
+      ADMIN_JOB_AUDIENCE_ENABLED: ${ADMIN_JOB_AUDIENCE_ENABLED:-false}
       NUMBERS_FREEZE_AFTER_DAYS: ${NUMBERS_FREEZE_AFTER_DAYS:-3}
       # THE NIGHTLY CREDIT BALANCE AUDIT (#2774). Off is today exactly: the daily tick returns at
       # once without a query. On, it READS every wallet (balance vs ledger sum vs open lots) and

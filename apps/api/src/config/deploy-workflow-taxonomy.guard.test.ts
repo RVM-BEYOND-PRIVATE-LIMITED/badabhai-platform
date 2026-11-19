@@ -413,6 +413,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /ADMIN_NUMBERS_ENABLED:\s*\$\{\{\s*secrets\.ADMIN_NUMBERS_ENABLED\s*\}\}/,
       /envs:[^\n]*\bADMIN_NUMBERS_ENABLED\b/,
     ],
+    // #2956 — an admin decides where each job shows (/admin/postings/audience). A plain boolean on
+    // the api only, turned on in production ONLY by the environment secret, after 0190 is applied.
+    [
+      "ADMIN_JOB_AUDIENCE_ENABLED",
+      /ADMIN_JOB_AUDIENCE_ENABLED:\s*\$\{\{\s*secrets\.ADMIN_JOB_AUDIENCE_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bADMIN_JOB_AUDIENCE_ENABLED\b/,
+    ],
     // #2774 — the nightly credit balance audit. A plain read-only boolean on the api, turned on in
     // production only by its environment secret.
     [
@@ -663,6 +670,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["STILL_LOOKING_EVERY_DAYS", "30"],
     // #2755 — off is no numbers route at all: a neutral 404 before any query.
     ["ADMIN_NUMBERS_ENABLED", "false"],
+    // #2956 — off is no admin audience route at all: a neutral 404 before any query.
+    ["ADMIN_JOB_AUDIENCE_ENABLED", "false"],
     // #2774 — off is today: the nightly balance audit's tick returns at once without a query.
     ["CREDIT_BALANCE_AUDIT_ENABLED", "false"],
     // #2773 — off is today: the nightly reconciliation's tick returns at once without a call.

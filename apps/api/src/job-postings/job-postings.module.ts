@@ -48,6 +48,7 @@ import { PostingAudienceService } from "./posting-audience.service";
   // surface (PayerJobPostingsController) over the SAME service/repo chokepoint —
   // exactly as ReachModule/ResumeDisclosureModule export their services. The ops
   // InternalServiceGuard-free /job-postings routes are unchanged (one principal per route).
-  exports: [JobPostingsService],
+  // #2956 — PostingAudienceService for the admin audience decision (its targeting validation).
+  exports: [JobPostingsService, PostingAudienceService],
 })
 export class JobPostingsModule {}
