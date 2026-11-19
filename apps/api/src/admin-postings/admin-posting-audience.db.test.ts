@@ -16,6 +16,7 @@ import { AdminCampusTradesService } from "./admin-campus-trades.service";
 import { AdminPostingAudienceRepository } from "./admin-posting-audience.repository";
 import { AdminPostingAudienceService } from "./admin-posting-audience.service";
 import { AdminPostingsRepository } from "./admin-postings.repository";
+import { AdminPostingWorkerVisibilityRepository } from "./admin-posting-worker-visibility.repository";
 
 /**
  * #2956 — AN ADMIN DECIDES WHERE A JOB SHOWS, against a real Postgres: the owner's three cases end
@@ -262,4 +263,173 @@ async function cleanup(client: DbClient): Promise<void> {
   await q`DELETE FROM audit_logs WHERE entity_type = 'campus_trades' AND actor_id = ${ADMIN}::uuid`;
   await q`DELETE FROM payers WHERE id = ${PAYER}::uuid`;
   await client.db.delete(events).where(eq(events.correlationId, CORRELATION));
+}
+
+/**
+ * #2956 follow-up (Prakash, 19 Nov 2026, point 3): A COMPANY JOB IN A TRADE RVM TRAINS WAITS FOR AN
+ * ADMIN. The company publish holds it from BadaBhai workers (`company_rvm_trade`, 0194); it is "to
+ * decide"; the admin's decision releases it. It is NOT Campus-origin: the trade list still applies
+ * to it, and the #2891 Campus-origin routes neither list nor change it.
+ */
+const ADMIN2 = uuid(0x29560104);
+const PAYER2 = uuid(0x29560103);
+const H_CNC = uuid(0x29562001);
+const H_PAINT = uuid(0x29562002);
+const H_GONE = uuid(0x29562003);
+const HELD_ALL = [H_CNC, H_PAINT, H_GONE];
+
+describe.skipIf(!RUN)("#2956 follow-up: a company job in a trade RVM trains waits for an admin", () => {
+  let client!: DbClient;
+  let service!: AdminPostingAudienceService;
+  let audience!: PostingAudienceService;
+  let campusOrigin!: AdminPostingWorkerVisibilityRepository;
+
+  async function workersSee(id: string): Promise<boolean> {
+    const rows = (await client.db.execute(sql`
+      SELECT ${reachesBadaBhaiWorkers("jp")} AS w FROM job_postings jp WHERE jp.id = ${id}::uuid
+    `)) as unknown as { w: boolean }[];
+    return rows[0]?.w === true;
+  }
+
+  async function hold(id: string) {
+    const [row] = await client.sql<{ state: string; origin: string; decided: boolean }[]>`
+      SELECT state, origin, decided_at IS NOT NULL AS decided FROM job_posting_worker_visibility
+      WHERE job_posting_id = ${id}::uuid`;
+    return row ?? null;
+  }
+
+  /** The company publish's transaction: draft -> open, then the hold, as `updateForPayer` runs it. */
+  async function publish(id: string, roleKind: string): Promise<boolean> {
+    return client.db.transaction(async (tx) => {
+      await tx.execute(sql`UPDATE job_postings SET status = 'open' WHERE id = ${id}::uuid`);
+      return audience.holdForAdminDecisionWithin(tx as never, { id, role_kind: roleKind } as never);
+    });
+  }
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL, { max: 1 });
+    await cleanupHeld(client);
+    await seedHeld(client);
+    const eventsService = new EventsService(new EventsRepository(client.db), {
+      NODE_ENV: "test",
+    } as never);
+    audience = new PostingAudienceService(
+      {} as FeatureRolloutService,
+      new PostingAudienceRepository(client.db),
+      eventsService,
+      { ADMIN_JOB_AUDIENCE_ENABLED: true },
+    );
+    campusOrigin = new AdminPostingWorkerVisibilityRepository(client.db);
+    service = new AdminPostingAudienceService(
+      new AdminPostingAudienceRepository(client.db),
+      new AdminPostingsRepository(client.db),
+      audience,
+      { materializeAfterWorkerVisibility: vi.fn(async () => true) } as unknown as JobPostingsService,
+      eventsService,
+    );
+  }, 60_000);
+
+  afterAll(async () => {
+    if (client !== undefined) {
+      await cleanupHeld(client);
+      await client.sql.end({ timeout: 5 });
+    }
+  }, 60_000);
+
+  it("the publish holds a CNC turner job from workers; a painter job is published as before", async () => {
+    expect(await publish(H_CNC, "cnc_turner")).toBe(true);
+    expect(await hold(H_CNC)).toEqual({ state: "off", origin: "company_rvm_trade", decided: false });
+    expect(await workersSee(H_CNC)).toBe(false);
+
+    expect(await publish(H_PAINT, "painter_coating")).toBe(false);
+    expect(await hold(H_PAINT)).toBeNull();
+    expect(await workersSee(H_PAINT)).toBe(true);
+  }, 30_000);
+
+  it("it is 'to decide', shown to nobody, and not Campus-origin anywhere", async () => {
+    const { postings } = await service.list({ filter: "to_decide", limit: 100 } as never);
+    const row = postings.find((p) => p.posting_id === H_CNC);
+    expect(row).toMatchObject({ shown_to: "nobody", campus_origin: null, taught_at_campus: true });
+    // The #2891 Campus-origin screen neither lists it nor can change it.
+    const waiting = await campusOrigin.list({ filter: "waiting", limit: 500 });
+    expect(waiting.map((r) => r.jobPostingId)).not.toContain(H_CNC);
+    const locked = await client.db.transaction((tx) => campusOrigin.lock(tx as never, H_CNC));
+    expect(locked).toBeUndefined();
+  }, 30_000);
+
+  it("the admin's decision releases it: Campus only keeps it off workers, both opens it", async () => {
+    const campus = await service.set(ADMIN2, H_CNC, { audience: "rvm_students", ...REASON }, CTX);
+    expect(campus).toMatchObject({ outcome: "changed", shown_to: "campus" });
+    expect(await hold(H_CNC)).toEqual({ state: "off", origin: "company_rvm_trade", decided: true });
+    expect(await workersSee(H_CNC)).toBe(false);
+
+    const both = await service.set(ADMIN2, H_CNC, { audience: "both", ...REASON }, CTX);
+    expect(both.shown_to).toBe("both");
+    expect(await hold(H_CNC)).toMatchObject({ state: "on", decided: true });
+    expect(await workersSee(H_CNC)).toBe(true);
+    const { postings } = await service.list({ filter: "to_decide", limit: 100 } as never);
+    expect(postings.map((p) => p.posting_id)).not.toContain(H_CNC);
+  }, 30_000);
+
+  it("a decided job is never held again, and a held company job keeps the trade-list rule", async () => {
+    // Decided: a later publish of the same posting never holds it again.
+    expect(
+      await client.db.transaction((tx) =>
+        audience.holdForAdminDecisionWithin(
+          tx as never,
+          { id: H_CNC, role_kind: "cnc_turner" } as never,
+        ),
+      ),
+    ).toBe(false);
+    // Held as a company job, then its trade left the list: Campus is refused, BadaBhai only is not.
+    expect(await publish(H_GONE, "cnc_turner")).toBe(true);
+    await client.sql`
+      UPDATE campus_trades SET removed_at = now(), removed_by_admin_id = ${ADMIN2}::uuid
+      WHERE trade_key = 'cnc_turner'`;
+    expect(
+      (await service.set(ADMIN2, H_GONE, { audience: "rvm_students", ...REASON }, CTX)).outcome,
+    ).toBe("trade_not_taught_at_campus");
+    expect(
+      (await service.set(ADMIN2, H_GONE, { audience: "badabhai_workers", ...REASON }, CTX))
+        .shown_to,
+    ).toBe("badabhai");
+    expect(await workersSee(H_GONE)).toBe(true);
+  }, 30_000);
+});
+
+async function seedHeld(client: DbClient): Promise<void> {
+  const { sql: q } = client;
+  await q`
+    INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+    VALUES (${PAYER2}::uuid, 'employer', 'enc:t2956-held', 'hash:t2956-held',
+            'enc:org-t2956-held', 'active')
+    ON CONFLICT (id) DO NOTHING
+  `;
+  await q`
+    INSERT INTO campus_trades (trade_key, added_by_admin_id)
+    VALUES ('cnc_turner', ${ADMIN2}::uuid)
+    ON CONFLICT (trade_key) DO UPDATE
+    SET added_by_admin_id = EXCLUDED.added_by_admin_id, removed_at = NULL, removed_by_admin_id = NULL
+  `;
+  const rows: [string, string, string][] = [
+    [H_CNC, "cnc_turner", "t2956h CNC Turner"],
+    [H_PAINT, "painter_coating", "t2956h Painter"],
+    [H_GONE, "cnc_turner", "t2956h CNC Turner 2"],
+  ];
+  for (const [id, roleKind, title] of rows) {
+    await q`
+      INSERT INTO job_postings (id, created_by, payer_id, org_label, role_title, vacancy_band,
+                                status, audience, role_kind, published_at, city)
+      VALUES (${id}::uuid, ${CREATED_BY}::uuid, ${PAYER2}::uuid, 'Held Fixture', ${title},
+              '2-5', 'draft', 'badabhai_workers', ${roleKind}, '2099-04-01T00:00:00Z', 'Pune')
+    `;
+  }
+}
+
+async function cleanupHeld(client: DbClient): Promise<void> {
+  const { sql: q } = client;
+  await q`DELETE FROM audit_logs WHERE actor_id = ${ADMIN2}::uuid`;
+  for (const id of HELD_ALL) await q`DELETE FROM job_postings WHERE id = ${id}::uuid`;
+  await q`DELETE FROM campus_trades WHERE added_by_admin_id = ${ADMIN2}::uuid OR removed_by_admin_id = ${ADMIN2}::uuid`;
+  await q`DELETE FROM payers WHERE id = ${PAYER2}::uuid`;
 }

@@ -799,6 +799,13 @@ export class JobPostingsService {
         tx,
       );
       if (!row) throw new NotFoundException("Job posting not found");
+      // #2956 follow-up (Prakash, 19 Nov 2026) — A PUBLISH IN A TRADE RVM TRAINS WAITS FOR AN
+      // ADMIN: held from BadaBhai workers in this transaction, before the reach built after the
+      // commit, so no worker ever sees it before the admin decides. A no-op while
+      // `ADMIN_JOB_AUDIENCE_ENABLED` is off. Lock order: the posting row (written above) first.
+      if (isPublishing(current, tradeDto)) {
+        await this.audience.holdForAdminDecisionWithin(tx, row);
+      }
       await this.audience.recordUpdateWithin(
         tx,
         {

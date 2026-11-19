@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import {
   audienceReachesBadaBhaiWorkers,
   audienceReachesRvmStudents,
+  isCampusWorkerVisibilityOrigin,
   rvmReviewStateFor,
   type JobPostingAudience,
   type JobWorkerVisibilityState,
@@ -136,7 +137,7 @@ export class AdminPostingAudienceService {
         rvm_branch_ids: row.rvmBranchIds,
         rvm_course_ids: row.rvmCourseIds,
         rvm_review_state: rvmReviewStateFor(row.audience, row.rvmReviewStateNow),
-        campus_origin: row.campusOrigin,
+        campus_origin: isCampusWorkerVisibilityOrigin(row.campusOrigin) ? row.campusOrigin : null,
         decided_by_admin_id: row.decidedByAdminId,
         decided_at: row.decidedAt?.toISOString() ?? null,
         changed_since_decision: row.changedSinceDecision,
@@ -307,8 +308,9 @@ export class AdminPostingAudienceService {
       return "trade_required";
     }
     // #2957 — only a trade RVM trains goes to Campus. A posting that came from Campus is exempt:
-    // RVM's placement team made it for its own students.
-    if (audienceReachesRvmStudents(audience) && p.hold === null) {
+    // RVM's placement team made it for its own students. A company job held for a decision
+    // (`company_rvm_trade`) is NOT Campus-origin and keeps the rule.
+    if (audienceReachesRvmStudents(audience) && !isCampusWorkerVisibilityOrigin(p.hold?.origin)) {
       if (p.roleKind === null) return "trade_required";
       if (!(await this.repo.isCampusTrade(tx, p.roleKind))) return "trade_not_taught_at_campus";
     }

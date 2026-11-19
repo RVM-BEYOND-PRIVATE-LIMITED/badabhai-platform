@@ -11,6 +11,7 @@ import {
   DEFAULT_JOB_POSTING_AUDIENCE,
   JOB_POSTING_AUDIENCES,
   audienceReachesRvmStudents,
+  holdPostingFromWorkers,
   rvmReviewStateFor,
   type Database,
   type JobPostingAudience,
@@ -273,6 +274,24 @@ export class PostingAudienceService {
   }
 
   /**
+   * #2956 follow-up (Prakash, 19 Nov 2026, point 3): A COMPANY JOB IN A TRADE RVM TRAINS WAITS FOR
+   * AN ADMIN. Called in the company's PUBLISH transaction (draft -> open), after the posting row is
+   * written and before reach is built: while `ADMIN_JOB_AUDIENCE_ENABLED` is on, a posting whose
+   * trade is on the Campus list (#2957) and that no admin has decided yet is held from BadaBhai
+   * workers (`company_rvm_trade`, 0194). The hold hides it on every worker path
+   * (`reachesBadaBhaiWorkers()`), so the reach built after the commit is empty, and it shows under
+   * "To decide" until the admin's decision releases it. A posting already held (it came from
+   * Campus) keeps its row. True when it was held here.
+   */
+  async holdForAdminDecisionWithin(tx: Database, posting: JobPostingApi): Promise<boolean> {
+    if (!adminJobAudienceEnabled(this.config)) return false;
+    if (posting.role_kind === null) return false;
+    if (!(await this.repo.awaitsAdminDecision(posting.id, posting.role_kind, tx))) return false;
+    await holdPostingFromWorkers(tx, posting.id, "company_rvm_trade");
+    return true;
+  }
+
+  /**
    * The company's own postings as it reads them. One switch read per call (only when some posting
    * holds the default audience, which is when the answer matters) and one review read for the
    * postings with an RVM part, so a page costs the same two queries whatever its size.
@@ -282,6 +301,14 @@ export class PostingAudienceService {
     postings: readonly JobPostingApi[],
   ): Promise<PayerJobPostingApi[]> {
     if (postings.length === 0) return [];
+    // #2956 follow-up (Prakash, 19 Nov 2026, point 4): A COMPANY DOES NOT SEE WHERE ITS JOB SHOWS.
+    // While the admin decides (`ADMIN_JOB_AUDIENCE_ENABLED`), no company read carries the audience,
+    // the targeting or the RVM review, whatever is stored.
+    if (adminJobAudienceEnabled(this.config)) {
+      return postings.map(
+        ({ audience: _a, rvm_branch_ids: _b, rvm_course_ids: _c, ...rest }) => rest,
+      );
+    }
     const isDefault = (p: JobPostingApi) => p.audience === DEFAULT_JOB_POSTING_AUDIENCE;
     const enabled = postings.some(isDefault) ? await this.enabledFor(scope) : false;
     const reviews = await this.repo.reviewStatesFor(

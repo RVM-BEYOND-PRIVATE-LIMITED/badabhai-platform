@@ -441,13 +441,102 @@ describe("#2956 — while an admin decides where each job shows, the company nev
     expect(d.repo.listActiveOptions).not.toHaveBeenCalled();
   });
 
-  it("the company still sees, read-only, an audience the admin set; a default posting stays as before", async () => {
+  it("the company no longer sees an audience the admin set (Prakash, 19 Nov 2026, point 4)", async () => {
     const d = make({ enabled: true, adminDecides: true });
     const [moved, plain] = await d.svc.payerViews(SCOPE, [
       posting({ id: P1, audience: "rvm_students" }),
       posting({ id: P2 }),
     ]);
-    expect(moved).toMatchObject({ audience: "rvm_students" });
+    expect(moved).not.toHaveProperty("audience");
     expect(plain).not.toHaveProperty("audience");
+  });
+});
+
+describe("#2956 follow-up (Prakash, 19 Nov 2026) — the admin decides, so the company neither sets nor sees it", () => {
+  /** A transaction that records the hold row `holdPostingFromWorkers` inserts. */
+  function holdTx() {
+    const inserted: Record<string, unknown>[] = [];
+    const tx = {
+      insert: () => ({
+        values: (v: Record<string, unknown>) => {
+          inserted.push(v);
+          return { onConflictDoNothing: async () => undefined };
+        },
+      }),
+    } as never;
+    return { tx, inserted };
+  }
+  const withAwaits = (d: ReturnType<typeof make>, awaits: boolean) => {
+    const awaitsAdminDecision = vi.fn(async () => awaits);
+    (d.repo as Record<string, unknown>).awaitsAdminDecision = awaitsAdminDecision;
+    return awaitsAdminDecision;
+  };
+
+  it("point 3: a publish in a trade RVM trains, undecided, is held as company_rvm_trade", async () => {
+    const d = make({ adminDecides: true });
+    const awaits = withAwaits(d, true);
+    const { tx, inserted } = holdTx();
+    const held = await d.svc.holdForAdminDecisionWithin(
+      tx,
+      posting({ role_kind: "cnc_turner" } as Partial<JobPostingApi>),
+    );
+    expect(held).toBe(true);
+    expect(awaits).toHaveBeenCalledWith(P1, "cnc_turner", tx);
+    expect(inserted).toEqual([
+      expect.objectContaining({ jobPostingId: P1, state: "off", origin: "company_rvm_trade" }),
+    ]);
+  });
+
+  it("point 3: not on the trade list, or already decided — not held", async () => {
+    const d = make({ adminDecides: true });
+    withAwaits(d, false);
+    const { tx, inserted } = holdTx();
+    expect(
+      await d.svc.holdForAdminDecisionWithin(
+        tx,
+        posting({ role_kind: "painter_coating" } as Partial<JobPostingApi>),
+      ),
+    ).toBe(false);
+    expect(inserted).toEqual([]);
+  });
+
+  it("point 3: switch off, or no trade — nothing is read or held", async () => {
+    for (const [adminDecides, roleKind] of [
+      [false, "cnc_turner"],
+      [true, null],
+    ] as const) {
+      const d = make({ adminDecides });
+      const awaits = withAwaits(d, true);
+      const { tx, inserted } = holdTx();
+      expect(
+        await d.svc.holdForAdminDecisionWithin(
+          tx,
+          posting({ role_kind: roleKind } as Partial<JobPostingApi>),
+        ),
+      ).toBe(false);
+      expect(awaits).not.toHaveBeenCalled();
+      expect(inserted).toEqual([]);
+    }
+  });
+
+  it("point 4: switch on — no company read carries the audience, targeting or RVM review", async () => {
+    const d = make({
+      adminDecides: true,
+      reviews: new Map([[P1, { stateNow: "approved", reason: "ok", reviewedAt: new Date() }]]),
+    });
+    const views = await d.svc.payerViews(SCOPE, [
+      posting({ audience: "both", rvm_branch_ids: [1], rvm_course_ids: ["cnc"] }),
+      posting({ id: P2, audience: "rvm_students" }),
+      posting({ id: P3 }),
+    ]);
+    expect(views).toHaveLength(3);
+    for (const view of views) {
+      for (const key of ["audience", "rvm_branch_ids", "rvm_course_ids", "rvm_review"]) {
+        expect(view).not.toHaveProperty(key);
+      }
+    }
+    expect(views.map((v) => v.id)).toEqual([P1, P2, P3]);
+    expect(d.repo.reviewStatesFor).not.toHaveBeenCalled();
+    expect(d.rollout.isEnabledFor).not.toHaveBeenCalled();
   });
 });
