@@ -1,12 +1,13 @@
-/* BadaBhai Design System token layer — imported FIRST so every rule below
- * resolves from tokens. A trimmed port of the pre-2026-09 portal values; the portals now share
- * packages/design-tokens/tokens.css (see the note at the top of ../styles/tokens.css). */
-@import "../styles/tokens.css";
+/* BadaBhai marketing site — Sept 2026 brand kit.
+ * Token layer is the shared @badabhai/design-tokens package (Shift Blue
+ * #05194C · Safety Yellow #FFB32C · Ivory #F3F5F4 · Kilimanjaro Sans
+ * headings · Inter body), the same copy payer-web/admin-web render — so
+ * this public site can never drift from the portals' brand. */
+@import "@badabhai/design-tokens/tokens.css";
 
 /* ------------------------------------------------------------------
- * PAGE-LOCAL COMPONENT LAYER (prefixed `mkt-` — these are NOT the shared
- * `.bb-*` design-system primitives; those live only inside apps/payer-web's
- * component layer today. Every value below still resolves from a token.
+ * PAGE-LOCAL COMPONENT LAYER (prefixed `mkt-`). Every value resolves
+ * from a token — no raw hex/px literals.
  * ------------------------------------------------------------------ */
 
 body {
@@ -48,24 +49,6 @@ body {
   color: var(--text-primary);
 }
 
-/* ---- brand mark ---- */
-.bb-logo {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  text-decoration: none;
-  color: var(--text-primary);
-}
-.bb-logo:hover {
-  text-decoration: none;
-}
-.bb-logo__word {
-  font-family: var(--font-display);
-  font-weight: var(--weight-extrabold);
-  letter-spacing: var(--tracking-tight);
-  line-height: 1;
-}
-
 /* ---- hero ---- */
 .mkt-hero {
   padding-block: var(--space-12) var(--space-11);
@@ -80,7 +63,7 @@ body {
   align-items: center;
   gap: var(--space-2);
   color: var(--text-on-brand);
-  background: var(--brand-tint);
+  background: var(--brand);
   border: var(--border-hairline) solid var(--brand-border);
   border-radius: var(--radius-pill);
   padding: var(--space-1) var(--space-3);
@@ -92,6 +75,7 @@ body {
 .mkt-hero__title {
   font-size: var(--text-4xl);
   line-height: var(--leading-tight);
+  color: var(--text-heading);
 }
 .mkt-hero__sub {
   font-size: var(--text-md);
@@ -106,7 +90,7 @@ body {
   margin-top: var(--space-2);
 }
 
-/* ---- buttons ---- */
+/* ---- buttons (brand kit: Safety Yellow primary carries Shift Blue text) ---- */
 .mkt-btn {
   display: inline-flex;
   align-items: center;
@@ -153,6 +137,7 @@ body {
 .mkt-section__title {
   font-size: var(--text-2xl);
   margin-bottom: var(--space-2);
+  color: var(--text-heading);
 }
 .mkt-section__sub {
   color: var(--text-secondary);
@@ -167,7 +152,7 @@ body {
 .mkt-panel {
   background: var(--surface-card);
   border: var(--border-hairline) solid var(--border-subtle);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   padding: var(--space-7);
   display: flex;
   flex-direction: column;
@@ -175,6 +160,7 @@ body {
 }
 .mkt-panel__title {
   font-size: var(--text-xl);
+  color: var(--text-heading);
 }
 .mkt-panel__list {
   list-style: none;
@@ -210,6 +196,91 @@ body {
   align-self: flex-start;
 }
 
+/* ---- pricing cards ---- */
+.mkt-price-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+}
+.mkt-price-card {
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  display: grid;
+  gap: var(--space-2);
+}
+.mkt-price-card--featured {
+  border: var(--border-medium) solid var(--border-accent);
+}
+.mkt-price-card__name {
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
+  color: var(--text-heading);
+}
+.mkt-price-card__amount {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  color: var(--text-heading);
+}
+.mkt-price-card__blurb {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+.mkt-gst-note {
+  margin-top: var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* ---- legal / compliance article ---- */
+.mkt-legal {
+  padding-block: var(--space-10) var(--space-11);
+}
+.mkt-legal__inner {
+  max-width: var(--reading-max);
+  display: grid;
+  gap: var(--space-5);
+}
+.mkt-legal h1 {
+  font-size: var(--text-3xl);
+  color: var(--text-heading);
+}
+.mkt-legal h2 {
+  font-size: var(--text-xl);
+  color: var(--text-heading);
+  margin-top: var(--space-6);
+}
+.mkt-legal p,
+.mkt-legal li {
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+}
+.mkt-legal ul {
+  padding-left: var(--space-6);
+  display: grid;
+  gap: var(--space-2);
+}
+.mkt-legal__updated {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.mkt-contact-card {
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  display: grid;
+  gap: var(--space-2);
+}
+.mkt-contact-card address {
+  font-style: normal;
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
 /* ---- footer ---- */
 .mkt-footer {
   margin-top: auto;
@@ -227,6 +298,22 @@ body {
   font-size: var(--text-sm);
   max-width: 60ch;
 }
+.mkt-footer__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+}
+.mkt-footer__links a {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+.mkt-footer__contact {
+  font-style: normal;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  max-width: 80ch;
+}
 .mkt-footer__meta {
   display: flex;
   flex-wrap: wrap;
@@ -241,5 +328,8 @@ body {
   }
   .mkt-nav {
     gap: var(--space-4);
+  }
+  .mkt-nav a {
+    font-size: var(--text-xs);
   }
 }

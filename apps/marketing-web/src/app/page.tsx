@@ -1,4 +1,6 @@
-import { BadaBhaiLogo } from "../components/logo";
+import { SiteHeader } from "../components/site-header";
+import { SiteFooter } from "../components/site-footer";
+import { PRICING, inr } from "../site-config";
 
 /**
  * CTA DESTINATIONS — PLACEHOLDER, pending a product decision.
@@ -25,17 +27,7 @@ export default function HomePage() {
         Skip to content
       </a>
 
-      <header className="mkt-header">
-        <div className="mkt-container mkt-header__inner">
-          <a href="/" aria-label="BadaBhai home">
-            <BadaBhaiLogo />
-          </a>
-          <nav className="mkt-nav" aria-label="Primary">
-            <a href="#workers">For workers</a>
-            <a href="#employers">For employers</a>
-          </nav>
-        </div>
-      </header>
+      <SiteHeader />
 
       <main id="main-content">
         <section className="mkt-hero">
@@ -134,21 +126,37 @@ export default function HomePage() {
             </div>
           </div>
         </section>
+
+        <section className="mkt-section" aria-labelledby="employer-pricing-title">
+          <div className="mkt-container">
+            <div className="mkt-section__head">
+              <h2 className="mkt-section__title" id="employer-pricing-title">
+                Transparent employer pricing, in rupees
+              </h2>
+              <p className="mkt-section__sub">
+                Contact-credit packs, postings, boosts, capacity, and managed hiring — all in
+                INR, exclusive of 18% GST. Full detail on the pricing page.
+              </p>
+            </div>
+            <div className="mkt-price-grid">
+              {PRICING.contactPacks.map((t) => (
+                <article key={t.code} className="mkt-price-card">
+                  <h3 className="mkt-price-card__name">{t.name}</h3>
+                  <p className="mkt-price-card__amount">{inr(t.priceInr)}</p>
+                  <p className="mkt-price-card__blurb">{t.blurb} · +18% GST</p>
+                </article>
+              ))}
+            </div>
+            <p className="mkt-gst-note">
+              <a className="mkt-btn mkt-btn--primary" href="/pricing" style={{ marginTop: "var(--space-4)" }}>
+                See full pricing
+              </a>
+            </p>
+          </div>
+        </section>
       </main>
 
-      <footer className="mkt-footer">
-        <div className="mkt-container mkt-footer__inner">
-          <BadaBhaiLogo size={24} />
-          <p className="mkt-footer__tagline">
-            AI-first hiring for blue-collar, grey-collar, industrial-manufacturing, construction,
-            and skilled-trade India. Worker data is collected with consent and shown to employers
-            only as authorized.
-          </p>
-          <p className="mkt-footer__meta">
-            <span>&copy; {new Date().getFullYear()} BadaBhai</span>
-          </p>
-        </div>
-      </footer>
+      <SiteFooter />
     </>
   );
 }
