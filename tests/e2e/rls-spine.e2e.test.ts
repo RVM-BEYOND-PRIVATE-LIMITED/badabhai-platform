@@ -302,6 +302,9 @@ const LOCKED_TABLES = [
   // time). RLS+FORCE+REVOKE in the hand-written tail of `*_rvm_applicant_waivers`.
   "rvm_applicant_waivers",
   "rvm_waiver_uses",
+  // #2778: the last day each waiver applies (opaque waiver / tenant ids, a date and a time).
+  // RLS+FORCE+REVOKE in the hand-written tail of `*_rvm_waiver_end_dates`.
+  "rvm_waiver_end_dates",
   // #2750 item 7: the couldn't-reach cases (opaque unlock / tenant / worker / login / admin ids,
   // a closed status, an integer and times) and the desk's call attempts (ids, a closed result
   // code, a time). RLS+FORCE+REVOKE in the hand-written tail of `*_contact_reach_cases`.

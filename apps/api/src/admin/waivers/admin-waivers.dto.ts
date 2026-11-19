@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WaiverEndDateSchema } from "../../campus-link/campus-link.contract";
 import { AdminPayerReasonTextSchema } from "../admin-payer-logins.dto";
 
 /**
@@ -8,6 +9,9 @@ import { AdminPayerReasonTextSchema } from "../admin-payer-logins.dto";
  * (`scope: company`) or ONE job (`scope: job`, with `posting_id`). The admin is the session's
  * (`@CurrentAdmin().id`); no body field names one. `reason_text` (15–500 characters, no hard
  * identifiers) is stored on the waiver and on the `audit_logs` row of the same transaction.
+ *
+ * #2778 `ends_on` (optional, with `active: true` only, while RVM_WAIVER_END_DATES_ENABLED is on):
+ * the last day (`YYYY-MM-DD`, India time, today or later) the new waiver applies.
  */
 export const AdminSetWaiverSchema = z
   .object({
@@ -16,11 +20,16 @@ export const AdminSetWaiverSchema = z
     posting_id: z.string().uuid().optional(),
     active: z.boolean(),
     reason_text: AdminPayerReasonTextSchema,
+    ends_on: WaiverEndDateSchema.optional(),
   })
   .strict()
   .refine((b) => (b.scope === "job") === (b.posting_id !== undefined), {
     message: "posting_id is required for a job waiver and refused for a company waiver",
     path: ["posting_id"],
+  })
+  .refine((b) => b.active || b.ends_on === undefined, {
+    message: "ends_on is only sent with active: true",
+    path: ["ends_on"],
   });
 export type AdminSetWaiverDto = z.infer<typeof AdminSetWaiverSchema>;
 
@@ -52,6 +61,10 @@ export interface AdminWaiverResponse {
   readonly cleared_by_label: string | null;
   readonly clear_reason: string | null;
   readonly waived_opens: number;
+  /** #2778 — the last day it applies (`YYYY-MM-DD`, India time); null when it runs until cleared. */
+  readonly ends_on: string | null;
+  /** #2778 — its last day has passed: it frees nobody, though `active` stays true until cleared. */
+  readonly ended: boolean;
 }
 
 /** `PUT /admin/waivers`: the scope's state after the call (as the Campus route answers it). */

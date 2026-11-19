@@ -57,6 +57,7 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 | 409    | `REQUEST_IN_PROGRESS`        | The same `POST job-postings` key while the first request still runs                   | Yes, after a pause |
 | 409    | `DECISION_NOT_ALLOWED`       | The drive request's `status` (in the body) allows no such decision                    | No                 |
 | 409    | `COMPANY_WITHDRAWN`          | The request's company is no longer verified, or is suspended or archived              | Once reinstated    |
+| 409    | `WAIVER_END_DATE_DIFFERS`    | `PUT waivers`: the waiver in force has another end date (or none); clear, then set   | No, not same body  |
 | 429    | `RATE_LIMITED`               | Over the per-minute cap                                                               | Yes, after a pause |
 | 503    | `RVM_UNAVAILABLE`            | RVM's Student API did not answer; nothing was created                                 | Yes, same key      |
 
@@ -428,6 +429,16 @@ the company found only by search (a named-company grant) is not covered.
   member's own words (up to 500 characters). The same holds for a clear: who cleared it and why.
 - An unknown or barred `company_id`, or a `posting_id` that is not that company's, is a neutral 404.
 - `Idempotency-Key` is required, as on every write.
+- **`ends_on`** (optional, #2778; only with `active: true`): the LAST DAY the new waiver applies,
+  `YYYY-MM-DD` in India time, today or later. From the next day the waiver frees nobody: the company
+  is charged the normal contact cost again, the waiver drops out of `GET waivers` and answers
+  `"ended": true`. Nothing is deleted. Leave it out for a waiver that runs until cleared. Accepted
+  only once BadaBhai switches end dates on (`RVM_WAIVER_END_DATES_ENABLED`); until then a body with
+  `ends_on` is a 400 `VALIDATION_FAILED`. To change an end date, clear and set again: a set whose
+  `ends_on` differs from the waiver in force (including one present where the other is absent) is
+  a 409 `WAIVER_END_DATE_DIFFERS` and stores nothing. Setting a scope whose waiver has ENDED clears
+  that one (by the same staff member, reason "Ended on …; replaced by a new waiver") and sets the
+  new one.
 
 Answers the scope's state after the call:
 
@@ -450,7 +461,9 @@ Answers the scope's state after the call:
     "cleared_by_ref": null,
     "cleared_by_label": null,
     "clear_reason": null,
-    "waived_opens": 0
+    "waived_opens": 0,
+    "ends_on": "2026-12-15",
+    "ended": false
   }
 }
 ```
@@ -458,16 +471,17 @@ Answers the scope's state after the call:
 `waiver` is the active waiver after a set, the one just cleared after a clear, the newest one of the
 scope when nothing changed and none is active, or `null` when the scope never had one. `source` is
 `admin` for a waiver a BadaBhai super admin set from the admin console (`/admin/waivers`); either
-side may clear either. `waived_opens` counts the contacts the waiver made free so far.
+side may clear either. `waived_opens` counts the contacts the waiver made free so far. `ends_on` is
+the waiver's last day (`null`: it runs until cleared) and `ended` says that day has passed (#2778).
 
 A waived open moves no credit: BadaBhai writes a zero-credit `waived` line on the company's ledger
-and records which waiver paid for it. If a waiver is cleared while an open is in flight, the open is
-refused and the company retries at the normal price.
+and records which waiver paid for it. If a waiver is cleared (or reaches the end of its last day) while an
+open is in flight, the open is refused and the company retries at the normal price.
 
 ### GET waivers
 
-`?company_id=&cursor=&limit=` (limit 1 to 200, default 100). The waivers **in force** (active only),
-newest first, each in the shape above; `company_id` narrows to one company (an unknown one is an
+`?company_id=&cursor=&limit=` (limit 1 to 200, default 100). The waivers **in force** (active, and not past
+their `ends_on`), newest first, each in the shape above; `company_id` narrows to one company (an unknown one is an
 empty page). Answers `{ "waivers": [ ... ], "next_cursor": null }`. Campus keeps its own history in
 `credit_waiver_log`; cleared waivers are read on BadaBhai's admin console.
 

@@ -1,5 +1,7 @@
 import {
+  BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Get,
   HttpCode,
@@ -14,6 +16,9 @@ import { toWaiver } from "../../campus-link/campus-waivers.controller";
 import {
   RvmWaiversService,
   WaiverCompanyNotFoundError,
+  WaiverEndDateDiffersError,
+  WaiverEndDateInvalidError,
+  WaiverEndDatesOffError,
   WaiverPostingNotFoundError,
 } from "../../rvm-waivers/rvm-waivers.service";
 import { AdminAuthGuard, CurrentAdmin, type AuthenticatedAdmin } from "../admin-auth.guard";
@@ -40,6 +45,9 @@ import {
  * everywhere, and 503 with it on and the waiver tables missing. An unknown or barred company, or a
  * job that is not that company's, is a 404. The actor is always `@CurrentAdmin().id`; the change,
  * its `audit_logs` row and its `payer.rvm_waiver_*` event commit together.
+ *
+ * #2778 — with RVM_WAIVER_END_DATES_ENABLED on, a set may carry `ends_on` (400 while off or in the
+ * past; 409 when the waiver in force has another end date). Every waiver shows `ends_on` / `ended`.
  */
 @Controller("admin")
 @UseGuards(AdminAuthGuard, AdminRolesGuard)
@@ -77,6 +85,7 @@ export class AdminWaiversController {
           active: dto.active,
           reason: dto.reason_text,
           actor: { kind: "admin", adminId: admin.id },
+          endsOn: dto.ends_on ?? null,
         },
         ctx,
       );
@@ -88,6 +97,14 @@ export class AdminWaiversController {
     } catch (err) {
       if (err instanceof WaiverCompanyNotFoundError || err instanceof WaiverPostingNotFoundError) {
         throw new NotFoundException();
+      }
+      // #2778 — an end date that cannot be taken (switched off, in the past) is a 400; a waiver in
+      // force with another end date is a 409 (clear it, then set it again).
+      if (err instanceof WaiverEndDatesOffError || err instanceof WaiverEndDateInvalidError) {
+        throw new BadRequestException(err.message);
+      }
+      if (err instanceof WaiverEndDateDiffersError) {
+        throw new ConflictException("the waiver in force has another end date; clear it first");
       }
       throw err;
     }

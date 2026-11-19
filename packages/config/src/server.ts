@@ -1104,6 +1104,17 @@ export const serverEnvSchema = z.object({
   FLOW_CHECK_ENABLED: booleanFromString,
   // The flow check's thresholds, `key=value` pairs (`./flow-check.ts`); empty = every default.
   FLOW_CHECK_THRESHOLDS: flowCheckThresholdsFromString,
+  // END DATES ON THE PLACEMENT TEAM'S WAIVERS (#2778). With it on, a waiver may be set with an
+  // `ends_on` day (the admin route and the Campus route); from the next day (India time) the waiver
+  // no longer frees anyone, so the quote and the open both charge the normal contact cost again.
+  // Nothing is deleted. The dates live in `rvm_waiver_end_dates`.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: nothing names `rvm_waiver_end_dates`, a set that sends
+  // `ends_on` is refused, and every waiver runs until it is cleared. APPLY THE
+  // `rvm_waiver_end_dates` MIGRATION BEFORE TURNING IT ON (on without it: a dated set answers 503
+  // and the reads ignore end dates, logged once). Turning it OFF again makes dated waivers
+  // open-ended until cleared.
+  RVM_WAIVER_END_DATES_ENABLED: booleanFromString,
 
   // ── LEARN label producer (migration 0091): spine events → training labels ──
   // Cadence (hours) of the sweep tick. The cursor + UNIQUE impression key in the store

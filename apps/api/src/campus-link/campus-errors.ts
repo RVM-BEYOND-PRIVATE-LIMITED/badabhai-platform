@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   HttpException,
   NotFoundException,
@@ -14,6 +15,9 @@ import {
 import { RvmStudentApiUnavailableError } from "./rvm-student-api.client";
 import {
   WaiverCompanyNotFoundError,
+  WaiverEndDateDiffersError,
+  WaiverEndDateInvalidError,
+  WaiverEndDatesOffError,
   WaiverPostingNotFoundError,
 } from "../rvm-waivers/rvm-waivers.service";
 
@@ -50,6 +54,18 @@ export function toCampusHttpError(err: unknown): unknown {
   // #2750 item 5: an unknown or barred company, or a job that is not that company's.
   if (err instanceof WaiverCompanyNotFoundError || err instanceof WaiverPostingNotFoundError) {
     return new NotFoundException();
+  }
+  // #2778: an end date BadaBhai cannot take (switched off, in the past) is a validation failure;
+  // a waiver already in force with another end date is a 409 (clear it, then set it again).
+  if (err instanceof WaiverEndDatesOffError || err instanceof WaiverEndDateInvalidError) {
+    return new BadRequestException({
+      code: "VALIDATION_FAILED",
+      message: "Validation failed",
+      issues: [{ path: "ends_on", message: err.message }],
+    });
+  }
+  if (err instanceof WaiverEndDateDiffersError) {
+    return new ConflictException({ code: "WAIVER_END_DATE_DIFFERS" });
   }
   if (err instanceof CampusRefusal) {
     return err.status === 404 ? new NotFoundException() : new ConflictException({ code: err.code });

@@ -726,6 +726,18 @@ NestJS boot assertion).
     `outbox_undelivered_max=0`, `campus_missing_max=0`, `campus_report_max_age_hours=26`. A
     malformed pair, an unknown key or a key given twice fails boot; the deploy preflight refuses the
     same before a container moves. Bridged like the switch (compose `${FLOW_CHECK_THRESHOLDS:-}`).
+  - `RVM_WAIVER_END_DATES_ENABLED` (`booleanFromString`, default off; #2778). Off is today exactly:
+    nothing names `rvm_waiver_end_dates`, a waiver set that sends `ends_on` is refused (admin 400,
+    Campus 400), and every waiver runs until it is cleared. On, `PUT /admin/waivers` and Campus's
+    `PUT waivers` accept an optional `ends_on` (`YYYY-MM-DD`, today or later in India time): the
+    last day the waiver applies. From the next day the quote and the open both charge the normal
+    contact cost, the in-force lists leave the waiver out, and nothing is deleted. APPLY THE
+    `rvm_waiver_end_dates` MIGRATION BEFORE TURNING IT ON (on without it: a dated set answers 503
+    and the reads ignore end dates, logged once). Turning it off again makes dated waivers
+    open-ended until cleared. Bridged through the GitHub `production` environment secret of the
+    same name (compose `${RVM_WAIVER_END_DATES_ENABLED:-false}` on `api`, `ci.yml` `env:` +
+    `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`); values lowercase
+    `true`/`false`/`1`/`0`/empty only.
   - `ADMIN_AI_TRACE_READ_ENABLED` (`booleanFromString`, default off; #2739). Off is today exactly:
     `GET /admin/ai-traces` and `GET /admin/ai-traces/:id` are a neutral 404 for every role, so the
     admin portal's AI calls tab shows "unavailable". On, `read_ai_traces` (super_admin only) reads

@@ -1745,6 +1745,20 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "grant lets any PostgREST role read which company opened which RVM applicant for free, " +
       "or rewrite the count the placement team reads",
   },
+  {
+    id: "0192-rvm-waiver-end-dates-rls",
+    migration: "0192_rvm_waiver_end_dates",
+    kind: "rls",
+    table: "rvm_waiver_end_dates",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides when a placement-team waiver stops freeing a company's RVM " +
+      "applicants; an open grant lets any PostgREST role push a waiver's end date out (free " +
+      "opens after the placement team meant them to stop) or read which companies are waived",
+  },
   // #2887: the bulk student move. Every statement naming these tables asks first whether
   // `student_visibility` exists (the reach statements key on that alone; search, the open gate and
   // the admin routes also wait for STUDENT_MOVE_ENABLED), so a deploy ahead of the migration

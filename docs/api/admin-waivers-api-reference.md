@@ -37,9 +37,13 @@ Query (strict): `company_id` (uuid, optional), `include_cleared` (`true` / `fals
   "cleared_by_ref": null,
   "cleared_by_label": null,
   "clear_reason": null,
-  "waived_opens": 3
+  "waived_opens": 3,
+  "ends_on": "2026-12-15",
+  "ended": false
 }
 ```
+
+`ends_on` (#2778) is the last day the waiver applies (`YYYY-MM-DD`, India time), `null` when it runs until cleared; `ended` is `true` once that day has passed (it then frees nobody, but stays `active` until cleared). Without `include_cleared` the list shows only waivers in force, so an ended one appears only with `include_cleared=true`.
 
 `source` is `campus` (set from Campus) or `admin`. `set_by_label` / `cleared_by_label` are the staff names, stored encrypted and decrypted for this read; `null` when there is none (an admin with no stored name).
 
@@ -53,6 +57,7 @@ Query (strict): `company_id` (uuid, optional), `include_cleared` (`true` / `fals
 - `active: true` sets, `active: false` clears. Idempotent by state: setting an active waiver or clearing a cleared one writes nothing and answers `changed: false`.
 - `reason_text`: 15–500 characters, no hard identifiers (the shared admin reason rule).
 - The admin is the session's; no body field names one.
+- `ends_on` (optional, #2778, only with `active: true`): `YYYY-MM-DD`, today or later in India time — the last day the new waiver applies. From the next day the quote and the open both charge the normal contact cost; nothing is deleted. `400` while `RVM_WAIVER_END_DATES_ENABLED` is off or for a past day; `503` with the switch on and the `rvm_waiver_end_dates` migration missing; `409` when the waiver in force has another end date (or none where one is sent, or the reverse): clear it and set it again. Setting a scope whose waiver has ended clears that one (cleared by you, reason "Ended on …; replaced by a new waiver") and sets the new one. The `audit_logs` row of a dated set carries `ends_on`.
 
 `200 { active, changed, waiver: Waiver | null }`. `404` for an unknown or barred company, or a posting that is not that company's.
 

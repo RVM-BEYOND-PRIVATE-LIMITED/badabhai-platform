@@ -1281,6 +1281,17 @@ describe("loadServerConfig", () => {
     });
   });
 
+  describe("end dates on the placement team's waivers (#2778)", () => {
+    it("RVM_WAIVER_END_DATES_ENABLED is OFF by default and for the empty string", () => {
+      // Off: nothing names rvm_waiver_end_dates and every waiver runs until it is cleared.
+      expect(loadServerConfig({}).RVM_WAIVER_END_DATES_ENABLED).toBe(false);
+      expect(loadServerConfig({ RVM_WAIVER_END_DATES_ENABLED: "" }).RVM_WAIVER_END_DATES_ENABLED).toBe(false);
+      expect(loadServerConfig({ RVM_WAIVER_END_DATES_ENABLED: "0" }).RVM_WAIVER_END_DATES_ENABLED).toBe(false);
+      expect(loadServerConfig({ RVM_WAIVER_END_DATES_ENABLED: "true" }).RVM_WAIVER_END_DATES_ENABLED).toBe(true);
+      expect(() => loadServerConfig({ RVM_WAIVER_END_DATES_ENABLED: "yes" })).toThrow();
+    });
+  });
+
   describe('the monthly "still looking?" check (#2753 item 5)', () => {
     it.each(["STILL_LOOKING_CHECK_ENABLED", "STILL_LOOKING_PUSH_ENABLED"] as const)(
       "%s is OFF by default and for the empty string",

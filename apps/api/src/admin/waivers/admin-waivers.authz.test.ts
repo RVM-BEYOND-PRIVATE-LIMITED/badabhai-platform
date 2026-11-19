@@ -1,6 +1,8 @@
 import "reflect-metadata";
 import { describe, expect, it, vi } from "vitest";
 import {
+  BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
   UnauthorizedException,
@@ -12,6 +14,9 @@ import { AdminAuthGuard, type AuthenticatedAdmin } from "../admin-auth.guard";
 import { ADMIN_CAPABILITY_KEY, AdminRolesGuard } from "../admin-roles.guard";
 import {
   WaiverCompanyNotFoundError,
+  WaiverEndDateDiffersError,
+  WaiverEndDateInvalidError,
+  WaiverEndDatesOffError,
   WaiverPostingNotFoundError,
 } from "../../rvm-waivers/rvm-waivers.service";
 import { AdminWaiversController } from "./admin-waivers.controller";
@@ -103,9 +108,36 @@ describe("#2750 /admin/waivers — the controller", () => {
         active: true,
         reason: REASON,
         actor: { kind: "admin", adminId: "session-admin" },
+        endsOn: null,
       },
       {},
     );
+  });
+
+  it("#2778: ends_on is passed through as the end date", async () => {
+    const { service, controller: c } = controller();
+    await c.setWaiver(
+      admin("super_admin"),
+      { scope: "company", company_id: COMPANY, active: true, reason_text: REASON, ends_on: "2026-12-31" },
+      {} as never,
+    );
+    expect(service.set).toHaveBeenCalledWith(expect.objectContaining({ endsOn: "2026-12-31" }), {});
+  });
+
+  it.each([
+    ["switched off", new WaiverEndDatesOffError(), BadRequestException],
+    ["before today", new WaiverEndDateInvalidError("ends_on is before today (India time)"), BadRequestException],
+    ["another end date in force", new WaiverEndDateDiffersError(), ConflictException],
+  ] as const)("#2778: an end date %s maps to its status", async (_n, err, status) => {
+    const { service, controller: c } = controller();
+    service.set.mockRejectedValue(err);
+    await expect(
+      c.setWaiver(
+        admin("super_admin"),
+        { scope: "company", company_id: COMPANY, active: true, reason_text: REASON, ends_on: "2026-12-31" },
+        {} as never,
+      ),
+    ).rejects.toBeInstanceOf(status);
   });
 
   it("an unknown company or a posting not that company's is a 404", async () => {
@@ -149,6 +181,16 @@ describe("#2750 /admin/waivers — the body", () => {
         ...valid,
         reason_text: "Asked on a call with 9876543210 today",
       }).success,
+    ).toBe(false);
+  });
+
+  it("#2778: ends_on is a real YYYY-MM-DD day, sent only with active: true", () => {
+    expect(AdminSetWaiverSchema.safeParse({ ...valid, ends_on: "2026-12-31" }).success).toBe(true);
+    for (const bad of ["2026-02-30", "31-12-2026", "2026-12-31T00:00:00Z", "", 20261231]) {
+      expect(AdminSetWaiverSchema.safeParse({ ...valid, ends_on: bad }).success, String(bad)).toBe(false);
+    }
+    expect(
+      AdminSetWaiverSchema.safeParse({ ...valid, active: false, ends_on: "2026-12-31" }).success,
     ).toBe(false);
   });
 

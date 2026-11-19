@@ -61,7 +61,7 @@ import { payerPhoneProofs } from "./payer-phone-proof";
 import { numbersRecomputeLog, numbersWeekly } from "./numbers-weekly";
 import { creditCallLog } from "./credit-call-log";
 import { creditRulesConfig } from "./credit-rules";
-import { rvmApplicantWaivers, rvmWaiverUses } from "./rvm-waivers";
+import { rvmApplicantWaivers, rvmWaiverEndDates, rvmWaiverUses } from "./rvm-waivers";
 import { contactReachAttempts, contactReachCases } from "./contact-reach";
 import { paymentRefunds } from "./payment-refunds";
 import { jobPostingChoices } from "./job-posting-choice";
@@ -583,6 +583,8 @@ export const schema = {
   // #2750 item 5 - the placement team's waivers and the opens they paid for (read only while CREDIT_RULES_ROLLOUT is on).
   rvmApplicantWaivers,
   rvmWaiverUses,
+  // #2778 - the last day a waiver applies (read and written only while RVM_WAIVER_END_DATES_ENABLED is on).
+  rvmWaiverEndDates,
   // #2750 item 7 - the couldn't-reach cases and the desk's call attempts (read only while CREDIT_RULES_ROLLOUT is on).
   contactReachCases,
   contactReachAttempts,
