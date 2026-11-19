@@ -16,8 +16,11 @@ import { workers } from "./worker";
 // those ids name, so the company name (encrypted at rest on `payers`) is never stored in clear a
 // second time, and a student whose link has ended is never sent.
 //
-// ONCE. `dedupe_key` is unique (destination, posting, worker, stage): moving a student back and
-// marking him again sends nothing new. The row's own id is the `event_id` RVM de-duplicates on.
+// ONCE PER STEP. A mark's signals form a chain per (posting, worker, stage): the first selection
+// holds `dedupe_key` `destination:posting_kind:posting_id:worker_id:stage`; every later row (the
+// withdrawal of an undone mark, #2771, then a fresh selection if the company marks him again) holds
+// that key plus `:after:<predecessor id>`. The key is unique, so a row has at most one successor:
+// one withdrawal per undo, never two. The row's own id is the `event_id` RVM de-duplicates on.
 //
 // `worker_id` cascades on worker deletion (DPDP). RLS forced, every role revoked (migration 0167).
 // ---------------------------------------------------------------------------
@@ -26,8 +29,15 @@ import { workers } from "./worker";
 export const OUTBOUND_SIGNAL_DESTINATIONS = ["rvm_selection_events"] as const;
 export type OutboundSignalDestination = (typeof OUTBOUND_SIGNAL_DESTINATIONS)[number];
 
-/** What a signal says. */
-export const OUTBOUND_SIGNAL_KINDS = ["applicant_selected", "applicant_hired"] as const;
+/**
+ * What a signal says. `applicant_mark_withdrawn` (#2771, migration 0191): a selected or hired mark
+ * RVM was sent has been undone by the company.
+ */
+export const OUTBOUND_SIGNAL_KINDS = [
+  "applicant_selected",
+  "applicant_hired",
+  "applicant_mark_withdrawn",
+] as const;
 export type OutboundSignalKind = (typeof OUTBOUND_SIGNAL_KINDS)[number];
 
 /**
@@ -41,7 +51,10 @@ export type OutboundSignalStatus = (typeof OUTBOUND_SIGNAL_STATUSES)[number];
 /**
  * Why the last attempt did not deliver, or why the row was given up. A closed code, never a response
  * body. `abandoned`: claimed the maximum number of times without an outcome (a sender crashing on
- * it).
+ * it). The last three are #2771's (migration 0191), each a `cancelled` row RVM never needed:
+ * `mark_never_sent` — a withdrawal of a mark RVM never received; `mark_restored` — a withdrawal
+ * whose mark was given back before it went; `mark_already_sent` — a fresh selection RVM already
+ * holds, because the withdrawal before it never went.
  */
 export const OUTBOUND_SIGNAL_FAILURES = [
   "not_configured",
@@ -56,6 +69,9 @@ export const OUTBOUND_SIGNAL_FAILURES = [
   "mark_undone",
   "worker_inactive",
   "abandoned",
+  "mark_never_sent",
+  "mark_restored",
+  "mark_already_sent",
 ] as const;
 export type OutboundSignalFailure = (typeof OUTBOUND_SIGNAL_FAILURES)[number];
 
@@ -66,7 +82,10 @@ export const outboundSignals = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     destination: text("destination").$type<OutboundSignalDestination>().notNull(),
     kind: text("kind").$type<OutboundSignalKind>().notNull(),
-    /** `destination:posting_kind:posting_id:worker_id:stage`. One signal per mark, ever. */
+    /**
+     * `destination:posting_kind:posting_id:worker_id:stage` for a mark's first signal, plus
+     * `:after:<predecessor id>` for each later one (#2771). One successor per row, ever.
+     */
     dedupeKey: text("dedupe_key").notNull().unique("outbound_signals_dedupe_key_uq"),
     /** The worker the mark is about. Cascades on erasure; also the sweep's link re-check. */
     workerId: uuid("worker_id")
@@ -90,7 +109,10 @@ export const outboundSignals = pgTable(
     // Backs the `worker_id` ON DELETE CASCADE: without it every worker erasure scans the table.
     index("outbound_signals_worker_id_idx").on(t.workerId),
     check("outbound_signals_destination_chk", sql`${t.destination} IN ('rvm_selection_events')`),
-    check("outbound_signals_kind_chk", sql`${t.kind} IN ('applicant_selected', 'applicant_hired')`),
+    check(
+      "outbound_signals_kind_chk",
+      sql`${t.kind} IN ('applicant_selected', 'applicant_hired', 'applicant_mark_withdrawn')`,
+    ),
     check(
       "outbound_signals_status_chk",
       sql`${t.status} IN ('pending', 'delivered', 'dead', 'cancelled')`,
@@ -99,7 +121,7 @@ export const outboundSignals = pgTable(
     check("outbound_signals_payload_chk", sql`jsonb_typeof(${t.payload}) = 'object'`),
     check(
       "outbound_signals_failure_chk",
-      sql`${t.lastFailure} IS NULL OR ${t.lastFailure} IN ('not_configured', 'timeout', 'network', 'http_status', 'contract', 'not_available', 'rejected', 'link_inactive', 'context_missing', 'mark_undone', 'worker_inactive', 'abandoned')`,
+      sql`${t.lastFailure} IS NULL OR ${t.lastFailure} IN ('not_configured', 'timeout', 'network', 'http_status', 'contract', 'not_available', 'rejected', 'link_inactive', 'context_missing', 'mark_undone', 'worker_inactive', 'abandoned', 'mark_never_sent', 'mark_restored', 'mark_already_sent')`,
     ),
     check(
       "outbound_signals_delivered_chk",

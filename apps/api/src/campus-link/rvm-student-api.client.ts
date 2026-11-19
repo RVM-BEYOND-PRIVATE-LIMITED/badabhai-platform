@@ -121,6 +121,29 @@ export const RvmSelectionEventBodySchema = z.strictObject({
 });
 export type RvmSelectionEventBody = z.input<typeof RvmSelectionEventBodySchema>;
 
+/**
+ * #2771 — the body BadaBhai sends when a company undoes a selected or hired mark RVM was sent:
+ * `{event_id, withdraws_event_id, status: "withdrawn", date}`, to the same route, de-duplicated on
+ * `event_id` like any selection event. `withdraws_event_id` is the `event_id` of the selection
+ * event RVM accepted, which already names the student, the company and the job, so this body
+ * carries no student reference, no name and no title.
+ *
+ * NOT YET ACCEPTED BY RVM: Scheduler_Backend's route parses `status` as `selected | hired` only
+ * (`student/routes/internal.js`, checked 19 Nov 2026), so today it answers 400 and the sender
+ * records the withdrawal `dead` / `rejected`. A dead withdrawal is re-queued by hand once RVM
+ * accepts it (the sender re-checks everything before sending).
+ */
+export const RvmSelectionWithdrawalBodySchema = z.strictObject({
+  /** The withdrawal's own `outbound_signals` row id: RVM de-duplicates on it. */
+  event_id: z.string().refine(isCanonicalUuid, "must be a uuid"),
+  /** The `event_id` of the selection event being withdrawn. */
+  withdraws_event_id: z.string().refine(isCanonicalUuid, "must be a uuid"),
+  status: z.literal("withdrawn"),
+  /** The day of the undo, India time. */
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+export type RvmSelectionWithdrawalBody = z.input<typeof RvmSelectionWithdrawalBodySchema>;
+
 /** What RVM made of one selection event. Anything retryable throws instead. */
 export type RvmSelectionEventOutcome =
   | { kind: "accepted" }
@@ -233,6 +256,26 @@ export class RvmStudentApiClient {
    */
   async postSelectionEvent(body: RvmSelectionEventBody): Promise<RvmSelectionEventOutcome> {
     const event = RvmSelectionEventBodySchema.parse(body);
+    return this.postEvent(event.event_id, event);
+  }
+
+  /**
+   * #2771 — tells RVM a mark it was sent has been undone ({@link RvmSelectionWithdrawalBodySchema}),
+   * on the selection-event route, with exactly {@link postSelectionEvent}'s outcomes and retries.
+   * The body holds ids, a status and a day; it is still never logged.
+   */
+  async postSelectionWithdrawal(
+    body: RvmSelectionWithdrawalBody,
+  ): Promise<RvmSelectionEventOutcome> {
+    const event = RvmSelectionWithdrawalBodySchema.parse(body);
+    return this.postEvent(event.event_id, event);
+  }
+
+  /** One POST to the selection-event route, keyed by `eventId`. */
+  private async postEvent(
+    eventId: string,
+    event: Record<string, unknown>,
+  ): Promise<RvmSelectionEventOutcome> {
     const base = this.config.RVM_STUDENT_API_BASE_URL;
     const token = this.config.RVM_STUDENT_API_TOKEN;
     if (!base || !token) throw new RvmStudentApiUnavailableError("not_configured");
@@ -244,7 +287,7 @@ export class RvmStudentApiClient {
         method: "POST",
         headers: {
           [CAMPUS_SERVICE_TOKEN_HEADER]: token,
-          [CAMPUS_IDEMPOTENCY_KEY_HEADER]: event.event_id,
+          [CAMPUS_IDEMPOTENCY_KEY_HEADER]: eventId,
           "content-type": "application/json",
           accept: "application/json",
         },

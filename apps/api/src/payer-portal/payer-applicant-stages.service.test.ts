@@ -106,6 +106,7 @@ function make(
       over.signals === "unavailable" ? "unavailable" : over.signals === true ? "on" : "off",
     ),
     recordMark: vi.fn(async (_mark: Record<string, unknown>, _tx: unknown) => "queued" as const),
+    recordUndo: vi.fn(async (_mark: Record<string, unknown>, _tx: unknown) => "queued" as const),
   };
   const hireWrite = { changed: true, hire: null };
   const hires = {
@@ -743,16 +744,19 @@ describe("#2747 item 8 — the RVM selection signal is queued IN the stage trans
     expect(d.outbound.recordMark).not.toHaveBeenCalled();
   });
 
-  it("a no-op re-send, a move out, and the first three stages queue nothing", async () => {
+  it("a no-op re-send and the first three stages queue nothing", async () => {
     const d = make({ outcomeStages: true, signals: true });
     await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
     d.outbound.recordMark.mockClear();
     d.outbound.signalsStateFor.mockClear();
     await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW); // no-op
-    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW); // out
-    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "passed", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT_2, "shortlist", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT_2, "passed", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT_2, "new", CTX, NOW);
     expect(d.outbound.recordMark).not.toHaveBeenCalled();
-    // Only the no-op is an outcome stage, so only it read the switch.
+    expect(d.outbound.recordUndo).not.toHaveBeenCalled();
+    // Only the no-op is an outcome stage, so only it read the switch: a move among the first
+    // three stages never does.
     expect(d.outbound.signalsStateFor).toHaveBeenCalledTimes(1);
   });
 
@@ -778,6 +782,91 @@ describe("#2747 item 8 — the RVM selection signal is queued IN the stage trans
     await expect(
       d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW),
     ).rejects.toThrow("relation does not exist");
+  });
+});
+
+describe("#2771 — undoing a mark queues its withdrawal IN the stage transaction", () => {
+  it("selected → shortlist: one withdrawal of `selected`, on the undo's transaction", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW);
+    expect(d.outbound.recordUndo).toHaveBeenCalledOnce();
+    const [mark, tx] = d.outbound.recordUndo.mock.calls[0]!;
+    expect(mark).toEqual({
+      postingKind: "company_posting",
+      postingId: POSTING_A,
+      workerId: APPLICANT,
+      stage: "selected",
+      at: NOW,
+    });
+    // The same transaction the undo's stage row and event are written in.
+    expect(tx).toBe(d.emitted[1]!.tx);
+    expect(d.outbound.signalsStateFor).toHaveBeenLastCalledWith(KEY_A);
+  });
+
+  it("hired → new undoes both marks; hired → selected only `hired`; selected → hired nothing", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "new", CTX, NOW);
+    expect(d.outbound.recordUndo.mock.calls.map((c) => c[0].stage)).toEqual(["selected", "hired"]);
+
+    d.outbound.recordUndo.mockClear();
+    d.outbound.recordMark.mockClear();
+    await d.svc.setStage(PAYER_A, JOB_A, APPLICANT, "hired", CTX, NOW);
+    await d.svc.setStage(PAYER_A, JOB_A, APPLICANT, "selected", CTX, NOW);
+    expect(d.outbound.recordUndo.mock.calls.map((c) => c[0].stage)).toEqual(["hired"]);
+    // The move into `selected` still records that mark (a duplicate if RVM already has it).
+    expect(d.outbound.recordMark.mock.calls.map((c) => c[0].stage)).toEqual(["hired", "selected"]);
+
+    d.outbound.recordUndo.mockClear();
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT_2, "selected", CTX, NOW);
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT_2, "hired", CTX, NOW);
+    expect(d.outbound.recordUndo).not.toHaveBeenCalled();
+  });
+
+  it("the signal switch off: the undo is saved and nothing is queued", async () => {
+    const d = make({ outcomeStages: true, signals: false });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    await expect(
+      d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "passed", CTX, NOW),
+    ).resolves.toMatchObject({ changed: true, previousStage: "hired" });
+    expect(d.outbound.recordUndo).not.toHaveBeenCalled();
+  });
+
+  it("the outcome switch off still lets a stored mark be undone; the signal switch decides the withdrawal", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    d.rollout.isEnabledFor.mockResolvedValue(false); // outcome_stages switched off afterwards
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW);
+    expect(d.outbound.recordUndo).toHaveBeenCalledOnce();
+  });
+
+  it("the signal switch cannot be read during an undo: 503, nothing queued", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    d.outbound.signalsStateFor.mockResolvedValueOnce("unavailable" as never);
+    const err = await rejection(
+      d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW),
+    );
+    expect(httpOutcome(err).status).toBe(503);
+    expect(d.outbound.recordUndo).not.toHaveBeenCalled();
+  });
+
+  it("the switch is read once per move, even when one move marks and undoes", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "hired", CTX, NOW);
+    d.outbound.signalsStateFor.mockClear();
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    expect(d.outbound.signalsStateFor).toHaveBeenCalledOnce();
+  });
+
+  it("a failure to queue the withdrawal fails the whole undo", async () => {
+    const d = make({ outcomeStages: true, signals: true });
+    await d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "selected", CTX, NOW);
+    d.outbound.recordUndo.mockRejectedValueOnce(new Error("violates check constraint"));
+    await expect(
+      d.svc.setStage(PAYER_A, POSTING_A, APPLICANT, "shortlist", CTX, NOW),
+    ).rejects.toThrow("violates check constraint");
   });
 });
 

@@ -22,7 +22,7 @@ import { PG_CHECK_VIOLATION, sqlStateOf } from "../common/db-error";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
-import { OutboundSignalsService } from "../outbound-signals/outbound-signals.service";
+import { OutboundSignalsService, marksUndone } from "../outbound-signals/outbound-signals.service";
 import { HiresService } from "../hires/hires.service";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { TenantKey } from "../payers/payer-tenant-scope";
@@ -50,6 +50,16 @@ export type OwnedPostingStages = Readonly<
 interface StageWriter {
   readonly actorPayerId: string;
   readonly tenantKey: TenantKey;
+}
+
+/**
+ * #2747 item 8 / #2771 — the company's `outbound_signals` switch, read at most once per move: up
+ * front for a move INTO an outcome stage (so a refusal comes before any write), lazily inside the
+ * transaction for a move that only takes a mark back (so an ordinary New → Shortlist move never
+ * reads it).
+ */
+interface SignalSwitch {
+  state(): Promise<"on" | "off" | "unavailable">;
 }
 
 const logger = new Logger("PayerApplicantStages");
@@ -102,8 +112,14 @@ export function readStoredStage(stored: string | null | undefined): ApplicantSta
  * student, by a company with `OUTBOUND_SIGNALS_ROLLOUT` on, also queues one `outbound_signals` row
  * in the SAME transaction ({@link OutboundSignalsService.recordMark}), so the mark and its signal
  * commit together. A pilot list that cannot be read refuses the mark with a 503 (nothing written).
- * A no-op, a move out, or a BadaBhai worker queues nothing; nothing touches
- * `outbound_signals` (migration 0167) while that switch is off.
+ * A no-op or a BadaBhai worker queues nothing; nothing touches `outbound_signals` (migration 0167)
+ * while that switch is off.
+ *
+ * THE WITHDRAWAL (#2771). A real move that takes a mark back — out of `selected` / `hired`, or
+ * `hired` → `selected` — queues, in the SAME transaction, one withdrawal per undone mark that RVM
+ * was sent or may still be sent ({@link OutboundSignalsService.recordUndo}); a mark never signalled
+ * queues nothing. Behind the same switch, read only when the move undoes a mark: a pilot list that
+ * cannot be read then refuses the move with a 503 and the transaction rolls back.
  *
  * THE HIRE RECORD (#2753 item 9). With `HIRE_RECORDS_ENABLED` on, a REAL move INTO `hired` also
  * confirms the company's hire record ({@link HiresService.recordCompanyMark}) and a real move OUT
@@ -208,11 +224,12 @@ export class PayerApplicantStagesService {
     // #2747 item 8: read before the transaction (a pilot-list read is its own query). A pilot list
     // that cannot be read refuses the mark (nothing written) rather than save it with its signal
     // silently lost; the company retries.
-    let signal = false;
-    if (isApplicantOutcomeStage(stage)) {
-      const state = await this.outbound.signalsStateFor(scope.tenantKey);
-      if (state === "unavailable") throw new ServiceUnavailableException();
-      signal = state === "on";
+    let read: Promise<"on" | "off" | "unavailable"> | null = null;
+    const signals: SignalSwitch = {
+      state: () => (read ??= this.outbound.signalsStateFor(scope.tenantKey)),
+    };
+    if (isApplicantOutcomeStage(stage) && (await signals.state()) === "unavailable") {
+      throw new ServiceUnavailableException();
     }
     const outcome = await this.writeStage(
       key,
@@ -220,7 +237,7 @@ export class PayerApplicantStagesService {
       { actorPayerId, tenantKey: scope.tenantKey },
       ctx,
       now,
-      signal,
+      signals,
     );
 
     return {
@@ -245,10 +262,10 @@ export class PayerApplicantStagesService {
     who: StageWriter,
     ctx: RequestContext,
     now: Date,
-    signal: boolean,
+    signals: SignalSwitch,
   ): Promise<{ previous: ApplicantStage; changed: boolean }> {
     try {
-      return await this.transact(key, stage, who, ctx, now, signal);
+      return await this.transact(key, stage, who, ctx, now, signals);
     } catch (err) {
       if (sqlStateOf(err) === PG_CHECK_VIOLATION && isApplicantOutcomeStage(stage)) {
         logger.error(
@@ -265,7 +282,7 @@ export class PayerApplicantStagesService {
     who: StageWriter,
     ctx: RequestContext,
     now: Date,
-    signal: boolean,
+    signals: SignalSwitch,
   ): Promise<{ previous: ApplicantStage; changed: boolean }> {
     const { actorPayerId } = who;
     return this.repo.withTransaction(async (tx) => {
@@ -281,7 +298,7 @@ export class PayerApplicantStagesService {
         }
         if (await this.repo.insertStage(key, stage, actorPayerId, now, tx)) {
           await this.emitChanged(key, stage, DEFAULT_APPLICANT_STAGE, actorPayerId, ctx, tx);
-          if (signal) await this.queueSignal(key, stage, now, tx);
+          await this.queueSignals(key, stage, DEFAULT_APPLICANT_STAGE, signals, now, tx);
           await this.recordHire(key, stage, DEFAULT_APPLICANT_STAGE, who, ctx, now, tx);
           return { previous: DEFAULT_APPLICANT_STAGE, changed: true } as const;
         }
@@ -294,21 +311,34 @@ export class PayerApplicantStagesService {
       if (previous === stage) return { previous, changed: false } as const;
       await this.repo.updateStage(key, stage, actorPayerId, now, tx);
       await this.emitChanged(key, stage, previous, actorPayerId, ctx, tx);
-      if (signal) await this.queueSignal(key, stage, now, tx);
+      await this.queueSignals(key, stage, previous, signals, now, tx);
       await this.recordHire(key, stage, previous, who, ctx, now, tx);
       return { previous, changed: true } as const;
     });
   }
 
-  /** #2747 item 8 — queue the RVM signal for a saved outcome mark (a no-op for anyone else). */
-  private async queueSignal(
+  /**
+   * The RVM signals of one REAL move (the caller already returned on a no-op), on the stage
+   * transaction. #2747 item 8: a move into `selected` / `hired` records that mark. #2771: each mark
+   * the move takes back ({@link marksUndone}) records its withdrawal. Nothing at all unless the
+   * company's `outbound_signals` switch is on; a switch that cannot be read refuses the move (503,
+   * the transaction rolls back) rather than save an undo RVM would never hear about.
+   */
+  private async queueSignals(
     key: ApplicantStageKey,
     stage: ApplicantStage,
+    previous: ApplicantStage,
+    signals: SignalSwitch,
     at: Date,
     tx: Database,
   ): Promise<void> {
-    if (!isApplicantOutcomeStage(stage)) return;
-    await this.outbound.recordMark({ ...key, stage, at }, tx);
+    const undone = marksUndone(previous, stage);
+    if (!isApplicantOutcomeStage(stage) && undone.length === 0) return;
+    const state = await signals.state();
+    if (state === "unavailable") throw new ServiceUnavailableException();
+    if (state !== "on") return;
+    if (isApplicantOutcomeStage(stage)) await this.outbound.recordMark({ ...key, stage, at }, tx);
+    for (const mark of undone) await this.outbound.recordUndo({ ...key, stage: mark, at }, tx);
   }
 
   /**
