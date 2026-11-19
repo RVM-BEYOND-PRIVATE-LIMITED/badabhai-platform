@@ -727,6 +727,14 @@ NestJS boot assertion).
   the whole consented pool through `POST /payer/candidates/search` (≤ 50 masked rows a page);
   identity still costs an unlock per worker. Not a flag — the route is always on. Runs on its
   default; neither compose file forwards it.
+- **Pre-pay facts daily cap (#2838, ADR-0064 §4, owner ruling 2026-11-19)** —
+  `APPLICANT_FACTS_SEARCH_DAILY_DISTINCT_CAP`, api only (default 300). While
+  `APPLICANT_FACTS_ROLLOUT` is on for a company, the all-candidates search shows the facts before
+  paying (first name, trade, area, salary) for at most this many DISTINCT workers per company per
+  IST day; past it the rows stay and the facts read "not given". Search only, never the applicant
+  lists. Counted in Redis (`prepay_facts:<tenant>:<day>:*`, expiring with the day), fail-closed.
+  `payer.candidate_search_volume_alert` fires at half and at the cap. Runs on its default; neither
+  compose file forwards it.
 - **Admin Engine view demo allow-list (owner ruling 2026-10-06, #2014)** —
   `ADMIN_ENGINE_VIEW_ALLOW_PHONES`, api only. The Engine view (`/admin/match/engine/*`) shows
   DEMO WORKERS ONLY: phones in the reserved demo block `+910000026xxx`, plus the handsets listed

@@ -1441,6 +1441,13 @@ export const serverEnvSchema = z.object({
   // each page is at most 50 masked rows, so the default bounds a login to 6,000 masked rows an
   // hour — identity still costs a credit per worker. Fail-closed (a Redis outage rejects).
   PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR: z.coerce.number().int().positive().default(120),
+  // #2838 (ADR-0064 §4) — per-COMPANY daily cap on the DISTINCT workers the all-candidates search
+  // shows pre-pay facts for (first name, trade, area, expected salary) while APPLICANT_FACTS_ROLLOUT
+  // is on for it. Counted per tenant key per IST day in Redis; a worker already shown today costs
+  // nothing again. Past the cap the rows stay and the facts read "not given". Search only — the
+  // applicant lists are not capped. Fail-closed (a Redis outage shows no facts). Owner ruling
+  // 19 Nov 2026: 300. `payer.candidate_search_volume_alert` fires at half and at the cap.
+  APPLICANT_FACTS_SEARCH_DAILY_DISTINCT_CAP: z.coerce.number().int().positive().default(300),
   // Per-PAYER hourly cap on the Agency Supply Portal INVITE-MINT endpoint (ADR-0022
   // security condition — the invite analogue of XB-G). Minting an invite creates an
   // opaque attribution code; an uncapped account could mint unboundedly to spam/seed

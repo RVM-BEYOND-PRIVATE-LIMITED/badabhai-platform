@@ -2037,6 +2037,14 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminStudentVisibilityBulkChangedPayload,
   },
+  // #2838 (ADR-0064 §4) — a company's all-candidates search reached half, or all, of its daily cap
+  // on distinct workers shown pre-pay facts. Once per company per IST day per level. PII-free: the
+  // company's anchor id, the level, the day and three counts. Appended at the tail per protocol. v1.
+  "payer.candidate_search_volume_alert": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerCandidateSearchVolumeAlertPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

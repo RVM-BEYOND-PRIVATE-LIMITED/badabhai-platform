@@ -6811,6 +6811,28 @@ export type PayerCandidateSearchPerformedPayload = z.infer<
 >;
 
 /**
+ * #2838 (ADR-0064 §4) — the search-volume alert. A company's all-candidates search has shown
+ * pre-pay facts (first name, trade, area, salary) for `distinct_workers` different workers today
+ * (IST), reaching half of `cap` (`level: "half"`) or all of it (`level: "cap"`); past the cap the
+ * facts read "not given". `pages` is the company's facts-on search pages today. Emitted at most
+ * once per company per day per level. PII-FREE: the company's anchor id (`payer_id`, the tenant
+ * key), the day and counts; never a worker id or a filter value.
+ */
+export const PayerCandidateSearchVolumeAlertPayload = z
+  .object({
+    payer_id: uuidSchema,
+    level: z.enum(["half", "cap"]),
+    day: z.string().regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/),
+    cap: z.number().int().positive(),
+    distinct_workers: z.number().int().nonnegative(),
+    pages: z.number().int().nonnegative(),
+  })
+  .strict();
+export type PayerCandidateSearchVolumeAlertPayload = z.infer<
+  typeof PayerCandidateSearchVolumeAlertPayload
+>;
+
+/**
  * [B13] (#2567) — one AI task's fallback share crossed its threshold over the window.
  *
  * WHY A NEW NAME AND NOT A FLAG ON `ai.cost_recorded`. A cost row is a per-call fact;
