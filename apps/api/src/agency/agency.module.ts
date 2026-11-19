@@ -68,7 +68,8 @@ import { WorkerActivityModule } from "../worker-activity/worker-activity.module"
     AgencyInvitesController,
     AgencyPayoutsController,
     AgencyKycOpsController,
-    // ADR-0050 §6.1 step 2 — ops sets match skills on any agency job (InternalService + admin).
+    // ADR-0050 §6.1 step 2 — ops sets match skills on any agency job (InternalService + admin +
+    // the manage_agency_match_skills capability, #2902).
     AgencyJobsOpsController,
     AgencyJobsAdminController,
     // #2207 — the editor's vocabulary + cap read, same capability as the trio above.
