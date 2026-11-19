@@ -344,6 +344,11 @@ const LOCKED_TABLES = [
   // #2891: a Campus-origin posting's BadaBhai worker visibility (a posting id, off/on, the deciding
   // admin id, times). RLS+FORCE+REVOKE in the hand-written tail of `*_job_posting_worker_visibility`.
   "job_posting_worker_visibility",
+  // #2956 / #2957: the admin's decision on where each job shows (a posting id, the audience, a
+  // content hash, the deciding admin id, times) and the trades RVM trains (trade keys, admin ids,
+  // times). RLS+FORCE+REVOKE in the hand-written tail of `*_admin_job_audience`.
+  "job_posting_audience_decisions",
+  "campus_trades",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

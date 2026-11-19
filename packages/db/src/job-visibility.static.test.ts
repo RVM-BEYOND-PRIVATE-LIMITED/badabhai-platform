@@ -86,6 +86,9 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "The column's CHECKs (`job_postings_audience_chk`, `job_postings_twin_audience_chk`, " +
     "`job_postings_rvm_targeting_chk`) and `JOB_POSTING_AUDIENCES` — the closed set the fragment's " +
     "`satisfies` is checked against.",
+  "packages/db/src/schema/admin-job-audience.ts":
+    "#2956 — `jpad_audience_chk` on the admin decision row mirrors `job_postings_audience_chk`. " +
+    "It records what the admin chose; the posting's own column is what every reader obeys.",
   "apps/api/src/campus-link/campus-link.contract.ts":
     "The Campus (RVM-facing) wire contract's `audience` enum. Never on a BadaBhai worker path.",
   // #2746 PR 4 — the company side of the audience. None of these decides a BadaBhai worker read.
