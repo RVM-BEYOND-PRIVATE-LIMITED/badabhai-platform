@@ -53,6 +53,7 @@ export class CampusWaiversController {
           active: body.active,
           reason: body.reason,
           actor: { kind: "campus", staffRef: body.staff_ref, staffLabel: body.staff_label },
+          endsOn: body.ends_on ?? null,
         },
         ctx,
       ),
@@ -102,5 +103,7 @@ export function toWaiver(w: WaiverView): WaiverAnswer {
     cleared_by_label: w.clearedByLabel,
     clear_reason: w.clearReason,
     waived_opens: w.waivedOpens,
+    ends_on: w.endsOn,
+    ended: w.ended,
   };
 }

@@ -169,6 +169,28 @@ describe("Campus contract v1 — the waiver switch (#2750 item 5)", () => {
     expect(CampusWaiversQuerySchema.safeParse({ include_cleared: "true" }).success).toBe(false);
     expect(CampusWaiversQuerySchema.parse({}).limit).toBe(100);
   });
+
+  it("#2778: ends_on is optional, a real YYYY-MM-DD day, and only with active: true", () => {
+    const body = examples.WAIVER_BODY_EXAMPLE;
+    expect(CampusWaiverBodySchema.safeParse(body).success).toBe(true);
+    expect(CampusWaiverBodySchema.safeParse({ ...body, ends_on: "2026-12-31" }).success).toBe(true);
+    for (const bad of ["2026-02-30", "2026-12-31T00:00:00+05:30", "next week", null]) {
+      expect(CampusWaiverBodySchema.safeParse({ ...body, ends_on: bad }).success, String(bad)).toBe(
+        false,
+      );
+    }
+    expect(
+      CampusWaiverBodySchema.safeParse({ ...body, active: false, ends_on: "2026-12-31" }).success,
+    ).toBe(false);
+  });
+
+  it("#2778: every waiver answers ends_on (null when it runs until cleared) and ended", () => {
+    const w = examples.WAIVER_EXAMPLE;
+    expect(CampusWaiverSchema.safeParse({ ...w, ends_on: null, ended: false }).success).toBe(true);
+    const { ended: _ended, ...withoutEnded } = w;
+    expect(CampusWaiverSchema.safeParse(withoutEnded).success).toBe(false);
+    expect(CAMPUS_ERROR_CODES).toContain("WAIVER_END_DATE_DIFFERS");
+  });
 });
 
 describe("Campus contract v1 — responses are open", () => {
@@ -338,7 +360,7 @@ describe("Campus contract v1 — every decision carries its time (#2746, owner 1
 
   it("names DECISION_SUPERSEDED after every code that existed before", () => {
     // Right after POSTING_CHANGED; only #2752 Part E's codes (merged after PR 5), then #2746
-    // PR 6's two drive codes, follow it.
+    // PR 6's two drive codes, then #2778's waiver code, follow it.
     const at = CAMPUS_ERROR_CODES.indexOf("DECISION_SUPERSEDED");
     expect(at).toBe(CAMPUS_ERROR_CODES.indexOf("POSTING_CHANGED") + 1);
     expect(CAMPUS_ERROR_CODES.slice(at + 1)).toEqual([
@@ -346,6 +368,7 @@ describe("Campus contract v1 — every decision carries its time (#2746, owner 1
       "REQUEST_IN_PROGRESS",
       "DECISION_NOT_ALLOWED",
       "COMPANY_WITHDRAWN",
+      "WAIVER_END_DATE_DIFFERS",
     ]);
   });
 });

@@ -78,6 +78,11 @@ export const CAMPUS_ERROR_CODES = [
    * the request can be decided again once the company is reinstated.
    */
   "COMPANY_WITHDRAWN",
+  /**
+   * #2778: `PUT waivers` asked for a waiver that is already in force with ANOTHER end date (or none
+   * where one was sent, or the reverse). Nothing was stored; clear it, then set it again.
+   */
+  "WAIVER_END_DATE_DIFFERS",
 ] as const;
 export type CampusErrorCode = (typeof CAMPUS_ERROR_CODES)[number];
 
@@ -546,6 +551,15 @@ export const CampusSearchGrantSchema = z.object({
 export const CAMPUS_WAIVER_SCOPES = ["company", "job"] as const;
 
 /**
+ * #2778 — a waiver's last day: `YYYY-MM-DD`, a day that exists (2026-02-30 is refused). Whether it
+ * is today or later (India time) is checked by the service. The admin route shares it.
+ */
+export const WaiverEndDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD")
+  .refine(isRealCalendarDate, "not a valid date");
+
+/**
  * The placement team's switch (#2750 item 5, Campus #154 item 9): set (`active: true`) or clear
  * (`active: false`) the waiver of the contact cost for ONE company or ONE job. Under the credit
  * rules a waived company opens an RVM student who applied to it (to the waived job, for a job
@@ -558,6 +572,12 @@ export const CAMPUS_WAIVER_SCOPES = ["company", "job"] as const;
  *
  * `staff_label` is the staff member's name, stored ENCRYPTED and shown only on these routes and
  * BadaBhai's admin console. `reason` is the staff member's own words (up to 500 characters).
+ *
+ * #2778 `ends_on` (optional, with `active: true` only): the LAST DAY (`YYYY-MM-DD`, India time) the
+ * new waiver applies, today or later; from the next day the normal contact cost applies again.
+ * Absent: the waiver runs until cleared. Accepted only once BadaBhai switches end dates on (before
+ * that, 400 `VALIDATION_FAILED`). A waiver already in force with another end date answers 409
+ * `WAIVER_END_DATE_DIFFERS`: clear it and set it again.
  */
 export const CampusWaiverBodySchema = z
   .strictObject({
@@ -568,10 +588,15 @@ export const CampusWaiverBodySchema = z
     staff_ref: StaffRefSchema,
     staff_label: campusLabel(120),
     reason: campusLabel(500),
+    ends_on: WaiverEndDateSchema.optional(),
   })
   .refine((b) => (b.scope === "job") === (b.posting_id !== undefined), {
     message: "posting_id is required for a job waiver and refused for a company waiver",
     path: ["posting_id"],
+  })
+  .refine((b) => b.active || b.ends_on === undefined, {
+    message: "ends_on is only sent with active: true",
+    path: ["ends_on"],
   });
 
 /** One waiver: who set it and why, whether it still stands, and how many opens it paid for. */
@@ -594,6 +619,10 @@ export const CampusWaiverSchema = z.object({
   clear_reason: z.string().nullable(),
   /** Contacts this waiver made free so far ("contacts opened under it", Campus #159 item 6). */
   waived_opens: z.number().int().min(0),
+  /** #2778: the last day it applies (`YYYY-MM-DD`, India time); null when it runs until cleared. */
+  ends_on: z.string().nullable(),
+  /** #2778: its last day has passed; it frees nobody, though `active` stays true until cleared. */
+  ended: z.boolean(),
 });
 
 /**

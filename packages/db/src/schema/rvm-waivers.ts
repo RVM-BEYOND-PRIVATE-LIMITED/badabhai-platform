@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  date,
   index,
   pgTable,
   text,
@@ -119,3 +120,37 @@ export const rvmWaiverUses = pgTable(
 ).enableRLS();
 
 export type RvmWaiverUseRow = typeof rvmWaiverUses.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// rvm_waiver_end_dates — the last day a waiver applies (#2778).
+//
+// A NEW TABLE, NOT A COLUMN on `rvm_applicant_waivers`: the waiver code reads that table with bare
+// selects, so a model column would be named in production before its ALTER (the deploy-safe schema
+// rule). ONE ROW PER DATED WAIVER, written in the transaction that sets the waiver and never
+// changed: a new end date is a clear and a new set, like a new reason. A waiver with no row runs
+// until someone clears it, as before.
+//
+// `ends_on` is the LAST DAY (India time) the waiver applies. From the next day the waiver no longer
+// frees anyone: the quote and the open both price the contact as if there were no waiver, the
+// in-force list leaves it out, and the waiver row itself is untouched (nothing is deleted; it stays
+// `active` until a clear, or until a new waiver of the same scope replaces it).
+//
+// `payer_id` is the waiver's tenant key, copied for the company's own reads. PII-free.
+//
+// READ AND WRITTEN ONLY WHILE `RVM_WAIVER_END_DATES_ENABLED` IS ON. RLS forced, every role revoked
+// (the migration's hand-written tail).
+// ---------------------------------------------------------------------------
+export const rvmWaiverEndDates = pgTable(
+  "rvm_waiver_end_dates",
+  {
+    waiverId: uuid("waiver_id")
+      .primaryKey()
+      .references(() => rvmApplicantWaivers.id, { onDelete: "cascade" }),
+    payerId: uuid("payer_id").notNull(),
+    endsOn: date("ends_on", { mode: "string" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("rvm_waiver_end_dates_payer_idx").on(t.payerId)],
+).enableRLS();
+
+export type RvmWaiverEndDateRow = typeof rvmWaiverEndDates.$inferSelect;

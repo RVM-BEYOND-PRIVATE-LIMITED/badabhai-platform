@@ -187,6 +187,8 @@ export const WAIVER_EXAMPLE: z.input<typeof CampusWaiverSchema> = {
   cleared_by_label: null,
   clear_reason: null,
   waived_opens: 3,
+  ends_on: "2026-12-15",
+  ended: false,
 };
 
 export const WAIVER_RESPONSE_EXAMPLE: z.input<typeof CampusWaiverResponseSchema> = {

@@ -517,6 +517,11 @@ services:
       # every default (`:-` passes the empty string, which the api reads as "all defaults").
       FLOW_CHECK_ENABLED: ${FLOW_CHECK_ENABLED:-false}
       FLOW_CHECK_THRESHOLDS: ${FLOW_CHECK_THRESHOLDS:-}
+      # END DATES ON THE PLACEMENT TEAM'S WAIVERS (#2778). Off is today exactly: nothing names
+      # `rvm_waiver_end_dates`, a set that sends `ends_on` is refused, and every waiver runs until
+      # it is cleared. Apply the `rvm_waiver_end_dates` migration BEFORE switching it on. `:-false`
+      # because this bool rejects "".
+      RVM_WAIVER_END_DATES_ENABLED: ${RVM_WAIVER_END_DATES_ENABLED:-false}
       # THE BULK STUDENT MOVE (#2887). Off is today exactly: nothing names the student-move tables
       # and every /admin/students/* route is a 404. Apply the `student_move` migration before
       # switching it on (on without it: the routes answer 503, the hot reads fall back). `:-false`
