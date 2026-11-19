@@ -154,8 +154,42 @@ export const quotaTopupTierSchema = z.object({
 });
 export type QuotaTopupTier = z.infer<typeof quotaTopupTierSchema>;
 
-/** The five priced product kinds. */
-export const productKindSchema = z.enum(["posting", "boost", "credit_pack", "capacity", "quota_topup"]);
+/**
+ * A Managed Hiring tier (#2751 item 4, brief section 2 and 4B.9): a prepaid, per-job sourcing and
+ * screening service. NOT a payer-catalogue product: `GET /payer/pricing/catalog` never ships it
+ * (agency and contractor accounts must not be served it, and every other company reads it from the
+ * Managed Hiring quote, which decides the tier from the job). PII-free: a code, integer ₹, counts.
+ *
+ * The clock and the target are STAMPED on the order when it is created, so an ops edit here never
+ * changes an order already sold.
+ */
+export const managedHiringTierSchema = z.object({
+  code: codeSchema,
+  priceInr: priceInrSchema,
+  /** Phone-confirmed interested workers the order aims for (brief: at least 5). */
+  targetCount: z.number().int().min(1).max(100),
+  /** Working days from the first working day after payment to the deadline (brief: 7). */
+  workingDays: z.number().int().min(1).max(60),
+  /**
+   * The free extension's end, in calendar days counted from the first working day (brief: 30).
+   * Never before the deadline (checked on the product).
+   */
+  extensionDays: z.number().int().min(1).max(180),
+});
+export type ManagedHiringTier = z.infer<typeof managedHiringTierSchema>;
+
+/** At most this many holidays in the Managed Hiring holiday list. */
+export const MAX_MANAGED_HIRING_HOLIDAYS = 120;
+
+/** The six priced product kinds. */
+export const productKindSchema = z.enum([
+  "posting",
+  "boost",
+  "credit_pack",
+  "capacity",
+  "quota_topup",
+  "managed_hiring",
+]);
 export type ProductKind = z.infer<typeof productKindSchema>;
 
 /**
@@ -188,6 +222,17 @@ export const productSchema = z.discriminatedUnion("kind", [
     kind: z.literal("quota_topup"),
     code: codeSchema,
     tiers: z.array(quotaTopupTierSchema).min(1),
+  }),
+  z.object({
+    kind: z.literal("managed_hiring"),
+    code: codeSchema,
+    tiers: z.array(managedHiringTierSchema).min(1),
+    /**
+     * Days that are not working days on top of Sunday, as IST calendar dates (#2751 item 7). The
+     * owner's ruling (2026-11-18, #2931): no holidays, so the list is empty. Absent = empty, so a
+     * catalogue stored before this field still validates.
+     */
+    holidays: z.array(istCalendarDateSchema).max(MAX_MANAGED_HIRING_HOLIDAYS).optional(),
   }),
 ]);
 export type Product = z.infer<typeof productSchema>;
@@ -292,6 +337,18 @@ export const catalogSchema = z
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate product code: ${p.code}`, path: ["products"] });
       }
       seenProducts.add(p.code);
+      // Managed Hiring: the free extension never ends before the deadline could.
+      if (p.kind === "managed_hiring") {
+        for (const t of p.tiers) {
+          if (t.extensionDays < t.workingDays) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `managed hiring tier ${t.code}: extensionDays must be at least workingDays`,
+              path: ["products"],
+            });
+          }
+        }
+      }
       // Tier codes unique within the product.
       const seenTiers = new Set<string>();
       for (const t of p.tiers) {

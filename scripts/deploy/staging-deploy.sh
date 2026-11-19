@@ -208,6 +208,13 @@ case "${POSTING_CHOICE_ROLLOUT-}" in
     exit 1
     ;;
 esac
+case "${MANAGED_HIRING_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::MANAGED_HIRING_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set MANAGED_HIRING_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
 case "${OUTBOUND_SIGNALS_ROLLOUT-}" in
   "" | off | pilot | on) ;;
   *)

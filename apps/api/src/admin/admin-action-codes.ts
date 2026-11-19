@@ -150,6 +150,12 @@ export const ADMIN_ACTION_CODES = {
   // the admin) and each `payment.refund_status_changed`, ids and codes only.
   payment_refund_requested: "payment_refund_requested",
   payment_refund_retried: "payment_refund_retried",
+  // ── #2751 items 8 and 12 — the Managed Hiring desk: a tracker worker added or removed ───
+  // The `audit_logs` row (entity `managed_hiring_order`) carries the worker, the staff note (add) or
+  // the reason (remove); the spine records `managed_hiring.interest_added|removed` (actor = the
+  // admin), ids and counts only.
+  managed_hiring_interest_added: "managed_hiring_interest_added",
+  managed_hiring_interest_removed: "managed_hiring_interest_removed",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];

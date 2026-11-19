@@ -115,6 +115,8 @@ import { AdminWaiversController } from "./waivers/admin-waivers.controller";
 import { RvmWaiversModule } from "../rvm-waivers/rvm-waivers.module";
 import { AdminReachDeskController } from "./reach-desk/admin-reach-desk.controller";
 import { ReachDeskModule } from "../reach-desk/reach-desk.module";
+import { ManagedHiringModule } from "../managed-hiring/managed-hiring.module";
+import { AdminManagedHiringController } from "./managed-hiring/admin-managed-hiring.controller";
 import { PaymentRefundsModule } from "../payment-refunds/payment-refunds.module";
 import { AdminPaymentRefundsController } from "./payment-refunds/admin-payment-refunds.controller";
 import { AdminStudentsController } from "./students/admin-students.controller";
@@ -243,6 +245,9 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // #2750 items 7 and 12 - the worker desk (`/admin/desk/reach-cases`). ReachDeskModule does not
     // import AdminModule, so no cycle.
     ReachDeskModule,
+    // #2751 items 8 and 12 - the Managed Hiring desk (`/admin/managed-hiring/*`). ManagedHiringModule
+    // does not import AdminModule, so no cycle.
+    ManagedHiringModule,
     // #2750 items 10 and 12 - refunds of real paid packs (`/admin/payment-orders/:id/refund`,
     // `/admin/payment-refunds/*`). PaymentRefundsModule does not import AdminModule.
     PaymentRefundsModule,
@@ -301,6 +306,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminCreditRulesController,
     AdminWaiversController,
     AdminReachDeskController,
+    AdminManagedHiringController,
     AdminPaymentRefundsController,
     AdminStudentsController,
     // #2561 — admin corrections of candidate fields (ADR-0062).

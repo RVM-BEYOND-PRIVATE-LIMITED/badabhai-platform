@@ -141,6 +141,10 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
       "InvoicesService",
       "JobPostingChatService",
       "JobPostingsService",
+      // #2751 items 4 to 13: Managed Hiring resolves the company's tenant (its orders, the wallet
+      // its payment is stamped with). ManagedHiringModule imports PayersModule, which the next case
+      // checks.
+      "ManagedHiringService",
       "PayerAccountService",
       "PayerApplicantInboxService",
       "PayerApplicantStagesService",

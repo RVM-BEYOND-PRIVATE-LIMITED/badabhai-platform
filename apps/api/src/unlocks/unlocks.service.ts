@@ -335,16 +335,43 @@ export class UnlockService {
   ): Promise<{ credits: number; waiverId: string | null }> {
     const facts = await this.repo.readContactCostFacts(tenant, [workerId]);
     const waiver = (await this.waiversFor(tenant, [workerId])).get(workerId) ?? null;
+    const tracked = await this.managedHiringTracked(tenant, [workerId]);
     const row = facts.get(workerId)!;
     const cost = contactCost(
       rules,
-      contactCostFactsOf(row, { forOpen: true, waived: waiver !== null }),
+      contactCostFactsOf(row, {
+        forOpen: true,
+        waived: waiver !== null,
+        managedHiring: tracked.has(workerId),
+      }),
     );
     this.logger.log(
       `unlock price worker=${workerId} credits=${cost.credits} basis=${cost.basis} tenant=${tenant}`,
     );
     // #2750 item 5 — the waiver is recorded as used only when it is what made the open free.
     return { credits: cost.credits, waiverId: cost.basis === "waived" ? waiver!.waiverId : null };
+  }
+
+  /**
+   * #2751 item 11 — which of these workers are on this company's PAID Managed Hiring trackers (the
+   * contact is part of the fee). Read only while the `managed_hiring` switch is on for the company,
+   * so nothing names the tables before their migration; off, or a pilot list that cannot be read,
+   * is none (he costs what the rule says without the order, never less on a guess).
+   */
+  private async managedHiringTracked(
+    tenant: TenantKey,
+    workerIds: readonly string[],
+  ): Promise<Set<string>> {
+    if (this.rollout === undefined || workerIds.length === 0) return new Set();
+    const state = await this.rollout.stateFor("managed_hiring", tenant);
+    if (state === "unavailable") {
+      this.logger.warn(
+        `managed hiring pilot list unreadable; tracker exemption skipped tenant=${tenant}`,
+      );
+      return new Set();
+    }
+    if (state !== "on") return new Set();
+    return this.repo.findManagedHiringTracked(tenant, workerIds);
   }
 
   /** #2750 item 5 — which waiver frees each worker for this company (none without the reader). */
@@ -1344,10 +1371,16 @@ export class UnlockService {
     const facts = await this.repo.readContactCostFacts(tenant, workerIds);
     const now = new Date();
     const waivers = await this.waiversFor(tenant, workerIds);
+    const tracked = await this.managedHiringTracked(tenant, workerIds);
     const quotes = [...facts.entries()].map(([workerId, row]) => {
       const cost = contactCost(
         rules,
-        contactCostFactsOf(row, { forOpen: false, now, waived: waivers.has(workerId) }),
+        contactCostFactsOf(row, {
+          forOpen: false,
+          now,
+          waived: waivers.has(workerId),
+          managedHiring: tracked.has(workerId),
+        }),
       );
       // #2750 item 5 — `waived` (present only when true) lets the button say who made it free.
       return cost.basis === "waived"
@@ -1631,7 +1664,8 @@ export class UnlockService {
         return {
           verified: true,
           payer_id: payerId,
-          balance: result.balanceAfter,
+          // #2751 — a non-pack order (Managed Hiring) credits nothing: the wallet as it stands.
+          balance: result.balanceAfter ?? (await this.repo.getBalance(scope.tenantKey)),
           credits: result.credits,
           pack_code: result.order.packCode,
           credits_returned: result.creditsReturned,
@@ -1747,10 +1781,18 @@ export class UnlockService {
     ctx: RequestContext,
     actorPayerId?: string,
   ): Promise<SettleResult> {
+    // #2751 — a non-pack product's settler (Managed Hiring) emits on the request's ids.
+    const settleInput = {
+      ...input,
+      ctx: {
+        correlationId: ctx.correlationId,
+        ...(ctx.requestId ? { requestId: ctx.requestId } : {}),
+      },
+    };
     // #2749 part 4 — the invoice this settle issued (null: none, or another channel settled).
     let invoiceId: string | null = null;
     const invoiceIssuer = this.invoiceIssuer;
-    const result = await this.payments.settleOrder(input, {
+    const result = await this.payments.settleOrder(settleInput, {
       // #2749 hardening 5 — `payment.held`, on the hold's own transaction (one per order)…
       onHeld: (tx, held, mismatch) => this.emitPaymentHeld(held, mismatch, "held", ctx, tx),
       // …or, for a mismatch reported AFTER the order was paid, the same event with

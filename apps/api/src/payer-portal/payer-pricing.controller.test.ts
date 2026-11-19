@@ -82,8 +82,9 @@ describe("PayerPricingController — GET /payer/pricing/catalog (D-6 + #2085)", 
     expect(res.revision).toBe(3);
     expect(res.source).toBe("db");
     // Every non-credit-pack product ships exactly as the catalog holds it (#2749 item 11 is later).
+    // #2751 item 10 — Managed Hiring is never in the payer catalogue (its quote serves it).
     expect(res.products.filter((p) => p.kind !== "credit_pack")).toEqual(
-      DEFAULT_CATALOG.products.filter((p) => p.kind !== "credit_pack"),
+      DEFAULT_CATALOG.products.filter((p) => p.kind !== "credit_pack" && p.kind !== "managed_hiring"),
     );
     // Credit packs are projected (#2749): same codes, prices, credits and window, in order.
     const packs = creditPackOf(res.products)!;
@@ -358,7 +359,8 @@ describe("GET /payer/pricing/catalog — credit packs on sale only, with GST (#2
     ]);
     const res = await ctrl.getCatalog();
     expect(creditPackOf(res.products)).toBeUndefined();
-    expect(res.products.length).toBe(DEFAULT_CATALOG.products.length - 1);
+    // Less the credit packs (nothing on sale) and Managed Hiring (never in the payer catalogue).
+    expect(res.products.length).toBe(DEFAULT_CATALOG.products.length - 2);
     expect(res.prices.some((p) => p.product_code === "contact_unlock")).toBe(false);
   });
 
@@ -473,7 +475,9 @@ describe("GET /payer/pricing/catalog — credit packs on sale only, with GST (#2
     expect(creditPackOf(view.products)).toBeUndefined();
     expect(view.prices.some((p) => p.product_code === "contact_unlock")).toBe(false);
     // Every other product still shows the default, which is what it would charge.
-    expect(view.products).toEqual(DEFAULT_CATALOG.products.filter((p) => p.kind !== "credit_pack"));
+    expect(view.products).toEqual(
+      DEFAULT_CATALOG.products.filter((p) => p.kind !== "credit_pack" && p.kind !== "managed_hiring"),
+    );
   });
 
   it("#2749: a pack whose GST line cannot be computed is skipped and logged — not a 500 for everyone", async () => {
@@ -649,7 +653,9 @@ describe("GET /payer/pricing/catalog — the dropped products and their switch (
 
   it("switch OFF (the default): every product and its offer ship exactly as before", async () => {
     const view = await catalogWith(false);
-    expect(view.products.map((p) => p.kind)).toEqual(DEFAULT_CATALOG.products.map((p) => p.kind));
+    expect(view.products.map((p) => p.kind)).toEqual(
+      DEFAULT_CATALOG.products.map((p) => p.kind).filter((k) => k !== "managed_hiring"),
+    );
     const plan = view.prices.find(
       (p) => p.product_code === "job_posting" && p.tier_code === "standard",
     );

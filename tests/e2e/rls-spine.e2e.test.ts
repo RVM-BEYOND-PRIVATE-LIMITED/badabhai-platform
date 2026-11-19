@@ -323,6 +323,12 @@ const LOCKED_TABLES = [
   "invoice_number_series",
   "invoices",
   "credit_notes",
+  // #2751 items 4 to 13: Managed Hiring - orders (ids, closed codes, integers, times), the
+  // tracker (ids, a time and a staff note) and callback requests (ids, closed codes, a time).
+  // RLS+FORCE+REVOKE in the hand-written tail of `*_managed_hiring`.
+  "managed_hiring_orders",
+  "managed_hiring_interest",
+  "managed_hiring_callback_requests",
   // #2887: the bulk student move - the import ledger (runs, per-candidate rows, the candidate ->
   // worker map), the per-field source markers and the visibility switch. Ids, closed codes,
   // counts, hashes and times. RLS+FORCE+REVOKE in the hand-written tail of `*_student_move`.

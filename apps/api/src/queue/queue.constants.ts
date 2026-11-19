@@ -88,6 +88,17 @@ export const REACH_DESK_DEADLINE_QUEUE = "reach-desk-deadline";
 export const REACH_DESK_DEADLINE_SCHEDULER_ID = "reach-desk-deadline-sweep";
 
 /**
+ * #2751 item 9 — the Managed Hiring clock: a repeatable tick (every 15 minutes) that moves each open
+ * order past its deadline (met, or extended free) or past its extension's end (met, or closed not
+ * met with an admin alert). Inert while the `managed_hiring` switch is off everywhere. The rule
+ * lives in ManagedHiringService; this queue only supplies the clock.
+ */
+export const MANAGED_HIRING_SWEEP_QUEUE = "managed-hiring-sweep";
+
+/** Stable BullMQ job-scheduler id for the Managed Hiring sweep. */
+export const MANAGED_HIRING_SWEEP_SCHEDULER_ID = "managed-hiring-sweep";
+
+/**
  * LEARN label producer sweep (migration 0091) — drains spine events
  * (feed.shown_v2 / application.submitted / application.skipped) into `learn_labels`
  * for the offline reach-learn calibrator. The repeatable tick carries NO payload: the

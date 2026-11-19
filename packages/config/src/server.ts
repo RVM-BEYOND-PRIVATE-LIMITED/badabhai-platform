@@ -756,6 +756,14 @@ export const serverEnvSchema = z.object({
   // `posting_choice` / `surface`; the table is never named. Needs the job_posting_choices
   // migration applied first. The job goes live on publish whatever this says.
   POSTING_CHOICE_ROLLOUT: featureRolloutMode,
+  // #2751 items 4-13 - Managed Hiring: the prepaid per-job order (quote, checkout, the tracker of
+  // phone-confirmed workers, the working-day clock and its sweep, callback requests). Off for a
+  // company, every /payer/managed-hiring route answers 404 and opening a tracked worker costs what
+  // it always did; off everywhere, the admin routes answer 404 and the sweep idles. The checkout
+  // also needs PAYMENTS_ENABLE_REAL: on the mock path it is not offered at all. An order already
+  // paid still activates if the switch goes back to off (the settle path is never gated). Needs
+  // the managed_hiring migration applied first.
+  MANAGED_HIRING_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER

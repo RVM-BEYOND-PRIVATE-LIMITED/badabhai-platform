@@ -1325,6 +1325,13 @@
       "when": 1795005882527,
       "tag": "0188_invoices",
       "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "7",
+      "when": 1795065078780,
+      "tag": "0189_managed_hiring",
+      "breakpoints": true
     }
   ]
 }

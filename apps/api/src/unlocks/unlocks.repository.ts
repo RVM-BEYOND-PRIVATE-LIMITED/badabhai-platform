@@ -39,8 +39,11 @@ import {
   workerProfileSkills,
   workerSkills,
   workerInstituteLinks,
+  managedHiringInterest,
+  managedHiringOrders,
   RVM_INSTITUTE_CODE,
 } from "@badabhai/db";
+import { MANAGED_HIRING_PAID_STATUSES, type PaymentOrderProductKind } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
 import { findOwnedJobRef, type OwnedJobRef } from "../payers/owned-job-ref";
 import type { TenantKey } from "../payers/payer-tenant-scope";
@@ -392,6 +395,35 @@ export class UnlocksRepository {
       if (row) row.grant = { status: g.status, expiresAt: g.expiresAt };
     }
     return out;
+  }
+
+  /**
+   * #2751 item 11 — which of `workerIds` are on one of this company's PAID Managed Hiring trackers
+   * (an order `active`, `met`, `extended` or `closed_unmet`): opening them is part of the fee, so
+   * the cost rule prices them at 0. The tracker is the company's own read, so the answer is a fact
+   * already on its screen (the cost rule's "facts on the card" rule holds).
+   *
+   * Names `managed_hiring_*`: the caller asks only while the `managed_hiring` switch is on for the
+   * company. A global-pool read (before the advisory-locked transaction, the deadlock rule).
+   */
+  async findManagedHiringTracked(
+    tenant: TenantKey,
+    workerIds: readonly string[],
+  ): Promise<Set<string>> {
+    if (workerIds.length === 0) return new Set();
+    const rows = await this.db
+      .selectDistinct({ workerId: managedHiringInterest.workerId })
+      .from(managedHiringInterest)
+      .innerJoin(managedHiringOrders, eq(managedHiringOrders.id, managedHiringInterest.orderId))
+      .where(
+        and(
+          eq(managedHiringInterest.payerId, tenant),
+          inArray(managedHiringInterest.workerId, [...workerIds]),
+          eq(managedHiringOrders.payerId, tenant),
+          inArray(managedHiringOrders.status, [...MANAGED_HIRING_PAID_STATUSES]),
+        ),
+      );
+    return new Set(rows.map((r) => r.workerId));
   }
 
   /**
@@ -1147,6 +1179,59 @@ export class UnlocksRepository {
     return row;
   }
 
+  /**
+   * #2751 item 6 — a REAL order for a product that is not a credit pack (`managed_hiring`), written
+   * on the caller's transaction so the product's own row (the Managed Hiring order) commits with
+   * it. No pack code, no credits (`payment_orders_pack_code_chk` and `payment_orders_credits_pos_chk`
+   * bind a `credit_pack` order only); the money line is required, as on every real order since
+   * #2749 PR 3. `originJobPostingId` must already be proven the tenant's own.
+   */
+  async createProductOrderWithinTx(
+    tx: Tx,
+    input: {
+      id: string;
+      payerId: TenantKey;
+      productKind: Exclude<PaymentOrderProductKind, "credit_pack">;
+      amountInr: number;
+      providerOrderId: string;
+      money: PaymentOrderMoney;
+      origin?: PaymentOrderOrigin | null;
+      originJobPostingId?: string | null;
+    },
+  ): Promise<PaymentOrder> {
+    const rows = await tx
+      .insert(paymentOrders)
+      .values({
+        id: input.id,
+        payerId: input.payerId,
+        productKind: input.productKind,
+        packCode: null,
+        amountInr: input.amountInr,
+        creditsGranted: 0,
+        provider: RAZORPAY_PROVIDER,
+        providerOrderId: input.providerOrderId,
+        status: "created",
+        taxablePaise: input.money.taxablePaise,
+        gstPaise: input.money.gstPaise,
+        roundOffPaise: input.money.roundOffPaise,
+        totalPaise: input.money.totalPaise,
+        gstRateBps: input.money.gstRateBps,
+        creditValidityDays: null,
+        origin: input.origin ?? null,
+        originJobPostingId: input.originJobPostingId ?? null,
+      })
+      .returning();
+    const row = rows[0];
+    if (row === undefined) throw new Error("Failed to persist payment order");
+    return row;
+  }
+
+  /** Look up an order by its id (our row id). PII-free row. */
+  async findPaymentOrderById(id: string): Promise<PaymentOrder | undefined> {
+    const rows = await this.db.select().from(paymentOrders).where(eq(paymentOrders.id, id)).limit(1);
+    return rows[0];
+  }
+
   /** Look up an order by its provider id (the unique key). PII-free row. */
   async findPaymentOrder(
     providerOrderId: string,
@@ -1193,12 +1278,27 @@ export class UnlocksRepository {
        * `returnedCreditsWindowMonths`). Absent = no return (every other company, today).
        */
       packReturn?: { max: number; windowMonths: number };
+      /**
+       * #2751 item 6 — for an order that is NOT a credit pack: apply the purchase on this
+       * transaction, after the claim (no wallet is credited). Required for such an order: without
+       * it the claim is rolled back by the throw below (fail closed; the webhook redelivers).
+       */
+      settleProduct?: (tx: Tx, claimed: PaymentOrder) => Promise<void>;
     },
   ): Promise<
-    { order: PaymentOrder; balanceAfter: number; packReturn: PackReturnResult | null } | undefined
+    | { order: PaymentOrder; balanceAfter: number | null; packReturn: PackReturnResult | null }
+    | undefined
   > {
     const claimed = await this.claimPaymentOrderPaidWithinTx(tx, input);
     if (!claimed) return undefined;
+    if (claimed.productKind !== "credit_pack") {
+      // A product with nothing to credit: the claim and the product's own change commit together.
+      if (input.settleProduct === undefined) {
+        throw new Error(`no settler for a ${claimed.productKind} order (order_row=${claimed.id})`);
+      }
+      await input.settleProduct(tx, claimed);
+      return { order: claimed, balanceAfter: null, packReturn: null };
+    }
     const grant = await this.creditWalletWithinTx(tx, claimed, {
       credits: claimed.creditsGranted,
       reason: "pack_purchase",

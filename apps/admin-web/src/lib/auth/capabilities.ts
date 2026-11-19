@@ -91,6 +91,9 @@ export const ADMIN_CAPABILITIES = [
   "manage_student_visibility",
   // #2750 — refunds of real paid packs. Vocabulary only: this file carries no role mapping.
   "refund_payments",
+  // #2751 — the Managed Hiring desk (orders and the confirmed-interest tracker).
+  // Vocabulary only: this file carries no role mapping.
+  "work_managed_hiring",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -143,6 +146,7 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   work_reach_desk: "Work the couldn't-reach desk queue",
   manage_student_visibility: "Turn moved RVM students' visibility on or off",
   refund_payments: "Refund a company's paid credit pack",
+  work_managed_hiring: "Work the Managed Hiring desk",
 };
 
 /** Narrow an unknown string to a known capability (anything else is dropped, not trusted). */

@@ -127,9 +127,12 @@ describe("the rules", () => {
     );
   });
 
-  it("the product kind CHECK is PAYMENT_ORDER_PRODUCT_KINDS; a credit-pack order names its pack and grants credits", () => {
+  it("the product kind CHECK as 0176 wrote it (credit_pack only; #2751's migration widens it); a credit-pack order names its pack and grants credits", () => {
+    // A frozen record: 0176 admitted `credit_pack` alone. PAYMENT_ORDER_PRODUCT_KINDS has grown since
+    // (#2751 added `managed_hiring`), and the managed-hiring migration's test pins the widened copy.
+    expect(PAYMENT_ORDER_PRODUCT_KINDS[0]).toBe("credit_pack");
     expect(FLAT).toContain(
-      `ADD CONSTRAINT "payment_orders_product_kind_chk" CHECK ("${T}"."product_kind" IN (${sqlList(PAYMENT_ORDER_PRODUCT_KINDS)}))`,
+      `ADD CONSTRAINT "payment_orders_product_kind_chk" CHECK ("${T}"."product_kind" IN ('credit_pack'))`,
     );
     expect(FLAT).toContain(
       `ADD CONSTRAINT "payment_orders_pack_code_chk" CHECK ("${T}"."product_kind" <> 'credit_pack' OR "${T}"."pack_code" IS NOT NULL)`,

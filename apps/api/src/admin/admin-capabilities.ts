@@ -324,6 +324,17 @@ export const ADMIN_CAPABILITIES = [
    * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
    */
   "refund_payments",
+  /**
+   * #2751 items 8 and 12 — work Managed Hiring orders (`/admin/managed-hiring/*`): read every
+   * company's orders and their trackers, add a worker the desk reached by phone and who confirmed
+   * interest (with a note), remove one, and read the callback queue of jobs above the largest tier.
+   * The same desk work as the couldn't-reach queue, so the same roles (owner ruling 2026-11-18):
+   * super_admin, ops_admin and support. Calling the worker still needs `reveal_pii`, through the
+   * existing reveal.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "work_managed_hiring",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -414,6 +425,9 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   work_reach_desk: ["super_admin", "ops_admin", "support"],
   // #2750 items 10 and 12 — refunds of real paid packs. Owner ruling 2026-11-18: `super_admin` only.
   refund_payments: ["super_admin"],
+  // #2751 items 8 and 12 — the Managed Hiring desk. Owner ruling 2026-11-18: the reach desk's
+  // roles. `analyst` denied (adding a worker to a tracker makes his contact free: a write).
+  work_managed_hiring: ["super_admin", "ops_admin", "support"],
 } as const;
 
 /**

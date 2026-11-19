@@ -983,7 +983,7 @@ export const paymentOrders = pgTable(
     // credit_ledger, which this sits in front of).
     payerId: uuid("payer_id").notNull(),
     // What the order sells (`PAYMENT_ORDER_PRODUCT_KINDS`, #2749 / migration 0176). Defaulted, so
-    // every pre-0176 row and an old build's insert read `credit_pack`. #2751 widens the CHECK.
+    // every pre-0176 row and an old build's insert read `credit_pack`. #2751 widened the CHECK.
     productKind: text("product_kind")
       .$type<PaymentOrderProductKind>()
       .notNull()
@@ -1063,8 +1063,11 @@ export const paymentOrders = pgTable(
     // `PAYMENT_ORDER_STATUSES`, spelled out because a CHECK is static SQL (0176's test pins it).
     check("payment_orders_status_chk", sql`${t.status} IN ('created', 'paid', 'failed', 'held')`),
     // ── 0176 (#2749 item 9) ────────────────────────────────────────────────────
-    // `PAYMENT_ORDER_PRODUCT_KINDS`. #2751 widens it.
-    check("payment_orders_product_kind_chk", sql`${t.productKind} IN ('credit_pack')`),
+    // `PAYMENT_ORDER_PRODUCT_KINDS`. #2751 (migration 0189) widened it to `managed_hiring`.
+    check(
+      "payment_orders_product_kind_chk",
+      sql`${t.productKind} IN ('credit_pack', 'managed_hiring')`,
+    ),
     // A credit-pack order names its pack.
     check(
       "payment_orders_pack_code_chk",

@@ -120,6 +120,11 @@ export class AdminEventsService {
     "ai.spend_cap_exceeded",
     "pace.ops_alert_raised",
     "unlock.cap_exceeded",
+    // #2751 — the two Managed Hiring admin alerts: an order whose free extension ended below
+    // target (closed as not met, no automatic refund), and a job above the largest tier asking
+    // for a call.
+    "managed_hiring.order_closed_unmet",
+    "managed_hiring.callback_requested",
   ] as const;
 
   constructor(

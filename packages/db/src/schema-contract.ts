@@ -2044,6 +2044,52 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       failureMode: `SILENT. The table holds ${holds}`,
     }),
   ),
+  // #2751 items 4 to 13: Managed Hiring. Nothing names the three tables (and nothing writes a
+  // `managed_hiring` payment order) while the `managed_hiring` switch is off for every company (the
+  // default): the routes answer 404, the contact-cost read skips the tracker and the sweep skips. A
+  // deploy ahead of the migration therefore breaks no request, and none is a `table` entry. Listed
+  // for their locks (the 0134 rule). APPLY BEFORE THE SWITCH (migration header). The ids and tags
+  // carry the slot number: regenerated with the migration when the slot moves.
+  {
+    id: "0189-managed-hiring-orders-rls",
+    migration: "0189_managed_hiring",
+    kind: "rls",
+    table: "managed_hiring_orders",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table holds every company's paid Managed Hiring orders and their deadlines; an " +
+      "open grant lets any PostgREST role read them or forge a row that marks an order met",
+  },
+  {
+    id: "0189-managed-hiring-interest-rls",
+    migration: "0189_managed_hiring",
+    kind: "rls",
+    table: "managed_hiring_interest",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The tracker names workers and carries staff notes, and a row makes a contact free " +
+      "for the company; an open grant lets any PostgREST role read the notes or forge a row that " +
+      "opens a worker without credits",
+  },
+  {
+    id: "0189-managed-hiring-callback-requests-rls",
+    migration: "0189_managed_hiring",
+    kind: "rls",
+    table: "managed_hiring_callback_requests",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The admin callback queue; an open grant lets any PostgREST role read which " +
+      "companies asked for a call or forge requests",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

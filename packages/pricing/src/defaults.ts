@@ -108,6 +108,25 @@ export const DEFAULT_CATALOG: Catalog = catalogSchema.parse({
         { code: "topup_30", priceInr: 2500, additionalVisibilityQuota: 30 },
       ],
     },
+    {
+      // Managed Hiring (#2751 item 4; brief section 2 and 4B.9; register B2-31 to B2-33). Prepaid,
+      // per job, GST extra: Standard ₹4,000 (₹4,720 with GST) for up to 5 vacancies, fresher to mid
+      // level; Large ₹8,000 (₹9,440) for 6 to 10 vacancies or a job needing skilled workers. Both
+      // aim for 5 phone-confirmed interested workers in 7 working days, with a free extension to day
+      // 30. Above 10 vacancies there is no checkout (a callback request instead). The service never
+      // promises a hire.
+      //
+      // NOT IN THE PAYER CATALOGUE: `PricingService.getPayerCatalog` drops this kind; the Managed
+      // Hiring quote serves it, and only while `MANAGED_HIRING_ROLLOUT` is on for the company.
+      // Working days are Monday to Saturday; `holidays` is empty (owner, 2026-11-18, #2931).
+      kind: "managed_hiring",
+      code: "managed_hiring",
+      tiers: [
+        { code: "standard", priceInr: 4000, targetCount: 5, workingDays: 7, extensionDays: 30 },
+        { code: "large", priceInr: 8000, targetCount: 5, workingDays: 7, extensionDays: 30 },
+      ],
+      holidays: [],
+    },
   ],
   offers: [],
   coupons: [],

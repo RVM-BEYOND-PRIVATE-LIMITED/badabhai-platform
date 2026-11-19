@@ -295,6 +295,10 @@ describe("invoice amounts and description (pure)", () => {
     expect(invoiceDescription(order({ packCode: "pack_big", creditsGranted: 100, creditValidityDays: null }))).toBe(
       "Credit pack — Big, 100 contact credits",
     );
+    // #2751 — a service for one job, never a hire, and nothing about the company or the job.
+    expect(invoiceDescription(order({ productKind: "managed_hiring", packCode: null, creditsGranted: 0, creditValidityDays: null }))).toBe(
+      "Managed Hiring — worker sourcing and screening for one job",
+    );
     expect(packName(null)).toBe("Pack");
     expect(packName("pack_annual")).toBe("Annual");
   });

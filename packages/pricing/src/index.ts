@@ -55,6 +55,13 @@ export {
   normalizeGstinInput,
 } from "./gstin";
 export {
+  managedHiringClock,
+  isManagedHiringWorkingDay,
+  istDateOf,
+  type ManagedHiringClock,
+  type ManagedHiringClockInput,
+} from "./managed-hiring-clock";
+export {
   resolvePrice,
   type Quote,
   type Grants,

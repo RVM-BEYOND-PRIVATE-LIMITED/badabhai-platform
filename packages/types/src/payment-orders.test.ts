@@ -16,8 +16,8 @@ import {
 } from "./index";
 
 describe("payment order sets", () => {
-  it("one product kind today (#2751 widens it), frozen", () => {
-    expect(PAYMENT_ORDER_PRODUCT_KINDS).toEqual(["credit_pack"]);
+  it("the two product kinds, credit_pack first (#2751 added managed_hiring), frozen", () => {
+    expect(PAYMENT_ORDER_PRODUCT_KINDS).toEqual(["credit_pack", "managed_hiring"]);
     expect(Object.isFrozen(PAYMENT_ORDER_PRODUCT_KINDS)).toBe(true);
   });
 

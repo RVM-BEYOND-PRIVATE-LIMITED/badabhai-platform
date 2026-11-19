@@ -224,6 +224,10 @@ export class PricingService {
     for (const product of catalog.products) {
       // #2749 item 11 — a retired kind is not shown: no product, no price row.
       if (isProductKindOffSale(this.config, product.kind)) continue;
+      // #2751 item 10 — Managed Hiring is NEVER in the payer catalogue: an agency or contractor
+      // account must not be served it, and every other company reads it from the Managed Hiring
+      // quote (the tier is decided from the job, behind MANAGED_HIRING_ROLLOUT).
+      if (product.kind === "managed_hiring") continue;
       if (product.kind === "credit_pack") {
         // Shown only if sold: resolvePack sells `contact_unlock` alone.
         if (product.code !== CREDIT_PACK_PRODUCT) continue;

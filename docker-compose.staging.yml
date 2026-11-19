@@ -778,6 +778,9 @@ services:
       # no later than PAYMENTS_ENABLE_REAL (hardening 7). Bridged from the `production` secret.
       RETIRED_PRODUCTS_OFF_SALE: ${RETIRED_PRODUCTS_OFF_SALE:-false}
       POSTING_CHOICE_ROLLOUT: ${POSTING_CHOICE_ROLLOUT:-off}
+      # #2751 items 4-13 — Managed Hiring, company by company. Off = no Managed Hiring route, no
+      # sweep, contacts priced as before. Same `:-off` grammar and preflight as the switches above.
+      MANAGED_HIRING_ROLLOUT: ${MANAGED_HIRING_ROLLOUT:-off}
       CAPACITY_ENFORCEMENT_ENABLED: ${CAPACITY_ENFORCEMENT_ENABLED:-false}
       PACE_ENABLED: ${PACE_ENABLED:-false}
       TEST_LOGIN_ENABLED: ${TEST_LOGIN_ENABLED:-false}
