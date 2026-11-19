@@ -93,4 +93,34 @@ export class InstituteOpenGate {
       return "closed";
     }
   }
+
+  /**
+   * #2954 — may this company's QUOTE treat him as an RVM student? `POST /payer/unlocks/quotes` prices
+   * any ids a company sends, and an RVM student's price differs (always the standard cost, or a
+   * waiver's 0), so pricing him as one tells the company he is one. Only a company that could open
+   * him already knows: one he applied to, one holding his grant (#2752), or any company once an
+   * admin made him visible (#2887: then he is priced as an RVM student on the real open too, so the
+   * quote must match it). Everyone else is quoted as for an ordinary worker; the open itself is
+   * still decided by {@link decide}.
+   *
+   * LOCAL READS ONLY: no RVM consent call (a quote is a page of prices, not an open). Fails closed:
+   * an error answers false, so the quote shows an ordinary price and reveals nothing.
+   */
+  async quotesAsStudent(workerId: string, tenant: TenantKey): Promise<boolean> {
+    try {
+      if (this.studentMove && (await this.repo.studentVisibilityOf(workerId)) === "visible") {
+        return true;
+      }
+      return (
+        (await this.repo.hasAppliedToTenant(workerId, tenant)) ||
+        (await this.repo.hasLiveGrantForTenant(workerId, tenant))
+      );
+    } catch (err) {
+      this.logger.warn(
+        `institute quote gate failed closed worker=${workerId.slice(0, 8)} ` +
+          `(${err instanceof Error ? err.name : "unknown"})`,
+      );
+      return false;
+    }
+  }
 }
