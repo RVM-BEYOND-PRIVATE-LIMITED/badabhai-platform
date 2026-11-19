@@ -31,6 +31,7 @@ import type {
   AdminWorkerSignOutAllDto,
   AdminWorkerSuspendDto,
   AdminWorkerUnsuspendDto,
+  AdminWorkerUnflagDto,
   AdminPayerActionReasonDto,
 } from "./admin-actions.dto";
 
@@ -570,13 +571,32 @@ export class AdminActionsService {
     return { target_id: workerId, changed };
   }
 
-  async unflagWorker(adminId: string, workerId: string, ctx: RequestContext): Promise<AdminActionResult> {
+  /**
+   * #2914 — lift the worker's open flag. The `audit_logs` reason row commits in the SAME
+   * transaction as the flag resolution and the admin action, so the trail can never show a
+   * lifted flag without the record of who lifted it and why. `reason` is undefined only for a
+   * body-less call from an admin client that predates the reason box; that call is still
+   * audited, with `null` reason fields ("no reason given").
+   */
+  async unflagWorker(
+    adminId: string,
+    workerId: string,
+    ctx: RequestContext,
+    reason?: AdminWorkerUnflagDto,
+  ): Promise<AdminActionResult> {
     let changed = false;
     await this.actions.withTransaction(async (tx) => {
       const resolved = await this.actions.resolveFlag(workerId, adminId, tx);
-      // Idempotent: no open flag to resolve → no-op success, no event.
+      // Idempotent: no open flag to resolve → no-op success, no event, no audit row.
       if (!resolved) return;
       changed = true;
+      await this.actions.writeAuditReason(tx, {
+        adminId,
+        workerId,
+        action: ADMIN_ACTION_CODES.worker_unflagged,
+        reasonCode: reason?.reason_code ?? null,
+        reasonText: reason?.reason_text ?? null,
+      });
       await this.emitAction(adminId, ADMIN_ACTION_CODES.worker_unflagged, "worker", workerId, ctx, tx);
     });
     return { target_id: workerId, changed };
