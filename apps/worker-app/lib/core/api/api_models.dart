@@ -3339,12 +3339,21 @@ const Map<String, String> kSalaryPeriodLabels = <String, String>{
   'year': 'Saal',
 };
 
-const Map<String, String> kAvailabilityStatusLabels = <String, String>{
-  // Layer A (c) — the first answer set, still read for an old stored answer.
+/// Layer A (c) — the first answer set. The ONLY slugs a server that predates the
+/// served `availability_status` dictionary accepts, so it is the option fallback
+/// for a picker ([kAvailabilityStatusLabels] would offer the #2753 slugs, which
+/// such a server's strict enum refuses with a 400 for the whole save).
+const Map<String, String> kAvailabilityStatusLabelsV1 = <String, String>{
   'immediate': 'Turant uplabdh',
   'within_week': 'Ek hafte mein',
   'within_month': 'Ek mahine mein',
   'serving_notice': 'Notice period mein',
+};
+
+/// Labels for every stored answer, both sets (display only, never an option list).
+const Map<String, String> kAvailabilityStatusLabels = <String, String>{
+  // Layer A (c) — the first answer set, still read for an old stored answer.
+  ...kAvailabilityStatusLabelsV1,
   // #2753 item 3 — the brief's four answers (AVAILABILITY_ANSWERS_V2_ENABLED).
   'join_now': 'Abhi join kar sakte hain',
   'in_15_days': '15 din mein',

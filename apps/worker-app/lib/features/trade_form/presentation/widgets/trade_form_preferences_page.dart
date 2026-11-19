@@ -6,7 +6,7 @@ import '../../../../core/api/api_client.dart'
         CityHubDto,
         CityOptionDto,
         WorkPrefOptionsDto,
-        kAvailabilityStatusLabels;
+        kAvailabilityStatusLabelsV1;
 import '../../../../core/session/known_worker_facts_store.dart' show WorkerFact;
 import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
@@ -703,8 +703,9 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// ([parseAvailabilityFreeText]); rubbish parses to null and keeps
   /// availability empty.
   Widget _availabilityStatusPage(WorkPrefOptionsDto options) {
+    // A server that predates the served dictionary accepts only the first set.
     final Map<String, String> labels = options.availabilityStatus.isEmpty
-        ? kAvailabilityStatusLabels
+        ? kAvailabilityStatusLabelsV1
         : options.availabilityStatus;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

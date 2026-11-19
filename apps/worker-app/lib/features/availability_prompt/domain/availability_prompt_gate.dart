@@ -5,7 +5,7 @@ import '../../../core/api/api_client.dart'
         WorkAvailabilityDto,
         WorkPrefOptionsDto,
         WorkPreferencesDto,
-        kAvailabilityStatusLabels;
+        kAvailabilityStatusLabelsV1;
 import '../../../core/config/remote_config.dart';
 import '../../profile_edit/domain/profile_edit_models.dart'
     show AvailabilityDraft;
@@ -43,11 +43,11 @@ bool _isBlank(String? value) => value == null || value.trim().isEmpty;
 ///
 /// The SERVED `availability_status` dictionary whenever the server sends one —
 /// the set the `PUT`'s strict `z.enum` validates, so a chip drawn from it can
-/// never 400. [kAvailabilityStatusLabels] covers only a server that predates
-/// that key; its slugs are today's server values, never planned ones.
+/// never 400. [kAvailabilityStatusLabelsV1] covers only a server that predates
+/// that key; its slugs are the first answer set, the only ones such a server accepts.
 Map<String, String> availabilityPromptOptions(WorkPrefOptionsDto options) =>
     options.availabilityStatus.isEmpty
-    ? kAvailabilityStatusLabels
+    ? kAvailabilityStatusLabelsV1
     : options.availabilityStatus;
 
 /// The `PUT /workers/me/work-preferences` body for one answer: ONLY the
