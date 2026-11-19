@@ -8,6 +8,7 @@ import { getJobPosting, listApplications } from "../../../../lib/entities";
 import { isAdminRequestError } from "../../../../lib/admin-http";
 import { getWaivers } from "../../../../lib/waivers";
 import { WaiverSwitch } from "../../waivers/waiver-switch";
+import { AudiencePanel } from "./audience-panel";
 import {
   formatCount,
   formatExperienceBand,
@@ -140,6 +141,14 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         />
       ) : null}
 
+      {can(session.capabilities, "manage_postings") && job.audience !== undefined ? (
+        <AudiencePanel
+          postingId={job.id}
+          audience={job.audience}
+          reviewState={job.rvm_review?.state ?? null}
+        />
+      ) : null}
+
       {job.status === "suspended" && (
         <section className="notice notice--bad notice--row" role="status">
           <span>
@@ -196,7 +205,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               },
               { label: "Shift", value: job.shift ?? "not stated" },
               { label: "Needed by", value: job.needed_by ?? "not stated" },
-              // #2746 — READ-ONLY audience and RVM targeting/review. No admin write sets these.
+              // #2746 — audience and RVM targeting/review, read here; an admin changes the audience in
+              // the "Where this job shows" panel above (#2956, #2958).
               { label: "Audience", value: audienceLabel(job.audience) },
               {
                 label: "RVM targeting",
