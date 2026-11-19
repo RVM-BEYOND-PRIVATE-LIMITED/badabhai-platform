@@ -503,6 +503,11 @@ services:
       # alerts on a mismatch; it never writes one. No migration. `:-false` because this bool
       # rejects "".
       CREDIT_BALANCE_AUDIT_ENABLED: ${CREDIT_BALANCE_AUDIT_ENABLED:-false}
+      # THE NIGHTLY RAZORPAY RECONCILIATION (#2773). Off is today exactly: the daily tick returns at
+      # once without a call or a query. On, it READS the last 48 hours of Razorpay payments and the
+      # matching payment_orders and alerts on a disagreement; it never changes money. A rzp_test_ key
+      # skips the run. No migration. `:-false` because this bool rejects "".
+      RAZORPAY_RECONCILE_ENABLED: ${RAZORPAY_RECONCILE_ENABLED:-false}
       # THE BULK STUDENT MOVE (#2887). Off is today exactly: nothing names the student-move tables
       # and every /admin/students/* route is a 404. Apply the `student_move` migration before
       # switching it on (on without it: the routes answer 503, the hot reads fall back). `:-false`

@@ -689,6 +689,19 @@ NestJS boot assertion).
     through the GitHub `production` environment secret of the same name (compose
     `${CREDIT_BALANCE_AUDIT_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
     `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+  - `RAZORPAY_RECONCILE_ENABLED` (`booleanFromString`, default off; #2773). Off is today exactly: the
+    daily `razorpay-reconcile` tick returns at once without a provider call or a query. On, it lists
+    the payments Razorpay created in the last 48 hours (less the newest 30 minutes, still settling)
+    and compares them with `payment_orders` in one read-only snapshot. Findings: (a) captured at
+    Razorpay, but our order is not `paid` on that payment; (b) our order is `paid`, but Razorpay
+    holds no captured payment for it and our refund path made no refund; (c) the captured amount or
+    currency is not the order's; plus a captured payment on a Razorpay order we hold no row for. Any
+    finding logs the order and payment ids (opaque) and emits one `payment.reconciliation_failed` per
+    day (counts only), counted on the admin dashboard's breach counter. It never changes money. A
+    `rzp_test_` key id skips the run (the invoice code's test-mode rule). No migration. Bridged
+    through the GitHub `production` environment secret of the same name (compose
+    `${RAZORPAY_RECONCILE_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+    `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
   - `ADMIN_AI_TRACE_READ_ENABLED` (`booleanFromString`, default off; #2739). Off is today exactly:
     `GET /admin/ai-traces` and `GET /admin/ai-traces/:id` are a neutral 404 for every role, so the
     admin portal's AI calls tab shows "unavailable". On, `read_ai_traces` (super_admin only) reads

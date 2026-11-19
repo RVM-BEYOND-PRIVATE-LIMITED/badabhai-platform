@@ -4530,6 +4530,43 @@ export type PayerCreditBalanceAuditFailedPayload = z.infer<
   typeof PayerCreditBalanceAuditFailedPayload
 >;
 
+/**
+ * #2773 — the nightly Razorpay reconciliation found captured payments and paid orders that
+ * disagree, over the window it read (the last 48 hours).
+ *
+ * ONE EVENT PER FAILING DAY, never one per payment: it is an alert ("Razorpay and our books
+ * disagree tonight"), counted on the admin dashboard's breach counter. A clean run emits nothing.
+ *
+ * COUNTS ONLY: how many payments and orders were compared and how many fall in each class. The
+ * order and payment ids go to the server log for whoever repairs them, never onto the spine.
+ * Actor `system`; subject the aggregate `payer` with a null id (no single company). v1.
+ */
+export const PaymentReconciliationFailedPayload = z
+  .object({
+    /** How far back the run read, in hours. */
+    window_hours: z.number().int().positive(),
+    /** Payments Razorpay captured in the window. */
+    payments_checked: z.number().int().nonnegative(),
+    /** Our `paid` orders created in the window. */
+    orders_checked: z.number().int().nonnegative(),
+    /** Captured at Razorpay, but our order is not paid on that payment (the company got nothing). */
+    captured_not_paid: z.number().int().nonnegative(),
+    /** Our order is paid, but Razorpay holds no captured payment for it (and no refund of ours). */
+    paid_not_captured: z.number().int().nonnegative(),
+    /** Paid on the payment, but the captured amount or currency is not the order's. */
+    amount_mismatches: z.number().int().nonnegative(),
+    /** Captured on a Razorpay order we hold no `payment_orders` row for. */
+    captured_unknown_order: z.number().int().nonnegative(),
+  })
+  .strict()
+  .refine(
+    (p) =>
+      p.captured_not_paid + p.paid_not_captured + p.amount_mismatches + p.captured_unknown_order >
+      0,
+    { message: "a reconciliation failure names at least one finding" },
+  );
+export type PaymentReconciliationFailedPayload = z.infer<typeof PaymentReconciliationFailedPayload>;
+
 /** #2750 item 4 — what made a company's welcome credits due (`payer.welcome_credits_granted`). */
 export const WELCOME_CREDITS_TRIGGERS = [
   /** An admin or ops approval of a posting (or an agency job) made the company eligible. */

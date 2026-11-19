@@ -49,6 +49,7 @@ import { DisplayPrefsModule } from "./display-prefs/display-prefs.module";
 import { SearchExitModule } from "./search-exit/search-exit.module";
 import { StillLookingModule } from "./still-looking/still-looking.module";
 import { CreditBalanceAuditModule } from "./credit-audit/credit-balance-audit.module";
+import { RazorpayReconcileModule } from "./payment-reconcile/razorpay-reconcile.module";
 import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
 import { AdminModule } from "./admin/admin.module";
 import { AdminPostingsModule } from "./admin-postings/admin-postings.module";
@@ -184,6 +185,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // #2774 — the nightly credit balance audit (read-only). INERT until CREDIT_BALANCE_AUDIT_ENABLED
     // is on: the daily tick returns at once without a query.
     CreditBalanceAuditModule,
+    // #2773 — the nightly Razorpay reconciliation (read-only). INERT until
+    // RAZORPAY_RECONCILE_ENABLED is on: the daily tick returns at once without a call or a query.
+    RazorpayReconcileModule,
     ReferralAttributionModule,
     // Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1): the 4th principal
     // (`/admin/*` route group behind AdminAuthGuard). Auth + RBAC + MFA only; the feature
