@@ -277,9 +277,20 @@ describe.skipIf(!RUN)("#2755 part B against Postgres (the weekly snapshot)", () 
   const revenue = (from: string, to: string, pack: string | null) =>
     one(
       `SELECT coalesce(sum(po.amount_inr * 100), 0) AS n FROM payment_orders po
-        WHERE po.status = 'paid' AND po.updated_at >= $1::timestamptz AND po.updated_at < $2::timestamptz
+        WHERE po.status = 'paid' AND po.product_kind = 'credit_pack'
+          AND po.updated_at >= $1::timestamptz AND po.updated_at < $2::timestamptz
           AND ($3::text IS NULL OR po.pack_code = $3::text) AND ${countableCo("po.payer_id")}`,
       [from, to, pack],
+    );
+
+  // Version 5: Managed Hiring revenue, the paid managed_hiring orders as charged.
+  const revenueManagedHiring = (from: string, to: string) =>
+    one(
+      `SELECT coalesce(sum(po.amount_inr * 100), 0) AS n FROM payment_orders po
+        WHERE po.status = 'paid' AND po.product_kind = 'managed_hiring'
+          AND po.updated_at >= $1::timestamptz AND po.updated_at < $2::timestamptz
+          AND ${countableCo("po.payer_id")}`,
+      [from, to],
     );
 
   const formGap = (from: string, to: string) =>
@@ -370,6 +381,16 @@ describe.skipIf(!RUN)("#2755 part B against Postgres (the weekly snapshot)", () 
     await order(CO_C, "pack_200", 8000, "paid", minus1ms(WB_TO)); // WB's last instant
     await order(CO_TEST, "pack_50", 2000, "paid", at("2026-09-10T08:00:00Z"));
     await order(CO_SAMPLE, "pack_50", 2000, "paid", at("2026-09-10T08:00:00Z"));
+    // Version 5: a paid #2751 Managed Hiring order (no pack, no credits), on the same day as A's
+    // pack_200, so the paying and repeat figures are unchanged; and one for a test company.
+    const managedHiring = (payerId: string, when: Date) => sql`
+      INSERT INTO payment_orders (payer_id, product_kind, pack_code, amount_inr, credits_granted,
+                                  provider, provider_order_id, status, created_at, updated_at)
+      VALUES (${payerId}::uuid, 'managed_hiring', NULL, 4720, 0, 'razorpay',
+              ${`order_nw_mh_${TAG}_${id()}`}, 'paid', ${when.toISOString()}::timestamptz,
+              ${when.toISOString()}::timestamptz)`;
+    await managedHiring(CO_A, at("2026-09-10T08:00:00Z"));
+    await managedHiring(CO_TEST, at("2026-09-10T08:00:00Z"));
 
     for (const [k, w] of WORKERS.entries()) {
       const city = w === WK7 ? "New Delhi" : "Pune";
@@ -587,8 +608,18 @@ describe.skipIf(!RUN)("#2755 part B against Postgres (the weekly snapshot)", () 
     expect(cell?.value).toBe(Math.floor((num * 200 + den) / (2 * den)));
   });
 
+  it("Managed Hiring revenue, in paise, as charged: its own figure, test companies out (version 5)", async () => {
+    expect(await revenueManagedHiring(WA_FROM, WA_TO)).toBe(472_000);
+    expect((await stored(WA, "revenue_managed_hiring"))?.value).toBe(472_000);
+    expect((await stored(WB, "revenue_managed_hiring"))?.value).toBe(
+      await revenueManagedHiring(WB_FROM, WB_TO),
+    );
+  });
+
   it("revenue by pack, in paise, as charged: the total and one figure per pack", async () => {
     expect(await revenue(WA_FROM, WA_TO, null)).toBeGreaterThanOrEqual(1_000_000);
+    // Version 5: the Managed Hiring order is not a pack, so no pack figure reads it as "other".
+    expect(await stored(WA, "revenue_by_pack:other")).toBeUndefined();
     expect((await stored(WA, "revenue_by_pack"))?.value).toBe(await revenue(WA_FROM, WA_TO, null));
     for (const pack of ["pack_50", "pack_200"]) {
       expect((await stored(WA, `revenue_by_pack:${pack}`))?.value, pack).toBe(

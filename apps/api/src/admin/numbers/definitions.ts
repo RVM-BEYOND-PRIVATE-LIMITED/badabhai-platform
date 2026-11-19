@@ -6,8 +6,8 @@ import { NUMBERS_DEFINITION_VERSION } from "./groups";
  * routes and the parity tests read their rule from here; `GET /admin/numbers/definitions` serves it.
  *
  * ── A METRIC WITH NO LIVE SOURCE IS `not_available`, NEVER ZERO ────────────────────────────
- * Some figures wait on work that has not shipped (#2751's Managed Hiring). Their figures are
- * listed with the reason and the issue they wait on, so the screen can say "not yet measured"
+ * A figure that waits on work not yet shipped (none since version 5, when #2751's Managed Hiring
+ * revenue went live) is listed with the reason and the issue it waits on, so the screen can say "not yet measured"
  * instead of drawing a zero that reads as "nobody did this". A zero is a measurement.
  *
  * ── A LIST IS NOT A WEEKLY FIGURE ────────────────────────────────────────────────────────────
@@ -37,10 +37,14 @@ export type NumbersMetricUnit = (typeof NUMBERS_METRIC_UNITS)[number];
 export const NUMBERS_METRIC_KINDS = ["headline", "diagnostic"] as const;
 export type NumbersMetricKind = (typeof NUMBERS_METRIC_KINDS)[number];
 
-/** The issues a not-yet-measured figure waits on. */
-// #2750 left the list in version 2 and #2749 in version 3: every figure that waited on them is live.
-export const NUMBERS_WAITS_ON = ["#2751"] as const;
-export type NumbersWaitsOn = (typeof NUMBERS_WAITS_ON)[number];
+/**
+ * The issues a not-yet-measured figure waits on. Empty since version 5: #2750 left the list in
+ * version 2, #2749 in version 3 and #2751 in version 5, so every figure is live. A figure that
+ * waits again adds its issue here and is declared `{ status: "not_available", reason, waits_on }`.
+ */
+export const NUMBERS_WAITS_ON: readonly NumbersWaitsOn[] = [];
+/** An issue reference, `#1234`. */
+export type NumbersWaitsOn = `#${number}`;
 
 export type NumbersAvailability =
   | { readonly status: "live" }
@@ -95,10 +99,6 @@ export const NUMBERS_REPEAT_LONGEST_WINDOW_DAYS = 90;
 /** The metric id of one repeat-buying window: `repeat_purchase_30d`. Never renamed. */
 export function repeatPurchaseMetricId(days: NumbersRepeatWindowDays): string {
   return `repeat_purchase_${days}d`;
-}
-
-function waitsOn(waits_on: NumbersWaitsOn, reason: string): NumbersAvailability {
-  return { status: "not_available", reason, waits_on };
 }
 
 /** The ten metric groups, in the brief's order. */
@@ -438,9 +438,11 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         title: "Revenue by pack, as charged",
         unit: "paise",
         kind: "headline",
-        source: "payment_orders with status paid: amount_inr (whole rupees today) and pack_code.",
+        source:
+          "payment_orders with status paid and product_kind credit_pack: amount_inr (whole " +
+          "rupees today) and pack_code.",
         rule:
-          "The sum of amount_inr × 100 over paid orders settled in the week (test and sample " +
+          "The sum of amount_inr × 100 over paid credit-pack orders settled in the week (test and sample " +
           "companies left out): the total, and one figure per pack_code (revenue_by_pack:<code>, " +
           "every pack paid for up to the week's end). Real money only: the mock purchase route " +
           "writes no order row, the payments mode travels with the figure, and a week before " +
@@ -455,9 +457,10 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         kind: "headline",
         source: "payment_orders.taxable_paise: the GST split #2749 part 3 stamps on every order (0176).",
         rule:
-          "The same paid orders as revenue by pack, the price before GST summed in paise. An order " +
-          "from before 0176 carries no split and is left out (real payments started after it). " +
-          "Before GST + GST + the order's round-off = as charged.",
+          "Every paid order settled in the week, packs and Managed Hiring alike (test and sample " +
+          "companies left out), the price before GST summed in paise. An order from before 0176 " +
+          "carries no split and is left out (real payments started after it). Before GST + GST + " +
+          "the orders' round-off = revenue by pack + Managed Hiring revenue, as charged.",
         availability: LIVE,
       },
       {
@@ -474,9 +477,15 @@ export const NUMBERS_METRIC_GROUPS: readonly NumbersMetricGroupDefinition[] = [
         title: "Managed Hiring revenue",
         unit: "paise",
         kind: "headline",
-        source: "the Managed Hiring orders of #2751 (₹4,000 and ₹8,000).",
-        rule: "Paid Managed Hiring orders settled in the week, by price, in paise.",
-        availability: waitsOn("#2751", "Managed Hiring has no order record yet"),
+        source:
+          "payment_orders with status paid and product_kind managed_hiring: amount_inr, the " +
+          "#2751 order's price as charged (₹4,000 or ₹8,000 before GST).",
+        rule:
+          "The sum of amount_inr × 100 over paid Managed Hiring orders settled in the week (test " +
+          "and sample companies left out), as charged, GST included. The settle time is the " +
+          "order's updated_at at its move to paid, as for packs. Never part of revenue by pack. " +
+          "Split by the company's city and trade, as for paying companies.",
+        availability: LIVE,
       },
     ],
   },
@@ -577,6 +586,8 @@ export const NUMBERS_SNAPSHOT_METRICS: Readonly<Record<string, NumbersSnapshotSu
   couldnt_reach_claims: "company",
   couldnt_reach_credits_returned: "company",
   credits_waived: "company",
+  // Version 5: Managed Hiring revenue (#2751).
+  revenue_managed_hiring: "company",
 };
 
 // ---------------------------------------------------------------------------------------------

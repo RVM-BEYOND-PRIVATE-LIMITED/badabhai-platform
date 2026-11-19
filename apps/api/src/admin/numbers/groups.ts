@@ -26,7 +26,9 @@ import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 // 2 (2026-11-18, #2755 part E): groups 6 to 8 (welcome credits, couldn't-reach, waivers) went live.
 // 3 (2026-11-18, #2755): the GST split of revenue went live (revenue_gst_split, revenue_gst).
 // 4 (2026-11-18, #2755): the posting-button shares went live from #2751's job_posting_choices.
-export const NUMBERS_DEFINITION_VERSION = 4;
+// 5 (2026-11-19, #2755): Managed Hiring revenue went live from #2751's paid orders; revenue by pack
+//   counts credit-pack orders only, and the GST split names every product.
+export const NUMBERS_DEFINITION_VERSION = 5;
 
 /** The roll-up label every group set includes. */
 export const NUMBERS_ALL_GROUP = "all" as const;
