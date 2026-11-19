@@ -124,7 +124,8 @@ describe("labels stay in lockstep with the vocabulary", () => {
     // (#2750 — the credit rules settings), and `manage_waivers` (#2750 — the placement team's
     // waivers), and `work_reach_desk` (#2750 — the couldn't-reach desk).
     // waivers), and `manage_student_visibility` (#2887 — the moved students' visibility), and
-    // `refund_payments` (#2750 — refunds of real paid packs).
+    // `refund_payments` (#2750 — refunds of real paid packs), and `work_managed_hiring` (#2751 —
+    // the Managed Hiring desk).
     expect([...ADMIN_CAPABILITIES].sort()).toEqual(
       [
         "export",
@@ -152,6 +153,7 @@ describe("labels stay in lockstep with the vocabulary", () => {
         "reveal_pii",
         "suspend_payer",
         "toggle_kill_switch",
+        "work_managed_hiring",
         "work_reach_desk",
       ].sort(),
     );

@@ -104,4 +104,6 @@ export const EVENT_SUBJECT_TYPES = [
   "skill_candidate",
   // #2750 — a revision of the credit rules settings (the target of `credit_rules_changed`).
   "credit_rules_config",
+  // #2751 — a Managed Hiring order (the target of the `managed_hiring.*` order and tracker events).
+  "managed_hiring_order",
 ] as const;
