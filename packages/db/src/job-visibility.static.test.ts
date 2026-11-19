@@ -105,6 +105,15 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "sees a posting the company narrowed to RVM students), and the lock reads it as a VALUE for the " +
     "TS twin to decide whether `on` can change anything. Admin code, never a worker path " +
     "(PAIRING_EXEMPT); the worker side reads the hold only through reachesBadaBhaiWorkers().",
+  "apps/api/src/admin-postings/admin-posting-audience.repository.ts":
+    "#2956 — an admin decides where a posting shows: the lock reads the audience as a VALUE for " +
+    "the rules and the no-change test, the write sets it, and the list projects it READ-ONLY. " +
+    "Where it shows is read only through the two fragments. Admin code, never a worker path " +
+    "(PAIRING_EXEMPT).",
+  "apps/api/src/admin-postings/admin-posting-audience.service.ts":
+    "#2956 — the admin decision's no-change test compares the decided audience with the requested " +
+    "one (the posting's last decision row). Whether workers or students see it is decided only " +
+    "through the fragments' TS twins (`audienceReachesBadaBhaiWorkers`, `audienceReachesRvmStudents`).",
   "apps/api/src/admin/admin-entities.repository.ts":
     "The admin posting list and detail project the audience READ-ONLY for the console. Admin code, " +
     "never a worker path (PAIRING_EXEMPT).",

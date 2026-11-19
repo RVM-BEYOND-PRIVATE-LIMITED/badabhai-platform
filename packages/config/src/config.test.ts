@@ -1097,6 +1097,20 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ ADMIN_NUMBERS_ENABLED: "yes" })).toThrow();
   });
 
+  it("ADMIN_JOB_AUDIENCE_ENABLED (#2956) is OFF by default and for the empty string", () => {
+    // Off: every /admin/postings/audience route is a neutral 404 before any query.
+    const read = (v?: string) =>
+      loadServerConfig(v === undefined ? {} : { ADMIN_JOB_AUDIENCE_ENABLED: v })
+        .ADMIN_JOB_AUDIENCE_ENABLED;
+    expect(read()).toBe(false);
+    expect(read("")).toBe(false);
+    expect(read("0")).toBe(false);
+    expect(read("false")).toBe(false);
+    expect(read("true")).toBe(true);
+    expect(read("1")).toBe(true);
+    expect(() => loadServerConfig({ ADMIN_JOB_AUDIENCE_ENABLED: "yes" })).toThrow();
+  });
+
   it("STUDENT_MOVE_ENABLED (#2887) is OFF by default and for the empty string", () => {
     // Off: nothing names the student-move tables and every /admin/students/* route is a 404.
     expect(loadServerConfig({}).STUDENT_MOVE_ENABLED).toBe(false);

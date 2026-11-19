@@ -1616,6 +1616,13 @@ export const serverEnvSchema = z.object({
   // (migration 0162); the snapshot needs the `numbers_weekly` migration, APPLY BEFORE THE SWITCH
   // (on without it, the weekly route answers 503 and the sweep logs and skips).
   ADMIN_NUMBERS_ENABLED: booleanFromString,
+  // AN ADMIN DECIDES WHERE EACH JOB SHOWS (#2956, owner direction of 19 Nov 2026, #2959): Campus
+  // only, both, or BadaBhai only, on any posting, with a reason and an audit row; the admin list
+  // of jobs to decide; and Campus's review of a job an admin sent to Campus without the company's
+  // `job_audience` pilot. Default OFF: every `/admin/postings/audience` route is a neutral 404 and
+  // nothing names the two 0190 tables. APPLY 0190 BEFORE TURNING IT ON. It gates the admin write
+  // only: the stored audience and the Campus hold are honoured whatever it says (R81).
+  ADMIN_JOB_AUDIENCE_ENABLED: booleanFromString,
   // How many whole days after a week ends (Sunday 23:59:59 India time) the nightly numbers sweep
   // FREEZES it (#2755 part B): from then on the sweep never recomputes that week, and only the
   // logged recompute tool (`recompute-numbers.cli.ts`) can change it. Default 3 (the issue's "a few

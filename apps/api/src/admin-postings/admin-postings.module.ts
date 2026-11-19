@@ -11,6 +11,9 @@ import { AdminPostingsService } from "./admin-postings.service";
 import { AdminPostingWorkerVisibilityController } from "./admin-posting-worker-visibility.controller";
 import { AdminPostingWorkerVisibilityRepository } from "./admin-posting-worker-visibility.repository";
 import { AdminPostingWorkerVisibilityService } from "./admin-posting-worker-visibility.service";
+import { AdminPostingAudienceController } from "./admin-posting-audience.controller";
+import { AdminPostingAudienceRepository } from "./admin-posting-audience.repository";
+import { AdminPostingAudienceService } from "./admin-posting-audience.service";
 
 /**
  * #2566 — the ADMIN posting-control write surface.
@@ -33,12 +36,19 @@ import { AdminPostingWorkerVisibilityService } from "./admin-posting-worker-visi
     CreditRulesModule,
   ],
   // #2891 — BadaBhai worker visibility of Campus-origin postings, under the same capability.
-  controllers: [AdminPostingsController, AdminPostingWorkerVisibilityController],
+  // #2956 — where a posting shows, decided by an admin, under the same capability.
+  controllers: [
+    AdminPostingsController,
+    AdminPostingWorkerVisibilityController,
+    AdminPostingAudienceController,
+  ],
   providers: [
     AdminPostingsRepository,
     AdminPostingsService,
     AdminPostingWorkerVisibilityRepository,
     AdminPostingWorkerVisibilityService,
+    AdminPostingAudienceRepository,
+    AdminPostingAudienceService,
   ],
 })
 export class AdminPostingsModule {}

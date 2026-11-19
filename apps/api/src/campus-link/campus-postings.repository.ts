@@ -40,9 +40,12 @@ export interface CampusFeedRow {
   maxExperienceYears: number | null;
   requirements: string[] | null;
   benefits: string[] | null;
-  /** Open AND not hidden: the only state in which it takes applications. */
+  /** Open AND not hidden AND still for RVM students: the only state in which it takes applications. */
   takesApplications: boolean;
-  /** Only an audience with an RVM part reaches this read (`reachesRvmStudents`). */
+  /**
+   * The audience with an RVM part. A posting an admin took off Campus (#2956) is read as
+   * `rvm_students` (the wire has no BadaBhai-only value) and is never open.
+   */
   audience: RvmStudentAudience;
   /** The review's narrowed lists when it has them, else the posting's own. */
   branchIds: number[];
@@ -94,11 +97,19 @@ export class CampusPostingsRepository {
     const stateNow = rvmReviewStateNow({ posting: "jp", review: "r" });
     const branchIds = sql`COALESCE(r.branch_ids, jp.rvm_branch_ids)`;
     const courseIds = sql`COALESCE(r.course_ids, jp.rvm_course_ids)`;
-    const filters = [reachesRvmStudents(sql`jp.audience`), sql`jp.payer_id IS NOT NULL`];
+    const rvmNow = reachesRvmStudents(sql`jp.audience`);
+    const filters = [sql`jp.payer_id IS NOT NULL`];
     if (q.changedSince === undefined) {
-      filters.push(sql`jp.status = 'open' AND jp.hidden_at IS NULL`);
+      filters.push(sql`${rvmNow} AND jp.status = 'open' AND jp.hidden_at IS NULL`);
     } else {
-      filters.push(sql`${changedAt} >= ${q.changedSince.toISOString()}::timestamptz`);
+      // #2956 — a posting an admin took OFF Campus (its audience lost its RVM part) keeps its review
+      // row, which the decision bumped: it is listed here as `closed` (it no longer takes
+      // applications, below), so Campus's pull closes its copy. Without this it would drop out of
+      // the feed and Campus would keep showing it to students.
+      filters.push(
+        sql`(${rvmNow} OR r.job_posting_id IS NOT NULL)`,
+        sql`${changedAt} >= ${q.changedSince.toISOString()}::timestamptz`,
+      );
     }
     if (q.reviewState !== undefined) {
       // No row on an RVM audience reads `pending` (rvmReviewStateFor), so the filter does too.
@@ -125,7 +136,8 @@ export class CampusPostingsRepository {
              jp.city, jp.state, jp.area, jp.pay_min, jp.pay_max, jp.pay_type, jp.vacancy_band,
              jp.shift, jp.min_experience_years, jp.max_experience_years, jp.requirements,
              jp.benefits, jp.audience,
-             (jp.status = 'open' AND jp.hidden_at IS NULL) AS takes_applications,
+             (jp.status = 'open' AND jp.hidden_at IS NULL AND ${rvmNow}) AS takes_applications,
+             ${rvmNow} AS rvm_now,
              ${branchIds} AS branch_ids,
              ${courseIds} AS course_ids,
              ${stateNow} AS review_state_now,
@@ -276,7 +288,9 @@ function toFeedRow(r: Record<string, unknown>): CampusFeedRow {
     requirements: (r.requirements as string[] | null) ?? null,
     benefits: (r.benefits as string[] | null) ?? null,
     takesApplications: r.takes_applications === true,
-    audience: r.audience as RvmStudentAudience,
+    // #2956 — a posting withdrawn from Campus reaches it once, closed; the wire allows only an
+    // audience with an RVM part.
+    audience: r.rvm_now === true ? (r.audience as RvmStudentAudience) : "rvm_students",
     branchIds: (r.branch_ids as number[] | null) ?? [],
     courseIds: (r.course_ids as string[] | null) ?? [],
     reviewStateNow: (r.review_state_now as InstituteReviewState | null) ?? null,

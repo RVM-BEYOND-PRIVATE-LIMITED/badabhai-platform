@@ -99,6 +99,8 @@ interface Setup {
   stateNow?: InstituteReviewState;
   write?: DecisionWriteResult;
   activeCourses?: readonly string[];
+  /** #2956 — ADMIN_JOB_AUDIENCE_ENABLED. */
+  adminDecides?: boolean;
 }
 
 // A test may build a key from a literal: the brand guards production call sites, not fixtures.
@@ -167,6 +169,7 @@ function make(opts: Setup = {}) {
     rollout as unknown as FeatureRolloutService,
     tenancy as unknown as PayerTenantScopeService,
     events as unknown as EventsService,
+    { ADMIN_JOB_AUDIENCE_ENABLED: opts.adminDecides ?? false },
   );
   return { service, repo, options, rollout, tenancy, events, tx };
 }
@@ -271,6 +274,15 @@ describe("CampusPostingReviewService — which postings answer the neutral 404",
     expect(err).toBeInstanceOf(NotFoundException);
     expect(tenancy.resolve).not.toHaveBeenCalled();
     expect(rollout.isEnabledFor).not.toHaveBeenCalled();
+  });
+
+  it("#2956: with the admin audience control on, neither the company switch nor its pilot list gates the review", async () => {
+    const { service, repo, rollout, tenancy } = make({ adminDecides: true, live: false, enabled: false });
+    await service.review(POSTING, decision(), CALL);
+    expect(rollout.isLiveForServiceCaller).not.toHaveBeenCalled();
+    expect(rollout.isEnabledFor).not.toHaveBeenCalled();
+    expect(tenancy.resolveReadOnly).not.toHaveBeenCalled();
+    expect(repo.writeDecision).toHaveBeenCalled();
   });
 
   it("a tenancy read failure propagates (it is not a 404)", async () => {
@@ -619,7 +631,8 @@ describe("CampusPostingReviewService — the write, its event and its audit row"
   });
 
   it("never touches reach: the service has no reach dependency at all", () => {
-    expect(CampusPostingReviewService.length).toBe(5);
+    // Five services plus #2956's optional config (the admin audience switch), none of them reach.
+    expect(CampusPostingReviewService.length).toBe(6);
     const { service } = make();
     expect(Object.keys(service)).not.toContain("reach");
   });
