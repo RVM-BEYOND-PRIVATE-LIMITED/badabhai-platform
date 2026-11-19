@@ -201,6 +201,27 @@ export const AdminWorkerUnsuspendSchema = z
   .strict();
 export type AdminWorkerUnsuspendDto = z.infer<typeof AdminWorkerUnsuspendSchema>;
 
+/**
+ * #2914 — POST /admin/workers/:id/unflag body. Lifting a moderation flag is a reversal like
+ * unsuspend, so it carries the same reason shape: a fixed code plus a written reason (15–500
+ * characters, no hard identifier), stored on `audit_logs` in the flag-resolution transaction.
+ */
+export const AdminWorkerUnflagSchema = z
+  .object({ reason_code: z.literal("worker_unflag"), ...workerAccountReasonShape })
+  .strict();
+export type AdminWorkerUnflagDto = z.infer<typeof AdminWorkerUnflagSchema>;
+
+/**
+ * The route keeps accepting a body-less call while the admin portal's unflag button has no
+ * reason box yet (the #2579 payer suspend/reinstate precedent); such a call is still audited,
+ * with a `null` reason. A body that is present must be the full, valid reason — a partial or
+ * malformed one is a 400, never silently treated as "no reason".
+ */
+export const AdminWorkerUnflagOrEmptySchema = z.union([
+  AdminWorkerUnflagSchema,
+  z.object({}).strict(),
+]);
+
 // ----- response shapes (PII-FREE: ids + enums + codes only) ------------------
 
 /** A governed-action result: the action outcome + whether it actually changed state. */

@@ -457,8 +457,12 @@ export class AdminActionsRepository {
       adminId: string;
       workerId: string;
       action: string;
-      reasonCode: string;
-      reasonText: string;
+      /**
+       * `null` only for a body-less unflag from an admin client that predates #2914: the
+       * row still records who lifted the flag, with "no reason given" as `null`s.
+       */
+      reasonCode: string | null;
+      reasonText: string | null;
     },
   ): Promise<void> {
     await tx.insert(auditLogs).values({
