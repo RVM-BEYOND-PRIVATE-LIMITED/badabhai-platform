@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 import { Icon } from "@badabhai/icons";
 import { looksLikePii } from "@badabhai/validators";
@@ -56,7 +56,10 @@ import {
   PostingPreviewRail,
   zeroReachLabel,
 } from "../../../../components/posting-preview-rail";
-import { createPostingAction } from "./actions";
+import { createPostingAction, createPostingCheckoutAction } from "./actions";
+import { openCheckout } from "../../credits/razorpay-checkout";
+import { verifyPaymentAction } from "../../credits/actions";
+import type { PostingOptions } from "../../../../lib/contracts";
 import { withPublishedReach } from "../../../../lib/published-reach";
 import { usePortalNavigation } from "../../../../components/portal-navigation";
 import type { MatchSelection } from "./match-skill-picker";
@@ -211,6 +214,7 @@ export function PostingForm({
   postingTradesProblem = null,
   lead,
   free = true,
+  postingOptions = null,
 }: {
   /** The signed-in payer (the session's opaque id) — the local draft is kept per payer (W4). */
   payerId: string;
@@ -225,6 +229,8 @@ export function PostingForm({
   lead?: ReactNode;
   /** The "free through launch" notice (sourced from the page's config flag). */
   free?: boolean;
+  /** #2938 — the server's two posting buttons; null keeps today's single publish. */
+  postingOptions?: PostingOptions | null;
 }) {
   // useState call order (mirrored positionally by posting-form.test.tsx): fields, fieldErrors,
   // error, navigating, selection, preview, requirements, benefits, reqDraft, benDraft, gap,
@@ -509,6 +515,9 @@ export function PostingForm({
         tradeAnswers: trade.answers,
         matchSkillIds: activeMatchSkillIds,
         untickedRelatedIds: [],
+        ...(postingOptions && choiceRef.current
+          ? { postingChoice: choiceRef.current, surface: "web" as const }
+          : {}),
       });
       if (res.ok) {
         setNavigating(true);
@@ -521,6 +530,27 @@ export function PostingForm({
             refresh: true,
           });
           return;
+        }
+        // #2938 — the job is live already; a dismissed or failed payment never unpublishes it.
+        if (res.checkout) {
+          const order = await createPostingCheckoutAction(res.checkout);
+          if (order.ok) {
+            const paid = await openCheckout({
+              orderId: order.orderId,
+              keyId: order.keyId,
+              amount: order.amount,
+              currency: order.currency,
+              name: "BadaBhai",
+              description: "Starter pack",
+            });
+            if (paid.outcome === "success") {
+              await verifyPaymentAction({
+                orderId: paid.orderId,
+                paymentId: paid.paymentId,
+                signature: paid.signature,
+              });
+            }
+          }
         }
         navigate(withPublishedReach(`/postings/${res.postingId}/applicants`, res.reached), {
           pendingLabel: "Applicants",
@@ -535,6 +565,9 @@ export function PostingForm({
     });
   }
 
+  // #2938 — the tapped button (a ref: the submit handler reads it synchronously).
+  const choiceRef = useRef<"free" | "free_plus_pack" | null>(null);
+
   // Only a request in flight disables the CTA. Validation — the missing trade included, even when
   // the 16 trades did not load — is surfaced by onSubmit, not by a dead button.
   const submitDisabled = pending || navigating;
@@ -545,18 +578,49 @@ export function PostingForm({
     derivedBand !== null ? baseApplicantQuotaForBand(derivedBand, quotaStep) : null;
 
   const busy = pending || navigating;
-  const primary = (
-    <Button
-      type="submit"
-      form={FORM_ID}
-      className="posting-cta"
-      iconRight={busy ? undefined : "rocket-launch"}
-      disabled={submitDisabled}
-      loading={busy}
-    >
-      {busy ? "Publishing…" : preview?.zero_reach ? zeroReachLabel : "Publish posting"}
-    </Button>
-  );
+  const primary =
+    postingOptions !== null ? (
+      <div className="posting-cta-group">
+        <Button
+          type="submit"
+          form={FORM_ID}
+          className="posting-cta"
+          disabled={submitDisabled}
+          loading={busy}
+          onClick={() => {
+            choiceRef.current = "free";
+          }}
+        >
+          {busy ? "Publishing…" : postingOptions.free.label}
+        </Button>
+        {postingOptions.free_plus_pack.offered && postingOptions.free_plus_pack.label ? (
+          <Button
+            type="submit"
+            form={FORM_ID}
+            className="posting-cta"
+            variant="secondary"
+            disabled={submitDisabled}
+            loading={busy}
+            onClick={() => {
+              choiceRef.current = "free_plus_pack";
+            }}
+          >
+            {busy ? "Publishing…" : postingOptions.free_plus_pack.label}
+          </Button>
+        ) : null}
+      </div>
+    ) : (
+      <Button
+        type="submit"
+        form={FORM_ID}
+        className="posting-cta"
+        iconRight={busy ? undefined : "rocket-launch"}
+        disabled={submitDisabled}
+        loading={busy}
+      >
+        {busy ? "Publishing…" : preview?.zero_reach ? zeroReachLabel : "Publish posting"}
+      </Button>
+    );
   // ONE status: the rail footer shows it on desktop, the dock below 1024px (the form's own end
   // repeats only the buttons) — so the reason always sits by the button the payer pressed.
   // The gap is NOT announced here: focus moves to its field, whose description reads it (once).

@@ -8,12 +8,12 @@ import { PayerBadRequestError } from "../../../../lib/payer-errors";
  */
 
 const createPosting = vi.fn();
-const publishPostingWithMatchSkills = vi.fn();
+const publishPostingWithChoice = vi.fn();
 const previewReach = vi.fn();
 
 vi.mock("../../../../lib/payer-api", () => ({
   createPosting: (input: unknown) => createPosting(input),
-  publishPostingWithMatchSkills: (id: unknown, sel: unknown) => publishPostingWithMatchSkills(id, sel),
+  publishPostingWithChoice: (id: unknown, sel: unknown, choice: unknown) => publishPostingWithChoice(id, sel, choice),
   previewReach: (input: unknown) => previewReach(input),
 }));
 
@@ -43,7 +43,7 @@ const INPUT = {
 
 beforeEach(() => {
   createPosting.mockReset().mockResolvedValue({ id: POSTING_ID });
-  publishPostingWithMatchSkills.mockReset().mockResolvedValue({ id: POSTING_ID, status: "open" });
+  publishPostingWithChoice.mockReset().mockResolvedValue({ posting: { id: POSTING_ID, status: "open" }, choice: null });
   previewReach.mockReset().mockResolvedValue({ reach_total: 18 });
 });
 
@@ -56,14 +56,14 @@ describe("createPostingAction — Reached N workers", () => {
   });
 
   it("a publish that left a draft claims no reach (and never reads it)", async () => {
-    publishPostingWithMatchSkills.mockResolvedValueOnce(null);
+    publishPostingWithChoice.mockResolvedValueOnce(null);
     const res = await createPostingAction(INPUT);
     expect(res).toEqual({ ok: true, postingId: POSTING_ID, published: false, reached: null });
     expect(previewReach).not.toHaveBeenCalled();
   });
 
   it("a failed publish is still reported as a draft, with no count", async () => {
-    publishPostingWithMatchSkills.mockRejectedValueOnce(new Error("down"));
+    publishPostingWithChoice.mockRejectedValueOnce(new Error("down"));
     const res = await createPostingAction(INPUT);
     expect(res).toEqual({ ok: true, postingId: POSTING_ID, published: false, reached: null });
   });
@@ -84,7 +84,7 @@ describe("createPostingAction — #2645: a company job is always one of the 16 t
       fieldErrors: { roleKind: "Pick one of the 16 trades" },
     });
     expect(createPosting).not.toHaveBeenCalled();
-    expect(publishPostingWithMatchSkills).not.toHaveBeenCalled();
+    expect(publishPostingWithChoice).not.toHaveBeenCalled();
   });
 
   it("the create always carries the trade form — {} when no chip was picked", async () => {
@@ -102,7 +102,7 @@ describe("createPostingAction — #2645: a company job is always one of the 16 t
   });
 
   it("a publish refused with posting_trade_required reports the draft AND the refusal", async () => {
-    publishPostingWithMatchSkills.mockRejectedValueOnce(
+    publishPostingWithChoice.mockRejectedValueOnce(
       new PayerBadRequestError("/payer/job-postings/x", "posting_trade_required"),
     );
     const res = await createPostingAction(INPUT);
@@ -117,7 +117,7 @@ describe("createPostingAction — #2645: a company job is always one of the 16 t
   });
 
   it("any other refused publish is a plain draft — the reason, not the status, decides", async () => {
-    publishPostingWithMatchSkills.mockRejectedValueOnce(
+    publishPostingWithChoice.mockRejectedValueOnce(
       new PayerBadRequestError("/payer/job-postings/x", "something_else"),
     );
     const res = await createPostingAction(INPUT);

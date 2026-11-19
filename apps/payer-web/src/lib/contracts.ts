@@ -1513,8 +1513,51 @@ export type ApplicantStageChange = z.infer<typeof applicantStageChangeWireSchema
  * mapper DROPS them: only the faceless {@link postingSummarySchema} fields reach the UI. No raw
  * worker PII exists on this row by construction (applicants are a separate faceless reach feed).
  */
+/** #2938 — GET /payer/job-postings/posting-options (404 while the switch is off). */
+export const postingOptionsWireSchema = z.object({
+  free: z.object({
+    choice: z.literal("free"),
+    offered: z.literal(true),
+    label: z.string(),
+    welcome_credits: z.number().nullable(),
+  }),
+  free_plus_pack: z.object({
+    choice: z.literal("free_plus_pack"),
+    offered: z.boolean(),
+    label: z.string().nullable(),
+    pack: z
+      .object({
+        code: z.string(),
+        price_inr: z.number(),
+        total_paise: z.number(),
+        credits: z.number(),
+      })
+      .nullable(),
+    checkout_origin: z.literal("posting_flow"),
+  }),
+});
+export type PostingOptions = z.infer<typeof postingOptionsWireSchema>;
+
+/** The additive `posting_choice` block on a publish answer (#2938). */
+export const postingChoiceWireSchema = z.object({
+  choice: z.enum(["free", "free_plus_pack"]),
+  surface: z.enum(["web", "app"]),
+  recorded: z.boolean(),
+  checkout: z
+    .object({
+      pack_code: z.string(),
+      expected_price_inr: z.number(),
+      origin: z.literal("posting_flow"),
+      origin_job_posting_id: z.string(),
+    })
+    .nullable(),
+});
+export type PostingChoice = z.infer<typeof postingChoiceWireSchema>;
+
 export const jobPostingWireSchema = z.object({
   id: z.string().uuid(),
+  /** #2938 — present only on a publish that recorded a choice. */
+  posting_choice: postingChoiceWireSchema.optional(),
   payer_id: z.string().uuid().nullable(),
   created_by: z.string().uuid(),
   org_label: z.string(),

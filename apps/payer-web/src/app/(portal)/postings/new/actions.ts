@@ -1,7 +1,7 @@
 "use server";
 
 import { createPostingInputSchema, matchSelectionInputSchema } from "../../../../lib/contracts";
-import { createPosting, publishPostingWithMatchSkills } from "../../../../lib/payer-api";
+import { createPosting, publishPostingWithChoice } from "../../../../lib/payer-api";
 import { isPayerValidationError, isPostingTradeRequired } from "../../../../lib/payer-errors";
 import {
   mapPostingIssues,
@@ -46,6 +46,8 @@ export type CreatePostingResult =
       postingId: string;
       published: boolean;
       reached: number | null;
+      /** #2938 — the paid posting tap's exact checkout body, when the server sent one. */
+      checkout?: { packCode: string; expectedPriceInr: number; jobPostingId: string } | null;
       /** The publish was refused for want of one of the 16 trades (#2635); the draft exists. */
       tradeRequired?: true;
     }
@@ -78,6 +80,9 @@ export async function createPostingAction(input: {
   tradeAnswers?: Record<string, string[]>;
   matchSkillIds: string[];
   untickedRelatedIds: string[];
+  /** #2938 — the button the payer tapped; absent keeps today's single publish. */
+  postingChoice?: "free" | "free_plus_pack";
+  surface?: "web" | "app";
 }): Promise<CreatePostingResult> {
   // #2645 — no role is refused BEFORE anything is created: a job without a trade could never go
   // live. Presence only (see above); the API decides whether a given role is one of the 16.
@@ -163,13 +168,64 @@ export async function createPostingAction(input: {
   }
 
   try {
-    const published = (await publishPostingWithMatchSkills(postingId, selection.data)) !== null;
+    const out = await publishPostingWithChoice(
+      postingId,
+      selection.data,
+      input.postingChoice && input.surface
+        ? { choice: input.postingChoice, surface: input.surface }
+        : undefined,
+    );
+    const published = out !== null;
     const reached = published ? await reachAfterPublish(selection.data, parsed.data.roleKind) : null;
-    return { ok: true, postingId, published, reached };
+    const checkout = out?.choice?.checkout
+      ? {
+          packCode: out.choice.checkout.pack_code,
+          expectedPriceInr: out.choice.checkout.expected_price_inr,
+          jobPostingId: out.choice.checkout.origin_job_posting_id,
+        }
+      : null;
+    return {
+      ok: true,
+      postingId,
+      published,
+      reached,
+      ...(checkout ? { checkout } : {}),
+    };
   } catch (e) {
     if (isPostingTradeRequired(e)) {
       return { ok: true, postingId, published: false, reached: null, tradeRequired: true };
     }
     return { ok: true, postingId, published: false, reached: null };
+  }
+}
+
+export type PostingCheckoutResult =
+  | { ok: true; orderId: string; keyId: string; amount: number; currency: string }
+  | { ok: false; error: string };
+
+/** #2938 — open the paid posting tap's checkout with the server's exact origin block. */
+export async function createPostingCheckoutAction(input: {
+  packCode: string;
+  expectedPriceInr: number;
+  jobPostingId: string;
+}): Promise<PostingCheckoutResult> {
+  const { createCreditOrder } = await import("../../../../lib/payer-api");
+  try {
+    const order = await createCreditOrder({
+      packCode: input.packCode,
+      expectedPriceInr: input.expectedPriceInr,
+      origin: "posting_flow",
+      originJobPostingId: input.jobPostingId,
+    });
+    if (!order) return { ok: false, error: "Checkout is unavailable right now." };
+    return {
+      ok: true,
+      orderId: order.order_id,
+      keyId: order.key_id,
+      amount: order.amount,
+      currency: order.currency,
+    };
+  } catch {
+    return { ok: false, error: "Couldn't start checkout. Please retry." };
   }
 }

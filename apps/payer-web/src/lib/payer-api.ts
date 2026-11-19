@@ -41,6 +41,7 @@ import {
   matchSkillListWireSchema,
   postingTradeListWireSchema,
   reachCaseWireSchema,
+  postingOptionsWireSchema,
   reachPreviewWireSchema,
   maskedResumeResultSchema,
   maskedResumeWireSchema,
@@ -103,6 +104,8 @@ import {
   type PostingTradeFormWire,
   type ReachApplicantWire,
   type PostingSummary,
+  type PostingOptions,
+  type PostingChoice,
   type ReachPreview,
   type RevealResult,
   type TopUpResult,
@@ -835,12 +838,22 @@ export async function createCreditOrder(input: {
   packCode: string;
   /** The ₹ the payer saw on the pack they chose (#2085). */
   expectedPriceInr?: number;
+  /** #2938 — a paid posting tap carries the job as its origin. */
+  origin?: "posting_flow";
+  originJobPostingId?: string;
 }): Promise<CreditOrder | null> {
   try {
     return await payerFetch("/payer/credits/order", {
       method: "POST",
       // pack CODE (+ the confirmed price guard) — never an amount to charge
-      body: { pack_code: input.packCode, ...confirmedPrice(input.expectedPriceInr) },
+      body: {
+        pack_code: input.packCode,
+        ...confirmedPrice(input.expectedPriceInr),
+        ...(input.origin ? { origin: input.origin } : {}),
+        ...(input.originJobPostingId
+          ? { origin_job_posting_id: input.originJobPostingId }
+          : {}),
+      },
       schema: creditOrderWireSchema,
     });
   } catch (e) {
@@ -2014,7 +2027,22 @@ export async function previewReach(
 export async function publishPostingWithMatchSkills(
   postingId: string,
   selection: MatchSelectionInput,
+  choice?: { choice: "free" | "free_plus_pack"; surface: "web" | "app" },
 ): Promise<PostingSummary | null> {
+  const out = await publishPostingWithChoice(postingId, selection, choice);
+  return out?.posting ?? null;
+}
+
+/**
+ * #2938 — publish and read the additive `posting_choice` block back. The block is present only
+ * when the switch was on for this company at publish; its `checkout` (paid tap) is the exact body
+ * to send to POST /payer/credits/order.
+ */
+export async function publishPostingWithChoice(
+  postingId: string,
+  selection: MatchSelectionInput,
+  choice?: { choice: "free" | "free_plus_pack"; surface: "web" | "app" },
+): Promise<{ posting: PostingSummary; choice: PostingChoice | null } | null> {
   try {
     const wire = await payerFetch(`/payer/job-postings/${postingId}`, {
       method: "PATCH",
@@ -2022,12 +2050,25 @@ export async function publishPostingWithMatchSkills(
         match_skill_ids: selection.matchSkillIds,
         unticked_related_ids: selection.untickedRelatedIds,
         status: "open",
+        ...(choice ? { posting_choice: choice.choice, surface: choice.surface } : {}),
       },
       schema: jobPostingWireSchema,
     });
-    return toPostingSummary(wire);
+    return { posting: toPostingSummary(wire), choice: wire.posting_choice ?? null };
   } catch (e) {
     if (isPayerStatus(e, 404)) return null;
+    throw e;
+  }
+}
+
+/** #2938 — GET /payer/job-postings/posting-options; null on the switch's 404 or an agency 403. */
+export async function getPostingOptions(): Promise<PostingOptions | null> {
+  try {
+    return await payerFetch("/payer/job-postings/posting-options", {
+      schema: postingOptionsWireSchema,
+    });
+  } catch (e) {
+    if (isPayerStatus(e, 404) || isPayerStatus(e, 403)) return null;
     throw e;
   }
 }

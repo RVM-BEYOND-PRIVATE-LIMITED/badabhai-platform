@@ -6,7 +6,7 @@ import { HIRING_CAPACITY_HREF } from "../../../../lib/billing-routes";
 import { PortalLink } from "../../../../components/portal-link";
 import { getLiveCatalog } from "../../../../lib/live-catalog";
 import { applicantQuotaStep, postingIsFreeThroughLaunch } from "../../../../lib/pricing-config";
-import { getCapacity, listMatchSkills } from "../../../../lib/payer-api";
+import { getCapacity, getPostingOptions, listMatchSkills } from "../../../../lib/payer-api";
 import { readPostingTrades } from "../../../../lib/posting-trades.server";
 import { CachedPricingNote } from "../../../../components/cached-pricing-note";
 import type { MatchSkillWire } from "../../../../lib/contracts";
@@ -62,6 +62,14 @@ export default async function NewPostingPage() {
   // failure is not swallowed into a free role list: the picker names the cause with a Retry and
   // the form refuses to post without a trade.
   const { trades: postingTrades, problem: postingTradesProblem } = await readPostingTrades();
+
+  // #2938 — the server's two posting buttons; null (switch off) keeps today's single publish.
+  let postingOptions: Awaited<ReturnType<typeof getPostingOptions>> = null;
+  try {
+    postingOptions = await getPostingOptions();
+  } catch {
+    postingOptions = null;
+  }
 
   // The page head + notices lead the FORM column, so the card-preview rail beside it starts at
   // the top of the page: on a laptop the whole worker card and the publish button are on screen
@@ -124,6 +132,7 @@ export default async function NewPostingPage() {
       postingTradesProblem={postingTradesProblem}
       lead={lead}
       free={free}
+      postingOptions={postingOptions}
     />
   );
 }
