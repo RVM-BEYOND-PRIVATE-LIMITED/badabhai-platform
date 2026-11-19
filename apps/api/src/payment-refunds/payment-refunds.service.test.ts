@@ -110,14 +110,22 @@ function make(opts: { creditNotes?: boolean; live?: boolean } = {}) {
     refundPayment: vi.fn(async () => ({ id: "rfnd_1", status: "pending", amountPaise: 117900 })),
   };
   const events = { emit: vi.fn(async (_params: unknown) => undefined) };
+  // #2749 part 4 — the credit-note issuer: step 1 before any write, step 2 after the refund row.
+  const creditNotes = {
+    available: opts.creditNotes ?? true,
+    prepare: vi.fn(async (_tx: unknown, _order: unknown, _amount: number) => ({ invoiceId: "inv-1" })),
+    issueWithinTx: vi.fn(async (_tx: unknown, _prepared: unknown, _refund: unknown, _ctx: unknown) => ({
+      creditNoteNumber: "CN/2026-27/0001",
+    })),
+  };
   const service = new PaymentRefundsService(
     repo as never,
     creditRules as never,
     razorpay as never,
     events as never,
-    { available: opts.creditNotes ?? true },
+    creditNotes as never,
   );
-  return { service, repo, creditRules, razorpay, events };
+  return { service, repo, creditRules, razorpay, events, creditNotes };
 }
 
 const emitted = (events: { emit: { mock: { calls: unknown[][] } } }) =>
@@ -235,6 +243,45 @@ describe("refund — credits first, money second", () => {
       tx: FAKE_TX,
     });
     expect(view).toMatchObject({ status: "pending", provider_refund_id: "rfnd_1" });
+  });
+
+  it("#2749 part 4: the credit note is prepared before any write and issued after the refund row, in the refund's transaction", async () => {
+    const t = make();
+    await t.service.refund(ADMIN, ORDER, { rule: "unused", reason_text: REASON }, CTX);
+    expect(t.creditNotes.prepare).toHaveBeenCalledWith(FAKE_TX, expect.objectContaining({ id: ORDER }), 117900);
+    const prepareOrder = t.creditNotes.prepare.mock.invocationCallOrder[0]!;
+    expect(prepareOrder).toBeLessThan(t.repo.removeLot.mock.invocationCallOrder[0]!);
+    expect(t.creditNotes.issueWithinTx).toHaveBeenCalledWith(
+      FAKE_TX,
+      { invoiceId: "inv-1" },
+      expect.objectContaining({ id: REFUND }),
+      CTX,
+    );
+    expect(t.repo.insertRefund.mock.invocationCallOrder[0]!).toBeLessThan(
+      t.creditNotes.issueWithinTx.mock.invocationCallOrder[0]!,
+    );
+    expect(t.repo.audit).toHaveBeenCalledWith(
+      FAKE_TX,
+      expect.objectContaining({
+        metadata: expect.objectContaining({ credit_note_number: "CN/2026-27/0001" }),
+      }),
+    );
+  });
+
+  it.each([
+    [new ConflictException({ code: "NO_INVOICE_FOR_ORDER", message: "none" }), "NO_INVOICE_FOR_ORDER"],
+    [new ConflictException({ code: "CREDIT_NOTE_AMOUNT_MISMATCH", message: "differs" }), "CREDIT_NOTE_AMOUNT_MISMATCH"],
+    [new ServiceUnavailableException({ code: "INVOICES_UNAVAILABLE", message: "no seller" }), "INVOICES_UNAVAILABLE"],
+  ])("#2749 part 4: a credit note that cannot be issued refuses the refund before any write (%#: %s)", async (refusal, code) => {
+    const t = make();
+    t.creditNotes.prepare.mockRejectedValueOnce(refusal);
+    await expect(
+      t.service.refund(ADMIN, ORDER, { rule: "unused", reason_text: REASON }, CTX),
+    ).rejects.toMatchObject({ response: { code } });
+    expect(t.repo.removeLot).not.toHaveBeenCalled();
+    expect(t.repo.insertRefund).not.toHaveBeenCalled();
+    expect(t.events.emit).not.toHaveBeenCalled();
+    expect(t.razorpay.refundPayment).not.toHaveBeenCalled();
   });
 
   it("an order already refunded: 409 ALREADY_REFUNDED, nothing removed", async () => {

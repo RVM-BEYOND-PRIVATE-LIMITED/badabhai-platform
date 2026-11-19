@@ -46,7 +46,9 @@ the prerequisites before step 6.
 ## Before anything: prerequisites
 
 Do not start step 4 until every box in this section is ticked. One exception: steps 4a and 4b move
-no money and may go ahead of "Invoices are live" (4b says what that costs).
+no money and may go ahead of "Invoices are live". On a Razorpay **test** key (`rzp_test_`) the api
+issues no invoice at all and takes no invoice or credit-note number, and the real checkout does not
+ask for a seller row or billing details, so the rehearsal needs none of the invoice steps.
 
 - [ ] **The Razorpay secrets reach the container: done by #2749 part 5b**, once it is merged and
       deployed. It bridges `PAYMENTS_ENABLE_REAL`, `PAYMENTS_PROVIDER_KEY`,
@@ -59,8 +61,12 @@ no money and may go ahead of "Invoices are live" (4b says what that costs).
       settings). The browser verify settles a payment only once Razorpay reports it `captured`; an
       `authorized` payment is left for the webhook's `payment.captured`. With manual capture no
       payment would ever settle.
-- [ ] **Invoices are live** (#2749 part 4): merged, its migration applied, the seller row filled.
-      Every payment needs a GST invoice.
+- [ ] **Invoices are live** (#2749 part 4): merged, migration 0188 applied, the private bucket
+      created and the seller row entered — the three owner steps in "Invoices: the owner steps"
+      below. Every payment needs a GST invoice: until the seller row exists the real checkout
+      answers 503 `INVOICES_UNAVAILABLE` to every company, and a company that has not saved its
+      billing details gets 409 `BILLING_DETAILS_REQUIRED` (payer-web must offer the form first:
+      `GET`/`PUT /payer/billing-details`).
 - [ ] **payer-web is ready** (Rishi): the purchase confirmation shows the pack's `price.display`
       (`₹999 plus GST (₹1,179)`) before Razorpay opens (BB-R-03); it shows no per-unlock price and
       no value framing (#2744, PR #2792); it shows the buy button from `GET /payer/credits`'s
@@ -117,6 +123,100 @@ no money and may go ahead of "Invoices are live" (4b says what that costs).
       transaction. Its per-company cap comes with #2750's goodwill path.
 - [ ] **Hardening 6 and 11** are fixed (#2773 nightly reconciliation; catalogue edits behind the
       admin sign-in with an audit row), or the owner accepts each again, in writing, for everyone.
+
+## Invoices: the owner steps (#2749 part 4, ADR-0065 §3.7)
+
+Three steps, in this order. None moves money; none changes anything for a company until real
+payments are live.
+
+**I-1. Apply migration 0188 (`0188_invoices`) BEFORE the deploy.** 0186 (`payment_refunds`) must be
+applied first: 0188 has a foreign key to it. Hand-apply in one
+`BEGIN; SET LOCAL lock_timeout = '3s'; … COMMIT;` (retry on a lock timeout), probe the five tables,
+then adopt the ledger row (every lower slot first). `MIGRATIONS.md` has the details and the
+rollback.
+
+**I-2. Create the private Storage bucket `payer-invoices`** (Supabase dashboard → Storage → New
+bucket, **Public: off**). It holds the invoice and credit-note PDFs, which carry the company's
+billing details. The api reads its name from `INVOICES_BUCKET` (default `payer-invoices`, so no
+secret or bridge is needed). Without the bucket every download answers 503
+`INVOICE_PDF_UNAVAILABLE`; invoices are still numbered and stored.
+
+**The PDF needs `RESUME_RENDER_ENABLED` on** (the one WeasyPrint switch, shared with résumés and
+interview kits). With it off nothing is rendered: every invoice and credit-note download answers 503
+`INVOICE_PDF_UNAVAILABLE`, while invoices are still numbered and listed. Check it is `true` on the
+box before step 5.
+
+**I-3. Enter the seller row by hand** (BadaBhai SQL editor). The values are the seller of record's
+(owner ruling 2026-11-18: RVM Beyond Private Limited, Haryana, state code `06`, SAC `998512`).
+**Type them into the editor only — never into an issue, a chat, a commit or a log.** The template
+holds placeholders, not values. **Keep both prefixes at TWO characters (`BB`, `CN`).** The CHECK allows
+three, but a three-character prefix leaves room for only four serial digits inside Rule 46(b)'s 16
+characters, so its year would stop at 9,999 documents (every later settle records
+`payment.invoice_not_issued`); two characters allow 99,999.
+
+```sql
+BEGIN;
+INSERT INTO seller_tax_config
+  (legal_name, gstin, pan, state_code, address, sac_code, invoice_prefix, credit_note_prefix)
+VALUES
+  ('<legal name as registered>', '<GSTIN, 15 characters>', '<PAN, 10 characters>', '06',
+   '<registered address>', '998512', 'BB', 'CN');
+SELECT id, state_code, sac_code, invoice_prefix, credit_note_prefix, is_active, created_at
+FROM seller_tax_config WHERE is_active;
+COMMIT;
+```
+
+For a multi-line address write the literal as `E'line one\nline two'` instead.
+
+**Check the GSTIN's check character before you commit** (the CHECK pins the shape, not the
+checksum): with the api built, run
+
+```sh
+node -e "const g=require('@badabhai/pricing');console.log(g.isValidGstin(process.argv[1]))" '<GSTIN>'
+```
+
+from `apps/api` (it prints `true` or `false`; type the GSTIN at the shell only, it is not logged).
+An active row whose GSTIN fails the check is treated as **no seller row**: the real checkout answers
+503 `INVOICES_UNAVAILABLE`, a settle records `payment.invoice_not_issued` with reason
+`seller_config_invalid` (credits granted, no invoice), and a refund answers 503. Fix it with a new row
+(below), then issue the missing invoices with the repair runner.
+
+The CHECKs refuse a GSTIN of the wrong shape, a GSTIN whose first two digits are not `state_code`
+or whose characters 3–12 are not the PAN, a SAC that is not six digits, a prefix longer than three
+characters, the two prefixes being equal, and a second active row. To change the address or GSTIN
+later, set the old row `is_active = false` and insert a new one in the same transaction; every
+invoice already issued keeps the row it was issued under.
+
+**What the deploy turns on at once.** Refunds (#2750, ADR-0066 §2.11) are on wherever real payments
+are live, because credit notes now exist; with no usable seller row a refund answers 503
+`INVOICES_UNAVAILABLE` before anything is written. **The test-key rehearsal (4b) uses no invoice
+numbers**: while the api runs on a `rzp_test_` key a settle issues no invoice (it records
+`payment.invoice_not_issued` with reason `test_mode` and grants the credits), the real checkout asks
+for no seller row and no billing details, and a refund of a rehearsal order is refused with 409
+`NO_INVOICE_FOR_ORDER` before any credit-note number is taken (refund a rehearsal payment in the
+Razorpay dashboard's Test Mode instead). So the seller row may be entered before or after the
+rehearsal; the gap-free series starts with the first live payment.
+
+**Watch:** `payment.invoice_not_issued` (a captured payment with no invoice). `reason` `test_mode` is
+expected during 4b and needs nothing. Every other reason (`seller_not_configured`,
+`seller_config_invalid`, `price_line_missing`, `issue_failed` — the last with an ERROR log line
+`invoice NOT issued; credits granted`) is a paid order that needs its invoice. **Issue it with the
+repair runner, never by hand:**
+
+```sh
+pnpm --filter @badabhai/api build
+# PAYMENTS_PROVIDER_KEY = the rzp_* key ID the api runs with (public; never the key secret).
+node apps/api/dist/invoices/issue-missing-invoice.cli.js --payment-order-id=<payment_orders.id>
+# read the dry run, then:
+node apps/api/dist/invoices/issue-missing-invoice.cli.js --payment-order-id=<payment_orders.id> --apply \
+  --i-am-authorised-to-write-to-production   # with OPS_ALLOW_PRODUCTION=issue-missing-invoice
+```
+
+It issues through the same issuer as the settle, in its own transaction, dated now, and refuses
+(writing nothing) an unknown order, one that is not a real captured paid order, one that already
+has an invoice, a test-mode or missing key ID, and no usable seller row. **Never write
+`invoice_number_series` (or `invoices`, `credit_notes`) by hand**: a hand-set counter skips or reuses
+numbers in a series that must be gap-free.
 
 ## How the payment secrets are set (read before steps 3 and 4)
 
@@ -252,9 +352,11 @@ off the three are inert, and `GET /admin/finance/summary` (admin-web's finance p
 ### 4b — the test-key rehearsal: pilot on, real payments on, test keys
 
 Needs steps 2 and 3 and every prerequisite above except "Invoices are live" (the rehearsal moves no
-money). **If invoices are already live, the rehearsal's payment takes the next number in the
-gap-free invoice series**: decide with the accountant beforehand whether that is acceptable or how
-it is voided.
+money). **It needs no seller row and uses no invoice or credit-note number**: on the `rzp_test_` key
+the checkout skips the invoice gate (no 503 `INVOICES_UNAVAILABLE`, no 409
+`BILLING_DETAILS_REQUIRED`), the settle records `payment.invoice_not_issued` with reason
+`test_mode` instead of an invoice, and a refund of the rehearsal order is refused with 409
+`NO_INVOICE_FOR_ORDER` (refund it in the Razorpay dashboard's Test Mode).
 
 Set the rollout first and the master gate last, then one redeploy:
 
@@ -273,8 +375,9 @@ free packs and the ops grant are closed; every other company can buy nothing (bo
 404, `checkout: "none"`), and the ops grant refuses everyone (`real_payments_live`).
 
 As the staff test company, buy Starter with a Razorpay test card and run step 5's checks (the order
-`paid` with `total_paise = 117900`, one `payment.captured`, one lot of 20 credits, nothing `held`),
-then mark the lot `is_test` with step 5's SQL.
+`paid` with `total_paise = 117900`, one `payment.captured`, one lot of 20 credits, nothing `held`;
+no invoice, and one `payment.invoice_not_issued` with reason `test_mode`), then mark the lot `is_test`
+with step 5's SQL.
 
 If the live keys do not follow straight away, do **not** set `PAYMENTS_ENABLE_REAL` to `false` on
 its own: follow "Rollback" below (the rollout `off`, the open orders reconciled, then the flag).
@@ -326,7 +429,8 @@ Plan section 14: one live payment proved before launch.
 1. As the staff test company, buy Starter (`₹999 plus GST (₹1,179)`) through payer-web.
 2. Check: the order is `paid` with `total_paise = 117900`; one `payment.captured` with
    `real_call: true`; the lot holds 20 credits expiring 30 days after the settle; one GST invoice
-   can be downloaded; `SELECT id FROM payment_orders WHERE status = 'held'` is empty.
+   (`GET /payer/invoices`: `BB/<year>/<serial>`, taxable 99,900 + CGST 9,000 + SGST 9,000 paise for a
+   Haryana company, or IGST 18,000 elsewhere; `invoice.issued` once) can be downloaded; `SELECT id FROM payment_orders WHERE status = 'held'` is empty.
 3. Mark the lot as test traffic. The settle does not stamp `credit_lots.is_test` yet (no writer
    copies `payers.is_test_account` onto a lot), so it is a hand step:
 
@@ -335,8 +439,9 @@ Plan section 14: one live payment proved before launch.
    WHERE payment_order_id = '<payment_orders.id of the test order>' AND payer_id = '<tenant key>';
    ```
 
-4. A refund, if wanted, is made in the Razorpay dashboard (no refund path until BB-D-05); the
-   credits stay on the test company's wallet.
+4. A refund, if wanted, goes through the admin refund route (#2750, ADR-0066 §2.11): it removes
+   the credits and writes the GST credit note (`CN/<year>/<serial>`) in one transaction before
+   Razorpay is asked.
 
 ## Step 6 — everyone
 

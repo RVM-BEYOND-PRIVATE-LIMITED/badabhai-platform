@@ -17,6 +17,7 @@ import { RequestIdempotency } from "../common/idempotency/request-idempotency.se
 import { inFlightConflict } from "../common/idempotency/in-flight-conflict";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { Ctx, type RequestContext } from "../common/request-context";
+import { InvoicesService } from "../invoices/invoices.service";
 import { CurrentPayer, PayerAuthGuard, type AuthenticatedPayer } from "../payers/payer-auth.guard";
 import {
   CreateManagedHiringOrderSchema,
@@ -61,6 +62,7 @@ export class PayerManagedHiringController {
   constructor(
     private readonly managedHiring: ManagedHiringService,
     private readonly idempotency: RequestIdempotency,
+    private readonly invoices: InvoicesService,
   ) {}
 
   @Get("quote")
@@ -89,6 +91,10 @@ export class PayerManagedHiringController {
   ): Promise<ManagedHiringCheckoutDto> {
     // OUTSIDE THE GUARD: a switched-off 404 is never pinned under a key.
     await this.managedHiring.assertOpenFor(payer.id);
+    // #2749 part 4 — every payment needs a GST invoice, the same gate as a pack's checkout: 503
+    // `INVOICES_UNAVAILABLE` with no usable seller row, 409 `BILLING_DETAILS_REQUIRED` until the
+    // company saved its billing details. Outside the guard too, so saving them unblocks at once.
+    await this.invoices.assertCheckoutInvoiceable(payer.id);
     const key = req.header("idempotency-key")?.trim();
     if (!key || !IDEMPOTENCY_KEY_RE.test(key)) {
       throw new BadRequestException({

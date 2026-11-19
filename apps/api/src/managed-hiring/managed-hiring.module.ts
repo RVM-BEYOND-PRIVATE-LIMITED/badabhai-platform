@@ -3,6 +3,7 @@ import { BullModule } from "@nestjs/bullmq";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { ConsentModule } from "../consent/consent.module";
 import { FeatureRolloutModule } from "../feature-rollout/feature-rollout.module";
+import { InvoicesModule } from "../invoices/invoices.module";
 import { PayersModule } from "../payers/payers.module";
 import { PricingModule } from "../pricing/pricing.module";
 import { MANAGED_HIRING_SWEEP_QUEUE, RESUME_RENDER_QUEUE } from "../queue/queue.constants";
@@ -30,6 +31,8 @@ import { PayerManagedHiringController } from "./payer-managed-hiring.controller"
     PayersModule,
     FeatureRolloutModule,
     ConsentModule,
+    // #2749 part 4: the checkout's invoice gate (the invoice itself is issued on the settle path).
+    InvoicesModule,
     BullModule.registerQueue({ name: MANAGED_HIRING_SWEEP_QUEUE }),
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],

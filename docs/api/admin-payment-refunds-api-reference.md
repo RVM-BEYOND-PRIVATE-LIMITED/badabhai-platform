@@ -4,9 +4,11 @@ Issue #2750 items 10 and 12 · code: `apps/api/src/payment-refunds/*`, `apps/api
 
 Capability `refund_payments` (super_admin only; owner ruling 2026-11-18). The admin is the session's. Companies have no refund route.
 
-## Off until credit notes exist
+## Every refund has its GST credit note
 
-Every route below answers **503 `CREDIT_NOTES_UNAVAILABLE`** until GST credit notes can be issued (owner ruling 2026-11-18). Invoices and credit notes are #2749 part 4, and they wait on the seller's GSTIN. Every route also answers 503 `REAL_PAYMENTS_OFF` while real payments are off.
+No refund goes out without its GST credit note (owner ruling 2026-11-18). #2749 part 4 issues them, so the routes are on wherever real payments are live; every route answers 503 `REAL_PAYMENTS_OFF` while real payments are off. (`CREDIT_NOTES_UNAVAILABLE` remains in the code for a build with no credit-note issuer bound; production binds one.)
+
+The credit note is written in the refund's own transaction (below), numbered in its own gap-free series (`CN/2026-27/0001`, restarting every 1 April IST), and copies the order's invoice: taxable value, CGST/SGST or IGST, total. Its number is the refund's `credit_note_number`; the company downloads it from `GET /payer/credit-notes/:id/download` (`docs/api/payer-agency-api-reference.md`).
 
 ## The rules
 
@@ -55,9 +57,10 @@ A refund is always **full**: the order's whole total, GST included. The pack mus
 1. One transaction:
    - locks the order and checks the rule;
    - takes the pack's credits back, plus any credits that came back with it (#2750 item 9), with one `pack_refund` ledger line per lot (key `pack_refund:<lot id>`);
-   - writes the `payment_refunds` row (`requested`), the audit row and `payment.refund_requested`.
+   - finds the order's GST invoice first, before writing anything: no invoice, or an invoice total that is not the refund amount, refuses the refund (below);
+   - writes the `payment_refunds` row (`requested`), then the GST credit note (numbered, `credit_notes` row, `credit_note.issued`, its number stamped on the refund row), the audit row (with `credit_note_number`) and `payment.refund_requested`.
 2. Razorpay is asked to refund the total. A refund it already made for this row (found by our row id in its notes) is adopted, never made twice.
-3. The row moves to `pending` (`processed` when Razorpay says so at once), or `failed` (`provider_error`) when the call fails. The credits stay removed either way.
+3. The row moves to `pending` (`processed` when Razorpay says so at once), or `failed` (`provider_error`) when the call fails. The credits stay removed, and the credit note stays issued, either way.
 
 200 with the refund (below).
 
@@ -66,7 +69,10 @@ A refund is always **full**: the order's whole total, GST included. The pack mus
 | 404 | — | no such order; not a real paid credit-pack order; a `job_posting_id` that is not the company's |
 | 409 | `ALREADY_REFUNDED` | the order has a refund (one per order, ever) |
 | 409 | `REFUND_RULE_NOT_MET` | the rule does not hold; the body has `rule` and `refusal` |
-| 503 | `CREDIT_NOTES_UNAVAILABLE` / `REAL_PAYMENTS_OFF` | see above |
+| 409 | `NO_INVOICE_FOR_ORDER` | the order has no GST invoice (its settle issued none: `payment.invoice_not_issued`) |
+| 409 | `CREDIT_NOTE_AMOUNT_MISMATCH` | the refund amount is not the invoice total |
+| 503 | `INVOICES_UNAVAILABLE` | no active seller row: no credit note can be numbered |
+| 503 | `REAL_PAYMENTS_OFF` (`CREDIT_NOTES_UNAVAILABLE` with no issuer bound) | see above |
 
 ## `GET /admin/payment-refunds/:id`
 
@@ -76,7 +82,7 @@ A refund is always **full**: the order's whole total, GST included. The pack mus
   "job_posting_id": null, "applicants_counted": null, "requested_by": "…",
   "amount_paise": 117900, "credits_removed": 23,
   "status": "pending", "failure_code": null, "provider_refund_id": "rfnd_…",
-  "credit_note_number": null,
+  "credit_note_number": "CN/2026-27/0001",
   "requested_at": "…", "processed_at": null
 }
 ```
@@ -89,9 +95,10 @@ A refund is always **full**: the order's whole total, GST included. The pack mus
 
 ## Webhooks
 
-`POST /payments/razorpay/webhook` with `refund.created`, `refund.processed` or `refund.failed` moves the refund. The refund is found by its `rfnd_*` id, or by our row id in its notes. `processed` is final. A refund this code did not make, such as one from the dashboard, is acknowledged and ignored. Each move records `payment.refund_status_changed`. While credit notes are unavailable, no refund of ours can exist, so every refund delivery is acknowledged without reading the table.
+`POST /payments/razorpay/webhook` with `refund.created`, `refund.processed` or `refund.failed` moves the refund. The refund is found by its `rfnd_*` id, or by our row id in its notes. `processed` is final. A refund this code did not make, such as one from the dashboard, is acknowledged and ignored. Each move records `payment.refund_status_changed`. With no credit-note issuer bound (never in production) no refund of ours can exist, so every refund delivery is acknowledged without reading the table.
 
 ## Events
 
 - `payment.refund_requested` `{refund_id, payment_order_id, payer_id, rule, amount_paise, credits_removed}` (actor: the admin).
 - `payment.refund_status_changed` `{refund_id, payment_order_id, payer_id, status, failure_code}`.
+- `credit_note.issued` `{credit_note_id, invoice_id, payment_refund_id, payer_id, financial_year, total_paise}` (in the refund's transaction).

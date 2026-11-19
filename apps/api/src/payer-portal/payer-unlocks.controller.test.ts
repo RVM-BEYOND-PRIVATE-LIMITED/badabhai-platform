@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  ServiceUnavailableException,
   UnprocessableEntityException,
 } from "@nestjs/common";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
@@ -95,12 +96,15 @@ function makeCtrl() {
   const idempotency = {
     runOnce: vi.fn(async (o: { work: () => Promise<unknown> }) => o.work()),
   };
+  // #2749 part 4 — the invoice gate on a real order, passing unless a case arms it.
+  const invoices = { assertCheckoutInvoiceable: vi.fn(async () => undefined) };
   const ctrl = new PayerUnlocksController(
     unlocks as never,
     disclosureRate as never,
     idempotency as never,
+    invoices as never,
   );
-  return { ctrl, unlocks, disclosureRate, idempotency };
+  return { ctrl, unlocks, disclosureRate, idempotency, invoices };
 }
 
 /**
@@ -298,6 +302,34 @@ describe("PayerUnlocksController — real-payment routes (order + verify)", () =
       expect(JSON.stringify(out)).not.toMatch(/secret|whsec|11111111-2222/i);
     });
 
+    it("#2749 part 4: createOrder asks the invoice gate for the SESSION payer before any order", async () => {
+      await d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, NO_KEY, CTX);
+      expect(d.invoices.assertCheckoutInvoiceable).toHaveBeenCalledWith(PAYER_A.id);
+    });
+
+    it("#2749 part 4: a refusal of the invoice gate creates no order (409 BILLING_DETAILS_REQUIRED, 503 INVOICES_UNAVAILABLE)", async () => {
+      const refusals = [
+        new ConflictException({ code: "BILLING_DETAILS_REQUIRED", message: "save them" }),
+        new ServiceUnavailableException({ code: "INVOICES_UNAVAILABLE", message: "no seller" }),
+      ];
+      for (const refusal of refusals) {
+        d.invoices.assertCheckoutInvoiceable.mockRejectedValueOnce(refusal as never);
+        await expect(
+          d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, NO_KEY, CTX),
+        ).rejects.toBe(refusal);
+      }
+      expect(d.unlocks.createCreditOrder).not.toHaveBeenCalled();
+      expect(d.idempotency.runOnce).not.toHaveBeenCalled();
+    });
+
+    it("#2749 part 4: the invoice gate is not asked while the real checkout is closed (still the neutral 404)", async () => {
+      d.unlocks.realPaymentsLive = false;
+      await expect(
+        d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, NO_KEY, CTX),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(d.invoices.assertCheckoutInvoiceable).not.toHaveBeenCalled();
+    });
+
     it("createOrder on an UNKNOWN pack is a 404 (a public catalog item, not a tenant oracle)", async () => {
       d.unlocks.createCreditOrder.mockResolvedValueOnce(null as never);
       await expect(
@@ -424,6 +456,7 @@ describe("#1046 — POST /payer/credits is idempotent on Idempotency-Key", () =>
       unlocks as never,
       { assertWithinHourlyCap: vi.fn(async () => undefined) } as never,
       seam,
+      { assertCheckoutInvoiceable: async () => undefined } as never,
     );
     return { ctrl, unlocks, purchaseCredits, redis };
   }
@@ -662,8 +695,8 @@ describe("#2749 item 9 — POST /payer/credits/order is idempotent on Idempotenc
         credits: 20,
         price: {
           taxablePaise: 99900,
-          gstPaise: 17982,
-          roundOffPaise: 18,
+          gstPaise: 18000,
+          roundOffPaise: 0,
           totalPaise: 117900,
           gstRateBps: 1800,
         },
@@ -682,6 +715,7 @@ describe("#2749 item 9 — POST /payer/credits/order is idempotent on Idempotenc
       unlocks as never,
       { assertWithinHourlyCap: vi.fn(async () => undefined) } as never,
       seam,
+      { assertCheckoutInvoiceable: async () => undefined } as never,
     );
     return { ctrl, unlocks, createCreditOrder, redis, handoff };
   }

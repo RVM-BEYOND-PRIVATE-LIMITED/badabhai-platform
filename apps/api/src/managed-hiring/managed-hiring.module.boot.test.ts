@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { ConsentModule } from "../consent/consent.module";
 import { FeatureRolloutModule } from "../feature-rollout/feature-rollout.module";
+import { InvoicesModule } from "../invoices/invoices.module";
 import { PayersModule } from "../payers/payers.module";
 import { PricingModule } from "../pricing/pricing.module";
 import { MANAGED_HIRING_SWEEP_QUEUE, RESUME_RENDER_QUEUE } from "../queue/queue.constants";
@@ -65,6 +66,7 @@ describe("ManagedHiringModule wiring", () => {
         PayersModule,
         FeatureRolloutModule,
         ConsentModule,
+        InvoicesModule,
       ]),
     );
   });

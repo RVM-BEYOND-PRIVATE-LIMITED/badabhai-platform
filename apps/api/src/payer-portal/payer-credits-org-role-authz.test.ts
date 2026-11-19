@@ -259,7 +259,12 @@ function makeCtrl(realPaymentsLive: boolean) {
   };
   // Pass-through: no Idempotency-Key on these requests, so runOnce just runs the work.
   const idempotency = { runOnce: vi.fn(async (o: { work: () => Promise<unknown> }) => o.work()) };
-  const ctrl = new PayerUnlocksController(unlocks as never, {} as never, idempotency as never);
+  const ctrl = new PayerUnlocksController(
+    unlocks as never,
+    {} as never,
+    idempotency as never,
+    { assertCheckoutInvoiceable: async () => undefined } as never,
+  );
   return { ctrl, unlocks };
 }
 

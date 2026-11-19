@@ -1,5 +1,5 @@
 {
-  "id": "9e653895-4efd-44d0-a995-63b206ecb7b5",
+  "id": "54538b6d-fd1b-4d1a-9762-8a9a17b4e258",
   "prevId": "69947864-3932-4c9d-b029-d729b1965102",
   "version": "7",
   "dialect": "postgresql",
@@ -10967,7 +10967,7 @@
         },
         "payment_orders_product_kind_chk": {
           "name": "payment_orders_product_kind_chk",
-          "value": "\"payment_orders\".\"product_kind\" IN ('credit_pack', 'managed_hiring')"
+          "value": "\"payment_orders\".\"product_kind\" IN ('credit_pack')"
         },
         "payment_orders_pack_code_chk": {
           "name": "payment_orders_pack_code_chk",
@@ -20952,552 +20952,6 @@
       },
       "isRLSEnabled": true
     },
-    "public.managed_hiring_callback_requests": {
-      "name": "managed_hiring_callback_requests",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "payer_id": {
-          "name": "payer_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "requested_by": {
-          "name": "requested_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "job_posting_id": {
-          "name": "job_posting_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "vacancy_band": {
-          "name": "vacancy_band",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "is_test": {
-          "name": "is_test",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "managed_hiring_callback_requests_job_uq": {
-          "name": "managed_hiring_callback_requests_job_uq",
-          "columns": [
-            {
-              "expression": "job_posting_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "managed_hiring_callback_requests_created_idx": {
-          "name": "managed_hiring_callback_requests_created_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "managed_hiring_callback_requests_job_posting_id_job_postings_id_fk": {
-          "name": "managed_hiring_callback_requests_job_posting_id_job_postings_id_fk",
-          "tableFrom": "managed_hiring_callback_requests",
-          "tableTo": "job_postings",
-          "columnsFrom": [
-            "job_posting_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "managed_hiring_callback_requests_reason_chk": {
-          "name": "managed_hiring_callback_requests_reason_chk",
-          "value": "\"managed_hiring_callback_requests\".\"reason\" IN ('above_largest_tier')"
-        },
-        "managed_hiring_callback_requests_band_chk": {
-          "name": "managed_hiring_callback_requests_band_chk",
-          "value": "\"managed_hiring_callback_requests\".\"vacancy_band\" IN ('1', '2-5', '6-10', '11-25', '25+')"
-        }
-      },
-      "isRLSEnabled": true
-    },
-    "public.managed_hiring_interest": {
-      "name": "managed_hiring_interest",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "order_id": {
-          "name": "order_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "payer_id": {
-          "name": "payer_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "worker_id": {
-          "name": "worker_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "confirmed_by": {
-          "name": "confirmed_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "confirmed_at": {
-          "name": "confirmed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "managed_hiring_interest_order_worker_uq": {
-          "name": "managed_hiring_interest_order_worker_uq",
-          "columns": [
-            {
-              "expression": "order_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "worker_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "managed_hiring_interest_payer_worker_idx": {
-          "name": "managed_hiring_interest_payer_worker_idx",
-          "columns": [
-            {
-              "expression": "payer_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "worker_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "managed_hiring_interest_worker_idx": {
-          "name": "managed_hiring_interest_worker_idx",
-          "columns": [
-            {
-              "expression": "worker_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "managed_hiring_interest_order_id_managed_hiring_orders_id_fk": {
-          "name": "managed_hiring_interest_order_id_managed_hiring_orders_id_fk",
-          "tableFrom": "managed_hiring_interest",
-          "tableTo": "managed_hiring_orders",
-          "columnsFrom": [
-            "order_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "managed_hiring_interest_worker_id_workers_id_fk": {
-          "name": "managed_hiring_interest_worker_id_workers_id_fk",
-          "tableFrom": "managed_hiring_interest",
-          "tableTo": "workers",
-          "columnsFrom": [
-            "worker_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "managed_hiring_interest_note_len_chk": {
-          "name": "managed_hiring_interest_note_len_chk",
-          "value": "char_length(\"managed_hiring_interest\".\"note\") BETWEEN 1 AND 500"
-        }
-      },
-      "isRLSEnabled": true
-    },
-    "public.managed_hiring_orders": {
-      "name": "managed_hiring_orders",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "payer_id": {
-          "name": "payer_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "job_posting_id": {
-          "name": "job_posting_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "tier": {
-          "name": "tier",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "payment_order_id": {
-          "name": "payment_order_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'created'"
-        },
-        "price_inr": {
-          "name": "price_inr",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "target_count": {
-          "name": "target_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "working_days": {
-          "name": "working_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "extension_days": {
-          "name": "extension_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "due_at": {
-          "name": "due_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "extended_until": {
-          "name": "extended_until",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "extended_at": {
-          "name": "extended_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "is_test": {
-          "name": "is_test",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "managed_hiring_orders_payment_order_uq": {
-          "name": "managed_hiring_orders_payment_order_uq",
-          "columns": [
-            {
-              "expression": "payment_order_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "managed_hiring_orders_open_job_uq": {
-          "name": "managed_hiring_orders_open_job_uq",
-          "columns": [
-            {
-              "expression": "job_posting_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"managed_hiring_orders\".\"status\" IN ('created', 'active', 'extended')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "managed_hiring_orders_status_due_idx": {
-          "name": "managed_hiring_orders_status_due_idx",
-          "columns": [
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "due_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "managed_hiring_orders_payer_created_idx": {
-          "name": "managed_hiring_orders_payer_created_idx",
-          "columns": [
-            {
-              "expression": "payer_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "managed_hiring_orders_created_idx": {
-          "name": "managed_hiring_orders_created_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "managed_hiring_orders_job_posting_id_job_postings_id_fk": {
-          "name": "managed_hiring_orders_job_posting_id_job_postings_id_fk",
-          "tableFrom": "managed_hiring_orders",
-          "tableTo": "job_postings",
-          "columnsFrom": [
-            "job_posting_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "managed_hiring_orders_payment_order_id_payment_orders_id_fk": {
-          "name": "managed_hiring_orders_payment_order_id_payment_orders_id_fk",
-          "tableFrom": "managed_hiring_orders",
-          "tableTo": "payment_orders",
-          "columnsFrom": [
-            "payment_order_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "managed_hiring_orders_status_chk": {
-          "name": "managed_hiring_orders_status_chk",
-          "value": "\"managed_hiring_orders\".\"status\" IN ('created', 'active', 'met', 'extended', 'closed_unmet', 'cancelled')"
-        },
-        "managed_hiring_orders_tier_chk": {
-          "name": "managed_hiring_orders_tier_chk",
-          "value": "\"managed_hiring_orders\".\"tier\" IN ('standard', 'large')"
-        },
-        "managed_hiring_orders_terms_pos_chk": {
-          "name": "managed_hiring_orders_terms_pos_chk",
-          "value": "\"managed_hiring_orders\".\"price_inr\" > 0 AND \"managed_hiring_orders\".\"target_count\" > 0 AND \"managed_hiring_orders\".\"working_days\" > 0 AND \"managed_hiring_orders\".\"extension_days\" >= \"managed_hiring_orders\".\"working_days\""
-        },
-        "managed_hiring_orders_clock_chk": {
-          "name": "managed_hiring_orders_clock_chk",
-          "value": "\"managed_hiring_orders\".\"status\" IN ('created', 'cancelled') OR (\"managed_hiring_orders\".\"started_at\" IS NOT NULL AND \"managed_hiring_orders\".\"due_at\" IS NOT NULL AND \"managed_hiring_orders\".\"extended_until\" IS NOT NULL)"
-        },
-        "managed_hiring_orders_clock_order_chk": {
-          "name": "managed_hiring_orders_clock_order_chk",
-          "value": "\"managed_hiring_orders\".\"due_at\" IS NULL OR (\"managed_hiring_orders\".\"due_at\" > \"managed_hiring_orders\".\"started_at\" AND \"managed_hiring_orders\".\"extended_until\" >= \"managed_hiring_orders\".\"due_at\")"
-        }
-      },
-      "isRLSEnabled": true
-    },
     "public.student_import_batches": {
       "name": "student_import_batches",
       "schema": "",
@@ -22848,6 +22302,728 @@
         "company_import_rows_text_chk": {
           "name": "company_import_rows_text_chk",
           "value": "char_length(\"company_import_rows\".\"source_id\") BETWEEN 1 AND 200 AND (\"company_import_rows\".\"company_source_id\" IS NULL OR char_length(\"company_import_rows\".\"company_source_id\") BETWEEN 1 AND 200)"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.credit_notes": {
+      "name": "credit_notes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "invoice_id": {
+          "name": "invoice_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payment_refund_id": {
+          "name": "payment_refund_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "credit_note_number": {
+          "name": "credit_note_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "financial_year": {
+          "name": "financial_year",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issued_at": {
+          "name": "issued_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "taxable_paise": {
+          "name": "taxable_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cgst_paise": {
+          "name": "cgst_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sgst_paise": {
+          "name": "sgst_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "igst_paise": {
+          "name": "igst_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "total_paise": {
+          "name": "total_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pdf_storage_key": {
+          "name": "pdf_storage_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pdf_rendered_at": {
+          "name": "pdf_rendered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "credit_notes_refund_uq": {
+          "name": "credit_notes_refund_uq",
+          "columns": [
+            {
+              "expression": "payment_refund_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credit_notes_number_uq": {
+          "name": "credit_notes_number_uq",
+          "columns": [
+            {
+              "expression": "credit_note_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credit_notes_invoice_idx": {
+          "name": "credit_notes_invoice_idx",
+          "columns": [
+            {
+              "expression": "invoice_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "credit_notes_invoice_id_invoices_id_fk": {
+          "name": "credit_notes_invoice_id_invoices_id_fk",
+          "tableFrom": "credit_notes",
+          "tableTo": "invoices",
+          "columnsFrom": [
+            "invoice_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "credit_notes_payment_refund_id_payment_refunds_id_fk": {
+          "name": "credit_notes_payment_refund_id_payment_refunds_id_fk",
+          "tableFrom": "credit_notes",
+          "tableTo": "payment_refunds",
+          "columnsFrom": [
+            "payment_refund_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "credit_notes_paise_chk": {
+          "name": "credit_notes_paise_chk",
+          "value": "\"credit_notes\".\"taxable_paise\" >= 0 AND \"credit_notes\".\"cgst_paise\" >= 0 AND \"credit_notes\".\"sgst_paise\" >= 0 AND \"credit_notes\".\"igst_paise\" >= 0 AND \"credit_notes\".\"total_paise\" >= 0"
+        },
+        "credit_notes_sum_chk": {
+          "name": "credit_notes_sum_chk",
+          "value": "\"credit_notes\".\"taxable_paise\" + \"credit_notes\".\"cgst_paise\" + \"credit_notes\".\"sgst_paise\" + \"credit_notes\".\"igst_paise\" = \"credit_notes\".\"total_paise\""
+        },
+        "credit_notes_split_chk": {
+          "name": "credit_notes_split_chk",
+          "value": "\"credit_notes\".\"igst_paise\" = 0 OR (\"credit_notes\".\"cgst_paise\" = 0 AND \"credit_notes\".\"sgst_paise\" = 0)"
+        },
+        "credit_notes_number_chk": {
+          "name": "credit_notes_number_chk",
+          "value": "char_length(\"credit_notes\".\"credit_note_number\") <= 16 AND \"credit_notes\".\"financial_year\" ~ '^[0-9]{4}-[0-9]{2}$'"
+        },
+        "credit_notes_pdf_chk": {
+          "name": "credit_notes_pdf_chk",
+          "value": "(\"credit_notes\".\"pdf_storage_key\" IS NULL) = (\"credit_notes\".\"pdf_rendered_at\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.invoice_number_series": {
+      "name": "invoice_number_series",
+      "schema": "",
+      "columns": {
+        "series": {
+          "name": "series",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "financial_year": {
+          "name": "financial_year",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_number": {
+          "name": "last_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "invoice_number_series_pk": {
+          "name": "invoice_number_series_pk",
+          "columns": [
+            "series",
+            "financial_year"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "invoice_number_series_series_chk": {
+          "name": "invoice_number_series_series_chk",
+          "value": "\"invoice_number_series\".\"series\" IN ('invoice', 'credit_note')"
+        },
+        "invoice_number_series_fy_chk": {
+          "name": "invoice_number_series_fy_chk",
+          "value": "\"invoice_number_series\".\"financial_year\" ~ '^[0-9]{4}-[0-9]{2}$'"
+        },
+        "invoice_number_series_last_chk": {
+          "name": "invoice_number_series_last_chk",
+          "value": "\"invoice_number_series\".\"last_number\" >= 0"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.invoices": {
+      "name": "invoices",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "payment_order_id": {
+          "name": "payment_order_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payer_id": {
+          "name": "payer_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "invoice_number": {
+          "name": "invoice_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "financial_year": {
+          "name": "financial_year",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issued_at": {
+          "name": "issued_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seller_legal_name": {
+          "name": "seller_legal_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seller_gstin": {
+          "name": "seller_gstin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seller_pan": {
+          "name": "seller_pan",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seller_state_code": {
+          "name": "seller_state_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seller_address": {
+          "name": "seller_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sac_code": {
+          "name": "sac_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "buyer_state_code": {
+          "name": "buyer_state_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "buyer_gstin_enc": {
+          "name": "buyer_gstin_enc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "buyer_legal_name_enc": {
+          "name": "buyer_legal_name_enc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "buyer_address_enc": {
+          "name": "buyer_address_enc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "supply_type": {
+          "name": "supply_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "taxable_paise": {
+          "name": "taxable_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cgst_paise": {
+          "name": "cgst_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sgst_paise": {
+          "name": "sgst_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "igst_paise": {
+          "name": "igst_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "total_paise": {
+          "name": "total_paise",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gst_rate_bps": {
+          "name": "gst_rate_bps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_test": {
+          "name": "is_test",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "pdf_storage_key": {
+          "name": "pdf_storage_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pdf_rendered_at": {
+          "name": "pdf_rendered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "invoices_order_uq": {
+          "name": "invoices_order_uq",
+          "columns": [
+            {
+              "expression": "payment_order_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "invoices_number_uq": {
+          "name": "invoices_number_uq",
+          "columns": [
+            {
+              "expression": "invoice_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "invoices_payer_idx": {
+          "name": "invoices_payer_idx",
+          "columns": [
+            {
+              "expression": "payer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "issued_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "invoices_payment_order_id_payment_orders_id_fk": {
+          "name": "invoices_payment_order_id_payment_orders_id_fk",
+          "tableFrom": "invoices",
+          "tableTo": "payment_orders",
+          "columnsFrom": [
+            "payment_order_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "invoices_supply_chk": {
+          "name": "invoices_supply_chk",
+          "value": "\"invoices\".\"supply_type\" IN ('intra', 'inter')"
+        },
+        "invoices_paise_chk": {
+          "name": "invoices_paise_chk",
+          "value": "\"invoices\".\"taxable_paise\" >= 0 AND \"invoices\".\"cgst_paise\" >= 0 AND \"invoices\".\"sgst_paise\" >= 0 AND \"invoices\".\"igst_paise\" >= 0 AND \"invoices\".\"total_paise\" >= 0"
+        },
+        "invoices_sum_chk": {
+          "name": "invoices_sum_chk",
+          "value": "\"invoices\".\"taxable_paise\" + \"invoices\".\"cgst_paise\" + \"invoices\".\"sgst_paise\" + \"invoices\".\"igst_paise\" = \"invoices\".\"total_paise\""
+        },
+        "invoices_split_chk": {
+          "name": "invoices_split_chk",
+          "value": "(\"invoices\".\"supply_type\" = 'intra' AND \"invoices\".\"igst_paise\" = 0) OR (\"invoices\".\"supply_type\" = 'inter' AND \"invoices\".\"cgst_paise\" = 0 AND \"invoices\".\"sgst_paise\" = 0)"
+        },
+        "invoices_place_chk": {
+          "name": "invoices_place_chk",
+          "value": "(\"invoices\".\"supply_type\" = 'intra') = (\"invoices\".\"buyer_state_code\" = \"invoices\".\"seller_state_code\") AND \"invoices\".\"buyer_state_code\" ~ '^[0-9]{2}$'"
+        },
+        "invoices_rate_chk": {
+          "name": "invoices_rate_chk",
+          "value": "\"invoices\".\"gst_rate_bps\" BETWEEN 0 AND 10000"
+        },
+        "invoices_number_chk": {
+          "name": "invoices_number_chk",
+          "value": "char_length(\"invoices\".\"invoice_number\") <= 16 AND \"invoices\".\"financial_year\" ~ '^[0-9]{4}-[0-9]{2}$'"
+        },
+        "invoices_buyer_chk": {
+          "name": "invoices_buyer_chk",
+          "value": "\"invoices\".\"buyer_gstin_enc\" IS NULL OR (\"invoices\".\"buyer_legal_name_enc\" IS NOT NULL AND \"invoices\".\"buyer_address_enc\" IS NOT NULL)"
+        },
+        "invoices_pdf_chk": {
+          "name": "invoices_pdf_chk",
+          "value": "(\"invoices\".\"pdf_storage_key\" IS NULL) = (\"invoices\".\"pdf_rendered_at\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.payer_billing_details": {
+      "name": "payer_billing_details",
+      "schema": "",
+      "columns": {
+        "payer_id": {
+          "name": "payer_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "state_code": {
+          "name": "state_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gstin_enc": {
+          "name": "gstin_enc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "legal_name_enc": {
+          "name": "legal_name_enc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address_enc": {
+          "name": "address_enc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "payer_billing_details_state_chk": {
+          "name": "payer_billing_details_state_chk",
+          "value": "\"payer_billing_details\".\"state_code\" ~ '^[0-9]{2}$'"
+        },
+        "payer_billing_details_gstin_chk": {
+          "name": "payer_billing_details_gstin_chk",
+          "value": "\"payer_billing_details\".\"gstin_enc\" IS NULL OR (\"payer_billing_details\".\"legal_name_enc\" IS NOT NULL AND \"payer_billing_details\".\"address_enc\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.seller_tax_config": {
+      "name": "seller_tax_config",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "legal_name": {
+          "name": "legal_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gstin": {
+          "name": "gstin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pan": {
+          "name": "pan",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state_code": {
+          "name": "state_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sac_code": {
+          "name": "sac_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "invoice_prefix": {
+          "name": "invoice_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "credit_note_prefix": {
+          "name": "credit_note_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "seller_tax_config_one_active_uq": {
+          "name": "seller_tax_config_one_active_uq",
+          "columns": [
+            {
+              "expression": "is_active",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"seller_tax_config\".\"is_active\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "seller_tax_config_state_chk": {
+          "name": "seller_tax_config_state_chk",
+          "value": "\"seller_tax_config\".\"state_code\" ~ '^[0-9]{2}$'"
+        },
+        "seller_tax_config_gstin_chk": {
+          "name": "seller_tax_config_gstin_chk",
+          "value": "\"seller_tax_config\".\"gstin\" ~ '^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$' AND substr(\"seller_tax_config\".\"gstin\", 1, 2) = \"seller_tax_config\".\"state_code\" AND substr(\"seller_tax_config\".\"gstin\", 3, 10) = \"seller_tax_config\".\"pan\""
+        },
+        "seller_tax_config_pan_chk": {
+          "name": "seller_tax_config_pan_chk",
+          "value": "\"seller_tax_config\".\"pan\" ~ '^[A-Z]{5}[0-9]{4}[A-Z]$'"
+        },
+        "seller_tax_config_sac_chk": {
+          "name": "seller_tax_config_sac_chk",
+          "value": "\"seller_tax_config\".\"sac_code\" ~ '^[0-9]{6}$'"
+        },
+        "seller_tax_config_prefix_chk": {
+          "name": "seller_tax_config_prefix_chk",
+          "value": "\"seller_tax_config\".\"invoice_prefix\" ~ '^[A-Z][A-Z0-9]{0,2}$' AND \"seller_tax_config\".\"credit_note_prefix\" ~ '^[A-Z][A-Z0-9]{0,2}$' AND \"seller_tax_config\".\"invoice_prefix\" <> \"seller_tax_config\".\"credit_note_prefix\""
+        },
+        "seller_tax_config_text_chk": {
+          "name": "seller_tax_config_text_chk",
+          "value": "length(btrim(\"seller_tax_config\".\"legal_name\")) > 0 AND length(btrim(\"seller_tax_config\".\"address\")) > 0"
         }
       },
       "isRLSEnabled": true

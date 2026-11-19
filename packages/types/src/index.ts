@@ -1849,6 +1849,38 @@ export type PaymentRefundStatusCode = (typeof PAYMENT_REFUND_STATUSES)[number];
 export const PAYMENT_REFUND_FAILURES = Object.freeze(["provider_error", "provider_failed"] as const);
 export type PaymentRefundFailureCode = (typeof PAYMENT_REFUND_FAILURES)[number];
 
+// ---- GST invoices and credit notes (#2749 part 4, migration 0188) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells them into the `invoices`,
+// `credit_notes` and `invoice_number_series` CHECKs, `packages/event-schema` puts them on the spine
+// (`invoice.issued`, `payment.invoice_not_issued`) and the api returns them. FROZEN: each event's v1
+// enum is taken from these lists.
+
+/** Inside the seller's state (CGST + SGST) or across states (IGST). */
+export const INVOICE_SUPPLY_TYPES = Object.freeze(["intra", "inter"] as const);
+export type InvoiceSupplyType = (typeof INVOICE_SUPPLY_TYPES)[number];
+
+/** The two gap-free number series, each restarting every 1 April (IST). */
+export const INVOICE_NUMBER_SERIES = Object.freeze(["invoice", "credit_note"] as const);
+export type InvoiceNumberSeries = (typeof INVOICE_NUMBER_SERIES)[number];
+
+/**
+ * Why a captured payment got no invoice (`payment.invoice_not_issued.reason`). The credits were
+ * granted anyway: money taken is never refused. `seller_not_configured` = no active
+ * `seller_tax_config` row; `seller_config_invalid` = the active row's GSTIN fails its check
+ * character; `price_line_missing` = an order from before the paise columns (0176), whose GST was
+ * never charged; `test_mode` = the api runs on a Razorpay TEST key (no money moved, so no invoice
+ * and no number); `issue_failed` = anything else (logged at ERROR, no PII).
+ */
+export const INVOICE_NOT_ISSUED_REASONS = Object.freeze([
+  "seller_not_configured",
+  "seller_config_invalid",
+  "price_line_missing",
+  "test_mode",
+  "issue_failed",
+] as const);
+export type InvoiceNotIssuedReason = (typeof INVOICE_NOT_ISSUED_REASONS)[number];
+
 /**
  * Why a captured payment was HELD instead of granted (`payment.held.reason`). `amount_mismatch` =
  * the captured paise are not the order's total; `amount_missing` = the capture carried no amount;

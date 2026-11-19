@@ -165,6 +165,12 @@ export const EVENT_DOMAINS = [
   // own lifecycle, and nothing on it is automated. IDS, PAISE INTEGERS AND CLOSED VALUES ONLY: the
   // admin's note never rides the spine, and no name, phone or company name exists to ride it.
   "pay_on_joining",
+  // #2749 part 4 — a GST invoice (`invoices`) and a GST credit note (`credit_notes`). DISTINCT
+  // domains from `payment`: each is its own tax record with its own gap-free number series, issued
+  // in the settle's or the refund's transaction. IDS, THE FINANCIAL YEAR AND PAISE ONLY: no GSTIN,
+  // name, address or number.
+  "invoice",
+  "credit_note",
   // #2751 items 4 to 13 - a company's prepaid Managed Hiring order for one job: its checkout, the
   // clock, the desk's phone-confirmed tracker, the extension and the end, and the callback request
   // a job above the largest tier gets. A DISTINCT domain from `payment` (the money rides

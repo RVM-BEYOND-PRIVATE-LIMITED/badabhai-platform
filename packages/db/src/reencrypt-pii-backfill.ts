@@ -58,6 +58,8 @@ import {
   campusDriveRequests,
   launchTestCohort,
   rvmApplicantWaivers,
+  invoices,
+  payerBillingDetails,
   workerAdminOverrides,
   employerProfiles,
   payerMemberInvites,
@@ -450,6 +452,58 @@ function buildTargets(db: Database): PiiTarget[] {
       "rvm_applicant_waivers",
       "cleared_by_label_enc",
       "clearedByLabelEnc",
+    ),
+    // #2749 part 4 — a company's billing details (keyed by its tenant key) and the buyer snapshot
+    // each GST invoice keeps (migration `*_invoices`). Added WITH the migration, while the tables
+    // are empty, for the same reason as the entries above. An invoice's snapshot is the billing
+    // row's ciphertext copied at settle time, so both are rotated.
+    target(
+      payerBillingDetails,
+      payerBillingDetails.payerId,
+      payerBillingDetails.gstinEnc,
+      "payer_billing_details",
+      "gstin_enc",
+      "gstinEnc",
+    ),
+    target(
+      payerBillingDetails,
+      payerBillingDetails.payerId,
+      payerBillingDetails.legalNameEnc,
+      "payer_billing_details",
+      "legal_name_enc",
+      "legalNameEnc",
+    ),
+    target(
+      payerBillingDetails,
+      payerBillingDetails.payerId,
+      payerBillingDetails.addressEnc,
+      "payer_billing_details",
+      "address_enc",
+      "addressEnc",
+    ),
+    target(
+      invoices,
+      invoices.id,
+      invoices.buyerGstinEnc,
+      "invoices",
+      "buyer_gstin_enc",
+      "buyerGstinEnc",
+    ),
+    target(
+      invoices,
+      invoices.id,
+      invoices.buyerLegalNameEnc,
+      "invoices",
+      "buyer_legal_name_enc",
+      "buyerLegalNameEnc",
+    ),
+    target(
+      invoices,
+      invoices.id,
+      invoices.buyerAddressEnc,
+      "invoices",
+      "buyer_address_enc",
+      "buyerAddressEnc",
     ),
   ];
 }

@@ -161,6 +161,7 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
       svc,
       { assertWithinHourlyCap: async () => undefined } as never,
       seam,
+      { assertCheckoutInvoiceable: async () => undefined } as never,
     );
   });
 
@@ -236,8 +237,8 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
       provider: "razorpay",
       provider_order_id: `order_${TAG}_${randomUUID().slice(0, 8)}`,
       taxable_paise: 99900,
-      gst_paise: 17982,
-      round_off_paise: 18,
+      gst_paise: 18000,
+      round_off_paise: 0,
       total_paise: 117900,
       gst_rate_bps: 1800,
       credit_validity_days: 30,
@@ -329,13 +330,13 @@ describe.skipIf(!RUN)("payment orders (#2749 PR 3) — against real Postgres", (
   });
 
   it("(a) the money: the parts must sum to the total, the total must be a whole rupee = amount_inr × 100, all five or none", async () => {
-    // 99,900 + 17,982 + 0 ≠ 1,17,900.
-    expect(await pgError(() => insertOrder({ round_off_paise: 0 }))).toEqual({
+    // 99,900 + 17,982 + 0 ≠ 1,17,900 (the GST to the paisa without its round-off).
+    expect(await pgError(() => insertOrder({ gst_paise: 17982 }))).toEqual({
       code: "23514",
       constraint: "payment_orders_money_sum_chk",
     });
     // Sums, but 1,17,882 paise is not a whole rupee (and so cannot equal amount_inr × 100).
-    expect(await pgError(() => insertOrder({ round_off_paise: 0, total_paise: 117882 }))).toEqual({
+    expect(await pgError(() => insertOrder({ gst_paise: 17982, total_paise: 117882 }))).toEqual({
       code: "23514",
       constraint: "payment_orders_money_sum_chk",
     });

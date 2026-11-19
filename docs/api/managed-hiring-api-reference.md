@@ -86,6 +86,8 @@ Headers: **`Idempotency-Key` is required** (8–200 characters of `A-Z a-z 0-9 .
 | 409    | `job_not_open`       | the job is not live                                                      |
 | 403    | `agency_account`     | agency or contractor account                                             |
 
+As for a credit pack (#2749 part 4), every payment needs a GST invoice, so the checkout is refused before any order while invoicing is not ready: a **503** `code: "INVOICES_UNAVAILABLE"` while BadaBhai's seller details are not set, and a **409** `code: "BILLING_DETAILS_REQUIRED"` until the company has saved its billing details (`PUT /payer/billing-details`). The invoice is issued when the payment is captured and is listed on `GET /payer/invoices`; its line reads "Managed Hiring — worker sourcing and screening for one job".
+
 ### `GET /payer/managed-hiring/orders?job_posting_id=<uuid?>` and `GET /payer/managed-hiring/orders/:id`
 
 ```jsonc

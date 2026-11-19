@@ -118,6 +118,29 @@ describe("PaymentGateway.settleOrder — a non-pack order (#2751)", () => {
     expect(calls).toEqual(["prepare"]);
   });
 
+  it("issues the GST invoice on the claim's transaction, after the settler (#2749 part 4)", async () => {
+    const { gw, calls } = makeGateway();
+    const onGranted = vi.fn(async (tx: unknown, order: PaymentOrder) => {
+      calls.push(`invoice:${String(tx)}:${order.id}:${order.status}`);
+    });
+    await expect(gw.settleOrder(capture, { onGranted })).resolves.toMatchObject({
+      outcome: "granted",
+    });
+    expect(calls).toEqual([
+      "prepare",
+      "settle:TX:order-row-1:PLAN:corr-1",
+      "invoice:TX:order-row-1:paid",
+      "after",
+    ]);
+  });
+
+  it("a lost race issues no invoice (the winner's settle did)", async () => {
+    const { gw } = makeGateway({ claim: "loses" });
+    const onGranted = vi.fn(async () => {});
+    await gw.settleOrder(capture, { onGranted });
+    expect(onGranted).not.toHaveBeenCalled();
+  });
+
   it("an after-commit failure never fails the settle (the payment and the purchase stand)", async () => {
     const { gw } = makeGateway({ afterThrows: true });
     await expect(gw.settleOrder(capture)).resolves.toMatchObject({ outcome: "granted" });

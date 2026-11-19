@@ -77,6 +77,8 @@ import {
   LAUNCH_TEST_RESULTS,
   POSTING_CHOICES,
   POSTING_SURFACES,
+  INVOICE_SUPPLY_TYPES,
+  INVOICE_NOT_ISSUED_REASONS,
   MANAGED_HIRING_CALLBACK_REASONS,
   MANAGED_HIRING_TIERS,
 } from "@badabhai/types";
@@ -2136,6 +2138,79 @@ export const PaymentRefundStatusChangedPayload = z
     path: ["failure_code"],
   });
 export type PaymentRefundStatusChangedPayload = z.infer<typeof PaymentRefundStatusChangedPayload>;
+
+/**
+ * #2749 part 4 — a captured real payment got NO invoice. The credits were granted in the same
+ * settle (money taken is never refused); the invoice write ran in a savepoint that rolled back.
+ * Written on the settle's transaction, one per order (idempotency key
+ * `payment.invoice_not_issued:order:<order id>`). `reason` is closed: `seller_not_configured` (no
+ * active seller row), `seller_config_invalid` (its GSTIN fails the check character),
+ * `price_line_missing` (an order from before the paise columns), `test_mode` (a Razorpay test key:
+ * no money moved) or `issue_failed` (anything else; the api logs the error class at ERROR).
+ * FACELESS: ids and a code.
+ */
+export const PaymentInvoiceNotIssuedPayload = z
+  .object({
+    payment_order_id: uuidSchema,
+    /** The wallet the order was stamped with (the tenant key, ADR-0053). */
+    payer_id: uuidSchema,
+    reason: z.enum(INVOICE_NOT_ISSUED_REASONS),
+  })
+  .strict();
+export type PaymentInvoiceNotIssuedPayload = z.infer<typeof PaymentInvoiceNotIssuedPayload>;
+
+/**
+ * #2749 part 4 — a GST invoice was issued for a captured real payment, in the settle's transaction
+ * (one per order, idempotency key `invoice.issued:order:<order id>`). FACELESS: ids, the financial
+ * year (`2026-27`), the closed supply type, the total in paise and the test flag. Never the
+ * invoice number, a GSTIN, a name or an address.
+ */
+export const InvoiceIssuedPayload = z
+  .object({
+    invoice_id: uuidSchema,
+    payment_order_id: uuidSchema,
+    payer_id: uuidSchema,
+    financial_year: z.string().regex(/^[0-9]{4}-[0-9]{2}$/),
+    supply_type: z.enum(INVOICE_SUPPLY_TYPES),
+    total_paise: z.number().int().nonnegative(),
+    /** Copied from `payers.is_test_account` of the wallet at settle time. */
+    is_test: z.boolean(),
+  })
+  .strict();
+export type InvoiceIssuedPayload = z.infer<typeof InvoiceIssuedPayload>;
+
+/**
+ * #2749 part 4 — a GST credit note was issued for a refund, in the refund's own transaction (the
+ * one that removed the credits and wrote the `payment_refunds` row; one per refund, idempotency
+ * key `credit_note.issued:<refund id>`). FACELESS: ids, the financial year and the total in paise.
+ */
+export const CreditNoteIssuedPayload = z
+  .object({
+    credit_note_id: uuidSchema,
+    invoice_id: uuidSchema,
+    payment_refund_id: uuidSchema,
+    payer_id: uuidSchema,
+    financial_year: z.string().regex(/^[0-9]{4}-[0-9]{2}$/),
+    total_paise: z.number().int().nonnegative(),
+  })
+  .strict();
+export type CreditNoteIssuedPayload = z.infer<typeof CreditNoteIssuedPayload>;
+
+/**
+ * #2749 part 4 — a company saved its billing details (`PUT /payer/billing-details`), in the
+ * transaction that wrote them (one per save). The actor is the login that saved; `payer_id` is the
+ * tenant key the details belong to. KEYS ONLY beyond the state: whether a GSTIN is on file, never
+ * the GSTIN, the legal name or the address.
+ */
+export const PayerBillingDetailsUpdatedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    /** The place of supply the company saved: a two-digit GST state code. */
+    state_code: z.string().regex(/^[0-9]{2}$/),
+    has_gstin: z.boolean(),
+  })
+  .strict();
+export type PayerBillingDetailsUpdatedPayload = z.infer<typeof PayerBillingDetailsUpdatedPayload>;
 
 // ---------------------------------------------------------------------------
 // Monetization + Pricing Engine (ADR-0013) — PII-FREE: ids + CODES + enums +

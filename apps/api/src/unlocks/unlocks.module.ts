@@ -19,6 +19,7 @@ import { RazorpayWebhookController } from "./razorpay-webhook.controller";
 import { RazorpayWebhookGuard } from "./razorpay-webhook.guard";
 import { CreditLotExpirySweepProcessor } from "./credit-lot-expiry-sweep.processor";
 import { PaymentRefundsModule } from "../payment-refunds/payment-refunds.module";
+import { InvoicesModule } from "../invoices/invoices.module";
 
 /**
  * Contact Unlock + Reveal (ADR-0010, Stream A): the routed-disclosure monetization
@@ -65,6 +66,9 @@ import { PaymentRefundsModule } from "../payment-refunds/payment-refunds.module"
     // #2750 item 10 - the webhook's `refund.*` deliveries reach the refund service. A one-way edge:
     // PaymentRefundsModule imports only CreditRulesModule.
     PaymentRefundsModule,
+    // #2749 part 4 - the GST invoice issued in the settle's transaction (InvoiceIssuer) and its PDF
+    // after commit. A one-way edge: InvoicesModule imports only PayersModule and StorageModule.
+    InvoicesModule,
   ],
   // RazorpayWebhookController is the PUBLIC capture surface (ADR-0010 real-payments
   // stream). It lives here, beside the money chokepoint it drives, so the whole payment

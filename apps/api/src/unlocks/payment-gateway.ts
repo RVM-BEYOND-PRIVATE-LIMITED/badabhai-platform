@@ -610,6 +610,12 @@ export class PaymentGateway {
       packReturnFor?: (order: PaymentOrder) => Promise<{ max: number; windowMonths: number } | null>;
       /** #2750 item 9 — credits came back: runs on the settle's transaction (the caller's event). */
       onPackReturn?: (tx: Tx, order: PaymentOrder, returned: PackReturnResult) => Promise<void>;
+      /**
+       * #2749 part 4 — THIS call granted: runs on the settle's transaction, after the credits (and
+       * any returned credits), with the CLAIMED row. The GST invoice is issued here; the hook keeps
+       * its own failures to a savepoint, so it must not throw for a business reason.
+       */
+      onGranted?: (tx: Tx, order: PaymentOrder) => Promise<void>;
     } = {},
   ): Promise<SettleResult> {
     const existing = await this.repo.findPaymentOrder(input.providerOrderId);
@@ -655,7 +661,7 @@ export class PaymentGateway {
     // applies the purchase on the claim's transaction. Prepared on the pool first; no settler for
     // the kind means nothing is claimed (fail closed — the webhook answers 5xx and retries).
     if (existing.productKind !== "credit_pack") {
-      return this.settleProductOrder(existing, input);
+      return this.settleProductOrder(existing, input, hooks.onGranted);
     }
 
     // Claim + grant in ONE repository call and ONE transaction. The wallet, the credits and the
@@ -673,6 +679,8 @@ export class PaymentGateway {
       if (done?.packReturn && done.packReturn.credits > 0 && hooks.onPackReturn) {
         await hooks.onPackReturn(tx, done.order, done.packReturn);
       }
+      // The invoice commits with the grant (in a savepoint of its own: never refuses the money).
+      if (done && hooks.onGranted) await hooks.onGranted(tx, done.order);
       return done;
     });
 
@@ -731,10 +739,15 @@ export class PaymentGateway {
     }
   }
 
-  /** {@link settleOrder} for a non-pack order: claim + the product's settler, one transaction. */
+  /**
+   * {@link settleOrder} for a non-pack order: claim + the product's settler, one transaction. The
+   * `onGranted` hook (#2749 part 4, the GST invoice) runs on that transaction after the settler,
+   * exactly as for a pack: every captured payment gets its invoice, whatever was sold.
+   */
   private async settleProductOrder(
     existing: PaymentOrder,
     input: { providerOrderId: string; providerPaymentRef: string; ctx?: SettleContext },
+    onGranted?: (tx: Tx, order: PaymentOrder) => Promise<void>,
   ): Promise<SettleResult> {
     const settler = this.settlers?.forKind(existing.productKind);
     if (settler === undefined) {
@@ -745,13 +758,16 @@ export class PaymentGateway {
     }
     const ctx: SettleContext = input.ctx ?? { correlationId: randomUUID() };
     const prepared = await settler.prepare(existing);
-    const settled = await this.repo.withTransaction((tx) =>
-      this.repo.claimAndCreditPaymentOrderWithinTx(tx, {
+    const settled = await this.repo.withTransaction(async (tx) => {
+      const done = await this.repo.claimAndCreditPaymentOrderWithinTx(tx, {
         providerOrderId: input.providerOrderId,
         providerPaymentRef: input.providerPaymentRef,
         settleProduct: (t, claimed) => settler.settleWithinTx(t, claimed, prepared, ctx),
-      }),
-    );
+      });
+      // The invoice commits with the purchase (in a savepoint of its own: never refuses the money).
+      if (done && onGranted) await onGranted(tx, done.order);
+      return done;
+    });
     if (!settled) return this.terminalState(input.providerOrderId);
     if (settler.afterCommit) {
       try {

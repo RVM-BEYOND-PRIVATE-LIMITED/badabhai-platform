@@ -100,6 +100,8 @@ import { PayerAccountController } from "../payers/payer-account.controller";
 // #2819 — the theme: one controller per realm, each behind its own guard only.
 import { WorkerDisplayPrefsController } from "../display-prefs/worker-display-prefs.controller";
 import { PayerDisplayPrefsController } from "../display-prefs/payer-display-prefs.controller";
+// #2749 part 4 — a company's billing details, its GST invoices and their downloads.
+import { PayerInvoicesController } from "../invoices/payer-invoices.controller";
 import { AdminDisplayPrefsController } from "../display-prefs/admin-display-prefs.controller";
 import { SearchExitController } from "../search-exit/search-exit.controller";
 import { StillLookingController } from "../still-looking/still-looking.controller";
@@ -969,6 +971,20 @@ const CONTRACT: ControllerContract[] = [
     ctor: PayerUnlockOutcomesController,
     routes: { listDue: [P, UFE], recordOutcome: [P, UFE] },
   },
+  // #2749 part 4 — billing details, invoices and the two downloads: PayerAuthGuard ONLY, the
+  // posture of the credit-purchase routes (any authenticated payer may buy). Tenancy is the
+  // service's (the tenant key); another company's document is a neutral 404.
+  {
+    name: "PayerInvoices",
+    ctor: PayerInvoicesController,
+    routes: {
+      getBillingDetails: [P],
+      putBillingDetails: [P],
+      listInvoices: [P],
+      downloadInvoice: [P],
+      downloadCreditNote: [P],
+    },
+  },
 ];
 
 describe("API authz contract — guards on every controller route", () => {
@@ -1032,6 +1048,8 @@ describe("API authz contract — guards on every controller route", () => {
       // #2753 item 10 — a company's answers about the contacts it opened; a route must not join
       // unpinned.
       PayerUnlockOutcomesController,
+      // #2749 part 4 — a company's GSTIN, address and tax documents; a route must not join unpinned.
+      PayerInvoicesController,
     ] as Ctor[]) {
       it(`${ctor.name} lists every route it serves`, () => {
         const proto = ctor.prototype as Record<string, unknown>;
