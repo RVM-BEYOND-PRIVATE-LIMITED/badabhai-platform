@@ -205,7 +205,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               },
               { label: "Shift", value: job.shift ?? "not stated" },
               { label: "Needed by", value: job.needed_by ?? "not stated" },
-              // #2746 — READ-ONLY audience and RVM targeting/review. No admin write sets these.
+              // #2746 — audience and RVM targeting/review, read here; an admin changes the audience in
+              // the "Where this job shows" panel above (#2956, #2958).
               { label: "Audience", value: audienceLabel(job.audience) },
               {
                 label: "RVM targeting",
