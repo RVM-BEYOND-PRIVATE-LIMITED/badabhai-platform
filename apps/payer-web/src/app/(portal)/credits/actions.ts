@@ -10,7 +10,7 @@ import {
   topUp,
   verifyCreditPayment,
 } from "../../../lib/payer-api";
-import { PriceMismatchError } from "../../../lib/payer-errors";
+import { PriceMismatchError, isPayerStatus } from "../../../lib/payer-errors";
 import {
   PRICE_UNREADABLE_MESSAGE,
   readExpectedPrice,
@@ -197,6 +197,13 @@ export async function createOrderAction(input: {
     // the payer did not see.
     if (e instanceof PriceMismatchError) {
       return { ok: false, priceChanged: true, currentPriceInr: e.currentPriceInr };
+    }
+    // #2749 part 4 — a real checkout needs saved billing details first.
+    if (isPayerStatus(e, 409)) {
+      return { ok: false, error: "Add your billing details first, then retry the purchase." };
+    }
+    if (isPayerStatus(e, 503)) {
+      return { ok: false, error: "Checkout is temporarily unavailable. Please retry shortly." };
     }
     // A 403 created no order, so no money moved — and a retry is the same 403.
     if (e instanceof PurchaseForbiddenError) return { ok: false, error: PURCHASE_NOT_AVAILABLE };

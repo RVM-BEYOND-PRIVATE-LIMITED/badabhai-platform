@@ -16,6 +16,9 @@ import { Badge, Card } from "../../../components/ds";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { CreditsPanel } from "./credits-panel";
+import { BillingDetailsForm } from "./billing-details-form";
+import { InvoicesList } from "./invoices-list";
+import { getBillingDetails, listInvoices, type BillingDetails, type Invoice } from "../../../lib/invoices";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +77,21 @@ export default async function CreditsPage() {
     dashboard = await getDashboard({ withPostings: false });
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
+  }
+
+  // #2749 part 4 — billing details + invoices, each their own read so a tax-service hiccup never
+  // blanks the balance or packs.
+  let billingDetails: BillingDetails | null = null;
+  try {
+    billingDetails = await getBillingDetails();
+  } catch {
+    billingDetails = null;
+  }
+  let invoices: Invoice[] = [];
+  try {
+    invoices = await listInvoices();
+  } catch {
+    invoices = [];
   }
 
   // The mock-ledger top-ups are a SEPARATE concern from the live balance — fetched in their
@@ -219,6 +237,9 @@ export default async function CreditsPage() {
           </section>
         </>
       ) : null}
+
+      {billingDetails ? <BillingDetailsForm initial={billingDetails} /> : null}
+      <InvoicesList invoices={invoices} />
 
       <section className="cred-panel">
         <div className="cred-panel__head">
