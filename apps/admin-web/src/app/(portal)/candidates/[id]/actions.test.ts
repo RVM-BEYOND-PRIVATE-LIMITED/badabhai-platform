@@ -59,18 +59,30 @@ describe("flagWorkerAction", () => {
 });
 
 describe("unflagWorkerAction", () => {
-  it("POSTs to the unflag route with no body", async () => {
+  it("POSTs the fixed reason code and the written reason", async () => {
     adminFetch.mockResolvedValueOnce({ target_id: "w-1", changed: true });
-    await unflagWorkerAction("w-1");
+    await unflagWorkerAction("w-1", "Flag was raised on a mistaken identity, now cleared.");
     expect(adminFetch).toHaveBeenCalledWith(
       "/admin/workers/w-1/unflag",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "POST",
+        body: {
+          reason_code: "worker_unflag",
+          reason_text: "Flag was raised on a mistaken identity, now cleared.",
+        },
+      }),
     );
+  });
+
+  it("refuses a missing or short reason without calling the API", async () => {
+    const res = await unflagWorkerAction("w-1", "too short");
+    expect(res.ok).toBe(false);
+    expect(adminFetch).not.toHaveBeenCalled();
   });
 
   it("no open flag to clear is a SUCCESSFUL no-op", async () => {
     adminFetch.mockResolvedValueOnce({ target_id: "w-1", changed: false });
-    const res = await unflagWorkerAction("w-1");
+    const res = await unflagWorkerAction("w-1", "Flag was raised on a mistaken identity, now cleared.");
     expect(res.ok).toBe(true);
     expect(res).toMatchObject({ changed: false });
   });
