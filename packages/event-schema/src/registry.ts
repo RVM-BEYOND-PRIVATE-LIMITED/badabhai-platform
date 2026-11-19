@@ -448,6 +448,26 @@ export const EVENT_REGISTRY = {
     domain: "payment",
     payload: p.PaymentRefundStatusChangedPayload,
   },
+  // #2749 part 4 — a captured real payment got no invoice (the credits were granted anyway), on the
+  // settle's transaction, one per order. IDS AND A CLOSED REASON. v1.
+  "payment.invoice_not_issued": {
+    version: 1,
+    domain: "payment",
+    payload: p.PaymentInvoiceNotIssuedPayload,
+  },
+  // #2749 part 4 — a GST invoice issued in the settle's transaction (one per order), and a GST
+  // credit note issued in the refund's transaction (one per refund). Each in its own new domain.
+  // IDS, THE FINANCIAL YEAR AND PAISE; never a GSTIN, name or address. v1.
+  "invoice.issued": {
+    version: 1,
+    domain: "invoice",
+    payload: p.InvoiceIssuedPayload,
+  },
+  "credit_note.issued": {
+    version: 1,
+    domain: "credit_note",
+    payload: p.CreditNoteIssuedPayload,
+  },
 
   // Monetization + Pricing Engine (ADR-0013) — PII-FREE: ids + codes + enums + integer
   // ₹ amounts + counts only. `payment.*` above is reused for the money movement of every
@@ -991,6 +1011,13 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "payer",
     payload: p.PayerPackCreditsReturnedPayload,
+  },
+  // #2749 part 4 — a company saved its billing details: the state and whether a GSTIN is on file,
+  // never the values. v1.
+  "payer.billing_details_updated": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerBillingDetailsUpdatedPayload,
   },
   // MOMENT ④ — `feed.shown` VERSION 2. `feed.shown` above KEEPS its v1 entry,
   // unmodified, as history (invariant #8): `validateEvent` allows exactly one version

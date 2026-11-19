@@ -36,6 +36,17 @@ on conflict (id) do update
       file_size_limit    = excluded.file_size_limit,
       allowed_mime_types = excluded.allowed_mime_types;
 
+-- payer-invoices — GST invoice and credit-note PDFs (#2749 part 4). The PDF carries the
+-- company's billing details, so PRIVATE: the only read path is a short-TTL signed URL
+-- minted by the backend for the owning company. Keys are opaque
+-- (`invoices/{financialYear}/{invoiceId}.pdf`, `credit-notes/{financialYear}/{id}.pdf`).
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('payer-invoices', 'payer-invoices', false, 10485760, array['application/pdf'])
+on conflict (id) do update
+  set public             = false,                       -- enforce PRIVATE even if it drifted
+      file_size_limit    = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
 -- Access model: a PRIVATE bucket (public = false) has NO public/anon read path.
 -- `storage.objects` is RLS-enabled by Supabase; we add NO permissive policy for the
 -- anon/authenticated roles, so every direct read is denied (deny-by-default). The

@@ -2,14 +2,15 @@ import { describe, expect, it } from "vitest";
 import { GST_RATE_BPS, formatGstPriceLine, formatPackPriceLine, gstPriceLine } from "./index";
 
 /**
- * Why a line is inconsistent, or null: taxable + gst + roundOff must equal the total, the total
- * is whole rupees, the round-off is −49…+50, and every field is a safe integer.
+ * Why a line is inconsistent, or null: taxable + gst = total, the GST and the total are whole
+ * rupees, the round-off is always 0, and every field is a safe integer.
  */
 function inconsistency(priceInr: number, rateBps?: number): string | null {
   const line = gstPriceLine(priceInr, rateBps);
-  if (line.taxablePaise + line.gstPaise + line.roundOffPaise !== line.totalPaise) return "sum";
+  if (line.taxablePaise + line.gstPaise !== line.totalPaise) return "sum";
+  if (line.roundOffPaise !== 0) return "round-off not zero";
+  if (line.gstPaise % 100 !== 0) return "GST not whole rupees";
   if (line.totalPaise % 100 !== 0) return "total not whole rupees";
-  if (line.roundOffPaise < -49 || line.roundOffPaise > 50) return "round-off out of range";
   if (!Object.values(line).every((v) => Number.isSafeInteger(v))) return "not a safe integer";
   return null;
 }
@@ -18,17 +19,27 @@ function expectConsistent(priceInr: number, rateBps?: number): void {
   expect(inconsistency(priceInr, rateBps)).toBeNull();
 }
 
-describe("gstPriceLine — integer paise, 18% GST, total rounded half-up to the rupee (#2749)", () => {
+/**
+ * The rule before the owner ruling of 2026-11-18 (GST to the paisa, the TOTAL rounded to the
+ * rupee, the difference a round-off): kept here only to prove the new rule charges the same total.
+ */
+function earlierTotalPaise(priceInr: number): number {
+  const taxable = priceInr * 100;
+  const gst = Math.floor((taxable * 1800 + 5000) / 10_000);
+  return Math.floor((taxable + gst + 50) / 100) * 100;
+}
+
+describe("gstPriceLine — integer paise, 18% GST rounded half-up to the rupee, no round-off (#2749)", () => {
   it("is 18% (1800 bps) by default", () => {
     expect(GST_RATE_BPS).toBe(1800);
     expect(gstPriceLine(999).gstRateBps).toBe(1800);
   });
 
-  it("₹999 → 99,900 / 17,982 / +18 / 1,17,900 (the issue's worked example)", () => {
+  it("₹999 → taxable 99,900 + GST 18,000 (₹179.82 rounded to ₹180) = 1,17,900, round-off 0", () => {
     expect(gstPriceLine(999)).toEqual({
       taxablePaise: 99_900,
-      gstPaise: 17_982,
-      roundOffPaise: 18,
+      gstPaise: 18_000,
+      roundOffPaise: 0,
       totalPaise: 117_900,
       gstRateBps: 1800,
     });
@@ -47,45 +58,42 @@ describe("gstPriceLine — integer paise, 18% GST, total rounded half-up to the 
     expectConsistent(priceInr);
   });
 
-  it("the round-off is NEGATIVE when the rupee rounds down (₹1,001 → ₹1,181)", () => {
+  it("the GST rounds DOWN below half a rupee (₹1,001: ₹180.18 → ₹180, total ₹1,181)", () => {
     expect(gstPriceLine(1001)).toEqual({
       taxablePaise: 100_100,
-      gstPaise: 18_018,
-      roundOffPaise: -18,
+      gstPaise: 18_000,
+      roundOffPaise: 0,
       totalPaise: 118_100,
       gstRateBps: 1800,
     });
   });
 
-  it("a total of exactly half a rupee rounds UP (₹25: ₹29.50 → ₹30, round-off +50)", () => {
+  it("a GST of exactly half a rupee rounds UP (₹25: ₹4.50 → ₹5, total ₹30)", () => {
     expect(gstPriceLine(25)).toEqual({
       taxablePaise: 2500,
-      gstPaise: 450,
-      roundOffPaise: 50,
+      gstPaise: 500,
+      roundOffPaise: 0,
       totalPaise: 3000,
       gstRateBps: 1800,
     });
   });
 
   it("just below half a rupee rounds DOWN, just above rounds UP", () => {
-    // ₹36: 3,600 + 648 = 4,248 → 48 paise, below half → ₹42 (round-off −48).
-    expect(gstPriceLine(36)).toMatchObject({ gstPaise: 648, roundOffPaise: -48, totalPaise: 4200 });
-    // ₹14: 1,400 + 252 = 1,652 → 52 paise → ₹17 (round-off +48).
-    expect(gstPriceLine(14)).toMatchObject({ gstPaise: 252, roundOffPaise: 48, totalPaise: 1700 });
+    // ₹36: GST ₹6.48 → ₹6 (total ₹42).
+    expect(gstPriceLine(36)).toMatchObject({ gstPaise: 600, roundOffPaise: 0, totalPaise: 4200 });
+    // ₹14: GST ₹2.52 → ₹3 (total ₹17).
+    expect(gstPriceLine(14)).toMatchObject({ gstPaise: 300, roundOffPaise: 0, totalPaise: 1700 });
   });
 
-  it("a GST of exactly half a paisa rounds UP; just below half rounds DOWN (non-18% rate)", () => {
-    // At 18% a whole-rupee price never yields a fractional paisa, so the paisa rounding is pinned
-    // at 1 bps: tax = price ÷ 100 paise.
-    expect(gstPriceLine(50, 1).gstPaise).toBe(1); // 0.50 paisa → 1
-    expect(gstPriceLine(49, 1).gstPaise).toBe(0); // 0.49 paisa → 0
-    expect(gstPriceLine(150, 1).gstPaise).toBe(2); // 1.50 → 2
-    expect(gstPriceLine(149, 1).gstPaise).toBe(1); // 1.49 → 1
-    // 12.5%: an odd rupee price lands on a half paisa.
-    expect(gstPriceLine(1, 1250).gstPaise).toBe(13); // 12.5 → 13
-    expect(gstPriceLine(3, 1250).gstPaise).toBe(38); // 37.5 → 38
-    expectConsistent(50, 1);
-    expectConsistent(3, 1250);
+  it("one rounding, on the exact tax, at a rate where half-rupees occur (non-18% rate)", () => {
+    // 1 bps: tax = price ÷ 10,000 rupees.
+    expect(gstPriceLine(5000, 1).gstPaise).toBe(100); // ₹0.50 → ₹1
+    expect(gstPriceLine(4999, 1).gstPaise).toBe(0); // ₹0.4999 → ₹0 (no double rounding)
+    // 12.5%: ₹4 → ₹0.50 → ₹1; ₹12 → ₹1.50 → ₹2.
+    expect(gstPriceLine(4, 1250).gstPaise).toBe(100);
+    expect(gstPriceLine(12, 1250).gstPaise).toBe(200);
+    expectConsistent(5000, 1);
+    expectConsistent(12, 1250);
   });
 
   it("₹0 is all zeros; 0% GST is the price itself", () => {
@@ -112,6 +120,14 @@ describe("gstPriceLine — integer paise, 18% GST, total rounded half-up to the 
       if (why !== null) failures.push(`₹${price}: ${why}`);
     }
     expect(failures).toEqual([]);
+  });
+
+  it("charges the same total as the earlier round-off rule for every whole-rupee price at 18%", { timeout: 30_000 }, () => {
+    const differ: number[] = [];
+    for (let price = 0; price <= 20_000; price += 1) {
+      if (gstPriceLine(price).totalPaise !== earlierTotalPaise(price)) differ.push(price);
+    }
+    expect(differ).toEqual([]);
   });
 
   it("REJECTS a non-integer, negative or unsafe price and an out-of-range rate", () => {

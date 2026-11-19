@@ -82,6 +82,8 @@ import { CreditRulesService } from "../credit-rules/credit-rules.service";
 import { contactCostFactsOf } from "./contact-cost-facts";
 import { RvmWaiversRepository, type WaiverMatch } from "../rvm-waivers/rvm-waivers.repository";
 import { onBriefNotice } from "./brief-notice";
+import { InvoiceIssuer } from "../invoices/invoice-issuer.service";
+import { InvoiceDocumentsService } from "../invoices/invoice-documents.service";
 import {
   creditGrantPilotListUnavailable,
   creditGrantRefused,
@@ -286,6 +288,11 @@ export class UnlockService {
     // #2750 item 5 — the placement team's waivers (which waiver frees a worker, and its use).
     // Optional for the same reason; absent, no open is waived. Nest always injects it.
     @Optional() private readonly waivers?: RvmWaiversRepository,
+    // #2749 part 4 — the GST invoice issued in the settle's transaction, and its PDF rendered after
+    // commit. Optional for the same reason as `rollout`; absent, a settle issues no invoice. Nest
+    // always injects them.
+    @Optional() private readonly invoiceIssuer?: InvoiceIssuer,
+    @Optional() private readonly invoiceDocuments?: InvoiceDocumentsService,
   ) {}
 
   /**
@@ -1740,6 +1747,9 @@ export class UnlockService {
     ctx: RequestContext,
     actorPayerId?: string,
   ): Promise<SettleResult> {
+    // #2749 part 4 — the invoice this settle issued (null: none, or another channel settled).
+    let invoiceId: string | null = null;
+    const invoiceIssuer = this.invoiceIssuer;
     const result = await this.payments.settleOrder(input, {
       // #2749 hardening 5 — `payment.held`, on the hold's own transaction (one per order)…
       onHeld: (tx, held, mismatch) => this.emitPaymentHeld(held, mismatch, "held", ctx, tx),
@@ -1750,7 +1760,24 @@ export class UnlockService {
       // #2750 item 9 — credits that expired on earlier paid packs come back with this one.
       packReturnFor: (order) => this.packReturnFor(order),
       onPackReturn: (tx, order, returned) => this.emitPackCreditsReturned(tx, order, returned, ctx),
+      // #2749 part 4 — one GST invoice per captured payment, in a savepoint of the settle: a
+      // failure records `payment.invoice_not_issued` and never refuses the money.
+      ...(invoiceIssuer
+        ? {
+            onGranted: async (tx: Tx, order: PaymentOrder) => {
+              invoiceId = await invoiceIssuer.issueForSettledOrderWithinTx(
+                tx as unknown as Database,
+                order,
+                ctx,
+              );
+            },
+          }
+        : {}),
     });
+    // After commit, best effort and not awaited: the PDF (the first download renders it otherwise).
+    if (result.outcome === "granted" && invoiceId !== null) {
+      this.invoiceDocuments?.renderInvoiceInBackground(invoiceId);
+    }
     if (result.outcome === "granted") {
       const wallet = result.order.payerId;
       await this.emitPaymentCaptured(null, { actorId: actorPayerId ?? wallet, payerId: wallet }, ctx, {

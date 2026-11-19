@@ -392,8 +392,8 @@ describe("GET /payer/pricing/catalog — credit packs on sale only, with GST (#2
     const byCode = new Map(tiers.map((t) => [t.code, t]));
     expect(byCode.get("pack_starter")!.price).toEqual({
       taxablePaise: 99_900,
-      gstPaise: 17_982,
-      roundOffPaise: 18,
+      gstPaise: 18_000,
+      roundOffPaise: 0,
       totalPaise: 117_900,
       gstRateBps: 1800,
       display: "₹999 plus GST (₹1,179)",

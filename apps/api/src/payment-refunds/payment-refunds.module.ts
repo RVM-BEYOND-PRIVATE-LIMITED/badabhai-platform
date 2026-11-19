@@ -1,7 +1,9 @@
 import { Module } from "@nestjs/common";
 import { CreditRulesModule } from "../credit-rules/credit-rules.module";
 import { RazorpayClient } from "../unlocks/razorpay.client";
-import { CREDIT_NOTE_ISSUER, NoCreditNotes } from "./credit-note-issuer";
+import { InvoiceCreditNotes } from "../invoices/invoice-credit-notes.service";
+import { InvoicesModule } from "../invoices/invoices.module";
+import { CREDIT_NOTE_ISSUER } from "./credit-note-issuer";
 import { PaymentRefundsRepository } from "./payment-refunds.repository";
 import { PaymentRefundsService } from "./payment-refunds.service";
 
@@ -12,17 +14,18 @@ import { PaymentRefundsService } from "./payment-refunds.service";
  *
  * RazorpayClient is provided here as well as in UnlocksModule: it is a stateless seam over the SDK
  * (credentials from config, the SDK built lazily), and providing it here keeps this module free of
- * any dependency on UnlocksModule, which imports this one. The credit-note issuer is
- * {@link NoCreditNotes} until #2749's invoices bind a real one (refunds stay off until then).
+ * any dependency on UnlocksModule, which imports this one. The credit-note issuer is #2749 part
+ * 4's {@link InvoiceCreditNotes} (InvoicesModule, which imports neither this module nor
+ * UnlocksModule): binding it is what turns refunds on (owner ruling 2026-11-18).
  * DATABASE, SERVER_CONFIG and EventsService come from global modules.
  */
 @Module({
-  imports: [CreditRulesModule],
+  imports: [CreditRulesModule, InvoicesModule],
   providers: [
     PaymentRefundsRepository,
     PaymentRefundsService,
     RazorpayClient,
-    { provide: CREDIT_NOTE_ISSUER, useClass: NoCreditNotes },
+    { provide: CREDIT_NOTE_ISSUER, useExisting: InvoiceCreditNotes },
   ],
   exports: [PaymentRefundsService],
 })

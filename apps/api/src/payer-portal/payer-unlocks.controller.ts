@@ -21,6 +21,7 @@ import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.service";
 import { UnlockService } from "../unlocks/unlocks.service";
+import { InvoicesService } from "../invoices/invoices.service";
 import {
   CreateCreditOrderSchema,
   type CreateCreditOrderDto,
@@ -71,6 +72,7 @@ export class PayerUnlocksController {
     private readonly unlocks: UnlockService,
     private readonly disclosureRate: PayerDisclosureRateLimit,
     private readonly idempotency: RequestIdempotency,
+    private readonly invoices: InvoicesService,
   ) {}
 
   /**
@@ -297,6 +299,11 @@ export class PayerUnlocksController {
     // OUTSIDE THE GUARD, for the same reason as `POST /payer/credits`: a deployment-mode (or
     // rollout) 404 must never be pinned under a key for the window.
     if (!(await this.unlocks.isRealCheckoutOpen(payer.id))) throw new NotFoundException();
+    // #2749 part 4 — every payment needs a GST invoice: 503 `INVOICES_UNAVAILABLE` with no active
+    // seller row, 409 `BILLING_DETAILS_REQUIRED` until the company saved its billing details.
+    // Outside the guard too: a refusal pinned under a key would keep refusing for the key's window
+    // after the company saved its details.
+    await this.invoices.assertCheckoutInvoiceable(payer.id);
 
     return this.idempotency.runOnce({
       namespace: "payer_idem",
