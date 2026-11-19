@@ -880,7 +880,7 @@ So a screen can draw the Selected and Hired controls only when a move would be a
 
 #### `PUT /ops/agency-jobs/:jobId/match-skills` — **OPS ONLY, not a payer/mobile route** (#1983)
 
-- **Auth:** `InternalServiceGuard` **and** `AdminAuthGuard`, both required (the `POST /job-postings/:id/reach/widen` precedent). The recorded actor is the authenticated admin, never a body field.
+- **Auth:** `InternalServiceGuard`, `AdminAuthGuard` **and** the `manage_agency_match_skills` capability (currently `super_admin` only), all required (the `POST /job-postings/:id/reach/widen` precedent, plus the same capability as the Admin Portal twin below, #2902). Any other admin role gets `403`. The recorded actor is the authenticated admin, never a body field.
 - **Body:** `{ match_skill_ids: 'mskill_*'[] (0–50) }` (`.strict()`). This is the full desired set; `[]` resets it to "not chosen yet".
 - **Response:** `{ job_id, match_skill_ids, changed: boolean }`. An unchanged set (in any order) returns `changed: false` with no write and no event.
 - **Errors:** a job that is not an **agency** job (unknown id, a seed/ops row, an employer-owned legacy row) → neutral `404 "Job not found"`. A closed job → `400 "Job is closed and cannot be edited"`. Vocabulary and cap errors are the same as on the agency form.
