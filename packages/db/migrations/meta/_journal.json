@@ -1332,6 +1332,13 @@
       "when": 1795065078780,
       "tag": "0189_managed_hiring",
       "breakpoints": true
+    },
+    {
+      "idx": 190,
+      "version": "7",
+      "when": 1795082263220,
+      "tag": "0190_admin_job_audience",
+      "breakpoints": true
     }
   ]
 }
