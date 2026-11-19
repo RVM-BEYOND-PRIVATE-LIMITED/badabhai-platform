@@ -50,9 +50,13 @@ const snapshot = (
     readFileSync(join(__dirname, "..", "migrations", "meta", `${n}_snapshot.json`), "utf8"),
   );
 
-/** The quoted values of one re-added CHECK, in order. */
+/** The quoted values of one re-added CHECK, in order (a slice up to its statement's end). */
 function listed(constraint: string): string[] {
-  const chk = FLAT.match(new RegExp(`ADD CONSTRAINT "${constraint}" CHECK[^;]*`))?.[0] ?? "";
+  const head = `ADD CONSTRAINT "${constraint}" CHECK`;
+  const start = FLAT.indexOf(head);
+  if (start < 0) return [];
+  const end = FLAT.indexOf(";", start);
+  const chk = FLAT.slice(start, end < 0 ? undefined : end);
   return [...chk.matchAll(/'([a-z_]+)'/g)].map((m) => m[1] as string);
 }
 
