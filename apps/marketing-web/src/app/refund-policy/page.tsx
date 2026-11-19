@@ -11,9 +11,6 @@ export const metadata: Metadata = {
 export default function RefundPolicyPage() {
   return (
     <>
-      <a className="sr-only sr-only-focusable" href="#main-content">
-        Skip to content
-      </a>
       <SiteHeader />
       <main id="main-content">
         <div className="mkt-container mkt-legal">

@@ -23,10 +23,6 @@ const EMPLOYER_CTA_HREF = "/employers";
 export default function HomePage() {
   return (
     <>
-      <a className="sr-only sr-only-focusable" href="#main-content">
-        Skip to content
-      </a>
-
       <SiteHeader />
 
       <main id="main-content">

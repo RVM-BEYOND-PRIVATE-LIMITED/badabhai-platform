@@ -15,9 +15,8 @@ describe("HomePage", () => {
     expect(html).toContain("no resume required");
   });
 
-  it("renders a skip-to-content link ahead of the header (keyboard a11y)", () => {
-    expect(html).toContain('href="#main-content"');
-    expect(html).toContain("Skip to content");
+  it("has no visible skip link (removed at the owner's request)", () => {
+    expect(html).not.toContain("Skip to content");
   });
 
   it("represents both audiences with a labelled section each", () => {

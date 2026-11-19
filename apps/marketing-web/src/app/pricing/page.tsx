@@ -26,9 +26,6 @@ function TierGrid({ tiers, featured }: { tiers: { code: string; name: string; pr
 export default function PricingPage() {
   return (
     <>
-      <a className="sr-only sr-only-focusable" href="#main-content">
-        Skip to content
-      </a>
       <SiteHeader />
       <main id="main-content">
         <div className="mkt-container mkt-legal">
