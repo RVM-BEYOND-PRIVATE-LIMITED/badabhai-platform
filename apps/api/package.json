@@ -21,6 +21,7 @@
     "backfill:synthetic-test-payers": "node dist/admin/numbers/mark-synthetic-test-payers.cli.js",
     "import:campus-students": "node dist/workers/import-campus-students.cli.js",
     "recompute:numbers": "node dist/admin/numbers/recompute-numbers.cli.js",
+    "invoices:issue-missing": "node dist/invoices/issue-missing-invoice.cli.js",
     "clean": "rimraf --glob dist .turbo *.tsbuildinfo"
   },
   "dependencies": {

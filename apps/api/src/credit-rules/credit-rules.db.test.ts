@@ -1087,7 +1087,7 @@ describe.skipIf(!RUN)("admin refunds — against real Postgres", () => {
       amountInr: 1179,
       creditsGranted: 20,
       providerOrderId,
-      money: { taxablePaise: 99900, gstPaise: 17982, roundOffPaise: 18, totalPaise: 117900, gstRateBps: 1800 },
+      money: { taxablePaise: 99900, gstPaise: 18000, roundOffPaise: 0, totalPaise: 117900, gstRateBps: 1800 },
       creditValidityDays: 30,
     });
     await client.db.transaction((tx) =>
@@ -1114,7 +1114,13 @@ describe.skipIf(!RUN)("admin refunds — against real Postgres", () => {
       rules as never,
       razorpay as never,
       { emit: vi.fn(async () => undefined) } as never,
-      { available: true },
+      // A credit-note issuer that writes nothing: these cases are about the credits and the row.
+      // The real issuer, against Postgres, is `invoices/invoices.db.test.ts` (#2749 part 4).
+      {
+        available: true,
+        prepare: async () => ({ invoiceId: "not-written" }),
+        issueWithinTx: async () => ({ creditNoteNumber: "CN/2026-27/0001" }),
+      },
     );
     const { sql } = client;
     for (const id of companies) {

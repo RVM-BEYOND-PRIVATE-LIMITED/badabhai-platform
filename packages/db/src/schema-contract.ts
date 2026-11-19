@@ -1961,6 +1961,89 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "screen reports; an open grant lets any PostgREST role read every company's choices or forge " +
       "rows that skew the count",
   },
+  // #2749 part 4: GST invoices and credit notes. APPLY BEFORE DEPLOY (migration header): the payer
+  // routes name `payer_billing_details`, `invoices` and `credit_notes` unconditionally, and the real
+  // checkout reads `seller_tax_config` and `payer_billing_details` before every new order. The
+  // settle writes the invoice in a SAVEPOINT, so a missing table there never refuses money (the
+  // credits are granted and `payment.invoice_not_issued` is recorded) - it is the routes that 500.
+  // The ids and tag carry the slot number: regenerated with the migration when the slot moves.
+  {
+    id: "0188-payer-billing-details-table",
+    migration: "0188_invoices",
+    kind: "table",
+    table: "payer_billing_details",
+    requiredBy:
+      "InvoicesRepository: GET/PUT /payer/billing-details, the real-checkout gate on " +
+      "POST /payer/credits/order (BILLING_DETAILS_REQUIRED) and the buyer snapshot at settle",
+    failureMode:
+      "GET/PUT /payer/billing-details 500; the real checkout answers 503 INVOICES_UNAVAILABLE for " +
+      "every company (fails closed, no order); a settle grants the credits with no invoice",
+  },
+  {
+    id: "0188-seller-tax-config-table",
+    migration: "0188_invoices",
+    kind: "table",
+    table: "seller_tax_config",
+    requiredBy:
+      "InvoicesRepository: the real-checkout gate (INVOICES_UNAVAILABLE), the invoice at settle " +
+      "and the credit note in the refund transaction",
+    failureMode:
+      "the real checkout answers 503 INVOICES_UNAVAILABLE; a settle grants the credits with no " +
+      "invoice (payment.invoice_not_issued); a refund answers 503 before any write",
+  },
+  {
+    id: "0188-invoice-number-series-table",
+    migration: "0188_invoices",
+    kind: "table",
+    table: "invoice_number_series",
+    requiredBy: "InvoicesRepository.nextNumber: every invoice and credit note number, gap-free",
+    failureMode:
+      "no invoice or credit note can be numbered: a settle grants the credits with no invoice " +
+      "(payment.invoice_not_issued, logged at ERROR) and a refund rolls back",
+  },
+  {
+    id: "0188-invoices-table",
+    migration: "0188_invoices",
+    kind: "table",
+    table: "invoices",
+    requiredBy:
+      "GET /payer/invoices, GET /payer/invoices/:id/download, the invoice written at settle and " +
+      "the refund's invoice read (NO_INVOICE_FOR_ORDER)",
+    failureMode:
+      "GET /payer/invoices and the download 500; every settle grants the credits with no invoice " +
+      "(payment.invoice_not_issued); every refund rolls back",
+  },
+  {
+    id: "0188-credit-notes-table",
+    migration: "0188_invoices",
+    kind: "table",
+    table: "credit_notes",
+    requiredBy:
+      "GET /payer/invoices (each invoice's credit note), GET /payer/credit-notes/:id/download and " +
+      "the credit note written in the refund transaction",
+    failureMode: "GET /payer/invoices and the credit-note download 500; every refund rolls back",
+  },
+  ...(
+    [
+      ["seller_tax_config", "the seller's GSTIN, PAN and address, and the prefixes every number uses; a write grant lets any PostgREST role re-point every future invoice"],
+      ["payer_billing_details", "every company's billing state and encrypted GSTIN, name and address; a write grant lets any role change where a company's tax is due"],
+      ["invoice_number_series", "the gap-free counters; a write grant lets any role skip or reuse invoice numbers"],
+      ["invoices", "every tax invoice and its encrypted buyer snapshot; a write grant lets any role forge or alter a tax record"],
+      ["credit_notes", "every credit note; a write grant lets any role forge one against any invoice"],
+    ] as const
+  ).map(
+    ([table, holds]): SchemaRequirement => ({
+      id: `0188-${table.replace(/_/g, "-")}-rls`,
+      migration: "0188_invoices",
+      kind: "rls",
+      table,
+      requiredBy:
+        "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+        "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+        "regenerate drops, and nothing in ordinary CI notices",
+      failureMode: `SILENT. The table holds ${holds}`,
+    }),
+  ),
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

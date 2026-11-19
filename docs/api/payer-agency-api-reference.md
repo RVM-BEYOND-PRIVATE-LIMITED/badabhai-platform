@@ -495,7 +495,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
              gstRateBps: int,     // 1800 = 18%
              display: string } }  // e.g. "₹999 plus GST (₹1,179)"
   ```
-  `price` is the charged price taxed, all in integer **paise**: taxable = price × 100; GST = 18% of it, rounded half-up to the paisa; total = taxable + GST rounded half-up to the whole rupee; `roundOffPaise` = total − taxable − GST (from −49 to +50; negative when the rupee rounds down). Example, ₹999: `99900 / 17982 / 18 / 117900`. `display` is the brief's line, with en-IN grouping (`₹1,599 plus GST (₹1,887)`).
+  `price` is the charged price taxed, all in integer **paise**: taxable = price × 100; GST = 18% of it, **rounded half-up to the whole rupee** (owner ruling 2026-11-18, #2749 part 4); total = taxable + GST; `roundOffPaise` is always `0` (kept for older readers). Example, ₹999: `99900 / 18000 / 0 / 117900` (₹179.82 of GST rounds to ₹180; the total ₹1,179 is unchanged from the earlier round-off rule for every pack). `display` is the brief's line, with en-IN grouping (`₹1,599 plus GST (₹1,887)`).
 - Other products (posting plans, boosts, hiring capacity, quota top-ups) are unchanged: their tiers ship as the catalogue holds them.
 - **Mobile gotchas:** show `price.display` (or build from `price.totalPaise`); never compute GST on the client. Do not read `windowDays` as credit validity. Production serves the default catalogue today, whose packs set no `validityDays` (`null`): their credits never expire. Mobile apps never take a payment (CLAUDE.md §12).
 - **Events:** none (read-only).
@@ -539,9 +539,37 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Body:** `{ pack_code: string, expected_price_inr?: int, origin?: string, origin_job_posting_id?: uuid }`. `expected_price_inr` is the pack's `priceInr`, the list price **before** GST (see [Price confirmation](#price-confirmation-expected_price_inr)). `origin` (#2749 item 9) is where the purchase started, one of `credits_page`, `unlock_prompt`, `candidate_search`, `posting_flow`, `dashboard`, `other` (anything else → `400`). `origin_job_posting_id` is the job posting it came from; it is stored only when it is a posting of the caller's own company, and any other id is dropped silently (never a `404`). Both are optional.
 - **Response `201`:** `{ order_id, key_id, amount: int, amount_inr: int, currency: 'INR', pack_code, credits, price: { taxable_paise, gst_paise, round_off_paise, total_paise, gst_rate_bps }, validity_days: int | null }`. **Since #2749 part 3 `amount` (paise) is the GST-inclusive total, equal to the pack's `price.totalPaise` on `GET /payer/pricing/catalog`** (₹999 → `117900`), and `amount_inr` is the same total in rupees (`1179`). `price` and `validity_days` are additive. `key_id` is the public `rzp_*` key id; no secret is ever returned.
 - **`503`** (`"Checkout is unavailable right now; nothing was charged. Please try again."`): Razorpay's order came back for a different amount or currency than the stamped total, so nothing was stored and no checkout is handed out. Retry with a fresh key.
+- **Every payment needs a GST invoice (#2749 part 4).** Once the route is open for the company (after the `404` gates above), and before any order or `Idempotency-Key` reservation: **`503` `{ code: 'INVOICES_UNAVAILABLE' }`** while the seller's tax details are not configured (no order, no money); **`409` `{ code: 'BILLING_DETAILS_REQUIRED' }`** while the company has not saved its billing details (`PUT /payer/billing-details`, below). Save them and retry (the same key is fine: a refusal here is not stored under it). The mock `POST /payer/credits` is not gated, and neither is a checkout while the api runs on a Razorpay **test** key (no invoice is issued then).
 - **Settlement:** `POST /payments/razorpay/webhook` (`payment.captured`) is the source of truth, `POST /payer/credits/verify` the browser fallback; they settle the same order once. **The verify settles only a payment Razorpay reports `captured`** (#2749): an `authorized` (held, not yet taken) or `failed` payment is the neutral `404` and nothing is granted; the webhook settles it on `payment.captured`, so re-read `GET /payer/credits` rather than telling the buyer the payment failed. The Razorpay account must capture automatically. The webhook verifies its signature with `RAZORPAY_WEBHOOK_SECRET`, so it answers `401` to every delivery while real payments are not live. **Both check the captured amount first**: the webhook from its payment entity, the verify by reading the payment back from Razorpay (`GET /payments/:id`). A different amount, no amount, or a currency other than INR **grants nothing** and moves the order to `held` (one `payment.held` event: `{ payment_order_id, payer_id, pack_code, expected_paise, captured_paise, reason: 'amount_mismatch' | 'amount_missing' | 'currency_mismatch', order_status: 'held', real_call }`). A held order is never settled afterwards: a webhook replay no-ops and `/credits/verify` answers its neutral `404`. Ops resolve it in the Razorpay dashboard. If the verify cannot read the payment back (network, a Razorpay 5xx) it settles nothing and answers the same neutral `404`; retry, or let the webhook settle. A mismatched capture reported for an order **already paid** changes nothing (the grant stands) and records `payment.held` with `order_status: 'paid'`. The settled lot expires `validity_days` after the settle when set. **Returned credits (#2750 item 9, ADR-0066 §2.10):** for a company under the credit rules, the settle also gives back credits that expired unused on its earlier real paid packs (up to 20 in all, old pack expired within 6 months, only the first real pack after the expiry), in a `returned` lot that expires with the new pack; the verify answer carries `credits_returned` (already in `balance`; `0` when none or when the webhook settled first). The webhook path records `payer.pack_credits_returned`.
-- **Events:** `payment.authorized` (one per order row; `amount_inr` = the total).
+- **Events:** `payment.authorized` (one per order row; `amount_inr` = the total). At settle: `invoice.issued` `{ invoice_id, payment_order_id, payer_id, financial_year, supply_type, total_paise, is_test }`, or — if the invoice could not be issued; **the credits are granted anyway** — `payment.invoice_not_issued` `{ payment_order_id, payer_id, reason: 'seller_not_configured' | 'seller_config_invalid' | 'price_line_missing' | 'test_mode' | 'issue_failed' }` (`test_mode`: the api runs on a Razorpay test key, so no invoice is ever issued for that payment).
 - **Mobile gotchas:** web only — mobile apps never take a payment (CLAUDE.md §12).
+
+#### GST billing details and invoices (#2749 part 4, ADR-0065 §3.7)
+
+All five routes: **`PayerAuthGuard` (Bearer) only**, like the credit purchase (any authenticated payer). Keyed by the caller's **company** (the tenant key): a team shares one set of billing details and one invoice list. `Cache-Control: no-store`. Never log a response body or a signed URL.
+
+##### `GET /payer/billing-details`
+
+- **Response `200`:** `{ saved: boolean, state_code: string | null, gstin: string | null, legal_name: string | null, address: string | null }` — all nulls (and `saved: false`) until the company saves them.
+
+##### `PUT /payer/billing-details`
+
+- **Body (strict):** `{ state_code: string, gstin?: string | null, legal_name?: string | null, address?: string | null }`. A full replace: a field left out is cleared.
+  - `state_code`: a two-digit GST state / UT code (`06` Haryana, `27` Maharashtra, …; the retired `25` and `28` are refused). It is the **place of supply** on every invoice: `06` (the seller's state) → CGST + SGST, any other → IGST.
+  - `gstin`: optional; upper-cased and spaces removed; must be a valid GSTIN (15 characters, the check character right) whose first two digits equal `state_code`.
+  - `legal_name` (≤ 200) and `address` (≤ 500, line breaks kept): **required with a GSTIN**, optional without.
+- **Response `200`:** the saved details, as `GET`. **`400`** on a validation failure (the field is named, the value never echoed).
+- **Events:** `payer.billing_details_updated` `{ payer_id, state_code, has_gstin }` — never the GSTIN, name or address.
+- Real checkout requires a saved set (`409 BILLING_DETAILS_REQUIRED` on `POST /payer/credits/order`). Each invoice keeps the details as they were at its payment.
+
+##### `GET /payer/invoices`
+
+- **Response `200`:** `{ invoices: [{ id, invoice_number, issued_at, description, supply_type: 'intra' | 'inter', taxable_paise, cgst_paise, sgst_paise, igst_paise, total_paise, credit_note: { id, credit_note_number, issued_at, total_paise } | null }] }`, newest first (at most 200). One invoice per real paid order (`BB/2026-27/0001`); `credit_note` is set once the order was refunded (`CN/2026-27/0001`). Inside the seller's state CGST = SGST ± ₹1 (CGST takes an odd rupee) and IGST is 0; across states only IGST. No round-off.
+
+##### `GET /payer/invoices/:invoiceId/download` and `GET /payer/credit-notes/:creditNoteId/download`
+
+- **Response `200`:** `{ url: string, expires_in_seconds: int }` — a short-lived signed link (default 300 s) to the PDF. Rendered on first request when it is not stored yet.
+- **`404`** (neutral): unknown id, or another company's document. **`400`**: not a uuid. **`503` `{ code: 'INVOICE_PDF_UNAVAILABLE' }`**: the PDF cannot be rendered or stored right now; retry later.
 
 #### `GET /payer/unlocks`
 

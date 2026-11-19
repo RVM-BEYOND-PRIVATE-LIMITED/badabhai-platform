@@ -117,11 +117,12 @@ describe("PaymentGateway.resolvePack — LIVE catalog, on-sale packs only (D-6 +
       priceInr: 999,
       credits: 20,
       validityDays: 30,
-      // The issue's worked example: 99,900 + 17,982 + 18 = 1,17,900 paise (₹1,179).
+      // The worked example, GST rounded to the rupee (owner ruling 2026-11-18): 99,900 + 18,000 =
+      // 1,17,900 paise (₹1,179), no round-off.
       priceLine: {
         taxablePaise: 99900,
-        gstPaise: 17982,
-        roundOffPaise: 18,
+        gstPaise: 18000,
+        roundOffPaise: 0,
         totalPaise: 117900,
         gstRateBps: 1800,
       },

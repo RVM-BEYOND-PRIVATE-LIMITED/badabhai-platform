@@ -59,8 +59,8 @@ describe("creditPackSale", () => {
         quote: { finalInr: 999 },
         priceLine: {
           taxablePaise: 99_900,
-          gstPaise: 17_982,
-          roundOffPaise: 18,
+          gstPaise: 18_000,
+          roundOffPaise: 0,
           totalPaise: 117_900,
         },
       },

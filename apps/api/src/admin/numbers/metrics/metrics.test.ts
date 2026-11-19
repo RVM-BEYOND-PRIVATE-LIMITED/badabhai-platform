@@ -423,20 +423,20 @@ describe("revenueGstSplit (version 3)", () => {
   const out = revenueGstSplit(
     W,
     [
-      order("a", MONDAY_START, { taxablePaise: 99900, gstPaise: 17982 }),
-      order("b", SUNDAY_END, { taxablePaise: 99900, gstPaise: 17982 }),
+      order("a", MONDAY_START, { taxablePaise: 99900, gstPaise: 18000 }),
+      order("b", SUNDAY_END, { taxablePaise: 99900, gstPaise: 18000 }),
       order("a", MONDAY_START, null), // a pre-0176 order: no split, left out of both
-      order("a", BEFORE, { taxablePaise: 99900, gstPaise: 17982 }), // the week before
-      order("b", NEXT_MONDAY, { taxablePaise: 99900, gstPaise: 17982 }), // the week after
+      order("a", BEFORE, { taxablePaise: 99900, gstPaise: 18000 }), // the week before
+      order("b", NEXT_MONDAY, { taxablePaise: 99900, gstPaise: 18000 }), // the week after
     ],
     dimsOf({ a: PUNE_CNC, b: NCR_CAD }),
   );
 
   it("sums the price before GST and the GST of the week's split orders, in paise", () => {
     expect(total(byId(out, "revenue_gst_split"))).toBe(199800);
-    expect(total(byId(out, "revenue_gst"))).toBe(35964);
+    expect(total(byId(out, "revenue_gst"))).toBe(36000);
     expect(at(byId(out, "revenue_gst_split"), "pune", "cnc_operator").value).toBe(99900);
-    expect(at(byId(out, "revenue_gst"), "ncr", "all").value).toBe(17982);
+    expect(at(byId(out, "revenue_gst"), "ncr", "all").value).toBe(18000);
   });
 });
 

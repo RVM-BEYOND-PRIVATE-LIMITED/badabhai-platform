@@ -3,7 +3,7 @@
 - **Status:** Proposed — awaiting owner sign-off (Akshit for the brief's rulings and the open questions in §6; Prakash as the other backend developer and the one who switches). No switch in this ADR is armed in production before it is signed.
 - **Date:** 2026-11-17
 - **Owner:** Divyanshu (Backend Platform).
-- **Issue:** #2749 (brief 4C.1–4C.4 and 4G; plan section 14). Built in parts: credit lots (PR 1), the catalogue and GST (PR 2), checkout (PR 3), the switch-on and the dropped products (PR 5a, this ADR's last part). Invoices are part 4 and not decided here (§5).
+- **Issue:** #2749 (brief 4C.1–4C.4 and 4G; plan section 14). Built in parts: credit lots (PR 1), the catalogue and GST (PR 2), checkout (PR 3), the switch-on and the dropped products (PR 5a), GST invoices and credit notes (part 4, §3.7).
 - **Amends:**
   - [ADR-0013](0013-monetization-and-config-driven-pricing-engine.md) — §A.3 item 5 and the pricing contract ("integer ₹ amounts", whole rupees, never paise); §A.5 (the credit packs absorbed as `contact_unlock`, with the 14-day window as the only time a pack carries); Decision B (posting plans and boosts as paid products) and §A.3 item 2 (offers and coupons); Decision E (posting, boost and capacity bought by direct mock purchase).
   - [ADR-0016](0016-payer-hiring-capacity.md) — hiring capacity as a product for sale.
@@ -33,7 +33,7 @@ What the code did before #2749: the catalogue priced every product in whole rupe
 Every new money field is an integer number of **paise**; no float ever touches money. The rupee contract of ADR-0013 is kept, not replaced: a catalogue price (`priceInr`) stays whole rupees, and so does every existing rupee column. Paise appear only beside them:
 
 - the catalogue's price line on each pack (`GET /payer/pricing/catalog`, `price.taxablePaise` … `totalPaise`, `gstRateBps`);
-- `payment_orders` (migration 0176): `taxable_paise`, `gst_paise`, `round_off_paise`, `total_paise`, `gst_rate_bps`, all five or none, with `total_paise = taxable + gst + round_off = amount_inr × 100`. `amount_inr` keeps the whole-rupee **total** (the issue's money-unit default).
+- `payment_orders` (migration 0176): `taxable_paise`, `gst_paise`, `round_off_paise`, `total_paise`, `gst_rate_bps`, all five or none, with `total_paise = taxable + gst + round_off = amount_inr × 100`. `amount_inr` keeps the whole-rupee **total** (the issue's money-unit default). Since the rounding ruling (§3.2) `round_off_paise` is always 0 on a new order; the column stays.
 
 The server decides price, tax and credits. A client never names an amount; `expected_price_inr` is only a confirmation the server can refuse (#2085), and it is the list price before GST.
 
@@ -42,11 +42,11 @@ The server decides price, tax and credits. A client never names an amount; `expe
 One pure function (`packages/pricing/src/gst.ts`) prices every pack:
 
 1. taxable = price × 100 (paise, exact);
-2. GST = taxable × 1800 ÷ 10,000, rounded half-up to the paisa;
-3. total = taxable + GST, rounded half-up to the whole rupee;
-4. round-off = total − taxable − GST (from −49 to +50 paise).
+2. GST = taxable × 1800 ÷ 10,000, rounded half-up to the **whole rupee** (owner ruling 2026-11-18: "GST rounded to the rupee, no round-off line");
+3. total = taxable + GST (a whole rupee);
+4. round-off = 0, always (the field and `payment_orders.round_off_paise` are kept so no reader changes shape).
 
-₹999 gives taxable 99,900, GST 17,982, round-off 18, total 1,17,900 (₹1,179); the same rule gives ₹1,887, ₹3,539 and ₹11,799. Every price is displayed as `₹999 plus GST (₹1,179)` (B4C-06). The catalogue's line, the order's charge and the stored order columns are the same computation, so shown equals charged by construction. Whether an invoice prints a round-off line or rounds the tax itself is the accountant's question (§6); the total does not change.
+₹999 gives taxable 99,900, GST 18,000 (₹179.82 rounded to ₹180), total 1,17,900 (₹1,179); the same rule gives ₹1,887, ₹3,539 and ₹11,799. At 18% the total equals what the earlier rule (GST to the paisa, the total rounded, a round-off of up to ±50 paise) charged for every whole-rupee price, so no displayed or charged price moves; only the split between GST and round-off does. An order stamped under the earlier rule keeps its stored columns, and its invoice reads the GST as total − taxable (the same whole rupee). Every price is displayed as `₹999 plus GST (₹1,179)` (B4C-06). The catalogue's line, the order's charge and the stored order columns are the same computation, so shown equals charged by construction.
 
 ### 3.3 Credit lots with expiry, spent soonest-expiring first
 
@@ -107,6 +107,22 @@ The browser verify settles a payment only when Razorpay reports it `captured` (a
 
 The switch decides capabilities, never stored state: setting it back to `off` closes the real checkout for NEW orders and nothing else. Lots, orders and their expiry stay; an order already paid still settles through the webhook and through `/verify`, because both need only real payments live. That is why the rollback is the rollout, never `PAYMENTS_ENABLE_REAL=false`: switching real payments off removes the webhook's secret (every delivery a 401) and closes `/verify`, so a buyer who paid minutes earlier is charged and gets nothing. Real payments go off only after every `created` or `failed` order is reconciled in the Razorpay dashboard. The switch-on order, from test keys to everyone, is `docs/runbooks/2749-switch-on.md`.
 
+### 3.7 GST invoices and credit notes (part 4, migration 0188)
+
+Owner rulings, 2026-11-18. Every captured real payment gets one GST tax invoice; every refund gets one GST credit note.
+
+- **The seller** is RVM Beyond Private Limited, registered in Haryana (state code 06), SAC 998512. Its legal name, GSTIN, PAN and address are entered **by hand** into `seller_tax_config` after the merge (the repository is public: no seller value is in code, tests, docs, events or logs). One active row; a change is a new row, and every invoice snapshots the row it was issued under.
+- **Numbers.** Invoices `BB/2026-27/0001`, credit notes `CN/2026-27/0001`: the prefix (from the seller row), the Indian financial year (1 April to 31 March, IST) and a serial zero-padded to four digits (wider past 9999). Each series is gap-free and restarts every 1 April: `invoice_number_series` holds one counter per (series, year), incremented with `INSERT … ON CONFLICT DO UPDATE … RETURNING` inside the issuing transaction, so the row lock serialises two issuers and a rollback releases the number. The document's date and financial year come from that same statement: the database clock, read under the row lock (`clock_timestamp()`), so a later number never carries an earlier date, around midnight or 1 April included. A number is at most 16 characters (Rule 46(b)); the CHECK allows three-character prefixes, but the owner's are two (`BB`, `CN`), which leaves room for 99,999 documents a year.
+- **The tax.** The GST is rounded to the rupee (§3.2), so an invoice prints no round-off line. Inside the seller's state it is CGST + SGST, each a whole rupee, summing to the GST; when the GST is an odd number of rupees CGST takes the extra rupee (₹181 → ₹91 + ₹90). Across states it is IGST. One pure function, `splitGstForSupply` (`packages/pricing`). The amounts come from the order's stamped paise (GST = total − taxable).
+- **Billing details** are saved once per company (the tenant key) and reused: a state, and optionally a GSTIN (shape, check character, and its first two digits equal to the state) with the legal name and address. The GSTIN, legal name and address are encrypted with the `payers.org_name_enc` key. Real checkout requires them (409 `BILLING_DETAILS_REQUIRED`) and an active seller row (503 `INVOICES_UNAVAILABLE`). Each invoice snapshots them (the ciphertext) at settle time.
+- **Place of supply** is the company's saved state. With no saved details at settle time (checkout requires them, so this should not happen) it is the seller's own state, IGST Act s12(2)(b) (an unregistered recipient with no address on record); the settle never fails over it.
+- **The seller row must be usable**: active, and its GSTIN must pass the check character (the CHECK pins only the shape). A row that fails is treated as no row: the checkout answers 503 `INVOICES_UNAVAILABLE`, a settle records reason `seller_config_invalid`, a refund answers 503.
+- **Test mode** (the api runs on a `rzp_test_` key, the switch-on rehearsal): no money moves, so no invoice is issued and no number is taken. The settle records `payment.invoice_not_issued` with reason `test_mode`; the checkout's invoice gate does not refuse; a refund of such an order is refused with 409 `NO_INVOICE_FOR_ORDER` before any credit-note number is taken.
+- **The savepoint rule — money taken is never refused.** The invoice is written in the settle's transaction, inside a savepoint. If anything in it fails (no usable seller row, a missing table, an order from before the paise columns), only the savepoint rolls back: the credits are granted, one ERROR line is logged (ids and an error class) and `payment.invoice_not_issued` {payment_order_id, payer_id, reason} is recorded. Otherwise `invoice.issued` is recorded in the same savepoint. One invoice per order (a replayed webhook or a verify after the webhook issues nothing). Only real Razorpay orders get one; the mock route issues nothing. `is_test` copies `payers.is_test_account`. A paid order left without an invoice is repaired one order at a time by `apps/api/src/invoices/issue-missing-invoice.cli.ts` (the same issuer, its own transaction, dated now; dry run by default); the number series is never edited by hand.
+- **The PDF** is rendered after the commit, best effort (WeasyPrint), into the private bucket `INVOICES_BUCKET` (`payer-invoices`) under an opaque key; a download renders it on demand when it is missing and answers with a short-lived signed link (`INVOICE_SIGNED_URL_TTL_SECONDS`, 300).
+- **Credit notes.** A refund (ADR-0066 §2.11, whole-order) writes its credit note in the refund's own transaction, copying the invoice's tax lines, and stamps `payment_refunds.credit_note_number`. An order with no invoice, or whose invoice total is not the refund amount, is refused before anything is written (409 `NO_INVOICE_FOR_ORDER` / `CREDIT_NOTE_AMOUNT_MISMATCH`). `credit_note.issued` is recorded in that transaction.
+- **Routes:** `GET`/`PUT /payer/billing-details`, `GET /payer/invoices`, `GET /payer/invoices/:id/download`, `GET /payer/credit-notes/:id/download` (`docs/api/payer-agency-api-reference.md`).
+
 ## 4. Consequences
 
 - Two money units now live side by side. A reader of a rupee column gets the whole-rupee total; only the new fields carry paise.
@@ -116,7 +132,6 @@ The switch decides capabilities, never stored state: setting it back to `off` cl
 
 ## 5. Out of scope
 
-- **Invoices** (#2749 part 4, item 8): `seller_tax_config`, `invoices`, the gap-free number per financial year and the PDF. It needs the seller of record's details (item 1), which Akshit must name. Real payments do not switch on before it ships.
 - **The app's web checkout link** (item 12): a one-time, short-lived link from the mobile app to web checkout. CLAUDE.md §12 keeps payment screens out of the apps.
 - **Moving catalogue edits behind admin auth** (hardening 11): `PUT /pricing/catalog` still rides the shared ops token.
 - **Bridging the Razorpay secrets to production**: `PAYMENTS_ENABLE_REAL` and the three Razorpay secrets are bridged from the GitHub `production` environment secrets by #2749 part 5b, with a deploy preflight that refuses an unsafe combination (§7).
@@ -127,7 +142,7 @@ The switch decides capabilities, never stored state: setting it back to `off` cl
 - Expiry to the instant, or to the end of the IST day (default: the instant).
 - Annual's validity: 365 days or a calendar year (default: 365 days).
 - What legacy balances become at switch-over (default: one `legacy` lot per company that expires 30 days later, and no welcome credits on top; it conflicts with BB-D-05's welcome rule, recorded on the issue).
-- The invoice's round-off line, or tax rounded to the rupee (the total is the same).
+- ~~The invoice's round-off line, or tax rounded to the rupee~~ — answered 2026-11-18: GST rounded to the rupee, no round-off line (§3.2, §3.7).
 
 ## 7. Rollout, rollback and what others must do
 

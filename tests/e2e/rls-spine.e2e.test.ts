@@ -315,6 +315,14 @@ const LOCKED_TABLES = [
   // key, two closed codes and a time). RLS+FORCE+REVOKE in the hand-written tail of
   // `*_job_posting_choices`.
   "job_posting_choices",
+  // #2749 part 4: GST invoices and credit notes - the seller row (plain: printed on every
+  // invoice), a company's billing details (state + ciphertext), the gap-free number counters, the
+  // invoices and the credit notes. RLS+FORCE+REVOKE in the hand-written tail of `*_invoices`.
+  "seller_tax_config",
+  "payer_billing_details",
+  "invoice_number_series",
+  "invoices",
+  "credit_notes",
   // #2887: the bulk student move - the import ledger (runs, per-candidate rows, the candidate ->
   // worker map), the per-field source markers and the visibility switch. Ids, closed codes,
   // counts, hashes and times. RLS+FORCE+REVOKE in the hand-written tail of `*_student_move`.

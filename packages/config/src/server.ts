@@ -241,6 +241,16 @@ export const serverEnvSchema = z.object({
   // PII-FREE (no worker identity in the path or the kit; kits are per-TRADE, not per-worker).
   // MUST be created PRIVATE out-of-band (anon denied).
   INTERVIEW_KIT_BUCKET: z.string().min(1).default("interview-kits"),
+  // #2749 part 4 — private Storage bucket holding rendered GST invoice and credit-note PDFs. Same
+  // Storage Mode A (service-role, backend-only). Object keys are opaque:
+  // `invoices/<financial year>/<invoice id>.pdf` and `credit-notes/<financial year>/<id>.pdf` (no
+  // company name, number or GSTIN in the path). The PDF itself carries the buyer's billing
+  // details. MUST be created PRIVATE out-of-band (anon denied) — the switch-on runbook's step.
+  // The default needs no deploy bridge.
+  INVOICES_BUCKET: z.string().min(1).default("payer-invoices"),
+  // TTL (seconds) of the signed link `GET /payer/invoices/:id/download` and
+  // `GET /payer/credit-notes/:id/download` return. Short: the link opens a tax document.
+  INVOICE_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive().max(3600).default(300),
 
   // Resume render worker (TD5).
   // Master kill-switch for the WeasyPrint render step (the requested WEASYPRINT_ENABLED

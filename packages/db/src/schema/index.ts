@@ -66,6 +66,13 @@ import { contactReachAttempts, contactReachCases } from "./contact-reach";
 import { paymentRefunds } from "./payment-refunds";
 import { jobPostingChoices } from "./job-posting-choice";
 import {
+  creditNotes,
+  invoiceNumberSeries,
+  invoices,
+  payerBillingDetails,
+  sellerTaxConfig,
+} from "./invoices";
+import {
   studentImportBatches,
   studentImportRows,
   studentImportSubjects,
@@ -227,6 +234,8 @@ export * from "./job-worker-visibility";
 export * from "./launch-test";
 // #2754 item 4 — the Campus company import: one row per batch, one row per source record moved.
 export * from "./company-import";
+// #2749 part 4 - GST invoices and credit notes: the seller row, billing details, the number series.
+export * from "./invoices";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -585,4 +594,10 @@ export const schema = {
   companyImportRows,
   // #2891 - a Campus-origin posting held from BadaBhai workers until an admin opens it (read by reachesBadaBhaiWorkers).
   jobPostingWorkerVisibility,
+  // #2749 part 4 - GST invoices and credit notes (the settle writes an invoice in a savepoint; refunds a credit note).
+  sellerTaxConfig,
+  payerBillingDetails,
+  invoiceNumberSeries,
+  invoices,
+  creditNotes,
 };

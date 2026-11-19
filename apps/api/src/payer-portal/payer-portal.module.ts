@@ -39,6 +39,7 @@ import { JobPostingChatModule } from "./job-posting-chat/job-posting-chat.module
 import { FeatureRolloutModule } from "../feature-rollout/feature-rollout.module";
 import { OutboundSignalsModule } from "../outbound-signals/outbound-signals.module";
 import { HiresModule } from "../hires/hires.module";
+import { InvoicesModule } from "../invoices/invoices.module";
 import { PayerAuthService } from "./payer-auth.service";
 import { PayerPhoneProofController } from "./payer-phone-proof.controller";
 import { PayerPhoneProofService } from "./payer-phone-proof.service";
@@ -114,6 +115,8 @@ import {
     OutboundSignalsModule,
     // #2753 item 9 — the hire record a move into or out of `hired` writes in the stage transaction.
     HiresModule,
+    // #2749 part 4 - the real checkout's invoice gate (InvoicesService) on POST /payer/credits/order.
+    InvoicesModule,
     // Reuse BullMQ's Redis connection (client only) for the payer OTP store + XB-G cap.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],

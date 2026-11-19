@@ -464,6 +464,12 @@ export class PaymentGateway {
       packReturnFor?: (order: PaymentOrder) => Promise<{ max: number; windowMonths: number } | null>;
       /** #2750 item 9 — credits came back: runs on the settle's transaction (the caller's event). */
       onPackReturn?: (tx: Tx, order: PaymentOrder, returned: PackReturnResult) => Promise<void>;
+      /**
+       * #2749 part 4 — THIS call granted: runs on the settle's transaction, after the credits (and
+       * any returned credits), with the CLAIMED row. The GST invoice is issued here; the hook keeps
+       * its own failures to a savepoint, so it must not throw for a business reason.
+       */
+      onGranted?: (tx: Tx, order: PaymentOrder) => Promise<void>;
     } = {},
   ): Promise<SettleResult> {
     const existing = await this.repo.findPaymentOrder(input.providerOrderId);
@@ -520,6 +526,8 @@ export class PaymentGateway {
       if (done?.packReturn && done.packReturn.credits > 0 && hooks.onPackReturn) {
         await hooks.onPackReturn(tx, done.order, done.packReturn);
       }
+      // The invoice commits with the grant (in a savepoint of its own: never refuses the money).
+      if (done && hooks.onGranted) await hooks.onGranted(tx, done.order);
       return done;
     });
 

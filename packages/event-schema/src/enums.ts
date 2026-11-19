@@ -165,6 +165,12 @@ export const EVENT_DOMAINS = [
   // own lifecycle, and nothing on it is automated. IDS, PAISE INTEGERS AND CLOSED VALUES ONLY: the
   // admin's note never rides the spine, and no name, phone or company name exists to ride it.
   "pay_on_joining",
+  // #2749 part 4 — a GST invoice (`invoices`) and a GST credit note (`credit_notes`). DISTINCT
+  // domains from `payment`: each is its own tax record with its own gap-free number series, issued
+  // in the settle's or the refund's transaction. IDS, THE FINANCIAL YEAR AND PAISE ONLY: no GSTIN,
+  // name, address or number.
+  "invoice",
+  "credit_note",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;

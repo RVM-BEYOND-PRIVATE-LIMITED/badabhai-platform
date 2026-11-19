@@ -5,23 +5,24 @@
  * UNITS. The catalogue prices packs in WHOLE RUPEES (ADR-0013). Tax needs paise, so every field
  * this module returns is an integer number of PAISE, beside the rupee price, never replacing it.
  *
- * THE RULE (the issue's "GST arithmetic"):
- *  1. taxable  = price × 100                                  (paise; exact)
- *  2. gst      = taxable × rate ÷ 10,000, rounded half-up to the paisa
- *  3. total    = taxable + gst, rounded half-up to the whole RUPEE (a multiple of 100 paise)
- *  4. roundOff = total − taxable − gst
+ * THE RULE (owner ruling 2026-11-18, #2749 part 4: "GST rounded to the rupee, no round-off line"):
+ *  1. taxable  = price × 100                                            (paise; exact)
+ *  2. gst      = taxable × rate ÷ 10,000, rounded half-up to the whole RUPEE (a multiple of 100)
+ *  3. total    = taxable + gst                                          (a whole rupee)
+ *  4. roundOff = 0, always. The field (and `payment_orders.round_off_paise`) is kept so no reader
+ *     or column changes shape; it can no longer carry anything.
  *
- * `roundOff` is whatever step 3 added or removed: from −49 to +50 paise. It is NEGATIVE when the
- * rupee rounds down (₹1,001: 1,00,100 + 18,018 = 1,18,118 paise → ₹1,181, round-off −18) and
- * positive when it rounds up (₹999: 99,900 + 17,982 = 1,17,882 → ₹1,179, round-off +18).
- * taxable + gst + roundOff === total, always.
+ * ONE rounding, on the tax itself, so the invoice prints the GST it charges and no round-off line.
+ * At 18% the total is the same whole rupee the earlier rule gave (total rounded, tax to the paisa)
+ * for every whole-rupee price: ₹999 → GST ₹179.82 → ₹180, total ₹1,179 either way.
  *
- *   gstPriceLine(999) → { taxablePaise: 99900, gstPaise: 17982, roundOffPaise: 18,
+ *   gstPriceLine(999) → { taxablePaise: 99900, gstPaise: 18000, roundOffPaise: 0,
  *                          totalPaise: 117900, gstRateBps: 1800 }
  *   formatPackPriceLine(999) === "₹999 plus GST (₹1,179)"
  *
- * Whether an invoice prints a round-off line or rounds the tax itself to the rupee is the
- * accountant's question (the issue's "GST arithmetic"); the total does not change either way.
+ * An order stamped under the earlier rule (GST to the paisa, a round-off) keeps its stored columns;
+ * its invoice reads the GST as total − taxable, which is the same whole rupee
+ * (`apps/api/src/invoices`). The CGST / SGST / IGST split is {@link splitGstForSupply}.
  */
 import { formatInr } from "./format";
 
@@ -35,9 +36,12 @@ const PAISE_PER_RUPEE = 100;
 export interface GstPriceLine {
   /** The pack price before GST, in paise (price × 100). */
   readonly taxablePaise: number;
-  /** GST on `taxablePaise` at `gstRateBps`, rounded half-up to the paisa. */
+  /** GST on `taxablePaise` at `gstRateBps`, rounded half-up to the whole rupee (in paise). */
   readonly gstPaise: number;
-  /** What rounding the total to the rupee added (positive) or removed (negative): −49 … +50. */
+  /**
+   * Always 0 since the GST itself is rounded to the rupee (owner ruling 2026-11-18). Kept so the
+   * line, the catalogue response and `payment_orders.round_off_paise` keep their shape.
+   */
   readonly roundOffPaise: number;
   /** What the buyer pays: a whole number of rupees, in paise. */
   readonly totalPaise: number;
@@ -58,7 +62,7 @@ function roundHalfUpDiv(numerator: number, denominator: number): number {
  * return a wrong amount.
  *
  * `rateBps` defaults to {@link GST_RATE_BPS}; it is a parameter so the rounding can be tested at
- * a rate where half-paise occur (at 18% of a whole-rupee price they never do).
+ * a rate where the tax lands exactly on half a rupee.
  */
 export function gstPriceLine(priceInr: number, rateBps: number = GST_RATE_BPS): GstPriceLine {
   if (!Number.isSafeInteger(priceInr) || priceInr < 0) {
@@ -74,13 +78,14 @@ export function gstPriceLine(priceInr: number, rateBps: number = GST_RATE_BPS): 
   if (!Number.isSafeInteger(taxablePaise * BPS_PER_WHOLE)) {
     throw new RangeError(`gstPriceLine cannot tax ₹${priceInr} exactly (amount too large)`);
   }
-  const gstPaise = roundHalfUpDiv(taxablePaise * rateBps, BPS_PER_WHOLE);
-  const totalPaise = roundHalfUpDiv(taxablePaise + gstPaise, PAISE_PER_RUPEE) * PAISE_PER_RUPEE;
+  // One rounding, straight to the rupee: taxable × rate ÷ (10,000 × 100) rupees, half-up.
+  const gstPaise =
+    roundHalfUpDiv(taxablePaise * rateBps, BPS_PER_WHOLE * PAISE_PER_RUPEE) * PAISE_PER_RUPEE;
   return {
     taxablePaise,
     gstPaise,
-    roundOffPaise: totalPaise - taxablePaise - gstPaise,
-    totalPaise,
+    roundOffPaise: 0,
+    totalPaise: taxablePaise + gstPaise,
     gstRateBps: rateBps,
   };
 }
@@ -98,8 +103,8 @@ export function formatPackPriceLine(priceInr: number): string {
  * not tax the price twice. Both amounts come from the line itself, so they cannot disagree.
  */
 export function formatGstPriceLine(line: GstPriceLine): string {
-  // Both are whole rupees by construction (taxable = price × 100; total rounded to the rupee in
-  // step 3), so these divisions are exact.
+  // Both are whole rupees by construction (taxable = price × 100; the GST rounded to the rupee in
+  // step 2), so these divisions are exact.
   const priceInr = line.taxablePaise / PAISE_PER_RUPEE;
   const totalInr = line.totalPaise / PAISE_PER_RUPEE;
   return `${formatInr(priceInr)} plus GST (${formatInr(totalInr)})`;

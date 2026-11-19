@@ -182,8 +182,13 @@ const MOVABLE_FROM: Record<"pending" | "processed" | "failed", readonly PaymentR
  * (a retry first looks the refund up at Razorpay by our row id, so a lost answer is never paid
  * twice). Razorpay's refund webhooks move the row to `processed` or `failed`.
  *
- * OFF UNTIL CREDIT NOTES EXIST (owner ruling 2026-11-18): every route answers 503
- * `CREDIT_NOTES_UNAVAILABLE` while the credit-note issuer is not available, before any read.
+ * NO REFUND WITHOUT ITS CREDIT NOTE (owner ruling 2026-11-18). The GST credit note is numbered and
+ * written in the refund's own transaction (#2749 part 4, `InvoiceCreditNotes`); an order with no
+ * invoice, or whose invoice total is not the refund amount, is refused before any write (409
+ * `NO_INVOICE_FOR_ORDER` / `CREDIT_NOTE_AMOUNT_MISMATCH`), and with no active seller row the
+ * refund answers 503 `INVOICES_UNAVAILABLE`. A failed refund keeps its credit note (the credits
+ * stay removed; an admin retries). An issuer that is not available (`NoCreditNotes`, tests only)
+ * makes every route answer 503 `CREDIT_NOTES_UNAVAILABLE` before any read.
  */
 @Injectable()
 export class PaymentRefundsService {
@@ -226,6 +231,8 @@ export class PaymentRefundsService {
    *  - 409 `ALREADY_REFUNDED`: the order has a refund (one per order, ever);
    *  - 409 `REFUND_RULE_NOT_MET` with `rule` and `refusal` (`pack_used`, `window_passed`, `no_job`,
    *    `too_many_applicants`);
+   *  - 409 `NO_INVOICE_FOR_ORDER` / `CREDIT_NOTE_AMOUNT_MISMATCH`, 503 `INVOICES_UNAVAILABLE`: no
+   *    credit note can be issued (#2749 part 4);
    *  - 404: a `job_posting_id` that is not the company's own.
    */
   async refund(
@@ -262,6 +269,10 @@ export class PaymentRefundsService {
           });
         }
 
+        // #2749 part 4 — the credit note, step 1, BEFORE any write: the order's invoice, refused
+        // with a typed code when it has none or its total is not the refund amount.
+        const creditNote = await this.creditNotes.prepare(tx, order, orderTotalPaise(order));
+
         // Credits first: the pack, then whatever came back with it (#2750 item 9).
         let creditsRemoved = await this.repo.removeLot(tx, order.payerId, facts.lot.id);
         for (const lotId of await this.repo.returnedLotIds(
@@ -272,7 +283,7 @@ export class PaymentRefundsService {
           creditsRemoved += await this.repo.removeLot(tx, order.payerId, lotId);
         }
 
-        const row = await this.repo.insertRefund(tx, {
+        const inserted = await this.repo.insertRefund(tx, {
           paymentOrderId: order.id,
           payerId: order.payerId,
           rule: dto.rule,
@@ -282,6 +293,10 @@ export class PaymentRefundsService {
           amountPaise: orderTotalPaise(order),
           creditsRemoved,
         });
+        // #2749 part 4 — the credit note, step 2, on this same transaction: numbered, written, its
+        // number stamped on the refund row, `credit_note.issued` recorded.
+        const issued = await this.creditNotes.issueWithinTx(tx, creditNote, inserted, ctx);
+        const row: PaymentRefundRow = { ...inserted, creditNoteNumber: issued.creditNoteNumber };
         await this.repo.audit(tx, {
           adminId,
           action: ADMIN_ACTION_CODES.payment_refund_requested,
@@ -295,6 +310,7 @@ export class PaymentRefundsService {
             job_posting_id: row.jobPostingId,
             applicants_counted: row.applicantsCounted,
             reason_text: dto.reason_text,
+            credit_note_number: issued.creditNoteNumber,
           },
         });
         await this.events.emit({
