@@ -10,7 +10,7 @@ import 'consent_notice_parts.dart';
 /// ── THE WORDS ARE THE APPROVED NOTICE, VERBATIM. ─────────────────────────────
 ///
 /// `docs/product/employer-sharing-consent-notice.md`, approved by the owner
-/// 2026-11-04 — same words, same bold spans. Every line is a claim about the
+/// 2026-11-19 — same words, same bold spans. Every line is a claim about the
 /// code (see the doc's table). A wording change belongs in that doc first,
 /// approved again, with `kConsentVersion` / `CURRENT_CONSENT_VERSION` bumped in
 /// the same change.
@@ -48,20 +48,28 @@ class EmployerSharingNotice extends StatelessWidget {
             style: OnboardingTypography.bodyMuted(),
           ),
           const _NoticeDivider(),
-          Text('Woh sirf yeh dekhte hain:', style: leadIn),
+          Text('Paise dene se pehle woh yeh dekh sakti hain:', style: leadIn),
           const SizedBox(height: 14),
           const ConsentBullet(<NoticeRun>[
-            ('Aapka kaam (jaise CNC Turner) aur anubhav', false),
+            ('Aapka ', false),
+            ('pehla naam', true),
           ]),
           const ConsentBullet(<NoticeRun>[
-            ('Aapki industry, shehar aur level', false),
+            ('Aapka kaam, anubhav, machine aur level', false),
+          ]),
+          const ConsentBullet(<NoticeRun>[
+            ('Aapki industry, shehar aur ', false),
+            ('salary ki ummeed', true),
+          ]),
+          const ConsentBullet(<NoticeRun>[
+            ('Aap aakhri baar kab active the', false),
           ]),
           Text.rich(
             TextSpan(
               style: OnboardingTypography.inter(size: 13, height: 1.45),
               children: noticeSpans(const <NoticeRun>[
                 ('Aapka ', false),
-                ('naam, phone number aur photo', true),
+                ('poora naam, phone number aur photo', true),
                 (' nahi dikhta.', false),
               ]),
             ),
@@ -73,17 +81,19 @@ class EmployerSharingNotice extends StatelessWidget {
               children: noticeSpans(const <NoticeRun>[
                 ('Agar koi company paise dekar aapki profile ', false),
                 ('unlock', true),
-                (' karti hai, to 14 din tak:', false),
+                (' karti hai, to woh ', false),
+                ('hamesha ke liye', true),
+                (':', false),
               ]),
             ),
           ),
           const SizedBox(height: 14),
           const ConsentBullet(<NoticeRun>[
             ('Woh aapka ', false),
+            ('poora naam aur phone number', true),
+            (' dekh sakti hai, aur aapka ', false),
             ('resume', true),
-            (' dekh sakti hai — usme aapka ', false),
-            ('phone number', true),
-            (' hota hai (poora naam, photo aur salary ki ummeed nahi).', false),
+            ('.', false),
           ]),
           const ConsentBullet(<NoticeRun>[
             ('Woh aapko ', false),
@@ -91,13 +101,20 @@ class EmployerSharingNotice extends StatelessWidget {
             (' kar sakti hai.', false),
           ]),
           const SizedBox(height: 8),
+          Text(
+            'Jo companies aapko pehle unlock kar chuki hain, unpar bhi yahi '
+            'lagu hoga.',
+            style: OnboardingTypography.bodyMuted(),
+          ),
+          const SizedBox(height: 8),
           const ConsentNoteBox(<NoticeRun>[
             ('Aap jab chaahein ', false),
             ('Settings', true),
             (
-              ' me jaakar yeh band kar sakte hain. Phir companies aapko '
-                  'dhoondh ya message nahi kar paayengi. Jo resume pehle dekha '
-                  'ja chuka hai, woh wapas nahi hota.',
+              ' me jaakar yeh band kar sakte hain. Phir koi company aapka naam '
+                  'ya number nahi dekh paayegi, aur aapko dhoondh ya message nahi '
+                  'kar paayegi. Jo resume pehle dekha ja chuka hai, woh wapas nahi '
+                  'hota.',
               false,
             ),
           ]),

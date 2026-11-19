@@ -672,8 +672,11 @@ export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
  * 2026-11-04 — BUMPED, with the copy: the owner approved the employer-sharing notice
  * (docs/product/employer-sharing-consent-notice.md, E4 items 6-7) and the worker app renders it
  * on the consent screen and the one-time prompt in the same change.
+ *
+ * 2026-11-19 — BUMPED, with the #2842 copy: first name and expected salary before paying; full
+ * name, phone and the résumé after an unlock; a contact opens for good (ADR-0064 §3.8).
  */
-export const CURRENT_CONSENT_VERSION = "2026-11-04" as const;
+export const CURRENT_CONSENT_VERSION = "2026-11-19" as const;
 
 /** The two purposes the employer-sharing notice asks for — granted and withdrawn together. */
 export const EMPLOYER_CONTACT_PURPOSES = ["employer_sharing", "employer_messaging"] as const satisfies readonly ConsentPurpose[];
@@ -686,7 +689,12 @@ export const EMPLOYER_CONTACT_PURPOSES = ["employer_sharing", "employer_messagin
  * consent rows are append-only, so the mistake could not be undone. Append a version here when
  * the employer copy is re-approved; never remove one (old rows stay valid).
  */
-export const EMPLOYER_CONTACT_NOTICE_VERSIONS: readonly string[] = ["2026-11-04"];
+export const EMPLOYER_CONTACT_NOTICE_VERSIONS: readonly string[] = [
+  "2026-11-04",
+  // 2026-11-19 — the #2747 notice: first name and expected salary before paying; full name,
+  // phone and the résumé after an unlock; a contact opens for good (#2842, ADR-0064 §3.8).
+  "2026-11-19",
+];
 
 /**
  * #2747 (ADR-0064 §3.8) — the employer-sharing notice versions whose copy DESCRIBES the brief's
@@ -696,12 +704,12 @@ export const EMPLOYER_CONTACT_NOTICE_VERSIONS: readonly string[] = ["2026-11-04"
  * so a BadaBhai worker whose latest consent is on it keeps exactly those rules, whatever a
  * company's pilot switches say.
  *
- * EMPTY until that notice is approved and shipped. Then append its version here AND to
+ * The 2026-11-19 version is the notice that describes these rules; it is appended here AND to
  * {@link EMPLOYER_CONTACT_NOTICE_VERSIONS} in the same change as the worker app's copy (the rule
  * above). Never remove one. An actively linked RVM student is decided by the institute rule instead
  * (#2752: RVM's own consent line, brief 9).
  */
-export const BRIEF_CONTACT_NOTICE_VERSIONS: readonly string[] = [];
+export const BRIEF_CONTACT_NOTICE_VERSIONS: readonly string[] = ["2026-11-19"];
 
 // ---- Chat ----
 /**

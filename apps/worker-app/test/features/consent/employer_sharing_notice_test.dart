@@ -1,6 +1,6 @@
 // The employer-sharing notice must render the APPROVED copy verbatim — same
 // words, same bold spans (docs/product/employer-sharing-consent-notice.md,
-// approved 2026-11-04). This test reads the doc itself, so the widget cannot
+// approved 2026-11-19). This test reads the doc itself, so the widget cannot
 // drift from it silently: a wording change must land in both, with
 // kConsentVersion bumped (which is what runs this gate).
 import 'dart:io';
@@ -121,18 +121,21 @@ void main() {
     );
   }
 
-  test('the doc parses into the approved heading and nine body blocks', () {
+  test('the doc parses into the approved heading and twelve body blocks', () {
     // Guards the parser itself: a parse that returned nothing would make the
     // parity test below vacuous.
     expect(approved.heading, 'Companies aapki profile dekh sakti hain');
-    expect(approved.body, hasLength(9));
+    expect(approved.body, hasLength(12));
     expect(
       approved.body.expand((_Block b) => b.bold),
       <String>[
-        'naam, phone number aur photo',
+        'pehla naam',
+        'salary ki ummeed',
+        'poora naam, phone number aur photo',
         'unlock',
+        'hamesha ke liye',
+        'poora naam aur phone number',
         'resume',
-        'phone number',
         'BadaBhai ke andar message',
         'Dhyaan dein:',
         'Settings',
