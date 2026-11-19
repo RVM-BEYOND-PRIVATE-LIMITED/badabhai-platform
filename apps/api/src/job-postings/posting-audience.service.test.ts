@@ -47,7 +47,9 @@ function posting(over: Partial<JobPostingApi> = {}): JobPostingApi {
 /** Active options: branches 1–3, courses `cnc` and `cad`. Branch 9 / course `old` exist but retired. */
 const ACTIVE = { branch: new Set(["1", "2", "3"]), course: new Set(["cnc", "cad"]) };
 
-function make(opts: { enabled?: boolean; reviews?: Map<string, RvmReviewFacts> } = {}) {
+function make(
+  opts: { enabled?: boolean; reviews?: Map<string, RvmReviewFacts>; adminDecides?: boolean } = {},
+) {
   const rollout = { isEnabledFor: vi.fn(async () => opts.enabled ?? true) };
   const repo = {
     activeOptionRefs: vi.fn(async (kind: "branch" | "course", refs: readonly string[]) => {
@@ -69,7 +71,9 @@ function make(opts: { enabled?: boolean; reviews?: Map<string, RvmReviewFacts> }
     }),
   };
   const events = { emit: vi.fn(async (_p: Record<string, unknown>) => undefined) };
-  const svc = new PostingAudienceService(rollout as never, repo as never, events as never);
+  const svc = new PostingAudienceService(rollout as never, repo as never, events as never, {
+    ADMIN_JOB_AUDIENCE_ENABLED: opts.adminDecides ?? false,
+  });
   return { svc, rollout, repo, events };
 }
 
@@ -418,5 +422,32 @@ describe("optionsFor — GET audience-options", () => {
       ],
       courses: [{ id: "cnc", label: "CNC Programming", sort_order: 0 }],
     });
+  });
+});
+
+describe("#2956 — while an admin decides where each job shows, the company never does", () => {
+  it("a company on the job_audience pilot list: its fields are ignored, no switch read", async () => {
+    const d = make({ enabled: true, adminDecides: true });
+    expect(
+      await d.svc.requestedBy(SCOPE, { audience: "rvm_students", rvm_branch_ids: [1] }),
+    ).toBeNull();
+    expect(await d.svc.resolveCreate(SCOPE, { audience: "both" })).toBeNull();
+    expect(d.rollout.isEnabledFor).not.toHaveBeenCalled();
+  });
+
+  it("audience-options is the neutral 404", async () => {
+    const d = make({ enabled: true, adminDecides: true });
+    await expect(d.svc.optionsFor(SCOPE)).rejects.toBeInstanceOf(NotFoundException);
+    expect(d.repo.listActiveOptions).not.toHaveBeenCalled();
+  });
+
+  it("the company still sees, read-only, an audience the admin set; a default posting stays as before", async () => {
+    const d = make({ enabled: true, adminDecides: true });
+    const [moved, plain] = await d.svc.payerViews(SCOPE, [
+      posting({ id: P1, audience: "rvm_students" }),
+      posting({ id: P2 }),
+    ]);
+    expect(moved).toMatchObject({ audience: "rvm_students" });
+    expect(plain).not.toHaveProperty("audience");
   });
 });

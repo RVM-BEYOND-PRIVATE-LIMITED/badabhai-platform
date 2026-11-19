@@ -1,4 +1,11 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import {
   DEFAULT_JOB_POSTING_AUDIENCE,
@@ -10,10 +17,12 @@ import {
   type RvmTargetingKind,
 } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
+import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 import type { PostingAudienceInput } from "./job-postings.dto";
+import { adminJobAudienceEnabled, type AdminJobAudienceConfig } from "./admin-job-audience.flag";
 import type { JobPostingApi } from "./job-postings.repository";
 import { PostingAudienceRepository } from "./posting-audience.repository";
 import { rvmReviewView, type RvmReviewView } from "./rvm-review-view";
@@ -109,10 +118,22 @@ export class PostingAudienceService {
     private readonly rollout: FeatureRolloutService,
     private readonly repo: PostingAudienceRepository,
     private readonly events: EventsService,
+    // #2956 — the admin audience control (ADR-0068). Optional: suites built before it.
+    @Optional() @Inject(SERVER_CONFIG) private readonly config?: AdminJobAudienceConfig,
   ) {}
 
-  /** Is the audience capability on for this company (its TENANT key)? */
-  enabledFor(scope: PayerTenantScope): Promise<boolean> {
+  /**
+   * Is the audience capability on for this company (its TENANT key)?
+   *
+   * #2956 (owner direction of 19 Nov 2026, ADR-0068): AN ADMIN, NOT THE COMPANY, DECIDES WHERE A
+   * JOB SHOWS. While `ADMIN_JOB_AUDIENCE_ENABLED` is on the company never has the capability,
+   * whatever `job_audience` and its pilot list say: its audience fields are ignored and
+   * `audience-options` is the neutral 404. Its own read still shows the audience an admin set
+   * (`payerViews`: a non-default audience is always shown). The company path is removed with the
+   * `JOB_AUDIENCE_ROLLOUT` clean-up.
+   */
+  async enabledFor(scope: PayerTenantScope): Promise<boolean> {
+    if (adminJobAudienceEnabled(this.config)) return false;
     return this.rollout.isEnabledFor("job_audience", scope.tenantKey);
   }
 
