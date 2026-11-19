@@ -64,6 +64,16 @@
  * are in use on their own (`rollback.ts`). Accounts it only matched are kept. Run it again after a
  * stop: it continues. The batch ends `rolled_back` and its key is spent.
  *
+ * NOTIFY (#2787), after a clean report:
+ *   node apps/api/dist/payers/import-campus-companies.cli.js --notify --batch <key> --signin-url <https address>
+ *   node apps/api/dist/payers/import-campus-companies.cli.js --notify --send --batch <key> --run-by <label> \
+ *        --signin-url <https address> [--sms-template-id <approved DLT template>]
+ * Tells each company the batch placed (created or matched) how to sign in on BadaBhai: an email
+ * always, an SMS to a proven phone once an approved template id is passed. Without `--send` it is
+ * a read-only preview of what would go out. Once per company per channel, ever (`company_import_notices`);
+ * a failed or skipped notice is tried again by the next `--send` run (`move-notice.ts`). Exit code 2
+ * when any delivery failed. It refuses until migration `company_import_notices` is applied.
+ *
  * TARGET SAFETY: `--apply` goes through the shared ops guard — a write to a production-like
  * database needs `--i-am-authorised-to-write-to-production` AND
  * `OPS_ALLOW_PRODUCTION=import-campus-companies`. Under D15 Prakash runs it in production.
@@ -117,6 +127,14 @@ import {
 import { buildJobImportDeps, buildRollbackDeps, buildWelcomeCredits } from "./campus-import/job-import-wiring";
 import { offerWelcomeCredits } from "./campus-import/import-welcome";
 import {
+  moveNoticeLogExists,
+  notifyMovedCompanies,
+  parseSignInUrl,
+  type MoveNoticeSummary,
+} from "./campus-import/move-notice";
+import { EmailNotificationService } from "../notifications/email-notification.service";
+import { Fast2SmsProvider } from "../sms/fast2sms.provider";
+import {
   importApplications,
   type ApplicationImportSummary,
 } from "./campus-import/import-applications";
@@ -138,7 +156,15 @@ export type ImportCampusCompaniesArgs =
     }
   | { mode: "synthetic"; out: string; companies: number; seed: string; phones: string[] }
   | { mode: "report"; bundle: string; planQuota: Record<string, number>; batch: string; out: string }
-  | { mode: "rollback"; batch: string; runBy: string };
+  | { mode: "rollback"; batch: string; runBy: string }
+  | {
+      mode: "notify";
+      batch: string;
+      send: boolean;
+      runBy: string;
+      signInUrl: string;
+      smsTemplateId: string | null;
+    };
 
 const BATCH_KEY = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -172,11 +198,44 @@ export function parseImportCampusCompaniesArgs(argv: readonly string[]): ImportC
       seed: { type: "string" },
       phones: { type: "string" },
       out: { type: "string" },
+      notify: { type: "boolean", default: false },
+      send: { type: "boolean", default: false },
+      "signin-url": { type: "string" },
+      "sms-template-id": { type: "string" },
       [PRODUCTION_WRITE_FLAG.replace(/^--/, "")]: { type: "boolean", default: false },
     },
     strict: true,
     allowPositionals: false,
   });
+  if (values.notify) {
+    if (values.apply || values.report || values.rollback) {
+      throw new Error("--notify cannot be combined with --apply, --report or --rollback");
+    }
+    for (const flag of ["bundle", "plan-quota", "agents", "credit-validity-days", "out", "write-synthetic"] as const) {
+      if (values[flag] !== undefined) throw new Error(`--${flag} cannot be used with --notify`);
+    }
+    if (values.test || values.rehearsal || values["worker-hold-live"]) {
+      throw new Error("--test, --rehearsal and --worker-hold-live cannot be used with --notify");
+    }
+    if (!values.batch || !BATCH_KEY.test(values.batch)) {
+      throw new Error("--notify needs --batch <key>: lower-case letters, digits and dashes, up to 64");
+    }
+    if (!values["signin-url"]) throw new Error("--notify needs --signin-url <the company sign-in address>");
+    const signInUrl = parseSignInUrl(values["signin-url"]);
+    const runBy = values["run-by"]?.trim() ?? "";
+    if (values.send && (runBy.length < 1 || runBy.length > 128)) {
+      throw new Error("--notify --send needs --run-by <who is running it>");
+    }
+    const smsTemplateId = values["sms-template-id"]?.trim() || null;
+    if (smsTemplateId !== null && !/^[0-9]{1,32}$/.test(smsTemplateId)) {
+      throw new Error("--sms-template-id must be the approved template's numeric id");
+    }
+    return { mode: "notify", batch: values.batch, send: values.send === true, runBy: runBy || "preview", signInUrl, smsTemplateId };
+  }
+  for (const flag of ["signin-url", "sms-template-id"] as const) {
+    if (values[flag] !== undefined) throw new Error(`--${flag} needs --notify`);
+  }
+  if (values.send) throw new Error("--send needs --notify");
   if (values.rollback) {
     if (values.apply || values.report) throw new Error("--rollback cannot be combined with --apply or --report");
     if (values.bundle !== undefined) throw new Error("--rollback reads the import ledger, not a bundle: drop --bundle");
@@ -471,6 +530,65 @@ async function rollback(
   }
 }
 
+/** The `--notify` printout: counts and outcome codes per channel only. */
+export function formatNoticeSummary(s: MoveNoticeSummary): string[] {
+  return [`email: ${fmt(s.email as Record<string, number>)}`, `sms: ${fmt(s.sms as Record<string, number>)}`];
+}
+
+async function notify(
+  args: Extract<ImportCampusCompaniesArgs, { mode: "notify" }>,
+  log: (line: string) => void,
+): Promise<number> {
+  const { connectionString } = enforceOpsGuard({
+    script: IMPORT_CAMPUS_COMPANIES_SCRIPT,
+    connectionString: process.env.DATABASE_URL,
+    mutating: args.send,
+  });
+  const config: ServerConfig = loadServerConfig();
+  if (args.send && args.smsTemplateId !== null && (!config.FAST2SMS_API_KEY || !config.FAST2SMS_SENDER_ID)) {
+    throw new CampusImportRefusal("--sms-template-id needs FAST2SMS_API_KEY and FAST2SMS_SENDER_ID in this environment");
+  }
+  const client = createDbClient(connectionString, { max: 2 });
+  try {
+    const db = client.db;
+    if (!(await importLedgerExists(db))) {
+      throw new CampusImportRefusal("migration company_import is not applied on this database");
+    }
+    if (!(await moveNoticeLogExists(db))) {
+      throw new CampusImportRefusal("migration company_import_notices is not applied on this database");
+    }
+    const batch = await findBatch(db, args.batch);
+    if (!batch) throw new CampusImportRefusal(`no import batch ${args.batch}`);
+    if (batch.state !== "applied") {
+      throw new CampusImportRefusal(`batch ${args.batch} is ${batch.state}: notify only an applied batch, after a clean --report`);
+    }
+    const pii = new PiiCryptoService(config);
+    log(
+      `[${IMPORT_CAMPUS_COMPANIES_SCRIPT}] NOTIFY batch ${batch.batchKey}${batch.isTest ? " (test)" : ""} ` +
+        `${args.send ? "SENDING" : "PREVIEW (nothing is sent; add --send)"}; sms ${args.smsTemplateId ? "on" : "off (no --sms-template-id)"}`,
+    );
+    const summary = await notifyMovedCompanies(
+      {
+        db,
+        pii,
+        email: new EmailNotificationService(config, pii),
+        sms: new Fast2SmsProvider(config, pii),
+        events: new EventsService(new EventsRepository(db), config),
+      },
+      batch,
+      { signInUrl: args.signInUrl, smsTemplateId: args.smsTemplateId, runBy: args.runBy, send: args.send },
+    );
+    for (const line of formatNoticeSummary(summary)) log(line);
+    if ((summary.email.failed ?? 0) + (summary.sms.failed ?? 0) > 0) {
+      log("SOME DELIVERIES FAILED: run --notify --send again to retry them");
+      return 2;
+    }
+    return 0;
+  } finally {
+    await client.sql.end({ timeout: 5 });
+  }
+}
+
 /** The `--report` printout: totals only; the per-company detail is in the files. */
 export function formatReportTotals(report: VerificationReport): string[] {
   const t = report.totals;
@@ -532,6 +650,7 @@ export async function run(
   if (args.mode === "apply") return apply(args, log);
   if (args.mode === "report") return report(args, log);
   if (args.mode === "rollback") return rollback(args, log);
+  if (args.mode === "notify") return notify(args, log);
   if (args.mode === "synthetic") {
     writeSyntheticBundle(args.out, {
       companies: args.companies,
