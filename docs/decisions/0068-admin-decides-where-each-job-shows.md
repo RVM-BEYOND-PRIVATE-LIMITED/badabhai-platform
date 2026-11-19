@@ -97,18 +97,34 @@ postings, oldest first:
   is possible for a company job.
 - The admin screens (#2958).
 
-## 3. Owner questions (built with the defaults)
+## 3. Owner answers (Prakash, 19 Nov 2026)
 
-1. A new company job in a trade RVM trains goes live to BadaBhai workers at once and waits in
-   `to_decide`. The alternative holds it from workers until an admin decides.
-2. The company sees where its job shows, read-only.
-3. The placement team can still reject an admin-sent job from Campus. An admin re-deciding the same
-   job approves it again.
-4. Campus-drive requests (ADR-0063 §3.6) are outside this flow and stay off.
+1. **A new company job in a trade RVM trains is HELD from BadaBhai workers until an admin decides**
+   (not the default first built). The company publish writes a #2891 hold row with origin
+   `company_rvm_trade` (migration `0194`) in its own transaction, while `ADMIN_JOB_AUDIENCE_ENABLED`
+   is on, for a posting whose trade is on the Campus list and that no admin has decided. Every worker
+   path already honours the hold, so the job reaches no worker; it is listed under `to_decide` as
+   shown to nobody; the admin's decision releases it (Campus only keeps it off, Both or BadaBhai only
+   opens it). It is not Campus-origin: the trade list still applies to it, and the #2891 Campus
+   routes neither list nor change it. Admins clear "To decide" every day so companies are not kept
+   waiting.
+2. **The company does not see where its job shows.** While the switch is on, no company posting read
+   carries the audience, the targeting or the RVM review; payer-web no longer renders them.
+3. The placement team can still reject an admin-sent job from Campus (needs RVMBeyond_jobportal#205,
+   `content_hash`). An admin re-deciding the same job approves it again.
+4. Campus-drive requests (ADR-0063 §3.6) stay. Their branch list must move off
+   `GET /payer/job-postings/audience-options` (a 404 while the switch is on) to the branches Campus
+   sends (RVMBeyond_jobportal#206) before that route is removed.
+
+The Campus trade list is six trades: CNC Turner, CNC Machining Centre Operator (VMC), CAD Designer /
+Draughtsman, 3D CAD Designer, CAM Programmer, PLC / Automation Technician.
 
 ## 4. Switch-on order
 
-1. Apply migration `0190_admin_job_audience` and record it in the ledger.
-2. Enter the Campus trade list (#2957).
+1. Apply migration `0190_admin_job_audience` and record it in the ledger (done 19 Nov 2026).
+2. Apply migration `0194_job_worker_visibility_company_hold` and record it in the ledger.
 3. Set `ADMIN_JOB_AUDIENCE_ENABLED=true` in the `production` environment and redeploy.
-4. Decide a test company's job through all three choices.
+4. A super admin enters the six trades at once (the trade-list routes answer only while the switch
+   is on). Until then nothing is held and only "BadaBhai only" is accepted, so a company job
+   published in that window goes live to workers as before and waits under "To decide".
+5. Decide a test company's job through all three choices.

@@ -40,6 +40,7 @@ export function inertPostingAudience(): PostingAudienceService {
     resolveCreate: async () => null,
     recordCreateWithin: async () => undefined,
     recordUpdateWithin: async () => undefined,
+    holdForAdminDecisionWithin: async () => false,
     payerViews: async (_scope: unknown, postings: readonly unknown[]) => [...postings],
   } as unknown as PostingAudienceService;
 }

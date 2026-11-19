@@ -12,8 +12,6 @@ import { FIND_MATCHING_LABEL, matchingWorkersHref } from "../../../../lib/job-ma
 import { readPostingTrades } from "../../../../lib/posting-trades.server";
 import { PUBLISHED_REACH_PARAM, parsePublishedReach } from "../../../../lib/published-reach";
 import { PublishedReachNotice } from "../../../../components/published-reach-notice";
-import { RvmReviewNotice } from "../../../../components/rvm-review";
-import { JOB_AUDIENCE_LABEL } from "../../../../lib/contracts";
 
 export const dynamic = "force-dynamic";
 
@@ -145,9 +143,8 @@ export default async function PostingDetailPage({
           }
         />
 
-        {/* #2746 — the placement team's decision (and its plain-text reason), when this posting
-            has an RVM part. It sits in the head so a rejected job is the first thing read. */}
-        <RvmReviewNotice review={detail.rvmReview} />
+        {/* Where the job shows, and RVM's review of it, are not shown to the company: a BadaBhai
+            admin decides where each job shows (Prakash, 19 Nov 2026, #2956). */}
 
         {isDraft ? (
           <div className="alert alert--info">
@@ -185,22 +182,6 @@ export default async function PostingDetailPage({
               <span className="bb-mono">{summary.applicantCount}</span> /{" "}
               <span className="bb-mono">{summary.applicantQuota ?? "—"}</span>
             </dd>
-            {detail.audience ? (
-              <>
-                <dt className="kv__k">Audience</dt>
-                <dd className="kv__v">{JOB_AUDIENCE_LABEL[detail.audience]}</dd>
-                {detail.audience !== "badabhai_workers" ? (
-                  <>
-                    <dt className="kv__k">RVM targeting</dt>
-                    <dd className="kv__v">
-                      {detail.rvmBranchIds.length === 0 && detail.rvmCourseIds.length === 0
-                        ? "All branches and courses"
-                        : `${detail.rvmBranchIds.length} branch(es), ${detail.rvmCourseIds.length} course(s)`}
-                    </dd>
-                  </>
-                ) : null}
-              </>
-            ) : null}
             <dt className="kv__k">Posted</dt>
             <dd className="kv__v bb-mono">{day(summary.createdAt)}</dd>
             <dt className="kv__k">Description</dt>

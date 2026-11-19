@@ -1,12 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { sql } from "drizzle-orm";
 import {
+  CAMPUS_WORKER_VISIBILITY_ORIGINS,
   materializeJobReachWithin,
   rvmReviewStateNow,
   type Database,
   type InstituteReviewState,
   type JobPostingAudience,
-  type JobWorkerVisibilityOrigin,
+  type CampusWorkerVisibilityOrigin,
   type JobWorkerVisibilityState,
 } from "@badabhai/db";
 import type { JobPostingStatus } from "@badabhai/types";
@@ -27,7 +28,7 @@ export interface WorkerVisibilityListRow {
   audience: JobPostingAudience;
   /** The RVM review as it stands now (`rvmReviewStateNow`); null when the posting has no row. */
   rvmReviewStateNow: InstituteReviewState | null;
-  origin: JobWorkerVisibilityOrigin;
+  origin: CampusWorkerVisibilityOrigin;
   state: JobWorkerVisibilityState;
   decidedByAdminId: string | null;
   decidedAt: Date | null;
@@ -38,10 +39,19 @@ export interface WorkerVisibilityListRow {
 export interface LockedVisibility {
   state: JobWorkerVisibilityState;
   decided: boolean;
-  origin: JobWorkerVisibilityOrigin;
+  origin: CampusWorkerVisibilityOrigin;
   audience: JobPostingAudience;
   roleKind: string | null;
 }
+
+/**
+ * Only Campus-origin rows belong to this screen. A company job held for an admin's decision
+ * (`company_rvm_trade`, 0194) is released by the audience decision (#2956), never here: to these
+ * routes it is not Campus-origin (`not_campus_origin`) and it is not listed.
+ */
+const CAMPUS_ORIGIN = sql.raw(
+  `v.origin IN (${CAMPUS_WORKER_VISIBILITY_ORIGINS.map((o) => `'${o}'`).join(", ")})`,
+);
 
 /**
  * #2891 — data access for a Campus-origin posting's BadaBhai worker visibility
@@ -86,7 +96,7 @@ export class AdminPostingWorkerVisibilityRepository {
       JOIN job_postings jp ON jp.id = v.job_posting_id
       LEFT JOIN job_posting_institute_reviews r
         ON r.job_posting_id = jp.id AND r.institute_code = 'rvm'
-      WHERE ${filter} ${after}
+      WHERE ${filter} AND ${CAMPUS_ORIGIN} ${after}
       ORDER BY v.created_at, v.job_posting_id
       LIMIT ${q.limit}
     `)) as unknown as Record<string, unknown>[];
@@ -103,7 +113,7 @@ export class AdminPostingWorkerVisibilityRepository {
       SELECT v.state, (v.decided_at IS NOT NULL) AS decided, v.origin, jp.audience, jp.role_kind
       FROM job_postings jp
       JOIN job_posting_worker_visibility v ON v.job_posting_id = jp.id
-      WHERE jp.id = ${jobPostingId}::uuid
+      WHERE jp.id = ${jobPostingId}::uuid AND ${CAMPUS_ORIGIN}
       FOR NO KEY UPDATE OF jp
       FOR UPDATE OF v
     `)) as unknown as Record<string, unknown>[];
@@ -112,7 +122,7 @@ export class AdminPostingWorkerVisibilityRepository {
     return {
       state: row.state as JobWorkerVisibilityState,
       decided: row.decided === true,
-      origin: row.origin as JobWorkerVisibilityOrigin,
+      origin: row.origin as CampusWorkerVisibilityOrigin,
       audience: row.audience as JobPostingAudience,
       roleKind: (row.role_kind as string | null) ?? null,
     };
@@ -158,7 +168,7 @@ function toListRow(r: Record<string, unknown>): WorkerVisibilityListRow {
     hidden: r.hidden === true,
     audience: r.audience as JobPostingAudience,
     rvmReviewStateNow: (r.review_state_now as InstituteReviewState | null) ?? null,
-    origin: r.origin as JobWorkerVisibilityOrigin,
+    origin: r.origin as CampusWorkerVisibilityOrigin,
     state: r.state as JobWorkerVisibilityState,
     decidedByAdminId: (r.decided_by_admin_id as string | null) ?? null,
     decidedAt: r.decided_at === null || r.decided_at === undefined ? null : date(r.decided_at),
