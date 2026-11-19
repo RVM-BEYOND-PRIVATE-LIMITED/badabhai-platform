@@ -52,6 +52,12 @@ type RvmListClass =
   | { kind: "staff_tracker" }
   /** A NUMBER of workers a posting reaches, no identities; RVM students are reached by BadaBhai jobs. */
   | { kind: "audience_count" }
+  /**
+   * Prices any ids the company sends (#2750 item 3). An RVM student the company could not open is
+   * priced as an ordinary worker with the same facts (`InstituteOpenGate.quotesAsStudent`, #2954),
+   * so a quote never tells it what he is.
+   */
+  | { kind: "quote_hides_student" }
   /** A known path that does not apply the rule, filed with the owner. */
   | { kind: "known_exception"; issue: `#${number}`; why: string };
 
@@ -90,11 +96,7 @@ const COMPANY_ROUTES: Readonly<Record<string, RvmListClass>> = {
   "GET /payer/resume-disclosures": OPENED,
   "GET /payer/relay/:P/messages": OPENED, // keyed on the opened contact's relay handle
   "POST /payer/relay/:P/messages": OPENED,
-  "POST /payer/unlocks/quotes": {
-    kind: "known_exception",
-    issue: "#2954",
-    why: "prices any ids the company sends; an RVM student's price can hint that he is one",
-  },
+  "POST /payer/unlocks/quotes": { kind: "quote_hides_student" },
   // ── Counts ──────────────────────────────────────────────────────────────────────────────────
   "POST /payer/match/reach-preview": COUNT,
   "POST /payer/job-postings/:P/boost": COUNT, // the supply-gate refusal states a reach count

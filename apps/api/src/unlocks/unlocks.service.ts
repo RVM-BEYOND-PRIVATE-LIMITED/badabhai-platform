@@ -1369,6 +1369,14 @@ export class UnlockService {
     if ((await this.creditRulesState(tenant)) !== "on") throw new NotFoundException();
     const rules = await this.creditRules!.get();
     const facts = await this.repo.readContactCostFacts(tenant, workerIds);
+    // #2954 — an RVM student this company could not open is quoted as an ordinary worker with the
+    // same facts: his RVM price (standard, or a waiver's 0) would tell the company what he is. The
+    // open itself is still decided by the institute gate; only the quote's input changes.
+    for (const [workerId, row] of facts) {
+      if (row.rvmStudent && !(await this.instituteGate.quotesAsStudent(workerId, tenant))) {
+        facts.set(workerId, { ...row, rvmStudent: false });
+      }
+    }
     const now = new Date();
     const waivers = await this.waiversFor(tenant, workerIds);
     const tracked = await this.managedHiringTracked(tenant, workerIds);
