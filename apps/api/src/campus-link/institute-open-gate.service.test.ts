@@ -149,3 +149,59 @@ describe("InstituteOpenGate.decide — #2887 moved students (STUDENT_MOVE_ENABLE
     expect(repo.studentVisibilityOf).not.toHaveBeenCalled();
   });
 });
+
+describe("InstituteOpenGate.quotesAsStudent (#2954)", () => {
+  function quoteGate(opts: {
+    applied?: boolean;
+    grant?: boolean;
+    visibility?: "visible" | "hidden" | null;
+    studentMove?: boolean;
+    fail?: boolean;
+  }) {
+    const repo = {
+      hasAppliedToTenant: vi.fn(async () => {
+        if (opts.fail) throw new Error("db down");
+        return opts.applied ?? false;
+      }),
+      hasLiveGrantForTenant: vi.fn(async () => opts.grant ?? false),
+      studentVisibilityOf: vi.fn(async () => opts.visibility ?? null),
+      findActiveByWorker: vi.fn(),
+    };
+    const links = { confirmConsent: vi.fn() };
+    const subject = new InstituteOpenGate(
+      repo as unknown as InstituteLinkRepository,
+      links as unknown as InstituteLinkService,
+      { STUDENT_MOVE_ENABLED: opts.studentMove ?? false } as never,
+    );
+    return { subject, repo, links };
+  }
+
+  it("a company he applied to, or one holding his grant, may be told", async () => {
+    expect(await quoteGate({ applied: true }).subject.quotesAsStudent(WORKER, COMPANY as never)).toBe(true);
+    expect(await quoteGate({ grant: true }).subject.quotesAsStudent(WORKER, COMPANY as never)).toBe(true);
+  });
+
+  it("any other company may not", async () => {
+    const { subject, repo } = quoteGate({});
+    expect(await subject.quotesAsStudent(WORKER, COMPANY as never)).toBe(false);
+    expect(repo.hasAppliedToTenant).toHaveBeenCalledWith(WORKER, COMPANY);
+    expect(repo.hasLiveGrantForTenant).toHaveBeenCalledWith(WORKER, COMPANY);
+  });
+
+  it("an admin-visible moved student may be told to anyone (the open prices him the same way)", async () => {
+    const { subject, repo } = quoteGate({ visibility: "visible", studentMove: true });
+    expect(await subject.quotesAsStudent(WORKER, COMPANY as never)).toBe(true);
+    expect(repo.hasAppliedToTenant).not.toHaveBeenCalled();
+  });
+
+  it("never calls RVM's consent check (local reads only)", async () => {
+    const { subject, links, repo } = quoteGate({ applied: true });
+    await subject.quotesAsStudent(WORKER, COMPANY as never);
+    expect(links.confirmConsent).not.toHaveBeenCalled();
+    expect(repo.findActiveByWorker).not.toHaveBeenCalled();
+  });
+
+  it("fails closed: an error answers false, so the quote shows an ordinary price", async () => {
+    expect(await quoteGate({ fail: true }).subject.quotesAsStudent(WORKER, COMPANY as never)).toBe(false);
+  });
+});
