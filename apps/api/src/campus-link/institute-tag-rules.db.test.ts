@@ -21,6 +21,8 @@ import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
+import { MatchFeedRepository } from "../match/match-feed.repository";
+import { PayerApplicantInboxRepository } from "../payer-portal/payer-applicant-inbox.repository";
 import { ConsentRepository } from "../consent/consent.repository";
 import { EventsRepository } from "../events/events.repository";
 import { EventsService } from "../events/events.service";
@@ -609,6 +611,73 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
 
       await links.unlinkStudent(ref, "campus_request", CTX);
       expect(await search.findCardRow(own.id)).not.toBeNull();
+    });
+  });
+
+  /**
+   * #2772 — THE COMPANY LISTS. `rvm-student-lists.static.test.ts` makes every company route say how
+   * it keeps an actively linked student out of the lists of people who did not apply. Each route it
+   * classes `excludes_linked` or `applicants_only` is proven HERE, and that test fails if a route
+   * key in either class is not named in this file:
+   *   excludes_linked: POST /payer/candidates/search, GET /payer/candidates/filters
+   *   applicants_only: GET /payer/reach/jobs/:P/applicants, GET /payer/reach/applicants,
+   *                    PUT /payer/reach/jobs/:P/applicants/:P/stage
+   */
+  describe("#2772 the company lists", () => {
+    it("a linked student is out of search and the city filter, and listed only by the company whose job he applied to", async () => {
+      const SKILL = "mskill_cnc_turner";
+      const MFG = "ind_industrial_manufacturing";
+      await client.sql`
+        INSERT INTO skill (skill_id, label_en, domain_id, source, status, kind, industry_id)
+        VALUES (${SKILL}, 'CNC Turner', 'cnc-machining', 'rvm', 'active', 'match_skill', ${MFG})
+        ON CONFLICT (skill_id) DO NOTHING`;
+      const feed = new MatchFeedRepository(client.db);
+      const inbox = new PayerApplicantInboxRepository(client.db);
+      // A city only this worker holds, so the facet answer is about him alone.
+      const CITY = `Zz2772 ${TAG}`;
+
+      const s = student();
+      const own = await ownWorker(s.phone);
+      await client.db.update(workers).set({ currentCity: CITY }).where(eq(workers.id, own.id));
+      await client.db.insert(workerConsents).values({
+        workerId: own.id,
+        consentVersion: "test-2772",
+        purposes: ["profiling", "employer_sharing"],
+        acceptedAt: new Date(),
+      });
+      await client.db.insert(workerSkills).values({
+        workerId: own.id,
+        skillId: SKILL,
+        industryId: MFG,
+        monthsBucketed: 12,
+        wants: true,
+        source: "ops",
+      });
+      // Unlinked, he is in both pool reads: proof the fixture is a searchable worker.
+      expect(await search.findCardRow(own.id)).not.toBeNull();
+      expect(await search.listPoolCities()).toContain(CITY);
+
+      await linkedStudent(s);
+      // POST /payer/candidates/search and GET /payer/candidates/filters: out.
+      expect(await search.findCardRow(own.id)).toBeNull();
+      expect(await search.listPoolCities()).not.toContain(CITY);
+
+      await applyTo(own.id, companyA.postingId);
+      // Applying to company A's job does not put him back into anyone's search.
+      expect(await search.findCardRow(own.id)).toBeNull();
+
+      // GET /payer/reach/jobs/:P/applicants: on A's job, labelled; never on B's.
+      const onA = await feed.listCandidates(companyA.postingId, 0, 100);
+      expect(onA.find((r) => r.workerId === own.id)?.instituteCode).toBe("rvm");
+      const onB = await feed.listCandidates(companyB.postingId, 0, 100);
+      expect(onB.map((r) => r.workerId)).not.toContain(own.id);
+
+      // GET /payer/reach/applicants (and the stage route, which acts on these rows): A's inbox
+      // only. PUT /payer/reach/jobs/:P/applicants/:P/stage reads the same applied rows.
+      const inboxA = await inbox.listPage(companyA.tenant, { limit: 100 });
+      expect(inboxA.map((r) => r.workerId)).toContain(own.id);
+      const inboxB = await inbox.listPage(companyB.tenant, { limit: 100 });
+      expect(inboxB.map((r) => r.workerId)).not.toContain(own.id);
     });
   });
 });
