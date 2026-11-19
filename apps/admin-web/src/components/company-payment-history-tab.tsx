@@ -7,6 +7,7 @@ import { Pager } from "./pager";
 import { StatusPill } from "./status-pill";
 import { Stat } from "./stat";
 import { CopyId } from "./copy-id";
+import { RefundOrderButton } from "./refund-order-button";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -33,10 +34,13 @@ export function CompanyPaymentHistoryTab({
   history,
   cursor,
   basePath,
+  mayRefund = false,
 }: {
   history: AdminPaymentHistory | null;
   cursor: string | undefined;
   basePath: string;
+  /** #2750 items 10/12 — only a refund_payments holder sees the action. */
+  mayRefund?: boolean;
 }) {
   const retryHref = queryHref(basePath, { tab: "payments" });
   if (history === null) {
@@ -115,6 +119,7 @@ export function CompanyPaymentHistoryTab({
                   <th scope="col">Amount</th>
                   <th scope="col">Status</th>
                   <th scope="col">Provider reference</th>
+                  {mayRefund ? <th scope="col">Actions</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -153,6 +158,15 @@ export function CompanyPaymentHistoryTab({
                         <span className="table__meta">—</span>
                       )}
                     </td>
+                    {mayRefund ? (
+                      <td>
+                        {item.type === "payment_order" && !item.simulated ? (
+                          <RefundOrderButton paymentOrderId={item.id} />
+                        ) : (
+                          <span className="table__meta">—</span>
+                        )}
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>
