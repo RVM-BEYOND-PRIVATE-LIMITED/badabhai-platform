@@ -33,7 +33,11 @@ export type EmailPurpose =
   // [B13] (#2567) — the loud AI fallback/spend-cap alert to super admins. Its own purpose
   // (not folded into `security_notice`) so the triage line distinguishes "AI is mocked"
   // from a credential/probing signal — different incidents, different responders.
-  | "ai_alert";
+  | "ai_alert"
+  // #2751 item 9 — a company's Managed Hiring order changed (started, met, extended, closed). Its
+  // own purpose: a burst of failures is a company not told about the service it paid for, not a
+  // credential or AI signal.
+  | "managed_hiring_update";
 
 export interface EmailMessage {
   /** The recipient address. Used to send and to derive a log hash — never logged raw. */

@@ -685,6 +685,11 @@ describe("isLiveForServiceCaller is a SERVICE-caller check, used only where it w
     // everywhere → the tick does nothing and nothing reads `contact_reach_cases`. Every case it
     // closes was opened by a company under the rules (the report route asks per company).
     "reach-desk/reach-desk.service.ts",
+    // #2751 items 8 and 9 — the Managed Hiring desk routes and the clock's sweep act for no
+    // company: `managed_hiring` off everywhere → 404 / the tick does nothing. Every order they touch
+    // was bought by a company the switch was on for (the company routes ask per company, with
+    // `stateFor` and the tenant key).
+    "managed-hiring/managed-hiring.service.ts",
   ];
 
   it("its call sites are exactly the allow-list", () => {

@@ -217,6 +217,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     work_reach_desk: ["super_admin", "ops_admin", "support"],
     // #2750 items 10 and 12 - refunds of real paid packs. Owner ruling 2026-11-18: super_admin only.
     refund_payments: ["super_admin"],
+    work_managed_hiring: ["super_admin", "ops_admin", "support"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -285,6 +286,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "work_reach_desk",
       // #2750 - a refund sends money back: a write.
       "refund_payments",
+      // #2751 - a tracker row makes a contact free: a write.
+      "work_managed_hiring",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }
@@ -372,6 +375,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "edit_candidates",
       // #2750 - the worker desk (owner ruling 2026-11-17). Tail-appended.
       "work_reach_desk",
+      // #2751 - the Managed Hiring desk (owner ruling 2026-11-18). Tail-appended.
+      "work_managed_hiring",
     ]);
     expect(capabilitiesFor("ops_admin")).toEqual([
       "read_events",
@@ -403,6 +408,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "manage_student_visibility",
       // #2750 — the worker desk (owner ruling 2026-11-17). Tail-appended.
       "work_reach_desk",
+      // #2751 — the Managed Hiring desk (owner ruling 2026-11-18). Tail-appended.
+      "work_managed_hiring",
     ]);
     // super_admin holds everything — the one role for which the list is the whole vocabulary.
     expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);

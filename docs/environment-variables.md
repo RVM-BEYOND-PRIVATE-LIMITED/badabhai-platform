@@ -299,6 +299,21 @@ NestJS boot assertion).
   Unset in production today, so deploying the bridge changes nothing. The switch-on order is
   `docs/runbooks/2749-switch-on.md`.
 
+- **Managed Hiring rollout (#2751 items 4 to 13)** — `MANAGED_HIRING_ROLLOUT` (`off` | `pilot` |
+  `on`, key `managed_hiring`): may this company see, buy and follow a Managed Hiring order? Same
+  grammar, wiring and preflight as the rollout switches above (`${MANAGED_HIRING_ROLLOUT:-off}` on
+  the `api` service only, bridged from the `production` secret of the same name; **absent =
+  `off`**). Off for a company: every `/payer/managed-hiring/*` route answers the neutral 404 and a
+  worker on a tracker costs what the cost rule says without it. Off everywhere: the
+  `/admin/managed-hiring/*` routes answer 404 and the sweep idles. The company routes also need
+  `PAYMENTS_ENABLE_REAL` live (on the mock path the product is not offered at all). The tracker's
+  free contact also needs `CREDIT_RULES_ROLLOUT` on for the company (it is a row of the cost rule).
+  Settling an order already paid is never gated. Needs the `managed_hiring` migration applied
+  first. Runbook: `docs/runbooks/2751-managed-hiring-switch-on.md`.
+- **Posting choice rollout (#2751 items 1 to 3)** — `POSTING_CHOICE_ROLLOUT` (`off` | `pilot` |
+  `on`, key `posting_choice`). Same grammar and wiring; its `ci.yml` bridge was added with Managed
+  Hiring (before it, the production secret could not reach the container).
+
 - **Credit checkout rollout (#2749 item 10, ADR-0065)** — `CREDIT_CHECKOUT_ROLLOUT` (`off` |
   `pilot` | `on`, key `credit_checkout`): do the new money rules apply to this company? Same
   grammar, wiring and preflight as the rollout switches above (`${CREDIT_CHECKOUT_ROLLOUT:-off}` on

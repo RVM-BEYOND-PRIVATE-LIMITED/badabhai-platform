@@ -138,6 +138,9 @@ const PAIRING_EXEMPT: readonly RegExp[] = [
   // posting; it reads no posting FOR a worker. One file, not the directory: #2752's student-facing
   // read lives in campus-link too and must face this rule on its own merits.
   /^apps\/api\/src\/campus-link\/campus-posting-review\.repository\.ts$/,
+  // #2751 items 4 to 13 — Managed Hiring reads the COMPANY'S OWN posting (owner-scoped by tenant
+  // key) and refuses an admin-hidden one before a checkout; it reads no posting for a worker.
+  /^apps\/api\/src\/managed-hiring\/managed-hiring\.repository\.ts$/,
 ];
 
 /**

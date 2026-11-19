@@ -165,6 +165,12 @@ export const EVENT_DOMAINS = [
   // own lifecycle, and nothing on it is automated. IDS, PAISE INTEGERS AND CLOSED VALUES ONLY: the
   // admin's note never rides the spine, and no name, phone or company name exists to ride it.
   "pay_on_joining",
+  // #2751 items 4 to 13 - a company's prepaid Managed Hiring order for one job: its checkout, the
+  // clock, the desk's phone-confirmed tracker, the extension and the end, and the callback request
+  // a job above the largest tier gets. A DISTINCT domain from `payment` (the money rides
+  // `payment.*`) and `payer`: the order is its own row with its own lifecycle. IDS, CLOSED CODES,
+  // INTEGERS AND TIMES ONLY; the staff note never rides the spine.
+  "managed_hiring",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -309,6 +315,11 @@ export const SUBJECT_TYPES = [
   // and no value: which keys moved, from what to what, and the admin's reason live on the
   // `audit_logs` row of the same transaction. Not `payer`: a revision applies to every company.
   "credit_rules_config",
+  // #2751 items 4 to 13 - one Managed Hiring order (`managed_hiring_orders.id`), the subject of
+  // every `managed_hiring.order_*` and `managed_hiring.interest_*` event. Carries NO PII: the
+  // company, job, payment and worker ids ride the payload. (`managed_hiring.callback_requested` is
+  // about the job, so its subject is `job_posting`.)
+  "managed_hiring_order",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;

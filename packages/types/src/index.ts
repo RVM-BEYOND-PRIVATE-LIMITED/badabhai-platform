@@ -1711,10 +1711,11 @@ export type CreditCallResult = (typeof CREDIT_CALL_RESULTS)[number];
 // so none of them can drift. A new value in any of them is a migration widening its CHECK.
 
 /**
- * What a payment order sells. `credit_pack` is the only kind today; #2751 widens it (a pack code
- * and a positive credit grant are then required only of a `credit_pack` order).
+ * What a payment order sells. `credit_pack` (#2749) grants credits; `managed_hiring` (#2751 item 4,
+ * migration 0189) starts a Managed Hiring order on its job and grants no credits (a pack code and a
+ * positive credit grant are required only of a `credit_pack` order).
  */
-export const PAYMENT_ORDER_PRODUCT_KINDS = Object.freeze(["credit_pack"] as const);
+export const PAYMENT_ORDER_PRODUCT_KINDS = Object.freeze(["credit_pack", "managed_hiring"] as const);
 export type PaymentOrderProductKind = (typeof PAYMENT_ORDER_PRODUCT_KINDS)[number];
 
 /**
@@ -1770,6 +1771,55 @@ export type PostingChoice = (typeof POSTING_CHOICES)[number];
 /** The client the button was tapped on: payer-web or the payer app. */
 export const POSTING_SURFACES = Object.freeze(["web", "app"] as const);
 export type PostingSurface = (typeof POSTING_SURFACES)[number];
+
+// ---- Managed Hiring (#2751 items 4 to 13, migration 0189) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS ABOVE: `packages/db` spells them into the
+// `managed_hiring_*` CHECKs, `packages/event-schema` puts them on the spine (`managed_hiring.*`) and
+// the api answers with them. FROZEN: each event's v1 enum is taken from these lists.
+
+/**
+ * The two Managed Hiring tiers (brief section 2). `standard` = one job, up to 5 vacancies, fresher to
+ * mid level; `large` = 6 to 10 vacancies, or a job that needs skilled workers (3+ years, or a rung
+ * the trade sheet prices Higher). The prices live in the pricing catalogue, never here.
+ */
+export const MANAGED_HIRING_TIERS = Object.freeze(["standard", "large"] as const);
+export type ManagedHiringTier = (typeof MANAGED_HIRING_TIERS)[number];
+
+/**
+ * A Managed Hiring order's lifecycle: `created` at checkout → `active` on payment capture (the clock
+ * starts) → `met` (the target was reached by the deadline, or during the free extension), or
+ * `extended` (missed at the deadline, extended free) → `met` or `closed_unmet` (still missed at the
+ * extension's end; an admin is alerted, no automatic refund). `cancelled` is reserved for an order
+ * an admin calls off; nothing writes it yet.
+ */
+export const MANAGED_HIRING_ORDER_STATUSES = Object.freeze([
+  "created",
+  "active",
+  "met",
+  "extended",
+  "closed_unmet",
+  "cancelled",
+] as const);
+export type ManagedHiringOrderStatus = (typeof MANAGED_HIRING_ORDER_STATUSES)[number];
+
+/** The statuses of a PAID order: its tracker's workers cost the company no credits (B7-15). */
+export const MANAGED_HIRING_PAID_STATUSES = Object.freeze([
+  "active",
+  "met",
+  "extended",
+  "closed_unmet",
+] as const satisfies readonly ManagedHiringOrderStatus[]);
+
+/** The statuses whose tracker staff may still change: the clock is running. */
+export const MANAGED_HIRING_OPEN_STATUSES = Object.freeze([
+  "active",
+  "extended",
+] as const satisfies readonly ManagedHiringOrderStatus[]);
+
+/** Why a company's job got a callback request instead of a checkout. */
+export const MANAGED_HIRING_CALLBACK_REASONS = Object.freeze(["above_largest_tier"] as const);
+export type ManagedHiringCallbackReason = (typeof MANAGED_HIRING_CALLBACK_REASONS)[number];
 
 // ---- Refunds of real paid packs (#2750 item 10, migration 0186) ----
 //

@@ -518,6 +518,18 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CREDIT_RULES_ROLLOUT:\s*\$\{\{\s*secrets\.CREDIT_RULES_ROLLOUT\s*\}\}/,
       /envs:[^\n]*\bCREDIT_RULES_ROLLOUT\b/,
     ],
+    // #2751 items 1-3 — the posting choice record (its bridge was missing until #2751 items 4-13).
+    [
+      "POSTING_CHOICE_ROLLOUT",
+      /POSTING_CHOICE_ROLLOUT:\s*\$\{\{\s*secrets\.POSTING_CHOICE_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bPOSTING_CHOICE_ROLLOUT\b/,
+    ],
+    // #2751 items 4-13 — Managed Hiring, company by company.
+    [
+      "MANAGED_HIRING_ROLLOUT",
+      /MANAGED_HIRING_ROLLOUT:\s*\$\{\{\s*secrets\.MANAGED_HIRING_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bMANAGED_HIRING_ROLLOUT\b/,
+    ],
     // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
     // secret in the confidentiality sense, but bridged through `secrets.*` like the other
     // numbers so a deploy does not depend on the box's shell state; absent, compose holds

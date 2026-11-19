@@ -18,7 +18,8 @@ export type Grants =
   | { kind: "boost"; boostDays: number }
   | { kind: "credit_pack"; credits: number; windowDays: number }
   | { kind: "capacity"; maxActiveVacancies: number; validityDays: number }
-  | { kind: "quota_topup"; additionalVisibilityQuota: number };
+  | { kind: "quota_topup"; additionalVisibilityQuota: number }
+  | { kind: "managed_hiring"; targetCount: number; workingDays: number; extensionDays: number };
 
 /** A resolved, ready-to-charge price quote. PII-FREE (codes + integer ₹ only). */
 export interface Quote {
@@ -99,6 +100,19 @@ function findGrants(product: Product, tierCode: string): { basePriceInr: number;
     return {
       basePriceInr: tier.priceInr,
       grants: { kind: "quota_topup", additionalVisibilityQuota: tier.additionalVisibilityQuota },
+    };
+  }
+  if (product.kind === "managed_hiring") {
+    const tier = product.tiers.find((t) => t.code === tierCode);
+    if (!tier) return null;
+    return {
+      basePriceInr: tier.priceInr,
+      grants: {
+        kind: "managed_hiring",
+        targetCount: tier.targetCount,
+        workingDays: tier.workingDays,
+        extensionDays: tier.extensionDays,
+      },
     };
   }
   const tier = product.tiers.find((t) => t.code === tierCode);

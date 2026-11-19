@@ -107,6 +107,10 @@ interface SetupOpts {
   spendable?: number;
   /** #2750: the `credit_rules` switch for the company (default: no credit rules service = off). */
   creditRules?: "on" | "off" | "unavailable";
+  /** #2751 item 11: the `managed_hiring` switch for the company (default: off). */
+  managedHiring?: "on" | "off" | "unavailable";
+  /** #2751 item 11: the workers on this company's PAID Managed Hiring trackers. */
+  tracked?: readonly string[];
   /** #2750: the worker's price facts (default: stated nothing). */
   costFacts?: Partial<ContactCostFactsRow>;
   /** #2750: the multi-credit debit's takes (default: all from one lot). */
@@ -236,6 +240,11 @@ function setup(opts: SetupOpts = {}) {
     countTenantOpensSince: vi.fn(async () => opts.todayOpens ?? 0),
     lockTenantOpens: vi.fn(async () => undefined),
     // #2750 — the price facts (global pool, repo-only): the same row for every id asked.
+    // #2751 item 11 — the company's paid Managed Hiring trackers (read only while its switch is on).
+    findManagedHiringTracked: vi.fn(
+      async (_tenant: string, ids: readonly string[]) =>
+        new Set(ids.filter((id) => (opts.tracked ?? []).includes(id))),
+    ),
     readContactCostFacts: vi.fn(async (_tenant: string, ids: readonly string[]) => {
       const out = new Map<string, ContactCostFactsRow>();
       for (const id of ids) {
@@ -356,7 +365,9 @@ function setup(opts: SetupOpts = {}) {
           stateFor: vi.fn(async (feature: string) =>
             feature === "credit_rules"
               ? (opts.creditRules ?? "off")
-              : opts.rolloutUnavailable
+              : feature === "managed_hiring"
+                ? (opts.managedHiring ?? "off")
+                : opts.rolloutUnavailable
                 ? "unavailable"
                 : opts.contactRules
                   ? "on"
@@ -2848,6 +2859,13 @@ describe("#2750 credit rules — the priced open", () => {
     expect(s.txMethods.tryDebitCredits).not.toHaveBeenCalled();
   });
 
+  it("#2751 item 11 — a worker on the company's paid Managed Hiring tracker opens free: no credit needed, none debited", async () => {
+    const s = setup({ creditRules: "on", managedHiring: "on", tracked: [WORKER], costFacts: SETTER_4Y, balance: 0, spendable: 0 });
+    expect(await open(s)).toMatchObject({ credits_charged: 0 });
+    expect(s.txMethods.tryDebitCredits).not.toHaveBeenCalled();
+    expect(s.repo.findManagedHiringTracked).toHaveBeenCalledWith(PAYER, [WORKER]);
+  });
+
   it("on: losing the debit race after the precondition is the neutral body, nothing written", async () => {
     const s = setup({ creditRules: "on", debitOk: false });
     expect(await open(s)).toEqual(neutralUnavailable());
@@ -2899,6 +2917,20 @@ describe("#2750 item 3 — the quote", () => {
       costFacts: { grant: { status: "revealed", expiresAt: new Date(Date.now() + 86_400_000) } },
     });
     expect((await s.svc.quoteContacts(PAYER, [WORKER])).quotes[0]?.credits).toBe(0);
+  });
+
+  it("#2751 item 11 — a worker on a paid Managed Hiring tracker quotes 0, only while its switch is on", async () => {
+    const SETTER = { rungs: [{ skillId: "mskill_cnc_turner", tradeLevel: "setter", months: 48 }] };
+    const on = setup({ creditRules: "on", managedHiring: "on", tracked: [WORKER], costFacts: SETTER });
+    expect((await on.svc.quoteContacts(PAYER, [WORKER, OTHER])).quotes).toEqual([
+      { worker_id: WORKER, credits: 0 },
+      { worker_id: OTHER, credits: 2 },
+    ]);
+    for (const managedHiring of ["off", "unavailable"] as const) {
+      const off = setup({ creditRules: "on", managedHiring, tracked: [WORKER], costFacts: SETTER });
+      expect((await off.svc.quoteContacts(PAYER, [WORKER])).quotes[0]?.credits).toBe(2);
+      expect(off.repo.findManagedHiringTracked).not.toHaveBeenCalled();
+    }
   });
 
   it("reads no consent, writes nothing and emits nothing", async () => {

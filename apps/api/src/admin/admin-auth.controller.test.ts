@@ -262,6 +262,8 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
         "manage_student_visibility",
         // #2750 — the worker desk (super_admin, ops_admin, support). Tail-appended.
         "work_reach_desk",
+        // #2751 — the Managed Hiring desk (super_admin, ops_admin, support). Tail-appended.
+        "work_managed_hiring",
       ],
     });
   });

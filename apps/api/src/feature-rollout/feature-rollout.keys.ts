@@ -11,6 +11,11 @@ import type { ServerConfig } from "@badabhai/config";
  *
  * `credit_checkout` (#2749 item 10): do the new money rules apply to this company? Asked only by
  * `UnlockService`'s credit-purchase gates, through `FeatureRolloutService.stateForPayer`.
+ *
+ * `managed_hiring` (#2751 items 4 to 13): may this company see, buy and follow a Managed Hiring
+ * order, and does the tracker make its contacts free? Asked by `ManagedHiringService` (per company,
+ * and for the sweep and the admin routes, `isLiveForServiceCaller`) and by `UnlockService`'s
+ * contact-cost read.
  */
 export const FEATURE_ROLLOUT_KEYS = [
   "job_audience",
@@ -23,6 +28,7 @@ export const FEATURE_ROLLOUT_KEYS = [
   "credit_checkout",
   "credit_rules",
   "posting_choice",
+  "managed_hiring",
 ] as const;
 export type FeatureRolloutKey = (typeof FEATURE_ROLLOUT_KEYS)[number];
 
@@ -41,4 +47,5 @@ export const FEATURE_ROLLOUT_CONFIG = {
   credit_checkout: "CREDIT_CHECKOUT_ROLLOUT",
   credit_rules: "CREDIT_RULES_ROLLOUT",
   posting_choice: "POSTING_CHOICE_ROLLOUT",
+  managed_hiring: "MANAGED_HIRING_ROLLOUT",
 } as const satisfies Record<FeatureRolloutKey, keyof ServerConfig>;

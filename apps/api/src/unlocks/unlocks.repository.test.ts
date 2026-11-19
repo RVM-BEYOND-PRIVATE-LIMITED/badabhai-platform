@@ -779,6 +779,7 @@ describe("UnlocksRepository.claimAndCreditPaymentOrderWithinTx — settlement cr
   const claimedRow = {
     id: "order-row-1",
     payerId: STAMPED_WALLET,
+    productKind: "credit_pack" as const,
     packCode: "pack_50",
     amountInr: 2000,
     creditsGranted: 50,
@@ -1075,6 +1076,7 @@ describe("UnlocksRepository.claimAndCreditPaymentOrderWithinTx — the compare-a
   const paidRow = {
     id: "order-1",
     payerId: PAYER_ID,
+    productKind: "credit_pack",
     packCode: "pack_10",
     amountInr: 499,
     creditsGranted: 10,
@@ -1097,6 +1099,32 @@ describe("UnlocksRepository.claimAndCreditPaymentOrderWithinTx — the compare-a
     );
     expect(p).toEqual([RAZORPAY_PROVIDER, "rzp_order_1", "created", "failed"]);
     expect(out?.order).toEqual(paidRow);
+  });
+
+  it("#2751 — a managed_hiring order: the claim, then its settler on the SAME tx; no wallet is credited", async () => {
+    vi.mocked(grantCreditsWithinTx).mockClear();
+    const mhRow = { ...paidRow, productKind: "managed_hiring", packCode: null, creditsGranted: 0 };
+    const { db, tx } = makeDb({ sequence: [[mhRow]] });
+    const settleProduct = vi.fn(async (_tx: unknown, _row: unknown) => undefined);
+    const out = await new UnlocksRepository(db).claimAndCreditPaymentOrderWithinTx(tx, {
+      providerOrderId: "rzp_order_1",
+      providerPaymentRef: "pay_1",
+      settleProduct,
+    });
+    expect(settleProduct).toHaveBeenCalledWith(tx, mhRow);
+    expect(grantCreditsWithinTx).not.toHaveBeenCalled();
+    expect(out).toEqual({ order: mhRow, balanceAfter: null, packReturn: null });
+  });
+
+  it("#2751 — a non-pack order with no settler throws (the claim rolls back; the webhook retries)", async () => {
+    const mhRow = { ...paidRow, productKind: "managed_hiring", packCode: null, creditsGranted: 0 };
+    const { db, tx } = makeDb({ sequence: [[mhRow]] });
+    await expect(
+      new UnlocksRepository(db).claimAndCreditPaymentOrderWithinTx(tx, {
+        providerOrderId: "rzp_order_1",
+        providerPaymentRef: "pay_1",
+      }),
+    ).rejects.toThrow(/no settler for a managed_hiring order/);
   });
 
   it("honours an explicit provider override", async () => {

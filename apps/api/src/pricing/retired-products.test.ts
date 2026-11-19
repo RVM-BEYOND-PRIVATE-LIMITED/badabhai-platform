@@ -31,18 +31,18 @@ describe("isProductKindOffSale — the rule", () => {
     expect(retiredProductsOffSale({ RETIRED_PRODUCTS_OFF_SALE: false })).toBe(false);
   });
 
-  it("switch on: only the credit pack stays on sale; plans, boosts, capacity and top-ups go", () => {
+  it("switch on: only the credit pack and Managed Hiring stay on sale; plans, boosts, capacity and top-ups go", () => {
     const sold = ALL_KINDS.filter(
       (kind) => !isProductKindOffSale({ RETIRED_PRODUCTS_OFF_SALE: true }, kind),
     );
-    expect(sold).toEqual(["credit_pack"]);
+    expect(sold).toEqual(["credit_pack", "managed_hiring"]);
     for (const kind of ["posting", "boost", "capacity", "quota_topup"] as const) {
       expect(isProductKindOffSale({ RETIRED_PRODUCTS_OFF_SALE: true }, kind), kind).toBe(true);
     }
   });
 
-  it("is an ALLOW-list: only the credit pack survives, so a kind added later is off sale by default", () => {
-    expect([...KINDS_SOLD_AFTER_RETIREMENT]).toEqual(["credit_pack"]);
+  it("is an ALLOW-list: only the credit pack and Managed Hiring survive, so a kind added later is off sale by default", () => {
+    expect([...KINDS_SOLD_AFTER_RETIREMENT]).toEqual(["credit_pack", "managed_hiring"]);
   });
 
   it("the refusal is the bare 404 of a route that does not exist", () => {

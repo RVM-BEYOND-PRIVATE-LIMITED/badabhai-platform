@@ -41,6 +41,7 @@ import { CampusLinkModule } from "./campus-link/campus-link.module";
 import { CampusReviewModule } from "./campus-link/campus-review.module";
 import { CampusWaiversModule } from "./campus-link/campus-waivers.module";
 import { ReachDeskModule } from "./reach-desk/reach-desk.module";
+import { ManagedHiringModule } from "./managed-hiring/managed-hiring.module";
 import { AgencyModule } from "./agency/agency.module";
 import { AgencyTwinModule } from "./agency-twin/agency-twin.module";
 import { CampusDrivesModule } from "./campus-drives/campus-drives.module";
@@ -155,6 +156,10 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // #2750 item 7 - the couldn't-reach guarantee: the company's report route and the deadline
     // sweep (404 / inert while the credit rules are off). The desk routes are AdminModule's.
     ReachDeskModule,
+    // #2751 items 4 to 13 - Managed Hiring: the company routes, the order's activation on payment
+    // capture and the clock's sweep (404 / inert while MANAGED_HIRING_ROLLOUT is off). The desk
+    // routes are AdminModule's.
+    ManagedHiringModule,
     // Agency Supply Portal demand slice (ADR-0022): agent-only `/payer/agency/*` routes
     // (jobs CRUD + invites + referrals summary) + the consent-gated attribution seam.
     AgencyModule,

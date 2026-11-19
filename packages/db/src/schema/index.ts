@@ -66,6 +66,11 @@ import { contactReachAttempts, contactReachCases } from "./contact-reach";
 import { paymentRefunds } from "./payment-refunds";
 import { jobPostingChoices } from "./job-posting-choice";
 import {
+  managedHiringCallbackRequests,
+  managedHiringInterest,
+  managedHiringOrders,
+} from "./managed-hiring";
+import {
   studentImportBatches,
   studentImportRows,
   studentImportSubjects,
@@ -219,6 +224,8 @@ export * from "./contact-reach";
 export * from "./payment-refunds";
 // #2751 items 1 to 3 - which posting button a company tapped, one row per posting.
 export * from "./job-posting-choice";
+// #2751 items 4 to 13 - Managed Hiring: the orders, the phone-confirmed tracker, callback requests.
+export * from "./managed-hiring";
 // #2887 - moving RVM students into BadaBhai: the import ledger, field sources and visibility.
 export * from "./student-move";
 // #2891 - BadaBhai worker visibility of a Campus-origin posting (off until an admin opens it).
@@ -571,6 +578,10 @@ export const schema = {
   paymentRefunds,
   // #2751 items 1 to 3 - the posting choice, one row per posting (read and written only while POSTING_CHOICE_ROLLOUT is on).
   jobPostingChoices,
+  // #2751 items 4 to 13 - Managed Hiring orders, their trackers and callback requests (read and written only while MANAGED_HIRING_ROLLOUT is on).
+  managedHiringOrders,
+  managedHiringInterest,
+  managedHiringCallbackRequests,
   // #2887 - the bulk student move: import ledger, field source markers, visibility (read only while STUDENT_MOVE_ENABLED is on).
   studentImportBatches,
   studentImportRows,

@@ -37,6 +37,13 @@ export {
   type GstPriceLine,
 } from "./gst";
 export {
+  managedHiringClock,
+  isManagedHiringWorkingDay,
+  istDateOf,
+  type ManagedHiringClock,
+  type ManagedHiringClockInput,
+} from "./managed-hiring-clock";
+export {
   resolvePrice,
   type Quote,
   type Grants,

@@ -7,7 +7,8 @@ import type { ServerConfig } from "@badabhai/config";
  * them off sale: `RETIRED_PRODUCTS_OFF_SALE` (default false, so they stay on sale until the owner
  * switches it).
  *
- * The brief sells credit packs and nothing else (no paid posting, no paid ranking, no discounts).
+ * The brief sells credit packs and Managed Hiring and nothing else (no paid posting, no paid
+ * ranking, no discounts).
  * So while the switch is on, every catalogue product kind EXCEPT {@link KINDS_SOLD_AFTER_RETIREMENT}
  * is retired: posting plans, boosts (the retired `all_candidates` tier included), hiring capacity
  * and quota top-ups, and with them every offer and coupon, which only ever applied to these (a
@@ -21,7 +22,10 @@ import type { ServerConfig } from "@badabhai/config";
  * capacity already running run to their end date, and every read of them (posting stats, the
  * capacity view, payment history, the admin pages) is unchanged.
  */
-export const KINDS_SOLD_AFTER_RETIREMENT: readonly ProductKind[] = ["credit_pack"];
+//
+// #2751 item 4 — Managed Hiring is the brief's second product (section 2), so it is sold after the
+// retirement too. It is never in the payer catalogue either way (its quote serves it).
+export const KINDS_SOLD_AFTER_RETIREMENT: readonly ProductKind[] = ["credit_pack", "managed_hiring"];
 
 /** Is the switch on? The one reader of `RETIRED_PRODUCTS_OFF_SALE` (a static test pins it). */
 export function retiredProductsOffSale(

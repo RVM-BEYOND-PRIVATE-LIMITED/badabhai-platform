@@ -128,9 +128,18 @@ describe("the RVM label and a contact already held", () => {
     ).toBe(false);
   });
 
-  it("Managed Hiring and waivers are not built yet: never 0 on their account", () => {
+  it("no Managed Hiring tracker and no waiver read: never 0 on their account", () => {
     const facts = contactCostFactsOf(row({ rvmStudent: true }), { forOpen: false });
     expect(facts.managedHiringOrder).toBe(false);
     expect(facts.waived).toBe(false);
+  });
+
+  it("#2751 item 11 — a worker on a paid Managed Hiring tracker costs 0 (B7-15), even a Higher rung", () => {
+    const r = row({ rungs: [{ skillId: "mskill_cnc_turner", tradeLevel: "setter", months: 60 }] });
+    expect(contactCostFactsOf(r, { forOpen: true, managedHiring: true }).managedHiringOrder).toBe(true);
+    expect(contactCost(DEFAULT_CREDIT_RULES, contactCostFactsOf(r, { forOpen: true, managedHiring: true }))).toEqual({
+      credits: 0,
+      basis: "managed_hiring",
+    });
   });
 });

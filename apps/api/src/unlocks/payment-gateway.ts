@@ -1,15 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional, ServiceUnavailableException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { areRealPaymentsEnabled } from "@badabhai/config";
 import type { CreditPack, ExpiredCreditLot, PackReturnResult, PaymentOrder } from "@badabhai/db";
 import type { GstPriceLine } from "@badabhai/pricing";
-import type { PaymentOrderOrigin } from "@badabhai/types";
+import type { PaymentOrderOrigin, PaymentOrderProductKind } from "@badabhai/types";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PricingService } from "../pricing/pricing.service";
 import { creditPackSale, findCreditPackTier } from "../pricing/credit-pack-sale";
 import { UnlocksRepository, type Tx } from "./unlocks.repository";
+import { PaidOrderSettlers, type SettleContext } from "./paid-order-settlers";
 import {
   RAZORPAY_CAPTURED_STATUS,
   RAZORPAY_CURRENCY,
@@ -111,6 +112,21 @@ export interface RealOrderHandoff {
   validityDays: number | null;
 }
 
+/** #2751 item 6 — a real order for a non-pack product, ready for the browser checkout. No secret. */
+export interface RealProductOrderHandoff {
+  orderRowId: string;
+  providerOrderId: string;
+  /** The `rzp_*` KEY ID — public by design. */
+  keyId: string;
+  /** The GST-inclusive total, whole rupees. */
+  amountInr: number;
+  /** The same total in paise (what checkout.js expects). */
+  amountPaise: number;
+  currency: string;
+  /** The stamped price line, in paise. */
+  price: GstPriceLine;
+}
+
 /**
  * The result of settling an order. Exactly ONE settle attempt per order can be "granted";
  * every later or concurrent attempt gets `already_settled`. Callers use this to decide
@@ -121,7 +137,11 @@ export type SettleResult =
   | {
       outcome: "granted";
       order: PaymentOrder;
-      balanceAfter: number;
+      /**
+       * The wallet's balance after a credit-pack grant. Null for a non-pack order (#2751): nothing
+       * was credited, and the caller that shows a balance reads its own tenant's.
+       */
+      balanceAfter: number | null;
       credits: number;
       priceInr: number;
       /** #2750 item 9 — the expired credits this pack brought back (0 when none, or not asked). */
@@ -155,6 +175,9 @@ export class PaymentGateway {
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     private readonly pricing: PricingService,
     private readonly razorpay: RazorpayClient,
+    // #2751 item 6 — what a captured payment does for a product that is not a credit pack.
+    // Optional only so hand-built unit instances keep compiling; Nest always injects it.
+    @Optional() private readonly settlers?: PaidOrderSettlers,
   ) {}
 
   /**
@@ -407,6 +430,127 @@ export class PaymentGateway {
   }
 
   /**
+   * #2751 item 6 — create a REAL provider order for a product that is NOT a credit pack
+   * (`managed_hiring`), and write its `payment_orders` row together with the product's own row.
+   *
+   * THE PRICE IS SERVER-RESOLVED: `line` is the caller's `gstPriceLine` of a catalogue price (the
+   * client sends no amount). The provider order is created FIRST (a provider failure leaves no
+   * row), Razorpay's echoed amount and currency must be exactly the line's total (else nothing is
+   * persisted: the unpaid provider order expires harmlessly), and then ONE transaction writes the
+   * payment order and runs `withinTx` (the product row and its event). A failure there leaves an
+   * unpaid provider order with no row, which nothing can settle.
+   */
+  async createRealProductOrder<T>(
+    tenant: TenantKey,
+    input: {
+      productKind: Exclude<PaymentOrderProductKind, "credit_pack">;
+      line: GstPriceLine;
+      /**
+       * The product's catalogue code for the provider's notes (reconciliation), sent where a pack
+       * order sends its pack code, e.g. `managed_hiring:standard`. A code, never PII.
+       */
+      productCode: string;
+      origin: OrderOrigin;
+    },
+    withinTx: (tx: Tx, order: PaymentOrder) => Promise<T>,
+  ): Promise<{ handoff: RealProductOrderHandoff; result: T }> {
+    const keyId = this.razorpay.keyId;
+    if (!this.razorpay.isLive || keyId === null) {
+      // Unreachable through the gated service; a hard stop keeps it unreachable.
+      throw new Error("real payments are not enabled");
+    }
+    const line = input.line;
+    const totalInr = line.totalPaise / 100;
+    if (!Number.isSafeInteger(totalInr) || totalInr <= 0) {
+      throw new Error("product total is not a positive whole rupee");
+    }
+    const orderRowId = randomUUID();
+    const created = await this.razorpay.createOrder({
+      amountInr: totalInr,
+      receipt: orderRowId,
+      notes: { pack_code: input.productCode, payment_order_id: orderRowId },
+    });
+    if (created.amountPaise !== line.totalPaise || created.currency !== RAZORPAY_CURRENCY) {
+      this.logger.error(
+        `provider order does not match the product total; refusing the order kind=${input.productKind} expected_paise=${line.totalPaise} provider_paise=${created.amountPaise} provider_currency_ok=${created.currency === RAZORPAY_CURRENCY}`,
+      );
+      throw new ServiceUnavailableException(
+        "Checkout is unavailable right now; nothing was charged. Please try again.",
+      );
+    }
+    const { row, result } = await this.repo.withTransaction(async (tx) => {
+      const written = await this.repo.createProductOrderWithinTx(tx, {
+        id: orderRowId,
+        payerId: tenant,
+        productKind: input.productKind,
+        amountInr: totalInr,
+        providerOrderId: created.orderId,
+        money: {
+          taxablePaise: line.taxablePaise,
+          gstPaise: line.gstPaise,
+          roundOffPaise: line.roundOffPaise,
+          totalPaise: line.totalPaise,
+          gstRateBps: line.gstRateBps,
+        },
+        origin: input.origin.origin,
+        originJobPostingId: input.origin.jobPostingId,
+      });
+      return { row: written, result: await withinTx(tx, written) };
+    });
+    return {
+      handoff: {
+        orderRowId: row.id,
+        providerOrderId: row.providerOrderId,
+        keyId,
+        amountInr: row.amountInr,
+        amountPaise: created.amountPaise,
+        currency: created.currency,
+        price: line,
+      },
+      result,
+    };
+  }
+
+  /**
+   * #2751 — the checkout of an order already written (a company coming back to an unpaid order):
+   * the same handoff, read off the stamped row, with no new provider order. Null while real
+   * payments are off, or for a row with no money line.
+   */
+  handoffFor(order: PaymentOrder): RealProductOrderHandoff | null {
+    const keyId = this.razorpay.keyId;
+    if (!this.razorpay.isLive || keyId === null) return null;
+    if (
+      order.totalPaise === null ||
+      order.taxablePaise === null ||
+      order.gstPaise === null ||
+      order.roundOffPaise === null ||
+      order.gstRateBps === null
+    ) {
+      return null;
+    }
+    return {
+      orderRowId: order.id,
+      providerOrderId: order.providerOrderId,
+      keyId,
+      amountInr: order.amountInr,
+      amountPaise: order.totalPaise,
+      currency: RAZORPAY_CURRENCY,
+      price: {
+        taxablePaise: order.taxablePaise,
+        gstPaise: order.gstPaise,
+        roundOffPaise: order.roundOffPaise,
+        totalPaise: order.totalPaise,
+        gstRateBps: order.gstRateBps,
+      },
+    };
+  }
+
+  /** Read a payment order by our row id (PII-free). */
+  findOrderById(id: string): Promise<PaymentOrder | undefined> {
+    return this.repo.findPaymentOrderById(id);
+  }
+
+  /**
    * SETTLE an order — the ONE idempotent grant path, shared by the webhook and the
    * browser-verify fallback. Whichever arrives first grants; every other arrival (a
    * Razorpay retry, a duplicate delivery, the racing verify call) is a no-op that reports
@@ -451,6 +595,8 @@ export class PaymentGateway {
       providerPaymentRef: string;
       expectedTenantKey?: TenantKey;
       captured?: CapturedAmount;
+      /** The request ids a non-pack product's events carry (#2751). */
+      ctx?: SettleContext;
     },
     hooks: {
       onHeld?: (tx: Tx, held: PaymentOrder, mismatch: CaptureMismatch) => Promise<void>;
@@ -504,6 +650,13 @@ export class PaymentGateway {
     // grant a different number of credits, over a window bounded only by how long a
     // checkout tab stays open.
     await this.warnOnCatalogDrift(existing);
+
+    // #2751 item 6 — a product that is not a credit pack: no wallet, no pack return; its settler
+    // applies the purchase on the claim's transaction. Prepared on the pool first; no settler for
+    // the kind means nothing is claimed (fail closed — the webhook answers 5xx and retries).
+    if (existing.productKind !== "credit_pack") {
+      return this.settleProductOrder(existing, input);
+    }
 
     // Claim + grant in ONE repository call and ONE transaction. The wallet, the credits and the
     // ₹ are all the CLAIMED row's stamped values — what this order was sold as and the wallet it
@@ -576,6 +729,47 @@ export class PaymentGateway {
       );
       return null;
     }
+  }
+
+  /** {@link settleOrder} for a non-pack order: claim + the product's settler, one transaction. */
+  private async settleProductOrder(
+    existing: PaymentOrder,
+    input: { providerOrderId: string; providerPaymentRef: string; ctx?: SettleContext },
+  ): Promise<SettleResult> {
+    const settler = this.settlers?.forKind(existing.productKind);
+    if (settler === undefined) {
+      this.logger.error(
+        `no settler registered for a ${existing.productKind} order; not settling (the webhook retries) order_row=${existing.id}`,
+      );
+      throw new ServiceUnavailableException();
+    }
+    const ctx: SettleContext = input.ctx ?? { correlationId: randomUUID() };
+    const prepared = await settler.prepare(existing);
+    const settled = await this.repo.withTransaction((tx) =>
+      this.repo.claimAndCreditPaymentOrderWithinTx(tx, {
+        providerOrderId: input.providerOrderId,
+        providerPaymentRef: input.providerPaymentRef,
+        settleProduct: (t, claimed) => settler.settleWithinTx(t, claimed, prepared, ctx),
+      }),
+    );
+    if (!settled) return this.terminalState(input.providerOrderId);
+    if (settler.afterCommit) {
+      try {
+        await settler.afterCommit(settled.order, ctx);
+      } catch (err) {
+        this.logger.error(
+          `post-settle step failed (the payment and the purchase stand) order_row=${settled.order.id} (${err instanceof Error ? err.name : "UnknownError"})`,
+        );
+      }
+    }
+    return {
+      outcome: "granted",
+      order: settled.order,
+      balanceAfter: null,
+      credits: 0,
+      priceInr: settled.order.amountInr,
+      creditsReturned: 0,
+    };
   }
 
   /** The state a settle that lost a race reports: held stays held, anything else is settled. */

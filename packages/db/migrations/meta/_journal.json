@@ -1318,6 +1318,13 @@
       "when": 1794990548006,
       "tag": "0187_job_posting_choices",
       "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "7",
+      "when": 1795006475847,
+      "tag": "0188_managed_hiring",
+      "breakpoints": true
     }
   ]
 }

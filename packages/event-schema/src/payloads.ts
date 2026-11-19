@@ -77,6 +77,8 @@ import {
   LAUNCH_TEST_RESULTS,
   POSTING_CHOICES,
   POSTING_SURFACES,
+  MANAGED_HIRING_CALLBACK_REASONS,
+  MANAGED_HIRING_TIERS,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -7454,4 +7456,138 @@ export const AdminStudentVisibilityBulkChangedPayload = z
   });
 export type AdminStudentVisibilityBulkChangedPayload = z.infer<
   typeof AdminStudentVisibilityBulkChangedPayload
+>;
+
+// ---------------------------------------------------------------------------
+// MANAGED HIRING (#2751 items 4 to 13; brief section 2 and 4B.9). A company's prepaid order for one
+// job: the desk finds workers who confirm by phone that they are interested. IDS, CLOSED CODES,
+// INTEGERS AND TIMES ONLY: no company or worker detail, no price label, and never the staff note.
+// Every state change is emitted in the transaction that made it, keyed on the order (and worker).
+// ---------------------------------------------------------------------------
+
+/** A company started a Managed Hiring checkout for one job (the order is `created`, unpaid). */
+export const ManagedHiringOrderCreatedPayload = z
+  .object({
+    order_id: uuidSchema,
+    payer_id: uuidSchema,
+    job_posting_id: uuidSchema,
+    payment_order_id: uuidSchema,
+    tier: z.enum(MANAGED_HIRING_TIERS),
+    /** The list price before GST, whole rupees. */
+    price_inr: z.number().int().positive(),
+    /** What the checkout charges, GST included, in paise. */
+    total_paise: z.number().int().positive(),
+  })
+  .strict();
+export type ManagedHiringOrderCreatedPayload = z.infer<typeof ManagedHiringOrderCreatedPayload>;
+
+/** The order's payment was captured: the order is `active` and its clock stamped. */
+export const ManagedHiringOrderActivatedPayload = z
+  .object({
+    order_id: uuidSchema,
+    payer_id: uuidSchema,
+    job_posting_id: uuidSchema,
+    payment_order_id: uuidSchema,
+    target_count: z.number().int().positive(),
+    started_at: isoDateTimeSchema,
+    due_at: isoDateTimeSchema,
+    extended_until: isoDateTimeSchema,
+  })
+  .strict();
+export type ManagedHiringOrderActivatedPayload = z.infer<typeof ManagedHiringOrderActivatedPayload>;
+
+/** At the deadline fewer than the target had confirmed: the order is extended at no charge. */
+export const ManagedHiringOrderExtendedPayload = z
+  .object({
+    order_id: uuidSchema,
+    payer_id: uuidSchema,
+    job_posting_id: uuidSchema,
+    confirmed_count: z.number().int().min(0),
+    target_count: z.number().int().positive(),
+    extended_until: isoDateTimeSchema,
+  })
+  .strict();
+export type ManagedHiringOrderExtendedPayload = z.infer<typeof ManagedHiringOrderExtendedPayload>;
+
+/** Where the order met its target: at the deadline, or during the free extension. */
+export const MANAGED_HIRING_MET_AT = ["deadline", "extension"] as const;
+
+/** The order met its target (`confirmed_count` ≥ `target_count`). Not a hire. */
+export const ManagedHiringOrderMetPayload = z
+  .object({
+    order_id: uuidSchema,
+    payer_id: uuidSchema,
+    job_posting_id: uuidSchema,
+    confirmed_count: z.number().int().min(0),
+    target_count: z.number().int().positive(),
+    met_at: z.enum(MANAGED_HIRING_MET_AT),
+  })
+  .strict()
+  .refine((p) => p.confirmed_count >= p.target_count, {
+    message: "a met order has confirmed at least its target",
+    path: ["confirmed_count"],
+  });
+export type ManagedHiringOrderMetPayload = z.infer<typeof ManagedHiringOrderMetPayload>;
+
+/**
+ * The free extension ended below target: the order is closed as not met. AN ADMIN ALERT (the
+ * dashboard's breach counter); no automatic refund (owner, 2026-11-18, #2931).
+ */
+export const ManagedHiringOrderClosedUnmetPayload = z
+  .object({
+    order_id: uuidSchema,
+    payer_id: uuidSchema,
+    job_posting_id: uuidSchema,
+    confirmed_count: z.number().int().min(0),
+    target_count: z.number().int().positive(),
+  })
+  .strict()
+  .refine((p) => p.confirmed_count < p.target_count, {
+    message: "an unmet order confirmed fewer than its target",
+    path: ["confirmed_count"],
+  });
+export type ManagedHiringOrderClosedUnmetPayload = z.infer<
+  typeof ManagedHiringOrderClosedUnmetPayload
+>;
+
+/** Staff added a phone-confirmed worker to an order's tracker. Never the staff note. */
+export const ManagedHiringInterestAddedPayload = z
+  .object({
+    order_id: uuidSchema,
+    payer_id: uuidSchema,
+    worker_id: uuidSchema,
+    /** The tracker's count after the change. */
+    confirmed_count: z.number().int().min(1),
+  })
+  .strict();
+export type ManagedHiringInterestAddedPayload = z.infer<typeof ManagedHiringInterestAddedPayload>;
+
+/** Staff removed a worker from an order's tracker. The reason lives on the audit row. */
+export const ManagedHiringInterestRemovedPayload = z
+  .object({
+    order_id: uuidSchema,
+    payer_id: uuidSchema,
+    worker_id: uuidSchema,
+    confirmed_count: z.number().int().min(0),
+  })
+  .strict();
+export type ManagedHiringInterestRemovedPayload = z.infer<
+  typeof ManagedHiringInterestRemovedPayload
+>;
+
+/**
+ * A job above the largest tier (no checkout) asked for a call. AN ADMIN ALERT (the dashboard's
+ * breach counter) and a row in the admin callback queue. Once per job.
+ */
+export const ManagedHiringCallbackRequestedPayload = z
+  .object({
+    request_id: uuidSchema,
+    payer_id: uuidSchema,
+    job_posting_id: uuidSchema,
+    vacancy_band: z.enum(VACANCY_BANDS),
+    reason: z.enum(MANAGED_HIRING_CALLBACK_REASONS),
+  })
+  .strict();
+export type ManagedHiringCallbackRequestedPayload = z.infer<
+  typeof ManagedHiringCallbackRequestedPayload
 >;

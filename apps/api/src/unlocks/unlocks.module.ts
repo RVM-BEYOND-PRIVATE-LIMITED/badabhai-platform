@@ -12,6 +12,8 @@ import { UnlocksController } from "./unlocks.controller";
 import { UnlockService } from "./unlocks.service";
 import { UnlocksRepository } from "./unlocks.repository";
 import { PaymentGateway } from "./payment-gateway";
+import { PaidOrderSettlers } from "./paid-order-settlers";
+import { ProductCheckoutService } from "./product-checkout.service";
 import { RazorpayClient } from "./razorpay.client";
 import { RazorpayWebhookController } from "./razorpay-webhook.controller";
 import { RazorpayWebhookGuard } from "./razorpay-webhook.guard";
@@ -78,10 +80,15 @@ import { PaymentRefundsModule } from "../payment-refunds/payment-refunds.module"
     RazorpayClient,
     RazorpayWebhookGuard,
     CreditLotExpirySweepProcessor,
+    // #2751 item 6 — the settlers of non-pack products (registered by their owning modules) and
+    // the narrow checkout face those modules use.
+    PaidOrderSettlers,
+    ProductCheckoutService,
   ],
   // Export ONLY the service (the fail-closed chokepoint) so the payer-portal route
   // group (ADR-0019) can reuse the exact same disclosure logic. UnlocksRepository
   // stays unexported — it remains the structural single-writer (F-2/F-5/T5-b).
-  exports: [UnlockService],
+  // #2751: plus the settler registry and the narrow product checkout (never the gateway itself).
+  exports: [UnlockService, PaidOrderSettlers, ProductCheckoutService],
 })
 export class UnlocksModule {}

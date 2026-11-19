@@ -912,6 +912,56 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingPostingChoiceRecordedPayload,
   },
+  // #2751 items 4 to 13 - MANAGED HIRING. IDS, CLOSED CODES, INTEGERS AND TIMES ONLY; never the
+  // staff note. Each in the transaction that made the change, keyed on the order (and worker). v1.
+  // a company started a checkout for one job (the order is unpaid).
+  "managed_hiring.order_created": {
+    version: 1,
+    domain: "managed_hiring",
+    payload: p.ManagedHiringOrderCreatedPayload,
+  },
+  // the payment was captured; the clock is stamped.
+  "managed_hiring.order_activated": {
+    version: 1,
+    domain: "managed_hiring",
+    payload: p.ManagedHiringOrderActivatedPayload,
+  },
+  // missed at the deadline; extended at no charge.
+  "managed_hiring.order_extended": {
+    version: 1,
+    domain: "managed_hiring",
+    payload: p.ManagedHiringOrderExtendedPayload,
+  },
+  // the target was met (at the deadline or in the extension). Not a hire.
+  "managed_hiring.order_met": {
+    version: 1,
+    domain: "managed_hiring",
+    payload: p.ManagedHiringOrderMetPayload,
+  },
+  // still below target when the extension ended; an ADMIN ALERT.
+  "managed_hiring.order_closed_unmet": {
+    version: 1,
+    domain: "managed_hiring",
+    payload: p.ManagedHiringOrderClosedUnmetPayload,
+  },
+  // staff added a phone-confirmed worker to the tracker.
+  "managed_hiring.interest_added": {
+    version: 1,
+    domain: "managed_hiring",
+    payload: p.ManagedHiringInterestAddedPayload,
+  },
+  // staff removed a worker from the tracker.
+  "managed_hiring.interest_removed": {
+    version: 1,
+    domain: "managed_hiring",
+    payload: p.ManagedHiringInterestRemovedPayload,
+  },
+  // a job above the largest tier asked for a call; an ADMIN ALERT.
+  "managed_hiring.callback_requested": {
+    version: 1,
+    domain: "managed_hiring",
+    payload: p.ManagedHiringCallbackRequestedPayload,
+  },
   // #2746 PR 5 — the placement team (BadaBhai Campus) approved or rejected the RVM part of a
   // posting, for the content whose hash it stores. IDS AND ENUMS ONLY; never the reason text. v1.
   "job_posting.rvm_reviewed": {
