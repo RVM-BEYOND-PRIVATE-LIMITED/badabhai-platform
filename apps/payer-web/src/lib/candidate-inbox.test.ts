@@ -151,10 +151,12 @@ describe("candidatesHref — the pager's and the states' links (the Applied view
 });
 
 describe("the stage filter (#2139) — offered only when an answered read showed stages are saved", () => {
-  it("offers the board's three stages, in board order, by their tab names", () => {
+  it("offers the board's stages, in board order, by their tab names (#2747 adds Selected / Hired after Shortlist)", () => {
     expect(STAGE_OPTIONS).toEqual([
       { id: "new", label: "New" },
       { id: "shortlist", label: "Shortlist" },
+      { id: "selected", label: "Selected" },
+      { id: "hired", label: "Hired" },
       { id: "passed", label: "Passed" },
     ]);
   });

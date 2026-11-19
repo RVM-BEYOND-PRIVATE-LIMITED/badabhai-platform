@@ -9,6 +9,7 @@ export default tseslint.config(
     ignores: [
       "**/dist/**",
       "**/.next/**",
+      "**/.next-build/**",
       "**/coverage/**",
       "**/node_modules/**",
       "**/*.d.ts",
@@ -73,6 +74,16 @@ export default tseslint.config(
         setTimeout: "readonly",
         Buffer: "readonly",
       },
+    },
+  },
+  {
+    // Next.js config files execute under Node, so `process.env` is legitimate there.
+    // Without Node globals the repo-wide `no-undef` rejects it (this is how
+    // marketing-web's `next.config.mjs` failed CI).
+    files: ["**/next.config.{mjs,js}"],
+    languageOptions: {
+      sourceType: "module",
+      globals: { process: "readonly", console: "readonly" },
     },
   },
   {

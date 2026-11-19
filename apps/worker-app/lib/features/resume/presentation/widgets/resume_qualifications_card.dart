@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 import '../../../../core/api/api_models.dart' show QualificationOptionsDto;
 import '../../../../core/di/locator.dart';
@@ -117,6 +118,7 @@ class _Block extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Padding(
       padding: const EdgeInsets.only(top: 14),
       child: Column(
@@ -128,7 +130,7 @@ class _Block extends StatelessWidget {
             _Row(item: items[i]),
             if (i < items.length - 1) ...<Widget>[
               const SizedBox(height: 10),
-              const Divider(height: 1, color: OnboardingColors.borderSubtle),
+               Divider(height: 1, color: p.borderSubtle),
             ],
           ],
         ],
@@ -146,6 +148,7 @@ class _Row extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -160,7 +163,7 @@ class _Row extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 12,
               height: 1.35,
-              color: OnboardingColors.ink500,
+              color: p.textMuted,
             ),
           ),
         ],

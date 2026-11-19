@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 import 'kit_content_column.dart';
 import 'kit_pill.dart';
@@ -39,6 +40,7 @@ class KitStatusBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String? pill = pillLabel;
     final String? sub = subline;
     final Widget? mark = trailing;
@@ -47,7 +49,7 @@ class KitStatusBanner extends StatelessWidget {
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: Container(
         width: double.infinity,
-        color: OnboardingColors.shiftBlue,
+        color: p.brandSurface,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: KitContentColumn(
           child: Row(
@@ -67,7 +69,7 @@ class KitStatusBanner extends StatelessWidget {
                           style: OnboardingTypography.anek(
                             size: 15,
                             weight: FontWeight.w700,
-                            color: OnboardingColors.safetyYellow,
+                            color: p.action,
                           ),
                         ),
                         if (pill != null && pill.isNotEmpty)
@@ -80,7 +82,7 @@ class KitStatusBanner extends StatelessWidget {
                         sub,
                         style: OnboardingTypography.inter(
                           size: 11,
-                          color: OnboardingColors.textOnBlue70,
+                          color: p.onBrandSurface70,
                         ),
                       ),
                     ],
@@ -103,18 +105,19 @@ class KitStatusCheck extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       width: 32,
       height: 32,
       alignment: Alignment.center,
-      decoration: const BoxDecoration(
-        color: OnboardingColors.successGreen,
+      decoration: BoxDecoration(
+        color: p.success,
         shape: BoxShape.circle,
       ),
-      child: const Icon(
+      child: Icon(
         Icons.check_rounded,
         size: 20,
-        color: OnboardingColors.textOnBlue,
+        color: p.onBrandSurface,
       ),
     );
   }

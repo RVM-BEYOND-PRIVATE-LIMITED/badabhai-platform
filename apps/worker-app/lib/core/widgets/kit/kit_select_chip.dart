@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// A tappable filter / category chip — job filters, feedback categories.
 ///
-/// Selected is the strict v3 selected paint: a [OnboardingColors.shiftBlue]
-/// fill behind a [OnboardingColors.safetyYellow] border with a yellow check,
+/// Selected is the strict v3 selected paint: the brand surface fill behind an
+/// action-yellow border with a yellow check,
 /// the same grammar as the option checkbox, so "chosen" looks the same
 /// everywhere in the app.
 ///
@@ -25,15 +26,10 @@ class KitSelectChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color background = selected
-        ? OnboardingColors.shiftBlue
-        : OnboardingColors.paperWhite;
-    final Color border = selected
-        ? OnboardingColors.safetyYellow
-        : OnboardingColors.borderDefault;
-    final Color foreground = selected
-        ? OnboardingColors.textOnBlue
-        : OnboardingColors.ink900;
+    final BbPalette p = context.bb;
+    final Color background = selected ? p.brandSurface : p.card;
+    final Color border = selected ? p.action : p.borderDefault;
+    final Color foreground = selected ? p.onBrandSurface : p.textPrimary;
     final BorderRadius radius = BorderRadius.circular(OnboardingRadii.chip);
 
     return Semantics(
@@ -92,10 +88,10 @@ class KitSelectChip extends StatelessWidget {
                       if (bounded) Flexible(child: text) else text,
                       if (selected) ...<Widget>[
                         const SizedBox(width: 6),
-                        const Icon(
+                        Icon(
                           Icons.check_rounded,
                           size: 14,
-                          color: OnboardingColors.safetyYellow,
+                          color: p.action,
                         ),
                       ],
                     ],

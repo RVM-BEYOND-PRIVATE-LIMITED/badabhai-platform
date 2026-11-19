@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// The informational callout (spec §4): a pale blue panel with an optional
@@ -28,6 +29,7 @@ class KitCallout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String? titleText = title;
     final String? bodyText = text;
     final IconData? icon = tileIcon;
@@ -44,7 +46,7 @@ class KitCallout extends StatelessWidget {
                 style: OnboardingTypography.inter(
                   size: 10,
                   weight: FontWeight.w800,
-                  color: OnboardingColors.infoTitle,
+                  color: p.infoTitle,
                 ),
               ),
             if (titleText != null &&
@@ -59,7 +61,7 @@ class KitCallout extends StatelessWidget {
                   size: 12,
                   weight: FontWeight.w600,
                   height: 1.4,
-                  color: OnboardingColors.infoText,
+                  color: p.infoText,
                 ),
               ),
           ],
@@ -68,9 +70,9 @@ class KitCallout extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: OnboardingColors.infoBg,
+        color: p.infoBg,
         borderRadius: BorderRadius.circular(OnboardingRadii.note),
-        border: Border.all(color: OnboardingColors.infoBorder),
+        border: Border.all(color: p.infoBorder),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -81,10 +83,10 @@ class KitCallout extends StatelessWidget {
               height: 36,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: OnboardingColors.shiftBlue,
+                color: p.brandSurface,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(icon, size: 20, color: OnboardingColors.safetyYellow),
+              child: Icon(icon, size: 20, color: p.action),
             ),
             const SizedBox(width: 12),
           ],

@@ -9,7 +9,10 @@ import {
   isPayerStatus,
   isPayerValidationError,
   isPostingTradeRequired,
+  isTargetingNeedsRvmAudience,
+  isTargetingOptionNotOffered,
 } from "../../../../../lib/payer-errors";
+import { postingsErrorMessage } from "../../../../../lib/postings-messages";
 import { mapPostingIssues } from "../../../../../lib/posting-field-errors";
 import { POSTING_TRADE_REQUIRED_MESSAGE } from "../../../../../lib/posting-trades";
 import { workerCardGap } from "../../../../../lib/worker-card-gap";
@@ -81,6 +84,10 @@ export interface UpdatePostingActionInput {
   /** Migration 0141 — sent only when the payer edited the trade form. */
   tradeLevel?: string;
   tradeAnswers?: Record<string, string[]>;
+  /** #2746 — sent only when the audience picker was shown (the switch is on). */
+  audience?: string;
+  rvmBranchIds?: number[];
+  rvmCourseIds?: string[];
   /** The prior values, for the `clear` diff (a field that HAD a value and is now blank). */
   initial: PostingEditInitial;
   /** Present only on the DRAFT "Publish" path — the matchable half + the gap block. */
@@ -121,6 +128,10 @@ export async function updatePostingAction(
     ...(input.benefits && input.benefits.length > 0 ? { benefits: input.benefits } : {}),
     ...(input.tradeLevel ? { tradeLevel: input.tradeLevel } : {}),
     ...(input.tradeAnswers !== undefined ? { tradeAnswers: input.tradeAnswers } : {}),
+    // #2746 — present only when the picker was shown. `[]` is a real targeting value.
+    ...(input.audience !== undefined ? { audience: input.audience } : {}),
+    ...(input.rvmBranchIds !== undefined ? { rvmBranchIds: input.rvmBranchIds } : {}),
+    ...(input.rvmCourseIds !== undefined ? { rvmCourseIds: input.rvmCourseIds } : {}),
   });
   if (!parsed.success) {
     return {
@@ -173,6 +184,11 @@ export async function updatePostingAction(
     // #2635 — read by `reason`, never the message, and BEFORE the generic 400 copy below.
     if (isPostingTradeRequired(e)) {
       return { ok: false, error: POSTING_TRADE_REQUIRED_MESSAGE, tradeRequired: true };
+    }
+    // #2746 — the two audience refusals, read by `reason`, shown at the audience control.
+    if (isTargetingNeedsRvmAudience(e) || isTargetingOptionNotOffered(e)) {
+      const message = postingsErrorMessage(e);
+      return { ok: false, error: message, fieldErrors: { audience: message } };
     }
     // #1912 — a validation 400 carries per-field issues; route each to its input.
     // Any other 400 (no field to show it at, no reason we know) is the existing "No changes to

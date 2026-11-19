@@ -66,7 +66,7 @@ const nextConfig = {
   // nothing extra traced for it; its stylesheet is `@import`ed by src/app/globals.css.
   // @badabhai/role-art (the job-card role illustrations) is the same shape: TS source + one
   // stylesheet (`role-art.css`, `@import`ed by globals.css), compiled with the app.
-  transpilePackages: ["@badabhai/icons", "@badabhai/role-art"],
+  transpilePackages: ["@badabhai/icons", "@badabhai/role-art", "@badabhai/theme-web"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

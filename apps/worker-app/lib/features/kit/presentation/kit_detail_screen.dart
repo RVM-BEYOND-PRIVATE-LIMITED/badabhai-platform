@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/bb_palette.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/di/locator.dart';
@@ -39,11 +40,12 @@ class _KitDetailView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BlocBuilder<KitDetailCubit, KitDetailState>(
       builder: (BuildContext context, KitDetailState state) {
         final InterviewKit? kit = state.kit;
         return Scaffold(
-          backgroundColor: OnboardingColors.canvasBg,
+          backgroundColor: p.page,
           body: Column(
             children: <Widget>[
               ShiftBlueHeader(
@@ -85,6 +87,7 @@ class _KitDetailView extends StatelessWidget {
   }
 
   Widget _detail(BuildContext context, InterviewKit kit) {
+    final BbPalette p = context.bb;
     final EdgeInsets side = KitInsets.list(
       MediaQuery.sizeOf(context).width,
       max: OnboardingLayout.maxTabContentWidth,
@@ -103,42 +106,46 @@ class _KitDetailView extends StatelessWidget {
         if (kit.overview.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
-            child: KitCard(child: Text(kit.overview, style: _itemStyle)),
+            child: KitCard(child: Text(kit.overview, style: _itemStyle(p))),
           ),
         // The four question LISTS (no model answers on the wire — a prep pack).
-        _questionSection('Aam sawaal', kit.commonQuestions),
-        _questionSection('Practical sawaal', kit.practicalQuestions),
-        _questionSection('Safety sawaal', kit.safetyQuestions),
+        _questionSection('Aam sawaal', kit.commonQuestions, p),
+        _questionSection('Practical sawaal', kit.practicalQuestions, p),
+        _questionSection('Safety sawaal', kit.safetyQuestions, p),
         _questionSection(
           'Drawing aur measurement',
           kit.drawingMeasurementQuestions,
+          p,
         ),
         _listSection(
           'Skill checklist',
           kit.skillChecklist,
           Icons.check_circle_outline,
+          p,
         ),
         _listSection(
           'Interview se pehle dohraayein',
           kit.reviseBefore,
           Icons.menu_book_outlined,
+          p,
         ),
         _listSection(
           'Documents saath le jaayein',
           kit.documentsToCarry,
           Icons.description_outlined,
+          p,
         ),
-        _listSection('Aam galtiyan', kit.commonMistakes, Icons.error_outline),
-        if (kit.hinglishNote.isNotEmpty) _note(kit.hinglishNote),
+        _listSection('Aam galtiyan', kit.commonMistakes, Icons.error_outline, p),
+        if (kit.hinglishNote.isNotEmpty) _note(kit.hinglishNote, p),
       ],
     );
   }
 
   /// A kit item's line — Inter 14 on secondary ink (spec §4 body).
-  TextStyle get _itemStyle => OnboardingTypography.inter(
+  TextStyle _itemStyle(BbPalette p) => OnboardingTypography.inter(
     size: 14,
     height: 1.45,
-    color: OnboardingColors.ink600,
+    color: p.textSecondary,
   );
 
   Widget _sectionTitle(String title) => Padding(
@@ -152,7 +159,7 @@ class _KitDetailView extends StatelessWidget {
   /// A numbered list of interview questions for a category (omitted if empty).
   /// The number is mono, so a two-digit question does not shift the text beside
   /// it (spec §1.2: counters are Roboto Mono).
-  Widget _questionSection(String title, List<String> items) {
+  Widget _questionSection(String title, List<String> items, BbPalette p) {
     if (items.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -170,11 +177,11 @@ class _KitDetailView extends StatelessWidget {
                     Text(
                       '${i + 1}.',
                       style: OnboardingTypography.monoBold(
-                        color: OnboardingColors.shiftBlue,
+                        color: p.textBrand,
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Expanded(child: Text(items[i], style: _itemStyle)),
+                    Expanded(child: Text(items[i], style: _itemStyle(p))),
                   ],
                 ),
               ),
@@ -185,7 +192,7 @@ class _KitDetailView extends StatelessWidget {
   }
 
   /// An icon-bulleted list (checklist / documents / mistakes; omitted if empty).
-  Widget _listSection(String title, List<String> items, IconData icon) {
+  Widget _listSection(String title, List<String> items, IconData icon, BbPalette p) {
     if (items.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -204,9 +211,9 @@ class _KitDetailView extends StatelessWidget {
                     // (common mistakes) — green is reserved for success / money
                     // / WhatsApp, so a mistakes bullet in green is off-law.
                     // Secondary ink is category-safe.
-                    Icon(icon, size: 18, color: OnboardingColors.ink600),
+                    Icon(icon, size: 18, color: p.textSecondary),
                     const SizedBox(width: 8),
-                    Expanded(child: Text(item, style: _itemStyle)),
+                    Expanded(child: Text(item, style: _itemStyle(p))),
                   ],
                 ),
               ),
@@ -216,21 +223,21 @@ class _KitDetailView extends StatelessWidget {
     );
   }
 
-  Widget _note(String text) => Container(
+  Widget _note(String text, BbPalette p) => Container(
     margin: const EdgeInsets.only(top: 8, bottom: 16),
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: OnboardingColors.successBg,
+      color: p.successBg,
       borderRadius: BorderRadius.circular(OnboardingRadii.card),
-      border: Border.all(color: OnboardingColors.successGreen),
+      border: Border.all(color: p.success),
     ),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const Icon(
+         Icon(
           Icons.lightbulb_outline,
           size: 20,
-          color: OnboardingColors.successGreen,
+          color: p.success,
         ),
         const SizedBox(width: 8),
         Expanded(
@@ -275,10 +282,11 @@ class _KitDownloadButtonState extends State<_KitDownloadButton> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     if (_loading) {
       // Same 48dp footprint as the button it replaces, so the header row does
       // not jump while the download runs.
-      return const SizedBox(
+      return  SizedBox(
         width: OnboardingLayout.tapTarget,
         height: OnboardingLayout.tapTarget,
         child: Center(
@@ -287,7 +295,7 @@ class _KitDownloadButtonState extends State<_KitDownloadButton> {
             height: 20,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              color: OnboardingColors.textOnBlue,
+              color: p.onBrandSurface,
             ),
           ),
         ),

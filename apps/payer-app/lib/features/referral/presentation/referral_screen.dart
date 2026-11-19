@@ -4,7 +4,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -18,6 +17,7 @@ import '../../agency/presentation/batch_invite_screen.dart';
 import '../../agency/util/invite_url.dart';
 import '../../agency/util/whatsapp_share.dart';
 import 'cubit/referral_cubit.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Agency Refer-&-earn — the agent's shareable invite link + the referral
 /// FUNNEL summary (created / clicked / accepted). Agent-only (the routes 403 for
@@ -49,8 +49,9 @@ class _ReferralView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: AppColors.surfacePage,
+      backgroundColor: p.page,
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -108,7 +109,7 @@ class _ReferralView extends StatelessWidget {
               'Invite workers you know. When they join and get placed, you earn.',
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
-                color: AppColors.textSecondary,
+                color: context.bb.textSecondary,
                 height: 1.45,
               ),
             ),
@@ -191,13 +192,14 @@ class _NavCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BbCard(
       onTap: onTap,
       child: Row(
         children: <Widget>[
           // Deep blue = structure / navigation / trust. Haldi is a fill, never a
           // foreground stroke on white (kit law).
-          Icon(icon, size: 24, color: AppColors.blue),
+          Icon(icon, size: 24, color: p.textBrand),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
             child: Column(
@@ -215,7 +217,7 @@ class _NavCard extends StatelessWidget {
                   subtitle,
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    color: AppColors.textMuted,
+                    color: p.textMuted,
                     height: 1.4,
                   ),
                 ),
@@ -223,7 +225,7 @@ class _NavCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.s2),
-          const Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.textFaint),
+          Icon(Icons.chevron_right_rounded, size: 20, color: p.textMuted),
         ],
       ),
     );
@@ -313,6 +315,7 @@ class _LinkCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BbCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -321,7 +324,7 @@ class _LinkCard extends StatelessWidget {
             'Your invite link',
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
+              color: p.textMuted,
             ),
           ),
           const SizedBox(height: AppSpacing.s1),
@@ -340,7 +343,7 @@ class _LinkCard extends StatelessWidget {
             'Code ${link.code}',
             style: AppTypography.body(
               size: AppTypography.sizeXs,
-              color: AppColors.textMuted,
+              color: p.textMuted,
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
@@ -379,6 +382,7 @@ class _FunnelCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BbCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -396,7 +400,7 @@ class _FunnelCard extends StatelessWidget {
             'privacy, so a 0 can mean "just a few".',
             style: AppTypography.body(
               size: AppTypography.sizeXs,
-              color: AppColors.textMuted,
+              color: p.textMuted,
               height: 1.45,
             ),
           ),
@@ -414,6 +418,7 @@ class _Stat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -430,7 +435,7 @@ class _Stat extends StatelessWidget {
             label,
             style: AppTypography.body(
               size: AppTypography.sizeXs,
-              color: AppColors.textMuted,
+              color: p.textMuted,
             ),
           ),
         ],

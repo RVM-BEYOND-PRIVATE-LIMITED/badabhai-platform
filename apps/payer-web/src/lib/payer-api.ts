@@ -12,8 +12,14 @@ import {
   agencyReferralsSummaryWireSchema,
   agencyWorkerListWireSchema,
   agencyWorkerWireSchema,
+  audienceOptionsWireSchema,
+  campusDriveRequestPageWireSchema,
+  campusDriveRequestWireSchema,
+  toCampusDriveCreateBody,
   applicantFeedSchema,
   applicantStageChangeWireSchema,
+  applicantStageOptionsWireSchema,
+  unlockContactWireSchema,
   buyCapacityWireSchema,
   buyPackResultWireSchema,
   candidateFiltersWireSchema,
@@ -74,6 +80,11 @@ import {
   type AgencyWorker,
   type ApplicantFeed,
   type ApplicantStageChange,
+  type ApplicantStageOptions,
+  type AudienceOptions,
+  type CampusDriveCreateInput,
+  type CampusDriveRequest,
+  type CampusDriveRequestPage,
   type CandidateFilters,
   type CandidateInbox,
   type CandidateInboxQuery,
@@ -105,11 +116,13 @@ import {
   type ReachPreview,
   type RevealResult,
   type TopUpResult,
+  type UnlockContactWire,
   type UnlockHistoryItem,
   type UnlockQuotes,
   type UnlockResult,
   type UpdatePostingInput,
 } from "./contracts";
+import { hasPrePayFacts } from "./prepay-facts";
 import { revealResultSchema } from "./contracts";
 import { assertNoAgencyPII } from "./assert-no-agency-pii";
 import type { ApplicantStage } from "./applicant-stages";
@@ -278,6 +291,9 @@ export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
         // The current grant's time (a re-grant moves it; created_at does not): the day a Recent
         // unlocks row prints and is ordered by.
         grantedAt: u.granted_at,
+        // #2747 — null is "open for good" (the stored date ships as expiresAt); absent is an
+        // older API, where the window's end is still the answer.
+        openUntil: u.open_until === undefined ? u.expires_at : u.open_until,
         // #2033's company-posting context; absent (a pre-#2033 API) and null both mean none.
         jobPostingId: u.job_posting_id ?? null,
       }))
@@ -335,6 +351,8 @@ function toWeightedApplicant(a: ReachApplicantWire): FacelessApplicant {
     // level sort. Both read as "no tag", never a guessed level.
     levelFit: a.levelFit ?? undefined,
     ...savedStage(a),
+    ...activityMark(a),
+    ...prePayRow(a),
   };
 }
 
@@ -368,7 +386,20 @@ function toMatchCandidate(a: MatchCandidateWire): FacelessApplicant {
     // "Level needed" fit (#2548) — carried verbatim; absent/null = no tag.
     levelFit: a.levelFit ?? undefined,
     ...savedStage(a),
+    ...activityMark(a),
+    ...prePayRow(a),
   };
+}
+
+/**
+ * The row's #2753 item 7 mark, carried across only when the wire row has one: a server with
+ * `WORKER_ACTIVITY_ENABLED` off sends no key, and the card then draws no mark at all — exactly
+ * today's screen. A mark, never a filter; the server's order is untouched.
+ */
+function activityMark(a: { notRecentlyActive?: boolean }): { notRecentlyActive?: boolean } {
+  return a.notRecentlyActive !== undefined
+    ? { notRecentlyActive: a.notRecentlyActive }
+    : {};
 }
 
 /**
@@ -378,6 +409,41 @@ function toMatchCandidate(a: MatchCandidateWire): FacelessApplicant {
  */
 function savedStage(a: { stage?: ApplicantStage }): { stage?: ApplicantStage } {
   return a.stage !== undefined ? { stage: a.stage } : {};
+}
+
+/**
+ * The #2747 source label and six facts, carried across only when the wire row carries them. The
+ * server sends all six keys while the facts part is on for the company (each may be null), and
+ * none while it is off — so key presence is the switch, and an old row maps to today's card.
+ */
+function prePayRow(a: {
+  source?: FacelessApplicant["source"];
+  firstName?: string | null;
+  tradeLine?: string | null;
+  expectedSalary?: string | null;
+  machines?: string[] | null;
+  area?: string | null;
+  lastActiveOn?: string | null;
+}): {
+  source?: FacelessApplicant["source"];
+  firstName?: string | null;
+  tradeLine?: string | null;
+  expectedSalary?: string | null;
+  machines?: string[] | null;
+  area?: string | null;
+  lastActiveOn?: string | null;
+  factsOn?: boolean;
+} {
+  return {
+    ...(a.source !== undefined ? { source: a.source } : {}),
+    ...(a.firstName !== undefined ? { firstName: a.firstName } : {}),
+    ...(a.tradeLine !== undefined ? { tradeLine: a.tradeLine } : {}),
+    ...(a.expectedSalary !== undefined ? { expectedSalary: a.expectedSalary } : {}),
+    ...(a.machines !== undefined ? { machines: a.machines } : {}),
+    ...(a.area !== undefined ? { area: a.area } : {}),
+    ...(a.lastActiveOn !== undefined ? { lastActiveOn: a.lastActiveOn } : {}),
+    ...(hasPrePayFacts(a) ? { factsOn: true } : {}),
+  };
 }
 
 /**
@@ -631,6 +697,44 @@ export async function getUnlockQuotes(
 }
 
 /**
+ * GET /payer/reach/applicant-stages — what this company's board may do now (#2747). The route is
+ * a neutral 404 while the board flag is off (the same answer the stage route gives), mapped to
+ * `null`: the board then keeps today's three tabs. A read failure is the same `null` — the pilot
+ * list the server reads fails closed, so the screen draws no outcome controls on a guess.
+ */
+export async function getApplicantStageOptions(): Promise<ApplicantStageOptions | null> {
+  try {
+    return await payerFetch("/payer/reach/applicant-stages", {
+      schema: applicantStageOptionsWireSchema,
+    });
+  } catch (e) {
+    if (isPayerStatus(e, 404)) return null;
+    throw e;
+  }
+}
+
+/**
+ * GET /payer/unlocks/:unlockId/contact — what a credit opens (#2747). Read EVERY time the contact
+ * screen opens: never cached, stored or logged (the response is `no-store`). A 404 means the rule
+ * is off for this company — the caller keeps today's opened screen (the relay handle + résumé).
+ * Any other non-2xx (429 over the hourly disclosure cap included) throws for the caller to say
+ * so politely; the neutral 200 body is a deny with no reason.
+ */
+export async function getUnlockContact(
+  unlockId: string,
+): Promise<UnlockContactWire | { off: true }> {
+  try {
+    const wire = await payerFetch(`/payer/unlocks/${unlockId}/contact`, {
+      schema: unlockContactWireSchema,
+    });
+    return wire;
+  } catch (e) {
+    if (isPayerStatus(e, 404)) return { off: true };
+    throw e;
+  }
+}
+
+/**
  * POST /payer/unlocks — spend a credit to unlock a candidate (LIVE). The body carries
  * ONLY `worker_id` + `job_id`; the payer is the session token (XB-A — there
  * is nowhere to put a payer_id). Every deny cause (no credits / no consent / capped /
@@ -656,6 +760,7 @@ export async function requestUnlock(input: {
       unlockId: wire.unlock_id,
       status: "granted",
       expiresAt: wire.expires_at,
+      openUntil: wire.open_until === undefined ? wire.expires_at : wire.open_until,
       ...(wire.credits_charged === undefined
         ? {}
         : { creditsCharged: wire.credits_charged }),
@@ -1577,6 +1682,16 @@ function toPostingSummary(wire: ReturnType<typeof jobPostingWireSchema.parse>): 
     status: wire.status,
     applicantCount: 0, // NOT in this projection — the count is the reach feed's, not the row's.
     createdAt: wire.created_at,
+    // #2746 — the audience block is present only when the switch is on for the company, or the
+    // stored audience is not the default. An absent block means the default, with no review.
+    ...(wire.audience !== undefined
+      ? {
+          audience: wire.audience,
+          rvmBranchIds: wire.rvm_branch_ids ?? [],
+          rvmCourseIds: wire.rvm_course_ids ?? [],
+          rvmReview: wire.rvm_review ?? null,
+        }
+      : {}),
     // applicantQuota intentionally omitted (not a live-row concept) → the page renders "—".
   });
 }
@@ -1633,6 +1748,12 @@ export function toPayerJobPostingBody(
   if (input.benefits !== undefined) body.benefits = input.benefits;
   if (input.tradeLevel !== undefined) body.trade_level = input.tradeLevel;
   if (input.tradeAnswers !== undefined) body.trade_answers = input.tradeAnswers;
+  // #2746 — WHO SEES THIS POSTING. Sent only when the form had the options read (the switch is
+  // on), so a switched-off company's create is byte-for-byte what it was before. `[]` is a real
+  // value here: it means every branch / every course.
+  if (input.audience !== undefined) body.audience = input.audience;
+  if (input.rvmBranchIds !== undefined) body.rvm_branch_ids = input.rvmBranchIds;
+  if (input.rvmCourseIds !== undefined) body.rvm_course_ids = input.rvmCourseIds;
   return body;
 }
 
@@ -1680,6 +1801,11 @@ export interface PostingDetail {
   tradeLevel: string | null;
   /** Migration 0141 — the poster's chip answers, or null. */
   tradeAnswers: Record<string, string[]> | null;
+  /** #2746 — the audience block, or null when the API omitted it (switch off + default audience). */
+  audience: PostingSummary["audience"] | null;
+  rvmBranchIds: number[];
+  rvmCourseIds: string[];
+  rvmReview: PostingSummary["rvmReview"];
   /**
    * The saved revision (`updated_at`). The edit page keys its form on it, so a form seeded from
    * an older revision remounts instead of keeping stale values (and a stale `clear` diff).
@@ -1714,11 +1840,32 @@ export async function getPostingDetail(postingId: string): Promise<PostingDetail
       untickedRelatedIds: wire.unticked_related_ids ?? [],
       tradeLevel: wire.trade_level ?? null,
       tradeAnswers: wire.trade_answers ?? null,
+      audience: wire.audience ?? null,
+      rvmBranchIds: wire.rvm_branch_ids ?? [],
+      rvmCourseIds: wire.rvm_course_ids ?? [],
+      rvmReview: wire.rvm_review ?? null,
       updatedAt: wire.updated_at,
       ...(wire.audience !== undefined ? { audience: wire.audience } : {}),
     };
   } catch (e) {
     if (isPayerStatus(e, 404)) return null;
+    throw e;
+  }
+}
+
+/**
+ * #2746 — `GET /payer/job-postings/audience-options`: the audiences this company may pick and the
+ * ACTIVE RVM branch / course options. Returns `null` on the house neutral 404 (the `job_audience`
+ * switch is off for the company), which is what hides every audience entry point; any other
+ * failure is thrown so a real outage is not mistaken for "feature off".
+ */
+export async function getAudienceOptions(): Promise<AudienceOptions | null> {
+  try {
+    return await payerFetch("/payer/job-postings/audience-options", {
+      schema: audienceOptionsWireSchema,
+    });
+  } catch (e) {
+    if (isPayerStatus(e, 404) || isPayerStatus(e, 403)) return null;
     throw e;
   }
 }
@@ -1855,6 +2002,11 @@ export function toPayerJobPostingPatchBody(
   if (input.benefits !== undefined) body.benefits = input.benefits;
   if (input.tradeLevel !== undefined) body.trade_level = input.tradeLevel;
   if (input.tradeAnswers !== undefined) body.trade_answers = input.tradeAnswers;
+  // #2746 — the audience half. NEVER in `clear`; an audience-only PATCH is a real edit, so these
+  // ride only when the form read the options (the switch is on for the company).
+  if (input.audience !== undefined) body.audience = input.audience;
+  if (input.rvmBranchIds !== undefined) body.rvm_branch_ids = input.rvmBranchIds;
+  if (input.rvmCourseIds !== undefined) body.rvm_course_ids = input.rvmCourseIds;
 
   // The clear diff: a field the payer BLANKED (present in `initial`, absent from `input`).
   if (initial) {
@@ -1943,7 +2095,7 @@ export async function listPostingTrades(): Promise<PostingTradeFormWire[]> {
  * sends none (the API scopes only company jobs by trade); absent, the key is not sent.
  */
 export async function previewReach(
-  input: MatchSelectionInput & { roleKind?: string },
+  input: MatchSelectionInput & { roleKind?: string; audience?: string },
 ): Promise<ReachPreview> {
   return payerFetch("/payer/match/reach-preview", {
     method: "POST",
@@ -1951,6 +2103,9 @@ export async function previewReach(
       match_skill_ids: input.matchSkillIds,
       unticked_related_ids: input.untickedRelatedIds,
       ...(input.roleKind ? { role_kind: input.roleKind } : {}),
+      // #2746 — an RVM-only audience reaches no BadaBhai worker by design, so the server answers
+      // every BadaBhai count as 0 and `zero_reach: false`. Sent only when the picker was shown.
+      ...(input.audience ? { audience: input.audience } : {}),
     },
     schema: reachPreviewWireSchema,
   });
@@ -2001,6 +2156,73 @@ export async function closePosting(postingId: string): Promise<PostingSummary | 
       schema: jobPostingWireSchema,
     });
     return toPostingSummary(wire);
+  } catch (e) {
+    if (isPayerStatus(e, 404)) return null;
+    throw e;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * #2746 / #2813 — campus-drive requests (payer-web only; payments and drives never
+ * exist in the mobile apps). Employer-only, tenant-scoped by the session.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** `GET /payer/campus-drive-requests` — one keyset page, newest first. `null` on a 404. */
+export async function listCampusDriveRequests(
+  cursor?: string,
+): Promise<CampusDriveRequestPage | null> {
+  const query = new URLSearchParams();
+  if (cursor) query.set("cursor", cursor);
+  const suffix = query.toString();
+  try {
+    return await payerFetch(`/payer/campus-drive-requests${suffix ? `?${suffix}` : ""}`, {
+      schema: campusDriveRequestPageWireSchema,
+    });
+  } catch (e) {
+    if (isPayerStatus(e, 404)) return null;
+    throw e;
+  }
+}
+
+/** `GET /payer/campus-drive-requests/:id` — one of the company's own; a neutral 404 → null. */
+export async function getCampusDriveRequest(id: string): Promise<CampusDriveRequest | null> {
+  try {
+    return await payerFetch(`/payer/campus-drive-requests/${id}`, {
+      schema: campusDriveRequestWireSchema,
+    });
+  } catch (e) {
+    if (isPayerStatus(e, 404)) return null;
+    throw e;
+  }
+}
+
+/**
+ * `POST /payer/campus-drive-requests` — ask RVM's placement team for a drive.
+ *
+ * The caller supplies ONE `Idempotency-Key` per form submission (not per retry), so a re-tap
+ * after a timeout replays the same request instead of creating a second one. A 404 means the
+ * `campus_drive_requests` switch is off for the company; it is thrown so the action can hide it.
+ */
+export async function createCampusDriveRequest(
+  input: CampusDriveCreateInput,
+  idempotencyKey: string,
+): Promise<CampusDriveRequest> {
+  return payerFetch("/payer/campus-drive-requests", {
+    method: "POST",
+    body: toCampusDriveCreateBody(input),
+    idempotencyKey,
+    schema: campusDriveRequestWireSchema,
+  });
+}
+
+/** `POST /payer/campus-drive-requests/:id/cancel` — allowed while requested or scheduled. */
+export async function cancelCampusDriveRequest(id: string): Promise<CampusDriveRequest | null> {
+  try {
+    return await payerFetch(`/payer/campus-drive-requests/${id}/cancel`, {
+      method: "POST",
+      body: {},
+      schema: campusDriveRequestWireSchema,
+    });
   } catch (e) {
     if (isPayerStatus(e, 404)) return null;
     throw e;

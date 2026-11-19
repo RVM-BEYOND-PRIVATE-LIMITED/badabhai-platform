@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/job_display.dart';
 import '../../../core/util/pay_format.dart';
@@ -89,8 +90,9 @@ class _JobDetailViewState extends State<_JobDetailView> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: BlocConsumer<JobDetailCubit, JobDetailState>(
         listenWhen: (JobDetailState p, JobDetailState c) =>
             p.appliedNonce != c.appliedNonce ||
@@ -184,7 +186,8 @@ class _JobDetailViewState extends State<_JobDetailView> {
       );
     }
 
-    final List<Widget> facts = _factChips(d);
+    final BbPalette p = context.bb;
+    final List<Widget> facts = _factChips(d, p);
     if (facts.isNotEmpty) {
       blocks.add(
         KitCard(
@@ -201,10 +204,10 @@ class _JobDetailViewState extends State<_JobDetailView> {
     }
 
     if (state.loading) {
-      blocks.add(_loading());
+      blocks.add(_loading(p));
     } else {
       if (state.loadFailed) blocks.add(_loadFailedNote(context));
-      blocks.addAll(_sections(d));
+      blocks.addAll(_sections(d, p));
     }
     return blocks;
   }
@@ -215,37 +218,37 @@ class _JobDetailViewState extends State<_JobDetailView> {
   ///
   /// A NEUTRAL dot and NO green check: the tick in this kit means "verified",
   /// and a job's stated shift is the employer's claim, not a checked fact.
-  List<Widget> _factChips(JobDetail d) {
+  List<Widget> _factChips(JobDetail d, BbPalette p) {
     final List<Widget> chips = <Widget>[];
     final String? shift = shiftLabel(d.shift);
-    if (shift != null) chips.add(_fact('$shift shift'));
+    if (shift != null) chips.add(_fact('$shift shift', p));
     final String? experience = experienceLabel(
       d.minExperienceYears,
       d.maxExperienceYears,
     );
-    if (experience != null) chips.add(_fact(experience));
+    if (experience != null) chips.add(_fact(experience, p));
     final String? neededBy = neededByLabel(d.neededBy);
-    if (neededBy != null) chips.add(_fact(neededBy));
+    if (neededBy != null) chips.add(_fact(neededBy, p));
     return chips;
   }
 
-  Widget _fact(String label) =>
-      KitInfoChip(label: label, dot: OnboardingColors.ink500, showCheck: false);
+  Widget _fact(String label, BbPalette p) =>
+      KitInfoChip(label: label, dot: p.textMuted, showCheck: false);
 
   /// Fetch-phase indicator below the instantly-rendered header. A captioned
   /// spinner, never a bare centered one (design spec §5 / §10).
-  Widget _loading() {
+  Widget _loading(BbPalette p) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 24),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          const SizedBox(
+          SizedBox(
             width: 18,
             height: 18,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              color: OnboardingColors.shiftBlue,
+              color: p.textBrand,
             ),
           ),
           const SizedBox(width: 12),
@@ -255,7 +258,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
           Flexible(
             child: Text(
               'Poori jaankari load ho rahi hai…',
-              style: OnboardingTypography.body(color: OnboardingColors.ink600),
+              style: OnboardingTypography.body(color: p.textSecondary),
             ),
           ),
         ],
@@ -266,6 +269,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
   /// Quiet retry affordance: the header above stays — what we have is real —
   /// only the FULL posting failed to load.
   Widget _loadFailedNote(BuildContext context) {
+    final BbPalette p = context.bb;
     // A Wrap, not a Row: at a large system font the sentence and the button
     // cannot share a 320dp line, and "Try again" is the one control on this
     // block — it drops under the sentence rather than being squeezed away.
@@ -279,7 +283,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
         children: <Widget>[
           Text(
             'Poori jaankari load nahi hui.',
-            style: OnboardingTypography.body(color: OnboardingColors.ink600),
+            style: OnboardingTypography.body(color: p.textSecondary),
           ),
           TextButton(
             style: TextButton.styleFrom(
@@ -299,7 +303,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
   /// The narrative sections, each rendered ONLY when its field is non-null (a
   /// null field hides the whole card). The coarse facts live in their own card
   /// above, so this is description → ZAROORI SKILLS → BENEFITS only.
-  List<Widget> _sections(JobDetail d) {
+  List<Widget> _sections(JobDetail d, BbPalette p) {
     final List<String>? requirements = d.requirements;
     final List<String>? benefits = d.benefits;
     final List<Widget> out = <Widget>[];
@@ -348,7 +352,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
                     for (final String value in facet.values)
                       KitInfoChip(
                         label: value,
-                        dot: OnboardingColors.ink500,
+                        dot: p.textMuted,
                         showCheck: false,
                       ),
                   ],
@@ -380,7 +384,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
                 // concept, which is exactly what the kit is meant to stop.
                 KitInfoChip(
                   label: requirement,
-                  dot: OnboardingColors.ink500,
+                  dot: p.textMuted,
                   showCheck: false,
                 ),
             ],
@@ -435,7 +439,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
   /// A repeat apply is pointless (idempotent upsert) and reads like the first
   /// one never registered.
   Widget _bottomBar(BuildContext context, JobDetailState state) {
-    if (state.detail.alreadyApplied) return _appliedStatus();
+    if (state.detail.alreadyApplied) return _appliedStatus(context);
     return QuestionnaireBottomBar(
       // Same 600 column as the header and the body above it.
       maxWidth: OnboardingLayout.maxTabContentWidth,
@@ -449,7 +453,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
       leading: KitSquareIconButton(
         icon: Icons.close_rounded,
         semanticLabel: kCloseSemanticLabel,
-        iconColor: OnboardingColors.ink600,
+        iconColor: context.bb.textSecondary,
         onTap: state.applying ? null : () => context.pop(),
       ),
     );
@@ -460,23 +464,24 @@ class _JobDetailViewState extends State<_JobDetailView> {
   /// never renders — the copy is the DS's warm Hinglish (L-2, low-literacy
   /// audience). Back navigation stays on the header; nothing is left to decide,
   /// so there is no button here at all.
-  Widget _appliedStatus() {
+  Widget _appliedStatus(BuildContext context) {
+    final BbPalette p = context.bb;
     return KitDockedBar(
       maxWidth: OnboardingLayout.maxTabContentWidth,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: OnboardingColors.successBg,
+          color: p.successBg,
           borderRadius: BorderRadius.circular(OnboardingRadii.docked),
-          border: Border.all(color: OnboardingColors.successBorder),
+          border: Border.all(color: p.successBorder),
         ),
         child: Row(
           children: <Widget>[
-            const Icon(
+            Icon(
               Icons.check_circle_rounded,
               size: 24,
-              color: OnboardingColors.successGreen,
+              color: p.success,
             ),
             const SizedBox(width: 10),
             Expanded(

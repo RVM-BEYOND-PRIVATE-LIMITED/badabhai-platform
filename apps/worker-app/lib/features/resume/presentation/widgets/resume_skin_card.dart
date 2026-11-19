@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 import '../../../../core/api/api_models.dart'
     show ResumeSkinChange, ResumeSkinState;
@@ -96,6 +97,7 @@ class _ResumeSkinCardState extends State<ResumeSkinCard> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     if (!_state.enabled || _state.skins.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -118,7 +120,7 @@ class _ResumeSkinCardState extends State<ResumeSkinCard> {
             style: OnboardingTypography.inter(
               size: 12,
               height: 1.35,
-              color: OnboardingColors.ink500,
+              color: p.textMuted,
             ),
           ),
           const SizedBox(height: 12),
@@ -156,7 +158,8 @@ class _SkinRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ({String name, Color swatch}) look = resumeSkinLook(skin);
+    final BbPalette p = context.bb;
+    final ({String name, Color swatch}) look = resumeSkinLook(skin, p);
     final Widget row = Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -164,8 +167,8 @@ class _SkinRow extends StatelessWidget {
         // The app-wide SELECTED cue: a 1.8dp yellow border, never colour alone.
         border: Border.all(
           color: selected
-              ? OnboardingColors.safetyYellow
-              : OnboardingColors.borderCard,
+              ? p.action
+              : p.borderCard,
           width: selected ? 1.8 : 1,
         ),
       ),
@@ -186,7 +189,7 @@ class _SkinRow extends StatelessWidget {
               style: OnboardingTypography.inter(
                 size: 14,
                 weight: FontWeight.w700,
-                color: OnboardingColors.ink900,
+                color: p.textPrimary,
               ),
             ),
           ),
@@ -196,7 +199,7 @@ class _SkinRow extends StatelessWidget {
               style: OnboardingTypography.inter(
                 size: 12,
                 weight: FontWeight.w700,
-                color: OnboardingColors.ink600,
+                color: p.textSecondary,
               ),
             ),
         ],
@@ -224,13 +227,16 @@ const String kResumeSkinCurrent = 'Abhi yahi';
 /// An id this build has never heard of gets its slug humanised rather than
 /// printed raw (the no-raw-ids rule) and the house navy as its swatch, so a
 /// server that adds a skin before the app does still renders something honest.
-({String name, Color swatch}) resumeSkinLook(String skin) => switch (skin) {
-      'neela' => (name: 'Neela', swatch: OnboardingColors.shiftBlue),
+({String name, Color swatch}) resumeSkinLook(
+  String skin,
+  BbPalette p,
+) => switch (skin) {
+      'neela' => (name: 'Neela', swatch: p.textBrand),
       _ => (
           name: skin.isEmpty
               ? 'Resume'
               : skin[0].toUpperCase() +
                   skin.substring(1).replaceAll(RegExp(r'[_\-]+'), ' '),
-          swatch: OnboardingColors.shiftBlue,
+          swatch: p.textBrand,
         ),
     };

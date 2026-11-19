@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 import '../../../../core/di/locator.dart';
 import '../../../../core/theme/app_motion.dart';
@@ -31,25 +32,6 @@ const String kResumeBuildingStampLine = 'Applying BadaBhai digital stamp…';
 /// sample's "Verified" network claim is left out (the resume itself says
 /// BadaBhai does not guarantee hiring).
 const String kResumeBuildingTrustLine = '100% Free • Factory Placement Network';
-
-/// The design's own tokens for this screen.
-abstract final class _BuildColors {
-  static const Color navyDeep = Color(0xFF0A256E);
-  static const Color stepInk = Color(0xFF475069);
-  static const Color pillBg = Color(0xFFFEF3C7);
-  static const Color pillText = Color(0xFFB45309);
-  static const Color barTrack = Color(0xFFF1F5F9);
-  static const Color barEnd = Color(0xFFF59E0B);
-  static const Color liveBg = Color(0xFFFFFBEB);
-  static const Color liveBorder = Color(0xFFFDE68A);
-  static const Color teaserBg = Color(0x330F2B7A);
-  static const Color teaserBorder = Color(0x59FFB32C);
-  static const Color roleGreen = Color(0xFF86EFAC);
-  static const Color glass12 = Color(0x1FFFFFFF);
-  static const Color glass08 = Color(0x14FFFFFF);
-  static const Color glass06 = Color(0x0FFFFFFF);
-  static const Color white85 = Color(0xD9FFFFFF);
-}
 
 /// The state of one checklist row, derived from the paced step.
 enum _StepState { done, live, pending }
@@ -100,12 +82,13 @@ class _ResumeBuildingBodyState extends State<ResumeBuildingBody>
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return DecoratedBox(
-      decoration: const BoxDecoration(
+      decoration:  BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: <Color>[OnboardingColors.shiftBlue, _BuildColors.navyDeep],
+          colors: <Color>[p.brandSurface, p.brandSurfaceLight],
         ),
       ),
       child: SafeArea(
@@ -168,6 +151,7 @@ class _BuildHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: Column(
@@ -178,7 +162,7 @@ class _BuildHeader extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               decoration: BoxDecoration(
-                color: _BuildColors.glass12,
+                color: p.onBrandSurface.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(999),
               ),
               child: const BrandBadge(),
@@ -190,7 +174,7 @@ class _BuildHeader extends StatelessWidget {
             style: OnboardingTypography.anek(
               size: 28,
               weight: FontWeight.w900,
-              color: OnboardingColors.textOnBlue,
+              color: p.onBrandSurface,
             ),
           ),
           const SizedBox(height: 6),
@@ -199,7 +183,7 @@ class _BuildHeader extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 14,
               height: 1.45,
-              color: _BuildColors.white85,
+              color: p.onBrandSurface.withValues(alpha: 0.85),
             ),
           ),
         ],
@@ -228,12 +212,13 @@ class _ProgressCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final int total = kResumeBuildingSteps.length;
     final bool last = currentStep == total - 1;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
@@ -251,7 +236,7 @@ class _ProgressCard extends StatelessWidget {
                     style: OnboardingTypography.mono(
                       size: 12,
                       weight: FontWeight.w700,
-                      color: _BuildColors.stepInk,
+                      color: p.textSecondary,
                     ).copyWith(letterSpacing: 1),
                   ),
                 ),
@@ -271,7 +256,7 @@ class _ProgressCard extends StatelessWidget {
             if (i > 0 &&
                 _stateOf(i) != _StepState.live &&
                 _stateOf(i - 1) != _StepState.live)
-              const Divider(height: 1, color: OnboardingColors.borderSubtle),
+               Divider(height: 1, color: p.borderSubtle),
             _StepRow(
               label: kResumeBuildingSteps[i],
               state: _stateOf(i),
@@ -293,10 +278,11 @@ class _StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: _BuildColors.pillBg,
+        color: p.warningBg,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -305,8 +291,8 @@ class _StatusPill extends StatelessWidget {
           Container(
             width: 6,
             height: 6,
-            decoration: const BoxDecoration(
-              color: OnboardingColors.safetyYellow,
+            decoration:  BoxDecoration(
+              color: p.action,
               shape: BoxShape.circle,
             ),
           ),
@@ -319,7 +305,7 @@ class _StatusPill extends StatelessWidget {
               style: OnboardingTypography.inter(
                 size: 11,
                 weight: FontWeight.w800,
-                color: _BuildColors.pillText,
+                color: p.warning,
               ),
             ),
           ),
@@ -339,6 +325,7 @@ class _ShimmerBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       label: 'Resume progress',
       value: '${(progress * 100).round()}%',
@@ -348,8 +335,8 @@ class _ShimmerBar extends StatelessWidget {
           height: 5,
           child: Stack(
             children: <Widget>[
-              const Positioned.fill(
-                child: ColoredBox(color: _BuildColors.barTrack),
+               Positioned.fill(
+                child: ColoredBox(color: p.inset),
               ),
               FractionallySizedBox(
                 widthFactor: progress.clamp(0.0, 1.0),
@@ -362,9 +349,9 @@ class _ShimmerBar extends StatelessWidget {
                     return DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: const <Color>[
-                            OnboardingColors.safetyYellow,
-                            _BuildColors.barEnd,
+                          colors:  <Color>[
+                            p.action,
+                            p.actionPressed,
                           ],
                         ),
                       ),
@@ -373,10 +360,10 @@ class _ShimmerBar extends StatelessWidget {
                           gradient: LinearGradient(
                             begin: Alignment(x - 0.6, 0),
                             end: Alignment(x + 0.6, 0),
-                            colors: const <Color>[
-                              Color(0x00FFFFFF),
-                              Color(0x8CFFFFFF),
-                              Color(0x00FFFFFF),
+                            colors:  <Color>[
+                              p.onBrandSurface.withValues(alpha: 0),
+                              p.onBrandSurface.withValues(alpha: 0.55),
+                              p.onBrandSurface.withValues(alpha: 0),
                             ],
                           ),
                         ),
@@ -412,12 +399,13 @@ class _StepRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool live = state == _StepState.live;
     final bool pending = state == _StepState.pending;
     final Widget content = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        SizedBox(width: 22, height: 22, child: _indicator()),
+        SizedBox(width: 22, height: 22, child: _indicator(p)),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -430,15 +418,15 @@ class _StepRow extends StatelessWidget {
                     ? OnboardingTypography.anek(
                         size: 15,
                         weight: FontWeight.w800,
-                        color: OnboardingColors.ink900,
+                        color: p.textPrimary,
                       )
                     : OnboardingTypography.inter(
                         size: 14,
                         weight: FontWeight.w600,
                         height: 1.35,
                         color: pending
-                            ? OnboardingColors.ink500
-                            : OnboardingColors.ink900,
+                            ? p.textMuted
+                            : p.textPrimary,
                       ),
               ),
               if (live && detail != null) ...<Widget>[
@@ -455,10 +443,10 @@ class _StepRow extends StatelessWidget {
                                     0.5 * math.cos(2 * math.pi * loop.value));
                         return Opacity(opacity: glow, child: child);
                       },
-                      child: const Icon(
+                      child:  Icon(
                         Icons.bolt_rounded,
                         size: 16,
-                        color: OnboardingColors.safetyYellow,
+                        color: p.action,
                       ),
                     ),
                     const SizedBox(width: 4),
@@ -468,7 +456,7 @@ class _StepRow extends StatelessWidget {
                         style: OnboardingTypography.inter(
                           size: 12,
                           weight: FontWeight.w600,
-                          color: _BuildColors.pillText,
+                          color: p.warning,
                         ),
                       ),
                     ),
@@ -483,8 +471,8 @@ class _StepRow extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: OnboardingColors.chipBg,
-              border: Border.all(color: OnboardingColors.borderSubtle),
+              color: p.raised,
+              border: Border.all(color: p.borderSubtle),
               borderRadius: BorderRadius.circular(OnboardingRadii.badge),
             ),
             child: Text(
@@ -492,7 +480,7 @@ class _StepRow extends StatelessWidget {
               style: OnboardingTypography.inter(
                 size: 11,
                 weight: FontWeight.w700,
-                color: OnboardingColors.ink500,
+                color: p.textMuted,
               ),
             ),
           ),
@@ -508,10 +496,10 @@ class _StepRow extends StatelessWidget {
           vertical: live ? 14 : 12,
         ),
         decoration: BoxDecoration(
-          color: live ? _BuildColors.liveBg : Colors.transparent,
+          color: live ? p.selectedCardBg : Colors.transparent,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: live ? _BuildColors.liveBorder : Colors.transparent,
+            color: live ? p.warningBg : Colors.transparent,
             width: 1.5,
           ),
         ),
@@ -520,32 +508,32 @@ class _StepRow extends StatelessWidget {
     );
   }
 
-  Widget _indicator() {
+  Widget _indicator(BbPalette p) {
     switch (state) {
       case _StepState.done:
         return Container(
-          decoration: const BoxDecoration(
-            color: OnboardingColors.successBg,
+          decoration:  BoxDecoration(
+            color: p.successBg,
             shape: BoxShape.circle,
           ),
-          child: const Icon(
+          child:  Icon(
             Icons.check_rounded,
             size: 15,
-            color: OnboardingColors.successGreen,
+            color: p.success,
             semanticLabel: 'Ho gaya',
           ),
         );
       case _StepState.live:
-        return const CircularProgressIndicator(
+        return  CircularProgressIndicator(
           strokeWidth: 2.2,
-          color: OnboardingColors.safetyYellow,
+          color: p.action,
         );
       case _StepState.pending:
         return Container(
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             border: Border.all(
-              color: OnboardingColors.borderDefault,
+              color: p.borderDefault,
               width: 1.5,
             ),
           ),
@@ -653,15 +641,16 @@ class _TeaserCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Stack(
       clipBehavior: Clip.none,
       children: <Widget>[
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: _BuildColors.teaserBg,
+            color: p.brandSurfaceRaised.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: _BuildColors.teaserBorder),
+            border: Border.all(color: p.action.withValues(alpha: 0.35)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -673,10 +662,10 @@ class _TeaserCard extends StatelessWidget {
                     height: 40,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: OnboardingColors.shiftBlue,
+                      color: p.brandSurface,
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: OnboardingColors.safetyYellow,
+                        color: p.action,
                         width: 1.5,
                       ),
                     ),
@@ -685,7 +674,7 @@ class _TeaserCard extends StatelessWidget {
                       style: OnboardingTypography.anek(
                         size: 14,
                         weight: FontWeight.w800,
-                        color: OnboardingColors.textOnBlue,
+                        color: p.onBrandSurface,
                       ),
                     ),
                   ),
@@ -704,17 +693,17 @@ class _TeaserCard extends StatelessWidget {
                                 style: OnboardingTypography.inter(
                                   size: 14,
                                   weight: FontWeight.w800,
-                                  color: OnboardingColors.textOnBlue,
+                                  color: p.onBrandSurface,
                                 ),
                               ),
                             ),
                             // The tick is earned by server attestation only.
                             if (data.attested) ...<Widget>[
                               const SizedBox(width: 5),
-                              const Icon(
+                               Icon(
                                 Icons.verified_rounded,
                                 size: 16,
-                                color: OnboardingColors.safetyYellow,
+                                color: p.action,
                               ),
                             ],
                           ],
@@ -730,7 +719,7 @@ class _TeaserCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: OnboardingTypography.mono(
                               size: 11,
-                              color: _BuildColors.roleGreen,
+                              color: p.successBorder,
                             ),
                           ),
                         ],
@@ -744,7 +733,7 @@ class _TeaserCard extends StatelessWidget {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: _BuildColors.glass12,
+                      color: p.onBrandSurface.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
@@ -752,7 +741,7 @@ class _TeaserCard extends StatelessWidget {
                       style: OnboardingTypography.mono(
                         size: 9,
                         weight: FontWeight.w800,
-                        color: OnboardingColors.textOnBlue,
+                        color: p.onBrandSurface,
                       ),
                     ),
                   ),
@@ -760,7 +749,7 @@ class _TeaserCard extends StatelessWidget {
               ),
               if (data.chips.isNotEmpty) ...<Widget>[
                 const SizedBox(height: 14),
-                const Divider(height: 1, color: _BuildColors.glass12),
+                 Divider(height: 1, color: p.onBrandSurface.withValues(alpha: 0.12)),
                 const SizedBox(height: 12),
                 Row(
                   children: <Widget>[
@@ -788,11 +777,12 @@ class _GlassChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: _BuildColors.glass08,
+        color: p.onBrandSurface.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
@@ -802,7 +792,7 @@ class _GlassChip extends StatelessWidget {
         textAlign: TextAlign.center,
         style: OnboardingTypography.mono(
           size: 11,
-          color: OnboardingColors.textOnBlue,
+          color: p.onBrandSurface,
         ),
       ),
     );
@@ -823,6 +813,7 @@ class _Sparkle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Positioned.fill(
       child: IgnorePointer(
         child: ExcludeSemantics(
@@ -841,12 +832,12 @@ class _Sparkle extends StatelessWidget {
             child: Container(
               width: 6,
               height: 6,
-              decoration: const BoxDecoration(
-                color: OnboardingColors.safetyYellow,
+              decoration:  BoxDecoration(
+                color: p.action,
                 shape: BoxShape.circle,
                 boxShadow: <BoxShadow>[
                   BoxShadow(
-                    color: OnboardingColors.safetyYellow,
+                    color: p.action,
                     blurRadius: 6,
                   ),
                 ],
@@ -865,21 +856,22 @@ class _TrustPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Center(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
         decoration: BoxDecoration(
-          color: _BuildColors.glass06,
+          color: p.onBrandSurface.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: _BuildColors.glass12),
+          border: Border.all(color: p.onBrandSurface.withValues(alpha: 0.12)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(
+             Icon(
               Icons.verified_user_rounded,
               size: 16,
-              color: OnboardingColors.safetyYellow,
+              color: p.action,
             ),
             const SizedBox(width: 8),
             Flexible(
@@ -889,7 +881,7 @@ class _TrustPill extends StatelessWidget {
                 style: OnboardingTypography.inter(
                   size: 12,
                   weight: FontWeight.w600,
-                  color: _BuildColors.white85,
+                  color: p.onBrandSurface.withValues(alpha: 0.85),
                 ),
               ),
             ),

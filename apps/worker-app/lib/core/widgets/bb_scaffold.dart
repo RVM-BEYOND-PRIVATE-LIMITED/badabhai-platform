@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_spacing.dart';
-import '../theme/onboarding_theme.dart';
+import '../theme/bb_palette.dart';
 import 'bottom_bar_inset.dart';
 
-/// Standard BadaBhai page shell: the cool [OnboardingColors.canvasBg] page
-/// background, a safe area, and the shared gutter padding. Keeps a real
+/// Standard BadaBhai page shell: the cool page background, a safe area, and the
+/// shared gutter padding. Keeps a real
 /// [Scaffold] underneath so `ScaffoldMessenger` (snackbars) keeps working.
 ///
 /// #1071 — when it carries a [bottomBar] it also publishes that bar's measured
@@ -91,6 +91,7 @@ class _BbScaffoldState extends State<BbScaffold> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     Widget content = widget.body;
     if (widget.padded) {
       content = Padding(
@@ -120,7 +121,7 @@ class _BbScaffoldState extends State<BbScaffold> {
     }
 
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       appBar: widget.appBar,
       body: content,
       bottomNavigationBar: bottom,

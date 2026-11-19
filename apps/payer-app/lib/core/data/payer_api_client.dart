@@ -109,7 +109,16 @@ abstract class PayerApiClient {
     List<String>? requirements,
     String? tradeLevel,
     Map<String, List<String>>? tradeAnswers,
+    // #2746 — sent only when the audience picker was shown (GET audience-options 200).
+    JobAudience? audience,
+    List<int>? rvmBranchIds,
+    List<String>? rvmCourseIds,
   });
+
+  /// #2746 — the audiences + active RVM branch/course options. A neutral 404 (the
+  /// `job_audience` switch is off for the company) returns `null`, so every entry
+  /// point stays hidden; any other failure is thrown.
+  Future<AudienceOptions?> fetchAudienceOptions();
 
   /// One owned posting (`GET /payer/job-postings/:id`). A neutral 404 (unknown or
   /// foreign) returns `null`, never an exception.
@@ -159,6 +168,10 @@ abstract class PayerApiClient {
     List<String>? requirements,
     String? tradeLevel,
     Map<String, List<String>>? tradeAnswers,
+    // #2746 — sent only when the audience picker was shown (GET audience-options 200).
+    JobAudience? audience,
+    List<int>? rvmBranchIds,
+    List<String>? rvmCourseIds,
     List<JobPostingClearField>? clear,
   });
 
@@ -199,6 +212,9 @@ abstract class PayerApiClient {
     required List<String> matchSkillIds,
     List<String> untickedRelatedIds = const <String>[],
     String? roleKind,
+    /// #2746 — an RVM-only audience reaches no BadaBhai worker by design; sent
+    /// only when the audience picker was shown.
+    JobAudience? audience,
   });
 
   // --- AI job-posting chat (ADR-0035) ---------------------------------------
@@ -485,6 +501,12 @@ abstract class PayerApiClient {
   /// (`POST /payer/unlocks/:unlockId/reveal`). Returns a relay handle + channel,
   /// or the neutral `unavailable`. Never a raw phone.
   Future<RevealResult> reveal(String unlockId);
+
+  /// #2747 — what a credit opens (`GET /payer/unlocks/:unlockId/contact`). Read EVERY time the
+  /// contact screen opens; never cached, stored or logged. A 404 is [ContactReadResult.off] (the
+  /// rule is off for the company — today's opened screen stays); the neutral 200 body is
+  /// [ContactReadResult.unavailable]; a 429 is the hourly disclosure cap and throws.
+  Future<ContactReadResult> readContact(String unlockId);
 
   /// REAL masked-résumé disclosure — request a signed masked-PDF URL for
   /// [workerId] (`POST /payer/resume-disclosures`), optionally scoped to

@@ -2,11 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_field.dart';
+import '../theme/bb_palette.dart';
 
 /// A closed, single-select dropdown field that opens a SEARCHABLE bottom sheet
 /// (#2593) — the payer-app port of the worker app's `BbSearchableDropdownField`:
@@ -63,7 +63,7 @@ class BbSearchableDropdownField<T extends Object> extends StatelessWidget {
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      backgroundColor: AppColors.surfaceCard,
+      backgroundColor: context.bb.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.xxl)),
       ),
@@ -81,6 +81,7 @@ class BbSearchableDropdownField<T extends Object> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -89,7 +90,7 @@ class BbSearchableDropdownField<T extends Object> extends StatelessWidget {
           style: AppTypography.body(
             size: AppTypography.sizeSm,
             weight: FontWeight.w700,
-            color: AppColors.textPrimary,
+            color: p.textPrimary,
           ),
         ),
         const SizedBox(height: AppSpacing.s2),
@@ -100,10 +101,10 @@ class BbSearchableDropdownField<T extends Object> extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppRadii.md),
             // The theme's own input chrome, so it matches the selects beside it.
             child: InputDecorator(
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 suffixIcon: Icon(
                   Icons.expand_more_rounded,
-                  color: AppColors.textMuted,
+                  color: p.textMuted,
                 ),
               ),
               child: Text(
@@ -153,6 +154,7 @@ class _SearchSheetState<T extends Object> extends State<_SearchSheet<T>> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String q = _query.trim().toLowerCase();
     final List<T> visible = q.isEmpty
         ? widget.options
@@ -208,7 +210,7 @@ class _SearchSheetState<T extends Object> extends State<_SearchSheet<T>> {
                           widget.emptyHint,
                           style: AppTypography.body(
                             size: AppTypography.sizeSm,
-                            color: AppColors.textMuted,
+                            color: p.textMuted,
                           ),
                         ),
                       )
@@ -219,7 +221,7 @@ class _SearchSheetState<T extends Object> extends State<_SearchSheet<T>> {
                         primary: false,
                         itemCount: visible.length,
                         separatorBuilder: (BuildContext context, int i) =>
-                            const Divider(height: 1, color: AppColors.border),
+                            Divider(height: 1, color: p.borderDefault),
                         itemBuilder: (BuildContext context, int i) {
                           final T option = visible[i];
                           final bool picked = option == widget.value;
@@ -233,9 +235,9 @@ class _SearchSheetState<T extends Object> extends State<_SearchSheet<T>> {
                               ),
                             ),
                             trailing: picked
-                                ? const Icon(
+                                ? Icon(
                                     Icons.check_rounded,
-                                    color: AppColors.blue,
+                                    color: p.textBrand,
                                   )
                                 : null,
                             onTap: () => Navigator.of(context).pop(option),

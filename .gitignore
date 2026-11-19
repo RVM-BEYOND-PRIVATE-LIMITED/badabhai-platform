@@ -14,6 +14,7 @@ coverage/
 
 # ---- Next.js ----
 .next/
+.next-build/
 out/
 next-env.d.ts
 # Keep the committed web next-env.d.ts so CI typecheck works without a prior build.

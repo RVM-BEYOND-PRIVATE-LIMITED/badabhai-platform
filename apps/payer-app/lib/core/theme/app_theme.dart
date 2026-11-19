@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_colors.dart';
+import 'bb_palette.dart';
 import 'app_page_transitions.dart';
 import 'app_spacing.dart';
 import 'app_system_ui.dart';
@@ -69,6 +70,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
+      extensions: const <ThemeExtension<dynamic>>[BbPalette.light],
       scaffoldBackgroundColor: AppColors.surfacePage,
       textTheme: textTheme,
       primaryColor: AppColors.brand,
@@ -237,6 +239,210 @@ class AppTheme {
         labelStyle: AppTypography.body(
           size: AppTypography.sizeSm,
           weight: FontWeight.w600,
+        ),
+        shape: const StadiumBorder(),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.s3,
+          vertical: AppSpacing.s2,
+        ),
+      ),
+    );
+  }
+
+
+  /// The brand's dark **ink** theme (#2830). Same shapes, radii and type as
+  /// [light]; every colour is a [BbPalette.dark] role. Only used when the
+  /// theme controller says the payer may see it.
+  static ThemeData dark() {
+    const BbPalette p = BbPalette.dark;
+    final ColorScheme scheme = ColorScheme(
+      brightness: Brightness.dark,
+      primary: p.action,
+      onPrimary: p.onAction,
+      primaryContainer: p.selectedCardBg,
+      onPrimaryContainer: p.textPrimary,
+      secondary: p.textBrand,
+      onSecondary: p.card,
+      secondaryContainer: p.raised,
+      onSecondaryContainer: p.textPrimary,
+      tertiary: p.success,
+      onTertiary: p.card,
+      tertiaryContainer: p.successBg,
+      onTertiaryContainer: p.success,
+      error: p.danger,
+      onError: p.card,
+      errorContainer: p.dangerBg,
+      onErrorContainer: p.danger,
+      surface: p.card,
+      onSurface: p.textPrimary,
+      onSurfaceVariant: p.textSecondary,
+      surfaceContainerLowest: p.inset,
+      surfaceContainerLow: p.card,
+      surfaceContainer: p.raised,
+      surfaceContainerHigh: p.raised,
+      surfaceContainerHighest: p.raised,
+      outline: p.borderDefault,
+      outlineVariant: p.borderSubtle,
+      shadow: Colors.transparent,
+      scrim: p.scrim,
+      inverseSurface: p.textPrimary,
+      onInverseSurface: p.card,
+      inversePrimary: p.actionTint,
+    );
+
+    final TextTheme textTheme = AppTypography.textTheme();
+    const RoundedRectangleBorder controlShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(AppRadii.md)),
+    );
+
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      colorScheme: scheme,
+      extensions: const <ThemeExtension<dynamic>>[BbPalette.dark],
+      scaffoldBackgroundColor: p.page,
+      textTheme: textTheme,
+      primaryColor: p.action,
+      splashColor: p.actionTint,
+      highlightColor: p.actionTint,
+      dividerColor: p.borderSubtle,
+      pageTransitionsTheme: BbPageTransitionsBuilder.theme,
+      iconTheme: IconThemeData(color: p.iconSecondary, size: 24),
+      appBarTheme: AppBarTheme(
+        backgroundColor: p.page,
+        foregroundColor: p.textPrimary,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        shadowColor: Colors.transparent,
+        centerTitle: true,
+        titleTextStyle: textTheme.titleLarge,
+        iconTheme: IconThemeData(color: p.iconSecondary),
+        systemOverlayStyle: AppSystemUi.onDark,
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: p.action,
+          foregroundColor: p.onAction,
+          disabledBackgroundColor: p.disabledBg,
+          disabledForegroundColor: p.disabledText,
+          minimumSize: const Size(64, AppSpacing.controlLg),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
+          textStyle: textTheme.labelLarge,
+          shape: controlShape,
+          elevation: 0,
+          shadowColor: Colors.transparent,
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: p.action,
+          foregroundColor: p.onAction,
+          disabledBackgroundColor: p.disabledBg,
+          disabledForegroundColor: p.disabledText,
+          minimumSize: const Size(64, AppSpacing.controlLg),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
+          textStyle: textTheme.labelLarge,
+          shape: controlShape,
+          elevation: 0,
+          shadowColor: Colors.transparent,
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          backgroundColor: p.card,
+          foregroundColor: p.textPrimary,
+          minimumSize: const Size(64, AppSpacing.controlLg),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
+          textStyle: textTheme.labelLarge,
+          side: BorderSide(color: p.borderDefault, width: 1),
+          shape: controlShape,
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: p.link,
+          textStyle: textTheme.labelLarge,
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.s4,
+            vertical: AppSpacing.s2,
+          ),
+          shape: controlShape,
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: p.card,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.s4,
+          vertical: AppSpacing.s4,
+        ),
+        hintStyle: AppTypography.body(color: p.textMuted),
+        labelStyle: AppTypography.body(
+          color: p.textPrimary,
+          weight: FontWeight.w600,
+        ),
+        enabledBorder: _inputBorder(p.borderDefault, 1),
+        border: _inputBorder(p.borderDefault, 1),
+        focusedBorder: _inputBorder(p.focusRing, 2),
+        errorBorder: _inputBorder(p.danger, 1),
+        focusedErrorBorder: _inputBorder(p.danger, 2),
+        errorStyle: AppTypography.body(
+          size: AppTypography.sizeSm,
+          color: p.danger,
+          weight: FontWeight.w500,
+        ),
+      ),
+      cardTheme: CardThemeData(
+        color: p.card,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(AppRadii.lg)),
+          side: BorderSide(color: Color(0xFF1F3160), width: 1),
+        ),
+      ),
+      listTileTheme: ListTileThemeData(
+        iconColor: p.iconSecondary,
+        titleTextStyle: textTheme.titleSmall,
+        subtitleTextStyle: AppTypography.body(color: p.textSecondary),
+      ),
+      checkboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith<Color>((states) {
+          if (states.contains(WidgetState.selected)) return p.success;
+          return p.card;
+        }),
+        checkColor: WidgetStatePropertyAll<Color>(p.card),
+        side: BorderSide(color: p.borderDefault, width: 2),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.xs),
+        ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: p.raised,
+        contentTextStyle: AppTypography.body(color: p.textPrimary),
+        actionTextColor: p.action,
+        behavior: SnackBarBehavior.floating,
+        elevation: 0,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(AppRadii.md)),
+        ),
+      ),
+      dividerTheme: DividerThemeData(
+        color: p.borderSubtle,
+        thickness: 1,
+        space: 1,
+      ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(color: p.action),
+      chipTheme: ChipThemeData(
+        backgroundColor: p.raised,
+        side: BorderSide(color: p.borderDefault),
+        labelStyle: AppTypography.body(
+          size: AppTypography.sizeSm,
+          weight: FontWeight.w600,
+          color: p.textPrimary,
         ),
         shape: const StadiumBorder(),
         padding: const EdgeInsets.symmetric(

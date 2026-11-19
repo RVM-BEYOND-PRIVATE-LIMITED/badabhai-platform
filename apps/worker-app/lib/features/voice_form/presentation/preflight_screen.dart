@@ -3,8 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -122,6 +122,7 @@ class _PreflightScreenState extends State<PreflightScreen> {
   }
 
   Widget _body(PreflightState state) {
+    final BbPalette p = context.bb;
     return switch (state) {
       PreflightRequestingPermission() =>
         const BbStatusView.loading(caption: _kProbingCaption),
@@ -133,14 +134,14 @@ class _PreflightScreenState extends State<PreflightScreen> {
       // remounts (re-asks permission after the worker fixes settings).
       PreflightPermissionDenied() => BbStatusView(
           icon: Icons.mic_off_outlined,
-          iconColor: AppColors.danger,
+          iconColor: p.danger,
           title: _kPermissionTitle,
           subtitle: state.failure.message,
           action: _retryThenBack(),
         ),
       PreflightUnavailable() => BbStatusView(
           icon: Icons.cloud_off_outlined,
-          iconColor: AppColors.textMuted,
+          iconColor: p.textMuted,
           title: _kVoiceOffTitle,
           subtitle: state.failure.message,
           action: _ghostBack(),
@@ -153,10 +154,11 @@ class _PreflightScreenState extends State<PreflightScreen> {
   /// #680.4 — route consent / auth failures to the right destination instead of
   /// the generic "voice is off" bucket; a transient failure gets a REAL retry.
   Widget _failed(Failure failure) {
+    final BbPalette p = context.bb;
     if (failure is ConsentRequiredFailure) {
       return BbStatusView(
         icon: Icons.verified_user_outlined,
-        iconColor: AppColors.warning,
+        iconColor: p.warning,
         title: _kConsentTitle,
         subtitle: _kConsentBody,
         action: widget.onConsentRequired != null
@@ -170,7 +172,7 @@ class _PreflightScreenState extends State<PreflightScreen> {
     if (failure is UnauthorizedFailure) {
       return BbStatusView(
         icon: Icons.lock_outline,
-        iconColor: AppColors.warning,
+        iconColor: p.warning,
         title: _kReauthTitle,
         subtitle: _kReauthBody,
         action: widget.onReauthRequired != null
@@ -180,7 +182,7 @@ class _PreflightScreenState extends State<PreflightScreen> {
     }
     return BbStatusView(
       icon: Icons.error_outline,
-      iconColor: AppColors.danger,
+      iconColor: p.danger,
       title: _kVoiceOffTitle,
       subtitle: failure.message,
       action: _retryThenBack(),
@@ -209,6 +211,7 @@ class _PreflightScreenState extends State<PreflightScreen> {
   }
 
   Widget _ready(PreflightReady state) {
+    final BbPalette p = context.bb;
     final (String title, String bodyCopy) = switch (state.verdict) {
       PreflightVerdict.quiet => (_kQuietTitle, _kQuietBody),
       PreflightVerdict.loud => (_kLoudTitle, _kLoudBody),
@@ -225,7 +228,7 @@ class _PreflightScreenState extends State<PreflightScreen> {
           Icon(
             clean ? Icons.check_circle_outline : Icons.graphic_eq,
             size: AppSpacing.s9,
-            color: clean ? AppColors.success : AppColors.warning,
+            color: clean ? p.success : p.warning,
           ),
           const SizedBox(height: AppSpacing.s4),
           Text(title,
@@ -234,7 +237,7 @@ class _PreflightScreenState extends State<PreflightScreen> {
           const SizedBox(height: AppSpacing.s2),
           Text(
             bodyCopy,
-            style: AppTypography.body(color: AppColors.textSecondary),
+            style: AppTypography.body(color: p.textSecondary),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: AppSpacing.s7),

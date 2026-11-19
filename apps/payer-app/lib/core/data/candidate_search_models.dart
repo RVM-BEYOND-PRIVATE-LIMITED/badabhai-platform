@@ -26,6 +26,8 @@ import '../util/name_mask.dart';
 
 String? _string(Object? v) => v is String && v.isNotEmpty ? v : null;
 
+String? _stringOrNull(Object? v) => v is String ? v : null;
+
 int? _int(Object? v) => v is num && v.isFinite ? v.toInt() : null;
 
 List<Object?> _list(Object? v) => v is List<dynamic> ? v : const <Object?>[];
@@ -137,6 +139,15 @@ class CandidateSearchRow extends Equatable {
     required this.city,
     required this.tradeLevels,
     this.isSample = false,
+    this.notRecentlyActive = false,
+    this.source,
+    this.firstName,
+    this.tradeLine,
+    this.expectedSalary,
+    this.machines,
+    this.area,
+    this.lastActiveOn,
+    this.hasFacts = false,
   });
 
   /// The opaque worker id — the SAME id `POST /payer/unlocks` takes.
@@ -174,6 +185,24 @@ class CandidateSearchRow extends Equatable {
   /// with a "Sample candidate" badge and never unlockable — the server refuses
   /// the unlock (no credit spent); the app offers none.
   final bool isSample;
+
+  /// #2753 item 7 — the server's "not recently active" mark, present only while
+  /// `WORKER_ACTIVITY_ENABLED` is on; absent reads as false. A MARK, never a
+  /// filter: the server's order and membership are untouched.
+  final bool notRecentlyActive;
+
+  /// #2747 — `rvm_student` | `badabhai_worker`. A label only; never a filter or an order.
+  final String? source;
+
+  /// #2747 — the six facts before paying, present together only while the part is on for the
+  /// company. Each may be null ("not given"); [hasFacts] is true EVEN when all six are null.
+  final String? firstName;
+  final String? tradeLine;
+  final String? expectedSalary;
+  final List<String>? machines;
+  final String? area;
+  final String? lastActiveOn;
+  final bool hasFacts;
 
   /// "Worker ••3f9a" — the same masked handle the applicant card shows.
   String get maskedLabel => NameMask.workerLabel(workerId);
@@ -228,6 +257,29 @@ class CandidateSearchRow extends Equatable {
       // Only a literal `true` marks a sample; absent or wrong-typed reads as a
       // real worker (the server still refuses a sample's unlock).
       isSample: json['isSample'] == true,
+      // #2753 item 7 — only a literal `true` marks inactivity; an absent key
+      // (switch off) reads as no mark, exactly today's card.
+      notRecentlyActive: json['notRecentlyActive'] == true,
+      source: _string(json['source']),
+      firstName: _stringOrNull(json['firstName']),
+      tradeLine: _stringOrNull(json['tradeLine']),
+      expectedSalary: _stringOrNull(json['expectedSalary']),
+      machines: json['machines'] is List<dynamic>
+          ? List<String>.unmodifiable(
+              (json['machines'] as List<dynamic>).whereType<String>(),
+            )
+          : null,
+      area: _stringOrNull(json['area']),
+      lastActiveOn: _stringOrNull(json['lastActiveOn']),
+      // ANY of the six keys present means the part is on — all-null still counts.
+      hasFacts: const <String>[
+        'firstName',
+        'tradeLine',
+        'expectedSalary',
+        'machines',
+        'area',
+        'lastActiveOn',
+      ].any(json.containsKey),
     );
   }
 
@@ -244,6 +296,15 @@ class CandidateSearchRow extends Equatable {
         city,
         tradeLevels,
         isSample,
+        notRecentlyActive,
+        source,
+        firstName,
+        tradeLine,
+        expectedSalary,
+        machines,
+        area,
+        lastActiveOn,
+        hasFacts,
       ];
 }
 

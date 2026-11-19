@@ -20,6 +20,44 @@ import { APPLICANT_STAGES } from "./applicant-stages";
 
 /* ── Dashboard ──────────────────────────────────────────────────────────────── */
 
+/**
+ * #2746 — who sees a company posting: BadaBhai workers, RVM students, or both.
+ * The audience block and its RVM review only arrive while the `job_audience` switch is on
+ * for the company (or when the stored audience is not the default), so every field is
+ * optional here and an absent block means "BadaBhai workers, no RVM review to show".
+ */
+export const jobAudienceSchema = z.enum(["badabhai_workers", "rvm_students", "both"]);
+export type JobAudience = z.infer<typeof jobAudienceSchema>;
+
+/** The display labels for the closed audience tokens — safe on the server and the client. */
+export const JOB_AUDIENCE_LABEL: Record<JobAudience, string> = {
+  badabhai_workers: "BadaBhai workers",
+  rvm_students: "RVM students",
+  both: "Both",
+};
+
+/** The placement team's decision on the RVM part of a posting, as the company reads it. */
+export const rvmReviewSchema = z.object({
+  state: z.enum(["pending", "approved", "rejected"]),
+  reviewed_at: z.string().optional(),
+  reason: z.string().optional(),
+});
+export type RvmReview = z.infer<typeof rvmReviewSchema>;
+
+/** `GET /payer/job-postings/audience-options` — the audiences + active RVM options. */
+export const audienceOptionsWireSchema = z.object({
+  audiences: z.array(jobAudienceSchema),
+  branches: z.array(
+    z.object({ id: z.number().int(), label: z.string(), sort_order: z.number().int() }),
+  ),
+  courses: z.array(
+    z.object({ id: z.string(), label: z.string(), sort_order: z.number().int() }),
+  ),
+});
+export type AudienceOptions = z.infer<typeof audienceOptionsWireSchema>;
+export type AudienceBranchOption = AudienceOptions["branches"][number];
+export type AudienceCourseOption = AudienceOptions["courses"][number];
+
 export const postingSummarySchema = z.object({
   id: z.string().uuid(),
   roleTitle: z.string(),
@@ -36,6 +74,14 @@ export const postingSummarySchema = z.object({
    */
   applicantQuota: z.number().int().nonnegative().optional(),
   createdAt: z.string(),
+  /**
+   * #2746 — the audience block. Absent when the switch is off for the company and the
+   * stored audience is the default, exactly as the API omits it.
+   */
+  audience: jobAudienceSchema.optional(),
+  rvmBranchIds: z.array(z.number().int()).optional(),
+  rvmCourseIds: z.array(z.string()).optional(),
+  rvmReview: rvmReviewSchema.nullable().optional(),
 });
 export type PostingSummary = z.infer<typeof postingSummarySchema>;
 
@@ -76,6 +122,8 @@ export const unlockHistoryItemSchema = z.object({
   status: z.enum(["granted", "expired"]),
   createdAt: z.string(),
   expiresAt: z.string(),
+  /** #2747 — null = open for good (a stored date ships as `expiresAt`). Absent = old server. */
+  openUntil: z.string().nullable().optional(),
   /** When the current grant was made (a re-grant after a lapse moves it; `createdAt` does not). */
   grantedAt: z.string().nullable().optional(),
   /** The company posting the unlock was made from (#2033); null/absent = none recorded. */
@@ -330,6 +378,11 @@ export const createPostingInputSchema = z
     neededBy: neededBySchema.optional(),
     requirements: requirementsInputSchema.optional(),
     benefits: benefitsInputSchema.optional(),
+    // #2746 — WHO SEES THIS POSTING. The server re-validates every one of these and is the
+    // authority: an id not offered is a 400, and targeting with no RVM part is refused.
+    audience: jobAudienceSchema.optional(),
+    rvmBranchIds: z.array(z.number().int().positive()).max(50).optional(),
+    rvmCourseIds: z.array(z.string().min(1).max(64)).max(100).optional(),
   })
   .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {
     message: "Max pay must be greater than or equal to min pay.",
@@ -423,6 +476,11 @@ export const updatePostingInputSchema = z
         z.array(z.string().regex(/^[a-z][a-z0-9_]*$/)).max(20),
       )
       .optional(),
+    // #2746 — the SAME audience fields as create. They are not clearable; an audience-only
+    // PATCH is a real edit. The server is the authority on both refusals.
+    audience: jobAudienceSchema.optional(),
+    rvmBranchIds: z.array(z.number().int().positive()).max(50).optional(),
+    rvmCourseIds: z.array(z.string().min(1).max(64)).max(100).optional(),
   })
   .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {
     message: "Max pay must be greater than or equal to min pay.",
@@ -591,7 +649,31 @@ export type LevelFit = z.infer<typeof levelFitSchema>;
  * opaque worker_id + banded, post-masking signals the API authorizes (XB-C: no
  * existence/consent oracle leaks here either).
  */
+/** #2747 — where an applicant came from. A label only; it never filters or reorders a row. */
+export const APPLICANT_SOURCES = ["rvm_student", "badabhai_worker"] as const;
+export const applicantSourceSchema = z.enum(APPLICANT_SOURCES);
+export type ApplicantSource = z.infer<typeof applicantSourceSchema>;
+
+/**
+ * #2747 — the source label and the six facts before paying, appended to every applicant, inbox
+ * and search row. Optional only for an older API (and the now-checked fixture): while
+ * `APPLICANT_FACTS_ROLLOUT` is on all six keys are always present, each possibly `null`
+ * ("not given"); while it is off none is. `source` has no switch.
+ */
+const applicantFactsWireFields = {
+  source: applicantSourceSchema.optional(),
+  firstName: z.string().nullable().optional(),
+  tradeLine: z.string().nullable().optional(),
+  expectedSalary: z.string().nullable().optional(),
+  machines: z.array(z.string()).nullable().optional(),
+  area: z.string().nullable().optional(),
+  lastActiveOn: z.string().nullable().optional(),
+};
+
 export const facelessApplicantSchema = z.object({
+  ...applicantFactsWireFields,
+  /** True when the mapper saw any of the six keys — all-null still counts as ON. */
+  factsOn: z.boolean().optional(),
   workerId: z.string().uuid(),
   /** Deterministic relevance rank from the RANK core (LIVE: payer reach view). */
   rank: z.number().int().nonnegative(),
@@ -648,6 +730,13 @@ export const facelessApplicantSchema = z.object({
    * every row while it does not — the board reads which from the rows (`hasSavedStages`).
    */
   stage: z.enum(APPLICANT_STAGES).optional(),
+
+  /**
+   * #2753 item 7 — the "not recently active" mark, present on every row only
+   * while `WORKER_ACTIVITY_ENABLED` is on; absent when it is off. A MARK, never
+   * a filter: nothing hides or re-sorts a worker because of it.
+   */
+  notRecentlyActive: z.boolean().optional(),
 });
 export type FacelessApplicant = z.infer<typeof facelessApplicantSchema>;
 
@@ -668,6 +757,8 @@ export const unlockGrantedSchema = z.object({
   expiresAt: z.string(),
   /** #2750: the credits the open took (0 on a re-open); absent outside the credit rules. */
   creditsCharged: z.number().int().nonnegative().optional(),
+  /** #2747 — null = open for good; absent = an older server. */
+  openUntil: z.string().nullable().optional(),
 });
 
 /** The byte-identical neutral body shared by every deny branch (XB-C / no-oracle). */
@@ -1031,6 +1122,8 @@ export const unlockProjectionWireSchema = z.object({
   reveal_count: z.number().int().nonnegative(),
   granted_at: z.string().nullable(),
   expires_at: z.string().nullable(),
+  /** #2747 — null = open for good; absent = an older server. */
+  open_until: z.string().nullable().optional(),
   created_at: z.string(),
 });
 export const unlocksListWireSchema = z.object({
@@ -1045,6 +1138,8 @@ export const unlockGrantedWireSchema = z.object({
   expires_at: z.string(),
   /** #2750, additive: absent for a company outside the credit rules. */
   credits_charged: z.number().int().nonnegative().optional(),
+  /** #2747 — null = open for good; absent = an older server. */
+  open_until: z.string().nullable().optional(),
 });
 export const neutralWireSchema = z.object({ status: z.literal("unavailable") });
 export const unlockInsufficientWireSchema = z.object({
@@ -1079,6 +1174,22 @@ export const unlockQuotesWireSchema = z.object({
   credits_available: z.number().int().nonnegative(),
 });
 export type UnlockQuotesWire = z.infer<typeof unlockQuotesWireSchema>;
+
+/**
+ * #2747 — `GET /payer/unlocks/:unlockId/contact`, what a credit opens. The route answers `404`
+ * while the rule is off for the company (the caller keeps today's opened screen); on it, the one
+ * distinguishable success or the same neutral body as every other deny. `Cache-Control: no-store`
+ * — this is read when the contact screen opens and never cached, stored or logged.
+ */
+export const unlockContactWireSchema = z.union([
+  z.object({
+    ok: z.literal(true),
+    full_name: z.string().nullable(),
+    phone: z.string(),
+    opened_at: z.string().nullable(),
+  }),
+  neutralWireSchema,
+]);
 
 /**
  * POST /payer/credits — buy a credit pack (LIVE, @HttpCode(201)). The request body
@@ -1183,6 +1294,17 @@ export const buyCapacityWireSchema = z.object({
  */
 export const applicantStageWireSchema = z.enum(APPLICANT_STAGES);
 
+/** #2747 — `GET /payer/reach/applicant-stages`: what this company's board may do now. */
+export const applicantStageOptionsWireSchema = z.object({
+  stages: z.array(applicantStageWireSchema),
+  outcomeStages: z.boolean(),
+  rvmSignal: z.boolean(),
+});
+export type ApplicantStageOptions = z.infer<typeof applicantStageOptionsWireSchema>;
+
+/** One contact read (#2747): the success body, or the one neutral deny. */
+export type UnlockContactWire = z.infer<typeof unlockContactWireSchema>;
+
 /**
  * GET /payer/reach/jobs/:jobId/applicants — faceless ranked rows (no PII).
  *
@@ -1195,6 +1317,7 @@ export const applicantStageWireSchema = z.enum(APPLICANT_STAGES);
  * projection yet (stays optional on the UI type).
  */
 export const reachApplicantWireSchema = z.object({
+  ...applicantFactsWireFields,
   workerId: z.string().uuid(),
   rank: z.number().int(),
   score: z.number(),
@@ -1206,6 +1329,8 @@ export const reachApplicantWireSchema = z.object({
   cityLabel: z.string().nullable().optional(),
   levelFit: levelFitSchema.optional(),
   stage: applicantStageWireSchema.optional(),
+  /** #2753 item 7 — present only while `WORKER_ACTIVITY_ENABLED` is on. */
+  notRecentlyActive: z.boolean().optional(),
 });
 
 /**
@@ -1220,6 +1345,7 @@ export const reachApplicantWireSchema = z.object({
  * explainable from the row rather than only reproducible by re-running the rule.
  */
 export const matchCandidateWireSchema = z.object({
+  ...applicantFactsWireFields,
   workerId: z.string().uuid(),
   applicationId: z.string().uuid(),
   rank: z.number().int(),
@@ -1233,6 +1359,8 @@ export const matchCandidateWireSchema = z.object({
   tradeLevels: z.array(tradeLevelBadgeWireSchema).optional(),
   levelFit: levelFitSchema.optional(),
   stage: applicantStageWireSchema.optional(),
+  /** #2753 item 7 — present only while `WORKER_ACTIVITY_ENABLED` is on. */
+  notRecentlyActive: z.boolean().optional(),
 });
 
 /**
@@ -1368,6 +1496,7 @@ export type LabelledId = z.infer<typeof labelledIdWireSchema>;
  *    Always sent; the API also refuses its unlock with the neutral body.
  */
 export const candidateSearchRowWireSchema = z.object({
+  ...applicantFactsWireFields,
   workerId: z.string().uuid(),
   matchesFilters: z.boolean(),
   matchTier: z.union([z.literal(1), z.literal(2)]).nullable(),
@@ -1379,6 +1508,8 @@ export const candidateSearchRowWireSchema = z.object({
   city: z.string().nullable(),
   tradeLevels: z.array(tradeLevelBadgeWireSchema),
   isSample: z.boolean(),
+  /** #2753 item 7 — present only while `WORKER_ACTIVITY_ENABLED` is on. */
+  notRecentlyActive: z.boolean().optional(),
 });
 export type CandidateSearchRow = z.infer<typeof candidateSearchRowWireSchema>;
 
@@ -1511,6 +1642,12 @@ export const jobPostingWireSchema = z.object({
   // Never rendered on the card (role_kind is display; these are the match inputs).
   match_skill_ids: z.array(z.string()).nullable().optional(),
   unticked_related_ids: z.array(z.string()).nullable().optional(),
+  // #2746 — the audience block. Absent while the switch is off for the company and the stored
+  // audience is the default; present whenever the stored audience is not `badabhai_workers`.
+  audience: jobAudienceSchema.optional(),
+  rvm_branch_ids: z.array(z.number().int()).optional(),
+  rvm_course_ids: z.array(z.string()).optional(),
+  rvm_review: rvmReviewSchema.nullable().optional(),
   created_at: z.string(),
   // #2956 / #2958 — where the job shows, set by a BadaBhai admin (the company does not choose).
   // Sent only when it is not the default (BadaBhai workers); read-only on the job page.
@@ -1521,6 +1658,84 @@ export const jobPostingWireSchema = z.object({
 
 export type JobPostingWire = z.infer<typeof jobPostingWireSchema>;
 export const jobPostingListWireSchema = z.array(jobPostingWireSchema);
+
+/* ── Campus-drive requests (#2746, #2813) — employer-only, payer-web only ─────── */
+
+export const campusDriveStatusSchema = z.enum([
+  "requested",
+  "scheduled",
+  "declined",
+  "completed",
+  "cancelled",
+]);
+export type CampusDriveStatus = z.infer<typeof campusDriveStatusSchema>;
+
+/**
+ * One request as its company reads it. `contact` carries the name plus only the phone's last
+ * four digits (the API's house rule), never the number; `roles_note` and `decision_reason` are
+ * the placement team's/company's own words and must be rendered as PLAIN TEXT only.
+ */
+export const campusDriveRequestWireSchema = z.object({
+  id: z.string().uuid(),
+  job_posting_id: z.string().uuid().nullable(),
+  branch_ids: z.array(z.number().int()),
+  preferred_from: z.string(),
+  preferred_to: z.string(),
+  openings: z.number().int(),
+  roles_note: z.string().nullable(),
+  contact: z
+    .object({ name: z.string(), phone_last4: z.string() })
+    .nullable(),
+  status: campusDriveStatusSchema,
+  scheduled_on: z.string().nullable(),
+  campus_drive_ref: z.string().nullable(),
+  decision_reason: z.string().nullable(),
+  decided_at: z.string().nullable(),
+  cancelled_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type CampusDriveRequest = z.infer<typeof campusDriveRequestWireSchema>;
+
+export const campusDriveRequestPageWireSchema = z.object({
+  drive_requests: z.array(campusDriveRequestWireSchema),
+  next_cursor: z.string().nullable(),
+});
+export type CampusDriveRequestPage = z.infer<typeof campusDriveRequestPageWireSchema>;
+
+/**
+ * `POST /payer/campus-drive-requests` body. Strict on the wire: the server refuses unknown keys,
+ * so this is a closed set. `branchIds: []` means any branch; dates are `YYYY-MM-DD`.
+ */
+export const campusDriveCreateInputSchema = z.object({
+  jobPostingId: z.string().uuid().optional(),
+  branchIds: z.array(z.number().int().positive()).max(50).default([]),
+  preferredFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  preferredTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  openings: z.number().int().min(1).max(1000),
+  rolesNote: z.string().max(1000).optional(),
+  contactName: z.string().trim().min(1).max(120),
+  contactPhone: z.string().regex(/^\+[1-9]\d{7,14}$/),
+});
+export type CampusDriveCreateInput = z.infer<typeof campusDriveCreateInputSchema>;
+
+/** Map the form's camelCase input to the API's strict snake_case body. */
+export function toCampusDriveCreateBody(
+  input: CampusDriveCreateInput,
+): Record<string, unknown> {
+  return {
+    ...(input.jobPostingId !== undefined ? { job_posting_id: input.jobPostingId } : {}),
+    branch_ids: input.branchIds,
+    preferred_from: input.preferredFrom,
+    preferred_to: input.preferredTo,
+    openings: input.openings,
+    ...(input.rolesNote !== undefined && input.rolesNote.trim() !== ""
+      ? { roles_note: input.rolesNote.trim() }
+      : {}),
+    contact_name: input.contactName,
+    contact_phone: input.contactPhone,
+  };
+}
 
 /* ── Agency Supply Portal — DEMAND on the faceless `jobs` entity (ADR-0022) ──────
  *

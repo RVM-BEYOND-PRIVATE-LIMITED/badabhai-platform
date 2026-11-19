@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 import 'kit_content_column.dart';
 
@@ -39,6 +40,7 @@ class KitTabHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final double top = MediaQuery.paddingOf(context).top;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
@@ -46,7 +48,7 @@ class KitTabHeader extends StatelessWidget {
         maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
         child: Container(
           width: double.infinity,
-          color: OnboardingColors.shiftBlue,
+          color: p.brandSurface,
           padding: EdgeInsets.only(top: top, left: 16, right: 3),
           child: KitContentColumn(
             // minHeight, not a fixed height: the title is allowed a second
@@ -59,7 +61,7 @@ class KitTabHeader extends StatelessWidget {
                     width: 4,
                     height: 18,
                     decoration: BoxDecoration(
-                      color: OnboardingColors.safetyYellow,
+                      color: p.action,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -88,7 +90,7 @@ class KitTabHeader extends StatelessWidget {
                         size: 20,
                         weight: FontWeight.w800,
                         height: 1.25,
-                        color: OnboardingColors.textOnBlue,
+                        color: p.onBrandSurface,
                       ),
                     ),
                   ),

@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_badge.dart';
@@ -13,6 +12,7 @@ import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/reveal_cubit.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// The "History" link both Find views (All candidates and Applicants) put
 /// beside their title — the entry to [DisclosureHistoryScreen], pushed as a
@@ -22,6 +22,7 @@ class DisclosureHistoryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return TextButton.icon(
       onPressed: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -32,7 +33,7 @@ class DisclosureHistoryButton extends StatelessWidget {
       icon: const Icon(Icons.history_rounded, size: 18),
       label: const Text('History'),
       style: TextButton.styleFrom(
-        foregroundColor: AppColors.textSecondary,
+        foregroundColor: p.textSecondary,
         minimumSize: const Size(0, AppSpacing.tap),
         tapTargetSize: MaterialTapTargetSize.padded,
       ),
@@ -62,8 +63,9 @@ class _DisclosureHistoryView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: AppColors.surfacePage,
+      backgroundColor: p.page,
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -252,15 +254,16 @@ class _MetaLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Padding(
       padding: const EdgeInsets.only(top: 2),
       child: Row(
         children: <Widget>[
           Text('$label: ',
-              style: AppTypography.body(color: AppColors.textMuted)),
+              style: AppTypography.body(color: p.textMuted)),
           Text(value,
               style: AppTypography.body(
-                  color: AppColors.textSecondary, weight: FontWeight.w600)),
+                  color: p.textSecondary, weight: FontWeight.w600)),
         ],
       ),
     );

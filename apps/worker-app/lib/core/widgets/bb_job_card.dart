@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_spacing.dart';
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 import 'job_card_brand_footer.dart';
 import 'kit/kit_callout.dart';
@@ -148,8 +149,8 @@ const String kJobCardApplySemanticLabel = 'Apply karein';
 ///    card fills its space rather than floating at the top of an empty one.
 enum BbJobCardLayout { list, deck }
 
-/// The job card (UI kit v3 §4 card): white paper, a 1px
-/// [OnboardingColors.borderDefault] hairline, radius 16, elevation 0.
+/// The job card (UI kit v3 §4 card): a card surface, a 1px default-border
+/// hairline, radius 16, elevation 0.
 ///
 /// NO TRUST OR URGENCY CLAIM IS DRAWN HERE. The verified tick, the yellow
 /// "featured" rail and the HOT tag were removed with the #1651 ruling (2026-09-22,
@@ -227,6 +228,7 @@ class BbJobCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool isDeck = layout == BbJobCardLayout.deck;
     final BorderRadius radius = BorderRadius.circular(OnboardingRadii.card);
     return Container(
@@ -235,9 +237,9 @@ class BbJobCard extends StatelessWidget {
       // carries a side margin (see the class doc).
       margin: isDeck ? EdgeInsets.zero : const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: radius,
-        border: Border.all(color: OnboardingColors.borderDefault),
+        border: Border.all(color: p.borderDefault),
       ),
       child: ClipRRect(
         borderRadius: radius,
@@ -300,6 +302,7 @@ class _HeaderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -324,7 +327,7 @@ class _HeaderRow extends StatelessWidget {
                   style: OnboardingTypography.inter(
                     size: 12,
                     weight: FontWeight.w600,
-                    color: OnboardingColors.ink600,
+                    color: p.textSecondary,
                   ),
                 ),
               ],
@@ -369,16 +372,13 @@ class _SubtitleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String line = data.company == null
         ? data.place
         : '${data.company} · ${data.place}';
     return Row(
       children: <Widget>[
-        const Icon(
-          Icons.place_outlined,
-          size: 14,
-          color: OnboardingColors.ink500,
-        ),
+        Icon(Icons.place_outlined, size: 14, color: p.textMuted),
         const SizedBox(width: 5),
         Flexible(
           child: Text(
@@ -411,7 +411,7 @@ class _SalaryRow extends StatelessWidget {
 
   /// Salary — a mono figure plus a muted "/mah". TWO Texts (not a rich span) so
   /// the bare pay string stays selectable/findable and the baseline aligns.
-  Widget _pay(String band) => Row(
+  Widget _pay(String band, BbPalette p) => Row(
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.baseline,
     textBaseline: TextBaseline.alphabetic,
@@ -424,16 +424,13 @@ class _SalaryRow extends StatelessWidget {
           style: OnboardingTypography.mono(
             size: 15,
             weight: FontWeight.w700,
-            color: OnboardingColors.successGreen,
+            color: p.success,
           ),
         ),
       ),
       Text(
         ' /mah',
-        style: OnboardingTypography.inter(
-          size: 11,
-          color: OnboardingColors.ink500,
-        ),
+        style: OnboardingTypography.inter(size: 11, color: p.textMuted),
       ),
     ],
   );
@@ -441,23 +438,24 @@ class _SalaryRow extends StatelessWidget {
   /// The muted right-hand meta ("General shift", "Applied · 2 din pehle"). It
   /// WRAPS: inside a [Wrap] it is handed a bounded width, so a long label runs
   /// to a second line rather than off the card.
-  Widget _meta(String text) => Text(
+  Widget _meta(String text, BbPalette p) => Text(
     text,
     style: OnboardingTypography.inter(
       size: 11,
       weight: FontWeight.w600,
-      color: OnboardingColors.ink500,
+      color: p.textMuted,
     ),
   );
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String? band = data.payBand;
     final String? meta = data.effectiveMetaRight;
-    final Widget? left = band == null ? null : _pay(band);
+    final Widget? left = band == null ? null : _pay(band, p);
     final Widget? right = onApply != null
         ? _ApplyAction(onApply: onApply!)
-        : (meta == null ? null : _meta(meta));
+        : (meta == null ? null : _meta(meta, p));
 
     // One side only: keep it on the edge it belongs to (the pay figure reads
     // left, the action reads right) rather than letting a Wrap pull it inward.
@@ -502,6 +500,7 @@ class _PostingFacts extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String description = data.description?.trim() ?? '';
     final bool hasDescription = description.isNotEmpty;
     final List<String> chips = compact
@@ -532,11 +531,7 @@ class _PostingFacts extends StatelessWidget {
             runSpacing: 8,
             children: <Widget>[
               for (final String chip in chips)
-                KitInfoChip(
-                  label: chip,
-                  dot: OnboardingColors.ink500,
-                  showCheck: false,
-                ),
+                KitInfoChip(label: chip, dot: p.textMuted, showCheck: false),
             ],
           ),
         ],
@@ -557,6 +552,7 @@ class _ApplyAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       button: true,
       label: kJobCardApplySemanticLabel,
@@ -588,15 +584,15 @@ class _ApplyAction extends StatelessWidget {
                         style: OnboardingTypography.anek(
                           size: 14,
                           weight: FontWeight.w800,
-                          color: OnboardingColors.successGreen,
+                          color: p.success,
                         ),
                       ),
                     ),
                     const SizedBox(width: 4),
-                    const Icon(
+                    Icon(
                       Icons.arrow_forward_rounded,
                       size: 16,
-                      color: OnboardingColors.successGreen,
+                      color: p.success,
                     ),
                   ],
                 ),
@@ -620,6 +616,7 @@ class _TitleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // MergeSemantics collapses the title Text + this annotation into ONE node,
     // so TalkBack reads "<job title>, job kholein — poori jaankari, button" as a
     // single focusable button. Without it the Text keeps its own node and the
@@ -645,10 +642,10 @@ class _TitleButton extends StatelessWidget {
                 children: <Widget>[
                   Expanded(child: title),
                   const SizedBox(width: 8),
-                  const Icon(
+                  Icon(
                     Icons.chevron_right_rounded,
                     size: 22,
-                    color: OnboardingColors.shiftBlue,
+                    color: p.textBrand,
                   ),
                 ],
               ),
@@ -670,15 +667,12 @@ class _MatchNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return KitCallout(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Icon(
-            Icons.info_outline,
-            size: 16,
-            color: OnboardingColors.shiftBlue,
-          ),
+          Icon(Icons.info_outline, size: 16, color: p.textBrand),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -689,7 +683,7 @@ class _MatchNote extends StatelessWidget {
                 size: 12,
                 weight: FontWeight.w600,
                 height: 1.4,
-                color: OnboardingColors.infoText,
+                color: p.infoText,
               ),
             ),
           ),
@@ -755,6 +749,7 @@ class _DeckBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // On a short screen the card's box is smaller than the drawing needs even
     // after [compact] has tightened it — a landscape phone leaves it about
     // 190dp. The narrative is then laid out at its NATURAL height and the
@@ -776,10 +771,10 @@ class _DeckBody extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              _narrative(),
+              _narrative(p),
               if (hasFacts) ...<Widget>[
                 SizedBox(height: compact ? 10 : 16),
-                _facts(pay, meta),
+                _facts(pay, meta, p),
               ],
             ],
           );
@@ -811,7 +806,7 @@ class _DeckBody extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
-              Flexible(child: _clipped(_narrative())),
+              Flexible(child: _clipped(_narrative(p))),
               // THE SURPLUS GETS CONTENT, NOT JUST AIR. A full-height card on
               // a real feed job (title, place, pay, shift, note — `GET /feed`
               // carries no requirement chips) left ~500dp of empty white
@@ -841,7 +836,7 @@ class _DeckBody extends StatelessWidget {
                   constraints: BoxConstraints(maxHeight: box.maxHeight),
                   child: Padding(
                     padding: EdgeInsets.only(top: gap),
-                    child: _clipped(_facts(pay, meta)),
+                    child: _clipped(_facts(pay, meta, p)),
                   ),
                 ),
             ],
@@ -889,7 +884,7 @@ class _DeckBody extends StatelessWidget {
   /// put it in the card's free space instead of stacking it under the place.
   Widget _freeSpaceNote() => _MatchNote(text: data.matchNote!, maxLines: null);
 
-  Widget _narrative() {
+  Widget _narrative(BbPalette p) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -916,7 +911,7 @@ class _DeckBody extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 13,
               weight: FontWeight.w600,
-              color: OnboardingColors.ink600,
+              color: p.textSecondary,
             ),
           ),
         ],
@@ -937,7 +932,7 @@ class _DeckBody extends StatelessWidget {
   /// shift chip drops to its own line rather than squeezing a ₹ figure and
   /// "Rotational shift" onto one 320dp line — and neither fact is one to
   /// ellipsize.
-  Widget _facts(String? pay, String? meta) {
+  Widget _facts(String? pay, String? meta, BbPalette p) {
     return Wrap(
       spacing: 10,
       runSpacing: 8,
@@ -947,14 +942,14 @@ class _DeckBody extends StatelessWidget {
         if (meta != null)
           KitInfoChip(
             label: meta,
-            dot: OnboardingColors.ink500,
+            dot: p.textMuted,
             showCheck: false,
             maxLines: 1,
           ),
         if (data.experience != null)
           KitInfoChip(
             label: data.experience!,
-            dot: OnboardingColors.ink500,
+            dot: p.textMuted,
             showCheck: false,
             maxLines: 1,
           ),

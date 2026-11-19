@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../../core/data/job_posting_chat_models.dart';
 import '../../../../core/data/models.dart';
 import '../../../../core/error/payer_failure.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/util/pay_format.dart';
@@ -15,6 +14,7 @@ import '../../../../core/widgets/bb_form_errors.dart';
 import '../../../../core/widgets/bb_shake.dart';
 import '../../../jobs/presentation/widgets/trade_posting_fields.dart'
     show PostingTradePickerPlaceholder, kPostingTradePickerLabel;
+import '../../../../core/theme/bb_palette.dart';
 
 /// Heading of the structured draft the payer reviews before anything is created.
 const String kDraftPreviewTitle = 'Your job posting';
@@ -148,6 +148,7 @@ class _DraftPreviewState extends State<DraftPreview> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // A picked trade clears its error; nothing new shows before a tap.
     if (!_form.isEmpty) _form.settle(_validate());
     final JobPostingDraft draft = widget.draft;
@@ -206,7 +207,7 @@ class _DraftPreviewState extends State<DraftPreview> {
               'Nothing captured yet — answer a couple of questions above.',
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
-                color: AppColors.textMuted,
+                color: p.textMuted,
               ),
             )
           else
@@ -220,7 +221,7 @@ class _DraftPreviewState extends State<DraftPreview> {
               draft.description!,
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
-                color: AppColors.textSecondary,
+                color: p.textSecondary,
               ),
             ),
           ],
@@ -230,7 +231,7 @@ class _DraftPreviewState extends State<DraftPreview> {
               kDraftNotReadyNote,
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
-                color: AppColors.textMuted,
+                color: p.textMuted,
               ),
             ),
           ],
@@ -349,6 +350,7 @@ class _DraftRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -358,7 +360,7 @@ class _DraftRow extends StatelessWidget {
             label,
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
+              color: p.textMuted,
             ),
           ),
         ),

@@ -1063,3 +1063,96 @@ button {
 .bb-lockup--on-ink .bb-lockup__sub {
   color: var(--text-on-ink-muted);
 }
+
+
+/* ---- ON-NAVY overlays — the translucent white/black washes used on Shift Blue surfaces.
+   Declared once so screen sources never write an rgb() literal for an overlay. ---- */
+:root {
+  --on-ink-overlay-04: rgb(255 255 255 / 0.04);
+  --on-ink-overlay-055: rgb(255 255 255 / 0.055);
+  --on-ink-overlay-06: rgb(255 255 255 / 0.06);
+  --on-ink-overlay-08: rgb(255 255 255 / 0.08);
+  --on-ink-overlay-10: rgb(255 255 255 / 0.1);
+  --on-ink-overlay-12: rgb(255 255 255 / 0.12);
+  --on-ink-overlay-14: rgb(255 255 255 / 0.14);
+  --on-ink-overlay-16: rgb(255 255 255 / 0.16);
+  --on-ink-overlay-20: rgb(255 255 255 / 0.2);
+  --on-ink-text-55: rgb(255 255 255 / 0.55);
+  --on-ink-text-60: rgb(255 255 255 / 0.6);
+  --on-ink-text-75: rgb(255 255 255 / 0.75);
+  --on-ink-text-80: rgb(255 255 255 / 0.8);
+  --ink-depth-shadow: rgb(0 0 0 / 0.07);
+}
+
+/* ---- Amber steps used by the reference job-card preview (the worker app's pay box). ---- */
+:root {
+  --amber-50: #fffbeb;
+  --amber-400: #f59e0b;
+  --amber-900: #9a3412;
+}
+
+/* ============================================================
+   PRINT — ALWAYS LIGHT (#2821/#2822, #2823).
+   Printed invoices, receipts, ledger/print views and browser-printed pages must never carry the
+   ink theme, whatever the screen is set to. Force the light semantic token set inside every
+   print context, including on a `[data-theme="ink"]` root. Downloads (admin CSV/PDF exports)
+   are generated server-side and are not themed by CSS; this rule covers print/PDF rendering of
+   the portals themselves.
+   ============================================================ */
+@media print {
+  :root,
+  [data-theme="ink"] {
+    color-scheme: light;
+    --text-primary: var(--ink-900);
+    --text-heading: var(--navy-900);
+    --text-secondary: var(--ink-600);
+    --text-muted: var(--ink-500);
+    --text-faint: var(--ink-500);
+    --text-inverse: var(--paper-1);
+    --text-inverse-muted: var(--navy-200);
+    --text-brand: var(--navy-900);
+    --text-on-brand: var(--navy-900);
+    --text-on-ink: var(--paper-1);
+    --text-accent: var(--navy-900);
+    --text-link: var(--navy-700);
+    --link-underline: currentColor;
+    --text-disabled: var(--color-brand-primary-40);
+    --icon-secondary: var(--color-brand-primary-60);
+
+    --surface-page: var(--paper-2);
+    --surface-card: var(--paper-0);
+    --surface-raised: var(--paper-1);
+    --surface-sunken: var(--paper-3);
+    --surface-inset: var(--paper-4);
+    --surface-hover: var(--paper-3);
+
+    --brand: var(--vermilion-500);
+    --brand-hover: var(--vermilion-400);
+    --brand-press: var(--vermilion-600);
+    --brand-tint: var(--vermilion-50);
+    --brand-tint-2: var(--vermilion-100);
+    --brand-border: var(--vermilion-300);
+
+    --success: var(--green-500);
+    --success-press: var(--green-600);
+    --success-tint: var(--green-50);
+    --danger: var(--red-500);
+    --danger-press: var(--red-600);
+    --danger-tint: var(--red-50);
+    --warning: var(--amber-700);
+    --warning-tint: var(--amber-100);
+    --info: var(--navy-900);
+    --info-tint: var(--navy-50);
+
+    --border-subtle: #e8ecf1;
+    --border-default: #d8dee9;
+    --border-strong: #c3cbda;
+    --border-ink: var(--navy-900);
+    --border-accent: var(--vermilion-500);
+    --divider: var(--ink-100);
+
+    --focus-ring: var(--navy-900);
+    --border-control: var(--ink-500);
+    --ring: rgb(var(--brand-primary-rgb) / 0.35);
+  }
+}

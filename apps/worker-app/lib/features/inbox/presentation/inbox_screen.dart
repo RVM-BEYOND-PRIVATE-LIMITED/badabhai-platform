@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/push_once.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
@@ -34,9 +35,10 @@ class _InboxView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool canPop = Navigator.of(context).canPop();
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: Column(
         children: <Widget>[
           ShiftBlueHeader(
@@ -82,6 +84,7 @@ class _InboxView extends StatelessWidget {
   }
 
   Widget _list(BuildContext context, List<InboxThread> threads) {
+    final BbPalette p = context.bb;
     return KitContentColumn(
       maxWidth: OnboardingLayout.maxTabContentWidth,
       child: ListView.separated(
@@ -95,11 +98,11 @@ class _InboxView extends StatelessWidget {
             title: t.hasUnread ? 'Naya sandesh' : 'Sandesh',
             subtitle: _subtitle(t),
             iconBg: t.hasUnread
-                ? OnboardingColors.selectedCardBg
-                : OnboardingColors.pillMutedBg,
+                ? p.selectedCardBg
+                : p.inset,
             iconColor: t.hasUnread
-                ? OnboardingColors.textOnYellow
-                : OnboardingColors.shiftBlue,
+                ? p.onAction
+                : p.textBrand,
             onTap: () => context.pushOnce(Routes.inboxThreadOf(t.unlockId)),
           );
         },

@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_badge.dart';
@@ -13,6 +12,7 @@ import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/capacity_cubit.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Hiring capacity (ADR-0016) — READ-ONLY. Shows the payer's REAL
 /// concurrent-active-vacancy allowance (`max_active_vacancies`) vs how much is
@@ -40,8 +40,9 @@ class _CapacityView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: AppColors.surfacePage,
+      backgroundColor: p.page,
       body: SafeArea(
         child: BlocBuilder<CapacityCubit, CapacityState>(
           builder: (BuildContext context, CapacityState state) {
@@ -147,6 +148,7 @@ class _AllowanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BbCard(
       ink: true,
       child: Column(
@@ -156,7 +158,7 @@ class _AllowanceCard extends StatelessWidget {
             'Active vacancies in use',
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.ink300,
+              color: p.onBrandSurfaceMuted,
             ),
           ),
           const SizedBox(height: AppSpacing.s1),
@@ -165,7 +167,7 @@ class _AllowanceCard extends StatelessWidget {
               style: AppTypography.mono(
                 size: AppTypography.size2xl,
                 weight: FontWeight.w700,
-                color: AppColors.paper0,
+                color: p.onBrandSurface,
               ),
               children: <InlineSpan>[
                 TextSpan(text: '${cap.activePlanCount} '),
@@ -173,7 +175,7 @@ class _AllowanceCard extends StatelessWidget {
                   text: '/ ${cap.maxActiveVacancies}',
                   style: AppTypography.body(
                     size: AppTypography.sizeBase,
-                    color: AppColors.ink300,
+                    color: p.onBrandSurfaceMuted,
                   ),
                 ),
               ],
@@ -185,9 +187,9 @@ class _AllowanceCard extends StatelessWidget {
             child: LinearProgressIndicator(
               value: cap.usage.clamp(0, 1),
               minHeight: AppSpacing.s2,
-              backgroundColor: AppColors.ink700,
+              backgroundColor: p.iconSecondary,
               valueColor: AlwaysStoppedAnimation<Color>(
-                cap.atCapacity ? AppColors.warning : AppColors.green300,
+                cap.atCapacity ? p.warning : p.success,
               ),
             ),
           ),
@@ -198,7 +200,7 @@ class _AllowanceCard extends StatelessWidget {
                 : '${cap.remaining} more vacanc${cap.remaining == 1 ? 'y' : 'ies'} available.',
             style: AppTypography.body(
               size: AppTypography.sizeXs,
-              color: AppColors.ink300,
+              color: p.onBrandSurfaceMuted,
             ),
           ),
         ],
@@ -257,23 +259,24 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       decoration: BoxDecoration(
         border: showBorder
-            ? const Border(bottom: BorderSide(color: AppColors.divider))
+            ? Border(bottom: BorderSide(color: p.borderSubtle))
             : null,
       ),
       constraints: const BoxConstraints(minHeight: AppSpacing.tap),
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
       child: Row(
         children: <Widget>[
-          Icon(icon, size: 22, color: AppColors.textMuted),
+          Icon(icon, size: 22, color: p.textMuted),
           const SizedBox(width: AppSpacing.s3),
           Text(
             label,
             style: AppTypography.body(
               size: AppTypography.sizeBase,
-              color: AppColors.textSecondary,
+              color: p.textSecondary,
             ),
           ),
           const Spacer(),

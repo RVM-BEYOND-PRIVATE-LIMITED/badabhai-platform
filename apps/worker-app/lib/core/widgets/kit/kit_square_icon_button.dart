@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// A small square control beside a docked CTA — the spec §2.2 listen tile, and
@@ -20,7 +21,7 @@ class KitSquareIconButton extends StatelessWidget {
     required this.semanticLabel,
     this.onTap,
     this.caption,
-    this.iconColor = OnboardingColors.shiftBlue,
+    this.iconColor,
     this.width = 50,
     this.height = 48,
   });
@@ -34,14 +35,15 @@ class KitSquareIconButton extends StatelessWidget {
   /// order. NO DEAD BUTTONS: a caller with nothing to run omits the tile.
   final VoidCallback? onTap;
   final String? caption;
-  final Color iconColor;
+  final Color? iconColor;
   final double width;
   final double height;
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool enabled = onTap != null;
-    final Color ink = enabled ? iconColor : OnboardingColors.disabledText;
+    final Color ink = enabled ? (iconColor ?? p.textBrand) : p.disabledText;
     final BorderRadius radius = BorderRadius.circular(OnboardingRadii.docked);
     final String? captionText = caption;
 
@@ -62,15 +64,11 @@ class KitSquareIconButton extends StatelessWidget {
         child: Center(
           heightFactor: 1,
           child: Material(
-            color: enabled
-                ? OnboardingColors.paperWhite
-                : OnboardingColors.canvasBg,
+            color: enabled ? p.card : p.page,
             shape: RoundedRectangleBorder(
               borderRadius: radius,
               side: BorderSide(
-                color: enabled
-                    ? OnboardingColors.borderDefault
-                    : OnboardingColors.disabledBg,
+                color: enabled ? p.borderDefault : p.disabledBg,
                 width: 1.2,
               ),
             ),

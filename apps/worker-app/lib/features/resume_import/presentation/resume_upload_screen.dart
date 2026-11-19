@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../../core/theme/bb_palette.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -220,6 +221,7 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BlocProvider<ResumeUploadCubit>.value(
       value: _cubit,
       child: BlocConsumer<ResumeUploadCubit, ResumeUploadState>(
@@ -237,7 +239,7 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
           // working for the notices. There is no bottom bar: the two doors ARE
           // the actions, so nothing is docked.
           return Scaffold(
-            backgroundColor: OnboardingColors.canvasBg,
+            backgroundColor: p.page,
             body: Column(
               children: <Widget>[
                 ShiftBlueHeader(
@@ -339,24 +341,25 @@ class _NoticeBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: OnboardingColors.noteBg,
+        color: p.noteBg,
         borderRadius: BorderRadius.circular(OnboardingRadii.note),
         // Hairline, never a shadow — the kit's note box (as on consent).
-        border: Border.all(color: OnboardingColors.borderDefault),
+        border: Border.all(color: p.borderDefault),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Padding(
-            padding: EdgeInsets.only(top: 1),
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
             child: Icon(
               Icons.info_outline_rounded,
               size: 18,
-              color: OnboardingColors.shiftBlue,
+              color: p.textBrand,
             ),
           ),
           const SizedBox(width: 10),
@@ -366,7 +369,7 @@ class _NoticeBanner extends StatelessWidget {
               style: OnboardingTypography.inter(
                 size: 13,
                 height: 1.4,
-                color: OnboardingColors.ink900,
+                color: p.textPrimary,
               ),
             ),
           ),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 
 /// What the worker chose in the photo sheet.
@@ -100,9 +101,10 @@ class _SheetRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return ListTile(
       minVerticalPadding: 12,
-      leading: Icon(icon, size: 22, color: OnboardingColors.shiftBlue),
+      leading: Icon(icon, size: 22, color: p.textBrand),
       title: Text(
         label,
         style: OnboardingTypography.inter(size: 14, weight: FontWeight.w600),

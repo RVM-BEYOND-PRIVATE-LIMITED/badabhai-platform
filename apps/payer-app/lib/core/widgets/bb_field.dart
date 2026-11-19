@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show TextInputFormatter;
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_field_error.dart';
 import 'bb_focus_chain.dart';
+import '../theme/bb_palette.dart';
 
 /// Focus = a deep-blue hairline (kit law: haldi is a fill, blue carries
 /// structure / focus). Overrides the theme's default focus edge on these form
 /// primitives so a focused field reads as "active/trusted", never haldi text.
-final OutlineInputBorder _kFocusBorder = OutlineInputBorder(
+OutlineInputBorder _focusBorder(BbPalette p) => OutlineInputBorder(
   borderRadius: BorderRadius.circular(AppRadii.md),
-  borderSide: const BorderSide(color: AppColors.blue, width: 2),
+  borderSide: BorderSide(
+    color: p.isDark ? p.focusRing : p.textBrand,
+    width: 2,
+  ),
 );
 
 /// The input edge for a field with an inline error — the theme's own crimson
@@ -23,7 +26,7 @@ final OutlineInputBorder _kFocusBorder = OutlineInputBorder(
   BuildContext context,
   bool hasError,
 ) {
-  if (!hasError) return (enabled: null, focused: _kFocusBorder);
+  if (!hasError) return (enabled: null, focused: _focusBorder(context.bb));
   final InputDecorationThemeData theme =
       Theme.of(context).inputDecorationTheme;
   return (enabled: theme.errorBorder, focused: theme.focusedErrorBorder);
@@ -138,6 +141,7 @@ class BbField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final BbFieldFlow? flow = this.flow;
     final ({InputBorder? enabled, InputBorder? focused}) borders =
         _errorBorders(context, errorText != null);
@@ -150,7 +154,7 @@ class BbField extends StatelessWidget {
             style: AppTypography.body(
               size: AppTypography.sizeSm,
               weight: FontWeight.w700,
-              color: AppColors.textPrimary,
+              color: p.textPrimary,
             ),
           ),
           const SizedBox(height: AppSpacing.s2),
@@ -183,7 +187,7 @@ class BbField extends StatelessWidget {
             hintText: hint,
             prefixIcon: icon == null
                 ? null
-                : Icon(icon, size: 20, color: AppColors.textMuted),
+                : Icon(icon, size: 20, color: p.textMuted),
             suffixIcon: suffixIcon,
             prefixText: prefixText,
             prefixStyle: prefixText == null
@@ -225,6 +229,7 @@ class BbSelect<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final ({InputBorder? enabled, InputBorder? focused}) borders =
         _errorBorders(context, errorText != null);
     return Column(
@@ -236,7 +241,7 @@ class BbSelect<T> extends StatelessWidget {
             style: AppTypography.body(
               size: AppTypography.sizeSm,
               weight: FontWeight.w700,
-              color: AppColors.textPrimary,
+              color: p.textPrimary,
             ),
           ),
           const SizedBox(height: AppSpacing.s2),
@@ -248,7 +253,7 @@ class BbSelect<T> extends StatelessWidget {
             enabledBorder: borders.enabled,
             focusedBorder: borders.focused,
           ),
-          icon: const Icon(Icons.expand_more_rounded, color: AppColors.textMuted),
+          icon: Icon(Icons.expand_more_rounded, color: p.textMuted),
           style: AppTypography.body(size: AppTypography.sizeBase),
           items: items
               .map(

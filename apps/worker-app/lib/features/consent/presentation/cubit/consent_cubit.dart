@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/api/api_client.dart' show kConsentVersion;
+import '../../../../core/api/api_models.dart' show ConsentNoticeDto;
 import '../../../../core/consent/voice_consent.dart';
 import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
@@ -19,6 +21,8 @@ class ConsentState extends Equatable {
     this.age18Plus,
     this.status = ConsentStatus.idle,
     this.message,
+    this.noticeVersion = kConsentVersion,
+    this.noticeUrl,
   });
 
   /// Whether the "I agree" box is ticked (presentation state held here so the
@@ -36,6 +40,15 @@ class ConsentState extends Equatable {
   final ConsentStatus status;
   final String? message;
 
+  /// The notice version the SERVER serves (GET /consent/notice, #2753 item
+  /// 13), or [kConsentVersion] until that read lands. The write certifies the
+  /// served version; the constant is only the fallback for an older server.
+  final String noticeVersion;
+
+  /// The published privacy notice, or null when the server has none configured.
+  /// The screen draws no link while it is null.
+  final String? noticeUrl;
+
   bool get isSubmitting => status == ConsentStatus.submitting;
   bool get canSubmit =>
       (accepted || declined) && age18Plus != null && !isSubmitting;
@@ -46,6 +59,8 @@ class ConsentState extends Equatable {
     bool? age18Plus,
     ConsentStatus? status,
     String? message,
+    String? noticeVersion,
+    String? noticeUrl,
   }) {
     return ConsentState(
       accepted: accepted ?? this.accepted,
@@ -53,18 +68,48 @@ class ConsentState extends Equatable {
       age18Plus: age18Plus ?? this.age18Plus,
       status: status ?? this.status,
       message: message ?? this.message,
+      noticeVersion: noticeVersion ?? this.noticeVersion,
+      noticeUrl: noticeUrl ?? this.noticeUrl,
     );
   }
 
   @override
-  List<Object?> get props =>
-      <Object?>[accepted, declined, age18Plus, status, message];
+  List<Object?> get props => <Object?>[
+        accepted,
+        declined,
+        age18Plus,
+        status,
+        message,
+        noticeVersion,
+        noticeUrl,
+      ];
 }
 
 class ConsentCubit extends Cubit<ConsentState> {
-  ConsentCubit(this._repo) : super(const ConsentState());
+  ConsentCubit(this._repo) : super(const ConsentState()) {
+    // #2753 item 13 — the version and the notice link come from the API.
+    // Failure keeps the compiled defaults, so a server without the route (or
+    // an offline read) behaves exactly as before.
+    unawaited(_loadNotice());
+  }
 
   final ConsentRepository _repo;
+
+  Future<void> _loadNotice() async {
+    try {
+      final ConsentNoticeDto notice = await _repo.consentNotice();
+      if (isClosed) return;
+      final String version = notice.version.isEmpty
+          ? kConsentVersion
+          : notice.version;
+      emit(state.copyWith(
+        noticeVersion: version,
+        noticeUrl: notice.noticeUrl,
+      ));
+    } catch (_) {
+      // No route / offline: the compiled version and no link, as before.
+    }
+  }
 
   /// Consent purposes granted by the single onboarding "I agree" gate.
   ///

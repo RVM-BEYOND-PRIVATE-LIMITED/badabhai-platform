@@ -9,7 +9,6 @@ import '../../../core/session/app_session.dart';
 import '../../../core/session/app_session_cubit.dart';
 import '../../../core/session/credits_cubit.dart';
 import '../../../core/session/network_status.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_system_ui.dart';
@@ -30,6 +29,7 @@ import '../../jobs/presentation/jobs_screen.dart';
 import '../../jobs/presentation/post_job_screen.dart';
 import '../../account/presentation/account_screen.dart';
 import '../../referral/presentation/referral_screen.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// The signed-in shell. Holds the bottom nav and an in-shell navigation model
 /// mirroring the kit: a primary [_tab] (a nav destination) and an optional
@@ -529,9 +529,9 @@ class _AppShellState extends State<AppShell> {
           right: 0,
           height: MediaQuery.paddingOf(context).top,
           child: bareHome
-              ? const ColoredBox(
+              ? ColoredBox(
                   key: AppShell.statusBarStripKey,
-                  color: AppColors.blue,
+                  color: context.bb.textBrand,
                 )
               : const SizedBox.shrink(),
         ),
@@ -577,7 +577,7 @@ class _AppShellState extends State<AppShell> {
         }
       },
       child: Scaffold(
-        backgroundColor: AppColors.surfacePage,
+        backgroundColor: context.bb.page,
         // #2590 — the top inset is applied per branch (see _tabBody) so Home's
         // header can run under the status bar; the canvas gets dark icons.
         body: AnnotatedRegion<SystemUiOverlayStyle>(
@@ -618,13 +618,14 @@ class _OfflineBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       liveRegion: true,
       container: true,
       child: Container(
         key: bannerKey,
         width: double.infinity,
-        color: AppColors.warningTint,
+        color: p.warningBg,
         padding: EdgeInsets.fromLTRB(
           AppSpacing.gutter,
           MediaQuery.paddingOf(context).top + AppSpacing.s2,
@@ -633,10 +634,10 @@ class _OfflineBanner extends StatelessWidget {
         ),
         child: Row(
           children: <Widget>[
-            const Icon(
+            Icon(
               Icons.wifi_off_rounded,
               size: 18,
-              color: AppColors.warning,
+              color: p.warning,
             ),
             const SizedBox(width: AppSpacing.s2),
             Expanded(
@@ -645,7 +646,7 @@ class _OfflineBanner extends StatelessWidget {
                 style: AppTypography.body(
                   size: AppTypography.sizeSm,
                   weight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+                  color: p.textPrimary,
                 ),
               ),
             ),

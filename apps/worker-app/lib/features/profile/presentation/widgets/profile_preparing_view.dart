@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/util/push_once.dart';
@@ -47,24 +48,6 @@ const List<String> kPreparingProfileStepDetails = <String>[
 /// The footer's two status labels.
 const String kPreparingFooterEngine = 'BadaBhai Engine';
 const String kPreparingFooterSync = 'Secure SSL Sync';
-
-/// The design's own tokens for this screen. They are not in the shared theme
-/// because no other screen draws them.
-abstract final class _PrepColors {
-  static const Color canvasTop = Color(0xFFF8FAFC);
-  static const Color cardBorder = Color(0xFFE2E8F0);
-  static const Color liveBg = Color(0xFFFFFBEB);
-  static const Color liveBorder = Color(0xFFFDE68A);
-  static const Color liveBadgeBg = Color(0xFFFEF3C7);
-  static const Color liveBadgeText = Color(0xFFB45309);
-  static const Color pendingRing = Color(0xFFCBD5E1);
-  static const Color pendingDetail = Color(0xFF94A3B8);
-  static const Color tipBg = Color(0xFFEFF6FF);
-  static const Color tipBorder = Color(0xFFBFDBFE);
-  static const Color tipInk = Color(0xFF1D4ED8);
-  static const Color avatarShadow = Color(0x0F000000);
-  static const Color feedbackBorder = Color(0x40FFFFFF);
-}
 
 /// The state of one checklist row, derived from the paced step.
 enum _StepState { done, live, pending }
@@ -128,12 +111,13 @@ class _ProfilePreparingViewState extends State<ProfilePreparingView>
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return DecoratedBox(
-      decoration: const BoxDecoration(
+      decoration:  BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: <Color>[_PrepColors.canvasTop, OnboardingColors.paperWhite],
+          colors: <Color>[p.raised, p.card],
         ),
       ),
       child: Column(
@@ -163,7 +147,7 @@ class _ProfilePreparingViewState extends State<ProfilePreparingView>
                                 style: OnboardingTypography.anek(
                                   size: 20,
                                   weight: FontWeight.w800,
-                                  color: OnboardingColors.ink900,
+                                  color: p.textPrimary,
                                 ),
                               ),
                               const SizedBox(height: 6),
@@ -173,7 +157,7 @@ class _ProfilePreparingViewState extends State<ProfilePreparingView>
                                 style: OnboardingTypography.inter(
                                   size: 13,
                                   height: 1.45,
-                                  color: OnboardingColors.ink600,
+                                  color: p.textSecondary,
                                 ),
                               ),
                               const SizedBox(height: 20),
@@ -206,8 +190,9 @@ class _PrepHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return ColoredBox(
-      color: OnboardingColors.shiftBlue,
+      color: p.brandSurface,
       child: SafeArea(
         bottom: false,
         child: MediaQuery.withClampedTextScaling(
@@ -225,9 +210,9 @@ class _PrepHeader extends StatelessWidget {
                         IconButton(
                           tooltip: 'Wapas',
                           onPressed: onBack,
-                          icon: const Icon(
+                          icon:  Icon(
                             Icons.arrow_back_rounded,
-                            color: OnboardingColors.textOnBlue,
+                            color: p.onBrandSurface,
                           ),
                         )
                       else
@@ -247,7 +232,7 @@ class _PrepHeader extends StatelessWidget {
                     style: OnboardingTypography.anek(
                       size: 26,
                       weight: FontWeight.w800,
-                      color: OnboardingColors.textOnBlue,
+                      color: p.onBrandSurface,
                     ),
                   ),
                 ),
@@ -266,6 +251,7 @@ class _BrandMonogram extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
@@ -285,7 +271,7 @@ class _BrandMonogram extends StatelessWidget {
             style: OnboardingTypography.mono(
               size: 12,
               weight: FontWeight.w700,
-              color: OnboardingColors.textOnBlue,
+              color: p.onBrandSurface,
             ).copyWith(letterSpacing: 1.2),
           ),
         ),
@@ -301,6 +287,7 @@ class _FeedbackPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       button: true,
       label: 'Feedback',
@@ -321,15 +308,15 @@ class _FeedbackPill extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _PrepColors.feedbackBorder),
+                border: Border.all(color: p.onBrandSurface.withValues(alpha: 0.25)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  const Icon(
+                   Icon(
                     Icons.chat_bubble_rounded,
                     size: 13,
-                    color: OnboardingColors.safetyYellow,
+                    color: p.action,
                   ),
                   const SizedBox(width: 6),
                   Text(
@@ -338,7 +325,7 @@ class _FeedbackPill extends StatelessWidget {
                       size: 11,
                       weight: FontWeight.w700,
                       letterSpacing: 1,
-                      color: OnboardingColors.textOnBlue,
+                      color: p.onBrandSurface,
                     ),
                   ),
                 ],
@@ -368,6 +355,7 @@ class _RadarOrbit extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return ExcludeSemantics(
       child: SizedBox(
         width: _box,
@@ -390,7 +378,7 @@ class _RadarOrbit extends StatelessWidget {
                       height: d,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        border: Border.all(color: _PrepColors.cardBorder),
+                        border: Border.all(color: p.borderSubtle),
                       ),
                     ),
                 ],
@@ -404,9 +392,9 @@ class _RadarOrbit extends StatelessWidget {
                 child: Stack(
                   alignment: Alignment.center,
                   children: <Widget>[
-                    const CustomPaint(
-                      size: Size.square(_orbitDiameter),
-                      painter: _OrbitPainter(),
+                    CustomPaint(
+                      size: const Size.square(_orbitDiameter),
+                      painter: _OrbitPainter(p.action),
                     ),
                     // The beacon rides the orbit's leading (brightest) end.
                     Align(
@@ -414,12 +402,12 @@ class _RadarOrbit extends StatelessWidget {
                       child: Container(
                         width: _beacon,
                         height: _beacon,
-                        decoration: const BoxDecoration(
-                          color: OnboardingColors.safetyYellow,
+                        decoration:  BoxDecoration(
+                          color: p.action,
                           shape: BoxShape.circle,
                           boxShadow: <BoxShadow>[
                             BoxShadow(
-                              color: OnboardingColors.safetyYellow,
+                              color: p.action,
                               blurRadius: 8,
                             ),
                           ],
@@ -435,17 +423,17 @@ class _RadarOrbit extends StatelessWidget {
               height: _avatar,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: OnboardingColors.paperWhite,
+                color: p.card,
                 shape: BoxShape.circle,
-                border: Border.all(color: _PrepColors.cardBorder, width: 2),
-                boxShadow: const <BoxShadow>[
-                  BoxShadow(color: _PrepColors.avatarShadow, blurRadius: 16),
+                border: Border.all(color: p.borderSubtle, width: 2),
+                boxShadow:  <BoxShadow>[
+                  BoxShadow(color: p.textPrimary.withValues(alpha: 0.06), blurRadius: 16),
                 ],
               ),
-              child: const Icon(
+              child:  Icon(
                 Icons.person_outline_rounded,
                 size: 42,
-                color: OnboardingColors.shiftBlue,
+                color: p.brandSurface,
               ),
             ),
           ],
@@ -458,7 +446,9 @@ class _RadarOrbit extends StatelessWidget {
 /// The amber orbit: a sweep from transparent to full safety yellow, ending at
 /// angle 0 (the right-hand side) where the beacon sits.
 class _OrbitPainter extends CustomPainter {
-  const _OrbitPainter();
+  const _OrbitPainter(this.color);
+
+  final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -467,14 +457,15 @@ class _OrbitPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round
-      ..shader = const SweepGradient(
-        colors: <Color>[Color(0x00FFB32C), OnboardingColors.safetyYellow],
+      ..shader =  SweepGradient(
+        colors: <Color>[color.withValues(alpha: 0), color],
       ).createShader(rect);
     canvas.drawArc(rect.deflate(1.5), 0, 2 * math.pi, false, paint);
   }
 
   @override
-  bool shouldRepaint(covariant _OrbitPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _OrbitPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 /// The white checklist card. ONE finite tween paces which row is live; it
@@ -489,6 +480,7 @@ class _PrepChecklist extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final int count = kPreparingProfileSteps.length;
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0, end: 1),
@@ -500,9 +492,9 @@ class _PrepChecklist extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: OnboardingColors.paperWhite,
+            color: p.card,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: _PrepColors.cardBorder, width: 1.2),
+            border: Border.all(color: p.borderSubtle, width: 1.2),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -532,6 +524,7 @@ class _DottedConnector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Padding(
       padding: const EdgeInsets.only(left: 22),
       child: Align(
@@ -543,8 +536,8 @@ class _DottedConnector extends StatelessWidget {
                 width: 2,
                 height: 2,
                 margin: const EdgeInsets.symmetric(vertical: 1.5),
-                decoration: const BoxDecoration(
-                  color: _PrepColors.pendingRing,
+                decoration:  BoxDecoration(
+                  color: p.borderDefault,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -572,13 +565,14 @@ class _PrepStepRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool live = state == _StepState.live;
     final Widget row = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Padding(
           padding: const EdgeInsets.only(top: 1),
-          child: SizedBox(width: 20, height: 20, child: _indicator()),
+          child: SizedBox(width: 20, height: 20, child: _indicator(p)),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -598,15 +592,15 @@ class _PrepStepRow extends StatelessWidget {
                       weight: FontWeight.w700,
                       height: 1.3,
                       color: state == _StepState.pending
-                          ? OnboardingColors.ink500
-                          : OnboardingColors.ink900,
+                          ? p.textMuted
+                          : p.textPrimary,
                     ),
                   ),
                   if (live) _LiveBadge(pulse: pulse),
                 ],
               ),
               const SizedBox(height: 2),
-              Text(detail, style: _detailStyle()),
+              Text(detail, style: _detailStyle(p)),
             ],
           ),
         ),
@@ -617,10 +611,10 @@ class _PrepStepRow extends StatelessWidget {
         duration: AppMotion.base,
         padding: EdgeInsets.all(live ? 12 : 6),
         decoration: BoxDecoration(
-          color: live ? _PrepColors.liveBg : Colors.transparent,
+          color: live ? p.selectedCardBg : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: live ? _PrepColors.liveBorder : Colors.transparent,
+            color: live ? p.warningBg : Colors.transparent,
           ),
         ),
         child: row,
@@ -628,65 +622,65 @@ class _PrepStepRow extends StatelessWidget {
     );
   }
 
-  TextStyle _detailStyle() {
+  TextStyle _detailStyle(BbPalette p) {
     switch (state) {
       case _StepState.done:
         return OnboardingTypography.mono(
           size: 11,
           weight: FontWeight.w600,
-          color: OnboardingColors.successGreen,
+          color: p.success,
         );
       case _StepState.live:
         return OnboardingTypography.inter(
           size: 12,
           weight: FontWeight.w600,
           height: 1.35,
-          color: OnboardingColors.ink600,
+          color: p.textSecondary,
         );
       case _StepState.pending:
         return OnboardingTypography.mono(
           size: 11,
-          color: _PrepColors.pendingDetail,
+          color: p.textMuted,
         );
     }
   }
 
-  Widget _indicator() {
+  Widget _indicator(BbPalette p) {
     switch (state) {
       case _StepState.done:
         return Container(
-          decoration: const BoxDecoration(
-            color: OnboardingColors.successBg,
+          decoration:  BoxDecoration(
+            color: p.successBg,
             shape: BoxShape.circle,
           ),
-          child: const Icon(
+          child:  Icon(
             Icons.check_rounded,
             size: 14,
-            color: OnboardingColors.successGreen,
+            color: p.success,
             semanticLabel: 'Done',
           ),
         );
       case _StepState.live:
-        return const Padding(
+        return  Padding(
           padding: EdgeInsets.all(1),
           child: CircularProgressIndicator(
             strokeWidth: 2,
-            color: OnboardingColors.safetyYellow,
-            backgroundColor: _PrepColors.liveBorder,
+            color: p.action,
+            backgroundColor: p.warningBg,
           ),
         );
       case _StepState.pending:
         return Container(
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(color: _PrepColors.pendingRing, width: 2),
+            border: Border.all(color: p.borderDefault, width: 2),
           ),
           child: Center(
             child: Container(
               width: 6,
               height: 6,
-              decoration: const BoxDecoration(
-                color: _PrepColors.pendingRing,
+              decoration:  BoxDecoration(
+                color: p.borderDefault,
                 shape: BoxShape.circle,
               ),
             ),
@@ -704,10 +698,11 @@ class _LiveBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: _PrepColors.liveBadgeBg,
+        color: p.warningBg,
         borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
@@ -718,8 +713,8 @@ class _LiveBadge extends StatelessWidget {
             child: Container(
               width: 6,
               height: 6,
-              decoration: const BoxDecoration(
-                color: OnboardingColors.safetyYellow,
+              decoration:  BoxDecoration(
+                color: p.action,
                 shape: BoxShape.circle,
               ),
             ),
@@ -731,7 +726,7 @@ class _LiveBadge extends StatelessWidget {
               size: 10,
               weight: FontWeight.w800,
               letterSpacing: 0.6,
-              color: _PrepColors.liveBadgeText,
+              color: p.warning,
             ),
           ),
         ],
@@ -746,21 +741,22 @@ class _QuickTip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _PrepColors.tipBg,
+        color: p.infoBg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _PrepColors.tipBorder),
+        border: Border.all(color: p.infoBorder),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Icon(
+           Icon(
             Icons.info_rounded,
             size: 18,
-            color: OnboardingColors.shiftBlue,
+            color: p.brandSurface,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -773,7 +769,7 @@ class _QuickTip extends StatelessWidget {
                   style: OnboardingTypography.mono(
                     size: 10,
                     weight: FontWeight.w800,
-                    color: _PrepColors.tipInk,
+                    color: p.infoText,
                   ).copyWith(letterSpacing: 0.8),
                 ),
                 const SizedBox(height: 3),
@@ -783,7 +779,7 @@ class _QuickTip extends StatelessWidget {
                     size: 12,
                     weight: FontWeight.w500,
                     height: 1.4,
-                    color: OnboardingColors.ink600,
+                    color: p.textSecondary,
                   ),
                 ),
               ],
@@ -802,10 +798,11 @@ class _PrepFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: OnboardingColors.paperWhite,
-        border: Border(top: BorderSide(color: _PrepColors.cardBorder)),
+      decoration:  BoxDecoration(
+        color: p.card,
+        border: Border(top: BorderSide(color: p.borderSubtle)),
       ),
       child: SafeArea(
         top: false,
@@ -818,10 +815,10 @@ class _PrepFooter extends StatelessWidget {
               children: <Widget>[
                 ClipRRect(
                   borderRadius: BorderRadius.circular(2),
-                  child: const LinearProgressIndicator(
+                  child:  LinearProgressIndicator(
                     minHeight: 3,
-                    color: OnboardingColors.safetyYellow,
-                    backgroundColor: _PrepColors.cardBorder,
+                    color: p.action,
+                    backgroundColor: p.borderSubtle,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -830,8 +827,8 @@ class _PrepFooter extends StatelessWidget {
                     Container(
                       width: 7,
                       height: 7,
-                      decoration: const BoxDecoration(
-                        color: OnboardingColors.successGreen,
+                      decoration:  BoxDecoration(
+                        color: p.success,
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -843,7 +840,7 @@ class _PrepFooter extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: OnboardingTypography.mono(
                           size: 11,
-                          color: OnboardingColors.ink500,
+                          color: p.textMuted,
                         ),
                       ),
                     ),
@@ -852,7 +849,7 @@ class _PrepFooter extends StatelessWidget {
                       style: OnboardingTypography.mono(
                         size: 11,
                         weight: FontWeight.w700,
-                        color: OnboardingColors.ink900,
+                        color: p.textPrimary,
                       ),
                     ),
                   ],

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
-import '../theme/onboarding_theme.dart';
+import '../theme/bb_palette.dart';
 
 /// A slim, pill-shaped progress meter.
 ///
@@ -18,11 +18,12 @@ class BbProgressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadii.pill),
       child: Container(
         height: 12,
-        color: OnboardingColors.borderSubtle,
+        color: p.borderSubtle,
         child: TweenAnimationBuilder<double>(
           tween: Tween<double>(begin: 0, end: value.clamp(0, 1)),
           duration: AppMotion.slow,
@@ -31,8 +32,8 @@ class BbProgressBar extends StatelessWidget {
             return FractionallySizedBox(
               widthFactor: t,
               alignment: Alignment.centerLeft,
-              child: const DecoratedBox(
-                decoration: BoxDecoration(color: OnboardingColors.safetyYellow),
+              child: DecoratedBox(
+                decoration: BoxDecoration(color: p.action),
               ),
             );
           },

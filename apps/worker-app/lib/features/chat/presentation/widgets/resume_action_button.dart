@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/bb_palette.dart';
+
 /// Test seam, in the spirit of `debugRoleArtAnimationsEnabled`: when false the
 /// ripple paints its still pose and starts NO ticker, so a widget test's
 /// `pumpAndSettle` is not held open by a looping animation. The suite harness
@@ -44,13 +46,6 @@ class _ResumeActionButtonState extends State<ResumeActionButton>
   static const double _innerPad = 8;
   static const double _trailingDiameter = 42;
 
-  /// The dark-to-light blue of the pill.
-  static const Color _darkBlue = Color(0xFF05194C);
-  static const Color _blue = Color(0xFF1E90FF);
-
-  /// The brand's safety yellow — the ripple's colour.
-  static const Color _rippleYellow = Color(0xFFFFB32C);
-
   late final AnimationController _controller = AnimationController(
     vsync: this,
     duration: _period,
@@ -91,6 +86,7 @@ class _ResumeActionButtonState extends State<ResumeActionButton>
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool enabled = widget.onPressed != null;
     // The trailing circle's centre, measured in from the pill's RIGHT edge —
     // the anchor the rings expand from.
@@ -117,19 +113,19 @@ class _ResumeActionButtonState extends State<ResumeActionButton>
               key: widget.buttonKey,
               onTap: widget.onPressed,
               borderRadius: BorderRadius.circular(_height / 2),
-              splashColor: _rippleYellow.withValues(alpha: 0.28),
-              highlightColor: _rippleYellow.withValues(alpha: 0.14),
+              splashColor: p.action.withValues(alpha: 0.28),
+              highlightColor: p.action.withValues(alpha: 0.14),
               child: Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(_height / 2),
-                  gradient: const LinearGradient(
+                  gradient: LinearGradient(
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
-                    colors: <Color>[_darkBlue, _blue],
+                    colors: <Color>[p.brandSurface, p.brandSurfaceRaised],
                   ),
                   boxShadow: <BoxShadow>[
                     BoxShadow(
-                      color: _blue.withValues(alpha: 0.30),
+                      color: p.brandSurfaceRaised.withValues(alpha: 0.30),
                       blurRadius: 14,
                       offset: const Offset(0, 7),
                     ),
@@ -151,6 +147,7 @@ class _ResumeActionButtonState extends State<ResumeActionButton>
                                     trailingCentreFromRight:
                                         trailingCentreFromRight,
                                     trailingRadius: _trailingDiameter / 2,
+                                    ripple: p.action,
                                   ),
                                 ),
                           ),
@@ -170,8 +167,8 @@ class _ResumeActionButtonState extends State<ResumeActionButton>
                                 fit: BoxFit.scaleDown,
                                 child: Text(
                                   widget.label,
-                                  style: const TextStyle(
-                                    color: Colors.white,
+                                  style: TextStyle(
+                                    color: p.onBrandSurface,
                                     fontSize: 14,
                                     fontWeight: FontWeight.w700,
                                     letterSpacing: 0.2,
@@ -186,7 +183,7 @@ class _ResumeActionButtonState extends State<ResumeActionButton>
                         right: _innerPad,
                         top: _innerPad,
                         bottom: _innerPad,
-                        child: _trailingArrow(),
+                        child: _trailingArrow(p),
                       ),
                     ],
                   ),
@@ -199,27 +196,31 @@ class _ResumeActionButtonState extends State<ResumeActionButton>
     );
   }
 
-  Widget _trailingArrow() {
+  Widget _trailingArrow(BbPalette p) {
     return Container(
       width: _trailingDiameter,
       height: _trailingDiameter,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: RadialGradient(
           colors: <Color>[
-            Color(0xFF8FD8FF),
-            Color(0xFF35A9FF),
-            Color(0xFF1E7BFF),
+            p.brandSurfaceRaised,
+            p.brandSurfaceLight,
+            p.brandSurface,
           ],
-          stops: <double>[0.0, 0.55, 1.0],
+          stops: const <double>[0.0, 0.55, 1.0],
         ),
         boxShadow: <BoxShadow>[
-          BoxShadow(color: Color(0x66A9E3FF), blurRadius: 10, spreadRadius: 1),
+          BoxShadow(
+            color: p.brandSurfaceRaised.withValues(alpha: 0.40),
+            blurRadius: 10,
+            spreadRadius: 1,
+          ),
         ],
       ),
-      child: const Icon(
+      child: Icon(
         Icons.arrow_forward_rounded,
-        color: Colors.white,
+        color: p.onBrandSurface,
         size: 24,
       ),
     );
@@ -234,6 +235,7 @@ class _ResumeRingPainter extends CustomPainter {
     required this.progress,
     required this.trailingCentreFromRight,
     required this.trailingRadius,
+    required this.ripple,
   });
 
   final double progress;
@@ -242,8 +244,10 @@ class _ResumeRingPainter extends CustomPainter {
   final double trailingCentreFromRight;
   final double trailingRadius;
 
+  /// The brand action colour the rings are painted in.
+  final Color ripple;
+
   static const int _rings = 3;
-  static const Color _rippleYellow = Color(0xFFFFB32C);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -264,12 +268,12 @@ class _ResumeRingPainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 2.0
-          ..color = _rippleYellow.withValues(alpha: opacity),
+          ..color = ripple.withValues(alpha: opacity),
       );
     }
   }
 
   @override
   bool shouldRepaint(_ResumeRingPainter oldDelegate) =>
-      oldDelegate.progress != progress;
+      oldDelegate.progress != progress || oldDelegate.ripple != ripple;
 }

@@ -82,6 +82,18 @@ class HttpPayerApiClient implements PayerApiClient {
   // --- Company job postings — CRUD + lifecycle -------------------------------
 
   @override
+  Future<AudienceOptions?> fetchAudienceOptions() async {
+    final PayerResponse res = await _http
+        .send(PayerMethod.get, '/payer/job-postings/audience-options');
+    // The house neutral 404: the `job_audience` switch is off for the company.
+    // Every audience entry point stays hidden; never an error toast for a dark
+    // feature. Any other failure is real and is surfaced.
+    if (res.statusCode == 404 || res.statusCode == 403) return null;
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    return AudienceOptions.fromJson(res.body);
+  }
+
+  @override
   Future<JobPosting> createCompanyJob({
     required String orgLabel,
     required String roleTitle,
@@ -105,6 +117,9 @@ class HttpPayerApiClient implements PayerApiClient {
     List<String>? requirements,
     String? tradeLevel,
     Map<String, List<String>>? tradeAnswers,
+    JobAudience? audience,
+    List<int>? rvmBranchIds,
+    List<String>? rvmCourseIds,
   }) async {
     // EXACTLY ONE of vacancy_band | vacancies (server rejects both/neither).
     if ((vacancyBand == null) == (vacancies == null)) {
@@ -149,6 +164,11 @@ class HttpPayerApiClient implements PayerApiClient {
       if (tradeLevel != null && tradeLevel.isNotEmpty)
         'trade_level': tradeLevel,
       if (tradeAnswers != null) 'trade_answers': tradeAnswers,
+      // #2746 — omitted unless the picker was shown (switch on). `[]` is a real
+      // value: every branch / every course.
+      if (audience != null) 'audience': audience.wire,
+      if (rvmBranchIds != null) 'rvm_branch_ids': rvmBranchIds,
+      if (rvmCourseIds != null) 'rvm_course_ids': rvmCourseIds,
     };
     final PayerResponse res =
         await _http.send(PayerMethod.post, '/payer/job-postings', body: body);
@@ -194,6 +214,9 @@ class HttpPayerApiClient implements PayerApiClient {
     List<String>? requirements,
     String? tradeLevel,
     Map<String, List<String>>? tradeAnswers,
+    JobAudience? audience,
+    List<int>? rvmBranchIds,
+    List<String>? rvmCourseIds,
     List<JobPostingClearField>? clear,
   }) async {
     final Map<String, dynamic> body = <String, dynamic>{
@@ -228,6 +251,11 @@ class HttpPayerApiClient implements PayerApiClient {
       if (roleKind != null) 'role_kind': roleKind,
       if (tradeLevel != null) 'trade_level': tradeLevel,
       if (tradeAnswers != null) 'trade_answers': tradeAnswers,
+      // #2746 — the audience half, only when the picker was shown. These are
+      // never clearable; `[]` is a real targeting value.
+      if (audience != null) 'audience': audience.wire,
+      if (rvmBranchIds != null) 'rvm_branch_ids': rvmBranchIds,
+      if (rvmCourseIds != null) 'rvm_course_ids': rvmCourseIds,
     };
     // #1652 — the fields to UNSET, after the values so a contradiction is caught.
     _addClear(body, clear?.map((JobPostingClearField f) => f.wire));
@@ -311,6 +339,26 @@ class HttpPayerApiClient implements PayerApiClient {
         validationMessage: kPostingTradeRequiredMessage,
         fieldErrors: const <String, String>{
           'role_kind': kPostingTradeRequiredMessage,
+        },
+      );
+    }
+    // #2746 — the two audience refusals are machine reasons, never the server's
+    // sentence. Both sit at the audience picker.
+    if (reason == kTargetingNeedsRvmAudienceCode) {
+      return (
+        code: kTargetingNeedsRvmAudienceCode,
+        validationMessage: kTargetingNeedsRvmAudienceMessage,
+        fieldErrors: const <String, String>{
+          'audience': kTargetingNeedsRvmAudienceMessage,
+        },
+      );
+    }
+    if (reason == kTargetingOptionNotOfferedCode) {
+      return (
+        code: kTargetingOptionNotOfferedCode,
+        validationMessage: kTargetingOptionNotOfferedMessage,
+        fieldErrors: const <String, String>{
+          'audience': kTargetingOptionNotOfferedMessage,
         },
       );
     }
@@ -535,6 +583,7 @@ class HttpPayerApiClient implements PayerApiClient {
     required List<String> matchSkillIds,
     List<String> untickedRelatedIds = const <String>[],
     String? roleKind,
+    JobAudience? audience,
   }) async {
     final PayerResponse res = await _http.send(
       PayerMethod.post,
@@ -545,6 +594,8 @@ class HttpPayerApiClient implements PayerApiClient {
         // #2635 — the job's trade, so the preview scopes the posted ids to it
         // exactly as publish will. Optional and additive: omitted when unset.
         if (roleKind != null && roleKind.isNotEmpty) 'role_kind': roleKind,
+        // #2746 — an RVM-only audience reaches no BadaBhai worker by design.
+        if (audience != null) 'audience': audience.wire,
       },
     );
     // A non-2xx must not decode to a fabricated zero-reach preview shown as real.
@@ -852,6 +903,9 @@ class HttpPayerApiClient implements PayerApiClient {
       expiresAt: res.body['expires_at'] as String?,
       creditsCharged:
           charged is num && charged.isFinite && charged >= 0 ? charged.toInt() : null,
+      openUntil: res.body.containsKey('open_until')
+          ? (res.body['open_until'] is String ? res.body['open_until'] as String : null)
+          : (res.body['expires_at'] as String?),
     );
   }
 
@@ -892,6 +946,28 @@ class HttpPayerApiClient implements PayerApiClient {
       relayHandle: handle,
       channel: res.body['channel'] as String? ?? 'in_app_relay',
       expiresAt: res.body['expires_at'] as String?,
+    );
+  }
+
+  @override
+  Future<ContactReadResult> readContact(String unlockId) async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.get,
+      '/payer/unlocks/$unlockId/contact',
+    );
+    // #2747 — a 404 is the rule being OFF for this company (not an outage): today's opened
+    // screen (relay handle + masked résumé) stays. A 429 is the hourly disclosure cap and must
+    // be said politely, so it throws like any other non-2xx.
+    if (res.statusCode == 404) return const ContactReadResult.off();
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    if (res.body['ok'] != true) return const ContactReadResult.unavailable();
+    final String? phone = res.body['phone'] as String?;
+    if (phone == null || phone.isEmpty) return const ContactReadResult.unavailable();
+    // Never cached, stored or logged: the result lives on state only while this screen shows it.
+    return ContactReadResult.contact(
+      fullName: res.body['full_name'] as String?,
+      phone: phone,
+      openedAt: res.body['opened_at'] as String?,
     );
   }
 
@@ -1415,6 +1491,14 @@ class HttpPayerApiClient implements PayerApiClient {
       tradeAnswers: _optionalStringMapList(
         row['trade_answers'] ?? row['tradeAnswers'],
       ),
+      // #2746 — the audience block. Absent while the switch is off and the stored
+      // audience is the default; present whenever it is not.
+      audience: JobAudience.fromWire(row['audience'] as String?),
+      rvmBranchIds: _intList(row['rvm_branch_ids']),
+      rvmCourseIds: _stringList(row['rvm_course_ids']),
+      rvmReview: row['rvm_review'] is Map<String, dynamic>
+          ? RvmReview.fromJson(row['rvm_review'] as Map<String, dynamic>)
+          : null,
       // Still NO per-posting source (applications + unlocks attach to `jobs`, not
       // `job_postings`) — kept at the model defaults rather than faked.
       applicants: 0,
@@ -1466,6 +1550,28 @@ class HttpPayerApiClient implements PayerApiClient {
         lastWorkedAt: row['lastWorkedAt'] as String?,
         // #2548 — display-only level fit; absent or null = no level sort.
         levelFit: row['levelFit'] as String?,
+        // #2753 item 7 — the server's activity mark; absent when its switch is
+        // off, read as false so the card draws nothing.
+        notRecentlyActive: row['notRecentlyActive'] == true,
+        source: row['source'] as String?,
+        firstName: row['firstName'] as String?,
+        tradeLine: row['tradeLine'] as String?,
+        expectedSalary: row['expectedSalary'] as String?,
+        machines: row['machines'] is List<dynamic>
+            ? (row['machines'] as List<dynamic>)
+                .whereType<String>()
+                .toList(growable: false)
+            : null,
+        area: row['area'] as String?,
+        lastActiveOn: row['lastActiveOn'] as String?,
+        hasFacts: const <String>[
+          'firstName',
+          'tradeLine',
+          'expectedSalary',
+          'machines',
+          'area',
+          'lastActiveOn',
+        ].any(row.containsKey),
       );
     }
     final List<dynamic> components =
@@ -1492,6 +1598,29 @@ class HttpPayerApiClient implements PayerApiClient {
       matchedSkillLabel: row['matched_skill_label'] as String?,
       lastWorkedAt: row['last_worked_at'] as String?,
       levelFit: row['levelFit'] as String?,
+      // #2753 item 7 — the server's activity mark; absent when its switch is
+      // off, read as false so the card draws nothing.
+      notRecentlyActive: row['notRecentlyActive'] == true,
+      source: row['source'] as String?,
+      firstName: row['firstName'] as String?,
+      tradeLine: row['tradeLine'] as String?,
+      expectedSalary: row['expectedSalary'] as String?,
+      machines: row['machines'] is List<dynamic>
+          ? (row['machines'] as List<dynamic>)
+              .whereType<String>()
+              .toList(growable: false)
+          : null,
+      area: row['area'] as String?,
+      lastActiveOn: row['lastActiveOn'] as String?,
+      // Presence of ANY of the six keys means the part is on — all-null still counts.
+      hasFacts: const <String>[
+        'firstName',
+        'tradeLine',
+        'expectedSalary',
+        'machines',
+        'area',
+        'lastActiveOn',
+      ].any(row.containsKey),
     );
   }
 
@@ -1551,6 +1680,13 @@ class HttpPayerApiClient implements PayerApiClient {
   static List<String>? _optionalStringList(Object? v) => v is List<dynamic>
       ? List<String>.unmodifiable(v.whereType<String>())
       : null;
+
+  /// A wire array of numbers (RVM branch ids) → an immutable `List<int>`.
+  static List<int> _intList(Object? v) => v is List<dynamic>
+      ? List<int>.unmodifiable(
+          v.whereType<num>().map((num n) => n.toInt()),
+        )
+      : const <int>[];
 
   static Map<String, List<String>>? _optionalStringMapList(Object? v) {
     if (v is! Map) return null;

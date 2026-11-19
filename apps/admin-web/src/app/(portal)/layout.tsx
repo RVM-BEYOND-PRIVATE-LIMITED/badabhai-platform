@@ -1,6 +1,9 @@
+import { displayThemeToPreference } from "@badabhai/theme-web";
 import { requireSession } from "../../lib/auth";
 import { ROLE_LABELS, can } from "../../lib/auth/capabilities";
 import { getApiEnvironment } from "../../lib/environment";
+import { getDisplayPrefsCached } from "../../lib/display-prefs";
+import { saveAdminTheme } from "./display-prefs-actions";
 import { getAiAlertsStatus } from "../../lib/ai-alerts";
 import { NAV } from "../../components/nav-model";
 import { allowedJumpKinds } from "../../components/quick-jump-model";
@@ -29,6 +32,13 @@ export const dynamic = "force-dynamic";
  */
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const [session, environment] = await Promise.all([requireSession(), getApiEnvironment()]);
+  // #2821: the server-saved choice decides whether the theme control exists at all. A failed or
+  // closed read is `theme_open: false` → the shell renders no toggle and stays Light.
+  const displayPrefs = await getDisplayPrefsCached();
+  const themeOpen = displayPrefs?.theme_open === true;
+  const themePreference = themeOpen
+    ? displayThemeToPreference(displayPrefs.theme)
+    : undefined;
   // The AI banner read (A10, #2580): one `GET /admin/ai-alerts` beside the session
   // read, degraded to nothing when the operator lacks `read_entities` or the read fails —
   // a banner that cannot load is absent, never an error state on every page. A second
@@ -58,6 +68,11 @@ export default async function PortalLayout({ children }: { children: React.React
         environment={environment}
         jumpKinds={allowedJumpKinds(may)}
         onSignOut={<SignOutButton />}
+        theme={{
+          open: themeOpen,
+          initialPreference: themePreference,
+          onPersist: themeOpen ? saveAdminTheme : undefined,
+        }}
       >
         {/* The AI banner (A10, #2580) rides inside the shell's content, above every page: the
             shell persists across navigations, so its mount-once slide-down runs when the alert

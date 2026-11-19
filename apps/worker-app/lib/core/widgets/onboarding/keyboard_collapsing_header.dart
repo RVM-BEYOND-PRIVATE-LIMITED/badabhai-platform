@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../theme/onboarding_theme.dart';
+import '../../theme/bb_palette.dart';
 
 /// How long the header takes to fold away or come back. Matched to the
 /// keyboard's own slide, so the two move as one.
@@ -36,6 +36,7 @@ class KeyboardCollapsingHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final double statusBar = MediaQuery.paddingOf(context).top;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
@@ -46,7 +47,7 @@ class KeyboardCollapsingHeader extends StatelessWidget {
         child: child,
         builder: (BuildContext context, double shown, Widget? header) {
           return ColoredBox(
-            color: OnboardingColors.shiftBlue,
+            color: p.brandSurface,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[

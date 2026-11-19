@@ -1,0 +1,31 @@
+{
+  "name": "@badabhai/theme-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The ONE web theme layer for the BadaBhai portals: the cookie helpers (bb_theme by default), the no-FOUC inline script, theme-color sync, server/client resolution and the accessible Light/Dark/System toggle. TS/React source, transpiled by each app (transpilePackages); no build step.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rimraf --glob .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@badabhai/icons": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "vitest": "^3.2.7"
+  }
+}

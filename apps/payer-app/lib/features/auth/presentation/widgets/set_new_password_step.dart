@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show TextInput;
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_motion.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
@@ -9,6 +8,7 @@ import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_field.dart';
 import 'auth_form_support.dart';
 import 'password_rules.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// The slide's travel — the 6px motion ceiling.
 const double _kStepTravel = 6;
@@ -168,6 +168,7 @@ class _SetNewPasswordStepState extends State<SetNewPasswordStep> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // One autofill context for the pair (see the class doc). Cancel on
     // dispose: only a sign-in commits it ([_submit]).
     return AutofillGroup(
@@ -188,7 +189,7 @@ class _SetNewPasswordStepState extends State<SetNewPasswordStep> {
             'Your password is temporary. Choose a new one to continue.',
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textSecondary,
+              color: p.textSecondary,
             ),
           ),
           const SizedBox(height: AppSpacing.s5),

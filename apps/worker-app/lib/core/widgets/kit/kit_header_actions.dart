@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../router.dart';
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 import '../../util/push_once.dart';
 
@@ -22,6 +23,7 @@ class KitFeedbackAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return IconButton(
       tooltip: 'Feedback',
       padding: EdgeInsets.zero,
@@ -29,10 +31,10 @@ class KitFeedbackAction extends StatelessWidget {
         width: OnboardingLayout.tapTarget,
         height: OnboardingLayout.tapTarget,
       ),
-      icon: const Icon(
+      icon: Icon(
         Icons.chat_bubble_outline_rounded,
         size: 20,
-        color: OnboardingColors.safetyYellow,
+        color: p.action,
       ),
       onPressed: () => context.pushOnce(
         Routes.feedback,
@@ -60,6 +62,7 @@ class KitFeedbackTextAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return TextButton(
       onPressed: () => context.pushOnce(
         Routes.feedback,
@@ -71,7 +74,7 @@ class KitFeedbackTextAction extends StatelessWidget {
         minimumSize: const Size(0, OnboardingLayout.tapTarget),
         padding: const EdgeInsets.symmetric(horizontal: 8),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        foregroundColor: OnboardingColors.textOnBlueMuted,
+        foregroundColor: p.onBrandSurfaceMuted,
       ),
       child: Text(
         label.toUpperCase(),
@@ -79,7 +82,7 @@ class KitFeedbackTextAction extends StatelessWidget {
           size: 12,
           weight: FontWeight.w700,
           letterSpacing: 1,
-          color: OnboardingColors.textOnBlueMuted,
+          color: p.onBrandSurfaceMuted,
         ),
       ),
     );
@@ -96,7 +99,7 @@ class KitHeaderIconAction extends StatelessWidget {
     required this.icon,
     required this.tooltip,
     required this.onPressed,
-    this.color = OnboardingColors.textOnBlue,
+    this.color,
     this.size = 22,
   });
 
@@ -105,11 +108,12 @@ class KitHeaderIconAction extends StatelessWidget {
   /// Also the accessible name — every header glyph is unlabelled otherwise.
   final String tooltip;
   final VoidCallback? onPressed;
-  final Color color;
+  final Color? color;
   final double size;
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return IconButton(
       tooltip: tooltip,
       padding: EdgeInsets.zero,
@@ -117,7 +121,7 @@ class KitHeaderIconAction extends StatelessWidget {
         width: OnboardingLayout.tapTarget,
         height: OnboardingLayout.tapTarget,
       ),
-      icon: Icon(icon, size: size, color: color),
+      icon: Icon(icon, size: size, color: color ?? p.onBrandSurface),
       onPressed: onPressed,
     );
   }

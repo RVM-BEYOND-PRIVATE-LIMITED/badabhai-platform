@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 
 // The privacy screens' shared chrome — the consent screen and the
@@ -17,10 +18,11 @@ class PrivacyTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: Container(
-        color: OnboardingColors.shiftBlue,
+        color: p.brandSurface,
         padding: EdgeInsets.only(
           top: MediaQuery.paddingOf(context).top + 10,
           bottom: 16,
@@ -50,9 +52,9 @@ class PrivacyTopBar extends StatelessWidget {
                           ),
                           // Spec §2.1's glyph, so back means the same shape
                           // here as on every other header in the flow.
-                          icon: const Icon(
+                          icon: Icon(
                             Icons.arrow_back_rounded,
-                            color: OnboardingColors.textOnBlue,
+                            color: p.onBrandSurface,
                             size: 22,
                           ),
                         ),
@@ -64,7 +66,7 @@ class PrivacyTopBar extends StatelessWidget {
                     style: OnboardingTypography.anek(
                       size: 18,
                       weight: FontWeight.w800,
-                      color: OnboardingColors.safetyYellow,
+                      color: p.action,
                       letterSpacing: 1,
                     ),
                   ),
@@ -78,7 +80,7 @@ class PrivacyTopBar extends StatelessWidget {
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.15),
+                        color: p.onBrandSurface.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       // A WORD, not the flag emoji. The app bundles
@@ -93,7 +95,7 @@ class PrivacyTopBar extends StatelessWidget {
                           size: 9,
                           weight: FontWeight.w800,
                           letterSpacing: 0.6,
-                          color: OnboardingColors.textOnBlue,
+                          color: p.onBrandSurface,
                         ),
                       ),
                     ),
@@ -121,19 +123,16 @@ class PrivacyShieldDisc extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Align(
       child: Container(
         width: 54,
         height: 54,
-        decoration: const BoxDecoration(
-          color: OnboardingColors.shieldCircle,
+        decoration: BoxDecoration(
+          color: p.shieldCircle,
           shape: BoxShape.circle,
         ),
-        child: const Icon(
-          Icons.shield_outlined,
-          color: OnboardingColors.shiftBlue,
-          size: 28,
-        ),
+        child: Icon(Icons.shield_outlined, color: p.textBrand, size: 28),
       ),
     );
   }

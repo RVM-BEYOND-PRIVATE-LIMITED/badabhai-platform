@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_models.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/trade_key_label.dart';
 import '../../../core/widgets/bb_job_card.dart';
@@ -16,6 +18,7 @@ import '../../../core/widgets/kit/kit_status_banner.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import '../../swipe/domain/job_detail.dart';
+import '../../swipe/domain/jobs_repository.dart';
 import 'cubit/applications_cubit.dart';
 import '../../../core/util/push_once.dart';
 import '../../../core/widgets/feedback_fab.dart';
@@ -48,8 +51,9 @@ class _AppliedJobsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -115,7 +119,7 @@ class _AppliedJobsView extends StatelessWidget {
         if (index == 1) {
           return Padding(
             padding: side.copyWith(top: 14, bottom: 4),
-            child: _whatNextCard(),
+            child: _whatNextCard(context),
           );
         }
         return Padding(
@@ -140,7 +144,8 @@ class _AppliedJobsView extends StatelessWidget {
 
   /// "AB KYA HOGA" — the what-happens-next list, on one shared card above the
   /// applications rather than a per-row repeat.
-  Widget _whatNextCard() {
+  Widget _whatNextCard(BuildContext context) {
+    final BbPalette p = context.bb;
     return KitCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -154,7 +159,7 @@ class _AppliedJobsView extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 14,
               height: 1.6,
-              color: OnboardingColors.ink600,
+              color: p.textSecondary,
             ),
           ),
         ],
@@ -194,17 +199,54 @@ class _AppliedJobsView extends StatelessWidget {
         // location only (see [BbJobCardData.trade]).
         trade: (skill == null || skill.isEmpty) ? null : skill,
         place: place,
+        // #2753 item 8 — who created the application. A Campus row says so;
+        // an app row shows nothing extra (today's screen).
+        matchNote:
+            job.appliedViaCampus ? 'Applied through RVM Campus' : null,
         metaRight: appliedRelativeLabel(job.createdAt),
       ),
-      onTitleTap: () => context.pushOnce(
-        '${Routes.jobDetail}/${job.jobId}',
-        extra: JobDetail(
-          jobId: job.jobId,
-          title: job.title,
-          city: job.city,
-          area: job.area,
-          applicationAction: job.action,
-        ),
+      onTitleTap: () => _openJob(context, job),
+    );
+  }
+
+  /// Opens the posting, except for a Campus application whose job read is gone.
+  ///
+  /// #2753 item 8: a posting open only to RVM students answers `404` on
+  /// `GET /jobs/:jobId`. Such a row is information only — the row already
+  /// carries the real title/place, so it stays on screen and the tap says why
+  /// it cannot open. A non-404 failure still opens the detail screen, which has
+  /// its own retry; only the known-absent job short-circuits.
+  Future<void> _openJob(BuildContext context, AppliedJob job) async {
+    if (job.appliedViaCampus) {
+      try {
+        await locator<JobsRepository>().jobDetail(job.jobId);
+      } on ServerFailure catch (f) {
+        if (f.statusCode == 404) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context)
+            ..clearSnackBars()
+            ..showSnackBar(const SnackBar(
+              content: Text(
+                'Yeh application RVM Campus se aayi thi. Job ab khuli nahi hai, '
+                'isliye sirf jaankari ke liye dikh rahi hai.',
+              ),
+            ));
+          return;
+        }
+      } on Failure {
+        // Not a known-absent job — fall through and let the detail screen
+        // render its own retry state.
+      }
+    }
+    if (!context.mounted) return;
+    context.pushOnce(
+      '${Routes.jobDetail}/${job.jobId}',
+      extra: JobDetail(
+        jobId: job.jobId,
+        title: job.title,
+        city: job.city,
+        area: job.area,
+        applicationAction: job.action,
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_spacing.dart';
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 import 'bb_toggle.dart';
 
@@ -62,16 +63,10 @@ class BbListRow extends StatelessWidget {
       onTap: onTap,
       leading: _IconTile(
         icon: icon,
-        background: danger
-            ? OnboardingColors.errorBg
-            : OnboardingColors.pillMutedBg,
-        iconColor: danger ? OnboardingColors.errorRed : OnboardingColors.ink600,
+        tone: danger ? _TileTone.danger : _TileTone.neutral,
       ),
-      title: _title(
-        title,
-        color: danger ? OnboardingColors.errorRed : OnboardingColors.ink900,
-      ),
-      subtitle: subtitle == null ? null : _subtitle(subtitle),
+      title: _RowTitle(title, danger: danger),
+      subtitle: subtitle == null ? null : _RowSubtitle(subtitle),
       trailing: const _Chevron(),
     );
   }
@@ -91,13 +86,9 @@ class BbListRow extends StatelessWidget {
     return BbListRow._(
       key: key,
       onTap: enabled ? () => onChanged(!value) : null,
-      leading: _IconTile(
-        icon: icon,
-        background: OnboardingColors.pillMutedBg,
-        iconColor: OnboardingColors.ink600,
-      ),
-      title: _title(title),
-      subtitle: subtitle == null ? null : _subtitle(subtitle),
+      leading: _IconTile(icon: icon),
+      title: _RowTitle(title),
+      subtitle: subtitle == null ? null : _RowSubtitle(subtitle),
       trailing: BbToggle(
         value: value,
         onChanged: enabled ? onChanged : (_) {},
@@ -116,33 +107,17 @@ class BbListRow extends StatelessWidget {
     required String subtitle,
     required String time,
   }) {
-    final (Color background, Color iconColor) = switch (tone) {
-      BbNotiTone.green => (
-        OnboardingColors.successBg,
-        OnboardingColors.successGreen,
-      ),
-      BbNotiTone.saffron => (
-        OnboardingColors.errorBg,
-        OnboardingColors.errorRed,
-      ),
-      BbNotiTone.brand => (OnboardingColors.infoBg, OnboardingColors.shiftBlue),
+    final _TileTone tileTone = switch (tone) {
+      BbNotiTone.green => _TileTone.success,
+      BbNotiTone.saffron => _TileTone.danger,
+      BbNotiTone.brand => _TileTone.info,
     };
     return BbListRow._(
       key: key,
-      leading: _IconTile(
-        icon: icon,
-        background: background,
-        iconColor: iconColor,
-      ),
-      title: _title(title),
-      subtitle: _subtitle(subtitle),
-      trailing: Text(
-        time,
-        style: OnboardingTypography.inter(
-          size: 11,
-          color: OnboardingColors.ink500,
-        ),
-      ),
+      leading: _IconTile(icon: icon, tone: tileTone),
+      title: _RowTitle(title),
+      subtitle: _RowSubtitle(subtitle),
+      trailing: _RowTime(time),
     );
   }
 
@@ -161,15 +136,10 @@ class BbListRow extends StatelessWidget {
       leading: _IconTile(
         icon: icon,
         radius: AppRadii.pill,
-        background: green
-            ? OnboardingColors.successBg
-            : OnboardingColors.infoBg,
-        iconColor: green
-            ? OnboardingColors.successGreen
-            : OnboardingColors.shiftBlue,
+        tone: green ? _TileTone.success : _TileTone.info,
       ),
-      title: _title(label),
-      subtitle: _subtitle(state),
+      title: _RowTitle(label),
+      subtitle: _RowSubtitle(state),
     );
   }
 
@@ -192,43 +162,22 @@ class BbListRow extends StatelessWidget {
       leading: _IconTile(
         icon: icon,
         size: 44,
-        background: iconBg ?? OnboardingColors.pillMutedBg,
-        iconColor: iconColor ?? OnboardingColors.shiftBlue,
+        tone: _TileTone.brand,
+        background: iconBg,
+        iconColor: iconColor,
       ),
       title: Text(
         title,
         style: OnboardingTypography.anek(size: 15, weight: FontWeight.w700),
       ),
-      subtitle: _subtitle(subtitle),
+      subtitle: _RowSubtitle(subtitle),
       trailing: const _Chevron(),
     );
   }
 
-  static Widget _title(String text, {Color color = OnboardingColors.ink900}) =>
-      // A single long word gets ONE step of shrink rather than a mid-word
-      // break: at the 2.0 ceiling 'Notifications' came out as 'Notificati /
-      // ons', which reads as a rendering fault to a worker who is sounding the
-      // word out. scaleDown is inert at every size where the word fits.
-      FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.centerLeft,
-        child: Text(
-          text,
-          style: OnboardingTypography.inter(
-            size: 14,
-            weight: FontWeight.w600,
-            color: color,
-          ),
-        ),
-      );
-
-  static Widget _subtitle(String text) => Text(
-    text,
-    style: OnboardingTypography.inter(size: 12, color: OnboardingColors.ink600),
-  );
-
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final Widget row = Padding(
       padding: padding,
       child: Row(
@@ -263,10 +212,8 @@ class BbListRow extends StatelessWidget {
 
     final Widget bordered = showBorder
         ? DecoratedBox(
-            decoration: const BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: OnboardingColors.borderSubtle),
-              ),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: p.borderSubtle)),
             ),
             child: bounded,
           )
@@ -288,12 +235,77 @@ class _Chevron extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Icon(
-      Icons.chevron_right_rounded,
-      color: OnboardingColors.ink500,
+    return Icon(Icons.chevron_right_rounded, color: context.bb.textMuted);
+  }
+}
+
+/// A row title. `danger` paints it crimson; the default is the primary ink.
+///
+/// A single long word gets ONE step of shrink rather than a mid-word break: at
+/// the 2.0 ceiling 'Notifications' came out as 'Notificati / ons', which reads
+/// as a rendering fault to a worker who is sounding the word out. scaleDown is
+/// inert at every size where the word fits.
+class _RowTitle extends StatelessWidget {
+  const _RowTitle(this.text, {this.danger = false});
+
+  final String text;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Text(
+        text,
+        style: OnboardingTypography.inter(
+          size: 14,
+          weight: FontWeight.w600,
+          color: danger ? p.danger : p.textPrimary,
+        ),
+      ),
     );
   }
 }
+
+/// A row's muted supporting line.
+class _RowSubtitle extends StatelessWidget {
+  const _RowSubtitle(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: OnboardingTypography.inter(
+        size: 12,
+        color: context.bb.textSecondary,
+      ),
+    );
+  }
+}
+
+/// A row's faint trailing time stamp.
+class _RowTime extends StatelessWidget {
+  const _RowTime(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: OnboardingTypography.inter(
+        size: 11,
+        color: context.bb.textMuted,
+      ),
+    );
+  }
+}
+
+enum _TileTone { neutral, danger, success, info, brand }
 
 /// Square (or circular, at [AppRadii.pill]) icon tile shared by every row.
 ///
@@ -302,29 +314,39 @@ class _Chevron extends StatelessWidget {
 class _IconTile extends StatelessWidget {
   const _IconTile({
     required this.icon,
-    required this.background,
-    required this.iconColor,
+    this.tone = _TileTone.neutral,
+    this.background,
+    this.iconColor,
     this.size = 40,
     this.radius = 8,
   });
 
   final IconData icon;
-  final Color background;
-  final Color iconColor;
+  final _TileTone tone;
+  final Color? background;
+  final Color? iconColor;
   final double size;
   final double radius;
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
+    final (Color bg, Color fg) = switch (tone) {
+      _TileTone.neutral => (p.inset, p.textSecondary),
+      _TileTone.danger => (p.dangerBg, p.danger),
+      _TileTone.success => (p.successBg, p.success),
+      _TileTone.info => (p.infoBg, p.textBrand),
+      _TileTone.brand => (p.inset, p.textBrand),
+    };
     return Container(
       width: size,
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: background,
+        color: background ?? bg,
         borderRadius: BorderRadius.circular(radius),
       ),
-      child: Icon(icon, color: iconColor, size: size * 0.5),
+      child: Icon(icon, color: iconColor ?? fg, size: size * 0.5),
     );
   }
 }

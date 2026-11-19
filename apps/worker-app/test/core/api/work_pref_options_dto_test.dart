@@ -119,4 +119,38 @@ void main() {
       );
     });
   });
+
+  group('#2753 item 3 — both availability answer sets', () {
+    test('the static fallback labels all eight keys', () {
+      expect(kAvailabilityStatusLabels.keys.toSet(), <String>{
+        'immediate',
+        'within_week',
+        'within_month',
+        'serving_notice',
+        'join_now',
+        'in_15_days',
+        'in_30_days',
+        'working_open',
+      });
+    });
+
+    test('the dictionary serves whatever the server sends, new keys included', () {
+      final WorkPrefOptionsDto dto = WorkPrefOptionsDto.fromJson(
+        <String, dynamic>{
+          'availability_status': <String, dynamic>{
+            'join_now': 'Can join now',
+            'in_15_days': 'Can join in 15 days',
+            'in_30_days': 'Can join in 30 days',
+            'working_open': 'Working, open to a better offer',
+          },
+        },
+      );
+      expect(dto.availabilityStatus.keys.toList(), <String>[
+        'join_now',
+        'in_15_days',
+        'in_30_days',
+        'working_open',
+      ]);
+    });
+  });
 }

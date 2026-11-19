@@ -28,6 +28,7 @@ import '../../../core/nav/tab_focus.dart';
 import '../../../core/util/devanagari_guard.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -1386,6 +1387,7 @@ class _ChatViewState extends State<_ChatView>
   /// stays what the bubble shows. Null (older API / worker bubble) → speak [text].
   Widget _speakerButton(int index, String text, String? ttsText) {
     final bool active = _speakingIndex == index;
+    final BbPalette p = context.bb;
     return IconButton(
       onPressed: () => _toggleSpeak(index, text, ttsText),
       tooltip: 'Sunein',
@@ -1399,7 +1401,7 @@ class _ChatViewState extends State<_ChatView>
       icon: Icon(
         active ? Icons.stop_circle_outlined : Icons.volume_up_rounded,
         size: 20,
-        color: OnboardingColors.shiftBlue,
+        color: p.textBrand,
       ),
     );
   }
@@ -1599,6 +1601,7 @@ class _ChatViewState extends State<_ChatView>
   /// successGreen check icon before the SERVER headline (an icon, never a
   /// glyph spliced into the server string), then the kit's yellow CTA.
   Widget _formOfferCard(FormOffer offer) {
+    final BbPalette p = context.bb;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s4,
@@ -1610,12 +1613,9 @@ class _ChatViewState extends State<_ChatView>
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: OnboardingColors.paperWhite,
+            color: p.card,
             borderRadius: BorderRadius.circular(OnboardingRadii.card),
-            border: Border.all(
-              color: OnboardingColors.borderDefault,
-              width: 1.2,
-            ),
+            border: Border.all(color: p.borderDefault, width: 1.2),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1624,12 +1624,12 @@ class _ChatViewState extends State<_ChatView>
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  const Padding(
-                    padding: EdgeInsets.only(top: 1),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 1),
                     child: Icon(
                       Icons.check_circle_rounded,
                       size: 20,
-                      color: OnboardingColors.successGreen,
+                      color: p.success,
                     ),
                   ),
                   const SizedBox(width: AppSpacing.s2),
@@ -1728,6 +1728,7 @@ class _ChatViewState extends State<_ChatView>
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // B7 kill switch. Defaults to VISIBLE (today's behaviour); ops can hide the
     // mic without a release if transcription is degraded. Typing is untouched,
     // so this narrows the flow and never blocks it.
@@ -1761,7 +1762,7 @@ class _ChatViewState extends State<_ChatView>
       (MediaQuery.sizeOf(context).width - OnboardingLayout.maxContentWidth) / 2,
     );
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       appBar: AppBar(
         // Master UI Kit chat header: a SHIFT BLUE bar with the brand mark
         // (badabhai_main.png) + 'Bada Bhai / online'. The voice-note entry moved OUT of the
@@ -1769,12 +1770,12 @@ class _ChatViewState extends State<_ChatView>
         // switch (`showVoice`) still governs it. The back arrow is still the
         // AppBar's own implied one: drawn only when this route can pop (the
         // onboarding chat), absent on the Bada Bhai tab.
-        backgroundColor: OnboardingColors.shiftBlue,
-        foregroundColor: OnboardingColors.textOnBlue,
+        backgroundColor: p.brandSurface,
+        foregroundColor: p.onBrandSurface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
-        iconTheme: const IconThemeData(color: OnboardingColors.textOnBlue),
+        iconTheme: IconThemeData(color: p.onBrandSurface),
         systemOverlayStyle: SystemUiOverlayStyle.light,
         // Kit gutter of left space so the brand mark + title are not flush
         // against the screen edge — aligns the header with the body's margin.
@@ -1807,7 +1808,7 @@ class _ChatViewState extends State<_ChatView>
                         style: OnboardingTypography.anek(
                           size: 17,
                           weight: FontWeight.w700,
-                          color: OnboardingColors.textOnBlue,
+                          color: p.onBrandSurface,
                           height: 1.2,
                         ),
                       ),
@@ -1819,13 +1820,11 @@ class _ChatViewState extends State<_ChatView>
                             width: 8,
                             height: 8,
                             decoration: BoxDecoration(
-                              color: OnboardingColors.successGreen,
+                              color: p.success,
                               shape: BoxShape.circle,
                               // A light ring so the dark kit green still reads
                               // as a status dot on the navy band.
-                              border: Border.all(
-                                color: OnboardingColors.successBg,
-                              ),
+                              border: Border.all(color: p.successBg),
                             ),
                           ),
                           const SizedBox(width: 6),
@@ -1837,7 +1836,7 @@ class _ChatViewState extends State<_ChatView>
                               style: OnboardingTypography.inter(
                                 size: 12,
                                 weight: FontWeight.w500,
-                                color: OnboardingColors.textOnBlueMuted,
+                                color: p.onBrandSurfaceMuted,
                               ),
                             ),
                           ),
@@ -1889,7 +1888,7 @@ class _ChatViewState extends State<_ChatView>
                             OnboardingRadii.feedbackButton,
                           ),
                           border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.25),
+                            color: p.onBrandSurface.withValues(alpha: 0.25),
                           ),
                         ),
                   child: BbAnimatedSwitcher(
@@ -1911,7 +1910,7 @@ class _ChatViewState extends State<_ChatView>
                         style: OnboardingTypography.inter(
                           size: 13,
                           weight: FontWeight.w700,
-                          color: OnboardingColors.textOnBlue,
+                          color: p.onBrandSurface,
                         ),
                       ),
                     ),
@@ -2209,14 +2208,14 @@ class _ChatViewState extends State<_ChatView>
                                 if (state.lastReplyBlocked)
                                   _replyNotice(
                                     icon: Icons.error_outline,
-                                    color: OnboardingColors.errorRed,
+                                    color: p.danger,
                                     text: kChatBlockedNotice,
                                   ),
                                 // B7 maintenance notice — ops copy, shown only when set.
                                 if (maintenance.isNotEmpty)
                                   _replyNotice(
                                     icon: Icons.info_outline,
-                                    color: OnboardingColors.ink500,
+                                    color: p.textMuted,
                                     text: maintenance,
                                   ),
                                 // #1411 — Devanagari never reaches the composer; this
@@ -2224,7 +2223,7 @@ class _ChatViewState extends State<_ChatView>
                                 if (_devanagariBlocked)
                                   _replyNotice(
                                     icon: Icons.error_outline,
-                                    color: OnboardingColors.errorRed,
+                                    color: p.danger,
                                     text: kDevanagariBlockedHint,
                                   ),
                                 _bottomComposerSegment(state, showVoice),
@@ -2252,13 +2251,14 @@ class _ChatViewState extends State<_ChatView>
   /// tracks the [BlocBuilder] rebuild cadence — because either row's content
   /// (and so this segment's height) can change from turn to turn.
   Widget _bottomComposerSegment(ChatState state, bool showVoice) {
+    final BbPalette p = context.bb;
     _publishBottomInset();
     // One white docked panel (Master UI Kit bottom bar): the composer's top
     // hairline is the panel's edge, and the CTA / handover card sit on the same
     // white below it. The ColoredBox adds no height, so the measured segment
     // is exactly the keyed Column.
     return ColoredBox(
-      color: OnboardingColors.paperWhite,
+      color: p.card,
       // The system bottom inset is consumed HERE, inside the white panel and
       // OUTSIDE the measured Column: the panel paints to the screen edge while
       // `bottomBarInset` keeps reporting the height above the inset, which is
@@ -2464,10 +2464,11 @@ class _ChatViewState extends State<_ChatView>
   /// [numeric] (#1583) swaps the field's keyboard to a number keypad; the mic
   /// and dictation are untouched (dictated text lands in the field as before).
   Widget _inputBar(bool showVoice, {bool numeric = false}) {
+    final BbPalette p = context.bb;
     return Container(
-      decoration: const BoxDecoration(
-        color: OnboardingColors.paperWhite,
-        border: Border(top: BorderSide(color: OnboardingColors.borderDefault)),
+      decoration: BoxDecoration(
+        color: p.card,
+        border: Border(top: BorderSide(color: p.borderDefault)),
       ),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s3,
@@ -2491,6 +2492,7 @@ class _ChatViewState extends State<_ChatView>
   /// The normal composer row: (hidden) voice-note mic + text field + the trailing
   /// mic/send action. [numeric]: see [_inputBar].
   Widget _idleBar(bool showVoice, {bool numeric = false}) {
+    final BbPalette p = context.bb;
     return Row(
       children: <Widget>[
         // Owner request: HIDE the bottom-left voice-note mic — hidden with
@@ -2530,11 +2532,11 @@ class _ChatViewState extends State<_ChatView>
               hintText: _customAnswerMode ? _customAnswerHint : _kComposerHint,
               hintStyle: OnboardingTypography.inter(
                 size: 14,
-                color: OnboardingColors.ink500,
+                color: p.textMuted,
               ),
               isDense: true,
               filled: true,
-              fillColor: OnboardingColors.paperWhite,
+              fillColor: p.card,
               // Roomier padding + the design's input radius (md=12, not the pill):
               // a fully-rounded pill made multi-line text hug the curved corners
               // and touch the border. A softer 12-radius box gives the text clear
@@ -2545,10 +2547,7 @@ class _ChatViewState extends State<_ChatView>
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(OnboardingRadii.card),
-                borderSide: const BorderSide(
-                  color: OnboardingColors.borderDefault,
-                  width: 1.2,
-                ),
+                borderSide: BorderSide(color: p.borderDefault, width: 1.2),
               ),
               // UI kit v3 (decision D8): FOCUS is navy at 1.8 — the spec's one
               // focus rule (§3.3, the OTP cell). Safety yellow now means
@@ -2557,10 +2556,7 @@ class _ChatViewState extends State<_ChatView>
               // read as an answer the worker has already given.
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(OnboardingRadii.card),
-                borderSide: const BorderSide(
-                  color: OnboardingColors.shiftBlue,
-                  width: 1.8,
-                ),
+                borderSide: BorderSide(color: p.focusRing, width: 1.8),
               ),
             ),
           ),
@@ -2578,16 +2574,13 @@ class _ChatViewState extends State<_ChatView>
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: _controller,
       builder: (BuildContext context, TextEditingValue value, Widget? _) {
+        final BbPalette p = context.bb;
         if (value.text.trim().isNotEmpty) {
           return IconButton(
             tooltip: 'Bhejein',
             onPressed: _send,
             style: _composerActionStyle,
-            icon: const Icon(
-              Icons.send_rounded,
-              color: OnboardingColors.shiftBlue,
-              size: 22,
-            ),
+            icon: Icon(Icons.send_rounded, color: p.textBrand, size: 22),
           );
         }
         // No voice consent, no mic: the slot shows an inert send glyph and the
@@ -2597,11 +2590,7 @@ class _ChatViewState extends State<_ChatView>
             tooltip: 'Bhejein',
             onPressed: null,
             style: _composerActionStyle,
-            icon: const Icon(
-              Icons.send_rounded,
-              color: OnboardingColors.ink500,
-              size: 22,
-            ),
+            icon: Icon(Icons.send_rounded, color: p.textMuted, size: 22),
           );
         }
         // KEEPS THE PLAIN MIC, AND KEEPS ITS OWN WORDS. This is the keyboard
@@ -2614,11 +2603,7 @@ class _ChatViewState extends State<_ChatView>
           tooltip: kComposerDictationLabel,
           onPressed: _startDictation,
           style: _composerActionStyle,
-          icon: const Icon(
-            Icons.mic,
-            color: OnboardingColors.shiftBlue,
-            size: 22,
-          ),
+          icon: Icon(Icons.mic, color: p.textBrand, size: 22),
         );
       },
     );
@@ -2875,10 +2860,11 @@ class _ChatViewState extends State<_ChatView>
   /// [_inputBar] (no layout jump when it swaps in), a muted icon and one line
   /// of muted, aap-form copy. No text field, no send, no mic.
   Widget _lockedComposerBar({required String text, required IconData icon}) {
+    final BbPalette p = context.bb;
     return Container(
-      decoration: const BoxDecoration(
-        color: OnboardingColors.paperWhite,
-        border: Border(top: BorderSide(color: OnboardingColors.borderDefault)),
+      decoration: BoxDecoration(
+        color: p.card,
+        border: Border(top: BorderSide(color: p.borderDefault)),
       ),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s3,
@@ -2889,14 +2875,12 @@ class _ChatViewState extends State<_ChatView>
       child: _capped(
         Row(
           children: <Widget>[
-            Icon(icon, color: OnboardingColors.ink500, size: 20),
+            Icon(icon, color: p.textMuted, size: 20),
             const SizedBox(width: AppSpacing.s2),
             Expanded(
               child: Text(
                 text,
-                style: OnboardingTypography.bodyMuted(
-                  color: OnboardingColors.ink600,
-                ),
+                style: OnboardingTypography.bodyMuted(color: p.textSecondary),
               ),
             ),
           ],
@@ -2907,21 +2891,24 @@ class _ChatViewState extends State<_ChatView>
 
   /// The composer's trailing MIC / SEND slot in the kit style: a 48px yellow
   /// rounded square carrying a shift-blue glyph. Same tap floor as before.
-  static final ButtonStyle _composerActionStyle = IconButton.styleFrom(
-    backgroundColor: OnboardingColors.safetyYellow,
-    foregroundColor: OnboardingColors.shiftBlue,
-    fixedSize: const Size(
-      OnboardingLayout.tapTarget,
-      OnboardingLayout.tapTarget,
-    ),
-    minimumSize: const Size(
-      OnboardingLayout.tapTarget,
-      OnboardingLayout.tapTarget,
-    ),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(OnboardingRadii.card),
-    ),
-  );
+  ButtonStyle get _composerActionStyle {
+    final BbPalette p = context.bb;
+    return IconButton.styleFrom(
+      backgroundColor: p.action,
+      foregroundColor: p.onAction,
+      fixedSize: const Size(
+        OnboardingLayout.tapTarget,
+        OnboardingLayout.tapTarget,
+      ),
+      minimumSize: const Size(
+        OnboardingLayout.tapTarget,
+        OnboardingLayout.tapTarget,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(OnboardingRadii.card),
+      ),
+    );
+  }
 
   /// The yellow circular mic in the composer — opens the voice-note flow (kit 03).
   /// Shift-blue glyph on safety yellow (ink on yellow is always navy). TAP-ONLY now:
@@ -2929,25 +2916,22 @@ class _ChatViewState extends State<_ChatView>
   /// ([_composerAction]), so this button no longer records into the composer on a
   /// hold — it only opens the server voice-note screen.
   Widget _composerMic() {
+    final BbPalette p = context.bb;
     return Semantics(
       button: true,
       label: 'Voice note bhejein',
       child: Tooltip(
         message: 'Voice note',
         child: Material(
-          color: OnboardingColors.safetyYellow,
+          color: p.action,
           shape: const CircleBorder(),
           child: InkWell(
             customBorder: const CircleBorder(),
             onTap: _openVoiceNote,
-            child: const SizedBox(
+            child: SizedBox(
               width: AppSpacing.tap,
               height: AppSpacing.tap,
-              child: Icon(
-                Icons.mic,
-                color: OnboardingColors.textOnYellow,
-                size: 22,
-              ),
+              child: Icon(Icons.mic, color: p.onAction, size: 22),
             ),
           ),
         ),
@@ -2963,9 +2947,10 @@ class _ChatViewState extends State<_ChatView>
   /// lazily, so this states the real cause and what to do — no false blame on
   /// the worker's internet, and no fake "sent" impression.
   Widget _sessionBanner() {
+    final BbPalette p = context.bb;
     return Container(
       width: double.infinity,
-      color: OnboardingColors.errorBg,
+      color: p.dangerBg,
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.s4,
         vertical: AppSpacing.s3,
@@ -2973,11 +2958,7 @@ class _ChatViewState extends State<_ChatView>
       child: _capped(
         Row(
           children: <Widget>[
-            const Icon(
-              Icons.cloud_off,
-              size: 18,
-              color: OnboardingColors.errorRed,
-            ),
+            Icon(Icons.cloud_off, size: 18, color: p.danger),
             const SizedBox(width: AppSpacing.s2),
             Flexible(
               child: Text(
@@ -2985,7 +2966,7 @@ class _ChatViewState extends State<_ChatView>
                 style: OnboardingTypography.inter(
                   size: 13,
                   weight: FontWeight.w500,
-                  color: OnboardingColors.errorRed,
+                  color: p.danger,
                 ),
               ),
             ),
@@ -3370,6 +3351,7 @@ class _ChatViewState extends State<_ChatView>
   /// an indefinite animation never lets `WidgetTester.pumpAndSettle` settle, and
   /// the value here is the honest "still working" cue, not motion.
   Widget _typingIndicator() {
+    final BbPalette p = context.bb;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s4,
@@ -3379,11 +3361,7 @@ class _ChatViewState extends State<_ChatView>
       ),
       child: Row(
         children: <Widget>[
-          const Icon(
-            Icons.more_horiz,
-            size: 20,
-            color: OnboardingColors.shiftBlue,
-          ),
+          Icon(Icons.more_horiz, size: 20, color: p.textBrand),
           const SizedBox(width: AppSpacing.s2),
           Flexible(
             child: Text(
@@ -3392,7 +3370,7 @@ class _ChatViewState extends State<_ChatView>
               overflow: TextOverflow.ellipsis,
               style: OnboardingTypography.inter(
                 size: 13,
-                color: OnboardingColors.ink500,
+                color: p.textMuted,
               ),
             ),
           ),
@@ -3601,24 +3579,21 @@ class _ChatViewState extends State<_ChatView>
   /// The trust moment: the worker's trade in their OWN vernacular, once pinned.
   /// [label] is worker/engine data (e.g. "darzi"), never a persona string.
   Widget _occupationPill(String label) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.s3,
         vertical: AppSpacing.s1,
       ),
       decoration: BoxDecoration(
-        color: OnboardingColors.selectedCardBg,
+        color: p.selectedCardBg,
         borderRadius: BorderRadius.circular(OnboardingRadii.badge),
-        border: Border.all(color: OnboardingColors.safetyYellow, width: 1.2),
+        border: Border.all(color: p.action, width: 1.2),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(
-            Icons.check_circle,
-            size: 16,
-            color: OnboardingColors.shiftBlue,
-          ),
+          Icon(Icons.check_circle, size: 16, color: p.textBrand),
           const SizedBox(width: AppSpacing.s1),
           Flexible(
             child: Text(
@@ -3695,6 +3670,7 @@ class _ChatViewState extends State<_ChatView>
       (isCompanionV2OnlyKey(optionKey) || optionKey == kCompanionNewJobsKey);
 
   Widget _companionActionChips(List<ChatOption> options) {
+    final BbPalette p = context.bb;
     // THE LEVER GATES THE DOOR TOO (ADR-0046 F4). v2-only chips are dropped on a
     // build whose lever is off — see [isCompanionV2OnlyKey] for why offering one
     // without its destination is worse than not offering it. v1's chips (jobs,
@@ -3737,7 +3713,7 @@ class _ChatViewState extends State<_ChatView>
                   button: true,
                   label: o.labelText,
                   child: Material(
-                    color: OnboardingColors.paperWhite,
+                    color: p.card,
                     borderRadius: BorderRadius.circular(OnboardingRadii.card),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(OnboardingRadii.card),
@@ -3753,9 +3729,7 @@ class _ChatViewState extends State<_ChatView>
                           borderRadius: BorderRadius.circular(
                             OnboardingRadii.card,
                           ),
-                          border: Border.all(
-                            color: OnboardingColors.borderCard,
-                          ),
+                          border: Border.all(color: p.borderCard),
                         ),
                         child: Row(
                           children: <Widget>[
@@ -3767,7 +3741,7 @@ class _ChatViewState extends State<_ChatView>
                                     size: 14,
                                     weight: FontWeight.w600,
                                     height: 1.35,
-                                    color: OnboardingColors.ink900,
+                                    color: p.textPrimary,
                                   ),
                                 ),
                               ),
@@ -3998,6 +3972,7 @@ class _ChatViewState extends State<_ChatView>
     required bool escape,
     required VoidCallback onTap,
   }) {
+    final BbPalette p = context.bb;
     // Master UI Kit: a single-select option is a SingleSelectQuestionCard. It
     // is never pre-selected — the tap IS the answer and the row leaves on the
     // next rebuild (the one-tap latch lives in [_sendOption]/[_sendChoice]).
@@ -4036,10 +4011,7 @@ class _ChatViewState extends State<_ChatView>
                 ),
                 decoration: BoxDecoration(
                   borderRadius: radius,
-                  border: Border.all(
-                    color: OnboardingColors.borderSubtle,
-                    width: 1.2,
-                  ),
+                  border: Border.all(color: p.borderSubtle, width: 1.2),
                 ),
                 child: Row(
                   children: <Widget>[
@@ -4048,14 +4020,11 @@ class _ChatViewState extends State<_ChatView>
                         kChatCustomAnswerLabel,
                         style: OnboardingTypography.inter(
                           size: 14,
-                          color: OnboardingColors.ink500,
+                          color: p.textMuted,
                         ),
                       ),
                     ),
-                    const Icon(
-                      Icons.edit_outlined,
-                      color: OnboardingColors.ink500,
-                    ),
+                    Icon(Icons.edit_outlined, color: p.textMuted),
                   ],
                 ),
               ),
@@ -4078,13 +4047,12 @@ class _ChatViewState extends State<_ChatView>
   }
 
   Widget _jumpPillBody() {
+    final BbPalette p = context.bb;
     return Material(
-      color: OnboardingColors.paperWhite,
+      color: p.card,
       elevation: 0,
       // Flat pill (kit): a hairline border, not a shadow, lifts it off the chat.
-      shape: const StadiumBorder(
-        side: BorderSide(color: OnboardingColors.borderDefault),
-      ),
+      shape: StadiumBorder(side: BorderSide(color: p.borderDefault)),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadii.pill),
         onTap: _jumpToBottom,
@@ -4105,14 +4073,14 @@ class _ChatViewState extends State<_ChatView>
                   style: OnboardingTypography.inter(
                     size: 13,
                     weight: FontWeight.w700,
-                    color: OnboardingColors.shiftBlue,
+                    color: p.textBrand,
                   ),
                 ),
               ),
               const SizedBox(width: AppSpacing.s1),
-              const Icon(
+              Icon(
                 Icons.keyboard_arrow_down_rounded,
-                color: OnboardingColors.shiftBlue,
+                color: p.textBrand,
                 size: 20,
               ),
             ],
@@ -4172,25 +4140,20 @@ class _ChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     const Radius soft = Radius.circular(AppRadii.md);
     const Radius tail = Radius.circular(AppRadii.bubbleTail);
 
     final bool workerFilled = fromWorker && !failed;
     final Color background = failed
-        ? OnboardingColors.errorBg
-        : (fromWorker
-              ? OnboardingColors.shiftBlue
-              : OnboardingColors.paperWhite);
+        ? p.dangerBg
+        : (fromWorker ? p.brandSurface : p.card);
     final Color borderColor = failed
-        ? OnboardingColors.errorRed
-        : (fromWorker
-              ? OnboardingColors.shiftBlue
-              : OnboardingColors.borderDefault);
-    // White on the filled navy bubble; dark ink everywhere else (a failed
-    // worker bubble sits on the light error tint, so it keeps dark text).
-    final Color textColor = workerFilled
-        ? OnboardingColors.textOnBlue
-        : OnboardingColors.ink900;
+        ? p.danger
+        : (fromWorker ? p.brandSurface : p.borderDefault);
+    // Text on the filled navy bubble; primary ink everywhere else (a failed
+    // worker bubble sits on the error tint).
+    final Color textColor = workerFilled ? p.onBrandSurface : p.textPrimary;
 
     final Widget bubble = Container(
       constraints: BoxConstraints(maxWidth: maxWidth),
@@ -4223,11 +4186,7 @@ class _ChatBubble extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                const Icon(
-                  Icons.error_outline,
-                  size: 16,
-                  color: OnboardingColors.errorRed,
-                ),
+                Icon(Icons.error_outline, size: 16, color: p.danger),
                 const SizedBox(width: AppSpacing.s1),
                 Flexible(
                   child: Text(
@@ -4236,7 +4195,7 @@ class _ChatBubble extends StatelessWidget {
                     style: OnboardingTypography.inter(
                       size: 13,
                       weight: FontWeight.w700,
-                      color: OnboardingColors.errorRed,
+                      color: p.danger,
                     ),
                   ),
                 ),
@@ -4347,33 +4306,32 @@ class _AnswerChip extends StatelessWidget {
 
   /// Null on every chip but a multi-select's: today's chip, unchanged.
   /// Non-null makes the chip a toggle announced as selected / not selected;
-  /// `true` wears the kit's SELECTED paint (the [OnboardingColors.selectedCardBg]
-  /// wash behind a 1.8 safety-yellow border, navy label) plus a check, so the
-  /// tick never rests on colour alone.
+  /// `true` wears the kit's SELECTED paint (the selected-card wash behind a
+  /// 1.8 safety-yellow border, navy label) plus a check, so the tick never
+  /// rests on colour alone.
   final bool? selected;
 
   static const BorderRadius _radius = BorderRadius.all(Radius.circular(12));
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool ticked = selected ?? false;
     final Widget chip = Material(
       color: Colors.transparent,
       child: Ink(
         decoration: BoxDecoration(
-          color: ticked
-              ? OnboardingColors.selectedCardBg
-              : OnboardingColors.chipBg,
+          color: ticked ? p.selectedCardBg : p.raised,
           borderRadius: _radius,
           border: ticked
-              ? Border.all(color: OnboardingColors.safetyYellow, width: 1.8)
-              : Border.all(color: OnboardingColors.borderDefault, width: 1.2),
+              ? Border.all(color: p.action, width: 1.8)
+              : Border.all(color: p.borderDefault, width: 1.2),
         ),
         child: InkWell(
           onTap: onTap,
           borderRadius: _radius,
-          splashColor: OnboardingColors.safetyYellow.withValues(alpha: 0.30),
-          highlightColor: OnboardingColors.safetyYellow.withValues(alpha: 0.18),
+          splashColor: p.action.withValues(alpha: 0.30),
+          highlightColor: p.action.withValues(alpha: 0.18),
           child: Container(
             alignment: Alignment.center,
             constraints: const BoxConstraints(
@@ -4387,17 +4345,13 @@ class _AnswerChip extends StatelessWidget {
                 ? Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      const Icon(
-                        Icons.check_rounded,
-                        size: 16,
-                        color: OnboardingColors.shiftBlue,
-                      ),
+                      Icon(Icons.check_rounded, size: 16, color: p.textBrand),
                       const SizedBox(width: AppSpacing.s1),
                       Text(
                         label,
                         style: OnboardingTypography.inter(
                           size: 14,
-                          color: OnboardingColors.shiftBlue,
+                          color: p.textBrand,
                         ),
                       ),
                     ],
@@ -4423,11 +4377,12 @@ class _HeaderProgressLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return SizedBox(
       height: _kHeaderProgressHeight,
       width: double.infinity,
       child: ColoredBox(
-        color: Colors.white.withValues(alpha: 0.12),
+        color: p.onBrandSurface.withValues(alpha: 0.12),
         child: TweenAnimationBuilder<double>(
           tween: Tween<double>(begin: 0, end: value.clamp(0, 1).toDouble()),
           duration: AppMotion.slow,
@@ -4436,7 +4391,7 @@ class _HeaderProgressLine extends StatelessWidget {
             return FractionallySizedBox(
               widthFactor: t,
               alignment: Alignment.centerLeft,
-              child: const ColoredBox(color: OnboardingColors.successGreen),
+              child: ColoredBox(color: p.success),
             );
           },
         ),
@@ -4460,10 +4415,9 @@ class _WrappingPrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool enabled = onPressed != null;
-    final Color ink = enabled
-        ? OnboardingColors.shiftBlue
-        : OnboardingColors.disabledText;
+    final Color ink = enabled ? p.onAction : p.disabledText;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: ElevatedButton(
@@ -4486,12 +4440,12 @@ class _WrappingPrimaryButton extends StatelessWidget {
             Set<WidgetState> s,
           ) {
             if (s.contains(WidgetState.disabled)) {
-              return OnboardingColors.disabledBg;
+              return p.disabledBg;
             }
             if (s.contains(WidgetState.pressed)) {
-              return OnboardingColors.safetyYellowDark;
+              return p.actionPressed;
             }
-            return OnboardingColors.safetyYellow;
+            return p.action;
           }),
           foregroundColor: WidgetStatePropertyAll<Color>(ink),
           overlayColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
@@ -4732,6 +4686,7 @@ class _EditProposalCardState extends State<_EditProposalCard> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool expired = _expired;
     final List<String> ticked = _tickedRowIds;
     // The confirm route takes at most [kEditProposalMaxRows] row ids, but the
@@ -4755,12 +4710,9 @@ class _EditProposalCardState extends State<_EditProposalCard> {
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: OnboardingColors.paperWhite,
+              color: p.card,
               borderRadius: BorderRadius.circular(OnboardingRadii.card),
-              border: Border.all(
-                color: OnboardingColors.borderDefault,
-                width: 1.2,
-              ),
+              border: Border.all(color: p.borderDefault, width: 1.2),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -4776,7 +4728,7 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                       ? kEditCardExpired
                       : '${_formatExpiry(widget.proposal.expiresAt)} tak Haan daba sakte hain.',
                   style: OnboardingTypography.bodyMuted(
-                    color: OnboardingColors.ink600,
+                    color: p.textSecondary,
                   ),
                 ),
                 // Why Haan is off, when it is off for THIS reason. Without the
@@ -4789,7 +4741,7 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                     style: OnboardingTypography.inter(
                       size: 12,
                       height: 1.35,
-                      color: OnboardingColors.errorRed,
+                      color: p.danger,
                     ),
                   ),
                 ],
@@ -4806,10 +4758,8 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                       child: OutlinedButton(
                         onPressed: expired ? null : widget.onCancel,
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: OnboardingColors.ink900,
-                          side: const BorderSide(
-                            color: OnboardingColors.borderCard,
-                          ),
+                          foregroundColor: p.textPrimary,
+                          side: BorderSide(color: p.borderCard),
                           minimumSize: const Size(double.infinity, 48),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(
@@ -4820,7 +4770,7 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                         child: Text(
                           kVoiceBooleanNo,
                           style: OnboardingTypography.buttonLabel(
-                            color: OnboardingColors.ink900,
+                            color: p.textPrimary,
                           ),
                         ),
                       ),
@@ -4855,6 +4805,7 @@ class _EditProposalCardState extends State<_EditProposalCard> {
   /// One row: a tick (everything starts ticked), the section's server-supplied
   /// label, and what changes.
   Widget _row(EditProposalRow row, {required bool expired}) {
+    final BbPalette p = context.bb;
     final bool ticked = !_unticked.contains(row.rowId);
     return InkWell(
       onTap: expired ? null : () => _toggle(row),
@@ -4868,8 +4819,8 @@ class _EditProposalCardState extends State<_EditProposalCard> {
             Checkbox(
               value: ticked,
               onChanged: expired ? null : (_) => _toggle(row),
-              activeColor: OnboardingColors.shiftBlue,
-              checkColor: OnboardingColors.textOnBlue,
+              activeColor: p.brandSurface,
+              checkColor: p.onBrandSurface,
               visualDensity: VisualDensity.compact,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
@@ -4889,7 +4840,7 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                     style: OnboardingTypography.inter(
                       size: 13,
                       weight: FontWeight.w700,
-                      color: OnboardingColors.ink900,
+                      color: p.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -4917,6 +4868,7 @@ class _EditProposalCardState extends State<_EditProposalCard> {
   /// The row_ids sent back on Haan are untouched by this; only the pixels are
   /// humanised.
   Widget _rowChange(EditProposalRow row) {
+    final BbPalette p = context.bb;
     final String? before = row.before == null
         ? null
         : (row.beforeDisplay ?? companionEditValue(row.before!));
@@ -4938,7 +4890,7 @@ class _EditProposalCardState extends State<_EditProposalCard> {
           kEditOpDelete,
           before ?? '',
           struckThrough: true,
-          tone: OnboardingColors.errorRed,
+          tone: p.danger,
         );
       default:
         if ((before ?? '').isEmpty) return _valueText(after ?? '');
@@ -4947,7 +4899,7 @@ class _EditProposalCardState extends State<_EditProposalCard> {
           '$before  →  $after',
           style: OnboardingTypography.inter(
             size: 13,
-            color: OnboardingColors.ink600,
+            color: p.textSecondary,
           ),
         );
     }
@@ -4972,14 +4924,14 @@ class _EditProposalCardState extends State<_EditProposalCard> {
           style: OnboardingTypography.inter(
             size: 13,
             weight: FontWeight.w700,
-            color: tone ?? OnboardingColors.ink600,
+            color: tone ?? context.bb.textSecondary,
           ),
         ),
         TextSpan(
           text: value,
           style: OnboardingTypography.inter(
             size: 13,
-            color: OnboardingColors.ink600,
+            color: context.bb.textSecondary,
             decoration: struckThrough ? TextDecoration.lineThrough : null,
           ),
         ),
@@ -4991,7 +4943,7 @@ class _EditProposalCardState extends State<_EditProposalCard> {
     value,
     style: OnboardingTypography.inter(
       size: 13,
-      color: OnboardingColors.ink600,
+      color: context.bb.textSecondary,
       decoration: struckThrough ? TextDecoration.lineThrough : null,
     ),
   );

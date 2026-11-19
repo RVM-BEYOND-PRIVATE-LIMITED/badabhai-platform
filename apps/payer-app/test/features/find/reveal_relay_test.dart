@@ -18,12 +18,16 @@ class _SpyApi extends MockPayerApiClient {
   final List<({String workerId, String? jobPostingId})> disclosures =
       <({String workerId, String? jobPostingId})>[];
   final List<String> reveals = <String>[];
+  ContactReadResult contact = const ContactReadResult.off();
 
   @override
   Future<RevealResult> reveal(String unlockId) {
     reveals.add(unlockId);
     return super.reveal(unlockId);
   }
+
+  @override
+  Future<ContactReadResult> readContact(String unlockId) async => contact;
 
   @override
   Future<DisclosureResult> disclose({
@@ -87,6 +91,49 @@ void main() {
     // Nothing identifying — the backend returns none and none is fabricated.
     expect(find.textContaining('+91'), findsNothing);
     expect(find.textContaining('Ramesh'), findsNothing);
+  });
+
+  testWidgets('#2747 — an opened contact shows the name, number, Call and Copy',
+      (WidgetTester tester) async {
+    api.contact = const ContactReadResult.contact(
+      fullName: null,
+      phone: '+919876543210',
+    );
+    await pump(tester, _searchReveal);
+
+    expect(find.text('not given'), findsOneWidget);
+    expect(find.text('+919876543210'), findsOneWidget);
+    expect(find.text('Call'), findsOneWidget);
+    expect(find.text('Copy'), findsOneWidget);
+  });
+
+  testWidgets('#2747 — open_until null shows no until date; a dated window shows it',
+      (WidgetTester tester) async {
+    const RevealArgs openForGood = RevealArgs.relay(
+      workerId: _workerId,
+      unlockId: 'unl-open',
+      title: 'Worker ••0003',
+      openUntil: null,
+    );
+    await pump(tester, openForGood);
+    expect(find.textContaining('Open until'), findsNothing);
+
+    const RevealArgs dated = RevealArgs.relay(
+      workerId: _workerId,
+      unlockId: 'unl-open',
+      title: 'Worker ••0003',
+      openUntil: '2026-11-30T00:00:00.000Z',
+    );
+    await pump(tester, dated);
+    expect(find.text('Open until 2026-11-30'), findsOneWidget);
+  });
+
+  testWidgets('a 404 keeps today\'s relay screen — no contact block',
+      (WidgetTester tester) async {
+    await pump(tester, _searchReveal);
+    expect(find.text('relay-7Q2X'), findsOneWidget);
+    expect(find.text('Call'), findsNothing);
+    expect(find.text('Copy'), findsNothing);
   });
 
   testWidgets('its masked résumé goes out with NO posting id',

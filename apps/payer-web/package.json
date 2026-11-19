@@ -2,7 +2,7 @@
   "name": "@badabhai/payer-web",
   "version": "0.1.0",
   "private": true,
-  "description": "BadaBhai EXTERNAL self-serve payer portal (Next.js) — ADR-0019 Phase 1: MOCK + staging-only.",
+  "description": "BadaBhai EXTERNAL self-serve payer portal (Next.js) \u2014 ADR-0019 Phase 1: MOCK + staging-only.",
   "scripts": {
     "dev": "next dev -p 3002",
     "build": "next build",
@@ -19,6 +19,7 @@
     "@badabhai/icons": "workspace:*",
     "@badabhai/pricing": "workspace:*",
     "@badabhai/role-art": "workspace:*",
+    "@badabhai/theme-web": "workspace:*",
     "@badabhai/types": "workspace:*",
     "@badabhai/validators": "workspace:*",
     "next": "^15.5.28",

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/onboarding/selection_cards.dart';
 import '../../domain/profiling_tier.dart';
@@ -13,7 +14,7 @@ import '../../domain/profiling_tier.dart';
 ///
 ///  1. **It would collide with the app's single most reused signal.** A yellow
 ///     1.8dp border means SELECTED — on every option card, chip, radio and
-///     checkbox in the app (`_SelectionCardShell`, `OnboardingColors.borderActive`).
+///     checkbox in the app (`_SelectionCardShell`, the palette's active border).
 ///     A permanent gold border on the Hard card would read as "already chosen"
 ///     before the worker touches it, and once they did choose it there would be
 ///     nothing left to escalate to.
@@ -24,25 +25,20 @@ import '../../domain/profiling_tier.dart';
 ///
 /// The wash and the badge together still make the card unmistakable, which is
 /// what the issue actually asks for ("stand out without looking like an error").
-const LinearGradient kBadaBhaiRecommendedBadge = LinearGradient(
+LinearGradient kBadaBhaiRecommendedBadge(BbPalette p) => LinearGradient(
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
-  colors: <Color>[
-    Color(0xFFF6E27A),
-    Color(0xFFD4AF37),
-    Color(0xFFB8860B),
-    Color(0xFFF3D98B),
-  ],
-  stops: <double>[0.0, 0.45, 0.75, 1.0],
+  colors: <Color>[p.haldi, p.action, p.actionPressed, p.action],
+  stops: const <double>[0.0, 0.45, 0.75, 1.0],
 );
 
 /// The Hard card's background wash — a very light warm tint, not flat gold, so
 /// the text on it stays well clear of WCAG AA. Dark ink on a near-white wash,
 /// never gold ink on white.
-const LinearGradient kBadaBhaiRecommendedWash = LinearGradient(
+LinearGradient kBadaBhaiRecommendedWash(BbPalette p) => LinearGradient(
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
-  colors: <Color>[Color(0xFFFFFBEA), Color(0xFFFFF3C4)],
+  colors: <Color>[p.actionTint, p.actionTint],
 );
 
 /// The badge's own label. Not translated and not shortened: it is a product
@@ -91,13 +87,12 @@ class TierOptionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final BorderRadius radius = BorderRadius.circular(
       FormFlowLayout.cardRadius,
     );
     final BorderSide side = BorderSide(
-      color: isSelected
-          ? OnboardingColors.safetyYellow
-          : FormFlowColors.cardBorder,
+      color: isSelected ? p.action : FormFlowColors.cardBorder,
       width: isSelected ? 1.8 : 1.2,
     );
     return Padding(
@@ -123,9 +118,7 @@ class TierOptionCard extends StatelessWidget {
           // Unselected cards are white; the Hard card's wash is painted by the
           // [Ink] below so it can be a gradient, which a Material colour
           // cannot be.
-          color: isSelected
-              ? OnboardingColors.selectedCardBg
-              : OnboardingColors.paperWhite,
+          color: isSelected ? p.selectedCardBg : p.card,
           shape: RoundedRectangleBorder(borderRadius: radius, side: side),
           child: InkWell(
             onTap: onTap,
@@ -134,7 +127,7 @@ class TierOptionCard extends StatelessWidget {
               decoration: BoxDecoration(
                 borderRadius: radius,
                 gradient: _isRecommended && !isSelected
-                    ? kBadaBhaiRecommendedWash
+                    ? kBadaBhaiRecommendedWash(p)
                     : null,
               ),
               child: Container(
@@ -166,7 +159,7 @@ class TierOptionCard extends StatelessWidget {
                             style: OnboardingTypography.inter(
                               size: 12,
                               weight: FontWeight.w600,
-                              color: OnboardingColors.ink500,
+                              color: p.textMuted,
                             ),
                           ),
                         ],
@@ -201,10 +194,11 @@ class _RecommendedBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        gradient: kBadaBhaiRecommendedBadge,
+        gradient: kBadaBhaiRecommendedBadge(p),
         borderRadius: BorderRadius.circular(OnboardingRadii.badge),
       ),
       child: Text(
@@ -213,7 +207,7 @@ class _RecommendedBadge extends StatelessWidget {
           size: 11,
           weight: FontWeight.w800,
           letterSpacing: 0.3,
-          color: OnboardingColors.shiftBlue,
+          color: p.onAction,
         ),
       ),
     );

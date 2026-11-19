@@ -11,6 +11,7 @@ import '../../../core/api/api_models.dart'
         kMaxCorrectionsPerProfile;
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/kit/kit_card.dart';
@@ -180,10 +181,11 @@ class _NoticeBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final Color bg = switch (tone) {
-      _NoticeTone.info => OnboardingColors.infoBg,
-      _NoticeTone.error => OnboardingColors.errorBg,
-      _NoticeTone.ok => OnboardingColors.successBg,
+      _NoticeTone.info => p.infoBg,
+      _NoticeTone.error => p.dangerBg,
+      _NoticeTone.ok => p.successBg,
     };
     return Container(
       padding: const EdgeInsets.all(12),
@@ -337,6 +339,7 @@ class _CatalogueCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return KitCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -346,7 +349,7 @@ class _CatalogueCard extends StatelessWidget {
           if (locked)
             _current()
           else
-            ..._editor(),
+            ..._editor(p),
         ],
       ),
     );
@@ -364,7 +367,7 @@ class _CatalogueCard extends StatelessWidget {
     );
   }
 
-  List<Widget> _editor() {
+  List<Widget> _editor(BbPalette p) {
     switch (pick.status) {
       case CatalogueStatus.idle:
       case CatalogueStatus.loading:
@@ -434,10 +437,7 @@ class _CatalogueCard extends StatelessWidget {
               runSpacing: 8,
               children: <Widget>[
                 for (final String label in pick.unmatchedLabels)
-                  KitInfoChip(
-                    label: label,
-                    dot: OnboardingColors.safetyYellow,
-                  ),
+                  KitInfoChip(label: label, dot: p.action),
               ],
             ),
           ],

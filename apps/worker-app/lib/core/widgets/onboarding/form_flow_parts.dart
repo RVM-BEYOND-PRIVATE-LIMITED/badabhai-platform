@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// Pieces of the form-flow question screens, drawn from the Workholding (15),
@@ -32,6 +33,7 @@ class FormProgressStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final double fraction =
         total <= 0 ? 0 : (position / total).clamp(0.0, 1.0).toDouble();
     final int percent = (fraction * 100).round();
@@ -42,9 +44,9 @@ class FormProgressStrip extends StatelessWidget {
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: Container(
         width: double.infinity,
-        decoration: const BoxDecoration(
-          color: OnboardingColors.paperWhite,
-          border: Border(
+        decoration: BoxDecoration(
+          color: p.card,
+          border: const Border(
             bottom: BorderSide(color: FormFlowColors.stripBorder),
           ),
         ),
@@ -101,13 +103,13 @@ class FormProgressStrip extends StatelessWidget {
                           borderRadius: barRadius,
                           child: Container(
                             height: FormFlowLayout.progressBarHeight,
-                            color: OnboardingColors.borderSubtle,
+                            color: p.borderSubtle,
                             alignment: Alignment.centerLeft,
                             child: FractionallySizedBox(
                               widthFactor: fraction,
                               child: Container(
                                 decoration: BoxDecoration(
-                                  color: OnboardingColors.safetyYellow,
+                                  color: p.action,
                                   borderRadius: barRadius,
                                 ),
                               ),
@@ -194,7 +196,7 @@ class _HeaderShadow extends StatelessWidget {
               end: Alignment.bottomCenter,
               colors: <Color>[
                 FormFlowColors.headerShadow,
-                Color(0x00000000),
+                Colors.transparent,
               ],
             ),
           ),
@@ -213,6 +215,7 @@ class FormHintChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
@@ -221,16 +224,16 @@ class FormHintChip extends StatelessWidget {
           vertical: FormFlowLayout.hintPaddingV,
         ),
         decoration: BoxDecoration(
-          color: OnboardingColors.safetyYellow.withValues(alpha: 0.18),
+          color: p.action.withValues(alpha: 0.18),
           borderRadius: BorderRadius.circular(6),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(
+            Icon(
               Icons.info_rounded,
               size: FormFlowLayout.hintIconSize,
-              color: OnboardingColors.shiftBlue,
+              color: p.textBrand,
             ),
             const SizedBox(width: FormFlowLayout.hintIconGap),
             Flexible(
@@ -239,7 +242,7 @@ class FormHintChip extends StatelessWidget {
                 style: OnboardingTypography.inter(
                   size: FormFlowLayout.hintTextSize,
                   weight: FontWeight.w600,
-                  color: OnboardingColors.ink600,
+                  color: p.textSecondary,
                 ),
               ),
             ),
@@ -270,11 +273,10 @@ class FormDeclineLink extends StatelessWidget {
   Widget build(BuildContext context) {
     // Greyed while [onTap] is null (e.g. a submit is in flight), so a link
     // that cannot act does not look like one that can.
+    final BbPalette p = context.bb;
     final bool enabled = onTap != null;
-    final Color ink =
-        enabled ? OnboardingColors.ink600 : OnboardingColors.disabledText;
-    final Color glyph =
-        enabled ? FormFlowColors.declineIcon : OnboardingColors.disabledText;
+    final Color ink = enabled ? p.textSecondary : p.disabledText;
+    final Color glyph = enabled ? FormFlowColors.declineIcon : p.disabledText;
     return Center(
       child: TextButton(
         onPressed: onTap,
@@ -296,9 +298,9 @@ class FormDeclineLink extends StatelessWidget {
             Flexible(
               child: Container(
                 padding: const EdgeInsets.only(bottom: _underlineDrop),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   border: Border(
-                    bottom: BorderSide(color: FormFlowColors.declineUnderline),
+                    bottom: BorderSide(color: p.borderSubtle),
                   ),
                 ),
                 child: Text(

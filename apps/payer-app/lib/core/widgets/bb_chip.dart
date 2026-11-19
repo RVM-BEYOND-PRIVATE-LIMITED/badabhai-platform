@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_pressable.dart';
+import '../theme/bb_palette.dart';
 
 /// A pill-shaped selectable chip — the design system's `.aw-chip` (ui.css
 /// 46–47). Used for skills/tags and single-select filters in the worker app.
@@ -27,14 +27,15 @@ class BbChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // JUL31 kit: a selected filter chip is a SOLID haldi pill (not a tint) with
     // a deep-blue label; unselected sits on paper behind a hairline.
     final Color background =
-        selected ? AppColors.brand : AppColors.surfaceCard;
+        selected ? p.action : p.card;
     final Color borderColor =
-        selected ? AppColors.brand : AppColors.borderStrong;
+        selected ? p.action : p.borderDefault;
     final Color foreground =
-        selected ? AppColors.onHaldi : AppColors.textPrimary;
+        selected ? p.onAction : p.textPrimary;
 
     // Selected and unselected chips both speak in the normal UI face (Inter).
     final TextStyle labelStyle = selected

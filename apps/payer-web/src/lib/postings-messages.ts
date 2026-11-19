@@ -20,6 +20,10 @@ export const POSTINGS_MESSAGES: ErrorCatalogue = withCommon(
   {
     posting_trade_required:
       "Pick one of the 16 trades before you continue with this posting.",
+    targeting_needs_rvm_audience:
+      "Choose RVM students (or both) before picking branches or courses.",
+    targeting_option_not_offered:
+      "One of the selected branches or courses is no longer offered. Remove it and save again.",
     price_mismatch: "The price changed. Review the new price and confirm again.",
     in_flight: "This purchase is still processing — check again in a moment.",
     no_active_plan: "Buy a plan before adding more applicant slots.",

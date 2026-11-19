@@ -9,6 +9,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/nav/job_feed_invalidation.dart';
 import '../../../core/nav/tab_focus.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/job_display.dart';
 import '../../../core/util/pay_format.dart';
@@ -255,6 +256,7 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // The IndexedStack keeps this branch mounted, so initState's feed request
     // runs only on the first visit — refetch when the tab comes back into view
     // (T4). background: true keeps the current list on screen while it reloads.
@@ -265,7 +267,7 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
         const SwipeFeedRequested(background: true),
       ),
       child: Scaffold(
-        backgroundColor: OnboardingColors.canvasBg,
+        backgroundColor: p.page,
         body: Stack(
           children: <Widget>[
             _body(context),
@@ -336,6 +338,7 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
   /// line used to say "Aaj … naye" for every queue, including one made of
   /// months-old seeded rows.
   Widget _design1Header(BuildContext context, SwipeState state) {
+    final BbPalette p = context.bb;
     final int count = state.visibleQueue.length;
     final int postedToday = _postedTodayCount(state.visibleQueue);
     final double top = MediaQuery.paddingOf(context).top;
@@ -345,8 +348,8 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: Container(
         width: double.infinity,
-        decoration: const BoxDecoration(
-          color: OnboardingColors.shiftBlue,
+        decoration: BoxDecoration(
+          color: p.brandSurface,
           borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
         ),
         padding: EdgeInsets.only(top: top, left: 16, right: 3, bottom: 12),
@@ -370,7 +373,7 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
                             size: 20,
                             weight: FontWeight.w800,
                             height: 1.25,
-                            color: OnboardingColors.textOnBlue,
+                            color: p.onBrandSurface,
                           ),
                         ),
                         if (count > 0)
@@ -383,14 +386,14 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
                             style: OnboardingTypography.inter(
                               size: 13,
                               weight: FontWeight.w600,
-                              color: OnboardingColors.textOnBlue70,
+                              color: p.onBrandSurface70,
                             ),
                           ),
                       ],
                     ),
                   ),
-                  const BbAlertsAction(
-                    color: OnboardingColors.textOnBlue,
+                  BbAlertsAction(
+                    color: p.onBrandSurface,
                   ),
                   // Deck only: the list refreshes by pull, the deck's card owns
                   // every drag, so it gets the explicit button.
@@ -439,10 +442,11 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
   /// A horizontal scroll view rather than a `ListView`: there are at most a
   /// handful of chips, and the feed's body already owns the screen's only list.
   Widget _activeFilterRow(BuildContext context) {
+    final BbPalette p = context.bb;
     final List<JobFilterOption> active = activeJobFilters(_filters);
     if (active.isEmpty) return const SizedBox.shrink();
     return Container(
-      color: OnboardingColors.canvasBg,
+      color: p.page,
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
       // minHeight, not a fixed height: the row must clear the 48dp touch floor
       // even when a chip is shorter than that, and must GROW rather than clip
@@ -494,13 +498,14 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
   }
 
   Widget _feed(BuildContext context, SwipeState state) {
+    final BbPalette p = context.bb;
     final SwipeBloc bloc = context.read<SwipeBloc>();
     // Render the FILTERED list — the chip row + sheet narrow [visibleQueue].
     final List<FeedItem> jobs = state.visibleQueue;
     final double width = MediaQuery.sizeOf(context).width;
 
     return RefreshIndicator(
-      color: OnboardingColors.shiftBlue,
+      color: p.textBrand,
       onRefresh: () => _onRefresh(context),
       child: ListView.builder(
         // AlwaysScrollable so a short list can still be pulled to refresh.
@@ -664,6 +669,7 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
   }
 
   Widget _empty(BuildContext context) {
+    final BbPalette p = context.bb;
     // Hinglish, in the app's own aap-form voice. A NEUTRAL glyph and a
     // forward-looking line: an empty feed is usually a profile still being
     // matched (a fresh worker, a just-edited trade) — never an error, and
@@ -671,7 +677,7 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
     return BbStatusView(
       key: const Key('jobFeedEmpty'),
       icon: Icons.work_history_outlined,
-      iconColor: OnboardingColors.shiftBlue,
+      iconColor: p.textBrand,
       title: 'Aapki profile se jobs match ho rahi hain.',
       subtitle: 'Naye jobs aate hi yahan dikhenge.',
       action: FilledButton(
@@ -687,11 +693,12 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
   /// [FilterSelection.initial], so the full list really does come back and the
   /// chips stop reading as selected.
   Widget _noMatch(BuildContext context) {
+    final BbPalette p = context.bb;
     // Hinglish, for the same reason as [_empty] right above it: the two
     // empty states sit on one screen and cannot be in two languages.
     return BbStatusView(
       icon: Icons.filter_alt_off_outlined,
-      iconColor: OnboardingColors.safetyYellow,
+      iconColor: p.action,
       title: 'Filter ke hisaab se koi job nahi mili.',
       subtitle: 'Ek filter hatakar dobara dekhein.',
       action: FilledButton(
@@ -716,9 +723,10 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
   }
 
   Widget _consentRequired(BuildContext context) {
+    final BbPalette p = context.bb;
     return BbStatusView(
       icon: Icons.privacy_tip_outlined,
-      iconColor: OnboardingColors.safetyYellow,
+      iconColor: p.action,
       title: 'Please accept consent to see jobs.',
       subtitle: 'It only takes a moment.',
       action: FilledButton(
@@ -745,6 +753,7 @@ class _RefreshAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     if (!refreshing) {
       return KitHeaderIconAction(
         key: const Key('jobFeedRefresh'),
@@ -769,13 +778,13 @@ class _RefreshAction extends StatelessWidget {
                 ? Icon(
                     Icons.refresh_rounded,
                     size: 22,
-                    color: OnboardingColors.textOnBlue.withValues(alpha: 0.6),
+                    color: p.onBrandSurface.withValues(alpha: 0.6),
                   )
-                : const SizedBox.square(
+                : SizedBox.square(
                     dimension: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.5,
-                      color: OnboardingColors.safetyYellow,
+                      color: p.action,
                     ),
                   ),
           ),
@@ -798,6 +807,7 @@ class _FilterAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return IconButton(
       tooltip: 'Filter jobs',
       padding: EdgeInsets.zero,
@@ -809,7 +819,7 @@ class _FilterAction extends StatelessWidget {
       icon: Stack(
         clipBehavior: Clip.none,
         children: <Widget>[
-          const Icon(Icons.tune, size: 22, color: OnboardingColors.textOnBlue),
+          Icon(Icons.tune, size: 22, color: p.onBrandSurface),
           Positioned(
             top: -2,
             right: -2,
@@ -819,8 +829,8 @@ class _FilterAction extends StatelessWidget {
                 key: const Key('jobs_filter_active_dot'),
                 width: 8,
                 height: 8,
-                decoration: const BoxDecoration(
-                  color: OnboardingColors.errorRed,
+                decoration: BoxDecoration(
+                  color: p.danger,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -856,8 +866,9 @@ class _Design1SearchBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Material(
-      color: OnboardingColors.paperWhite,
+      color: p.card,
       borderRadius: BorderRadius.circular(OnboardingRadii.chip),
       child: InkWell(
         key: const Key('feedSearchBar'),
@@ -871,10 +882,10 @@ class _Design1SearchBar extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(
               children: <Widget>[
-                const Icon(
+                Icon(
                   Icons.search_rounded,
                   size: 20,
-                  color: OnboardingColors.ink500,
+                  color: p.textMuted,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -888,8 +899,8 @@ class _Design1SearchBar extends StatelessWidget {
                           ? FontWeight.w400
                           : FontWeight.w600,
                       color: query == null
-                          ? OnboardingColors.ink500
-                          : OnboardingColors.ink900,
+                          ? p.textMuted
+                          : p.textPrimary,
                     ),
                   ),
                 ),
@@ -902,10 +913,10 @@ class _Design1SearchBar extends StatelessWidget {
                       height: OnboardingLayout.tapTarget,
                     ),
                     onPressed: onClearFilters,
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.close_rounded,
                       size: 20,
-                      color: OnboardingColors.ink500,
+                      color: p.textMuted,
                     ),
                   )
                 else
@@ -940,6 +951,7 @@ class _ActiveFilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final BorderRadius radius = BorderRadius.circular(OnboardingRadii.chip);
     return Semantics(
       button: true,
@@ -957,10 +969,10 @@ class _ActiveFilterChip extends StatelessWidget {
               alignment: Alignment.center,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
-                color: OnboardingColors.shiftBlue,
+                color: p.brandSurface,
                 borderRadius: radius,
                 border: Border.all(
-                  color: OnboardingColors.safetyYellow,
+                  color: p.action,
                   width: 1.5,
                 ),
               ),
@@ -972,14 +984,14 @@ class _ActiveFilterChip extends StatelessWidget {
                     style: OnboardingTypography.inter(
                       size: 13,
                       weight: FontWeight.w600,
-                      color: OnboardingColors.textOnBlue,
+                      color: p.onBrandSurface,
                     ),
                   ),
                   const SizedBox(width: 6),
-                  const Icon(
+                  Icon(
                     Icons.close_rounded,
                     size: 14,
-                    color: OnboardingColors.safetyYellow,
+                    color: p.action,
                   ),
                 ],
               ),

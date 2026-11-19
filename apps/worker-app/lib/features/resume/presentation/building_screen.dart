@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/bb_palette.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -67,8 +68,9 @@ class _BuildingViewState extends State<_BuildingView> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: BlocConsumer<ResumeCubit, ResumeState>(
         listener: (BuildContext context, ResumeState state) {
           if (state.status == ResumeStatus.ready) _maybeEnterShell();
@@ -80,8 +82,8 @@ class _BuildingViewState extends State<_BuildingView> {
             // line rather than a false "check internet".
             return _StatusLayout(
               icon: Icons.error_outline_rounded,
-              iconColor: OnboardingColors.errorRed,
-              iconBg: OnboardingColors.errorBg,
+              iconColor: p.danger,
+              iconBg: p.dangerBg,
               title: 'Resume nahi ban paya.',
               subtitle: 'Thodi der baad dobara try karein.',
               actionLabel: 'Dobara koshish karein',
@@ -94,8 +96,8 @@ class _BuildingViewState extends State<_BuildingView> {
           if (state.status == ResumeStatus.noProfile) {
             return _StatusLayout(
               icon: Icons.person_off_outlined,
-              iconColor: OnboardingColors.ink600,
-              iconBg: OnboardingColors.cardIconBg,
+              iconColor: p.textSecondary,
+              iconBg: p.cardIconBg,
               title: 'Profile taiyaar nahi hai.',
               subtitle:
                   'Chat mein kuch details share karein, phir dobara try karein.',

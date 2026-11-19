@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/taxonomy_labels.dart';
@@ -88,6 +89,7 @@ class ProfileIdentityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String? name = _firstNonEmpty(<String?>[
       displayName,
       summary.displayName,
@@ -148,7 +150,7 @@ class ProfileIdentityCard extends StatelessWidget {
                     Text(
                       'WORKER PROFILE',
                       style: OnboardingTypography.microLabel(
-                        color: OnboardingColors.ink600,
+                        color: p.textSecondary,
                       ),
                     ),
                     if (status != null) KitPill(label: status, fontSize: 9),
