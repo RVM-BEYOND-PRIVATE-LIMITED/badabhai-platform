@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   ConflictException,
   Injectable,
@@ -340,7 +341,9 @@ export class ReachDeskService {
           }
           await this.close(tx, row, "not_reached", "deadline", null, rules, {
             actor: { actor_type: "system", actor_id: null },
-            correlationId: `reach-deadline:${id}`,
+            // A UUID: the event envelope refuses anything else, and a refused event rolls the
+            // whole close back (#2750 — every deadline close failed before this).
+            correlationId: randomUUID(),
           });
           return true;
         });

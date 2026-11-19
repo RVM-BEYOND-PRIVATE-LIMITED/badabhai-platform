@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -667,7 +668,8 @@ export class ManagedHiringService implements OnModuleInit {
   ): Promise<Notice | null> {
     const origin = {
       actor: { actor_type: "system" as const, actor_id: null },
-      correlationId: `managed-hiring-sweep:${row.id}`,
+      // A UUID: the event envelope refuses anything else (#2750 e2e found the same bug here).
+      correlationId: randomUUID(),
     };
     const confirmed = await this.repo.countInterest(row.id, tx);
     if (row.status === "active" && row.dueAt !== null && row.dueAt.getTime() <= now.getTime()) {
