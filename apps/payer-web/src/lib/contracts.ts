@@ -1649,9 +1649,6 @@ export const jobPostingWireSchema = z.object({
   rvm_course_ids: z.array(z.string()).optional(),
   rvm_review: rvmReviewSchema.nullable().optional(),
   created_at: z.string(),
-  // #2956 / #2958 — where the job shows, set by a BadaBhai admin (the company does not choose).
-  // Sent only when it is not the default (BadaBhai workers); read-only on the job page.
-  audience: z.enum(["rvm_students", "both", "badabhai_workers"]).optional(),
   updated_at: z.string(),
   closed_at: z.string().nullable(),
 });
