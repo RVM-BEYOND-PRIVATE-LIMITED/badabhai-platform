@@ -145,7 +145,13 @@ export type CreateOrderActionResult =
   | { ok: false; error: string };
 
 export type VerifyPaymentActionResult =
-  | { ok: true; balance: number; creditsAdded: number }
+  | {
+      ok: true;
+      balance: number;
+      creditsAdded: number;
+      /** #2750 item 9: expired credits returned with this pack (already in `balance`). */
+      creditsReturned?: number;
+    }
   | { ok: false; error: string };
 
 /**
@@ -229,7 +235,13 @@ export async function verifyPaymentAction(input: {
       // payer may genuinely have been charged and needs a person, not a retry loop.
       return { ok: false, error: PAYMENT_UNCONFIRMED };
     }
-    return { ok: true, balance: verified.balance, creditsAdded: verified.credits };
+    const returned = verified.credits_returned ?? 0;
+    return {
+      ok: true,
+      balance: verified.balance,
+      creditsAdded: verified.credits,
+      ...(returned > 0 ? { creditsReturned: returned } : {}),
+    };
   } catch (e) {
     // A 403 refused the CONFIRM call, not the checkout: the payer may have been charged, and the
     // webhook still settles. Same honest line as an unverified payment — never "it failed".

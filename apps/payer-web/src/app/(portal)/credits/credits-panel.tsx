@@ -60,13 +60,23 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
   const toast = useToast();
 
   /** The purchase is DONE: a success toast, the balance counting up to the server's figure. */
-  function announcePurchase(lead: string, creditsAdded: number, balance: number): void {
+  function announcePurchase(
+    lead: string,
+    creditsAdded: number,
+    balance: number,
+    creditsReturned = 0,
+  ): void {
     toast.show({
       tone: "success",
       title: "Credits added",
       message: (
         <>
-          {lead}New balance: <CountUp from={balance - creditsAdded} to={balance} /> credits.
+          {lead}
+          {creditsReturned > 0
+            ? `${creditsReturned} unused credit${creditsReturned === 1 ? "" : "s"} from your last pack came back with this one. `
+            : null}
+          New balance: <CountUp from={balance - creditsAdded - creditsReturned} to={balance} />{" "}
+          credits.
         </>
       ),
     });
@@ -233,6 +243,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
             : "Payment successful. ",
           verified.creditsAdded,
           verified.balance,
+          verified.creditsReturned ?? 0,
         );
         router.refresh();
       } catch {

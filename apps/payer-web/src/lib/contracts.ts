@@ -1156,6 +1156,8 @@ export const verifyPaymentWireSchema = z.object({
   balance: z.number().int().nonnegative(),
   credits: z.number().int().nonnegative(),
   pack_code: z.string(),
+  /** #2750 item 9, additive: expired credits returned with this pack (already in `balance`). */
+  credits_returned: z.number().int().nonnegative().optional().default(0),
 });
 export type VerifiedPayment = z.infer<typeof verifyPaymentWireSchema>;
 
