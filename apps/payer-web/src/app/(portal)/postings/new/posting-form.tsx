@@ -11,10 +11,7 @@ import {
   type MatchSkillWire,
   type PostingTradeFormWire,
   type ReachPreview,
-  type AudienceOptions,
-  type JobAudience,
 } from "../../../../lib/contracts";
-import { AudienceFields } from "../audience-fields";
 import {
   POSTING_TRADE_REQUIRED_MESSAGE,
   isPostingTrade,
@@ -121,8 +118,7 @@ type FieldKey =
   | "neededBy"
   | "requirements"
   | "benefits"
-  | "description"
-  | "audience";
+  | "description";
 type FieldErrors = Partial<Record<FieldKey, string>>;
 
 const BLANK: FormFields = {
@@ -151,10 +147,6 @@ interface NewPostingDraft {
   benDraft: string;
   selection: MatchSelection;
   trade: TradeFormValue & { matchSkillIds: string[] };
-  /** #2746 — kept with the rest of the draft; absent in a draft written before this field. */
-  audience?: JobAudience;
-  rvmBranchIds?: number[];
-  rvmCourseIds?: string[];
 }
 
 /**
@@ -170,10 +162,7 @@ export function isNewPostingDirty(d: NewPostingDraft): boolean {
     d.reqDraft.trim() !== "" ||
     d.benDraft.trim() !== "" ||
     d.trade.tradeLevel !== "" ||
-    Object.keys(d.trade.answers).length > 0 ||
-    (d.audience !== undefined && d.audience !== "badabhai_workers") ||
-    (d.rvmBranchIds?.length ?? 0) > 0 ||
-    (d.rvmCourseIds?.length ?? 0) > 0
+    Object.keys(d.trade.answers).length > 0
   );
 }
 
@@ -190,9 +179,6 @@ function restoredNewPostingDraft(saved: Partial<NewPostingDraft>): NewPostingDra
     benDraft: saved.benDraft ?? "",
     selection: saved.selection ?? { matchSkillIds: [], untickedRelatedIds: [] },
     trade: saved.trade ?? { ...BLANK_TRADE, matchSkillIds: [] },
-    audience: saved.audience ?? "badabhai_workers",
-    rvmBranchIds: saved.rvmBranchIds ?? [],
-    rvmCourseIds: saved.rvmCourseIds ?? [],
   };
 }
 
@@ -223,7 +209,6 @@ export function PostingForm({
   matchSkills = [],
   postingTrades = [],
   postingTradesProblem = null,
-  audienceOptions = null,
   lead,
   free = true,
 }: {
@@ -236,12 +221,6 @@ export function PostingForm({
   postingTrades?: PostingTradeFormWire[];
   /** Why `postingTrades` is empty (#2645) — said at the picker, with a Retry. */
   postingTradesProblem?: PostingTradesProblem | null;
-  /**
-   * #2746 — the audience options, or null when the `job_audience` switch is off for the company
-   * (the route's neutral 404). Null hides every audience control and sends none of the fields, so
-   * the form stays exactly what it was while the switch is off.
-   */
-  audienceOptions?: AudienceOptions | null;
   /** The page head + notices, drawn at the top of the form column (the rail starts beside it). */
   lead?: ReactNode;
   /** The "free through launch" notice (sourced from the page's config flag). */
@@ -274,11 +253,6 @@ export function PostingForm({
     ...BLANK_TRADE,
     matchSkillIds: [],
   });
-  // #2746 — appended after the seeded prefix so every earlier positional useState index is
-  // unchanged. Defaults to BadaBhai workers; only rendered/sent when the options answered 200.
-  const [audience, setAudience] = useState<JobAudience>("badabhai_workers");
-  const [rvmBranchIds, setRvmBranchIds] = useState<number[]>([]);
-  const [rvmCourseIds, setRvmCourseIds] = useState<string[]>([]);
   const [pending, startTransition] = useTransition();
   // The publish lands on the new posting's Applicants with the shell's "Opening Applicants…" cue
   // (the button stays "Publishing…" — `navigating` — until the page is gone).
@@ -293,9 +267,6 @@ export function PostingForm({
     benDraft,
     selection,
     trade,
-    audience,
-    rvmBranchIds,
-    rvmCourseIds,
   };
   const draft = usePostingDraft<NewPostingDraft>({
     storageKey: postingDraftKey({ kind: "new", payerId }),
@@ -315,9 +286,6 @@ export function PostingForm({
       setBenDraft(restored.benDraft);
       setSelection(restored.selection);
       setTrade(restored.trade);
-      setAudience(restored.audience ?? "badabhai_workers");
-      setRvmBranchIds(restored.rvmBranchIds ?? []);
-      setRvmCourseIds(restored.rvmCourseIds ?? []);
     },
   });
 
@@ -342,9 +310,6 @@ export function PostingForm({
     setGap(null);
     setRevealed({});
     setTrade({ ...BLANK_TRADE, matchSkillIds: [] });
-    setAudience("badabhai_workers");
-    setRvmBranchIds([]);
-    setRvmCourseIds([]);
     goToStep(1);
   }
 
@@ -544,15 +509,6 @@ export function PostingForm({
         tradeAnswers: trade.answers,
         matchSkillIds: activeMatchSkillIds,
         untickedRelatedIds: [],
-        // #2746 — only when the options were read (switch on); a switched-off company sends
-        // exactly the body it sent before. `[]` means every branch / every course.
-        ...(audienceOptions !== null
-          ? {
-              audience,
-              rvmBranchIds: audience === "badabhai_workers" ? [] : rvmBranchIds,
-              rvmCourseIds: audience === "badabhai_workers" ? [] : rvmCourseIds,
-            }
-          : {}),
       });
       if (res.ok) {
         setNavigating(true);
@@ -732,20 +688,6 @@ export function PostingForm({
                 hint="Optional – visible only to you."
                 onChange={(e) => set("locationLabel", e.target.value)}
               />
-
-              {audienceOptions !== null ? (
-                <AudienceFields
-                  options={audienceOptions}
-                  value={{ audience, branchIds: rvmBranchIds, courseIds: rvmCourseIds }}
-                  onChange={(next) => {
-                    setAudience(next.audience);
-                    setRvmBranchIds(next.branchIds);
-                    setRvmCourseIds(next.courseIds);
-                    setFieldErrors((prev) => ({ ...prev, audience: undefined }));
-                  }}
-                  error={fieldErrors.audience}
-                />
-              ) : null}
             </div>
             <div className="mw-card__foot">
               <button type="button" className="bb-btn bb-btn--primary" onClick={goNext}>
@@ -964,7 +906,6 @@ export function PostingForm({
                   onPreviewChange={setPreview}
                   vocabulary={matchSkills}
                   reachRoleKind={fields.roleKind || undefined}
-                  audience={audienceOptions !== null ? audience : undefined}
                 />
               </div>
 

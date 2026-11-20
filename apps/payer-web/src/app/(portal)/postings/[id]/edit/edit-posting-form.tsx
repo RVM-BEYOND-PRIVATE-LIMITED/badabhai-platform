@@ -18,11 +18,7 @@ import {
   type MatchSkillWire,
   type PostingTradeFormWire,
   type ReachPreview,
-  type AudienceOptions,
-  type JobAudience,
-  type RvmReview,
 } from "../../../../../lib/contracts";
-import { AudienceFields } from "../../audience-fields";
 import {
   POSTING_TRADE_REQUIRED_MESSAGE,
   isPostingTrade,
@@ -107,11 +103,6 @@ export interface EditPostingInitial extends PostingEditInitial {
   roleTitle: string;
   /** A count INSIDE the stored band, as the edit seed (the server re-derives from a submitted count). */
   vacanciesHint: number;
-  /** #2746 — the stored audience block, or null when the API omitted it. */
-  audience?: JobAudience | null;
-  rvmBranchIds?: number[];
-  rvmCourseIds?: string[];
-  rvmReview?: RvmReview | null;
 }
 
 function seedEnum(value: string | null, allowed: readonly string[]): string {
@@ -149,10 +140,6 @@ interface EditPostingDraft {
   benDraft: string;
   trade: TradeFormValue & { matchSkillIds: string[]; dirty: boolean };
   legacySelection: MatchSelection;
-  /** #2746 — kept with the rest of the draft; absent in a draft written before this field. */
-  audience?: JobAudience;
-  rvmBranchIds?: number[];
-  rvmCourseIds?: string[];
 }
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -171,12 +158,7 @@ export function isEditPostingDirty(draft: EditPostingDraft, initial: EditPosting
     draft.benDraft.trim() !== "" ||
     draft.trade.dirty ||
     draft.trade.tradeLevel !== (initial.tradeLevel ?? "") ||
-    !sameJson(draft.trade.answers, initial.tradeAnswers ?? {}) ||
-    (draft.audience !== undefined && draft.audience !== (initial.audience ?? "badabhai_workers")) ||
-    (draft.rvmBranchIds !== undefined &&
-      !sameJson([...draft.rvmBranchIds].sort(), [...(initial.rvmBranchIds ?? [])].sort())) ||
-    (draft.rvmCourseIds !== undefined &&
-      !sameJson([...draft.rvmCourseIds].sort(), [...(initial.rvmCourseIds ?? [])].sort()))
+    !sameJson(draft.trade.answers, initial.tradeAnswers ?? {})
   );
 }
 
@@ -189,7 +171,6 @@ export function EditPostingForm({
   matchSelection,
   postingTrades = [],
   postingTradesProblem = null,
-  audienceOptions = null,
   tradeRequired = false,
   lead,
 }: {
@@ -204,11 +185,6 @@ export function EditPostingForm({
   postingTrades?: PostingTradeFormWire[];
   /** Why `postingTrades` is empty (#2645) — said at the picker, with a Retry. */
   postingTradesProblem?: PostingTradesProblem | null;
-  /**
-   * #2746 — the audience options, or null when the switch is off for the company (its neutral
-   * 404). Null hides every audience control and sends none of the fields.
-   */
-  audienceOptions?: AudienceOptions | null;
   /** #2645 — opened because the API would not put this job live without one of the 16 trades. */
   tradeRequired?: boolean;
   /** The page head, drawn at the top of the form column (the rail starts beside it). */
@@ -263,11 +239,6 @@ export function EditPostingForm({
   const seedLegacySelection = (): MatchSelection =>
     matchSelection ?? { matchSkillIds: [], untickedRelatedIds: [] };
   const [legacySelection, setLegacySelection] = useState<MatchSelection>(seedLegacySelection());
-  // #2746 — APPENDED after the seeded prefix. Seeded from the stored block when the API carried
-  // one; the picker is only drawn/sent when `audienceOptions` answered 200.
-  const [audience, setAudience] = useState<JobAudience>(initial.audience ?? "badabhai_workers");
-  const [rvmBranchIds, setRvmBranchIds] = useState<number[]>(initial.rvmBranchIds ?? []);
-  const [rvmCourseIds, setRvmCourseIds] = useState<string[]>(initial.rvmCourseIds ?? []);
   const [pending, startTransition] = useTransition();
   // A saved form lands on the posting with the shell's "Opening <title>…" cue; its button stays
   // pending (`navigating`) until the page is gone.
@@ -288,9 +259,6 @@ export function EditPostingForm({
     benDraft: saved.benDraft ?? "",
     trade: saved.trade ?? seedTrade(),
     legacySelection: saved.legacySelection ?? seedLegacySelection(),
-    audience: saved.audience ?? initial.audience ?? "badabhai_workers",
-    rvmBranchIds: saved.rvmBranchIds ?? initial.rvmBranchIds ?? [],
-    rvmCourseIds: saved.rvmCourseIds ?? initial.rvmCourseIds ?? [],
   });
   const draftPayload: EditPostingDraft = {
     fields,
@@ -300,9 +268,6 @@ export function EditPostingForm({
     benDraft,
     trade,
     legacySelection,
-    audience,
-    rvmBranchIds,
-    rvmCourseIds,
   };
   const draft = usePostingDraft<EditPostingDraft>({
     storageKey: postingDraftKey({ kind: "edit", payerId, postingId }),
@@ -322,9 +287,6 @@ export function EditPostingForm({
       setBenDraft(restored.benDraft);
       setTrade(restored.trade);
       setLegacySelection(restored.legacySelection);
-      setAudience(restored.audience ?? initial.audience ?? "badabhai_workers");
-      setRvmBranchIds(restored.rvmBranchIds ?? initial.rvmBranchIds ?? []);
-      setRvmCourseIds(restored.rvmCourseIds ?? initial.rvmCourseIds ?? []);
     },
   });
 
@@ -343,9 +305,6 @@ export function EditPostingForm({
     setProblem(null);
     setServerFieldErrors({});
     setLegacySelection(seedLegacySelection());
-    setAudience(initial.audience ?? "badabhai_workers");
-    setRvmBranchIds(initial.rvmBranchIds ?? []);
-    setRvmCourseIds(initial.rvmCourseIds ?? []);
   }
 
   const isDraft = status === "draft";
@@ -544,15 +503,6 @@ export function EditPostingForm({
               tradeAnswers: trade.answers,
             }
           : {}),
-        // #2746 — the audience half, only when the options were read (switch on). `[]` means every
-        // branch / every course; moving back to BadaBhai-only always drops the targeting.
-        ...(audienceOptions !== null
-          ? {
-              audience,
-              rvmBranchIds: audience === "badabhai_workers" ? [] : rvmBranchIds,
-              rvmCourseIds: audience === "badabhai_workers" ? [] : rvmCourseIds,
-            }
-          : {}),
         initial,
         ...(mode === "publish"
           ? {
@@ -742,20 +692,6 @@ export function EditPostingForm({
                 onChange={(e) => set("area", e.target.value)}
               />
             </div>
-            {audienceOptions !== null ? (
-              <AudienceFields
-                options={audienceOptions}
-                value={{ audience, branchIds: rvmBranchIds, courseIds: rvmCourseIds }}
-                review={initial.rvmReview ?? null}
-                onChange={(next) => {
-                  setAudience(next.audience);
-                  setRvmBranchIds(next.branchIds);
-                  setRvmCourseIds(next.courseIds);
-                  clearRefusalAt("audience");
-                }}
-                error={errorOf("audience")}
-              />
-            ) : null}
           </div>
 
           <div className="form__section">
@@ -926,7 +862,6 @@ export function EditPostingForm({
               onPreviewChange={setPreview}
               vocabulary={matchSkills}
               reachRoleKind={fields.roleKind || undefined}
-              audience={audienceOptions !== null ? audience : undefined}
             />
           ) : null}
 
