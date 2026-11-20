@@ -33,6 +33,11 @@ concurrency:
   group: supabase-checks-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege for every job that does not declare its own block (code scanning
+# actions/missing-workflow-permissions). Jobs with a job-level `permissions:` keep theirs.
+permissions:
+  contents: read
+
 jobs:
   # ---- (a) Migration drift: schema.ts changed but the migration wasn't committed ----
   # `drizzle-kit generate` is a pure schema DIFF — it reads packages/db/src/schema.ts

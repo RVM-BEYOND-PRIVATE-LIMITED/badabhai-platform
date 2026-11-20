@@ -167,7 +167,11 @@ overrides:
   # `@angular-devkit/core` > `ajv` (24 paths, all build-tooling, never a production
   # runtime). Verified with `pnpm audit` (0 high) and the api build, which is the path
   # that exercises this chain.
-  fast-uri@<3.1.7: "^3.1.7"
+  # DEP-13 (2026-11-20). SUPERSEDES `<3.1.7: ^3.1.7`, the same snapshot failure again: four
+  # newer advisories (GHSA scheme spoofing via percent-encoded scheme, host confusion via
+  # unchecked WHATWG host canonicalization, path equivalence, first-segment colon scheme
+  # injection; Dependabot #16-#19) are patched at 3.1.9, and 3.1.8 satisfied the old floor.
+  fast-uri@<3.1.9: "^3.1.9"
   # DEP-6 (2026-09-11). SUPERSEDES `<4.3.1: ^4.3.1`, and for the THIRD time in this file
   # the same reason: GHSA on <4.3.2 is newer than the floor, `^4.3.1` is satisfied by
   # 4.3.1 itself, so pnpm never bumped and the rule that looked like it covered the
@@ -215,7 +219,9 @@ overrides:
   #   DEP-12 (2026-10-24): GHSA-27r3-jxmh-p828 (HIGH, DoS via trailing bytes after a
   #   compressed body) is patched at 2.4.0; retargeted, same line.
   proxy-addr@<2.0.8: "^2.0.8"
-  qs@<6.16.0: "^6.16.0"
+  #   DEP-13 (2026-11-20): qs.stringify arrayFormat "comma" DoS (Dependabot #25) is patched at
+  #   6.16.1; 6.16.0 satisfied the old floor. Retargeted, same line.
+  qs@<6.16.1: "^6.16.1"
   body-parser@>=2.0.0 <2.4.0: "^2.4.0"
   # BUILD / TEST ONLY:
   #   source-map-js  GHSA-68fv-2mgg-jv7q (HIGH, event-loop DoS on an indexed source map), via
