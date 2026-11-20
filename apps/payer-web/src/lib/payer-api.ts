@@ -1748,12 +1748,6 @@ export function toPayerJobPostingBody(
   if (input.benefits !== undefined) body.benefits = input.benefits;
   if (input.tradeLevel !== undefined) body.trade_level = input.tradeLevel;
   if (input.tradeAnswers !== undefined) body.trade_answers = input.tradeAnswers;
-  // #2746 — WHO SEES THIS POSTING. Sent only when the form had the options read (the switch is
-  // on), so a switched-off company's create is byte-for-byte what it was before. `[]` is a real
-  // value here: it means every branch / every course.
-  if (input.audience !== undefined) body.audience = input.audience;
-  if (input.rvmBranchIds !== undefined) body.rvm_branch_ids = input.rvmBranchIds;
-  if (input.rvmCourseIds !== undefined) body.rvm_course_ids = input.rvmCourseIds;
   return body;
 }
 
@@ -1996,11 +1990,6 @@ export function toPayerJobPostingPatchBody(
   if (input.benefits !== undefined) body.benefits = input.benefits;
   if (input.tradeLevel !== undefined) body.trade_level = input.tradeLevel;
   if (input.tradeAnswers !== undefined) body.trade_answers = input.tradeAnswers;
-  // #2746 — the audience half. NEVER in `clear`; an audience-only PATCH is a real edit, so these
-  // ride only when the form read the options (the switch is on for the company).
-  if (input.audience !== undefined) body.audience = input.audience;
-  if (input.rvmBranchIds !== undefined) body.rvm_branch_ids = input.rvmBranchIds;
-  if (input.rvmCourseIds !== undefined) body.rvm_course_ids = input.rvmCourseIds;
 
   // The clear diff: a field the payer BLANKED (present in `initial`, absent from `input`).
   if (initial) {
@@ -2089,7 +2078,7 @@ export async function listPostingTrades(): Promise<PostingTradeFormWire[]> {
  * sends none (the API scopes only company jobs by trade); absent, the key is not sent.
  */
 export async function previewReach(
-  input: MatchSelectionInput & { roleKind?: string; audience?: string },
+  input: MatchSelectionInput & { roleKind?: string },
 ): Promise<ReachPreview> {
   return payerFetch("/payer/match/reach-preview", {
     method: "POST",
@@ -2097,9 +2086,6 @@ export async function previewReach(
       match_skill_ids: input.matchSkillIds,
       unticked_related_ids: input.untickedRelatedIds,
       ...(input.roleKind ? { role_kind: input.roleKind } : {}),
-      // #2746 — an RVM-only audience reaches no BadaBhai worker by design, so the server answers
-      // every BadaBhai count as 0 and `zero_reach: false`. Sent only when the picker was shown.
-      ...(input.audience ? { audience: input.audience } : {}),
     },
     schema: reachPreviewWireSchema,
   });

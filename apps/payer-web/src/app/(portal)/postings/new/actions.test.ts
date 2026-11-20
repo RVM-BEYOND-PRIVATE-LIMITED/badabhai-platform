@@ -55,31 +55,6 @@ describe("createPostingAction — Reached N workers", () => {
     expect(previewReach).toHaveBeenCalledWith({ ...SELECTION, roleKind: "cnc_turner" });
   });
 
-  it("#2746 passes the audience + targeting to the create seam", async () => {
-    await createPostingAction({
-      ...INPUT,
-      audience: "both",
-      rvmBranchIds: [1, 2],
-      rvmCourseIds: ["cnc"],
-    });
-    expect(createPosting).toHaveBeenCalledWith(
-      expect.objectContaining({
-        audience: "both",
-        rvmBranchIds: [1, 2],
-        rvmCourseIds: ["cnc"],
-      }),
-    );
-  });
-
-  it("#2746 maps the two audience refusals to the audience control", async () => {
-    for (const reason of ["targeting_needs_rvm_audience", "targeting_option_not_offered"]) {
-      createPosting.mockRejectedValueOnce(new PayerBadRequestError("/payer/job-postings", reason));
-      const res = await createPostingAction(INPUT);
-      expect(res.ok).toBe(false);
-      if (!res.ok) expect(res.fieldErrors).toHaveProperty("audience");
-    }
-  });
-
   it("a publish that left a draft claims no reach (and never reads it)", async () => {
     publishPostingWithMatchSkills.mockResolvedValueOnce(null);
     const res = await createPostingAction(INPUT);

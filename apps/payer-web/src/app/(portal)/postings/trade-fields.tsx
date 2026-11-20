@@ -8,7 +8,6 @@ import type {
   PostingTradeFormWire,
   PostingTradeQuestionWire,
   ReachPreview,
-  JobAudience,
 } from "../../../lib/contracts";
 import { postingsErrorMessage } from "../../../lib/postings-messages";
 import { previewReachAction } from "./new/match-actions";
@@ -51,7 +50,6 @@ export function TradePostingFields({
   onPreviewChange,
   vocabulary,
   reachRoleKind,
-  audience,
 }: {
   trades: readonly PostingTradeFormWire[];
   roleKind: string;
@@ -67,12 +65,6 @@ export function TradePostingFields({
    * API scopes only company jobs by trade), and its preview is unchanged.
    */
   reachRoleKind?: string;
-  /**
-   * #2746 — the audience the preview is scoped by. `rvm_students` reaches no BadaBhai worker by
-   * design, so the server reports `zero_reach: false` and the UI hides the BadaBhai "reaches N
-   * workers" line rather than claim a reach it never had.
-   */
-  audience?: JobAudience;
 }) {
   const trade = trades.find((t) => t.role_kind === roleKind);
   const [preview, setPreview] = useState<ReachPreview | null>(null);
@@ -85,7 +77,7 @@ export function TradePostingFields({
   const latest = useRef(0);
 
   const matchSkillIds = trade ? derivedMatchSkills(trade, value.answers) : [];
-  const matchKey = [reachRoleKind ?? "", audience ?? "", ...matchSkillIds].join(",");
+  const matchKey = [reachRoleKind ?? "", ...matchSkillIds].join(",");
 
   useEffect(() => {
     if (matchSkillIds.length === 0) {
@@ -100,7 +92,6 @@ export function TradePostingFields({
       matchSkillIds,
       untickedRelatedIds: [],
       ...(reachRoleKind ? { roleKind: reachRoleKind } : {}),
-      ...(audience ? { audience } : {}),
     }).then((res) => {
       if (id !== latest.current) return;
       setLoading(false);
@@ -244,7 +235,7 @@ export function TradePostingFields({
               ({matchSkillIds.length}/{maxSkills})
             </span>
           </p>
-          {preview && audience !== "rvm_students" ? (
+          {preview ? (
             <Badge tone={preview.zero_reach ? "warning" : "brand"}>
               Reaches <span className="bb-mono">{preview.reach_total}</span>{" "}
               {preview.reach_total === 1 ? "worker" : "workers"}

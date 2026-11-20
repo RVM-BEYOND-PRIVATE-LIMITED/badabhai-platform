@@ -101,30 +101,6 @@ describe("updatePostingAction — validation gates", () => {
     expect(updatePosting).not.toHaveBeenCalled();
   });
 
-  it("#2746 threads the audience + targeting into the PATCH, and maps its refusals to the audience control", async () => {
-    await updatePostingAction({
-      postingId: ID,
-      roleTitle: "CNC Machinist",
-      audience: "rvm_students",
-      rvmBranchIds: [3],
-      rvmCourseIds: [],
-      initial: INITIAL,
-    });
-    const [, input] = updatePosting.mock.calls[0] as [string, Record<string, unknown>];
-    expect(input).toMatchObject({
-      audience: "rvm_students",
-      rvmBranchIds: [3],
-      rvmCourseIds: [],
-    });
-
-    updatePosting.mockRejectedValueOnce(
-      new PayerBadRequestError("/payer/job-postings", "targeting_option_not_offered"),
-    );
-    const res = await updatePostingAction({ postingId: ID, roleTitle: "CNC Machinist", initial: INITIAL });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.fieldErrors).toHaveProperty("audience");
-  });
-
   it("empty-string optionals are OMITTED and an omitted vacancies stays omitted (band guard)", async () => {
     await updatePostingAction({
       postingId: ID,
