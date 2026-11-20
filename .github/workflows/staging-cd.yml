@@ -63,6 +63,11 @@ concurrency:
   group: staging-cd
   cancel-in-progress: false
 
+# Least privilege for every job that does not declare its own block (code scanning
+# actions/missing-workflow-permissions). Jobs with a job-level `permissions:` keep theirs.
+permissions:
+  contents: read
+
 jobs:
   deploy:
     name: Build -> migrate -> deploy -> smoke (real-only OTP)

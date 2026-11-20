@@ -603,7 +603,7 @@ _PAY_CURRENCY_AFTER_RE = re.compile(
 # figures on different bases ("gross 30k, in hand 25k", "CTC 3 lakh, take home 22k"): no
 # single band describes both, so the pay answer records nothing rather than a fold.
 _PAY_BASIS_KINDS: dict[str, re.Pattern[str]] = {
-    "in_hand": re.compile(_cue(r"in\s*-?\s*hand|inhand|take\s*-?\s*home|net|haath"), re.I),
+    "in_hand": re.compile(_cue(r"in\s*(?:-\s*)?hand|inhand|take\s*(?:-\s*)?home|net|haath"), re.I),
     "gross": re.compile(_cue(r"gross"), re.IGNORECASE),
     "ctc": re.compile(_cue(r"ctc|c\.?t\.?c\.?|cost\s+to\s+company"), re.IGNORECASE),
 }
@@ -1113,7 +1113,7 @@ _PAY_TYPE_ANSWER_RES: dict[str, re.Pattern[str]] = {
     for kind, body in (
         (
             "in_hand",
-            r"in\s*-?\s*hand|inhand|take\s*-?\s*home|net|net\s+(?:salary|pay)|haath\s+me(?:in)?",
+            r"in\s*(?:-\s*)?hand|inhand|take\s*(?:-\s*)?home|net|net\s+(?:salary|pay)|haath\s+me(?:in)?",
         ),
         ("gross", r"gross"),
         ("ctc", r"ctc|c\.?t\.?c\.?|cost\s+to\s+company"),
@@ -1135,15 +1135,20 @@ def _parse_pay_type(text: str) -> str | None:
 _IN_HAND_SKILL_NOUNS = r"tools?|work|grinding|skills?|experience|machines?|operations?|job"
 _PAY_TYPE_CROSS_CUES: dict[str, str] = {
     "in_hand": (
-        r"in\s*-?\s*hand(?![\s-]+(?:" + _IN_HAND_SKILL_NOUNS + r")(?![A-Za-z0-9]))|inhand|"
-        r"take\s*-?\s*home|net\s+(?:salary|pay)"
+        r"in\s*(?:-\s*)?hand(?![\s-]+(?:" + _IN_HAND_SKILL_NOUNS + r")(?![A-Za-z0-9]))|inhand|"
+        r"take\s*(?:-\s*)?home|net\s+(?:salary|pay)"
     ),
     "gross": r"gross\s+(?:salary|pay)",
     "ctc": r"ctc|c\.t\.c\.?|cost\s+to\s+company",
 }
+# Each optional piece owns the whitespace AFTER it. `\s*,?\s*(?:PERIOD)?\s*,?\s*` (four `\s*` in a
+# row once the optionals are empty) took 56 s on "20k" + 200 spaces; the same strings match. The
+# caller collapses whitespace first, so this was latent, not live
+# (tests/test_job_chat_in_hand_linear.py).
 _PAY_TYPE_AFTER_RES: dict[str, re.Pattern[str]] = {
     kind: re.compile(
-        r"\s*,?\s*(?:(?:per\s+month|pm|p\.m\.?|monthly|/\s*month)(?![a-z]))?\s*,?\s*" + _cue(body)
+        r"\s*(?:,\s*)?(?:(?:per\s+month|pm|p\.m\.?|monthly|/\s*month)(?![a-z])\s*)?(?:,\s*)?"
+        + _cue(body)
     )
     for kind, body in _PAY_TYPE_CROSS_CUES.items()
 }
@@ -1970,9 +1975,12 @@ _MONEY_RANGE_ROUNDING = 100
 # What the rest of a released pay answer may say (PR #1733 security review N1). An ALLOWLIST, not
 # a list of contact words to refuse — that list has no end ("HR", "mobile", "whatsapp", "mera
 # number hai", a name). Every word here names money, a pay basis or a period, or is filler.
+# `in\s*(?:-\s*)?hand`, never `in\s*-?\s*hand`: with no dash the two `\s*` split one whitespace
+# run every way, O(k^2) — 6 s on "take" + 20,000 spaces (code scanning #31). Same strings match;
+# tests/test_job_chat_in_hand_linear.py holds the oracle and the timing bounds.
 _PAY_ANSWER_WORD_RE = re.compile(
     r"₹|(?<![A-Za-z0-9])(?:rs|inr|rupees?|salary|pay|wages?|stipend|"
-    r"in\s*-?\s*hand|inhand|take\s*-?\s*home|net|gross|ctc|c\.t\.c|cost\s+to\s+company|"
+    r"in\s*(?:-\s*)?hand|inhand|take\s*(?:-\s*)?home|net|gross|ctc|c\.t\.c|cost\s+to\s+company|"
     r"per\s+month|per\s+mahina|pm|p\.m|monthly|month|mahina|mahine|"
     r"is|hai|milega|milegi|tak|approx|around)(?![A-Za-z0-9])",
     re.IGNORECASE,

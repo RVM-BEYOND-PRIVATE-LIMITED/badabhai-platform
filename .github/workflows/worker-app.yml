@@ -17,6 +17,11 @@ name: Worker app
 on:
   workflow_call:
 
+# Least privilege for every job that does not declare its own block (code scanning
+# actions/missing-workflow-permissions). Jobs with a job-level `permissions:` keep theirs.
+permissions:
+  contents: read
+
 jobs:
   analyze-test:
     name: Worker app (analyze / test)
