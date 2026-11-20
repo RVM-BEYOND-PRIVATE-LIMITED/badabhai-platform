@@ -305,6 +305,9 @@ const LOCKED_TABLES = [
   // #2778: the last day each waiver applies (opaque waiver / tenant ids, a date and a time).
   // RLS+FORCE+REVOKE in the hand-written tail of `*_rvm_waiver_end_dates`.
   "rvm_waiver_end_dates",
+  // #2811: one faceless erasure per deleted campus-drive request (an opaque request id and a
+  // time). RLS+FORCE+REVOKE in the hand-written tail of `*_campus_drive_request_erasures`.
+  "campus_drive_request_erasures",
   // #2750 item 7: the couldn't-reach cases (opaque unlock / tenant / worker / login / admin ids,
   // a closed status, an integer and times) and the desk's call attempts (ids, a closed result
   // code, a time). RLS+FORCE+REVOKE in the hand-written tail of `*_contact_reach_cases`.

@@ -265,12 +265,17 @@ export function createCampusLinkMock(options: { token: string }) {
       }
 
       // #2746 — the example request only; the status filter applies, nothing else is stored.
+      // #2811 — and the example erasure, whatever the status (an erasure has none).
       case "GET drive-requests": {
         const q = CampusDriveRequestsQuerySchema.safeParse(query);
         if (!q.success) return invalid(url.pathname, q.error);
         const r = examples.DRIVE_REQUEST_EXAMPLE;
         const matches = !q.data.status || q.data.status === r.status;
-        return ok({ drive_requests: matches ? [r] : [], next_cursor: null });
+        return ok({
+          drive_requests: matches ? [r] : [],
+          erased: [examples.DRIVE_REQUEST_ERASURE_EXAMPLE],
+          next_cursor: null,
+        });
       }
 
       // #2746 — answers the decision as sent for the example request; no ordering or transitions.

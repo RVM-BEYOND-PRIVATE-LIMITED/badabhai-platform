@@ -8,6 +8,7 @@ import type {
   CampusCompanyResponseSchema,
   CampusDriveDecisionBodySchema,
   CampusDriveDecisionResponseSchema,
+  CampusDriveRequestErasureSchema,
   CampusDriveRequestPageSchema,
   CampusDriveRequestSchema,
   CampusPostForCompanyBodySchema,
@@ -231,8 +232,15 @@ export const DRIVE_REQUEST_EXAMPLE: z.input<typeof CampusDriveRequestSchema> = {
   changed_at: "2026-11-20T03:30:00.412851Z",
 };
 
+/** #2811 — a request that was deleted (its company deleted its account): Campus deletes its copy. */
+export const DRIVE_REQUEST_ERASURE_EXAMPLE: z.input<typeof CampusDriveRequestErasureSchema> = {
+  id: "7c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+  erased_at: "2026-11-21T08:05:11.093117Z",
+};
+
 export const DRIVE_REQUEST_PAGE_EXAMPLE: z.input<typeof CampusDriveRequestPageSchema> = {
   drive_requests: [DRIVE_REQUEST_EXAMPLE],
+  erased: [DRIVE_REQUEST_ERASURE_EXAMPLE],
   next_cursor: null,
 };
 

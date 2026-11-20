@@ -25,6 +25,7 @@ import {
 } from "../campus-link/campus-link.contract";
 import { decodeDriveCursor, encodeDriveCursor } from "./campus-drive-cursor";
 import { addDays, DRIVE_MAX_DAYS_AHEAD, indiaDay } from "./campus-drive-dates";
+import { mergeDriveFeed } from "./campus-drive-feed-merge";
 import { driveCompanyWithdrawn } from "./campus-drive-eligibility";
 import {
   CampusDriveRequestsRepository,
@@ -119,6 +120,12 @@ function feedSince(changedSince: string | undefined): string | undefined {
  * display name to RVM's placement team, which calls the company to arrange the drive: the purpose
  * the contact was collected for. Test companies' requests are listed with `is_test: true`.
  *
+ * ERASED REQUESTS (#2811, owners' gate). Campus keeps a copy of each contact, so a request that is
+ * DELETED (its company deleted its account: `campus_drive_requests.payer_id` cascades) must still
+ * reach Campus. The database's delete trigger leaves a faceless tombstone (id and time) in the
+ * deleting transaction, and the feed serves it in the page's `erased` list, never as an item
+ * (Campus's item parser requires every item field). Campus deletes its copy, contact included.
+ *
  * A DECISION: `decided_at` checked by the shared Campus clock rule (`assertCampusTime`: not before
  * `CAMPUS_EARLIEST_DECISION_TIME`, not more than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead; 400 before any
  * read); the request row `FOR UPDATE`; then the company's standing, re-read in its own statement
@@ -159,7 +166,11 @@ export class CampusDriveDecisionsService {
     private readonly events: EventsService,
   ) {}
 
-  /** `GET drive-requests`: every request, in change order. */
+  /**
+   * `GET drive-requests`: every request, in change order, and (#2811) an erasure for every request
+   * that was deleted, merged into the same order under the same `changed_since` and cursor
+   * (`mergeDriveFeed`). The `status` filter applies to the requests only: an erasure has no status.
+   */
   async list(query: CampusDriveRequestsQuery): Promise<CampusDriveRequestPage> {
     let after: { at: string; id: string } | undefined;
     if (query.cursor !== undefined) {
@@ -168,18 +179,21 @@ export class CampusDriveDecisionsService {
       after = decoded;
     }
 
+    const changedSince = feedSince(query.changed_since);
+    // The requests FIRST, then the erasures (#2811), in that order on purpose: a request deleted
+    // between the two reads is then served twice (as it was, then erased; Campus applies `erased`
+    // after `drive_requests`) rather than in neither read.
     const rows = await this.repo.listFeed(
-      { status: query.status, changedSince: feedSince(query.changed_since), after },
+      { status: query.status, changedSince, after },
       query.limit,
     );
-    const page = rows.slice(0, query.limit);
-    const last = page[page.length - 1];
+    const erasures = await this.repo.listErasures({ changedSince, after }, query.limit);
+    const page = mergeDriveFeed(rows, erasures, query.limit);
     return {
-      drive_requests: page.map((row) => this.item(row)),
+      drive_requests: page.requests.map((row) => this.item(row)),
+      erased: page.erasures.map((e) => ({ id: e.id, erased_at: e.erasedKey })),
       next_cursor:
-        rows.length > query.limit && last !== undefined
-          ? encodeDriveCursor("campus", { at: last.changedKey, id: last.id })
-          : null,
+        page.hasMore && page.last !== undefined ? encodeDriveCursor("campus", page.last) : null,
     };
   }
 

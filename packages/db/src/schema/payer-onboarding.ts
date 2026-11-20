@@ -148,7 +148,7 @@ export const agencyProfiles = pgTable(
       columns: [t.payerId],
       foreignColumns: [payers.id],
       name: "agency_profiles_payer_id_fkey",
-    }),
+    }).onDelete("cascade"), // #2811: was NO ACTION; goes with the payers row
     index("agency_profiles_gst_number_hash_idx").on(t.gstNumberHash),
     check(
       "agency_profiles_agency_type_check",
@@ -201,7 +201,7 @@ export const employerProfiles = pgTable(
       columns: [t.payerId],
       foreignColumns: [payers.id],
       name: "employer_profiles_payer_id_fkey",
-    }),
+    }).onDelete("cascade"), // #2811: was NO ACTION; goes with the payers row
     index("employer_profiles_gst_number_hash_idx").on(t.gstNumberHash),
     check(
       "employer_profiles_verification_status_check",
@@ -239,7 +239,7 @@ export const payerCapabilities = pgTable(
       columns: [t.payerId],
       foreignColumns: [payers.id],
       name: "payer_capabilities_payer_id_fkey",
-    }),
+    }).onDelete("cascade"), // #2811: was NO ACTION; goes with the payers row
     unique("payer_capabilities_payer_id_key").on(t.payerId),
     // Redundant with the unique constraint's implicit index and present on production anyway.
     // Reproduced rather than tidied: this file's job is to describe what is there.
@@ -282,7 +282,7 @@ export const payerMemberInvites = pgTable(
       columns: [t.payerId],
       foreignColumns: [payers.id],
       name: "payer_member_invites_payer_id_fkey",
-    }),
+    }).onDelete("cascade"), // #2811: was NO ACTION; goes with the payers row
     unique("payer_member_invites_invite_token_hash_key").on(t.inviteTokenHash),
     index("idx_payer_member_invites_email_hash").on(t.invitedEmailHash),
     index("idx_payer_member_invites_payer_id").on(t.payerId),

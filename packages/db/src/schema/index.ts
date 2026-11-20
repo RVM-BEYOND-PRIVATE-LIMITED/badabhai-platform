@@ -154,7 +154,7 @@ import { workerFeedback } from "./feedback";
 import { aiCallTraces } from "./ai-trace";
 import { deleteForensics } from "./delete-forensics";
 import { jobPostingInstituteReviews, rvmTargetingOptions } from "./job-audience";
-import { campusDriveRequests } from "./campus-drive";
+import { campusDriveRequestErasures, campusDriveRequests } from "./campus-drive";
 import { featurePilotPayers, featurePilotSubjects } from "./feature-pilot";
 import { displayPrefs } from "./display-prefs";
 
@@ -548,6 +548,8 @@ export const schema = {
   jobPostingInstituteReviews,
   rvmTargetingOptions,
   campusDriveRequests,
+  // #2811 - the erasure signal Campus reads for each deleted drive request.
+  campusDriveRequestErasures,
   featurePilotPayers,
   // #2752 - named-company search grants and Campus applications (migration 0163).
   instituteSearchGrants,
