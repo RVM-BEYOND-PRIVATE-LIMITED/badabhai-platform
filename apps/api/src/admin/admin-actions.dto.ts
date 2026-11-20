@@ -211,17 +211,6 @@ export const AdminWorkerUnflagSchema = z
   .strict();
 export type AdminWorkerUnflagDto = z.infer<typeof AdminWorkerUnflagSchema>;
 
-/**
- * The route keeps accepting a body-less call while the admin portal's unflag button has no
- * reason box yet (the #2579 payer suspend/reinstate precedent); such a call is still audited,
- * with a `null` reason. A body that is present must be the full, valid reason — a partial or
- * malformed one is a 400, never silently treated as "no reason".
- */
-export const AdminWorkerUnflagOrEmptySchema = z.union([
-  AdminWorkerUnflagSchema,
-  z.object({}).strict(),
-]);
-
 // ----- response shapes (PII-FREE: ids + enums + codes only) ------------------
 
 /** A governed-action result: the action outcome + whether it actually changed state. */
