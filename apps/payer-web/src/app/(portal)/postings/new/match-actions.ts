@@ -1,10 +1,6 @@
 "use server";
 
-import {
-  jobAudienceSchema,
-  matchSelectionInputSchema,
-  type ReachPreview,
-} from "../../../../lib/contracts";
+import { matchSelectionInputSchema, type ReachPreview } from "../../../../lib/contracts";
 import { roleKindInputSchema } from "../../../../lib/job-roles";
 import { previewReach } from "../../../../lib/payer-api";
 
@@ -39,8 +35,6 @@ export async function previewReachAction(input: {
   matchSkillIds: string[];
   untickedRelatedIds: string[];
   roleKind?: string;
-  /** #2746 — the audience the preview is scoped by; omitted when the picker is hidden. */
-  audience?: string;
 }): Promise<ReachPreviewResult> {
   const parsed = matchSelectionInputSchema.safeParse({
     matchSkillIds: input.matchSkillIds,
@@ -52,16 +46,12 @@ export async function previewReachAction(input: {
   const role =
     input.roleKind === undefined ? undefined : roleKindInputSchema.safeParse(input.roleKind);
   if (role !== undefined && !role.success) return { ok: false, error: FAILED };
-  const audience =
-    input.audience === undefined ? undefined : jobAudienceSchema.safeParse(input.audience);
-  if (audience !== undefined && !audience.success) return { ok: false, error: FAILED };
   try {
     return {
       ok: true,
       preview: await previewReach({
         ...parsed.data,
         ...(role !== undefined ? { roleKind: role.data } : {}),
-        ...(audience !== undefined ? { audience: audience.data } : {}),
       }),
     };
   } catch {

@@ -37,21 +37,6 @@ describe("previewReachAction — the trade scope (#2635)", () => {
     expect(previewReach).not.toHaveBeenCalled();
   });
 
-  it("#2746 forwards the audience when the picker was shown", async () => {
-    await previewReachAction({ ...SELECTION, roleKind: "cnc_turner", audience: "rvm_students" });
-    expect(previewReach).toHaveBeenCalledWith({
-      ...SELECTION,
-      roleKind: "cnc_turner",
-      audience: "rvm_students",
-    });
-  });
-
-  it("#2746 refuses an audience outside the closed set before the wire", async () => {
-    const res = await previewReachAction({ ...SELECTION, audience: "everyone" });
-    expect(res).toEqual({ ok: false, error: "Could not check reach right now. Please retry." });
-    expect(previewReach).not.toHaveBeenCalled();
-  });
-
   it("no skill is still the selection's own refusal", async () => {
     const res = await previewReachAction({ matchSkillIds: [], untickedRelatedIds: [], roleKind: "cnc_turner" });
     expect(res.ok).toBe(false);

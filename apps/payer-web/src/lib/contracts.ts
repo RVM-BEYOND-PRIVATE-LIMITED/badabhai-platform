@@ -29,13 +29,6 @@ import { APPLICANT_STAGES } from "./applicant-stages";
 export const jobAudienceSchema = z.enum(["badabhai_workers", "rvm_students", "both"]);
 export type JobAudience = z.infer<typeof jobAudienceSchema>;
 
-/** The display labels for the closed audience tokens — safe on the server and the client. */
-export const JOB_AUDIENCE_LABEL: Record<JobAudience, string> = {
-  badabhai_workers: "BadaBhai workers",
-  rvm_students: "RVM students",
-  both: "Both",
-};
-
 /** The placement team's decision on the RVM part of a posting, as the company reads it. */
 export const rvmReviewSchema = z.object({
   state: z.enum(["pending", "approved", "rejected"]),
@@ -378,11 +371,6 @@ export const createPostingInputSchema = z
     neededBy: neededBySchema.optional(),
     requirements: requirementsInputSchema.optional(),
     benefits: benefitsInputSchema.optional(),
-    // #2746 — WHO SEES THIS POSTING. The server re-validates every one of these and is the
-    // authority: an id not offered is a 400, and targeting with no RVM part is refused.
-    audience: jobAudienceSchema.optional(),
-    rvmBranchIds: z.array(z.number().int().positive()).max(50).optional(),
-    rvmCourseIds: z.array(z.string().min(1).max(64)).max(100).optional(),
   })
   .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {
     message: "Max pay must be greater than or equal to min pay.",
@@ -476,11 +464,6 @@ export const updatePostingInputSchema = z
         z.array(z.string().regex(/^[a-z][a-z0-9_]*$/)).max(20),
       )
       .optional(),
-    // #2746 — the SAME audience fields as create. They are not clearable; an audience-only
-    // PATCH is a real edit. The server is the authority on both refusals.
-    audience: jobAudienceSchema.optional(),
-    rvmBranchIds: z.array(z.number().int().positive()).max(50).optional(),
-    rvmCourseIds: z.array(z.string().min(1).max(64)).max(100).optional(),
   })
   .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {
     message: "Max pay must be greater than or equal to min pay.",
