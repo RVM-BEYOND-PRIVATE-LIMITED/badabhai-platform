@@ -456,8 +456,9 @@ describe.skipIf(!RUN)("Matching V1 job journey (e2e, ADR-0036 moments ③-⑥)",
     expect(list.length).toBeGreaterThanOrEqual(1);
     const top = list[0];
     // camelCase snapshot projection + the frozen engine version (V1 contract). v1.1 since
-    // ADR-0061 ("Level needed"): the snapshot now freezes the worker's rung too.
-    expect(top.engineVersion).toBe("v1.1");
+    // ADR-0061 ("Level needed"): the snapshot now freezes the worker's rung too. v1.2 since
+    // ADR-0069: a trade form's band fills the months.
+    expect(top.engineVersion).toBe("v1.2");
     expect(top.applicationId).toBeTruthy();
     expect(top.matchTier).toBe(1);
     // The "Level needed" sort is off by default in the e2e stack: no level group on the row.
