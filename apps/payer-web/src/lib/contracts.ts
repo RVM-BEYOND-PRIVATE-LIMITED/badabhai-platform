@@ -1162,6 +1162,74 @@ export const reachCaseWireSchema = z.object({
 });
 export type ReachCaseWire = z.infer<typeof reachCaseWireSchema>;
 
+/* ── #2984 §4 — the company follow-up ("Did you hire this person?") ───────────── */
+
+/** The three answers a company may give itself. */
+export const unlockCompanyOutcomes = ["hired", "not_hired", "still_talking"] as const;
+export const unlockCompanyOutcomeSchema = z.enum(unlockCompanyOutcomes);
+export type UnlockCompanyOutcome = z.infer<typeof unlockCompanyOutcomeSchema>;
+
+/** Every stored outcome, including the desk's `not_reached` (a company never sends it). */
+export const unlockOutcomeSchema = z.enum([...unlockCompanyOutcomes, "not_reached"] as const);
+export type UnlockOutcome = z.infer<typeof unlockOutcomeSchema>;
+
+/** One contact due for an answer — ids, one timestamp and a closed outcome only. */
+export const dueUnlockItemWireSchema = z.object({
+  unlock_id: z.string().uuid(),
+  worker_id: z.string().uuid(),
+  granted_at: z.string(),
+  outcome: unlockCompanyOutcomeSchema.nullable(),
+});
+export type DueUnlockItemWire = z.infer<typeof dueUnlockItemWireSchema>;
+
+/** GET /payer/unlock-outcomes/due — the tenant's due contacts, oldest first. */
+export const dueUnlocksPageWireSchema = z.object({
+  items: z.array(dueUnlockItemWireSchema),
+  nextCursor: z.string().nullable(),
+});
+export type DueUnlocksPageWire = z.infer<typeof dueUnlocksPageWireSchema>;
+
+/** POST /payer/unlocks/:unlockId/outcome — the stored answer, before and after. */
+export const recordedUnlockOutcomeWireSchema = z.object({
+  unlock_id: z.string().uuid(),
+  worker_id: z.string().uuid(),
+  outcome: unlockCompanyOutcomeSchema,
+  previous_outcome: unlockOutcomeSchema.nullable(),
+  answered_at: z.string(),
+  changed: z.boolean(),
+});
+export type RecordedUnlockOutcomeWire = z.infer<typeof recordedUnlockOutcomeWireSchema>;
+
+/** A due contact as the portal consumes it (faceless: no name/phone ever crosses the seam). */
+export interface DueUnlockOutcome {
+  unlockId: string;
+  workerId: string;
+  grantedAt: string;
+  outcome: UnlockCompanyOutcome | null;
+}
+
+/**
+ * The due-list read is one of THREE states the dashboard needs to tell apart:
+ *  - `off`   — the API answered 404 (the follow-up switch is off, or this surface is not ours):
+ *              hide the control entirely.
+ *  - `retry` — a 429/5xx/parse failure: show a neutral retry.
+ *  - `ok`    — the page (possibly empty).
+ */
+export type DueUnlockOutcomesResult =
+  | { status: "ok"; items: DueUnlockOutcome[]; nextCursor: string | null }
+  | { status: "off" }
+  | { status: "retry" };
+
+/** A recorded answer, mapped from the wire (the worker id stays server-side). */
+export interface RecordedUnlockOutcome {
+  unlockId: string;
+  workerId: string;
+  outcome: UnlockCompanyOutcome;
+  previousOutcome: UnlockOutcome | null;
+  answeredAt: string;
+  changed: boolean;
+}
+
 export const neutralWireSchema = z.object({ status: z.literal("unavailable") });
 export const unlockInsufficientWireSchema = z.object({
   status: z.literal("insufficient_credits"),

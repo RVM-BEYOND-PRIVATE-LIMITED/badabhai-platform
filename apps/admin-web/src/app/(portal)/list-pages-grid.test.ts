@@ -26,6 +26,8 @@ const LISTS: Array<[list: string, rows: string]> = [
   ["app/(portal)/jobs/agency/page.tsx", "app/(portal)/jobs/agency/page.tsx"],
   ["app/(portal)/feedback/page.tsx", "app/(portal)/feedback/page.tsx"],
   ["app/(portal)/ai-calls/page.tsx", "app/(portal)/ai-calls/page.tsx"],
+  ["app/(portal)/hires/page.tsx", "app/(portal)/hires/page.tsx"],
+  ["app/(portal)/pay-on-joining-hires/page.tsx", "app/(portal)/pay-on-joining-hires/page.tsx"],
   ["app/(portal)/credits/page.tsx", "app/(portal)/credits/page.tsx"],
   ["app/(portal)/transactions/page.tsx", "app/(portal)/transactions/page.tsx"],
   ["app/(portal)/admins/page.tsx", "app/(portal)/admins/page.tsx"],
@@ -50,6 +52,8 @@ const FILL_PAGES = [
   "app/(portal)/jobs/agency/page.tsx",
   "app/(portal)/feedback/page.tsx",
   "app/(portal)/ai-calls/page.tsx",
+  "app/(portal)/hires/page.tsx",
+  "app/(portal)/pay-on-joining-hires/page.tsx",
 ];
 
 describe("every list draws its rows on the data grid", () => {
@@ -74,9 +78,9 @@ describe("every list draws its rows on the data grid", () => {
     const pagers = LISTS.flatMap(([list, rows]) => [...new Set([list, rows])]).flatMap((file) =>
       [...code(file).matchAll(/<Pager\b([\s\S]*?)\/>/g)].map((m) => [file, m[1]!] as const),
     );
-    // Nine keyset lists after A9 (#2579) moved Companies onto numbered pages (Candidates uses
+    // Eleven keyset lists after A9 (#2579) moved Companies onto numbered pages (Candidates uses
     // the numbered pager too, A7 #2577); every remaining keyset list still passes its own cursor.
-    expect(pagers.length).toBeGreaterThanOrEqual(9);
+    expect(pagers.length).toBeGreaterThanOrEqual(11);
     for (const [file, props] of pagers) expect(props, file).toMatch(/\bcursor=\{/);
   });
 });
@@ -101,8 +105,10 @@ describe("the filter bars (A4)", () => {
       "app/(portal)/ai-calls/filter-bar.tsx",
       "app/(portal)/companies/company-filter-bar.tsx",
       "app/(portal)/events/filter-bar.tsx",
+      "app/(portal)/hires/filter-bar.tsx",
       "app/(portal)/jobs/filter-bar.tsx",
       "app/(portal)/numbers/numbers-filter-bar.tsx",
+      "app/(portal)/pay-on-joining-hires/filter-bar.tsx",
       "app/(portal)/skills/discovery/filter-bar.tsx",
       "components/payer-filter-bar.tsx",
     ]);

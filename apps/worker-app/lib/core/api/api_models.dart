@@ -5337,6 +5337,64 @@ class SearchVisibilityDto extends Equatable {
   List<Object?> get props => <Object?>[visible, hiddenSince];
 }
 
+/// `GET|POST /workers/me/still-looking` (#2753 item 5) — the monthly
+/// "still looking?" check.
+///
+/// The SERVER owns every fact: whether a check is due, whether the stored
+/// availability needs re-asking, his last active day and the company-side
+/// "not recently active" mark. The client never derives one from the other.
+///
+/// `404` means `STILL_LOOKING_CHECK_ENABLED` is off, so no card and no banner
+/// render; `503` (the table behind the route is missing) is retryable.
+class StillLookingDto extends Equatable {
+  const StillLookingDto({
+    required this.due,
+    this.checkId,
+    required this.availabilityNeedsAnswer,
+    this.lastActiveOn,
+    required this.notRecentlyActive,
+  });
+
+  /// An open (unanswered) check exists, so the card shows.
+  final bool due;
+
+  /// That open check's id; null when none is open.
+  final String? checkId;
+
+  /// The stored availability is empty (or an OLD key while the brief's four
+  /// answers are on), so the card may re-ask it with the served chips.
+  final bool availabilityNeedsAnswer;
+
+  /// His last active day as the server states it (`yyyy-mm-dd`), or null while
+  /// `WORKER_ACTIVITY_ENABLED` is off. Printed as stated — never re-zoned.
+  final String? lastActiveOn;
+
+  /// The company rows' own mark (more than `NOT_RECENTLY_ACTIVE_DAYS` since
+  /// [lastActiveOn]); false while activity is off.
+  final bool notRecentlyActive;
+
+  factory StillLookingDto.fromJson(Map<String, dynamic> json) {
+    final String? lastActive = json['last_active_on'] as String?;
+    final String? checkId = json['check_id'] as String?;
+    return StillLookingDto(
+      due: json['due'] == true,
+      checkId: checkId == null || checkId.isEmpty ? null : checkId,
+      availabilityNeedsAnswer: json['availability_needs_answer'] == true,
+      lastActiveOn: lastActive == null || lastActive.isEmpty ? null : lastActive,
+      notRecentlyActive: json['not_recently_active'] == true,
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[
+        due,
+        checkId,
+        availabilityNeedsAnswer,
+        lastActiveOn,
+        notRecentlyActive,
+      ];
+}
+
 /// `GET /referrals/helper?code=` (unauthenticated, #2753 item 12) — the
 /// helper's display name for the pre-code screen.
 ///

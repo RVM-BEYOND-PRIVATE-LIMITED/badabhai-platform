@@ -196,6 +196,48 @@ class MockApiClient extends ApiClient {
     );
   }
 
+  /// Canned monthly-check state (#2753 item 5), session-local so the card can
+  /// be walked end to end in mock mode. Not due by default, so router and
+  /// widget tests that land on the shell are not interrupted by a prompt.
+  bool _mockStillLookingDue = false;
+  bool _mockNotRecentlyActive = false;
+  bool _mockAvailabilityNeedsAnswer = false;
+  final String _mockStillLookingLastActive =
+      DateTime.now().toIso8601String().substring(0, 10);
+
+  @override
+  Future<StillLookingDto> getStillLooking({required String authToken}) async {
+    await _delay();
+    return _mockStillLooking;
+  }
+
+  @override
+  Future<StillLookingDto> answerStillLooking({
+    required String authToken,
+    required String answer,
+  }) async {
+    await _delay();
+    _mockStillLookingDue = false;
+    _mockAvailabilityNeedsAnswer = false;
+    // The server's own rule (#2753 item 5): "yes" clears the inactivity mark
+    // and brings him back into search; "not_now" leaves him out of search, so
+    // the mark no longer applies; "hired" is reported only.
+    if (answer == 'yes') {
+      _mockNotRecentlyActive = false;
+      _mockSearchVisible = true;
+    }
+    if (answer == 'not_now') _mockSearchVisible = false;
+    return _mockStillLooking;
+  }
+
+  StillLookingDto get _mockStillLooking => StillLookingDto(
+        due: _mockStillLookingDue,
+        checkId: _mockStillLookingDue ? 'mock-still-looking-check' : null,
+        availabilityNeedsAnswer: _mockAvailabilityNeedsAnswer,
+        lastActiveOn: _mockStillLookingLastActive,
+        notRecentlyActive: _mockNotRecentlyActive,
+      );
+
   /// Canned helper name (#2753 item 12). The real route is OFF by default, so
   /// the mock answers the switch-off case (`null`) — exactly what the screen
   /// must render, and its copy is not approved yet either.

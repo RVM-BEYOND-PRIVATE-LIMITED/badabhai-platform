@@ -35,14 +35,16 @@ export interface NavSection {
 }
 
 /**
- * THE SIDEBAR (A6, #2576) — five groups, at most 18 items, so the whole nav fits a 1080p screen
- * with no scrolling (it was 19, which pushed Account and Sign out below the fold; those two now
+ * THE SIDEBAR (A6, #2576) — five groups, at most 19 items, so the whole nav fits a 1080p screen
+ * with no scrolling (it was 18, which pushed Account and Sign out below the fold; those two now
  * live in the topbar's avatar menu). Workers is Candidates; Companies holds Agencies (a Kind
  * filter); Agency match skills is a tab on the agency posting, under Postings. Routes, API paths
  * and capability keys did not move with the labels — the old addresses redirect
  * (next.config.mjs) — and every item's capability is still its page's own gate
- * (`nav-model.test.ts` reads each page's source to hold that). Numbers (#2884) is the
- * seventeenth: it sits under Finance, where the commercial figures live.
+ * (`nav-model.test.ts` reads each page's source to hold that). Numbers (#2884) sits under
+ * Finance, where the commercial figures live. Hire records (#2753) is the nineteenth and sits
+ * under Directory; its pay-on-joining view is linked from that page's header rather than given
+ * a second sidebar row.
  */
 export const NAV: NavSection[] = [
   {
@@ -76,6 +78,16 @@ export const NAV: NavSection[] = [
       // The route stays /jobs (owner ruling 2026-10-01: labels change, routes do not); /postings
       // redirects here. Agency postings and their match skills are a view of this section.
       { href: "/jobs", label: "Postings", icon: "briefcase", capability: "read_entities" },
+      // #2753 item 9 — the read-only hire records list. `manage_companies` mirrors
+      // `GET /admin/hires`, the same capability the company record and the pay-on-joining
+      // pilot use. The pilot's own page is a related view from this page's header, not a
+      // second sidebar item (nav budget).
+      {
+        href: "/hires",
+        label: "Hire records",
+        icon: "handshake",
+        capability: "manage_companies",
+      },
     ],
   },
   {
@@ -188,8 +200,12 @@ export const NAV: NavSection[] = [
   },
 ];
 
-/** The most items the sidebar may list (A6 acceptance: it fits 1920×1080 with no scrolling). */
-export const NAV_ITEM_LIMIT = 18;
+/**
+ * The most items the sidebar may list (A6 acceptance: it fits 1920×1080 with no scrolling).
+ * Raised from 18 to 19 when Hire records (#2753) landed, deliberately — see the docs and the
+ * height budget in `nav-model.test.ts`.
+ */
+export const NAV_ITEM_LIMIT = 19;
 
 /**
  * Does `pathname` sit at or below `href`? Exact for the dashboard, prefix elsewhere — but on a

@@ -2123,6 +2123,14 @@ textarea.input {
   gap: var(--space-3);
   flex: none;
 }
+/* #2984 §4 — the three answers on a company follow-up row. They wrap as a group on a phone. */
+.unlock-followup__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  flex: none;
+}
 /* A linked row's "go" cue, named for its destination (F13 — "Applicants"). Static: the card's
    own link brings the hover, and the arrow already nudges (`.dash-view__arrow`). */
 .dash-unlock__cta {

@@ -70,6 +70,9 @@ import '../../features/settings/domain/notification_prefs_repository.dart';
 import '../../features/settings/domain/search_visibility_repository.dart';
 import '../../features/settings/presentation/cubit/account_delete_cubit.dart';
 import '../../features/settings/presentation/cubit/search_visibility_cubit.dart';
+import '../../features/still_looking/data/still_looking_repository_impl.dart';
+import '../../features/still_looking/domain/still_looking_prompt_gate.dart';
+import '../../features/still_looking/domain/still_looking_repository.dart';
 import '../../features/voice/data/record_package_voice_recorder.dart';
 import '../../features/voice/data/session_voice_recorder.dart';
 import '../../features/voice/data/speech_dictation_impl.dart';
@@ -394,6 +397,18 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   locator.registerLazySingleton<SearchVisibilityRepository>(
     () => SearchVisibilityRepositoryImpl(
         locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  // #2753 item 5 — the monthly "still looking?" check (read + answer). Server
+  // truth only; the Profile tab reads `last_active_on` through the same
+  // repository.
+  locator.registerLazySingleton<StillLookingRepository>(
+    () => StillLookingRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  // Once per launch per worker: the shell can remount inside one launch, and an
+  // ignored monthly card must not pop again on every return to the tabs.
+  locator.registerLazySingleton<StillLookingPromptGate>(
+    () => StillLookingPromptGate(),
   );
   locator.registerLazySingleton<ThemeCubit>(
     () => ThemeCubit(locator<DisplayPrefsRepository>()),
@@ -741,7 +756,14 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => KitDetailCubit(locator<InterviewKitRepository>()),
   );
   locator.registerFactory<ProfileTabCubit>(
-    () => ProfileTabCubit(locator<ProfileSummaryRepository>()),
+    () => ProfileTabCubit(
+      locator<ProfileSummaryRepository>(),
+      // #2753 item 5 — optional: a partial test graph simply never shows the
+      // last-active row.
+      stillLooking: locator.isRegistered<StillLookingRepository>()
+          ? locator<StillLookingRepository>()
+          : null,
+    ),
   );
   locator.registerFactory<ProfileEditCubit>(
     () => ProfileEditCubit(locator<ProfileEditRepository>()),

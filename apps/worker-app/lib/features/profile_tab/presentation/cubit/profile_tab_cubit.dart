@@ -8,6 +8,7 @@ import '../../../../core/session/session_repository.dart';
 import '../../../auth/domain/auth_session_manager.dart';
 import '../../../resume/domain/resume_edit_repository.dart';
 import '../../../resume/domain/resume_safe_fields.dart';
+import '../../../still_looking/domain/still_looking_repository.dart';
 import '../../domain/profile_summary.dart';
 import '../../domain/profile_summary_repository.dart';
 
@@ -19,6 +20,7 @@ class ProfileTabState extends Equatable {
     this.summary,
     this.failure,
     this.displayName,
+    this.lastActiveOn,
   });
 
   final ProfileTabStatus status;
@@ -34,8 +36,13 @@ class ProfileTabState extends Equatable {
   /// exactly as it did before. NEVER fabricated.
   final String? displayName;
 
+  /// The server's `last_active_on` (`yyyy-mm-dd`), or null while activity is
+  /// switched off / unread. Never derived locally (#2753 item 4).
+  final String? lastActiveOn;
+
   @override
-  List<Object?> get props => <Object?>[status, summary, failure, displayName];
+  List<Object?> get props =>
+      <Object?>[status, summary, failure, displayName, lastActiveOn];
 }
 
 /// Loads the tabbed Profile summary on open and owns the logout flow.
@@ -45,14 +52,23 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
   /// fakes for the logout flow. When omitted they are resolved LAZILY from the
   /// locator only inside [logout] — so constructing the cubit (e.g. the
   /// load-only unit tests) never requires a wired locator.
-  ProfileTabCubit(this._repo, {ApiClient? api, SessionRepository? session})
-    : _api = api,
-      _session = session,
-      super(const ProfileTabState());
+  ProfileTabCubit(
+    this._repo, {
+    ApiClient? api,
+    SessionRepository? session,
+    StillLookingRepository? stillLooking,
+  }) : _api = api,
+       _session = session,
+       _stillLooking = stillLooking,
+       super(const ProfileTabState());
 
   final ProfileSummaryRepository _repo;
   final ApiClient? _api;
   final SessionRepository? _session;
+
+  /// #2753 item 5 — the only source of `last_active_on`. Optional so a partial
+  /// test graph (and a server with the switch off) simply omits the row.
+  final StillLookingRepository? _stillLooking;
 
   /// True while a load is in flight — the tab-focus refetch must not stack a
   /// second one on top of the create:-time load.
@@ -77,6 +93,7 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
       _loading = false;
     }
     await _hydrateName();
+    await _hydrateStillLooking();
   }
 
   /// Tab-focus refetch (T4). No spinner and no wipe: the worker is looking at
@@ -101,6 +118,7 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
           // does not carry it, so dropping it here would make the name flicker
           // away every time the worker returned to the tab.
           displayName: state.displayName,
+          lastActiveOn: state.lastActiveOn,
         ),
       );
     } on Failure catch (f) {
@@ -112,6 +130,7 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
       _loading = false;
     }
     await _hydrateName();
+    await _hydrateStillLooking();
   }
 
   /// Reads the worker's NAME from the resume fields, which is the only place it
@@ -140,10 +159,38 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
           status: ProfileTabStatus.ready,
           summary: state.summary,
           displayName: name,
+          lastActiveOn: state.lastActiveOn,
         ),
       );
     } catch (_) {
       // Fail-silent by design: the name is an enhancement, not the screen.
+    }
+  }
+
+  /// Reads the server's one "last active" day (#2753 item 4) for the profile
+  /// row. FAIL-SILENT: a `404` (switch off), a `503`, an offline handset or a
+  /// partial test graph all leave the row absent — the profile itself is worth
+  /// more than this optional fact.
+  Future<void> _hydrateStillLooking() async {
+    if (isClosed) return;
+    if (state.status != ProfileTabStatus.ready) return;
+    final StillLookingRepository? repo = _stillLooking;
+    if (repo == null) return;
+    try {
+      final String? day = (await repo.read()).lastActiveOn;
+      if (isClosed) return;
+      if (state.status != ProfileTabStatus.ready) return;
+      if (state.lastActiveOn == day) return;
+      emit(
+        ProfileTabState(
+          status: ProfileTabStatus.ready,
+          summary: state.summary,
+          displayName: state.displayName,
+          lastActiveOn: day,
+        ),
+      );
+    } catch (_) {
+      // Fail-silent by design: never let an optional fact break the tab.
     }
   }
 

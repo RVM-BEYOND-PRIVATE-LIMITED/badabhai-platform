@@ -43,6 +43,17 @@ void main() {
       await store.capture('bbbbbbbbbbbb');
       expect(await store.take(), 'bbbbbbbbbbbb');
     });
+
+    test('peekPending reads without consuming', () async {
+      final InMemoryPendingReferralStore store = InMemoryPendingReferralStore();
+      await store.capture('abcdef012345', source: ReferralSource.appLink);
+
+      final PendingReferral? peeked = await store.peekPending();
+      expect(peeked?.code, 'abcdef012345');
+      expect(peeked?.source, ReferralSource.appLink);
+      // Still there for post-consent attribution.
+      expect(await store.take(), 'abcdef012345');
+    });
   });
 
   group('SharedPrefsPendingReferralStore', () {
@@ -69,6 +80,15 @@ void main() {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       expect(prefs.getString(SharedPrefsPendingReferralStore.kKey), isNull);
       expect(await store.take(), isNull);
+    });
+
+    test('peekPending leaves the persisted code for attribution', () async {
+      const SharedPrefsPendingReferralStore store =
+          SharedPrefsPendingReferralStore();
+      await store.capture('abcdef012345', source: ReferralSource.appLink);
+
+      expect((await store.peekPending())?.code, 'abcdef012345');
+      expect(await store.take(), 'abcdef012345');
     });
   });
 }

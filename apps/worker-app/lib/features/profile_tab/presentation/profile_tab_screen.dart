@@ -9,6 +9,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
 import '../../../core/nav/tab_focus.dart';
 import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/util/date_label.dart';
 import '../../../core/util/education_label.dart';
 import '../../../core/util/push_once.dart';
 import '../../../core/util/taxonomy_labels.dart';
@@ -151,6 +152,10 @@ class _ProfileTabView extends StatelessWidget {
           displayName: state.displayName,
           facts: _profileFactIcons(context, s),
         ),
+        if (state.lastActiveOn != null) ...<Widget>[
+          const SizedBox(height: 12),
+          _LastActiveCard(day: state.lastActiveOn!),
+        ],
         const SizedBox(height: 12),
         _shortcutsCard(context),
         // Comfortable separation from the content above; logout sits last.
@@ -742,6 +747,49 @@ class _ShortcutTile extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The server's one "last active" day (#2753 item 4), drawn under the identity
+/// card. Shown only when the server sent one; the date is printed as stated and
+/// is never re-zoned or computed locally.
+class _LastActiveCard extends StatelessWidget {
+  const _LastActiveCard({required this.day});
+
+  /// `yyyy-mm-dd`, the server's IST day.
+  final String day;
+
+  @override
+  Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
+    final String? label = isoDayLabel(day);
+    if (label == null) return const SizedBox.shrink();
+    return KitCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: <Widget>[
+          Icon(Icons.schedule_rounded, size: 18, color: p.textBrand),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Last active',
+              style: OnboardingTypography.inter(
+                size: 13,
+                weight: FontWeight.w600,
+                color: p.textSecondary,
+              ),
+            ),
+          ),
+          Text(
+            label,
+            style: OnboardingTypography.inter(
+              size: 13,
+              weight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }

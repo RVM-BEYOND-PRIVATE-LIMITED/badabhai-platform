@@ -38,3 +38,18 @@ String shortDateLabel(DateTime when) {
   final String month = _months[local.month - 1];
   return '${local.day} ${month.substring(0, 3)} ${local.year}';
 }
+
+/// A SERVER day (`yyyy-mm-dd`, already in IST) printed as a compact date, or
+/// null when the value is not a real day.
+///
+/// NO TIMEZONE ARITHMETIC: the day is the server's own (`last_active_on`), so
+/// re-zoning it could move a worker's activity to a different calendar day.
+/// Dart parses the date-only form as a local midnight, and [shortDateLabel]
+/// then prints that same day.
+String? isoDayLabel(String? raw) {
+  final String value = (raw ?? '').trim();
+  if (value.isEmpty) return null;
+  final DateTime? parsed = DateTime.tryParse(value);
+  if (parsed == null) return null;
+  return shortDateLabel(parsed);
+}

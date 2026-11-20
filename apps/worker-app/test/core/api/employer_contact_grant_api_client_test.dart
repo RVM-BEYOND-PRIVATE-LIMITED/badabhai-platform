@@ -7,9 +7,13 @@ import 'package:http/testing.dart';
 import 'package:badabhai_worker_app/core/api/api_client.dart';
 import 'package:badabhai_worker_app/core/api/mock_api_client.dart';
 
-/// The wire contract for `POST /consent/employer-contact/grant` (2026-11-19):
+/// The wire contract for `POST /consent/employer-contact/grant`:
 /// WorkerAuthGuard, body `{consent_version}` ONLY — the server derives the
 /// purposes — and `{ok, consent_id, granted}` back.
+///
+/// The version asserted is [kConsentVersion], never a literal: the app sends
+/// the version of the notice it just showed, and a dated literal goes stale
+/// the moment the notice is revised (#2842 / #2753 item 13).
 void main() {
   group('ApiClient.grantEmployerContact', () {
     test('POSTs the grant with the bearer and ONLY the notice version',
@@ -39,7 +43,7 @@ void main() {
       // No purpose list, no worker id: the version of the notice just shown.
       expect(
         jsonDecode(captured.body),
-        <String, dynamic>{'consent_version': '2026-11-19'},
+        <String, dynamic>{'consent_version': kConsentVersion},
       );
       expect(
         dto,

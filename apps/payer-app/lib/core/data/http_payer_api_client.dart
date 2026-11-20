@@ -4,6 +4,7 @@ import 'job_posting_chat_models.dart';
 import 'models.dart';
 import 'managed_hiring_models.dart';
 import 'payer_api_client.dart';
+import 'unlock_followup_models.dart';
 
 /// What a refused job write says (see `_jobWriteRejection`): a typed [code],
 /// the first issue as a labelled sentence, and every issue by its field.
@@ -1010,6 +1011,56 @@ class HttpPayerApiClient implements PayerApiClient {
       phone: phone,
       openedAt: res.body['opened_at'] as String?,
     );
+  }
+
+  @override
+  Future<UnlockFollowupPage?> fetchDueUnlockOutcomes({
+    int limit = 20,
+    String? cursor,
+  }) async {
+    if (limit < 1 || limit > 50) {
+      throw ArgumentError.value(limit, 'limit', 'must be between 1 and 50');
+    }
+    final String query = Uri(
+      path: '/payer/unlock-outcomes/due',
+      queryParameters: <String, String>{
+        'limit': '$limit',
+        if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      },
+    ).toString();
+    final PayerResponse res = await _http.send(PayerMethod.get, query);
+    // The house neutral 404: UNLOCK_FOLLOWUP_ENABLED is off for this company.
+    // Hide the whole surface; any other status is a real failure.
+    if (res.statusCode == 404) return null;
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final UnlockFollowupPage? page = UnlockFollowupPage.tryFromJson(res.body);
+    // A 2xx that is not the page contract (a drifted shape, captive-portal HTML
+    // decoded to `{}`) is an error, never "nothing due".
+    if (page == null) throw PayerApiException(res.statusCode);
+    return page;
+  }
+
+  @override
+  Future<UnlockFollowupResult> recordUnlockOutcome({
+    required String unlockId,
+    required UnlockFollowupOutcome outcome,
+    required String idempotencyKey,
+  }) async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/unlocks/${Uri.encodeComponent(unlockId)}/outcome',
+      body: <String, dynamic>{'outcome': outcome.wire},
+      // One PII-free key per answer intent, reused by a caller-driven retry.
+      idempotencyKey: idempotencyKey,
+    );
+    // 404 is the route's neutral unknown/foreign/erased answer (the caller
+    // drops the stale row); 429 is the hourly write cap. Both throw with their
+    // status so the cubit can tell them apart from a transport failure.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final UnlockFollowupResult? result =
+        UnlockFollowupResult.tryFromJson(res.body);
+    if (result == null) throw PayerApiException(res.statusCode);
+    return result;
   }
 
   @override
