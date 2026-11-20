@@ -58,6 +58,12 @@ type RvmListClass =
    * so a quote never tells it what he is.
    */
   | { kind: "quote_hides_student" }
+  /**
+   * An agency's own referred workers who consented to agent visibility (`agent_activity_visibility`), RVM link or
+   * not. Ruled by the owner on #2954 item 2 (Prakash, 20 Nov 2026): accepted, because the worker chose to share
+   * with that agency.
+   */
+  | { kind: "agency_referrals" }
   /** A known path that does not apply the rule, filed with the owner. */
   | { kind: "known_exception"; issue: `#${number}`; why: string };
 
@@ -78,11 +84,7 @@ const COMPANY_ROUTES: Readonly<Record<string, RvmListClass>> = {
   "PUT /payer/reach/jobs/:P/applicants/:P/stage": APPLICANTS, // 404 unless an applicant
   "GET /payer/managed-hiring/orders": { kind: "staff_tracker" },
   "GET /payer/managed-hiring/orders/:P": { kind: "staff_tracker" },
-  "GET /payer/agency/workers": {
-    kind: "known_exception",
-    issue: "#2954",
-    why: "an agency sees the workers it referred who consented to agent visibility, RVM link or not",
-  },
+  "GET /payer/agency/workers": { kind: "agency_referrals" }, // #2954 item 2: accepted by the owner
   // ── Opened contacts and the writes that open them ───────────────────────────────────────────
   "POST /payer/unlocks": OPEN_GATED,
   "POST /payer/resume-disclosures": OPEN_GATED,
