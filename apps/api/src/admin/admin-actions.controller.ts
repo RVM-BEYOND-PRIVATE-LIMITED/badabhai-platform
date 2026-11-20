@@ -17,7 +17,7 @@ import {
   AdminWorkerSignOutAllSchema,
   AdminWorkerSuspendSchema,
   AdminWorkerUnsuspendSchema,
-  AdminWorkerUnflagOrEmptySchema,
+  AdminWorkerUnflagSchema,
   AdminPayerActionReasonOrEmptySchema,
   type AdminPayerActionReasonDto,
   type AdminChangeRoleDto,
@@ -140,16 +140,11 @@ export class AdminActionsController {
   unflagWorker(
     @CurrentAdmin() admin: AuthenticatedAdmin,
     @Param(new ZodValidationPipe(AdminTargetParamsSchema)) params: AdminTargetParamsDto,
-    @Body(new ZodValidationPipe(AdminWorkerUnflagOrEmptySchema)) body: Record<string, unknown>,
+    @Body(new ZodValidationPipe(AdminWorkerUnflagSchema)) dto: AdminWorkerUnflagDto,
     @Ctx() ctx: RequestContext,
   ) {
-    // #2914 — a reason is written to audit_logs; body-less calls (pre-reason-box clients) still work.
-    return this.service.unflagWorker(
-      admin.id,
-      params.id,
-      ctx,
-      "reason_text" in body ? (body as AdminWorkerUnflagDto) : undefined,
-    );
+    // #2914/#2948 — the written reason is required and goes to audit_logs; a body-less call is a 400.
+    return this.service.unflagWorker(admin.id, params.id, ctx, dto);
   }
 
   // ----- worker account actions (#2562, manage_worker_account) ----------------

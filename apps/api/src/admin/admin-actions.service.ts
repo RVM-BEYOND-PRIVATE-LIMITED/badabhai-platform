@@ -574,15 +574,14 @@ export class AdminActionsService {
   /**
    * #2914 — lift the worker's open flag. The `audit_logs` reason row commits in the SAME
    * transaction as the flag resolution and the admin action, so the trail can never show a
-   * lifted flag without the record of who lifted it and why. `reason` is undefined only for a
-   * body-less call from an admin client that predates the reason box; that call is still
-   * audited, with `null` reason fields ("no reason given").
+   * lifted flag without the record of who lifted it and why. The reason is required (#2948):
+   * the admin portal's reason box is live, so a body-less call is refused at the route.
    */
   async unflagWorker(
     adminId: string,
     workerId: string,
     ctx: RequestContext,
-    reason?: AdminWorkerUnflagDto,
+    reason: AdminWorkerUnflagDto,
   ): Promise<AdminActionResult> {
     let changed = false;
     await this.actions.withTransaction(async (tx) => {
@@ -594,8 +593,8 @@ export class AdminActionsService {
         adminId,
         workerId,
         action: ADMIN_ACTION_CODES.worker_unflagged,
-        reasonCode: reason?.reason_code ?? null,
-        reasonText: reason?.reason_text ?? null,
+        reasonCode: reason.reason_code,
+        reasonText: reason.reason_text,
       });
       await this.emitAction(adminId, ADMIN_ACTION_CODES.worker_unflagged, "worker", workerId, ctx, tx);
     });
