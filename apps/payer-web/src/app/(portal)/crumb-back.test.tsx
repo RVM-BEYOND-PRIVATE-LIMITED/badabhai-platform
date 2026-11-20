@@ -120,6 +120,8 @@ vi.mock("../../lib/payer-api", async (importOriginal) => {
 // edit pages hand their head to the form column (#1887), so the head is the form's lead.
 vi.mock("../../components/job-card-preview", () => ({ JobCardPreview: () => null }));
 vi.mock("./dashboard/agent-sections", () => ({ AgentSections: () => null }));
+// #2984 §4 — the company follow-up is an async server read; its own suite renders it.
+vi.mock("./dashboard/unlock-followup", () => ({ UnlockFollowup: () => null }));
 vi.mock("./postings/[id]/edit/edit-posting-form", () => ({
   EditPostingForm: ({ lead }: { lead?: ReactNode }) => lead ?? null,
 }));

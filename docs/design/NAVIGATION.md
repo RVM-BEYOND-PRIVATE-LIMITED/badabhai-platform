@@ -30,6 +30,7 @@ gate (`requireCapability` / `requireSession`) whatever the sidebar shows.
 | Directory     | Candidates      | `users-three`             | `/candidates`       | `(portal)/candidates/page.tsx`       | The worker roster; a row opens the candidate drawer (below)   | `read_entities` (drawer: `read_candidates`)           |
 | Directory     | Companies       | `buildings`               | `/companies`        | `(portal)/companies/page.tsx`        | Every customer — Kind: All · Companies · Agencies             | `read_entities`                                       |
 | Directory     | Postings        | `briefcase`               | `/jobs`             | `(portal)/jobs/page.tsx`             | Every posting, with the poster's own text; Agency postings    | `read_entities`                                       |
+| Directory     | Hire records    | `handshake`               | `/hires`            | `(portal)/hires/page.tsx`            | Who companies took on, faceless and read-only                 | `manage_companies`                                    |
 | Finance       | Credits         | `wallet`                  | `/credits`          | `(portal)/credits/page.tsx`          | Credit position and the credit ledger                         | `read_entities`                                       |
 | Finance       | Payment orders  | `receipt`                 | `/transactions`     | `(portal)/transactions/page.tsx`     | Credit-pack checkouts (payment orders)                        | `read_entities`                                       |
 | Quality & AI  | Feedback        | `chat-centered-text`      | `/feedback`         | `(portal)/feedback/page.tsx`         | What workers typed into the app's Feedback button             | `read_entities`                                       |
@@ -41,11 +42,12 @@ gate (`requireCapability` / `requireSession`) whatever the sidebar shows.
 | Audit & Admin | Roles           | `shield-check`            | `/roles`            | `(portal)/roles/page.tsx`            | The live role × capability matrix ("Roles and capabilities")  | session                                               |
 | Audit & Admin | System          | `gauge`                   | `/system`           | `(portal)/system/page.tsx`           | System health and provider switches                           | session (switch table: `toggle_kill_switch`)          |
 
-**At most 15 items** (`NAV_ITEM_LIMIT`; it was 19), so the whole nav fits a 1080p browser with no
-scrolling — `nav-model.test.ts` adds up the declared heights for all 15 rows with every group open
-(884px of a 900px budget), and in headless Chrome the sidebar did not scroll at 1920×1080 or
-1920×900. **User accounts** (#2578) belongs in Directory between Candidates and Companies; it is not
-listed until its page and the capability it sits on (backend #2563) ship — an item before then
+**At most 19 items** (`NAV_ITEM_LIMIT`; it was 18), so the whole nav fits a 1080p browser with no
+scrolling — `nav-model.test.ts` adds up the declared heights for all 19 rows with every group open
+inside its 1040px budget. The nineteenth is **Hire records** (#2753 item 9): its pay-on-joining
+view is linked from that page's header as a related-view action, so it does not earn a second
+sidebar row. **User accounts** (#2578) belongs in Directory between Candidates and Companies; it is
+not listed until its page and the capability it sits on (backend #2563) ship — an item before then
 would be a door to a 404 for every role.
 
 **Groups collapse.** Each group's title is a disclosure button (`aria-expanded`, `aria-controls`)
@@ -79,6 +81,7 @@ itself. The topbar crumb reads "Group › Page" (see the header rules).
 | `/jobs/agency`                                | Agency postings        | Postings → `/jobs`                                                                   | `manage_agency_match_skills`                 |
 | `/jobs/agency/[jobId]`                        | the posting title      | Agency postings → `/jobs/agency` (tab: Overview)                                     | `manage_agency_match_skills`                 |
 | `/jobs/agency/[jobId]/match-skills`           | the posting title      | Agency postings → `/jobs/agency` (tab: Match skills — the editor)                    | `manage_agency_match_skills`                 |
+| `/pay-on-joining-hires`                       | Pay-on-joining hires   | Hire records → `/hires` (related view, opened from its header)                       | `manage_companies`                           |
 | `/skills/discovery/[id]`                      | the candidate phrase   | Skill discovery → `/skills/discovery`                                                | `read_entities`                              |
 | `/login`, `/invite/accept`                    | Sign in, Accept invite | none (outside the portal shell)                                                      | none                                         |
 

@@ -11,6 +11,7 @@ import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
 import '../../../core/error/failure_reason.dart';
 import '../../../core/otp/sms_otp_autofill.dart';
+import '../../../core/referral/pending_referral_store.dart';
 import '../../../core/session/session_repository.dart';
 import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
@@ -36,6 +37,14 @@ const String kOtpFieldSemanticLabel = 'SMS code, $kOtpLength digits';
 
 /// The caret painted in the OTP box being typed into.
 const Key kOtpCaretKey = Key('otp_caret');
+
+/// The approved pre-OTP helper line (#2753 item 12). Shown only when the
+/// unauthenticated lookup returned a non-empty agency `display_name`.
+const Key kReferralHelperLineKey = Key('referralHelperLine');
+const String kReferralHelperLineSuffix =
+    ' ne yeh profile banane mein madad ki hai. OTP tabhi daalein jab yeh '
+    'details aapki hon. OTP kisi ko na batayein, aur BadaBhai par job ya '
+    'profile ke liye kisi ko paise na dein.';
 
 /// Typed `extra` for [Routes.otpVerify] (#336).
 ///
@@ -109,11 +118,17 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
   int _cooldown = 0;
   Timer? _ticker;
 
+  /// #2753 item 12 — the agency's `display_name`, exactly as served, for the
+  /// pre-OTP helper line. Null while loading, when no referral is pending, or
+  /// whenever the route answers `404` / `display_name: null`.
+  String? _helperName;
+
   @override
   void initState() {
     super.initState();
     _cooldown = widget.resendIn?.inSeconds ?? 0;
     _startCooldown();
+    unawaited(_loadHelperName());
     if (!locator.isRegistered<SmsOtpAutofill>()) return;
     final SmsOtpAutofill autofill = locator<SmsOtpAutofill>();
     _autofill = autofill;
@@ -123,6 +138,32 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
     final String? buffered = autofill.takeBufferedCode();
     if (buffered != null) _onCode(buffered);
     _codeSub = autofill.codes.listen(_onCode);
+  }
+
+  /// #2753 item 12 — reads the pending referral code (WITHOUT consuming it, so
+  /// post-consent attribution still happens) and asks the unauthenticated
+  /// helper route for the agency name. Fail-silent: no referral, a `404`
+  /// (switch off), a null name, an offline handset or a partial test graph all
+  /// leave the line hidden. The code and the name are never logged.
+  Future<void> _loadHelperName() async {
+    if (!locator.isRegistered<PendingReferralStore>() ||
+        !locator.isRegistered<ApiClient>()) {
+      return;
+    }
+    try {
+      final PendingReferral? pending =
+          await locator<PendingReferralStore>().peekPending();
+      if (pending == null) return;
+      final String? name = await locator<ApiClient>().lookupReferralHelperName(
+        code: pending.code,
+      );
+      if (!mounted) return;
+      final String trimmed = (name ?? '').trim();
+      if (trimmed.isEmpty) return;
+      setState(() => _helperName = trimmed);
+    } catch (_) {
+      // Fail-silent by design: the OTP step must still work with no helper.
+    }
   }
 
   /// Fill the field with the detected code. Deliberately does NOT auto-submit:
@@ -367,6 +408,10 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
+                        if (_helperName != null) ...<Widget>[
+                          _ReferralHelperLine(name: _helperName!),
+                          const SizedBox(height: 20),
+                        ],
                         Text(
                           'ENTER OTP CODE',
                           style: OnboardingTypography.fieldMicroLabel(),
@@ -555,4 +600,50 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
   /// `29` → `0:29`, `75` → `1:15` — the kit's timer format.
   static String _formatCooldown(int seconds) =>
       '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
+}
+
+/// The owner-approved pre-OTP helper line (#2753 item 12). [name] is the
+/// agency's `display_name` exactly as served — never a person's name — and is
+/// set in weight so the agency is the first thing the worker reads.
+class _ReferralHelperLine extends StatelessWidget {
+  const _ReferralHelperLine({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
+    return Container(
+      key: kReferralHelperLineKey,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: p.brandSurface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text.rich(
+        TextSpan(
+          children: <InlineSpan>[
+            TextSpan(
+              text: name,
+              style: OnboardingTypography.inter(
+                size: 13,
+                weight: FontWeight.w700,
+                color: p.textBrand,
+                height: 1.35,
+              ),
+            ),
+            TextSpan(
+              text: kReferralHelperLineSuffix,
+              style: OnboardingTypography.inter(
+                size: 13,
+                weight: FontWeight.w500,
+                color: p.textBrand,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

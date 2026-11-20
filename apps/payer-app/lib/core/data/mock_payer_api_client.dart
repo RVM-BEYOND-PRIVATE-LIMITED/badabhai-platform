@@ -3,6 +3,7 @@ import 'job_posting_chat_models.dart';
 import 'models.dart';
 import 'managed_hiring_models.dart';
 import 'payer_api_client.dart';
+import 'unlock_followup_models.dart';
 
 /// In-memory [PayerApiClient] seeded with sample data from the Payer App kit's
 /// `.dc.html` script block (6 candidates, 3 jobs, credits=200, ledger rows).
@@ -23,6 +24,22 @@ class MockPayerApiClient implements PayerApiClient {
 
   /// workerId → unlockId for every [unlock] grant this session.
   final Map<String, String> _grants = <String, String>{};
+
+  /// #2984 — demo rows for the company follow-up. Answering removes the row, as
+  /// the real due list does once an answer is stored.
+  final List<UnlockFollowupItem> _dueFollowups = <UnlockFollowupItem>[
+    const UnlockFollowupItem(
+      unlockId: 'mock-followup-1',
+      workerId: 'mock-worker-uuid-1',
+      grantedAt: '2026-11-01T10:00:00Z',
+    ),
+    const UnlockFollowupItem(
+      unlockId: 'mock-followup-2',
+      workerId: 'mock-worker-uuid-2',
+      grantedAt: '2026-11-03T09:30:00Z',
+      outcome: UnlockFollowupOutcome.stillTalking,
+    ),
+  ];
 
   static const List<Candidate> _candidates = <Candidate>[
     Candidate(
@@ -1350,6 +1367,38 @@ class MockPayerApiClient implements PayerApiClient {
   Future<ContactReadResult> readContact(String unlockId) async =>
       // The mock has no contact rule, so it behaves like a server with it off: today's screen.
       const ContactReadResult.off();
+
+  @override
+  Future<UnlockFollowupPage?> fetchDueUnlockOutcomes({
+    int limit = 20,
+    String? cursor,
+  }) async =>
+      UnlockFollowupPage(
+        items: List<UnlockFollowupItem>.unmodifiable(
+          _dueFollowups.take(limit.clamp(1, 50).toInt()),
+        ),
+        nextCursor: null,
+      );
+
+  @override
+  Future<UnlockFollowupResult> recordUnlockOutcome({
+    required String unlockId,
+    required UnlockFollowupOutcome outcome,
+    required String idempotencyKey,
+  }) async {
+    final int index = _dueFollowups
+        .indexWhere((UnlockFollowupItem r) => r.unlockId == unlockId);
+    if (index < 0) throw const PayerApiException(404);
+    final UnlockFollowupItem row = _dueFollowups.removeAt(index);
+    return UnlockFollowupResult(
+      unlockId: row.unlockId,
+      workerId: row.workerId,
+      outcome: outcome,
+      previousOutcome: UnlockStoredOutcome.fromCompany(row.outcome),
+      answeredAt: DateTime.now().toUtc().toIso8601String(),
+      changed: true,
+    );
+  }
 
   @override
   Future<DisclosureResult> disclose({

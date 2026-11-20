@@ -72,6 +72,12 @@ abstract interface class PendingReferralStore {
   /// once), or null when nothing valid is pending. Best-effort — NEVER throws.
   Future<PendingReferral?> takePending();
 
+  /// Returns the pending referral WITHOUT consuming it, or null when nothing
+  /// valid is pending. Used by the pre-OTP helper line (#2753 item 12), which
+  /// must still leave the code for post-consent attribution. Best-effort —
+  /// NEVER throws.
+  Future<PendingReferral?> peekPending();
+
   /// Convenience: [takePending] but returns only the code (back-compat). Also
   /// consumes the pending referral. Best-effort — NEVER throws.
   Future<String?> take();
@@ -136,6 +142,19 @@ class SharedPrefsPendingReferralStore implements PendingReferralStore {
 
   @override
   Future<String?> take() async => (await takePending())?.code;
+
+  @override
+  Future<PendingReferral?> peekPending() async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final String? code = prefs.getString(kKey);
+      if (!isValidReferralCode(code)) return null;
+      return PendingReferral(code!, source: prefs.getString(kSourceKey));
+    } catch (_) {
+      // Best-effort: a storage failure simply means nothing is shown.
+      return null;
+    }
+  }
 }
 
 /// In-memory [PendingReferralStore] — the seam unit tests inject, and the safe
@@ -168,4 +187,11 @@ class InMemoryPendingReferralStore implements PendingReferralStore {
 
   @override
   Future<String?> take() async => (await takePending())?.code;
+
+  @override
+  Future<PendingReferral?> peekPending() async {
+    final String? code = _code;
+    if (code == null) return null;
+    return PendingReferral(code, source: _source);
+  }
 }

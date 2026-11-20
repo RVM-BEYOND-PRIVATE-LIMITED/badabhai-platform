@@ -404,6 +404,34 @@ class ApiClient {
     return SearchVisibilityDto.fromJson(json);
   }
 
+  /// The monthly "still looking?" check (GET /workers/me/still-looking —
+  /// #2753 item 5).
+  ///
+  /// `404` means `STILL_LOOKING_CHECK_ENABLED` is off: the caller renders no
+  /// card and no banner, never a broken control. A `503` (the table behind the
+  /// route is missing) is retryable.
+  Future<StillLookingDto> getStillLooking({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/still-looking', authToken: authToken);
+    return StillLookingDto.fromJson(json);
+  }
+
+  /// Answers the open monthly check, or opens and answers one from Settings
+  /// (POST /workers/me/still-looking — #2753 item 5). [answer] is the strict
+  /// wire value `yes` | `not_now` | `hired`; the reply is the GET shape, so no
+  /// second read is needed. A repeat writes nothing and answers the same body.
+  Future<StillLookingDto> answerStillLooking({
+    required String authToken,
+    required String answer,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/workers/me/still-looking',
+      <String, dynamic>{'answer': answer},
+      authToken: authToken,
+    );
+    return StillLookingDto.fromJson(json);
+  }
+
   /// The helper's display name for the pre-code screen (GET /referrals/helper —
   /// UNAUTHENTICATED, #2753 item 12). Sends NO token: the screen comes before
   /// the OTP.

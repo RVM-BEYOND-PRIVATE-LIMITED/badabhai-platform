@@ -17,6 +17,7 @@ import '../../features/account/presentation/cubit/account_cubit.dart';
 import '../theme/theme_cubit.dart';
 
 import '../../features/find/presentation/cubit/candidate_search_cubit.dart';
+import '../../features/home/presentation/cubit/followup_cubit.dart';
 import '../../features/find/presentation/cubit/find_cubit.dart';
 import '../../features/find/presentation/cubit/reveal_cubit.dart';
 import '../../features/jobs/presentation/cubit/jobs_cubit.dart';
@@ -206,6 +207,11 @@ void setupLocator({
   );
   locator.registerFactory<CreditsScreenCubit>(
     () => CreditsScreenCubit(locator<PayerApiClient>()),
+  );
+  // #2984 — Home's "Did you hire this person?" section. A fresh cubit per Home
+  // mount; a 404 (switch off) simply leaves the section hidden.
+  locator.registerFactory<FollowupCubit>(
+    () => FollowupCubit(locator<PayerApiClient>()),
   );
 
   // --- AI job-posting chat (ADR-0035) ---------------------------------------

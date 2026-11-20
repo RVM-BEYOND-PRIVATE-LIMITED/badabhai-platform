@@ -15,8 +15,11 @@ import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_count_up.dart';
 import '../../../core/widgets/bb_pressable.dart';
 import '../../../core/widgets/bb_refresh.dart';
+import '../../../core/widgets/bb_tab_scope.dart';
 import '../../../core/widgets/payer_role_badge.dart';
 import '../../../core/theme/bb_palette.dart';
+import 'cubit/followup_cubit.dart';
+import 'widgets/followup_section.dart';
 
 /// Home — the identity header, the REAL credit balance, and the two real
 /// actions (Post a job · Browse candidates).
@@ -53,67 +56,115 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        _Header(acct: session.account, role: session.role),
-        Expanded(
-          // #2592 — pull-to-refresh re-reads the server-truth balance (the one
-          // live figure here); the card keeps its number while it does.
-          child: BbRefreshIndicator(
-            onRefresh: () => locator<CreditsCubit>().load(),
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.gutter,
-                AppSpacing.s5,
-                AppSpacing.gutter,
-                AppSpacing.s6,
-              ),
-              children: <Widget>[
-                _SectionLabel('OVERVIEW'),
-                const SizedBox(height: AppSpacing.s2),
-                _CreditBalanceCard(onOpenCredits: onOpenCredits),
-                const SizedBox(height: AppSpacing.s5),
-                _SectionLabel('QUICK ACTIONS'),
-                const SizedBox(height: AppSpacing.s2),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      // The ONE haldi CTA on Home.
-                      child: BbButton(
-                        label: 'Post a job',
-                        iconLeft: Icons.add_circle_rounded,
-                        onPressed: onPost,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.s3),
-                    Expanded(
-                      child: BbButton(
-                        label: 'Browse',
-                        variant: BbButtonVariant.secondary,
-                        iconLeft: Icons.search_rounded,
-                        onPressed: onBrowse,
-                      ),
-                    ),
-                  ],
+    return BlocProvider<FollowupCubit>(
+      // #2984 — the company follow-up. A factory per Home mount; the section
+      // itself renders only while the API reports due contacts.
+      create: (_) => locator<FollowupCubit>()..load(),
+      child: _HomeBody(
+        session: session,
+        onPost: onPost,
+        onBrowse: onBrowse,
+        onOpenCredits: onOpenCredits,
+        onOpenReferral: onOpenReferral,
+      ),
+    );
+  }
+}
+
+class _HomeBody extends StatelessWidget {
+  const _HomeBody({
+    required this.session,
+    required this.onPost,
+    required this.onBrowse,
+    required this.onOpenCredits,
+    this.onOpenReferral,
+  });
+
+  final AppSession session;
+  final VoidCallback onPost;
+  final VoidCallback onBrowse;
+  final VoidCallback onOpenCredits;
+  final VoidCallback? onOpenReferral;
+
+  @override
+  Widget build(BuildContext context) {
+    // #2592/#2984 — a return to Home re-reads the follow-up QUIETLY: the rows
+    // stay until the fresh page lands (and a 404/error hides the card).
+    return BbTabRefreshListener(
+      onRefresh: (BuildContext context) {
+        context.read<FollowupCubit>().refresh();
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          _Header(acct: session.account, role: session.role),
+          Expanded(
+            // #2592 — pull-to-refresh re-reads the server-truth balance (the one
+            // live figure here) and the due follow-up; the cards keep their data
+            // while it does.
+            child: BbRefreshIndicator(
+              onRefresh: () async {
+                await Future.wait(<Future<void>>[
+                  locator<CreditsCubit>().load(),
+                  context.read<FollowupCubit>().refresh(),
+                ]);
+              },
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.gutter,
+                  AppSpacing.s5,
+                  AppSpacing.gutter,
+                  AppSpacing.s6,
                 ),
-                // Agency-only supply hub — makes the agency dashboard distinct and
-                // surfaces the agent-gated Refer-&-earn (funnel + referred workers
-                // + bulk invites) that a company session never sees. Renders only
-                // for an agency session (onOpenReferral is null for a company).
-                if (session.role.isAgency &&
-                    onOpenReferral != null) ...<Widget>[
-                  const SizedBox(height: AppSpacing.s5),
-                  _SectionLabel('AGENCY'),
+                children: <Widget>[
+                  _SectionLabel('OVERVIEW'),
                   const SizedBox(height: AppSpacing.s2),
-                  _AgencyHubCard(onTap: onOpenReferral!),
+                  _CreditBalanceCard(onOpenCredits: onOpenCredits),
+                  const SizedBox(height: AppSpacing.s5),
+                  _SectionLabel('QUICK ACTIONS'),
+                  const SizedBox(height: AppSpacing.s2),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        // The ONE haldi CTA on Home.
+                        child: BbButton(
+                          label: 'Post a job',
+                          iconLeft: Icons.add_circle_rounded,
+                          onPressed: onPost,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.s3),
+                      Expanded(
+                        child: BbButton(
+                          label: 'Browse',
+                          variant: BbButtonVariant.secondary,
+                          iconLeft: Icons.search_rounded,
+                          onPressed: onBrowse,
+                        ),
+                      ),
+                    ],
+                  ),
+                  // #2984 — FOLLOW-UP sits after QUICK ACTIONS and before AGENCY;
+                  // it hides itself when nothing is due (or the switch is off).
+                  const FollowupSection(),
+                  // Agency-only supply hub — makes the agency dashboard distinct and
+                  // surfaces the agent-gated Refer-&-earn (funnel + referred workers
+                  // + bulk invites) that a company session never sees. Renders only
+                  // for an agency session (onOpenReferral is null for a company).
+                  if (session.role.isAgency &&
+                      onOpenReferral != null) ...<Widget>[
+                    const SizedBox(height: AppSpacing.s5),
+                    _SectionLabel('AGENCY'),
+                    const SizedBox(height: AppSpacing.s2),
+                    _AgencyHubCard(onTap: onOpenReferral!),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

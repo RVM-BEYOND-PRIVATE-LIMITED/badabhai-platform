@@ -36,6 +36,8 @@ import {
   creditOrderWireSchema,
   creditsWireSchema,
   creditTopUpSchema,
+  dueUnlocksPageWireSchema,
+  recordedUnlockOutcomeWireSchema,
   verifyPaymentWireSchema,
   jobPostingChatPublishWireSchema,
   jobPostingChatSessionListWireSchema,
@@ -98,6 +100,8 @@ import {
   type CreditOrder,
   type CreditTopUp,
   type Dashboard,
+  type DueUnlockOutcomesResult,
+  type RecordedUnlockOutcome,
   type VerifiedPayment,
   type FacelessApplicant,
   type InboxAgencyRowWire,
@@ -120,6 +124,7 @@ import {
   type ReachPreview,
   type RevealResult,
   type TopUpResult,
+  type UnlockCompanyOutcome,
   type UnlockContactWire,
   type UnlockHistoryItem,
   type UnlockQuotes,
@@ -312,6 +317,70 @@ export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
         jobPostingId: u.job_posting_id ?? null,
       }))
   );
+}
+
+/**
+ * #2984 §4 — `GET /payer/unlock-outcomes/due`: the contacts this company owes an answer about.
+ *
+ * The route answers 404 while `UNLOCK_FOLLOWUP_ENABLED` is off (the dashboard hides the whole
+ * control), and 429/5xx are retryable. Both are mapped here into the three states the page needs,
+ * so no caller has to read a status. The rows are faceless — ids, a date and a closed outcome.
+ */
+export async function getDueUnlockOutcomes(
+  input: { limit?: number; cursor?: string } = {},
+): Promise<DueUnlockOutcomesResult> {
+  const params = new URLSearchParams();
+  if (input.limit !== undefined) params.set("limit", String(input.limit));
+  if (input.cursor) params.set("cursor", input.cursor);
+  const query = params.toString();
+  try {
+    const wire = await payerFetch(
+      `/payer/unlock-outcomes/due${query ? `?${query}` : ""}`,
+      { schema: dueUnlocksPageWireSchema },
+    );
+    return {
+      status: "ok",
+      items: wire.items.map((item) => ({
+        unlockId: item.unlock_id,
+        workerId: item.worker_id,
+        grantedAt: item.granted_at,
+        outcome: item.outcome,
+      })),
+      nextCursor: wire.nextCursor,
+    };
+  } catch (e) {
+    if (isPayerStatus(e, 404)) return { status: "off" };
+    return { status: "retry" };
+  }
+}
+
+/**
+ * #2984 §4 — `POST /payer/unlocks/:unlockId/outcome`: the company's answer about one contact it
+ * opened. The body carries ONLY the closed outcome (XB-A: no payer id; the session is the
+ * tenant). The caller mints ONE `Idempotency-Key` per answer intent and reuses it on a retry.
+ */
+export async function recordUnlockOutcome(input: {
+  unlockId: string;
+  outcome: UnlockCompanyOutcome;
+  idempotencyKey: string;
+}): Promise<RecordedUnlockOutcome> {
+  const wire = await payerFetch(
+    `/payer/unlocks/${encodeURIComponent(input.unlockId)}/outcome`,
+    {
+      method: "POST",
+      body: { outcome: input.outcome },
+      idempotencyKey: input.idempotencyKey,
+      schema: recordedUnlockOutcomeWireSchema,
+    },
+  );
+  return {
+    unlockId: wire.unlock_id,
+    workerId: wire.worker_id,
+    outcome: wire.outcome,
+    previousOutcome: wire.previous_outcome,
+    answeredAt: wire.answered_at,
+    changed: wire.changed,
+  };
 }
 
 /** #2750 item 7 — the couldn't-reach case for one of this payer's opens, or null when none. */

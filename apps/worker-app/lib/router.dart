@@ -1,17 +1,25 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/di/locator.dart';
 import 'core/nav/tab_focus.dart';
 import 'core/referral/pending_referral_store.dart';
+import 'core/session/session_repository.dart';
 import 'core/theme/onboarding_theme.dart';
 import 'core/widgets/bb_bottom_nav.dart';
 import 'features/auth/domain/auth_session_manager.dart';
 import 'features/availability_prompt/domain/availability_prompt_gate.dart';
 import 'features/availability_prompt/presentation/availability_prompt_sheet.dart';
 import 'features/notifications/domain/notifications_repository.dart';
+import 'features/profile_edit/domain/profile_edit_repository.dart';
+import 'features/still_looking/domain/still_looking_prompt_gate.dart';
+import 'features/still_looking/domain/still_looking_repository.dart';
+import 'features/still_looking/presentation/cubit/still_looking_cubit.dart';
+import 'features/still_looking/presentation/widgets/still_looking_banner.dart';
+import 'features/still_looking/presentation/widgets/still_looking_sheet.dart';
 
 import 'features/splash/presentation/splash_screen.dart';
 import 'features/auth/presentation/phone_login_screen.dart';
@@ -924,9 +932,15 @@ class _ShellScaffoldState extends State<_ShellScaffold>
   static const Duration _pollInterval = Duration(seconds: 60);
   Timer? _pollTimer;
 
+  /// #2753 item 5 — one cubit for both the monthly card and the "not recently
+  /// active" banner, so an answer updates both without a second read. Null on
+  /// a partial test graph (no repository registered): then neither renders.
+  StillLookingCubit? _stillLooking;
+
   @override
   void initState() {
     super.initState();
+    _stillLooking = _createStillLooking();
     // Warm the alerts unread count on app open so the header bell badge
     // ([BbAlertsAction]) is populated before the worker opens Alerts.
     // Best-effort + fire-and-forget — refresh() never throws.
@@ -941,11 +955,52 @@ class _ShellScaffoldState extends State<_ShellScaffold>
     );
   }
 
-  /// The shell's entry prompts, in order, at most ONE per entry: a prompt that
-  /// opened ends the turn, so two prompts never stack on top of each other.
+  /// The shell's entry prompts, in order, at most ONE MODAL per entry: a prompt
+  /// that opened suppresses the next modal, so two never stack on top of each
+  /// other. The monthly check still READS here even when a modal won, because
+  /// its "not recently active" banner is not modal and must stay honest.
   Future<void> _runEntryPrompts() async {
-    if (await _maybePromptEmployerSharing()) return;
-    await _maybePromptAvailability();
+    final bool sharing = await _maybePromptEmployerSharing();
+    final bool availability =
+        sharing ? false : await _maybePromptAvailability();
+    await _maybeStillLooking(showCard: !sharing && !availability);
+  }
+
+  /// The still-looking cubit over the app's own repositories, or null when a
+  /// partial test graph has not registered them.
+  StillLookingCubit? _createStillLooking() {
+    if (!locator.isRegistered<StillLookingRepository>()) return null;
+    return StillLookingCubit(
+      repository: locator<StillLookingRepository>(),
+      profileRepository: locator.isRegistered<ProfileEditRepository>()
+          ? locator<ProfileEditRepository>()
+          : null,
+    );
+  }
+
+  /// #2753 item 5 — the monthly "still looking?" card, shown ONCE per entry
+  /// while the server says a check is due. The read ALSO powers the banner, so
+  /// it runs even when another prompt is on screen; only the card is suppressed
+  /// then. A `404` (switch off) and a `503` both render nothing.
+  Future<void> _maybeStillLooking({required bool showCard}) async {
+    final StillLookingCubit? cubit = _stillLooking;
+    if (cubit == null) return;
+    await cubit.load();
+    if (!mounted) return;
+    if (!showCard || !cubit.state.due) return;
+    if (ModalRoute.isCurrentOf(context) == false) return;
+    // ONCE per launch per worker: the shell can remount inside one launch (a
+    // root route), and an ignored card must not pop again on the way back.
+    if (!locator.isRegistered<StillLookingPromptGate>()) return;
+    final String? workerId = locator.isRegistered<SessionRepository>()
+        ? locator<SessionRepository>().workerId
+        : null;
+    if (!locator<StillLookingPromptGate>().claim(workerId: workerId)) return;
+    final bool answered = await showStillLookingSheet(context, cubit: cubit);
+    if (!mounted || !answered) return;
+    // The answer may have saved the availability re-ask and can move him in or
+    // out of search; the Profile tab prints both.
+    if (_tabFocus.value == TabIndex.profile) _tabFocus.refocus();
   }
 
   /// The one-time employer-sharing prompt for an existing worker (2026-11-04).
@@ -972,26 +1027,31 @@ class _ShellScaffoldState extends State<_ShellScaffold>
   ///
   /// A save refreshes the Profile tab, which prints the availability, when it
   /// is the tab on screen; off screen it refetches on its way back into view.
-  Future<void> _maybePromptAvailability() async {
-    if (!locator.isRegistered<AvailabilityPromptGate>()) return;
+  /// Returns true when the sheet OPENED (saved or dismissed), so the caller can
+  /// keep a second modal prompt from stacking on it.
+  Future<bool> _maybePromptAvailability() async {
+    if (!locator.isRegistered<AvailabilityPromptGate>()) return false;
     final AvailabilityPromptGate gate = locator<AvailabilityPromptGate>();
     final AvailabilityPrompt? prompt = await gate.claim();
-    if (prompt == null || !mounted) return;
-    if (ModalRoute.isCurrentOf(context) == false) return;
+    if (prompt == null || !mounted) return false;
+    if (ModalRoute.isCurrentOf(context) == false) return false;
     final bool saved =
         await showAvailabilityPromptSheet(context, prompt: prompt);
-    if (!mounted) return;
+    if (!mounted) return true;
     if (saved) {
       if (_tabFocus.value == TabIndex.profile) _tabFocus.refocus();
-      return;
+      return true;
     }
-    if (ModalRoute.of(context)?.isActive != true) return;
+    if (ModalRoute.of(context)?.isActive != true) return true;
     await gate.recordDismissal();
+    return true;
   }
 
   @override
   void dispose() {
     _stopPoll();
+    unawaited(_stillLooking?.close() ?? Future<void>.value());
+    _stillLooking = null;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -1023,6 +1083,10 @@ class _ShellScaffoldState extends State<_ShellScaffold>
       case AppLifecycleState.resumed:
         _refreshBadge();
         _startPoll();
+        // The inactivity mark and a newly-due check are server facts; a worker
+        // returning to the app after days deserves a fresh read. Silent: the
+        // banner appears/clears, no prompt re-opens mid-session.
+        unawaited(_stillLooking?.load() ?? Future<void>.value());
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
       case AppLifecycleState.hidden:
@@ -1062,7 +1126,8 @@ class _ShellScaffoldState extends State<_ShellScaffold>
   @override
   Widget build(BuildContext context) {
     _syncActiveTabAfterBuild();
-    return Scaffold(
+    final StillLookingCubit? stillLooking = _stillLooking;
+    final Widget shell = Scaffold(
       // The v3 canvas, stated here rather than inherited: every tab body paints
       // its own surface, and the one place the shell's own ground shows is the
       // frame between a branch swap.
@@ -1070,10 +1135,31 @@ class _ShellScaffoldState extends State<_ShellScaffold>
       body: widget.shell,
       // The kit nav carries no badge (Alerts moved to the header bell), so the
       // bar renders directly — no ValueListenableBuilder around it.
-      bottomNavigationBar: BbBottomNav(
-        currentIndex: widget.shell.currentIndex,
-        onTap: _onTabTapped,
-      ),
+      //
+      // #2748 item 5 — a mark, never a filter. The banner rides ABOVE the docked
+      // nav (a stable slot), never above the tab body: reparenting the
+      // StatefulNavigationShell under a Column/Expanded makes go_router's
+      // GlobalKey move between parents, which Flutter refuses.
+      bottomNavigationBar: stillLooking == null
+          ? BbBottomNav(
+              currentIndex: widget.shell.currentIndex,
+              onTap: _onTabTapped,
+            )
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const StillLookingInactiveBanner(),
+                BbBottomNav(
+                  currentIndex: widget.shell.currentIndex,
+                  onTap: _onTabTapped,
+                ),
+              ],
+            ),
+    );
+    if (stillLooking == null) return shell;
+    return BlocProvider<StillLookingCubit>.value(
+      value: stillLooking,
+      child: shell,
     );
   }
 }

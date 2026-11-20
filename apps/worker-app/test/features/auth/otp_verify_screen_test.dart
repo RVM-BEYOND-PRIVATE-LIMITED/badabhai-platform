@@ -1,10 +1,16 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:badabhai_worker_app/core/api/api_client.dart';
 import 'package:badabhai_worker_app/core/auth/auth_api.dart';
 import 'package:badabhai_worker_app/core/auth/auth_failure.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/referral/pending_referral_store.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/cubit/otp_verify_cubit.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/otp_verify_screen.dart';
@@ -235,6 +241,68 @@ void main() {
       expect(cubit.state.toString(), isNot(contains('482913')));
       // Nor the phone: raw PII must not ride along in state either.
       expect(cubit.state.toString(), isNot(contains(phone)));
+    });
+  });
+
+  group('pre-OTP helper line (#2753 item 12)', () {
+    InMemoryPendingReferralStore pendingStore() {
+      final InMemoryPendingReferralStore store = InMemoryPendingReferralStore();
+      addTearDown(() async => store.take());
+      return store;
+    }
+
+    void registerHelperLookup(String? name, {int status = 200}) {
+      locator.registerSingleton<PendingReferralStore>(pendingStore());
+      locator.registerSingleton<ApiClient>(
+        ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient((http.Request req) async {
+            return http.Response(
+              jsonEncode(<String, dynamic>{'display_name': name}),
+              status,
+            );
+          }),
+        ),
+      );
+    }
+
+    testWidgets('shows the approved line with the agency name before the OTP '
+        'step, and leaves the code for attribution', (WidgetTester tester) async {
+      registerHelperLookup('Acme Staffing');
+      await locator<PendingReferralStore>().capture('abcdef012345');
+
+      await pumpScreen(tester);
+      await tester.pump();
+
+      expect(find.byKey(kReferralHelperLineKey), findsOneWidget);
+      expect(find.textContaining('Acme Staffing'), findsOneWidget);
+      expect(find.textContaining(kReferralHelperLineSuffix), findsOneWidget);
+      // Not consumed — attribution still runs after consent.
+      expect(await locator<PendingReferralStore>().take(), 'abcdef012345');
+      await unmount(tester);
+    });
+
+    testWidgets('shows nothing for a null name', (WidgetTester tester) async {
+      registerHelperLookup(null);
+      await locator<PendingReferralStore>().capture('abcdef012345');
+
+      await pumpScreen(tester);
+      await tester.pump();
+
+      expect(find.byKey(kReferralHelperLineKey), findsNothing);
+      await unmount(tester);
+    });
+
+    testWidgets('shows nothing when the switch is off (404)',
+        (WidgetTester tester) async {
+      registerHelperLookup(null, status: 404);
+      await locator<PendingReferralStore>().capture('abcdef012345');
+
+      await pumpScreen(tester);
+      await tester.pump();
+
+      expect(find.byKey(kReferralHelperLineKey), findsNothing);
+      await unmount(tester);
     });
   });
 }

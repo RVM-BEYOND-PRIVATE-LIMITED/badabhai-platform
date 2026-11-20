@@ -10,6 +10,7 @@ import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { AgentSections } from "./agent-sections";
 import { buildAttentionItems } from "./attention";
+import { UnlockFollowup } from "./unlock-followup";
 
 export const dynamic = "force-dynamic";
 
@@ -224,6 +225,10 @@ export default async function DashboardPage({
           </ul>
         </section>
       ) : null}
+
+      {/* COMPANY FOLLOW-UP (#2984 §4) — absent when the switch is off, when nothing is
+          due, or when the read is 5xx/429 (that state renders its own neutral Retry). */}
+      <UnlockFollowup />
 
       {/* 2 · POSITION — the four-card command strip (designr4): three live counters
           plus the Plans quick action. The counters stay counts first; each carries its

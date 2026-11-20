@@ -2,6 +2,7 @@ import 'candidate_search_models.dart';
 import 'job_posting_chat_models.dart';
 import 'models.dart';
 import 'managed_hiring_models.dart';
+import 'unlock_followup_models.dart';
 
 /// The data seam for the payer app. Two implementations bind to it:
 /// [MockPayerApiClient] (canned, PII-free — demo builds behind `USE_MOCKS=true`
@@ -519,6 +520,32 @@ abstract class PayerApiClient {
   /// rule is off for the company — today's opened screen stays); the neutral 200 body is
   /// [ContactReadResult.unavailable]; a 429 is the hourly disclosure cap and throws.
   Future<ContactReadResult> readContact(String unlockId);
+
+  // --- Company follow-up — "did you hire this person?" (#2984) --------------
+  // `GET /payer/unlock-outcomes/due` + `POST /payer/unlocks/:unlockId/outcome`.
+  // Both are PII-free: opaque ids, a grant time and one closed answer. The GET's
+  // neutral 404 means UNLOCK_FOLLOWUP_ENABLED is off, so the surface hides.
+
+  /// One page of contacts due for an answer ([limit] 1..50, opaque [cursor]).
+  /// Returns null on the neutral 404 (the switch is off — hide the section); any
+  /// OTHER non-2xx throws. A 2xx that is not the page contract throws too, never
+  /// an empty page read as "nothing to follow up".
+  Future<UnlockFollowupPage?> fetchDueUnlockOutcomes({
+    int limit = 20,
+    String? cursor,
+  });
+
+  /// Record the company's [outcome] for one opened contact
+  /// (`POST /payer/unlocks/:unlockId/outcome`, body `{outcome}`). The required
+  /// [idempotencyKey] is a PII-free token minted once per answer intent and
+  /// reused by every retry of that intent. A 404 is neutral (unknown/foreign/
+  /// erased — the caller drops the stale row); a 429 is the hourly write cap.
+  /// A malformed 200 is a contract error, never a guessed result.
+  Future<UnlockFollowupResult> recordUnlockOutcome({
+    required String unlockId,
+    required UnlockFollowupOutcome outcome,
+    required String idempotencyKey,
+  });
 
   /// REAL masked-résumé disclosure — request a signed masked-PDF URL for
   /// [workerId] (`POST /payer/resume-disclosures`), optionally scoped to

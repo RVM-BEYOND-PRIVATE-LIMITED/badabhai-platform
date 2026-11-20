@@ -43,6 +43,10 @@ vi.mock("next/link", () => ({
 const AgentSectionsStub = () => null;
 vi.mock("./agent-sections", () => ({ AgentSections: AgentSectionsStub }));
 
+// #2984 §4 — the company follow-up is its own server read; its states have their own suite.
+const UnlockFollowupStub = () => null;
+vi.mock("./unlock-followup", () => ({ UnlockFollowup: UnlockFollowupStub }));
+
 const { default: DashboardPage } = await import("./page");
 const { PageHeader } = await import("../../../components/page-header");
 
@@ -691,6 +695,7 @@ describe("PR-D2 · hierarchy + KPI variant", () => {
         out.push("agency");
         continue;
       }
+      if (el.type === UnlockFollowupStub) continue;
       if (el.type === PageHeader) {
         out.push("head");
         continue;
