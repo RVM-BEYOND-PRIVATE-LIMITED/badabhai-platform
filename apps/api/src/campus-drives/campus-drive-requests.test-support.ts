@@ -109,6 +109,7 @@ export class MemoryDriveRequests {
   readonly standing = new Map<string, DriveCompanyColumns>();
   readonly audits: { driveRequestId: string; decidedByRef: string; metadata: unknown }[] = [];
   transactions = 0;
+  private inserted = 0;
   private clock = Date.parse("2026-11-14T06:00:00.000Z");
 
   private tick(): Date {
@@ -125,6 +126,23 @@ export class MemoryDriveRequests {
         companyHasGst: true,
       }
     );
+  }
+
+  /** #2811: the tombstones the delete trigger writes (`campus_drive_request_erasures`). */
+  readonly erasures: { id: string; erasedAt: Date; erasedKey: string }[] = [];
+
+  /**
+   * Test helper (#2811): DELETE one request, as the cascade from `payers` does. The database's
+   * trigger leaves one tombstone per deleted row, stamped when it runs.
+   */
+  deleteRow(id: string): void {
+    const at = this.rows.findIndex((r) => r.id === id);
+    if (at < 0) throw new Error("no such row");
+    this.rows.splice(at, 1);
+    const when = this.tick();
+    if (!this.erasures.some((e) => e.id === id)) {
+      this.erasures.push({ id, erasedAt: when, erasedKey: micros(when) });
+    }
   }
 
   /** Test helper: what the account deletion's erasure does to one row (contact gone, re-stamped). */
@@ -200,7 +218,8 @@ export class MemoryDriveRequests {
     }
     const at = this.tick();
     const created = {
-      id: uuid(0x2746d000 + this.rows.length + 1),
+      // A counter, not the row count: a deleted row's id is never handed out again (#2811).
+      id: uuid(0x2746d000 + ++this.inserted),
       ...row,
       contactErasedAt: null,
       status: "requested" as CampusDriveRequestStatus,
@@ -279,6 +298,26 @@ export class MemoryDriveRequests {
       )
       .slice(0, limit + 1)
       .map((r) => ({ ...r, ...this.standingOf(r.payerId) }));
+  }
+
+  /** #2811: the real read's order, `changed_since` (at or after) and keyset, `limit + 1`. */
+  async listErasures(
+    filter: Pick<DriveFeedFilter, "changedSince" | "after">,
+    limit: number,
+  ): Promise<{ id: string; erasedKey: string }[]> {
+    return this.erasures
+      .filter(
+        (e) => filter.changedSince === undefined || e.erasedAt >= new Date(filter.changedSince),
+      )
+      .sort((a, b) => a.erasedKey.localeCompare(b.erasedKey) || a.id.localeCompare(b.id))
+      .filter(
+        (e) =>
+          filter.after === undefined ||
+          e.erasedKey > filter.after.at ||
+          (e.erasedKey === filter.after.at && e.id > filter.after.id),
+      )
+      .slice(0, limit + 1)
+      .map((e) => ({ id: e.id, erasedKey: e.erasedKey }));
   }
 
   async lockForDecision(

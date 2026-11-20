@@ -503,8 +503,9 @@ decision back; BadaBhai never calls Campus about a drive.
 **No rollout switch here** (owner ruling R1, 14 Nov 2026). `CAMPUS_DRIVE_REQUESTS_ROLLOUT` gates a
 company making a NEW request, nothing else. Every request that exists is listed and can be decided,
 whether its company was removed from the pilot or the switch is off everywhere, and its
-cancellation and an erasure of its contact reach the feed. Nothing is skipped, so a page holds
-`limit` items unless it is the last.
+cancellation and an erasure of its contact reach the feed, and so does its deletion (`erased`,
+below). Nothing is skipped, so a page holds `limit` entries (items and erasures together) unless
+it is the last.
 
 **The drive switch does not stop disclosure** (security re-check N5). Off, it stops new requests
 only: this feed keeps returning the contact of every existing request. The kill-switches are
@@ -517,7 +518,9 @@ Only a verified employer can make a request: admin approval plus a GSTIN on file
 Query: `status` (`requested`|`scheduled`|`declined`|`completed`|`cancelled`), `changed_since`
 (ISO 8601 with offset), `cursor`, `limit` (1–200, default 100). Ordered by `changed_at`, then
 `id`; `changed_since` returns requests changed at or after the instant. A `changed_since` before
-`2026-01-01T00:00:00Z` (a first sync sending the epoch) is read as that date, never refused.
+`2026-01-01T00:00:00Z` (a first sync sending the epoch) is read as that date, never refused. The
+page's `erased` list (#2811) follows the same order, `changed_since` and cursor; `status` does not
+filter it.
 
 `changed_at` is when BadaBhai last wrote the request, by the database's clock: a create, a
 decision, a cancel, an erasure of its contact, or a change to its company's standing. Every
@@ -530,8 +533,10 @@ read: a rename shows the next time an item is read and does not move `changed_at
 - **Overlap window: two minutes.** A write is stamped a moment before it commits, so a poll can miss
   a request stamped just before the last one it saw. Poll with `changed_since` = the largest
   `changed_at` you processed **minus two minutes**, and apply every item read in the overlap
-  window, upserting by id; a repeated id and changed_at may carry a newer state.
-- **Paging.** Follow `next_cursor` until it is `null`. An item may come back unchanged.
+  window, upserting by id; a repeated id and changed_at may carry a newer state. The same rule
+  covers `erased`: count its `erased_at` among the times you processed.
+- **Paging.** Follow `next_cursor` until it is `null`. An item may come back unchanged. A page may
+  hold only erasures (`drive_requests: []`) and still have a `next_cursor`: keep following it.
 
 ```json
 {
@@ -559,6 +564,9 @@ read: a rename shows the next time an item is read and does not move `changed_at
       "changed_at": "2026-11-20T03:30:00.412851Z"
     }
   ],
+  "erased": [
+    { "id": "7c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "erased_at": "2026-11-21T08:05:11.093117Z" }
+  ],
   "next_cursor": null
 }
 ```
@@ -580,11 +588,17 @@ read: a rename shows the next time an item is read and does not move `changed_at
   DROPS `contact` and `roles_note` (both `null`). A decision is 409 `COMPANY_WITHDRAWN`. Drop the
   contact and the roles note you hold. When the company is reinstated the full item comes back
   (`company_withdrawn: false`, a newer `changed_at`) and decisions work again.
-- **Campus's copy of the contact** (owner, 14 Nov 2026). BadaBhai's erasure reaches the copy Campus
-  holds only through the feed's `contact: null`, which needs the request row to exist. A
-  whole-company delete removes the rows (`ON DELETE CASCADE`) and sends Campus no signal, so that
-  copy would stay. **#2811's fix must not go live until a company delete sends Campus an erasure
-  signal (a tombstone) for each of its drive requests.**
+- **`erased`: requests that no longer exist (#2811).** When a request is DELETED (its company
+  deleted its account, which removes its requests with it), BadaBhai records a tombstone in the same
+  transaction and the feed serves it here: `{ "id", "erased_at" }` and nothing else. **Campus must
+  delete its copy of the request with that `id`, the contact person's name and phone included.**
+  An erasure is final: BadaBhai keeps nothing else about the request, and no later page serves the
+  id as an item. Apply `erased` AFTER `drive_requests`: a request deleted while a page was read can
+  appear in both on that page, and the erasure wins. `erased_at` is microsecond UTC by the
+  database's clock, like `changed_at`, and an erasure is never an item, so a parser that requires
+  every item field is not affected. A Campus that does not read `erased` yet ignores it (the page
+  object is open). When Campus starts reading it, do ONE full read (no `changed_since`) first, so
+  an erasure recorded before then is not left behind the incremental marker.
 - `is_test: true` marks a test company's request. Test requests are listed like any other, so a
   pilot can be proved end to end in production: filter or label them on Campus's side.
 - `decided_at`, `decided_by_ref` and `reason` are the latest decision, as Campus sent them.

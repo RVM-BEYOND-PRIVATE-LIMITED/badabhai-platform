@@ -701,7 +701,8 @@ export const CampusDriveRefSchema = z.string().regex(/^[A-Za-z0-9._:-]{1,200}$/)
  * refused. Poll with the largest `changed_at` you processed MINUS TWO MINUTES, because a write
  * commits a moment after it is stamped, and apply every item read in the overlap window, upserting
  * by id; a repeated id and changed_at may carry a newer state. Follow `next_cursor` until it is
- * `null`.
+ * `null`. #2811: a deleted request comes back in the page's `erased` list (not as an item), in the
+ * same order and under the same `changed_since` and cursor; `status` does not filter it.
  */
 export const CampusDriveRequestsQuerySchema = z.strictObject({
   status: z.enum(CAMPUS_DRIVE_REQUEST_STATUSES).optional(),
@@ -761,8 +762,34 @@ export const CampusDriveRequestSchema = z.object({
   changed_at: IsoDateTime,
 });
 
+/**
+ * #2811 — A DRIVE REQUEST THAT NO LONGER EXISTS (a tombstone). Written by the database in the
+ * transaction that deleted the request, whatever deleted it: a company delete (its requests go with
+ * its account), or any other delete. Campus MUST DELETE ITS COPY of the request with this `id`,
+ * the contact person's name and phone included. An erasure is final: BadaBhai keeps nothing else
+ * about the request (no company, no contact), and no later page serves the id as an item.
+ */
+export const CampusDriveRequestErasureSchema = z.object({
+  /** The deleted request's `id`, as the feed served it. */
+  id: Id,
+  /**
+   * When BadaBhai deleted it, microsecond UTC, by the database's clock: the same clock, order,
+   * `changed_since` filter and cursor as an item's `changed_at`.
+   */
+  erased_at: IsoDateTime,
+});
+
+/**
+ * One page of the feed. `drive_requests` and `erased` are ONE stream in `(changed_at | erased_at,
+ * id)` order, split by kind; `next_cursor` follows both, and `limit` counts both. `erased` is
+ * served whatever `status` asks (an erasure has no status). Apply `erased` AFTER `drive_requests`:
+ * a request deleted while the page was read can appear in both, and the erasure wins. Read with the
+ * same overlap rule as the items (`changed_since` = the newest `changed_at` or `erased_at` processed
+ * MINUS TWO MINUTES).
+ */
 export const CampusDriveRequestPageSchema = z.object({
   drive_requests: z.array(CampusDriveRequestSchema),
+  erased: z.array(CampusDriveRequestErasureSchema),
   next_cursor: Cursor.nullable(),
 });
 

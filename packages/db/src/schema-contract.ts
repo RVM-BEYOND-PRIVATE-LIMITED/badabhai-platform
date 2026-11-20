@@ -1759,6 +1759,20 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "applicants; an open grant lets any PostgREST role push a waiver's end date out (free " +
       "opens after the placement team meant them to stop) or read which companies are waived",
   },
+  {
+    id: "0195-campus-drive-request-erasures-rls",
+    migration: "0195_campus_drive_request_erasures",
+    kind: "rls",
+    table: "campus_drive_request_erasures",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table is how RVM's Campus learns to delete its copy of a deleted drive " +
+      "request's contact (#2811); an open grant lets any PostgREST role delete a tombstone (Campus " +
+      "then keeps a contact BadaBhai erased) or forge one (Campus deletes a live request's copy)",
+  },
   // #2887: the bulk student move. Every statement naming these tables asks first whether
   // `student_visibility` exists (the reach statements key on that alone; search, the open gate and
   // the admin routes also wait for STUDENT_MOVE_ENABLED), so a deploy ahead of the migration

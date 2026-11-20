@@ -207,6 +207,84 @@ describe("GET drive-requests", () => {
   });
 });
 
+describe("#2811: a deleted request reaches Campus as an erasure", () => {
+  it("a deleted request leaves the items and comes back in `erased`, with its time, and the page parses", async () => {
+    const { service, seed, table } = world();
+    const kept = await seed(COMPANY);
+    const gone = await seed(OTHER_COMPANY);
+    table.deleteRow(gone);
+    const page = await service.list(feed());
+    expect(CampusDriveRequestPageSchema.safeParse(page).success).toBe(true);
+    expect(page.drive_requests.map((r) => r.id)).toEqual([kept]);
+    expect(page.erased).toEqual([{ id: gone, erased_at: table.erasures[0]!.erasedKey }]);
+    // Faceless: an id and a time, nothing about the company or the contact.
+    expect(Object.keys(page.erased[0]!).sort()).toEqual(["erased_at", "id"]);
+  });
+
+  it("the status filter does not hide an erasure (it has no status)", async () => {
+    const { service, seed, table } = world();
+    const gone = await seed(COMPANY);
+    table.deleteRow(gone);
+    const page = await service.list(feed({ status: "scheduled" }));
+    expect(page.drive_requests).toEqual([]);
+    expect(page.erased.map((e) => e.id)).toEqual([gone]);
+  });
+
+  it("changed_since applies to the erasures: one before it is not served again", async () => {
+    const { service, seed, table } = world();
+    const early = await seed(COMPANY);
+    table.deleteRow(early);
+    const since = await service.list(feed());
+    const at = since.erased[0]!.erased_at;
+    const later = await seed(COMPANY);
+    table.deleteRow(later);
+    const after = await service.list(feed({ changed_since: new Date(Date.parse(at) + 1).toISOString() }));
+    expect(after.erased.map((e) => e.id)).toEqual([later]);
+  });
+
+  it("one cursor pages the merged stream: items and erasures interleaved in time order, none skipped or repeated", async () => {
+    const { service, seed, table } = world();
+    // r1, r2 live; e1 deleted between them in time; r3 live; e2 deleted last.
+    const r1 = await seed(COMPANY);
+    const e1 = await seed(COMPANY);
+    const r2 = await seed(COMPANY);
+    table.deleteRow(e1);
+    const e2 = await seed(OTHER_COMPANY);
+    const r3 = await seed(OTHER_COMPANY);
+    table.deleteRow(e2);
+    const seen: string[] = [];
+    let cursor: string | null | undefined;
+    let pages = 0;
+    do {
+      const page = await service.list(feed({ limit: "2", ...(cursor ? { cursor } : {}) }));
+      expect(page.drive_requests.length + page.erased.length).toBeLessThanOrEqual(2);
+      seen.push(...page.drive_requests.map((r) => `r:${r.id}`), ...page.erased.map((e) => `e:${e.id}`));
+      cursor = page.next_cursor;
+      pages += 1;
+    } while (cursor);
+    expect(pages).toBe(3);
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(seen.sort()).toEqual(
+      [`r:${r1}`, `r:${r2}`, `r:${r3}`, `e:${e1}`, `e:${e2}`].sort(),
+    );
+  });
+
+  it("a page made only of erasures still pages on (next_cursor is not null while more remain)", async () => {
+    const { service, seed, table } = world();
+    const a = await seed(COMPANY);
+    const b = await seed(COMPANY);
+    const c = await seed(COMPANY);
+    for (const id of [a, b, c]) table.deleteRow(id);
+    const first = await service.list(feed({ limit: "2" }));
+    expect(first.drive_requests).toEqual([]);
+    expect(first.erased.map((e) => e.id)).toEqual([a, b]);
+    expect(first.next_cursor).not.toBeNull();
+    const second = await service.list(feed({ limit: "2", cursor: first.next_cursor! }));
+    expect(second.erased.map((e) => e.id)).toEqual([c]);
+    expect(second.next_cursor).toBeNull();
+  });
+});
+
 describe("withdrawn from Campus (owner ruling R2)", () => {
   const ACTIVE_VERIFIED: DriveCompanyColumns = {
     companyStatus: "active",
@@ -232,8 +310,11 @@ describe("withdrawn from Campus (owner ruling R2)", () => {
 
       const stripped = (await service.list(feed())).drive_requests[0]!;
       expect(
-        CampusDriveRequestPageSchema.safeParse({ drive_requests: [stripped], next_cursor: null })
-          .success,
+        CampusDriveRequestPageSchema.safeParse({
+          drive_requests: [stripped],
+          erased: [],
+          next_cursor: null,
+        }).success,
       ).toBe(true);
       expect(stripped).toMatchObject({
         id,

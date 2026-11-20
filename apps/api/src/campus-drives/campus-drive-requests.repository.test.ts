@@ -108,3 +108,24 @@ describe("CampusDriveRequestsRepository — a failed statement carries no bound 
     expect(e.code).toBe("57014");
   });
 });
+
+describe("CampusDriveRequestsRepository.listErasures — before its migration (#2811)", () => {
+  const filter = { changedSince: "2026-11-01T00:00:00Z" };
+
+  it("a missing erasures table (42P01, drizzle's SQLSTATE on err.cause) reads as no erasures, so the feed keeps working", async () => {
+    const repo = new CampusDriveRequestsRepository(dbThatFails("42P01"));
+    await expect(repo.listErasures(filter, 100)).resolves.toEqual([]);
+    // And again: the warning is once per process, the answer every time.
+    await expect(repo.listErasures(filter, 100)).resolves.toEqual([]);
+  });
+
+  it.each([["57014"], ["42703"], ["08006"]])(
+    "any other failure (%s) propagates: an outage is never an empty list",
+    async (code) => {
+      const repo = new CampusDriveRequestsRepository(dbThatFails(code));
+      const err = await repo.listErasures(filter, 100).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect((err as { cause?: { code?: string } }).cause?.code).toBe(code);
+    },
+  );
+});
