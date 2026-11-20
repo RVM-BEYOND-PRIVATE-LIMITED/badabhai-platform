@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { Logger } from "@nestjs/common";
 import type { NewCompanionMessage } from "@badabhai/db";
 import type { CompanionTurn } from "./chat-companion.dto";
@@ -64,7 +64,7 @@ function row(over: Partial<CompanionHistoryRow> = {}): CompanionHistoryRow {
   };
 }
 
-let warn: ReturnType<typeof vi.spyOn>;
+let warn: MockInstance<Logger["warn"]>;
 beforeEach(() => {
   resetMissingTablesWarningForTests();
   warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);

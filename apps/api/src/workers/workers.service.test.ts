@@ -1149,17 +1149,23 @@ describe("WorkersService.deletePhoto (ADR-0032)", () => {
   });
 
   it("a fan-out read that FAILS still leaves the current résumé's erasure enqueued", async () => {
-    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
-    const { svc, repo, renderQueue } = photoSetup({
-      worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY, resumeShowPhoto: true },
-    });
-    repo.listErasureTargetIds.mockRejectedValue(new Error("pg down"));
-    await svc.deletePhoto(WORKER_ID, CTX);
-    expect(renderQueue.add).toHaveBeenCalledOnce();
-    expect(renderQueue.add).toHaveBeenCalledWith(
-      "render",
-      expect.objectContaining({ resumeId: RESUME_ID, failClosed: true }),
-    );
+    // Restored in `finally`: under vitest 4 a later `spyOn` of the same method returns THIS spy,
+    // calls and all, so a leaked one inflates another test's call count.
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { svc, repo, renderQueue } = photoSetup({
+        worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY, resumeShowPhoto: true },
+      });
+      repo.listErasureTargetIds.mockRejectedValue(new Error("pg down"));
+      await svc.deletePhoto(WORKER_ID, CTX);
+      expect(renderQueue.add).toHaveBeenCalledOnce();
+      expect(renderQueue.add).toHaveBeenCalledWith(
+        "render",
+        expect.objectContaining({ resumeId: RESUME_ID, failClosed: true }),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("a COSMETIC re-render stays on the current résumé — history entries keep what they were made with", async () => {

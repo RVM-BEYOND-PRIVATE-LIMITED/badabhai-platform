@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Logger, type ExecutionContext } from "@nestjs/common";
@@ -127,7 +127,7 @@ function makeCtx(authHeader?: string) {
   return { ctx, req };
 }
 
-let warnSpy: ReturnType<typeof vi.spyOn>;
+let warnSpy: MockInstance<Logger["warn"]>;
 beforeEach(() => {
   warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
 });

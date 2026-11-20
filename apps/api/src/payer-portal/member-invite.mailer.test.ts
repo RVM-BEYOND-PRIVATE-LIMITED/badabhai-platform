@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type MockInstance } from "vitest";
 import { Logger } from "@nestjs/common";
 import { MockMemberInviteMailer } from "./member-invite.mailer";
 
@@ -10,7 +10,7 @@ const ACCEPT_URL = "mock://invite/accept?token=tok-raw-0123456789abcdef";
 const pii = { hmac: (v: string) => `hmac<${v}>` };
 
 describe("MockMemberInviteMailer — default alpha mailer, no send, PII-free logs", () => {
-  let logSpy: ReturnType<typeof vi.spyOn>;
+  let logSpy: MockInstance<Logger["log"]>;
   beforeEach(() => {
     logSpy = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
   });

@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { Logger } from "@nestjs/common";
 import { CompanionEditParseInputSchema } from "@badabhai/ai-contracts";
 import { CompanionTurnSchema } from "../chat-companion.dto";
@@ -762,7 +762,7 @@ describe("'Never from chat' — chat never deletes a whole job (owner ruling, 20
   // job's role_label. The card said "Kaam · Yeh poora kaam", pre-ticked, so one Haan would remove
   // the worker's whole job.
   const WELDER = { role_id: "role_welder", label: "Welder" };
-  let warn: ReturnType<typeof vi.spyOn>;
+  let warn: MockInstance<Logger["warn"]>;
 
   beforeEach(() => {
     warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
@@ -932,7 +932,7 @@ describe("qualification whole-entry deletes are Profile-only (TD151(1), 2026-10-
   const SAFETY_EDU = { credential: "10th", field: "Science", council: "CBSE", year: 2014, institute: null };
   const SAFETY_TRAINING = { name: "Safety", provider: "NIMI", year: 2021 };
 
-  let warn: ReturnType<typeof vi.spyOn>;
+  let warn: MockInstance<Logger["warn"]>;
   beforeEach(() => {
     warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     warn.mockClear();

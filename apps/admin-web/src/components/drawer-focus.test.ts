@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 import { focusableIn, holdFocusInDrawer, trapTab, type Focusable } from "./drawer-focus";
 
 /**
@@ -10,7 +10,7 @@ import { focusableIn, holdFocusInDrawer, trapTab, type Focusable } from "./drawe
  * exactly the surface the helper uses. (The closed drawer leaving the tab order is CSS —
  * `visibility: hidden` — pinned in a11y-foundations.css.test.ts.)
  */
-type Control = Focusable & { name: string; focus: ReturnType<typeof vi.fn> };
+type Control = Focusable & { name: string; focus: Mock<() => void> };
 
 function control(name: string, opts: { tabIndex?: number; rendered?: boolean } = {}): Control {
   return {
