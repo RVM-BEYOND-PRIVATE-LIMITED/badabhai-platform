@@ -15,6 +15,7 @@ import { AdminCompaniesRepository } from "../admin/companies/admin-companies.rep
 import { AdminCompaniesService } from "../admin/companies/admin-companies.service";
 import {
   CampusDriveDecisionBodySchema,
+  CampusDriveRequestPageSchema,
   CampusDriveRequestsQuerySchema,
 } from "../campus-link/campus-link.contract";
 import { sqlStateOf } from "../common/db-error";
@@ -66,9 +67,15 @@ import { PayerCampusDriveRequestsController } from "./payer-campus-drive-request
  *     then decides
  *     against the committed row), never a 40P01, and one wins cleanly either way round;
  *   - DPDP erasure: the account deletion erases the contacts a login entered on requests that
- *     outlive it, in the row delete's transaction (a delete that fails — the `employer_profiles`
- *     FK holds every verified company — erases nothing), `cdr_contact_chk` refuses a half-erasure,
- *     and the company's own requests go with its `payers` row.
+ *     outlive it, in the row delete's transaction (a delete that fails erases nothing),
+ *     `cdr_contact_chk` refuses a half-erasure, and the company's own requests go with its
+ *     `payers` row;
+ *   - #2811, the owners' gate: a VERIFIED company (company record and all) is deleted in ONE
+ *     transaction; each of its requests leaves a faceless erasure written by the database's delete
+ *     trigger in that transaction, and Campus's next feed read carries it in `erased` (never as an
+ *     item); a delete that fails after the cascade rolls the erasures back with it; an erasure
+ *     written while Campus pages is merged into the same order under the same cursor;
+ *     `changed_since` applies to erasures and `status` does not hide them.
  *
  * ── HOW TO RUN ────────────────────────────────────────────────────────────────
  *   RUN_DB_TESTS=1 DATABASE_URL=<a migrated LOCAL database> \
@@ -112,6 +119,13 @@ const TEAM_ORG = uuid(0x2746d0019);
 const ARCHIVED_CO = uuid(0x2746d001a);
 /** A verified employer for the cap's tests (#2768); each starts it with no request. */
 const CAPPED = uuid(0x2746d001b);
+/** #2811: a verified company (every payer side table, a solo org) that deletes its account. */
+const DOOMED = uuid(0x2746d001c);
+const DOOMED_ORG = uuid(0x2746d001d);
+/** #2811: a verified company whose deletion fails after the cascade (rolled back whole). */
+const ROLLED_BACK = uuid(0x2746d001e);
+/** #2811: a verified company whose requests are deleted while Campus pages the feed. */
+const PAGED = uuid(0x2746d001f);
 const COMPANY_POSTING = uuid(0x2746d0020);
 const OTHER_POSTING = uuid(0x2746d0021);
 const STAFF = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
@@ -130,6 +144,9 @@ const COMPANIES = [
   TEAM_MEMBER,
   ARCHIVED_CO,
   CAPPED,
+  DOOMED,
+  ROLLED_BACK,
+  PAGED,
 ];
 
 /** Synthetic contact: no real person or number. */
@@ -152,6 +169,8 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
   let client!: DbClient;
   let raceClient!: DbClient;
   let events!: EventsService;
+  /** The database's clock when the suite began: its erasures (#2811) are those written since. */
+  let suiteStart: string | undefined;
 
   /**
    * The company side over `repo` (and `db` for its other reads), with the switch at `settings`.
@@ -256,7 +275,9 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
   beforeAll(async () => {
     client = createDbClient(DATABASE_URL, { max: 4 });
     raceClient = createDbClient(DATABASE_URL, { max: 2 });
-    await cleanup(client);
+    const [clock] = await client.sql<{ now: string }[]>`SELECT clock_timestamp()::text AS now`;
+    suiteStart = clock!.now;
+    await cleanup(client, suiteStart);
     await seed(client);
     events = new EventsService(new EventsRepository(client.db), { NODE_ENV: "test" } as never);
   }, 60_000);
@@ -266,7 +287,7 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     // cleanup must delete.
     if (raceClient !== undefined) await raceClient.sql.end({ timeout: 5 });
     if (client !== undefined) {
-      await cleanup(client);
+      if (suiteStart !== undefined) await cleanup(client, suiteStart);
       await client.sql.end({ timeout: 5 });
     }
   }, 60_000);
@@ -1287,22 +1308,73 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     expect(sqlStateOf(undated)).toBe("23514");
   }, 30_000);
 
-  /**
-   * MUST CHANGE WHEN #2811 LANDS. This proves a delete that fails erases nothing, and today the
-   * QA delete fails for every verified company because `employer_profiles_payer_id_fkey` is
-   * NO ACTION. Once #2811 makes that delete succeed, this test needs another way to make the row
-   * delete fail (for example a fixture row holding a RESTRICT foreign key), or it starts proving
-   * the opposite.
-   */
-  it("a QA delete that FAILS (the employer_profiles FK holds a verified company) erases no contact", async () => {
-    // A request OTHER owns that COMPANY's login typed: erased if the erasure ever committed alone.
-    const [row] = await client.sql<{ id: string }[]>`
+  it("a QA delete that FAILS after the cascade rolls everything back: no request, contact or erasure moves", async () => {
+    // ROLLED_BACK's own request (cascaded, and erased by the trigger, if the delete committed)…
+    const own = await company().create(ROLLED_BACK, body({ openings: 38 }), "t2746d-key-0038", CTX);
+    // …and a request OTHER owns that ROLLED_BACK's login typed (its contact erased if it committed).
+    const [typed] = await client.sql<{ id: string }[]>`
       INSERT INTO campus_drive_requests (payer_id, created_by, branch_ids, preferred_from,
              preferred_to, openings, contact_name_enc, contact_phone_enc, idempotency_key)
-      VALUES (${OTHER}::uuid, ${COMPANY}::uuid, '[]'::jsonb, ${PREFERRED_FROM}::date,
+      VALUES (${OTHER}::uuid, ${ROLLED_BACK}::uuid, '[]'::jsonb, ${PREFERRED_FROM}::date,
               ${PREFERRED_TO}::date, 2, ${pii.encrypt(CONTACT_NAME)}, ${pii.encrypt(CONTACT_PHONE)},
               't2746d-key-0039')
       RETURNING id`;
+    // The last step fails AFTER the row delete, its cascade and the contact erasure ran.
+    class FailingErasure extends CampusDriveContactErasureRepository {
+      override async eraseEnteredBy(payerId: string, executor?: Database): Promise<number> {
+        await super.eraseEnteredBy(payerId, executor);
+        throw new Error("t2746d: the last step of the deletion failed");
+      }
+    }
+    const deletion = new PayerAccountDeletionService(
+      client.db,
+      new PayersRepository(client.db, pii),
+      { revokeAllForPayer: async () => 0 } as never,
+      events,
+      new FailingErasure(client.db),
+    );
+    await expect(deletion.execute(ROLLED_BACK, CTX)).rejects.toThrow("last step");
+
+    // Nothing committed: the company, its record, its request (contact and all), the typed
+    // contact, and NO erasure for the request the cascade had deleted.
+    const [left] = await client.sql<{ payers: number; profiles: number; erasures: number }[]>`
+      SELECT (SELECT count(*)::int FROM payers WHERE id = ${ROLLED_BACK}::uuid) AS payers,
+             (SELECT count(*)::int FROM employer_profiles WHERE payer_id = ${ROLLED_BACK}::uuid)
+               AS profiles,
+             (SELECT count(*)::int FROM campus_drive_request_erasures
+               WHERE request_id = ${own.id}::uuid) AS erasures`;
+    expect(left).toEqual({ payers: 1, profiles: 1, erasures: 0 });
+    const [ownAfter] = await stored({ id: own.id });
+    expect(ownAfter!.contact_name_enc).toMatch(/^v1\./);
+    const [typedAfter] = await stored({ id: typed!.id });
+    expect(typedAfter!.contact_erased_at).toBeNull();
+    expect(typedAfter!.contact_phone_enc).toMatch(/^v1\./);
+    const feed = await feedOf();
+    expect(feed.drive_requests.map((r) => r.id)).toContain(own.id);
+    expect(feed.erased.map((e) => e.id)).not.toContain(own.id);
+  }, 30_000);
+
+  it("#2811: a VERIFIED company is deleted in one transaction, and Campus's next feed read carries an erasure for each of its requests and no item for them", async () => {
+    const made = [
+      await company().create(DOOMED, body({ openings: 81 }), "t2746d-key-0081", CTX),
+      await company().create(DOOMED, body({ openings: 82 }), "t2746d-key-0082", CTX),
+      await company().create(DOOMED, body({ openings: 83 }), "t2746d-key-0083", CTX),
+    ];
+    const ids = made.map((r) => r.id).sort();
+    // Campus has read the three, contact included.
+    const before = await feedOf();
+    for (const id of ids) {
+      expect(before.drive_requests.find((r) => r.id === id)?.contact).toEqual({
+        name: CONTACT_NAME,
+        phone: CONTACT_PHONE,
+      });
+    }
+    const since = before.drive_requests
+      .filter((r) => ids.includes(r.id))
+      .map((r) => r.changed_at)
+      .sort()
+      .at(-1)!;
+
     const deletion = new PayerAccountDeletionService(
       client.db,
       new PayersRepository(client.db, pii),
@@ -1310,25 +1382,157 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
       events,
       new CampusDriveContactErasureRepository(client.db),
     );
-    // COMPANY has an employer_profiles row (it is verified), and that FK is NO ACTION.
-    const err = await caught(() => deletion.execute(COMPANY, CTX));
-    expect(sqlStateOf(err)).toBe("23503");
+    // Before #2811 this was 23503 (`employer_profiles_payer_id_fkey`, NO ACTION).
+    await expect(deletion.execute(DOOMED, CTX)).resolves.toEqual({
+      deleted: true,
+      sessionsRevoked: 0,
+      soloOrgDeleted: true,
+    });
 
-    const [payer] = await client.sql<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM payers WHERE id = ${COMPANY}::uuid`;
-    expect(payer!.n).toBe(1);
-    const [after] = await stored({ id: row!.id });
-    expect(after!.contact_erased_at).toBeNull();
-    expect(after!.contact_name_enc).toMatch(/^v1\./);
-    expect(after!.contact_phone_enc).toMatch(/^v1\./);
-    // COMPANY's own requests are intact too, contacts and all (the R1 erasure test's row aside:
-    // a different login typed it).
-    const own = (await stored({ payerId: COMPANY })).filter((r) => r.created_by === COMPANY);
-    expect(own.length).toBeGreaterThan(0);
-    expect(own.every((r) => r.contact_erased_at === null && r.contact_name_enc !== null)).toBe(
-      true,
-    );
+    // The company and every side table are gone (the four foreign keys now cascade), and so are
+    // its requests.
+    const [left] = await client.sql<Record<string, number>[]>`
+      SELECT (SELECT count(*)::int FROM payers WHERE id = ${DOOMED}::uuid) AS payers,
+             (SELECT count(*)::int FROM employer_profiles WHERE payer_id = ${DOOMED}::uuid) AS employer,
+             (SELECT count(*)::int FROM agency_profiles WHERE payer_id = ${DOOMED}::uuid) AS agency,
+             (SELECT count(*)::int FROM payer_capabilities WHERE payer_id = ${DOOMED}::uuid) AS caps,
+             (SELECT count(*)::int FROM payer_member_invites WHERE payer_id = ${DOOMED}::uuid) AS invites,
+             (SELECT count(*)::int FROM payer_orgs WHERE id = ${DOOMED_ORG}::uuid) AS orgs,
+             (SELECT count(*)::int FROM campus_drive_requests WHERE payer_id = ${DOOMED}::uuid) AS requests`;
+    expect(left).toEqual({
+      payers: 0,
+      employer: 0,
+      agency: 0,
+      caps: 0,
+      invites: 0,
+      orgs: 0,
+      requests: 0,
+    });
+
+    // One erasure per request, all written by ONE transaction (the deletion's: one xmin), and
+    // faceless: the table holds an id and a time, nothing else.
+    const tombstones = await client.sql<{ request_id: string; tx: string }[]>`
+      SELECT request_id, xmin::text AS tx FROM campus_drive_request_erasures
+       WHERE request_id = ANY(${ids}::uuid[]) ORDER BY request_id`;
+    expect(tombstones.map((t) => t.request_id)).toEqual(ids);
+    expect(new Set(tombstones.map((t) => t.tx)).size).toBe(1);
+    const columns = await client.sql<{ column_name: string }[]>`
+      SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'campus_drive_request_erasures'
+       ORDER BY column_name`;
+    expect(columns.map((c) => c.column_name)).toEqual(["erased_at", "request_id"]);
+
+    // Campus's next read (its incremental one, and a full one): an erasure for each, no item.
+    for (const page of [await feedOf({ changed_since: since }), await feedOf()]) {
+      expect(page.drive_requests.map((r) => r.id).filter((id) => ids.includes(id))).toEqual([]);
+      const erased = page.erased.filter((e) => ids.includes(e.id));
+      expect(erased.map((e) => e.id).sort()).toEqual(ids);
+      for (const e of erased) {
+        expect(Object.keys(e).sort()).toEqual(["erased_at", "id"]);
+        expect(Date.parse(e.erased_at)).toBeGreaterThanOrEqual(Date.parse(since));
+      }
+    }
+    // The page parses as Campus's contract says, and the contact is nowhere in it.
+    const page = await feedOf({ changed_since: since });
+    expect(CampusDriveRequestPageSchema.safeParse(page).success).toBe(true);
+    expect(JSON.stringify(page.erased)).not.toContain("9000027460");
   }, 30_000);
+
+  it("#2811: changed_since applies to erasures (at or after), and the status filter does not hide them", async () => {
+    const made = await company().create(PAGED, body({ openings: 91 }), "t2746d-key-0091", CTX);
+    // A raw delete: the trigger covers every delete path, not only the account deletion.
+    await client.sql`DELETE FROM campus_drive_requests WHERE id = ${made.id}::uuid`;
+    const [row] = await client.sql<{ at: string }[]>`
+      SELECT to_char(erased_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at
+        FROM campus_drive_request_erasures WHERE request_id = ${made.id}::uuid`;
+    const at = row!.at;
+
+    const atIt = await feedOf({ changed_since: at });
+    expect(atIt.erased).toContainEqual({ id: made.id, erased_at: at });
+    const justAfter = new Date(Date.parse(at) + 1).toISOString();
+    expect((await feedOf({ changed_since: justAfter })).erased.map((e) => e.id)).not.toContain(
+      made.id,
+    );
+    for (const status of ["requested", "declined", "cancelled"]) {
+      const filtered = await feedOf({ status, changed_since: at });
+      expect(filtered.erased.map((e) => e.id)).toContain(made.id);
+    }
+  }, 30_000);
+
+  it("#2811: erasures written while Campus pages are merged into one order under one cursor: nothing skipped, nothing repeated", async () => {
+    const [clock] = await client.sql<{ start: string }[]>`
+      SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS start`;
+    const start = clock!.start;
+    const ids: string[] = [];
+    for (let n = 0; n < 6; n++) {
+      const made = await company().create(
+        PAGED,
+        body({ openings: 92 + n }),
+        `t2746d-key-009${2 + n}`,
+        CTX,
+      );
+      ids.push(made.id);
+    }
+    // Deleted before the read starts: an erasure, never an item.
+    await client.sql`DELETE FROM campus_drive_requests WHERE id = ${ids[1]!}::uuid`;
+
+    type Served = { kind: "item" | "erased"; id: string; key: string };
+    const pages: Served[][] = [];
+    let cursor: string | null | undefined;
+    do {
+      const page = await campus().list(
+        CampusDriveRequestsQuerySchema.parse({
+          limit: "2",
+          changed_since: start,
+          ...(cursor ? { cursor } : {}),
+        }),
+      );
+      pages.push([
+        ...page.drive_requests.map((r) => ({
+          kind: "item" as const,
+          id: r.id,
+          key: `${r.changed_at}|${r.id}`,
+        })),
+        ...page.erased.map((e) => ({
+          kind: "erased" as const,
+          id: e.id,
+          key: `${e.erased_at}|${e.id}`,
+        })),
+      ]);
+      expect(pages.at(-1)!.length).toBeLessThanOrEqual(2);
+      if (pages.length === 1) {
+        // MID-PAGE: one request Campus has just been served, and one it has not reached yet.
+        const shown = page.drive_requests.find((r) => ids.includes(r.id))!.id;
+        await client.sql`DELETE FROM campus_drive_requests WHERE id = ${shown}::uuid`;
+        await client.sql`DELETE FROM campus_drive_requests WHERE id = ${ids[4]!}::uuid`;
+      }
+      cursor = page.next_cursor;
+    } while (cursor && pages.length < 50);
+    expect(cursor).toBeFalsy();
+
+    // ONE order, (time, id), across both kinds and every page boundary: each page's entries,
+    // sorted, then the pages in turn, are the whole stream sorted.
+    const served = pages.flat();
+    expect(pages.flatMap((p) => p.map((e) => e.key).sort())).toEqual(
+      served.map((e) => e.key).sort(),
+    );
+
+    const mine = served.filter((e) => ids.includes(e.id));
+    const items = mine.filter((e) => e.kind === "item").map((e) => e.id);
+    const erased = mine.filter((e) => e.kind === "erased").map((e) => e.id);
+    // Nothing repeated.
+    expect(new Set(items).size).toBe(items.length);
+    expect(new Set(erased).size).toBe(erased.length);
+    // The one deleted before the read and the one deleted ahead of the cursor: erasures only.
+    expect(items).not.toContain(ids[1]);
+    expect(items).not.toContain(ids[4]);
+    // The one Campus had been served, deleted behind the cursor: its erasure is stamped after the
+    // cursor, so the same run serves it later in the stream.
+    const shown = pages[0]!.find((e) => e.kind === "item" && ids.includes(e.id))!.id;
+    expect([...erased].sort()).toEqual([ids[1]!, ids[4]!, shown].sort());
+    // Every request is accounted for: an item, an erasure, or (the one served first) both.
+    for (const id of ids) expect(items.includes(id) || erased.includes(id)).toBe(true);
+  }, 60_000);
 
   it("deleting a login erases the contacts it entered on requests that outlive it; Campus then lists contact: null", async () => {
     // A request COMPANY owns but LEAVER typed (as a team member under org tenancy `on`).
@@ -1366,12 +1570,16 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     expect(await new CampusDriveContactErasureRepository(client.db).eraseEnteredBy(LEAVER)).toBe(0);
   }, 30_000);
 
-  it("a company's own requests go with its payers row (ON DELETE CASCADE)", async () => {
+  it("a company's own requests go with its payers row (ON DELETE CASCADE), each leaving its erasure", async () => {
     const made = await company().create(OTHER, body({ openings: 51 }), "t2746d-key-0051", CTX);
-    await client.sql`DELETE FROM employer_profiles WHERE payer_id = ${OTHER}::uuid`;
+    const all = (await stored({ payerId: OTHER })).map((r) => r.id);
     await client.sql`DELETE FROM job_postings WHERE payer_id = ${OTHER}::uuid`;
+    // #2811: the company record no longer holds the row (employer_profiles now cascades).
     await client.sql`DELETE FROM payers WHERE id = ${OTHER}::uuid`;
     expect(await stored({ id: made.id })).toEqual([]);
+    const tombstones = await client.sql<{ request_id: string }[]>`
+      SELECT request_id FROM campus_drive_request_erasures WHERE request_id = ANY(${all}::uuid[])`;
+    expect(tombstones.map((t) => t.request_id).sort()).toEqual([...all].sort());
   }, 30_000);
 });
 
@@ -1399,6 +1607,9 @@ async function seed(client: DbClient): Promise<void> {
   await payer(ARCHIVED_CO, "employer", "Archived Works t2746d");
   await payer(TEAM_MEMBER, "employer", "Team Member Login t2746d");
   await payer(CAPPED, "employer", "Capped Works t2746d");
+  await payer(DOOMED, "employer", "Doomed Works t2746d");
+  await payer(ROLLED_BACK, "employer", "Rolled Back Works t2746d");
+  await payer(PAGED, "employer", "Paged Works t2746d");
   await sql`
     INSERT INTO payer_orgs (id, root_payer_id, name_enc, status)
     VALUES (${TEAM_ORG}::uuid, ${TEAM_ROOT}::uuid, ${pii.encrypt("Team Works t2746d")}, 'active')`;
@@ -1406,13 +1617,28 @@ async function seed(client: DbClient): Promise<void> {
     INSERT INTO payer_members (org_id, member_payer_id, org_role, status)
     VALUES (${TEAM_ORG}::uuid, ${TEAM_ROOT}::uuid, 'owner', 'active'),
            (${TEAM_ORG}::uuid, ${TEAM_MEMBER}::uuid, 'recruiter', 'active')`;
-  for (const id of [COMPANY, OTHER, WITHDRAWN, ARCHIVED_CO, CAPPED]) {
+  for (const id of [COMPANY, OTHER, WITHDRAWN, ARCHIVED_CO, CAPPED, DOOMED, ROLLED_BACK, PAGED]) {
     await sql`
       INSERT INTO employer_profiles (payer_id, verification_status, gst_number_enc)
       VALUES (${id}::uuid, 'verified', ${pii.encrypt("27ABCDE1234F1Z5")})`;
   }
   await sql`
     INSERT INTO employer_profiles (payer_id, verification_status) VALUES (${UNVERIFIED}::uuid, 'pending')`;
+  // #2811: DOOMED holds a row in EVERY table whose foreign key to `payers` was NO ACTION (each now
+  // cascades), and founded a solo org (`payer_orgs.root_payer_id` RESTRICT: the service removes it).
+  await sql`INSERT INTO agency_profiles (payer_id) VALUES (${DOOMED}::uuid)`;
+  await sql`INSERT INTO payer_capabilities (payer_id) VALUES (${DOOMED}::uuid)`;
+  await sql`
+    INSERT INTO payer_member_invites (payer_id, invited_email_hash, invited_email_enc, role,
+           invite_token_hash, expires_at)
+    VALUES (${DOOMED}::uuid, 'hash:t2746d-invite', 'enc:t2746d-invite', 'recruiter',
+            'token:t2746d-invite', now() + interval '7 days')`;
+  await sql`
+    INSERT INTO payer_orgs (id, root_payer_id, name_enc, status)
+    VALUES (${DOOMED_ORG}::uuid, ${DOOMED}::uuid, ${pii.encrypt("Doomed Works t2746d")}, 'active')`;
+  await sql`
+    INSERT INTO payer_members (org_id, member_payer_id, org_role, status)
+    VALUES (${DOOMED_ORG}::uuid, ${DOOMED}::uuid, 'owner', 'active')`;
   await sql`
     INSERT INTO rvm_targeting_options (kind, ref, label, active, sort_order) VALUES
       ('branch', ${String(BRANCH_A)}, 'Fixture branch A t2746d', true, 1),
@@ -1428,18 +1654,31 @@ async function seed(client: DbClient): Promise<void> {
   }
 }
 
-async function cleanup(client: DbClient): Promise<void> {
+/**
+ * #2811: the erasures name no company, so the suite's own are found by request id (the fixture
+ * companies' requests the cleanup deletes) and by time: every erasure written since the suite
+ * started (`since`, the database's clock). This file is the only one that makes drive requests, and
+ * the DB gates run one file at a time.
+ */
+async function cleanup(client: DbClient, since: string): Promise<void> {
   const { sql } = client;
-  await sql`DELETE FROM campus_drive_requests WHERE payer_id = ANY(${COMPANIES}::uuid[])`;
+  const gone = await sql<{ id: string }[]>`
+    DELETE FROM campus_drive_requests WHERE payer_id = ANY(${COMPANIES}::uuid[]) RETURNING id`;
+  await sql`
+    DELETE FROM campus_drive_request_erasures
+     WHERE request_id = ANY(${gone.map((r) => r.id)}::uuid[]) OR erased_at >= ${since}::timestamptz`;
   await sql`DELETE FROM job_postings WHERE payer_id = ANY(${COMPANIES}::uuid[])`;
   await sql`DELETE FROM employer_profiles WHERE payer_id = ANY(${COMPANIES}::uuid[])`;
+  await sql`DELETE FROM agency_profiles WHERE payer_id = ANY(${COMPANIES}::uuid[])`;
+  await sql`DELETE FROM payer_capabilities WHERE payer_id = ANY(${COMPANIES}::uuid[])`;
+  await sql`DELETE FROM payer_member_invites WHERE payer_id = ANY(${COMPANIES}::uuid[])`;
   await sql`
     DELETE FROM audit_logs
      WHERE action = 'campus_link.drive_request_decided' AND metadata->>'payer_id' = ANY(${COMPANIES})`;
   await sql`
     DELETE FROM rvm_targeting_options
      WHERE kind = 'branch' AND ref IN (${String(BRANCH_A)}, ${String(BRANCH_B)}, ${String(BRANCH_RETIRED)})`;
-  await sql`DELETE FROM payer_members WHERE org_id = ${TEAM_ORG}::uuid`;
+  await sql`DELETE FROM payer_members WHERE org_id = ANY(${[TEAM_ORG, DOOMED_ORG]}::uuid[])`;
   await sql`DELETE FROM payer_members WHERE member_payer_id = ANY(${COMPANIES}::uuid[])`;
   await sql`DELETE FROM payer_orgs WHERE root_payer_id = ANY(${COMPANIES}::uuid[])`;
   await sql`DELETE FROM payers WHERE id = ANY(${COMPANIES}::uuid[])`;

@@ -163,3 +163,32 @@ export const campusDriveRequests = pgTable(
     ),
   ],
 ).enableRLS();
+
+/**
+ * #2811 — THE ERASURE SIGNAL FOR A CAMPUS-DRIVE REQUEST THAT IS GONE (a tombstone). One row per
+ * deleted request, keyed by the request's own id, written by a DATABASE TRIGGER
+ * (`campus_drive_requests_erasure_trg`, `AFTER DELETE … FOR EACH ROW`, hand-written in the
+ * migration: drizzle does not model triggers) in the DELETING transaction. Every delete path
+ * leaves one: the cascade from `payers` (a company delete), a raw SQL delete, any future code.
+ *
+ * Why: Campus keeps a copy of each request's contact person (ADR-0063, ruling R3) and drops it only
+ * when told. While the row exists the feed tells it with `contact: null`; once the row is gone the
+ * feed's `erased` list does, from this table (owners' gate on #2811, 14 and 15 Nov 2026).
+ *
+ * FACELESS BY CONSTRUCTION: an opaque id and a time. No company id, no contact, nothing else. No FK
+ * either: the request row it names no longer exists. `erased_at` is `clock_timestamp()`, the
+ * feed's `changed_at` for the erasure (the same clock the request writes stamp), and
+ * `(erased_at, request_id)` is the feed's keyset index. Never updated, never deleted by code.
+ *
+ * RLS forced, every role revoked (the migration's hand-written tail).
+ */
+export const campusDriveRequestErasures = pgTable(
+  "campus_drive_request_erasures",
+  {
+    requestId: uuid("request_id").primaryKey(),
+    erasedAt: timestamp("erased_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [index("campus_drive_request_erasures_feed_idx").on(t.erasedAt, t.requestId)],
+).enableRLS();

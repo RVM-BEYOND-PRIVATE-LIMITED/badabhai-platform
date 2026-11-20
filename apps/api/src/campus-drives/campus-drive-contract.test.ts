@@ -3,6 +3,7 @@ import {
   CAMPUS_ERROR_CODES,
   CampusDateSchema,
   CampusDriveDecisionBodySchema,
+  CampusDriveRequestErasureSchema,
   CampusDriveRequestPageSchema,
   CampusDriveRequestSchema,
   CampusDriveRequestsQuerySchema,
@@ -10,7 +11,9 @@ import {
 } from "../campus-link/campus-link.contract";
 import {
   DRIVE_DECISION_BODY_EXAMPLE,
+  DRIVE_REQUEST_ERASURE_EXAMPLE,
   DRIVE_REQUEST_EXAMPLE,
+  DRIVE_REQUEST_PAGE_EXAMPLE,
 } from "../campus-link/campus-link.examples";
 import { createCampusLinkMock, type MockRequest } from "../campus-link/mock/campus-link-mock";
 
@@ -104,6 +107,31 @@ describe("drive-request contract — the feed", () => {
     ).toBe(true);
   });
 
+  it("#2811: a page carries the erasures beside the items; an erasure is an id and a time, nothing else", () => {
+    // `erased` is required on the page: BadaBhai always sends it (empty when there is none).
+    const { erased: _e, ...noErased } = DRIVE_REQUEST_PAGE_EXAMPLE as Record<string, unknown>;
+    expect(CampusDriveRequestPageSchema.safeParse(noErased).success).toBe(false);
+    expect(
+      CampusDriveRequestPageSchema.safeParse({ ...DRIVE_REQUEST_PAGE_EXAMPLE, erased: [] }).success,
+    ).toBe(true);
+    // Faceless: the example (BadaBhai's own answer shape) has exactly the two fields.
+    expect(Object.keys(DRIVE_REQUEST_ERASURE_EXAMPLE).sort()).toEqual(["erased_at", "id"]);
+    expect(
+      CampusDriveRequestErasureSchema.safeParse({ ...DRIVE_REQUEST_ERASURE_EXAMPLE, id: "x" })
+        .success,
+    ).toBe(false);
+    expect(
+      CampusDriveRequestErasureSchema.safeParse({
+        ...DRIVE_REQUEST_ERASURE_EXAMPLE,
+        erased_at: "2026-11-21 08:05",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("#2811: an erasure is NOT an item, so Campus's item parser can never mistake one for a request", () => {
+    expect(CampusDriveRequestSchema.safeParse(DRIVE_REQUEST_ERASURE_EXAMPLE).success).toBe(false);
+  });
+
   it("shares the review's DECISION_SUPERSEDED (once) and appends the two drive codes last", () => {
     expect(CAMPUS_ERROR_CODES.filter((c) => c === "DECISION_SUPERSEDED")).toHaveLength(1);
     // The two drive codes stay together, in order; later codes (#2778's waiver code) follow them.
@@ -180,6 +208,10 @@ describe("drive-request contract — the mock serves both routes", () => {
     );
     const none = handle(req("GET", "drive-requests?status=declined"));
     expect(CampusDriveRequestPageSchema.parse(none.body).drive_requests).toEqual([]);
+    // #2811: the erasure is served whatever the status.
+    expect(CampusDriveRequestPageSchema.parse(none.body).erased).toEqual([
+      DRIVE_REQUEST_ERASURE_EXAMPLE,
+    ]);
   });
 
   it("POST decision needs the key, answers the example request, and 404s any other", () => {

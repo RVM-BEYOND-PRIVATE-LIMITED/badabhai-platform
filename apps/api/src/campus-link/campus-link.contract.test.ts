@@ -14,6 +14,7 @@ import {
   CampusCompanyResponseSchema,
   CampusDriveDecisionBodySchema,
   CampusDriveDecisionResponseSchema,
+  CampusDriveRequestErasureSchema,
   CampusDriveRequestPageSchema,
   CampusDriveRequestSchema,
   CampusIdempotencyKeySchema,
@@ -73,6 +74,7 @@ const PAIRS: ReadonlyArray<[string, z.ZodType, unknown]> = [
   ["waiver page", CampusWaiverPageSchema, examples.WAIVER_PAGE_EXAMPLE],
   ["unlink response", CampusUnlinkResponseSchema, examples.UNLINK_RESPONSE_EXAMPLE],
   ["drive request", CampusDriveRequestSchema, examples.DRIVE_REQUEST_EXAMPLE],
+  ["drive request erasure", CampusDriveRequestErasureSchema, examples.DRIVE_REQUEST_ERASURE_EXAMPLE],
   ["drive request page", CampusDriveRequestPageSchema, examples.DRIVE_REQUEST_PAGE_EXAMPLE],
   ["drive decision body", CampusDriveDecisionBodySchema, examples.DRIVE_DECISION_BODY_EXAMPLE],
   [

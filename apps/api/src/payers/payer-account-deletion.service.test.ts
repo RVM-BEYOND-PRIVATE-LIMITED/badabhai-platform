@@ -23,14 +23,22 @@ function mockDb(
   /** The executor the row delete ran on: the db itself, or the transaction's handle. */
   const executors: unknown[] = [];
   const TX = { name: "tx" };
+  /** The executor every org read ran on (#2811: the transaction's, never the pool's). */
+  const selectExecutors: unknown[] = [];
+  const selectOn = (executor: unknown) =>
+    vi.fn(() => {
+      selectExecutors.push(executor);
+      return {
+        from: vi.fn((table: unknown) => ({
+          where: vi.fn(async () => (table === payerOrgs ? orgRows : memberRows)),
+        })),
+      };
+    });
   const db = {
-    select: vi.fn(() => ({
-      from: vi.fn((table: unknown) => ({
-        where: vi.fn(async () => (table === payerOrgs ? orgRows : memberRows)),
-      })),
-    })),
+    select: selectOn("db"),
     delete: vi.fn((table: unknown) => deleteOn(db, table)),
-    // #2746 — the payer row delete and the drive-contact erasure share one transaction.
+    // #2811 — the WHOLE delete is one transaction: the solo org, the row (and its cascades and
+    // erasures), the theme row and the drive-contact erasure.
     transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => {
       order.push("tx:begin");
       try {
@@ -43,7 +51,10 @@ function mockDb(
       }
     }),
   };
-  Object.assign(TX, { delete: vi.fn((table: unknown) => deleteOn(TX, table)) });
+  Object.assign(TX, {
+    select: selectOn(TX),
+    delete: vi.fn((table: unknown) => deleteOn(TX, table)),
+  });
   function deleteOn(executor: unknown, table: unknown) {
     deletedTables.push(table);
     executors.push(executor);
@@ -65,7 +76,7 @@ function mockDb(
       }),
     };
   }
-  return { deletedTables, deleteWheres, executors, db, TX };
+  return { deletedTables, deleteWheres, executors, selectExecutors, db, TX };
 }
 
 function makeService(opts: {
@@ -77,7 +88,7 @@ function makeService(opts: {
   payerDeleteFails?: boolean;
 }) {
   const order: string[] = [];
-  const { deletedTables, deleteWheres, db, executors, TX } = mockDb(
+  const { deletedTables, deleteWheres, db, executors, selectExecutors, TX } = mockDb(
     opts.orgRows ?? [],
     opts.memberRows ?? [],
     order,
@@ -119,6 +130,7 @@ function makeService(opts: {
     driveContacts,
     order,
     executors,
+    selectExecutors,
     TX,
   };
 }
@@ -167,7 +179,7 @@ describe("PayerAccountDeletionService.execute (QA immediate seam)", () => {
 
   it("409s when the payer owns a SHARED org — never destroys a team", async () => {
     const OTHER = "22222222-2222-4222-8222-222222222222";
-    const { svc, events, db } = makeService({
+    const { svc, events, db, deletedTables } = makeService({
       rowFound: true,
       orgRows: [{ id: ORG }],
       memberRows: [
@@ -180,6 +192,55 @@ describe("PayerAccountDeletionService.execute (QA immediate seam)", () => {
     expect(events.emit).not.toHaveBeenCalled();
     const deleteCalls = (db.delete as ReturnType<typeof vi.fn>).mock.calls;
     expect(deleteCalls).toHaveLength(0);
+    expect(deletedTables).toHaveLength(0);
+  });
+
+  it("#2811: the WHOLE delete is ONE transaction — the solo org's removal rides it too, after the session revoke", async () => {
+    const { svc, sessions, order, executors, selectExecutors, db, TX } = makeService({
+      rowFound: true,
+      orgRows: [{ id: ORG }],
+      memberRows: [{ memberPayerId: PAYER, status: "active" }],
+    });
+    (sessions.revokeAllForPayer as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      order.push("revoke:sessions");
+      return 1;
+    });
+    await svc.execute(PAYER, { ...CTX });
+    expect(db.transaction).toHaveBeenCalledOnce();
+    // Every read and every delete on the transaction's handle; nothing on the pool.
+    expect(selectExecutors.length).toBeGreaterThan(0);
+    expect(selectExecutors.every((e) => e === TX)).toBe(true);
+    expect(executors.every((e) => e === TX)).toBe(true);
+    expect(db.select).not.toHaveBeenCalled();
+    expect(db.delete).not.toHaveBeenCalled();
+    expect(order).toEqual([
+      "revoke:sessions",
+      "tx:begin",
+      "delete:other", // payer_members of the solo org
+      "delete:other", // the solo org
+      "delete:payers",
+      "delete:display_prefs",
+      "erase:drive_contacts",
+      "tx:commit",
+    ]);
+  });
+
+  it("#2811: a row delete that fails rolls the solo org's removal back with it", async () => {
+    const { svc, order, events } = makeService({
+      rowFound: true,
+      orgRows: [{ id: ORG }],
+      memberRows: [{ memberPayerId: PAYER, status: "active" }],
+      payerDeleteFails: true,
+    });
+    await expect(svc.execute(PAYER, { ...CTX })).rejects.toMatchObject({ code: "23503" });
+    expect(order).toEqual([
+      "tx:begin",
+      "delete:other",
+      "delete:other",
+      "delete:payers",
+      "tx:rollback",
+    ]);
+    expect(events.emit).not.toHaveBeenCalled();
   });
 
   it("#2746: erases the campus-drive contacts the login entered, in the SAME transaction as the row delete", async () => {
@@ -254,6 +315,7 @@ describe("PayerAccountDeletionService.execute (QA immediate seam)", () => {
     const { svc, events, db } = makeService({ rowFound: true, revokeThrows: true });
     await expect(svc.execute(PAYER, { ...CTX })).rejects.toThrow("redis down");
     expect(db.delete).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
     expect(events.emit).not.toHaveBeenCalled();
   });
 });

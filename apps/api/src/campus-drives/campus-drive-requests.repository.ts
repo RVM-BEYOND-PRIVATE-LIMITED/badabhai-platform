@@ -1,7 +1,8 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { and, asc, desc, eq, gte, inArray, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import {
   auditLogs,
+  campusDriveRequestErasures,
   campusDriveRequests,
   employerProfiles,
   jobPostings,
@@ -13,7 +14,7 @@ import {
   type PayerStatus,
 } from "@badabhai/db";
 import { CAMPUS_STAFF_ACTOR_TYPE } from "../campus-link/campus-posting-review.repository";
-import { redactQueryParams } from "../common/db-error";
+import { redactQueryParams, sqlStateOf } from "../common/db-error";
 import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import type { DriveCursor } from "./campus-drive-cursor";
@@ -132,6 +133,18 @@ export interface DriveFeedRow extends DriveRequestRow, DriveCompanyColumns {
   companyNameEnc: string;
 }
 
+/**
+ * #2811 — an erasure of Campus's feed: a DELETED request's id and when it was deleted (microsecond
+ * UTC text, the feed's `erased_at` and the cursor key). Nothing else exists to read.
+ */
+export interface DriveErasureRow {
+  id: string;
+  erasedKey: string;
+}
+
+/** Postgres `undefined_table`: the erasures table before its migration is applied. */
+const PG_UNDEFINED_TABLE = "42P01";
+
 /** The columns a create writes. The contact arrives ALREADY ENCRYPTED. */
 export interface DriveRequestInsert {
   payerId: TenantKey;
@@ -199,6 +212,10 @@ export const CAMPUS_DRIVE_DECISION_AUDIT_ACTION = "campus_link.drive_request_dec
  */
 @Injectable()
 export class CampusDriveRequestsRepository {
+  private readonly logger = new Logger(CampusDriveRequestsRepository.name);
+  /** The missing-table warning is logged once per process, not once per feed read. */
+  private warnedNoErasures = false;
+
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /** Run `work` in ONE transaction: the row, its event and its audit row commit together. */
@@ -442,6 +459,53 @@ export class CampusDriveRequestsRepository {
       )
       .orderBy(asc(campusDriveRequests.updatedAt), asc(campusDriveRequests.id))
       .limit(limit + 1);
+  }
+
+  /**
+   * #2811 — the ERASURES of Campus's feed: one per deleted request (`campus_drive_request_erasures`,
+   * written by the database's delete trigger in the deleting transaction), in the feed's order
+   * (`erased_at` ASC, `request_id` ASC: `campus_drive_request_erasures_feed_idx`), under the SAME
+   * `changed_since` (at or after) and cursor (`(erased_at, request_id) > cursor`) as
+   * {@link listFeed}. No status filter: an erasure has none. Reads `limit + 1`.
+   *
+   * BEFORE THE MIGRATION the table does not exist (42P01): the feed then has no erasures, and keeps
+   * working, so the code may deploy first. Nothing can be lost by that: until the migration is
+   * applied no request can be deleted by a company delete (the four NO ACTION foreign keys it
+   * changes refuse it). Any other error propagates.
+   */
+  async listErasures(
+    filter: Pick<DriveFeedFilter, "changedSince" | "after">,
+    limit: number,
+  ): Promise<DriveErasureRow[]> {
+    const t = campusDriveRequestErasures;
+    const keyset =
+      filter.after === undefined
+        ? undefined
+        : sql`(${t.erasedAt}, ${t.requestId}) > (${filter.after.at}::timestamptz, ${filter.after.id}::uuid)`;
+    try {
+      return await this.db
+        .select({ id: t.requestId, erasedKey: microsecondText(t.erasedAt) })
+        .from(t)
+        .where(
+          and(
+            filter.changedSince === undefined
+              ? undefined
+              : gte(t.erasedAt, sql`${filter.changedSince}::timestamptz`),
+            keyset,
+          ),
+        )
+        .orderBy(asc(t.erasedAt), asc(t.requestId))
+        .limit(limit + 1);
+    } catch (err) {
+      if (sqlStateOf(err) !== PG_UNDEFINED_TABLE) throw err;
+      if (!this.warnedNoErasures) {
+        this.warnedNoErasures = true;
+        this.logger.warn(
+          "campus_drive_request_erasures is missing (its migration is not applied): the drive-request feed serves no erasures",
+        );
+      }
+      return [];
+    }
   }
 
   /**
