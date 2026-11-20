@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { getInvoiceDownloadAction } from "./invoice-actions";
-import { paiseToInr, type Invoice } from "../../../lib/invoices";
+import { paiseToInr } from "../../../lib/invoice-format";
+import type { Invoice } from "../../../lib/invoices";
 
 function day(iso: string): string {
   const d = new Date(iso);

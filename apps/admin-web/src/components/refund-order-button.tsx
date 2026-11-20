@@ -10,14 +10,13 @@ import {
   retryRefundAction,
   type RefundActionResult,
 } from "./payment-refund-actions";
-import {
-  formatPaise,
-  refusalCopy,
-  type RefundEligibility,
-  type RefundRule,
-  type RefundStatus,
-  type RefundView,
+import type {
+  RefundEligibility,
+  RefundRule,
+  RefundStatus,
+  RefundView,
 } from "../lib/payment-refunds";
+import { formatPaise, refusalCopy } from "../lib/payment-refunds-view";
 
 /**
  * #2750 items 10 and 12 — the super admin's Refund action on a real paid order.

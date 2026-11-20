@@ -1,6 +1,9 @@
 import "server-only";
 import { z } from "zod";
 import { payerFetch } from "./payer-http";
+import { paiseToInr } from "./invoice-format";
+
+export { paiseToInr };
 
 /**
  * #2749 part 4 — GST invoices, credit notes and a company's billing details.
@@ -85,10 +88,3 @@ export function downloadCreditNote(creditNoteId: string): Promise<DownloadLink> 
   });
 }
 
-/** ₹ with two decimals from integer paise (tax lines: "GST ₹180.00"). */
-export function paiseToInr(paise: number): string {
-  return `₹${(paise / 100).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}

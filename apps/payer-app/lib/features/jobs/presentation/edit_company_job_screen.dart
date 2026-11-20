@@ -8,7 +8,6 @@ import '../../../core/data/models.dart';
 import '../../../core/data/payer_api_client.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/payer_failure.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/number_input.dart';
@@ -890,7 +889,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
           '${quote.extensionDays ?? 30}.',
           style: AppTypography.body(
             size: AppTypography.sizeSm,
-            color: AppColors.textMuted,
+            color: context.bb.textMuted,
             height: 1.45,
           ),
         ),
@@ -929,7 +928,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         quote.terms,
         style: AppTypography.body(
           size: AppTypography.sizeSm,
-          color: AppColors.textMuted,
+          color: context.bb.textMuted,
           height: 1.45,
         ),
       ),
@@ -938,7 +937,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         'Payment happens on the BadaBhai web portal, never inside this app.',
         style: AppTypography.body(
           size: AppTypography.sizeXs,
-          color: AppColors.textMuted,
+          color: context.bb.textMuted,
         ),
       ),
     ]);

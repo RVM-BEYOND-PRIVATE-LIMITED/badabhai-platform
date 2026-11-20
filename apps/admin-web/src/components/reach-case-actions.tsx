@@ -8,13 +8,8 @@ import {
   resolveCaseAction,
   revealWorkerAction,
 } from "./reach-desk-actions";
-import {
-  REACH_ATTEMPT_RESULTS,
-  REACH_OUTCOMES,
-  reachCaseLabel,
-  type ReachAttemptResult,
-  type ReachOutcome,
-} from "../lib/reach-desk";
+import type { ReachAttemptResult, ReachOutcome } from "../lib/reach-desk";
+import { REACH_ATTEMPT_RESULTS, REACH_OUTCOMES, reachCaseLabel } from "../lib/reach-desk-view";
 
 const ATTEMPT_LABELS: Record<ReachAttemptResult, string> = {
   no_answer: "No answer",

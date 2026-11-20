@@ -9,12 +9,9 @@ import {
   setCampusVisibilityBulkAction,
   type CampusResult,
 } from "./campus-visibility-actions";
-import {
-  campusOutcomeCopy,
-  POSTING_REASON_CODES,
-  type CampusPosting,
-} from "../lib/campus-visibility";
-import { POSTING_REASON_LABELS, type PostingReasonCode } from "../lib/company-vocabulary";
+import type { CampusPosting } from "../lib/campus-visibility";
+import { campusOutcomeCopy } from "../lib/campus-visibility-view";
+import { POSTING_REASON_CODES, POSTING_REASON_LABELS, type PostingReasonCode } from "../lib/company-vocabulary";
 import { formatTimestamp, shortId } from "../lib/format";
 
 /**
