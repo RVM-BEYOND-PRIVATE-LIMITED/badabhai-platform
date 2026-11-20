@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type MockInstance } from "vitest";
 import { HttpException, HttpStatus, Logger } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
@@ -514,7 +514,7 @@ describe("#1019 — a refused OTP names its throttle in the log, and only there"
     return { svc: new OtpService(cfg, pii, sms, queue), redis };
   }
 
-  let warn: ReturnType<typeof vi.spyOn>;
+  let warn: MockInstance<Logger["warn"]>;
   beforeEach(() => {
     warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
   });

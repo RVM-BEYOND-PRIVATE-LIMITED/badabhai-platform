@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
 import type { Database, WorkerProfile } from "@badabhai/db";
 import type { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
@@ -44,45 +44,50 @@ export interface WriteRecord {
   readonly args: readonly unknown[];
 }
 
+// vitest 4 widened `ReturnType<typeof vi.fn>` to `Mock<Procedure | Constructable>`, which is not
+// callable; this is vitest 3's `Mock<Procedure>`, the type these spies had.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type FnMock = Mock<(...args: any[]) => any>;
+
 export interface Harness {
   readonly service: CompanionEditService;
   readonly proposals: {
-    save: ReturnType<typeof vi.fn>;
-    load: ReturnType<typeof vi.fn>;
-    delete: ReturnType<typeof vi.fn>;
-    claim: ReturnType<typeof vi.fn>;
-    release: ReturnType<typeof vi.fn>;
+    save: FnMock;
+    load: FnMock;
+    delete: FnMock;
+    claim: FnMock;
+    release: FnMock;
   };
-  readonly ai: { companionEditParse: ReturnType<typeof vi.fn> };
-  readonly profiles: { setResumeSkillLabels: ReturnType<typeof vi.fn> };
+  readonly ai: { companionEditParse: FnMock };
+  readonly profiles: { setResumeSkillLabels: FnMock };
   readonly employment: {
-    getForWorker: ReturnType<typeof vi.fn>;
-    replaceForWorker: ReturnType<typeof vi.fn>;
+    getForWorker: FnMock;
+    replaceForWorker: FnMock;
   };
   readonly languages: {
-    getForWorker: ReturnType<typeof vi.fn>;
-    replaceForWorker: ReturnType<typeof vi.fn>;
+    getForWorker: FnMock;
+    replaceForWorker: FnMock;
   };
   readonly qualifications: {
-    getForWorker: ReturnType<typeof vi.fn>;
-    replaceForWorker: ReturnType<typeof vi.fn>;
+    getForWorker: FnMock;
+    replaceForWorker: FnMock;
   };
   readonly occupations: {
-    getForWorker: ReturnType<typeof vi.fn>;
-    replaceForWorker: ReturnType<typeof vi.fn>;
+    getForWorker: FnMock;
+    replaceForWorker: FnMock;
   };
   readonly preferences: {
-    getForWorker: ReturnType<typeof vi.fn>;
-    setForWorker: ReturnType<typeof vi.fn>;
-    seedNightShiftReadyFromShift: ReturnType<typeof vi.fn>;
+    getForWorker: FnMock;
+    setForWorker: FnMock;
+    seedNightShiftReadyFromShift: FnMock;
   };
-  readonly workerSkills: { rebuildQuietly: ReturnType<typeof vi.fn> };
-  readonly resumes: { queueChatEditRegeneration: ReturnType<typeof vi.fn> };
-  readonly rerender: { enqueueLatest: ReturnType<typeof vi.fn> };
-  readonly consents: { findLatestByWorker: ReturnType<typeof vi.fn> };
-  readonly events: { emit: ReturnType<typeof vi.fn> };
-  readonly cost: { record: ReturnType<typeof vi.fn> };
-  readonly db: { transaction: ReturnType<typeof vi.fn> };
+  readonly workerSkills: { rebuildQuietly: FnMock };
+  readonly resumes: { queueChatEditRegeneration: FnMock };
+  readonly rerender: { enqueueLatest: FnMock };
+  readonly consents: { findLatestByWorker: FnMock };
+  readonly events: { emit: FnMock };
+  readonly cost: { record: FnMock };
+  readonly db: { transaction: FnMock };
   readonly tx: { readonly sentinel: "tx"; readonly staged: WriteRecord[] };
   /** Writes that SURVIVED: committed transactions plus any write made outside one. */
   readonly committed: WriteRecord[];

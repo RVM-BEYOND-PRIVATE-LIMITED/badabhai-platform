@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 import { holdFocus } from "./overlay-focus";
 import type { Focusable } from "./drawer-focus";
 
@@ -7,7 +7,7 @@ import type { Focusable } from "./drawer-focus";
  * closes, and focus returns to the trigger. The node env has no DOM, so the panel, its controls,
  * the trigger and the key target are stand-ins with exactly the surface the helper uses.
  */
-type Control = Focusable & { name: string; focus: ReturnType<typeof vi.fn> };
+type Control = Focusable & { name: string; focus: Mock<() => void> };
 
 const control = (name: string): Control => ({
   name,

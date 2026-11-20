@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 import { ChatCompanionService } from "./chat-companion.service";
 import type { CompanionTurn } from "./chat-companion.dto";
 import { V2_CLARIFY, V2_FALTU_COOLDOWN, V3_GREETING } from "./companion-replies";
@@ -101,7 +101,13 @@ export function makeCompanionServiceForV2(opts: {
     })),
   };
   const events = { emit: vi.fn(async (params: unknown) => params) };
-  const edits = { confirm: vi.fn(), cancel: vi.fn(), propose: vi.fn() };
+  // Annotated with vitest's own `Mock`, so the declaration emit for this exported factory can
+  // name the spy type through "vitest" (TS2742 under vitest 4, whose Mock lives in @vitest/spy).
+  const edits: { confirm: Mock; cancel: Mock; propose: Mock } = {
+    confirm: vi.fn(),
+    cancel: vi.fn(),
+    propose: vi.fn(),
+  };
   const v2 = {
     handleMessage: vi.fn(async () => v2CopyTurn(V2_CLARIFY)),
     // P2 spies: the cool-down gate, its turn, and the deterministic task-chip route.

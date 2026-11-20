@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { Logger } from "@nestjs/common";
 import { COMPANION_HISTORY_SWEEP_SCHEDULER_ID } from "../queue/queue.constants";
 import {
@@ -8,7 +8,7 @@ import {
 
 /** #2297 (ADR-0056) — the daily retention tick: registered once a day, a clock and nothing more. */
 
-let log: ReturnType<typeof vi.spyOn>;
+let log: MockInstance<Logger["log"]>;
 beforeEach(() => {
   log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
   vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);

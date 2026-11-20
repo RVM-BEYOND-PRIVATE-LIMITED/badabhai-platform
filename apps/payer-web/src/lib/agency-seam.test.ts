@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { AgencyJob } from "./contracts";
 import type * as AssertModule from "./assert-no-agency-pii";
 
@@ -32,7 +32,7 @@ vi.mock("./auth", () => ({
 
 // The data-layer FACELESS guard, spied but REAL: every agency payload the seam returns passes
 // through it (its own suite pins what it rejects).
-const assertSpy = vi.hoisted(() => ({ fn: null as unknown as ReturnType<typeof vi.fn> }));
+const assertSpy = vi.hoisted(() => ({ fn: null as unknown as Mock<(typeof AssertModule)["assertNoAgencyPII"]> }));
 vi.mock("./assert-no-agency-pii", async (importOriginal) => {
   const actual = await importOriginal<typeof AssertModule>();
   assertSpy.fn = vi.fn(actual.assertNoAgencyPII);

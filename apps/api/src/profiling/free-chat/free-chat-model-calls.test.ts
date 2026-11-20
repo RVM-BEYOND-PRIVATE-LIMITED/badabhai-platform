@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { Logger } from "@nestjs/common";
 
 import {
@@ -94,7 +94,7 @@ const REQ = {
   messages: [],
 };
 
-let warn: ReturnType<typeof vi.spyOn>;
+let warn: MockInstance<Logger["warn"]>;
 beforeEach(() => {
   for (const level of ["log", "error"] as const) {
     vi.spyOn(Logger.prototype, level).mockImplementation(() => undefined);

@@ -256,6 +256,16 @@ overrides:
   # (razorpay > axios, payment orders), so patched, not argued.
   follow-redirects@<1.16.2: "^1.16.2"
   vite@>=7.0.0 <7.3.7: "^7.3.7"
+  # DEP-14 (2026-11-20). BUILD / TEST ONLY, and both CROSS a major (the tinypool lever above):
+  #   glob       Dependabot #27, AbortSignal cancellation bypass, >=9 <=14.0.1, patched 14.0.2.
+  #              Reached via @nestjs/cli and rimraf (glob 13); both import only glob/globSync/
+  #              GlobOptions, which 14 still exports.
+  #   minimatch  Dependabot #28, globparts amplification DoS, >=7 <11.0.1, patched 11.0.1.
+  #              11 drops makeRe/AST, which glob 13 calls, so the two must move TOGETHER: glob 14
+  #              asks for minimatch ^11 itself. The other consumer, typescript-estree, calls only
+  #              minimatch(). Verified with lint (typescript-estree) and the api build (nest).
+  glob@>=9.0.0 <14.0.2: "^14.0.2"
+  minimatch@>=7.0.0 <11.0.1: "^11.0.1"
 # Dependency-audit (`pnpm audit --audit-level high`) tracked exceptions. Each entry
 # is a HIGH/CRITICAL advisory that does NOT apply to this codebase, rationale logged
 # in the tech-debt register. Scoped to specific GHSA ids so the audit STILL fails on

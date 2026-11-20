@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { BadRequestException, Logger, NotFoundException } from "@nestjs/common";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
 import type { NewWorkerAttribute } from "@badabhai/db";
 import { createEvent, type EventName } from "@badabhai/event-schema";
@@ -228,8 +228,8 @@ const workHistory = (value: boolean): GeneralFormAnswerDto => ({
   answer: { kind: "boolean", value },
 });
 
-let errorLog: ReturnType<typeof vi.spyOn>;
-let warnLog: ReturnType<typeof vi.spyOn>;
+let errorLog: MockInstance<Logger["error"]>;
+let warnLog: MockInstance<Logger["warn"]>;
 beforeEach(() => {
   errorLog = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
   warnLog = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
