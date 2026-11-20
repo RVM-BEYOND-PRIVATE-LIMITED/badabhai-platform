@@ -301,6 +301,15 @@ function companySections({ isOwner }: NavModelInput): NavSection[] {
           childrenLinkBack: true,
         },
         candidatesItem(),
+        {
+          href: "/campus-drives",
+          label: "Campus drives",
+          icon: "buildings",
+          description: "Ask RVM's placement team for a campus drive and see its date.",
+          match: { prefix: ["/campus-drives"] },
+          // New request and the detail page both carry a back link to this list.
+          childrenLinkBack: true,
+        },
       ],
     },
     {

@@ -232,6 +232,16 @@ beforeEach(() => {
     getPhoneProofStatus: async () => null,
     getUnlocks: async () => [],
     // The Candidates inbox: one row on the persona's own kind of posting, so the list renders.
+    listCampusDriveRequests: async () => ({
+      drive_requests: [CAMPUS_DRIVE],
+      next_cursor: null,
+    }),
+    getCampusDriveRequest: async (id: unknown) => (id === CAMPUS_DRIVE.id ? CAMPUS_DRIVE : null),
+    getAudienceOptions: async () => ({
+      audiences: ["badabhai_workers", "rvm_students", "both"],
+      branches: [],
+      courses: [],
+    }),
     getCandidateInbox: async () => ({
       applicants: [
         {
@@ -323,6 +333,28 @@ const PAGE = {
   agencyBulk: (await import("./agency/bulk-upload/page")) as PageModule,
   candidates: (await import("./candidates/page")) as PageModule,
   candidatesApplied: (await import("./candidates/applied/page")) as PageModule,
+  campusDrives: (await import("./campus-drives/page")) as PageModule,
+  campusDrivesNew: (await import("./campus-drives/new/page")) as PageModule,
+  campusDrive: (await import("./campus-drives/[id]/page")) as PageModule,
+};
+
+const CAMPUS_DRIVE = {
+  id: "44444444-4444-4444-8444-444444444444",
+  job_posting_id: null,
+  branch_ids: [],
+  preferred_from: "2026-12-01",
+  preferred_to: "2026-12-05",
+  openings: 10,
+  roles_note: null,
+  contact: { name: "Ops", phone_last4: "1234" },
+  status: "requested",
+  scheduled_on: null,
+  campus_drive_ref: null,
+  decision_reason: null,
+  decided_at: null,
+  cancelled_at: null,
+  created_at: "2026-11-16T00:00:00.000Z",
+  updated_at: "2026-11-16T00:00:00.000Z",
 };
 
 /** Every portal page, for each persona that can open it. */
@@ -337,6 +369,9 @@ const ROUTES: Route[] = [
   { persona: "company", path: `/postings/${POSTING}/applicants`, file: "postings/[id]/applicants/page.tsx", mod: PAGE.applicants, props: params({ id: POSTING }) },
   { persona: "company", path: "/candidates", file: "candidates/page.tsx", mod: PAGE.candidates },
   { persona: "company", path: "/candidates/applied", file: "candidates/applied/page.tsx", mod: PAGE.candidatesApplied },
+  { persona: "company", path: "/campus-drives", file: "campus-drives/page.tsx", mod: PAGE.campusDrives },
+  { persona: "company", path: "/campus-drives/new", file: "campus-drives/new/page.tsx", mod: PAGE.campusDrivesNew },
+  { persona: "company", path: `/campus-drives/${CAMPUS_DRIVE.id}`, file: "campus-drives/[id]/page.tsx", mod: PAGE.campusDrive, props: params({ id: CAMPUS_DRIVE.id }) },
   { persona: "company", path: "/plans", file: "plans/page.tsx", mod: PAGE.plans },
   { persona: "company", path: "/credits", file: "credits/page.tsx", mod: PAGE.credits },
   { persona: "company", path: "/account", file: "account/page.tsx", mod: PAGE.account },
@@ -429,6 +464,8 @@ describe("the shell's trail and the page's back link never open the same page (e
         `agency /agency/jobs/${JOB}/edit`,
         `agency /agency/jobs/${JOB}/applicants`,
         `agency /postings/${POSTING}`,
+        `company /campus-drives/${CAMPUS_DRIVE.id}`,
+        `company /campus-drives/new`,
         `company /postings/${POSTING}`,
         `company /postings/${POSTING}/applicants`,
         `company /postings/${POSTING}/edit`,

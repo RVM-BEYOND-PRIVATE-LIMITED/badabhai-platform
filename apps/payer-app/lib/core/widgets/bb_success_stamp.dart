@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
+import '../theme/bb_palette.dart';
 
 /// The "stamp" success mark — a green seal that lands once, like a rubber
 /// stamp hitting paper. Use it on verify / unlock / apply / resume-ready
@@ -83,6 +83,7 @@ class _BbSuccessStampState extends State<BbSuccessStamp>
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return FadeTransition(
       opacity: _opacity,
       child: ScaleTransition(
@@ -91,11 +92,11 @@ class _BbSuccessStampState extends State<BbSuccessStamp>
           width: widget.size,
           height: widget.size,
           decoration: BoxDecoration(
-            color: AppColors.success,
+            color: p.success,
             shape: BoxShape.circle,
             boxShadow: <BoxShadow>[
               BoxShadow(
-                color: AppColors.success.withValues(alpha: 0.4),
+                color: p.success.withValues(alpha: 0.4),
                 blurRadius: 22,
                 offset: const Offset(0, 8),
               ),
@@ -104,7 +105,7 @@ class _BbSuccessStampState extends State<BbSuccessStamp>
           child: Icon(
             widget.icon,
             size: widget.size * 0.54,
-            color: AppColors.textInverse,
+            color: p.isDark ? p.card : p.onBrandSurface,
           ),
         ),
       ),

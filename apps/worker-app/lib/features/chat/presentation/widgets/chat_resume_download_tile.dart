@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/error/failure.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/pdf_downloader.dart';
 import '../../../../core/widgets/bb_button.dart';
@@ -142,14 +143,15 @@ class _ChatResumeDownloadTileState extends State<ChatResumeDownloadTile>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final BbPalette p = context.bb;
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.s2, bottom: AppSpacing.s2),
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.s3),
         decoration: BoxDecoration(
-          color: OnboardingColors.paperWhite,
+          color: p.card,
           borderRadius: BorderRadius.circular(OnboardingRadii.card),
-          border: Border.all(color: OnboardingColors.borderDefault),
+          border: Border.all(color: p.borderDefault),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -162,13 +164,13 @@ class _ChatResumeDownloadTileState extends State<ChatResumeDownloadTile>
                 Container(
                   width: 40,
                   height: 40,
-                  decoration: const BoxDecoration(
-                    color: OnboardingColors.shiftBlue,
+                  decoration: BoxDecoration(
+                    color: p.brandSurface,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.description_rounded,
-                    color: OnboardingColors.safetyYellow,
+                    color: p.action,
                     size: 22,
                   ),
                 ),
@@ -179,7 +181,7 @@ class _ChatResumeDownloadTileState extends State<ChatResumeDownloadTile>
                     style: OnboardingTypography.inter(
                       size: 14,
                       weight: FontWeight.w600,
-                      color: OnboardingColors.shiftBlue,
+                      color: p.textBrand,
                     ),
                   ),
                 ),

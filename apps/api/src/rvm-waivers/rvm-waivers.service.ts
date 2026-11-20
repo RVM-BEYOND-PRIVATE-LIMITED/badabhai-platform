@@ -29,6 +29,38 @@ export class WaiverPostingNotFoundError extends Error {
   }
 }
 
+/** #2778 — a set sent an end date while RVM_WAIVER_END_DATES_ENABLED is off. A 400. */
+export class WaiverEndDatesOffError extends Error {
+  constructor() {
+    super("end dates on waivers are not switched on");
+    this.name = "WaiverEndDatesOffError";
+  }
+}
+
+/** #2778 — the end date is before today (India time), or sent with a clear. A 400. */
+export class WaiverEndDateInvalidError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WaiverEndDateInvalidError";
+  }
+}
+
+/**
+ * #2778 — the scope already has a waiver in force with ANOTHER end date (or none, where one was
+ * sent, or the reverse). Nothing was written: clear it, then set it again with the new date. A 409.
+ */
+export class WaiverEndDateDiffersError extends Error {
+  constructor() {
+    super("the waiver in force has another end date");
+    this.name = "WaiverEndDateDiffersError";
+  }
+}
+
+/** Today in India as `YYYY-MM-DD` (UTC+05:30, no daylight saving). */
+export function istDayOf(at: Date): string {
+  return new Date(at.getTime() + 330 * 60_000).toISOString().slice(0, 10);
+}
+
 /** Who is making a change: a Campus staff member (name given) or a BadaBhai admin (by id). */
 export type WaiverActor =
   | { readonly kind: "campus"; readonly staffRef: string; readonly staffLabel: string }
@@ -43,6 +75,11 @@ export interface SetWaiverInput {
   readonly active: boolean;
   readonly reason: string;
   readonly actor: WaiverActor;
+  /**
+   * #2778 — the last day (`YYYY-MM-DD`, India time) a NEW waiver applies; absent or null for one
+   * that runs until cleared. Only with RVM_WAIVER_END_DATES_ENABLED on, only on a set.
+   */
+  readonly endsOn?: string | null;
 }
 
 /** A waiver as the routes show it: names decrypted, with the opens it paid for. */
@@ -62,6 +99,10 @@ export interface WaiverView {
   readonly clearedByLabel: string | null;
   readonly clearReason: string | null;
   readonly waivedOpens: number;
+  /** #2778 — the last day it applies, or null (no end date, or end dates switched off). */
+  readonly endsOn: string | null;
+  /** #2778 — its last day has passed: it frees nobody, though it stays `active` until cleared. */
+  readonly ended: boolean;
 }
 
 /** The answer to a set or clear: the scope's waiver after the call, and whether it changed. */
@@ -99,6 +140,14 @@ const UNDEFINED_TABLE = "42P01";
  *
  * Staff names are stored ENCRYPTED (owner ruling 2026-11-17): a Campus name is encrypted here; an
  * admin's is copied from `admin_users.name_enc` as the ciphertext it already is.
+ *
+ * END DATES (#2778, owner decision 2026-11-19). With RVM_WAIVER_END_DATES_ENABLED on, a set may
+ * carry `endsOn`, the last day (India time) the new waiver applies. From the next day it frees
+ * nobody (the repository's price reads), drops out of the in-force list, and shows `ended`; the
+ * row is not touched. Setting a scope whose waiver has ended retires it (a clear by the same
+ * person, with the reason "Ended on …; replaced by a new waiver") and sets the new one; setting a
+ * scope whose waiver is still in force with ANOTHER end date is refused (409), never ignored. Off,
+ * a dated set is refused (400) and every path here is what it was before #2778.
  */
 @Injectable()
 export class RvmWaiversService {
@@ -120,6 +169,7 @@ export class RvmWaiversService {
    */
   async set(input: SetWaiverInput, ctx: RequestContext): Promise<SetWaiverResult> {
     this.creditRules.assertLive();
+    const endsOn = await this.checkEndsOn(input);
     const tenant = await this.tenantOf(input.companyId);
     const postingId = input.scope === "job" ? input.postingId : null;
     if (input.scope === "job") {
@@ -133,9 +183,29 @@ export class RvmWaiversService {
       const out = await this.repo.withTransaction(async (tx) => {
         await this.repo.lockScope(tx, input.scope, postingId ?? tenant);
         const live = await this.repo.findActive(tx, input.scope, tenant, postingId);
+        // #2778 — empty while end dates are off: then every live waiver is in force, as before.
+        const liveEnd = live ? ((await this.repo.endsOf([live.id], tx)).get(live.id) ?? null) : null;
 
         if (input.active) {
-          if (live) return { row: live, active: true, changed: false };
+          if (live && !liveEnd?.ended) {
+            // In force already. The same end date (or none on both) is a no-op; another one is
+            // refused, never silently ignored: a new end date is a clear and a new set.
+            if ((liveEnd?.endsOn ?? null) !== endsOn) throw new WaiverEndDateDiffersError();
+            return { row: live, active: true, changed: false };
+          }
+          if (live && liveEnd) {
+            // #2778 — its last day has passed, so it frees nobody, but it still holds the scope's one
+            // active slot. Retire it (a clear by the same person, saying why) and set the new one.
+            const retireReason = `Ended on ${liveEnd.endsOn}; replaced by a new waiver`;
+            const retired = await this.repo.clear(tx, live.id, {
+              clearedByRef: who.ref,
+              clearedByLabelEnc: who.labelEnc,
+              clearReason: retireReason,
+              at: new Date(),
+            });
+            if (!retired) throw new Error("rvm_applicant_waivers: the ended waiver was not cleared");
+            await this.record(tx, "payer.rvm_waiver_cleared", retired, input.actor, retireReason, ctx);
+          }
           const row = await this.repo.insert(tx, {
             scope: input.scope,
             tenant,
@@ -145,7 +215,10 @@ export class RvmWaiversService {
             setByLabelEnc: who.labelEnc,
             reason: input.reason,
           });
-          await this.record(tx, "payer.rvm_waiver_set", row, input.actor, input.reason, ctx);
+          if (endsOn !== null) {
+            await this.repo.insertEndDate(tx, { waiverId: row.id, tenant, endsOn });
+          }
+          await this.record(tx, "payer.rvm_waiver_set", row, input.actor, input.reason, ctx, endsOn);
           return { row, active: true, changed: true };
         }
 
@@ -164,9 +237,16 @@ export class RvmWaiversService {
         return { row: cleared, active: false, changed: true };
       });
 
-      const uses = out.row ? await this.repo.usesOf([out.row.id]) : new Map<string, number>();
+      const ids = out.row ? [out.row.id] : [];
+      const [uses, ends] = await Promise.all([this.repo.usesOf(ids), this.repo.endsOf(ids)]);
       return {
-        waiver: out.row ? this.view({ ...out.row, waivedOpens: uses.get(out.row.id) ?? 0 }) : null,
+        waiver: out.row
+          ? this.view({
+              ...out.row,
+              waivedOpens: uses.get(out.row.id) ?? 0,
+              end: ends.get(out.row.id) ?? null,
+            })
+          : null,
         active: out.active,
         changed: out.changed,
       };
@@ -213,6 +293,25 @@ export class RvmWaiversService {
     }
   }
 
+  /**
+   * #2778 — the end date a set may carry: null for none. Refused (400) while end dates are off, on
+   * a clear, or before today in India; 503 with the switch on and the table missing.
+   */
+  private async checkEndsOn(input: SetWaiverInput): Promise<string | null> {
+    const endsOn = input.endsOn ?? null;
+    if (endsOn === null) return null;
+    if (!this.repo.endDatesEnabled) throw new WaiverEndDatesOffError();
+    if (!input.active) throw new WaiverEndDateInvalidError("ends_on is only sent with active: true");
+    if (endsOn < istDayOf(new Date())) {
+      throw new WaiverEndDateInvalidError("ends_on is before today (India time)");
+    }
+    if (!(await this.repo.endDatesReadable())) {
+      this.logger.error("rvm_waiver_end_dates missing; apply the rvm_waiver_end_dates migration");
+      throw new ServiceUnavailableException();
+    }
+    return endsOn;
+  }
+
   private async tenantOf(companyId: string): Promise<TenantKey> {
     const id = companyId.toLowerCase();
     const status = await this.repo.companyStatus(id);
@@ -243,6 +342,7 @@ export class RvmWaiversService {
     actor: WaiverActor,
     reason: string,
     ctx: RequestContext,
+    endsOn: string | null = null,
   ): Promise<void> {
     if (actor.kind === "admin") {
       await this.repo.audit(tx, {
@@ -255,6 +355,8 @@ export class RvmWaiversService {
           payer_id: row.payerId,
           job_posting_id: row.jobPostingId,
           reason_text: reason,
+          // #2778 — only when the new waiver has an end date, so an undated set's row is unchanged.
+          ...(endsOn !== null ? { ends_on: endsOn } : {}),
         },
       });
     }
@@ -297,6 +399,8 @@ export class RvmWaiversService {
       clearedByLabel: this.decryptLabel(row.clearedByLabelEnc, row.id),
       clearReason: row.clearReason,
       waivedOpens: row.waivedOpens,
+      endsOn: row.end?.endsOn ?? null,
+      ended: row.end?.ended ?? false,
     };
   }
 

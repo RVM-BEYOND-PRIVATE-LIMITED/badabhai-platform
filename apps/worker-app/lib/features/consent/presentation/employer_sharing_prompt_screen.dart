@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
-import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/kit/kit_docked_bar.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
@@ -67,6 +67,7 @@ class _PromptView extends StatelessWidget {
         }
       },
       builder: (BuildContext context, EmployerSharingPromptState state) {
+        final BbPalette p = context.bb;
         final EmployerSharingPromptCubit cubit =
             context.read<EmployerSharingPromptCubit>();
         return PopScope(
@@ -76,7 +77,7 @@ class _PromptView extends StatelessWidget {
             if (!didPop) cubit.dismiss();
           },
           child: Scaffold(
-            backgroundColor: OnboardingColors.canvasBg,
+            backgroundColor: p.page,
             body: Column(
               children: <Widget>[
                 const PrivacyTopBar(),

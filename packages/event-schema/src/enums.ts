@@ -177,6 +177,10 @@ export const EVENT_DOMAINS = [
   // `payment.*`) and `payer`: the order is its own row with its own lifecycle. IDS, CLOSED CODES,
   // INTEGERS AND TIMES ONLY; the staff note never rides the spine.
   "managed_hiring",
+  // #2890 — the daily flow check across BadaBhai and Campus: a day's counts, its breach alert, and
+  // Campus's nightly report. A DISTINCT domain: no event here is about one posting, application or
+  // company; each is an aggregate over the whole flow. COUNTS, CLOSED CHECK NAMES AND TIMES ONLY.
+  "flow_check",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;

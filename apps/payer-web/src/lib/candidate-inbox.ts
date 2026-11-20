@@ -2,12 +2,7 @@ import { z } from "zod";
 import type { AgencyJob, CandidateInboxRow, InboxPostingRef, PostingSummary } from "./contracts";
 import { isPayerBadRequest } from "./payer-errors";
 import { FROM_PARAM } from "./list-range";
-import {
-  BOARD_STAGES,
-  isApplicantStage,
-  STAGE_LABEL,
-  type ApplicantStage,
-} from "./applicant-stages";
+import { isApplicantStage, STAGE_LABEL, type ApplicantStage } from "./applicant-stages";
 
 /**
  * PURE reads for the Candidates tab's APPLIED view (`/candidates/applied`, the cross-posting
@@ -240,10 +235,9 @@ export interface StageOption {
   id: ApplicantStage;
   label: string;
 }
-export const STAGE_OPTIONS: readonly StageOption[] = BOARD_STAGES.map((id) => ({
-  id,
-  label: STAGE_LABEL[id],
-}));
+export const STAGE_OPTIONS: readonly StageOption[] = (
+  ["new", "shortlist", "selected", "hired", "passed"] as const
+).map((id) => ({ id, label: STAGE_LABEL[id] }));
 
 /**
  * Does this page offer the stage filter? Only when an answered read SHOWED the server saves

@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
 import '../../../core/nav/tab_focus.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_list_row.dart';
@@ -46,6 +47,7 @@ class _NotificationsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // The IndexedStack keeps this branch mounted, so create: runs only on the
     // FIRST visit — without this, alerts arriving later would never auto-mark
     // and the badge would stay lit forever (T4).
@@ -54,7 +56,7 @@ class _NotificationsView extends StatelessWidget {
       index: TabIndex.alerts,
       onFocused: () => context.read<NotificationsCubit>().loadAndMarkRead(),
       child: Scaffold(
-        backgroundColor: OnboardingColors.canvasBg,
+        backgroundColor: p.page,
         body: Column(
           children: <Widget>[
             _header(context),
@@ -136,9 +138,10 @@ class _NotificationsView extends StatelessWidget {
   /// painted once behind them by [DecoratedSliver], so the grouped-card look is
   /// preserved without constructing every off-screen row up front.
   Widget _list(BuildContext context, List<AppNotification> items) {
+    final BbPalette p = context.bb;
     final bool stackTime = _stackTime(context);
     return RefreshIndicator(
-      color: OnboardingColors.shiftBlue,
+      color: p.textBrand,
       onRefresh: () => _refresh(context),
       child: CustomScrollView(
         // Always overscrollable so a short list (1–2 alerts that don't fill the
@@ -157,14 +160,14 @@ class _NotificationsView extends StatelessWidget {
             ),
             sliver: DecoratedSliver(
               decoration: BoxDecoration(
-                color: OnboardingColors.paperWhite,
+                color: p.card,
                 borderRadius: BorderRadius.circular(OnboardingRadii.card),
-                border: Border.all(color: OnboardingColors.borderDefault),
+                border: Border.all(color: p.borderDefault),
               ),
               sliver: SliverList.builder(
                 itemCount: items.length,
                 itemBuilder: (BuildContext context, int i) =>
-                    _row(items[i], stackTime: stackTime),
+                    _row(context, items[i], stackTime: stackTime),
               ),
             ),
           ),
@@ -177,8 +180,9 @@ class _NotificationsView extends StatelessWidget {
   /// always-scrollable viewport-height box so a pull registers even with no
   /// rows — a worker can pull to check for new alerts on an empty list.
   Widget _empty(BuildContext context) {
+    final BbPalette p = context.bb;
     return RefreshIndicator(
-      color: OnboardingColors.shiftBlue,
+      color: p.textBrand,
       onRefresh: () => _refresh(context),
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
@@ -210,7 +214,7 @@ class _NotificationsView extends StatelessWidget {
         scaler.scale(10) > 10 * _kStackTimeAboveTextScale;
   }
 
-  Widget _row(AppNotification n, {required bool stackTime}) {
+  Widget _row(BuildContext context, AppNotification n, {required bool stackTime}) {
     final (IconData icon, BbNotiTone tone) = switch (n.kind) {
       NotificationKind.resumeReady => (Icons.description, BbNotiTone.brand),
       NotificationKind.profileReady => (Icons.badge_outlined, BbNotiTone.green),
@@ -232,6 +236,7 @@ class _NotificationsView extends StatelessWidget {
       ),
       NotificationKind.security => (Icons.security_rounded, BbNotiTone.saffron),
     };
+    final BbPalette p = context.bb;
     final Widget row = stackTime
         ? _StackedAlertRow(
             icon: icon,
@@ -254,7 +259,7 @@ class _NotificationsView extends StatelessWidget {
     return Stack(
       children: <Widget>[
         row,
-        const Positioned(
+        Positioned(
           left: 4,
           top: 0,
           bottom: 0,
@@ -264,7 +269,7 @@ class _NotificationsView extends StatelessWidget {
               height: _kUnreadDot,
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: OnboardingColors.safetyYellow,
+                  color: p.action,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -302,21 +307,22 @@ class _StackedAlertRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final (Color background, Color iconColor) = switch (tone) {
       BbNotiTone.green => (
-        OnboardingColors.successBg,
-        OnboardingColors.successGreen,
+        p.successBg,
+        p.success,
       ),
       BbNotiTone.saffron => (
-        OnboardingColors.errorBg,
-        OnboardingColors.errorRed,
+        p.dangerBg,
+        p.danger,
       ),
-      BbNotiTone.brand => (OnboardingColors.infoBg, OnboardingColors.shiftBlue),
+      BbNotiTone.brand => (p.infoBg, p.textBrand),
     };
     return DecoratedBox(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: OnboardingColors.borderSubtle),
+          bottom: BorderSide(color: p.borderSubtle),
         ),
       ),
       child: ConstrainedBox(
@@ -355,7 +361,7 @@ class _StackedAlertRow extends StatelessWidget {
                       subtitle,
                       style: OnboardingTypography.inter(
                         size: 12,
-                        color: OnboardingColors.ink600,
+                        color: p.textSecondary,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -368,7 +374,7 @@ class _StackedAlertRow extends StatelessWidget {
                       // convention slipped.
                       style: OnboardingTypography.mono(
                         size: 11,
-                        color: OnboardingColors.ink500,
+                        color: p.textMuted,
                       ),
                     ),
                   ],

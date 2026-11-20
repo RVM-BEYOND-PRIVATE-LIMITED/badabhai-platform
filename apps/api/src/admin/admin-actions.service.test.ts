@@ -16,7 +16,7 @@ import type { PinRepository } from "../auth/pin.repository";
 import type { AdminRepository } from "./admin.repository";
 import type { AdminActionsRepository } from "./admin-actions.repository";
 import { AdminActionsService, istQuarterStart } from "./admin-actions.service";
-import { AdminWorkerSuspendSchema } from "./admin-actions.dto";
+import { AdminWorkerSuspendSchema, AdminWorkerUnflagOrEmptySchema } from "./admin-actions.dto";
 import type { AdminInviteService } from "./admin-invite.service";
 
 const CTX: RequestContext = {
@@ -860,6 +860,93 @@ describe("unflagWorker", () => {
     const res = await m.service.unflagWorker(ADMIN_ID, WORKER_ID, CTX);
     expect(res).toEqual({ target_id: WORKER_ID, changed: false });
     expect(m.events.emit).not.toHaveBeenCalled();
+    expect(m.actions.writeAuditReason).not.toHaveBeenCalled();
+  });
+
+  // #2914 — the written reason goes to audit_logs in the flag-resolution transaction.
+  const UNFLAG = {
+    reason_code: "worker_unflag",
+    reason_text: "Quality review done, the profile is genuine",
+  } as const;
+
+  it("with a reason → writes the audit_logs reason in the SAME tx, never in the event", async () => {
+    m.actions.resolveFlag.mockResolvedValue({ id: "flag-1" });
+
+    const res = await m.service.unflagWorker(ADMIN_ID, WORKER_ID, CTX, UNFLAG);
+
+    expect(res).toEqual({ target_id: WORKER_ID, changed: true });
+    expect(m.actions.writeAuditReason).toHaveBeenCalledWith(FAKE_TX, {
+      adminId: ADMIN_ID,
+      workerId: WORKER_ID,
+      action: "worker_unflagged",
+      reasonCode: "worker_unflag",
+      reasonText: UNFLAG.reason_text,
+    });
+    // The resolution, the reason and the action all commit together; the reason precedes the emit.
+    expect(m.actions.resolveFlag.mock.invocationCallOrder[0]!).toBeLessThan(
+      m.actions.writeAuditReason.mock.invocationCallOrder[0]!,
+    );
+    expect(m.actions.writeAuditReason.mock.invocationCallOrder[0]!).toBeLessThan(
+      m.events.emit.mock.invocationCallOrder[0]!,
+    );
+    const emitted = soleEmit(m.events);
+    expect(JSON.stringify(emitted)).not.toContain(UNFLAG.reason_text);
+    assertValueFreeAction(emitted, {
+      actionCode: "worker_unflagged",
+      subjectType: "worker",
+      targetId: WORKER_ID,
+    });
+  });
+
+  it("body-less call (pre-reason-box client) → still audited, with a null reason", async () => {
+    m.actions.resolveFlag.mockResolvedValue({ id: "flag-1" });
+
+    await m.service.unflagWorker(ADMIN_ID, WORKER_ID, CTX);
+
+    expect(m.actions.writeAuditReason).toHaveBeenCalledWith(FAKE_TX, {
+      adminId: ADMIN_ID,
+      workerId: WORKER_ID,
+      action: "worker_unflagged",
+      reasonCode: null,
+      reasonText: null,
+    });
+  });
+
+  it("an audit write failure aborts the unflag (no event escapes the failed tx)", async () => {
+    m.actions.resolveFlag.mockResolvedValue({ id: "flag-1" });
+    m.actions.writeAuditReason.mockRejectedValueOnce(new Error("db down"));
+
+    await expect(m.service.unflagWorker(ADMIN_ID, WORKER_ID, CTX, UNFLAG)).rejects.toThrow(
+      "db down",
+    );
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("AdminWorkerUnflagOrEmptySchema (#2914)", () => {
+  const text = "Quality review done, the profile is genuine";
+
+  it("accepts the full reason and the empty body", () => {
+    expect(
+      AdminWorkerUnflagOrEmptySchema.safeParse({ reason_code: "worker_unflag", reason_text: text })
+        .success,
+    ).toBe(true);
+    expect(AdminWorkerUnflagOrEmptySchema.safeParse({}).success).toBe(true);
+  });
+
+  it("refuses a partial, short, long, identifier-bearing or mis-coded reason", () => {
+    for (const body of [
+      { reason_code: "worker_unflag" },
+      { reason_text: text },
+      { reason_code: "worker_unflag", reason_text: "too short" },
+      { reason_code: "worker_unflag", reason_text: "x".repeat(501) },
+      { reason_code: "worker_unflag", reason_text: "Spoke to him on 9876543210, all fine now" },
+      { reason_code: "worker_unflag", reason_text: "Mailed ravi@example.com and it is resolved" },
+      { reason_code: "worker_unsuspend", reason_text: text },
+      { reason_code: "worker_unflag", reason_text: text, extra: 1 },
+    ]) {
+      expect(AdminWorkerUnflagOrEmptySchema.safeParse(body).success).toBe(false);
+    }
   });
 });
 

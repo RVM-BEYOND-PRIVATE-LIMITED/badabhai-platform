@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// Progress as a rail of dots — no numerals, no denominator (owner ruling, #629).
 ///
@@ -28,6 +28,7 @@ class VoiceDotRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       // A screen-reader label WITHOUT a denominator, matching the visual.
       label: 'Progress',
@@ -41,7 +42,7 @@ class VoiceDotRail extends StatelessWidget {
               height: _dot,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: i < filled ? AppColors.blue : AppColors.ink200,
+                color: i < filled ? p.textBrand : p.borderDefault,
               ),
             ),
         ],

@@ -196,6 +196,9 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
         // #2751 items 8 and 12 — the Managed Hiring desk (super_admin, ops_admin, support). Not the
         // journey's: it works companies' paid orders and reads no funnel step.
         "work_managed_hiring",
+        // #2957 — the Campus trade list (super_admin). Not the journey's: it sets which trades may
+        // go to Campus and reads no funnel step.
+        "manage_campus_trades",
         // #2887 — the moved students' visibility switch (super_admin, ops_admin). Not the
         // journey's: it changes who is matched and shown, and reads no funnel step.
         "manage_student_visibility",

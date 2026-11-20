@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_page_transitions.dart';
+import '../theme/bb_palette.dart';
 
 /// Hosts an in-shell overlay (Post, Credits, Reveal, AI chat) above a [base]
 /// subtree and animates it in AND out with the page transition (#2591, M3) —
@@ -92,6 +92,7 @@ class _BbOverlayHostState extends State<BbOverlayHost>
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final Widget? shown = _shown;
     final bool covered =
         shown != null && _controller.status == AnimationStatus.completed;
@@ -112,7 +113,7 @@ class _BbOverlayHostState extends State<BbOverlayHost>
               animation: _controller,
               // Opaque canvas so the tab under a half-faded overlay never
               // shows through its text.
-              child: ColoredBox(color: AppColors.surfacePage, child: shown),
+              child: ColoredBox(color: p.page, child: shown),
             ),
           ),
       ],

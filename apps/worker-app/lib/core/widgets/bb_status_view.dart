@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 
 /// Centered icon + title + (optional) subtitle + (optional) action — the shared
@@ -22,7 +23,7 @@ class BbStatusView extends StatelessWidget {
     super.key,
     required IconData this.icon,
     required String this.title,
-    this.iconColor = OnboardingColors.shiftBlue,
+    this.iconColor,
     this.subtitle,
     this.action,
   }) : caption = null,
@@ -33,7 +34,7 @@ class BbStatusView extends StatelessWidget {
   const BbStatusView.loading({super.key, this.caption})
     : icon = null,
       title = null,
-      iconColor = OnboardingColors.shiftBlue,
+      iconColor = null,
       subtitle = null,
       action = null,
       _loading = true;
@@ -42,8 +43,9 @@ class BbStatusView extends StatelessWidget {
   final String? title;
 
   /// The glyph's colour. Also tints the disc behind it: an error red glyph gets
-  /// the error tint, anything else the informational blue.
-  final Color iconColor;
+  /// the error tint, anything else the informational blue. Null uses the brand
+  /// ink.
+  final Color? iconColor;
   final String? subtitle;
   final Widget? action;
 
@@ -54,6 +56,7 @@ class BbStatusView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     if (_loading) {
       return Center(
         child: Column(
@@ -61,10 +64,7 @@ class BbStatusView extends StatelessWidget {
           children: <Widget>[
             // A branded navy ring, never a naked default-Material spinner.
             // Where a step count is known prefer BbProgressBar (determinate).
-            const CircularProgressIndicator(
-              color: OnboardingColors.shiftBlue,
-              strokeWidth: 2.5,
-            ),
+            CircularProgressIndicator(color: p.textBrand, strokeWidth: 2.5),
             if (caption != null) ...<Widget>[
               const SizedBox(height: 16),
               Text(
@@ -78,7 +78,8 @@ class BbStatusView extends StatelessWidget {
       );
     }
 
-    final bool isError = iconColor == OnboardingColors.errorRed;
+    final Color resolvedIcon = iconColor ?? p.textBrand;
+    final bool isError = resolvedIcon == p.danger;
     // CENTRE OUTSIDE, SCROLL INSIDE — and NO `LayoutBuilder`.
     //
     // `Center` sizes the scroll view to the content when there is room (so the
@@ -104,12 +105,10 @@ class BbStatusView extends StatelessWidget {
                 height: 54,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: isError
-                      ? OnboardingColors.errorBg
-                      : OnboardingColors.infoBg,
+                  color: isError ? p.dangerBg : p.infoBg,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, size: 26, color: iconColor),
+                child: Icon(icon, size: 26, color: resolvedIcon),
               ),
               const SizedBox(height: 16),
               Text(

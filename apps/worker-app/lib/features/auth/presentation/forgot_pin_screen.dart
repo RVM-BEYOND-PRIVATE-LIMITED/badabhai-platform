@@ -8,6 +8,7 @@ import '../../../core/auth/auth_failure.dart';
 import '../../../core/auth/phone_format.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/otp/sms_otp_autofill.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/kit/otp_code_field.dart';
@@ -272,10 +273,11 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // Kit auth chrome: a full-bleed navy header (title/subtitle change per phase)
     // over the phase body. Pushed from enter-PIN, so a back affordance is shown.
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: Column(
         children: <Widget>[
           ShiftBlueHeader(

@@ -1,12 +1,17 @@
 import { NotFoundException, ServiceUnavailableException } from "@nestjs/common";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RvmApplicantWaiverRow } from "@badabhai/db";
 import {
   RvmWaiversService,
   WaiverCompanyNotFoundError,
+  WaiverEndDateDiffersError,
+  WaiverEndDateInvalidError,
+  WaiverEndDatesOffError,
   WaiverPostingNotFoundError,
+  istDayOf,
   type SetWaiverInput,
 } from "./rvm-waivers.service";
+import type { RvmWaiverEnd } from "./rvm-waivers.repository";
 
 /**
  * #2750 item 5 — the placement team's waivers: who may change what, idempotent by state, one
@@ -50,6 +55,12 @@ interface Opts {
   latest?: RvmApplicantWaiverRow | undefined;
   adminNameEnc?: string | null;
   txError?: unknown;
+  /** #2778 — RVM_WAIVER_END_DATES_ENABLED. */
+  endDates?: boolean;
+  /** #2778 — the end-date table is present (default true). */
+  endDatesTable?: boolean;
+  /** #2778 — the stored end dates, by waiver id. */
+  ends?: Record<string, RvmWaiverEnd>;
 }
 
 function harness(opts: Opts = {}) {
@@ -89,6 +100,14 @@ function harness(opts: Opts = {}) {
     audit: vi.fn(async () => undefined),
     usesOf: vi.fn(async (ids: readonly string[]) => new Map(ids.map((id) => [id, 2]))),
     list: vi.fn(async () => [] as unknown[]),
+    endDatesEnabled: opts.endDates ?? false,
+    endDatesReadable: vi.fn(async () => (opts.endDates ?? false) && (opts.endDatesTable ?? true)),
+    endsOf: vi.fn(async (ids: readonly string[]) => {
+      const out = new Map<string, RvmWaiverEnd>();
+      for (const id of ids) if (opts.ends?.[id]) out.set(id, opts.ends[id]!);
+      return out;
+    }),
+    insertEndDate: vi.fn(async () => undefined),
   };
   const creditRules = {
     assertLive: vi.fn(() => {
@@ -345,5 +364,207 @@ describe("RvmWaiversService.list", () => {
     // A name that cannot be decrypted shows as none, never as an error.
     expect(next.waivers[0]!.setByLabel).toBeNull();
     expect(next.nextCursor).toBeNull();
+  });
+});
+
+/**
+ * #2778 — end dates. Off is today exactly (a dated set refused, nothing read); on, a new waiver
+ * stores its last day in the set's own transaction, a waiver in force with another end date is
+ * refused (never silently kept), and an ENDED waiver is retired by the same person and replaced.
+ */
+describe("RvmWaiversService.set — end dates (#2778)", () => {
+  // 20:00 UTC on 19 Nov is 01:30 on 20 Nov in India: "today" is the 20th.
+  const NOW = new Date("2026-11-19T20:00:00Z");
+  const setClock = () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  };
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("istDayOf is the India calendar day, not the UTC one", () => {
+    expect(istDayOf(NOW)).toBe("2026-11-20");
+    expect(istDayOf(new Date("2026-11-19T18:29:59Z"))).toBe("2026-11-19");
+  });
+
+  it("switch off: a dated set is refused before anything is read or written", async () => {
+    const h = harness({ endDates: false });
+    await expect(h.service.set(campusSet({ endsOn: "2026-12-31" }), CTX)).rejects.toBeInstanceOf(
+      WaiverEndDatesOffError,
+    );
+    expect(h.repo.companyStatus).not.toHaveBeenCalled();
+    expect(h.repo.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it("switch off: an undated set is today's set — no end-date write, the waiver shows no end", async () => {
+    const h = harness({ endDates: false });
+    const out = await h.service.set(campusSet(), CTX);
+    expect(out).toMatchObject({ changed: true, waiver: { endsOn: null, ended: false } });
+    expect(h.repo.insertEndDate).not.toHaveBeenCalled();
+  });
+
+  it("a day before today in India is refused, even when it is still that day in UTC", async () => {
+    setClock();
+    const h = harness({ endDates: true });
+    await expect(h.service.set(campusSet({ endsOn: "2026-11-19" }), CTX)).rejects.toBeInstanceOf(
+      WaiverEndDateInvalidError,
+    );
+    expect(h.repo.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it("an end date with a clear is refused", async () => {
+    const h = harness({ endDates: true, active: row() });
+    await expect(
+      h.service.set(campusSet({ active: false, endsOn: "2026-12-31" }), CTX),
+    ).rejects.toBeInstanceOf(WaiverEndDateInvalidError);
+    expect(h.repo.clear).not.toHaveBeenCalled();
+  });
+
+  it("switch on, table missing: a dated set is a 503, nothing written", async () => {
+    setClock();
+    const h = harness({ endDates: true, endDatesTable: false });
+    await expect(h.service.set(campusSet({ endsOn: "2026-12-31" }), CTX)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(h.repo.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it("today itself is accepted: the end date is written in the set's transaction", async () => {
+    setClock();
+    const h = harness({
+      endDates: true,
+      ends: { "waiver-new": { endsOn: "2026-11-20", ended: false } },
+    });
+    const out = await h.service.set(campusSet({ endsOn: "2026-11-20" }), CTX);
+    expect(h.repo.insertEndDate).toHaveBeenCalledWith(h.tx, {
+      waiverId: "waiver-new",
+      tenant: TENANT,
+      endsOn: "2026-11-20",
+    });
+    expect(out).toMatchObject({
+      active: true,
+      changed: true,
+      waiver: { waiverId: "waiver-new", endsOn: "2026-11-20", ended: false },
+    });
+  });
+
+  it("an admin's dated set puts the end date on the audit row", async () => {
+    setClock();
+    const h = harness({ endDates: true });
+    await h.service.set(
+      campusSet({ actor: { kind: "admin", adminId: ADMIN }, endsOn: "2026-12-31" }),
+      CTX,
+    );
+    expect(h.repo.audit).toHaveBeenCalledWith(
+      h.tx,
+      expect.objectContaining({
+        metadata: expect.objectContaining({ change: "set", ends_on: "2026-12-31" }),
+      }),
+    );
+  });
+
+  it("an undated admin set's audit row is unchanged (no ends_on key)", async () => {
+    const h = harness({ endDates: true });
+    await h.service.set(campusSet({ actor: { kind: "admin", adminId: ADMIN } }), CTX);
+    const entry = (h.repo.audit.mock.calls[0] as unknown[])[1] as { metadata: object };
+    expect(entry.metadata).not.toHaveProperty("ends_on");
+  });
+
+  it("the same end date on a waiver in force is a no-op", async () => {
+    setClock();
+    const h = harness({
+      endDates: true,
+      active: row(),
+      ends: { "waiver-1": { endsOn: "2026-12-31", ended: false } },
+    });
+    const out = await h.service.set(campusSet({ endsOn: "2026-12-31" }), CTX);
+    expect(out).toMatchObject({
+      changed: false,
+      waiver: { waiverId: "waiver-1", endsOn: "2026-12-31" },
+    });
+    expect(h.repo.insert).not.toHaveBeenCalled();
+    expect(h.repo.insertEndDate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["another date", { "waiver-1": { endsOn: "2026-12-31", ended: false } }, "2027-01-31"],
+    ["a date where none is stored", {}, "2026-12-31"],
+    ["no date where one is stored", { "waiver-1": { endsOn: "2026-12-31", ended: false } }, null],
+  ] as const)("a waiver in force with %s is refused, nothing written", async (_n, ends, endsOn) => {
+    setClock();
+    const h = harness({ endDates: true, active: row(), ends: { ...ends } });
+    await expect(h.service.set(campusSet({ endsOn }), CTX)).rejects.toBeInstanceOf(
+      WaiverEndDateDiffersError,
+    );
+    expect(h.repo.insert).not.toHaveBeenCalled();
+    expect(h.repo.clear).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("an ENDED waiver is retired by the same person (cleared, with why) and the new one is set", async () => {
+    setClock();
+    const h = harness({
+      endDates: true,
+      active: row(),
+      ends: { "waiver-1": { endsOn: "2026-11-15", ended: true } },
+    });
+    const out = await h.service.set(campusSet({ endsOn: "2026-12-31" }), CTX);
+    expect(h.repo.clear).toHaveBeenCalledWith(h.tx, "waiver-1", {
+      clearedByRef: STAFF,
+      clearedByLabelEnc: "enc:Asha",
+      clearReason: "Ended on 2026-11-15; replaced by a new waiver",
+      at: expect.any(Date),
+    });
+    expect(h.repo.insert).toHaveBeenCalledTimes(1);
+    expect(h.repo.insertEndDate).toHaveBeenCalledWith(
+      h.tx,
+      expect.objectContaining({ endsOn: "2026-12-31" }),
+    );
+    const names = h.events.emit.mock.calls.map(
+      (c) => ((c as unknown[])[0] as { event_name: string }).event_name,
+    );
+    expect(names).toEqual(["payer.rvm_waiver_cleared", "payer.rvm_waiver_set"]);
+    expect(out).toMatchObject({ active: true, changed: true, waiver: { waiverId: "waiver-new" } });
+  });
+
+  it("an ENDED waiver may also be replaced by an undated one", async () => {
+    const h = harness({
+      endDates: true,
+      active: row(),
+      ends: { "waiver-1": { endsOn: "2026-11-15", ended: true } },
+    });
+    const out = await h.service.set(campusSet(), CTX);
+    expect(h.repo.clear).toHaveBeenCalledTimes(1);
+    expect(h.repo.insertEndDate).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ changed: true, waiver: { waiverId: "waiver-new", endsOn: null } });
+  });
+
+  it("clearing an ENDED waiver is an ordinary clear", async () => {
+    const h = harness({
+      endDates: true,
+      active: row(),
+      ends: { "waiver-1": { endsOn: "2026-11-15", ended: true } },
+    });
+    const out = await h.service.set(campusSet({ active: false, reason: "Drive over" }), CTX);
+    expect(out).toMatchObject({ active: false, changed: true, waiver: { waiverId: "waiver-1" } });
+    expect(h.repo.insert).not.toHaveBeenCalled();
+  });
+
+  it("the list shows each waiver's end and whether it has ended", async () => {
+    const h = harness({ endDates: true });
+    h.repo.list.mockResolvedValue([
+      {
+        ...row({ id: "a0000000-0000-4000-8000-000000000001" }),
+        waivedOpens: 0,
+        end: { endsOn: "2026-11-15", ended: true },
+      },
+      { ...row({ id: "a0000000-0000-4000-8000-000000000002" }), waivedOpens: 0, end: null },
+    ]);
+    const page = await h.service.list({ includeCleared: true, limit: 10 });
+    expect(page.waivers.map((w) => [w.endsOn, w.ended])).toEqual([
+      ["2026-11-15", true],
+      [null, false],
+    ]);
   });
 });

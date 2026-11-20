@@ -5,7 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/onboarding_select_field.dart';
@@ -413,9 +413,10 @@ class _NameViewState extends State<_NameView> with WidgetsBindingObserver {
         }
       },
       builder: (BuildContext context, NameState state) {
+        final BbPalette p = context.bb;
         final NavigatorState navigator = Navigator.of(context);
         return Scaffold(
-          backgroundColor: OnboardingColors.canvasBg,
+          backgroundColor: p.page,
           body: Column(
             children: <Widget>[
               // The header bleeds under the status bar and pads the top inset
@@ -531,6 +532,7 @@ class _NameField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return TextField(
       controller: controller,
       textCapitalization: TextCapitalization.words,
@@ -543,11 +545,11 @@ class _NameField extends StatelessWidget {
         hintText: hint,
         hintStyle: OnboardingTypography.inter(
           size: 14,
-          color: OnboardingColors.ink500,
+          color: p.textMuted,
         ),
         counterText: '',
         filled: true,
-        fillColor: OnboardingColors.paperWhite,
+        fillColor: p.card,
         isDense: true,
         constraints: const BoxConstraints(
           minHeight: OnboardingLayout.tapTarget,
@@ -556,11 +558,11 @@ class _NameField extends StatelessWidget {
           horizontal: 14,
           vertical: 15,
         ),
-        border: _border(OnboardingColors.borderDefault, 1.2),
-        enabledBorder: _border(OnboardingColors.borderDefault, 1.2),
-        // Spec §3.3's one focus rule (D8): navy at 1.8. Yellow is reserved for
-        // a SELECTED card, chip or checkbox — an input is never selected.
-        focusedBorder: _border(OnboardingColors.shiftBlue, 1.8),
+        border: _border(p.borderDefault, 1.2),
+        enabledBorder: _border(p.borderDefault, 1.2),
+        // Spec §3.3's one focus rule (D8): the focus ring at 1.8. Yellow is
+        // reserved for a SELECTED card, chip or checkbox.
+        focusedBorder: _border(p.focusRing, 1.8),
       ),
     );
   }
@@ -672,6 +674,7 @@ class _OutlineActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: SizedBox(
@@ -679,16 +682,13 @@ class _OutlineActionButton extends StatelessWidget {
         child: OutlinedButton(
           onPressed: onPressed,
           style: OutlinedButton.styleFrom(
-            backgroundColor: OnboardingColors.paperWhite,
-            foregroundColor: OnboardingColors.shiftBlue,
+            backgroundColor: p.card,
+            foregroundColor: p.textBrand,
             // Keep the navy frame while a fix is in flight; only the spinner
             // says "busy", so the button never looks like it vanished.
-            disabledForegroundColor: OnboardingColors.shiftBlue,
+            disabledForegroundColor: p.textBrand,
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            side: const BorderSide(
-              color: OnboardingColors.shiftBlue,
-              width: 1.5,
-            ),
+            side: BorderSide(color: p.textBrand, width: 1.5),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(OnboardingRadii.nameField),
             ),
@@ -697,16 +697,16 @@ class _OutlineActionButton extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               if (loading)
-                const SizedBox(
+                SizedBox(
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: OnboardingColors.shiftBlue,
+                    color: p.textBrand,
                   ),
                 )
               else if (icon != null)
-                Icon(icon, size: 20, color: OnboardingColors.shiftBlue),
+                Icon(icon, size: 20, color: p.textBrand),
               if (loading || icon != null) const SizedBox(width: 8),
               Flexible(
                 child: Text(
@@ -716,7 +716,7 @@ class _OutlineActionButton extends StatelessWidget {
                   style: OnboardingTypography.inter(
                     size: 14,
                     weight: FontWeight.w600,
-                    color: OnboardingColors.shiftBlue,
+                    color: p.textBrand,
                   ),
                 ),
               ),
@@ -739,16 +739,17 @@ class _LocationHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     if (errorText != null) {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Padding(
-            padding: EdgeInsets.only(top: 1),
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
             child: Icon(
               Icons.error_outline_rounded,
               size: 16,
-              color: OnboardingColors.errorRed,
+              color: p.danger,
             ),
           ),
           const SizedBox(width: 6),
@@ -758,7 +759,7 @@ class _LocationHint extends StatelessWidget {
               style: OnboardingTypography.inter(
                 size: 13,
                 height: 1.35,
-                color: OnboardingColors.errorRed,
+                color: p.danger,
               ),
             ),
           ),
@@ -769,13 +770,9 @@ class _LocationHint extends StatelessWidget {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Padding(
-            padding: EdgeInsets.only(top: 1),
-            child: Icon(
-              Icons.check_rounded,
-              size: 16,
-              color: OnboardingColors.successGreen,
-            ),
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(Icons.check_rounded, size: 16, color: p.success),
           ),
           const SizedBox(width: 6),
           Expanded(
@@ -785,7 +782,7 @@ class _LocationHint extends StatelessWidget {
                 size: 13,
                 height: 1.35,
                 weight: FontWeight.w500,
-                color: OnboardingColors.successGreen,
+                color: p.success,
               ),
             ),
           ),
@@ -810,10 +807,11 @@ class _FeedbackPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       button: true,
       child: Material(
-        color: OnboardingColors.shiftBlue,
+        color: p.brandSurface,
         borderRadius: BorderRadius.circular(OnboardingRadii.feedbackButton),
         child: InkWell(
           onTap: onTap,
@@ -825,10 +823,10 @@ class _FeedbackPill extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                const Icon(
+                Icon(
                   Icons.chat_bubble_outline_rounded,
                   size: 16,
-                  color: OnboardingColors.textOnBlue,
+                  color: p.onBrandSurface,
                 ),
                 const SizedBox(width: 8),
                 Text(
@@ -836,7 +834,7 @@ class _FeedbackPill extends StatelessWidget {
                   style: OnboardingTypography.inter(
                     size: 13,
                     weight: FontWeight.w700,
-                    color: OnboardingColors.textOnBlue,
+                    color: p.onBrandSurface,
                   ),
                 ),
               ],
@@ -877,10 +875,11 @@ Future<_LocationPromptChoice> _askForLocation(
   BuildContext context, {
   required bool submitOnDismiss,
 }) async {
+  final BbPalette p = context.bb;
   final _LocationPromptChoice? choice = await showDialog<_LocationPromptChoice>(
     context: context,
     barrierDismissible: false,
-    barrierColor: AppColors.scrim,
+    barrierColor: p.scrim,
     builder: (BuildContext dialogContext) {
       void close(_LocationPromptChoice value) =>
           Navigator.of(dialogContext).pop(value);
@@ -889,7 +888,7 @@ Future<_LocationPromptChoice> _askForLocation(
         // Scrolls rather than overflowing on a 320x568 phone at a large
         // system font, where title + copy + three 48px actions exceed it.
         scrollable: true,
-        backgroundColor: OnboardingColors.paperWhite,
+        backgroundColor: p.card,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         shape: const RoundedRectangleBorder(
@@ -900,9 +899,7 @@ Future<_LocationPromptChoice> _askForLocation(
         title: Text(
           submitOnDismiss ? 'Location reh gayi' : 'Location ab mil sakti hai',
           textAlign: TextAlign.center,
-          style: OnboardingTypography.questionHeadline(
-            color: OnboardingColors.shiftBlue,
-          ),
+          style: OnboardingTypography.questionHeadline(color: p.textBrand),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -915,7 +912,7 @@ Future<_LocationPromptChoice> _askForLocation(
                   : 'Ab GPS se aapka sheher aur state apne aap bhar sakte '
                         'hain, ya khud chunein.',
               textAlign: TextAlign.center,
-              style: OnboardingTypography.body(color: OnboardingColors.ink600),
+              style: OnboardingTypography.body(color: p.textSecondary),
             ),
             const SizedBox(height: 20),
             Row(
@@ -945,9 +942,7 @@ Future<_LocationPromptChoice> _askForLocation(
               height: OnboardingLayout.tapTarget,
               child: TextButton(
                 onPressed: () => close(_LocationPromptChoice.dismiss),
-                style: TextButton.styleFrom(
-                  foregroundColor: OnboardingColors.ink600,
-                ),
+                style: TextButton.styleFrom(foregroundColor: p.textSecondary),
                 child: Text(
                   // The submit-time close is a SKIP, and says so — a worker who
                   // taps it must know the name saves without a location, not
@@ -959,7 +954,7 @@ Future<_LocationPromptChoice> _askForLocation(
                   style: OnboardingTypography.inter(
                     size: 14,
                     weight: FontWeight.w600,
-                    color: OnboardingColors.ink600,
+                    color: p.textSecondary,
                   ),
                 ),
               ),
@@ -988,6 +983,7 @@ class _PromptPrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: SizedBox(
@@ -995,8 +991,8 @@ class _PromptPrimaryButton extends StatelessWidget {
         child: ElevatedButton(
           onPressed: onPressed,
           style: ElevatedButton.styleFrom(
-            backgroundColor: OnboardingColors.safetyYellow,
-            foregroundColor: OnboardingColors.shiftBlue,
+            backgroundColor: p.action,
+            foregroundColor: p.onAction,
             elevation: 0,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             shape: RoundedRectangleBorder(
@@ -1008,14 +1004,14 @@ class _PromptPrimaryButton extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(icon, size: 20, color: OnboardingColors.shiftBlue),
+              Icon(icon, size: 20, color: p.onAction),
               const SizedBox(width: 8),
               Flexible(
                 child: Text(
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: OnboardingTypography.buttonLabel(),
+                  style: OnboardingTypography.buttonLabel(color: p.onAction),
                 ),
               ),
             ],

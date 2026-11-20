@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../session/app_session.dart';
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/bb_palette.dart';
 
 /// A small, unmissable pill that names the SIGNED-IN ROLE — `COMPANY` or
 /// `AGENCY`. The role is locked at login and server-decided (see
@@ -22,9 +22,10 @@ class PayerRoleBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String label = role.isAgency ? 'AGENCY' : 'COMPANY';
-    final Color fg = onDark ? AppColors.onBlue : AppColors.blue;
-    final Color border = onDark ? AppColors.onBlueMuted : AppColors.blue;
+    final Color fg = onDark ? p.onBrandSurface : p.textBrand;
+    final Color border = onDark ? p.onBrandSurfaceMuted : p.textBrand;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(

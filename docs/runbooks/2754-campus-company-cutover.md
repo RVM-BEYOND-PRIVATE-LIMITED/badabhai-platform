@@ -12,7 +12,7 @@ stage), the contacts it had already opened, and its unused CV views as credits. 
 report files carry Campus ids, BadaBhai ids, counts and reason codes only. The bundle itself does
 carry personal data, so it lives only in a private folder and is deleted after the move.
 
-## The four modes
+## The five modes
 
 | Mode | Command (after `pnpm --filter @badabhai/api build`) | Writes? |
 |---|---|---|
@@ -20,6 +20,7 @@ carry personal data, so it lives only in a private folder and is deleted after t
 | Apply | `… --bundle <folder> --apply --batch <key> --run-by <name> [flags below]` | Yes |
 | Report | `… --report --batch <key> --bundle <same folder> [--out <empty folder>]` | No |
 | Rollback | `… --rollback --batch <key> --run-by <name>` | Yes |
+| Notify (#2787) | `… --notify --batch <key> --signin-url <address> [--send --run-by <name>] [--sms-template-id <id>]` | Only with `--send` |
 
 Apply flags:
 
@@ -38,6 +39,18 @@ A write to production also needs `--i-am-authorised-to-write-to-production` **an
 `PII_ENCRYPTION_KEY` (or the key ring), `PII_HASH_PEPPER` and the rest of the server config. Use
 the production values, or phones are hashed under the wrong pepper and no company can sign in by
 phone.
+
+Notify flags (#2787), after a clean report:
+
+- Without `--send` it is a preview: counts of what would go out per channel, nothing sent.
+- `--signin-url` is the company sign-in address on BadaBhai (payer-web), printed in the email. It
+  must be `https`.
+- `--sms-template-id` is the Fast2SMS id of the APPROVED welcome template. Without it every SMS is
+  skipped as `template_missing`; email still goes. Only a proven phone gets an SMS.
+- Each company is told once per channel, ever (`company_import_notices`). Running it again sends
+  only what failed or was skipped before, so pass the template id later and run it again to send
+  the SMS. Exit 2 when any delivery failed: run it again.
+- It needs migration `company_import_notices` applied, and an `applied` batch.
 
 **Batch keys:** lower-case letters, digits and dashes, for example `pilot-1` or `cutover-1`. Each
 key binds to one bundle (its manifest sha256) and one `--test` setting. Running the same key again
@@ -120,7 +133,10 @@ return to their starting values.
    - its applicants;
    - the converted credits.
 5. Turn the job's worker visibility on and off from the admin portal (#2891).
-6. Roll back `pilot-1`, then run the report again.
+6. Send the first sign-in message (#2787): `--notify --batch pilot-1 --signin-url <address>`, then
+   the same with `--send --run-by <name>`. Synthetic e-mails end in `.invalid` and are skipped; give
+   the bundle real team e-mails to read the message. Check it reaches each team member.
+7. Roll back `pilot-1`, then run the report again.
 
 ## The day, in order
 
@@ -148,7 +164,17 @@ return to their starting values.
      consent, or a company kept back by a shared phone). They are not failures.
 6. **Switch Campus:** sign-in redirect on and plans off (Campus team, #156 and #160).
 7. **Payments on** in BadaBhai (#2749).
-8. **First sign-in messages** to the moved companies.
+8. **First sign-in messages** to the moved companies (#2787):
+
+   ```bash
+   $CLI --notify --batch cutover-1 --signin-url <address>            # preview
+   OPS_ALLOW_PRODUCTION=import-campus-companies $CLI --notify --send --batch cutover-1 \
+     --run-by <name> --signin-url <address> [--sms-template-id <approved id>] \
+     --i-am-authorised-to-write-to-production
+   ```
+
+   Exit 2: some deliveries failed; run the `--send` command again. It never messages a company twice
+   on the same channel.
 9. **Delete the bundle.** Keep the report files privately; they hold no personal data.
 
 ## Watch, first hours

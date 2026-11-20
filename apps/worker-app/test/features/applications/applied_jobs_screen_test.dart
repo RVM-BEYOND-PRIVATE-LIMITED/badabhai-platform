@@ -6,14 +6,24 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_job_card.dart';
 import 'package:badabhai_worker_app/features/applications/domain/applications_repository.dart';
 import 'package:badabhai_worker_app/features/applications/presentation/applied_jobs_screen.dart';
 import 'package:badabhai_worker_app/features/applications/presentation/cubit/applications_cubit.dart';
+import 'package:badabhai_worker_app/features/swipe/domain/job_detail.dart';
+import 'package:badabhai_worker_app/features/swipe/domain/jobs_repository.dart';
 
 class MockApplicationsRepository extends Mock
     implements ApplicationsRepository {}
+
+/// A job read that answers the neutral 404 an RVM-only posting does.
+class _NotFoundJobsRepository implements JobsRepository {
+  @override
+  Future<JobDetail> jobDetail(String jobId) async =>
+      throw const ServerFailure(404);
+}
 
 AppliedJob _job(
   String id, {
@@ -24,6 +34,7 @@ AppliedJob _job(
   // exercise the MATCH_V1 guard.
   String tradeKey = 'cnc_operator',
   String? skillLabel,
+  String via = 'app',
 }) => AppliedJob(
   jobId: id,
   tradeKey: tradeKey,
@@ -37,6 +48,7 @@ AppliedJob _job(
   createdAt: DateTime(2026, 6, 1),
   updatedAt: DateTime(2026, 6, 1),
   matchedSkillLabel: skillLabel,
+  via: via,
 );
 
 /// Wires a fake repo into the locator + a minimal router (applied + the
@@ -114,6 +126,33 @@ void main() {
       );
     },
   );
+
+  test('#2753 item 8: `via` defaults to app and a campus row reads campus', () {
+    final AppliedJob legacy = AppliedJob.fromJson(<String, dynamic>{
+      'job_id': 'j1',
+      'title': 'CNC Operator',
+    });
+    expect(legacy.via, 'app');
+    expect(legacy.appliedViaCampus, isFalse);
+
+    final AppliedJob campus = AppliedJob.fromJson(<String, dynamic>{
+      'job_id': 'j2',
+      'title': 'VMC Operator',
+      'via': 'campus',
+    });
+    expect(campus.via, 'campus');
+    expect(campus.appliedViaCampus, isTrue);
+  });
+
+  testWidgets('a Campus application is labelled as such, an app row is not',
+      (WidgetTester tester) async {
+    await _pump(tester, <AppliedJob>[
+      _job('a1', title: 'CNC Operator'),
+      _job('a2', title: 'VMC Operator', via: 'campus'),
+    ]);
+
+    expect(find.text('Applied through RVM Campus'), findsOneWidget);
+  });
 
   testWidgets(
     'WA-1 regression: THREE applications render as THREE rows — the list '
@@ -200,6 +239,23 @@ void main() {
     await tester.pumpAndSettle(); // detail screen has no perpetual animation
 
     expect(find.text('DETAIL a1'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a Campus row whose job read 404s is information only — no job page',
+      (WidgetTester tester) async {
+    await _pump(tester, <AppliedJob>[
+      _job('campus-1', title: 'VMC Operator', via: 'campus'),
+    ]);
+    locator.registerSingleton<JobsRepository>(_NotFoundJobsRepository());
+    addTearDown(() => locator.unregister<JobsRepository>());
+
+    await tester.tap(find.byKey(const Key('jobCardTitleButton')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('DETAIL campus-1'), findsNothing);
+    expect(find.textContaining('RVM Campus'), findsWidgets);
   });
 
   test('appliedRelativeLabel formats coarse Hinglish relative time', () {

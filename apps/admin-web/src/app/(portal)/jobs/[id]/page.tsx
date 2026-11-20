@@ -8,6 +8,7 @@ import { getJobPosting, listApplications } from "../../../../lib/entities";
 import { isAdminRequestError } from "../../../../lib/admin-http";
 import { getWaivers } from "../../../../lib/waivers";
 import { WaiverSwitch } from "../../waivers/waiver-switch";
+import { AudiencePanel } from "./audience-panel";
 import {
   formatCount,
   formatExperienceBand,
@@ -25,6 +26,7 @@ import { DetailList } from "../../../../components/detail-list";
 import { Stat } from "../../../../components/stat";
 import { InfoPopover } from "../../../../components/info-popover";
 import { JobDetailHeader } from "./job-detail-header";
+import { audienceLabel } from "../columns";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
@@ -139,6 +141,14 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         />
       ) : null}
 
+      {can(session.capabilities, "manage_postings") && job.audience !== undefined ? (
+        <AudiencePanel
+          postingId={job.id}
+          audience={job.audience}
+          reviewState={job.rvm_review?.state ?? null}
+        />
+      ) : null}
+
       {job.status === "suspended" && (
         <section className="notice notice--bad notice--row" role="status">
           <span>
@@ -195,6 +205,32 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               },
               { label: "Shift", value: job.shift ?? "not stated" },
               { label: "Needed by", value: job.needed_by ?? "not stated" },
+              // #2746 — audience and RVM targeting/review, read here; an admin changes the audience in
+              // the "Where this job shows" panel above (#2956, #2958).
+              { label: "Audience", value: audienceLabel(job.audience) },
+              {
+                label: "RVM targeting",
+                value:
+                  job.audience === undefined || job.audience === "badabhai_workers"
+                    ? "not applicable"
+                    : `Branches: ${
+                        (job.rvm_branch_ids ?? []).length > 0
+                          ? (job.rvm_branch_ids ?? []).join(", ")
+                          : "any"
+                      } · Courses: ${
+                        (job.rvm_course_ids ?? []).length > 0
+                          ? (job.rvm_course_ids ?? []).join(", ")
+                          : "any"
+                      }`,
+              },
+              {
+                label: "RVM review",
+                value: job.rvm_review
+                  ? `${job.rvm_review.state}${
+                      job.rvm_review.reason ? ` — ${job.rvm_review.reason}` : ""
+                    }`
+                  : "no RVM review",
+              },
               { label: "Requirements", value: chipList(job.requirements, "none listed") },
               { label: "Benefits", value: chipList(job.benefits, "none listed") },
             ]}

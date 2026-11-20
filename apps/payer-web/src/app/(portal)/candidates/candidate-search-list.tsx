@@ -5,8 +5,14 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { CandidateSearchRow, UnlockQuotes } from "../../../lib/contracts";
 import type { GrantedUnlock } from "../../../lib/unlock-history";
 import { bandLabel, monthsLabel, workerHandle } from "../../../lib/masking";
+import { NOT_RECENTLY_ACTIVE_LABEL } from "../../../lib/activity-mark";
 import { candidatesErrorMessage } from "../../../lib/candidates-messages";
 import { shownTradeLevel } from "../../../lib/trade-level";
+import {
+  hasPrePayFacts,
+  prePayFactLines,
+  SOURCE_LABEL,
+} from "../../../lib/prepay-facts";
 // The count copy's own dependency-free module — the search's URL reads (zod) stay off the client.
 import { countSummary, type SearchCounts } from "../../../lib/candidate-counts";
 import { Avatar, Badge, Card } from "../../../components/ds";
@@ -29,11 +35,13 @@ import { quotedCredits, quotedWaived } from "../../../lib/unlock-quotes";
 import {
   candidateUnlockAction,
   maskedResumeAction,
+  readUnlockContactAction,
   revealContactAction,
   type ContactActionResult,
   type RevealActionResult,
   type UnlockActionResult,
 } from "../postings/[id]/applicants/actions";
+import type { ContactLookupView } from "../../../lib/unlock-view";
 
 /**
  * ALL CANDIDATES — the faceless card list of one search page (ADR-0040 E2; owner rulings
@@ -95,6 +103,11 @@ export interface CandidateSearchListProps {
   unlocked?: Record<string, GrantedUnlock>;
   /** #2750 — pre-read quotes (tests / an SSR seed); the hook refreshes them after mount. */
   unlockQuotes?: UnlockQuotes | null;
+  /**
+   * #2747 — the contact read for each granted unlock, keyed by `unlockId`, read when the screen
+   * opens and never cached. Absent keeps today's opened screen.
+   */
+  contacts?: Record<string, ContactLookupView | null>;
 }
 
 export function CandidateSearchList({
@@ -106,6 +119,7 @@ export function CandidateSearchList({
   balanceAsOf,
   unlocked = {},
   unlockQuotes = null,
+  contacts = {},
 }: CandidateSearchListProps) {
   // One card per worker (the server's order is total over worker ids), so every per-card state
   // below is keyed by the worker id.
@@ -116,6 +130,9 @@ export function CandidateSearchList({
   const [confirmWorker, setConfirmWorker] = useState<string | null>(null);
   // The transient unlock-RESULT toast — granted, or the ONE neutral no-cause failure (XB-C).
   const [result, setResult] = useState<UnlockResultKind | null>(null);
+  // #2747 — contact reads made after a grant this session (the page supplies the rest). Appended
+  // LAST so every state cell above keeps the position the screen's suites pin.
+  const [contactReads, setContactReads] = useState<Record<string, ContactLookupView | null>>({});
   // The newest balance the server read (#2585): this page's, or an unlock's read-back since — what
   // every zero-balance check below reads.
   const liveBalance = useLiveBalance(balance, balanceAsOf);
@@ -155,6 +172,7 @@ export function CandidateSearchList({
     }
     if (res.ok) {
       patch(workerId, { busy: false, unlock: res.view, fresh: res.view.kind === "granted" });
+      if (res.view.kind === "granted") void readContactFor(res.view.unlockId);
       // The server's balance after the grant, or the refusal's own figure (null: unread).
       if (res.readBack) {
         publishBalance(res.readBack);
@@ -191,6 +209,18 @@ export function CandidateSearchList({
     setConfirmed((prev) => ({ ...prev, [workerId]: true }));
     setConfirmWorker(null);
     void runUnlock(workerId);
+  }
+
+  /** #2747 — read what the credit opened; never cached, stored or logged. */
+  async function readContactFor(unlockId: string) {
+    try {
+      const res = await readUnlockContactAction({ unlockId });
+      if (res.ok) setContactReads((prev) => ({ ...prev, [unlockId]: res.view }));
+      else if (res.error === "limited")
+        setContactReads((prev) => ({ ...prev, [unlockId]: { kind: "limited" } }));
+    } catch {
+      // An outage keeps today's opened screen.
+    }
   }
 
   async function onRevealContact(unlockId: string, workerId: string) {
@@ -294,9 +324,18 @@ export function CandidateSearchList({
                 <Avatar masked size={44} aria-hidden="true" />
                 <div className="applicant__id">
                   <span className="bb-mono applicant__id-code">{workerHandle(c.workerId)}</span>
-                  <span className="applicant__trade">{c.role.label}</span>
-                  {facts ? <span className="applicant__bands">{facts}</span> : null}
-                  <span className="applicant__bands">{industry}</span>
+                  {c.source ? (
+                    <Badge tone="neutral" variant="outline" className="applicant__source">
+                      {SOURCE_LABEL[c.source]}
+                    </Badge>
+                  ) : null}
+                  {!hasPrePayFacts(c) ? (
+                    <>
+                      <span className="applicant__trade">{c.role.label}</span>
+                      {facts ? <span className="applicant__bands">{facts}</span> : null}
+                      <span className="applicant__bands">{industry}</span>
+                    </>
+                  ) : null}
                 </div>
                 <div className="applicant__relevance">
                   {/* R74: a synthetic seed row says so first. Neutral tone — a fact, not a warning. */}
@@ -315,11 +354,31 @@ export function CandidateSearchList({
                       {level.tradeLevelLabel}
                     </Badge>
                   ) : null}
+                  {/* #2753 item 7 — the server's mark, when the activity switch is
+                      on. A label only: no worker is hidden or re-sorted. */}
+                  {c.notRecentlyActive === true ? (
+                    <Badge tone="neutral" variant="outline" className="applicant__level">
+                      {NOT_RECENTLY_ACTIVE_LABEL}
+                    </Badge>
+                  ) : null}
                 </div>
               </div>
 
+              {/* #2747 — the six facts before paying, drawn only when the server sent the keys.
+                  A missing value is "not given"; the salary is printed exactly as sent. */}
+              {hasPrePayFacts(c) ? (
+                <dl className="applicant__facts">
+                  {prePayFactLines(c).map((fact) => (
+                    <div className="applicant__fact" key={fact.key}>
+                      <dt className="applicant__fact-label">{fact.label}</dt>
+                      <dd className="applicant__fact-value">{fact.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+
               {/* His other roles: static taxonomy TAGS, not controls. */}
-              {others.length > 0 ? (
+              {!hasPrePayFacts(c) && others.length > 0 ? (
                 <div className="candidate-card__roles">
                   <span className="candidate-card__roles-lead" id={rolesLabelId}>
                     Other roles
@@ -357,6 +416,12 @@ export function CandidateSearchList({
                   onRevealContact: (unlockId) => onRevealContact(unlockId, c.workerId),
                   onMaskedResume: (unlockId) => onMaskedResume(unlockId, c.workerId),
                   onRevealed: () => patch(c.workerId, { fresh: false }),
+                  contactLookup:
+                    row.unlock?.kind === "granted"
+                      ? (contactReads[row.unlock.unlockId] ??
+                        contacts[row.unlock.unlockId] ??
+                        null)
+                      : null,
                 })
               )}
             </Card>

@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -102,7 +103,7 @@ class _SuspendedAccountView extends StatelessWidget {
     await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      barrierColor: OnboardingColors.scrim,
+      barrierColor: context.bb.scrim,
       builder: (BuildContext dialogContext) =>
           BlocProvider<SuspendedAccountCubit>.value(
             value: cubit,
@@ -127,6 +128,7 @@ class _SuspendedAccountView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BlocListener<SuspendedAccountCubit, SuspendedAccountState>(
       listenWhen: (SuspendedAccountState prev, SuspendedAccountState curr) =>
           prev.status != curr.status,
@@ -154,7 +156,7 @@ class _SuspendedAccountView extends StatelessWidget {
         }
       },
       child: Scaffold(
-        backgroundColor: OnboardingColors.canvasBg,
+        backgroundColor: p.page,
         body: SafeArea(
           child: TweenAnimationBuilder<double>(
             key: kSuspendedScreenFadeKey,
@@ -178,7 +180,7 @@ class _SuspendedAccountView extends StatelessWidget {
                     style: OnboardingTypography.anek(
                       size: 28,
                       weight: FontWeight.w800,
-                      color: OnboardingColors.shiftBlue,
+                      color: p.textBrand,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -188,7 +190,7 @@ class _SuspendedAccountView extends StatelessWidget {
                     style: OnboardingTypography.inter(
                       size: 15,
                       height: 1.5,
-                      color: OnboardingColors.ink600,
+                      color: p.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -266,19 +268,20 @@ class _SuspendedGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Center(
       child: Container(
         width: 88,
         height: 88,
         alignment: Alignment.center,
-        decoration: const BoxDecoration(
-          color: OnboardingColors.infoBg,
+        decoration: BoxDecoration(
+          color: p.infoBg,
           shape: BoxShape.circle,
         ),
-        child: const Icon(
+        child: Icon(
           Icons.lock_outline_rounded,
           size: 44,
-          color: OnboardingColors.shiftBlue,
+          color: p.textBrand,
         ),
       ),
     );
@@ -290,12 +293,13 @@ class _SupportCallout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: OnboardingColors.infoBg,
+        color: p.infoBg,
         borderRadius: BorderRadius.circular(OnboardingRadii.note),
-        border: Border.all(color: OnboardingColors.infoBorder),
+        border: Border.all(color: p.infoBorder),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -304,14 +308,14 @@ class _SupportCallout extends StatelessWidget {
             width: 30,
             height: 30,
             alignment: Alignment.center,
-            decoration: const BoxDecoration(
-              color: OnboardingColors.shiftBlue,
+            decoration: BoxDecoration(
+              color: p.brandSurface,
               shape: BoxShape.circle,
             ),
-            child: const Icon(
+            child: Icon(
               Icons.support_agent_rounded,
               size: 18,
-              color: OnboardingColors.paperWhite,
+              color: p.onBrandSurface,
             ),
           ),
           const SizedBox(width: 12),
@@ -322,7 +326,7 @@ class _SupportCallout extends StatelessWidget {
                 size: 14,
                 height: 1.45,
                 weight: FontWeight.w600,
-                color: OnboardingColors.infoTitle,
+                color: p.infoTitle,
               ),
             ),
           ),
@@ -377,6 +381,7 @@ class _SuspendedDeleteOtpDialogState extends State<_SuspendedDeleteOtpDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BlocConsumer<SuspendedAccountCubit, SuspendedAccountState>(
       listener: (BuildContext context, SuspendedAccountState state) {
         if (state.status == SuspendedAccountStatus.deletionScheduled) {
@@ -395,7 +400,7 @@ class _SuspendedDeleteOtpDialogState extends State<_SuspendedDeleteOtpDialog> {
             state.status == SuspendedAccountStatus.confirming || sending;
         final bool isError = state.status == SuspendedAccountStatus.error;
         return AlertDialog(
-          backgroundColor: OnboardingColors.paperWhite,
+          backgroundColor: p.card,
           elevation: 0,
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.all(
@@ -419,7 +424,7 @@ class _SuspendedDeleteOtpDialogState extends State<_SuspendedDeleteOtpDialog> {
                 style: OnboardingTypography.inter(
                   size: 14,
                   height: 1.45,
-                  color: OnboardingColors.ink600,
+                  color: p.textSecondary,
                 ),
               ),
               const SizedBox(height: 12),
@@ -435,7 +440,7 @@ class _SuspendedDeleteOtpDialogState extends State<_SuspendedDeleteOtpDialog> {
                 style: OnboardingTypography.mono(
                   size: 16,
                   weight: FontWeight.w700,
-                  color: OnboardingColors.ink900,
+                  color: p.textPrimary,
                 ),
                 decoration: const InputDecoration(
                   counterText: '',
@@ -450,7 +455,7 @@ class _SuspendedDeleteOtpDialogState extends State<_SuspendedDeleteOtpDialog> {
                   style: OnboardingTypography.inter(
                     size: 13,
                     weight: FontWeight.w500,
-                    color: OnboardingColors.errorRed,
+                    color: p.danger,
                   ),
                 ),
               ],
@@ -460,7 +465,7 @@ class _SuspendedDeleteOtpDialogState extends State<_SuspendedDeleteOtpDialog> {
                   'Dobara bhejne ke liye $_remaining second',
                   style: OnboardingTypography.inter(
                     size: 12,
-                    color: OnboardingColors.ink500,
+                    color: p.textMuted,
                   ),
                 )
               else
@@ -468,11 +473,11 @@ class _SuspendedDeleteOtpDialogState extends State<_SuspendedDeleteOtpDialog> {
                   alignment: Alignment.centerLeft,
                   child: TextButton(
                     style: TextButton.styleFrom(
-                      foregroundColor: OnboardingColors.shiftBlue,
+                      foregroundColor: p.textBrand,
                       textStyle: OnboardingTypography.inter(
                         size: 13,
                         weight: FontWeight.w700,
-                        color: OnboardingColors.shiftBlue,
+                        color: p.textBrand,
                       ),
                       minimumSize: const Size(
                         OnboardingLayout.tapTarget,
@@ -482,12 +487,12 @@ class _SuspendedDeleteOtpDialogState extends State<_SuspendedDeleteOtpDialog> {
                     ),
                     onPressed: busy ? null : _resend,
                     child: sending
-                        ? const SizedBox(
+                        ? SizedBox(
                             width: 16,
                             height: 16,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: OnboardingColors.shiftBlue,
+                              color: p.textBrand,
                             ),
                           )
                         : const Text('Dobara OTP bhejein'),
@@ -498,7 +503,7 @@ class _SuspendedDeleteOtpDialogState extends State<_SuspendedDeleteOtpDialog> {
           actions: <Widget>[
             TextButton(
               style: TextButton.styleFrom(
-                foregroundColor: OnboardingColors.ink600,
+                foregroundColor: p.textSecondary,
                 minimumSize: const Size(
                   OnboardingLayout.tapTarget,
                   OnboardingLayout.tapTarget,
@@ -510,7 +515,7 @@ class _SuspendedDeleteOtpDialogState extends State<_SuspendedDeleteOtpDialog> {
             ),
             TextButton(
               style: TextButton.styleFrom(
-                foregroundColor: OnboardingColors.errorRed,
+                foregroundColor: p.danger,
                 minimumSize: const Size(
                   OnboardingLayout.tapTarget,
                   OnboardingLayout.tapTarget,
@@ -523,12 +528,12 @@ class _SuspendedDeleteOtpDialogState extends State<_SuspendedDeleteOtpDialog> {
                       _otp.text,
                     ),
               child: state.status == SuspendedAccountStatus.confirming
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: OnboardingColors.errorRed,
+                        color: p.danger,
                       ),
                     )
                   : const Text('Delete karein'),

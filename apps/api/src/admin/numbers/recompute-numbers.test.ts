@@ -230,7 +230,7 @@ describe("recomputeNumbers", () => {
       actor: "cli",
       fromWeek: "2026-11-02",
       toWeek: "2026-11-09",
-      definitionVersion: 4,
+      definitionVersion: 5,
       reason: REASON,
       rowsChanged: 1,
     });

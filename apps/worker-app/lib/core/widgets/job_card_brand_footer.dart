@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 import 'onboarding/brand_badge.dart';
 
@@ -55,19 +56,20 @@ class JobCardBrandFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Padding(
       padding: EdgeInsets.only(top: topGap),
       child: Center(
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: OnboardingColors.pillMutedBg,
+            color: p.inset,
             // `note` (12), not `badge` (20). MEASURED: the box padding was an
             // exact 5 on all four sides, yet the right read as tighter — a 20dp
             // arc on a 32dp-tall plate curves in exactly where the wordmark
             // sits, while the image's straight left edge keeps its full gap. A
             // 12 keeps the corner round without eating the text's air.
             borderRadius: BorderRadius.circular(OnboardingRadii.note),
-            border: Border.all(color: OnboardingColors.borderSubtle),
+            border: Border.all(color: p.borderSubtle),
           ),
           child: Padding(
             // OPTICALLY equal, not numerically — see [platePaddingLeft].
@@ -86,7 +88,7 @@ class JobCardBrandFooter extends StatelessWidget {
               maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
               // The lockup itself is never re-drawn here — one source, every
               // screen (see [BrandBadge]).
-              child: const BrandBadge(wordmarkColor: OnboardingColors.ink900),
+              child: BrandBadge(wordmarkColor: p.textPrimary),
             ),
           ),
         ),

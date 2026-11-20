@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// A read-only fact chip — a machine, an alloy, a skill (spec §4): a coloured
@@ -18,7 +19,7 @@ class KitInfoChip extends StatelessWidget {
   const KitInfoChip({
     super.key,
     required this.label,
-    this.dot = OnboardingColors.successGreen,
+    this.dot,
     this.showDot = true,
     this.showCheck = false,
     this.maxLines = 2,
@@ -27,13 +28,15 @@ class KitInfoChip extends StatelessWidget {
   final String label;
 
   /// The leading dot's colour — a category tint where the data supports one.
-  final Color dot;
+  /// Null uses the success ink.
+  final Color? dot;
   final bool showDot;
   final bool showCheck;
   final int maxLines;
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints incoming) {
         // Only cap-and-wrap when the parent hands down a BOUNDED width (a Wrap
@@ -54,9 +57,9 @@ class KitInfoChip extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
-              color: OnboardingColors.paperWhite,
+              color: p.card,
               borderRadius: BorderRadius.circular(OnboardingRadii.chip),
-              border: Border.all(color: OnboardingColors.borderDefault),
+              border: Border.all(color: p.borderDefault),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -66,7 +69,7 @@ class KitInfoChip extends StatelessWidget {
                     width: 6,
                     height: 6,
                     decoration: BoxDecoration(
-                      color: dot,
+                      color: dot ?? p.success,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -75,11 +78,7 @@ class KitInfoChip extends StatelessWidget {
                 if (bounded) Flexible(child: text) else text,
                 if (showCheck) ...<Widget>[
                   const SizedBox(width: 4),
-                  const Icon(
-                    Icons.check_rounded,
-                    size: 14,
-                    color: OnboardingColors.successGreen,
-                  ),
+                  Icon(Icons.check_rounded, size: 14, color: p.success),
                 ],
               ],
             ),

@@ -61,7 +61,7 @@ import { payerPhoneProofs } from "./payer-phone-proof";
 import { numbersRecomputeLog, numbersWeekly } from "./numbers-weekly";
 import { creditCallLog } from "./credit-call-log";
 import { creditRulesConfig } from "./credit-rules";
-import { rvmApplicantWaivers, rvmWaiverUses } from "./rvm-waivers";
+import { rvmApplicantWaivers, rvmWaiverEndDates, rvmWaiverUses } from "./rvm-waivers";
 import { contactReachAttempts, contactReachCases } from "./contact-reach";
 import { paymentRefunds } from "./payment-refunds";
 import { jobPostingChoices } from "./job-posting-choice";
@@ -85,8 +85,9 @@ import {
   workerFieldSources,
 } from "./student-move";
 import { jobPostingWorkerVisibility } from "./job-worker-visibility";
+import { campusTrades, jobPostingAudienceDecisions } from "./admin-job-audience";
 import { launchTestCohort, launchTestShares } from "./launch-test";
-import { companyImportBatches, companyImportRows } from "./company-import";
+import { companyImportBatches, companyImportNotices, companyImportRows } from "./company-import";
 import { companionConversationSummaries, companionMessages } from "./companion";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
@@ -237,6 +238,8 @@ export * from "./managed-hiring";
 export * from "./student-move";
 // #2891 - BadaBhai worker visibility of a Campus-origin posting (off until an admin opens it).
 export * from "./job-worker-visibility";
+// #2956 / #2957 - an admin decides where each job shows; the trades RVM trains (who may go to Campus).
+export * from "./admin-job-audience";
 // #2755 item 9 — launch test A: the factories, what each was sent, its payment link and result.
 export * from "./launch-test";
 // #2754 item 4 — the Campus company import: one row per batch, one row per source record moved.
@@ -580,6 +583,8 @@ export const schema = {
   // #2750 item 5 - the placement team's waivers and the opens they paid for (read only while CREDIT_RULES_ROLLOUT is on).
   rvmApplicantWaivers,
   rvmWaiverUses,
+  // #2778 - the last day a waiver applies (read and written only while RVM_WAIVER_END_DATES_ENABLED is on).
+  rvmWaiverEndDates,
   // #2750 item 7 - the couldn't-reach cases and the desk's call attempts (read only while CREDIT_RULES_ROLLOUT is on).
   contactReachCases,
   contactReachAttempts,
@@ -603,8 +608,13 @@ export const schema = {
   // #2754 item 4 - the Campus company import ledger (written only by import-campus-companies.cli).
   companyImportBatches,
   companyImportRows,
+  // #2787 - the send log of the first sign-in message to a moved company (written only by the import CLI).
+  companyImportNotices,
   // #2891 - a Campus-origin posting held from BadaBhai workers until an admin opens it (read by reachesBadaBhaiWorkers).
   jobPostingWorkerVisibility,
+  // #2956 / #2957 - the admin audience decision and the Campus trade list (read only while ADMIN_JOB_AUDIENCE_ENABLED is on).
+  jobPostingAudienceDecisions,
+  campusTrades,
   // #2749 part 4 - GST invoices and credit notes (the settle writes an invoice in a savepoint; refunds a credit note).
   sellerTaxConfig,
   payerBillingDetails,

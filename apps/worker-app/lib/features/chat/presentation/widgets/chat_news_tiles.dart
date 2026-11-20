@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../domain/chat_news_link.dart';
 
@@ -60,6 +61,7 @@ class _NewsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       button: true,
       link: true,
@@ -68,7 +70,7 @@ class _NewsTile extends StatelessWidget {
       label: '${link.title} — ${link.site}, $kChatNewsReadMoreLabel',
       child: ExcludeSemantics(
         child: Material(
-          color: OnboardingColors.paperWhite,
+          color: p.card,
           borderRadius: BorderRadius.circular(OnboardingRadii.card),
           child: InkWell(
             borderRadius: BorderRadius.circular(OnboardingRadii.card),
@@ -83,7 +85,7 @@ class _NewsTile extends StatelessWidget {
               ),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(OnboardingRadii.card),
-                border: Border.all(color: OnboardingColors.borderDefault),
+                border: Border.all(color: p.borderDefault),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -96,7 +98,7 @@ class _NewsTile extends StatelessWidget {
                     style: OnboardingTypography.inter(
                       size: 14,
                       weight: FontWeight.w700,
-                      color: OnboardingColors.shiftBlue,
+                      color: p.link,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -109,7 +111,7 @@ class _NewsTile extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: OnboardingTypography.inter(
                             size: 12,
-                            color: OnboardingColors.ink600,
+                            color: p.textSecondary,
                           ),
                         ),
                       ),
@@ -119,15 +121,11 @@ class _NewsTile extends StatelessWidget {
                         style: OnboardingTypography.inter(
                           size: 12,
                           weight: FontWeight.w700,
-                          color: OnboardingColors.shiftBlue,
+                          color: p.link,
                         ),
                       ),
                       const SizedBox(width: 2),
-                      const Icon(
-                        Icons.open_in_new,
-                        size: 14,
-                        color: OnboardingColors.shiftBlue,
-                      ),
+                      Icon(Icons.open_in_new, size: 14, color: p.link),
                     ],
                   ),
                 ],

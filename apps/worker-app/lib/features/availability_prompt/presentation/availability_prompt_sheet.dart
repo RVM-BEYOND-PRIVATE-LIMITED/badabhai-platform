@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -114,8 +115,9 @@ class AvailabilityPromptBody extends StatelessWidget {
             children: <Widget>[
               Text(
                 kAvailabilityPromptTitle,
+                // A theme role, so the title follows the light/ink switch (#2818).
                 style: OnboardingTypography.questionHeadline(
-                  color: OnboardingColors.shiftBlue,
+                  color: context.bb.textBrand,
                 ),
               ),
               const SizedBox(height: AppSpacing.s1),

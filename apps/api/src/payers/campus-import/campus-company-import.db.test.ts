@@ -19,7 +19,16 @@ import { offerWelcomeCredits } from "./import-welcome";
 import { rollbackCompanyImport } from "./rollback";
 import { writeRow } from "./import-ledger.repository";
 import { importApplications } from "./import-applications";
-import { CampusImportRefusal, importLedgerExists, openBatch, type OpenBatch } from "./import-ledger.repository";
+import {
+  CampusImportRefusal,
+  findBatch,
+  importLedgerExists,
+  markBatchApplied,
+  openBatch,
+  type OpenBatch,
+} from "./import-ledger.repository";
+import { moveNoticeLogExists, notifyMovedCompanies, type MoveNoticeDeps } from "./move-notice";
+import type { EmailMessage } from "../../notifications/email-notification.service";
 import { readCampusBundle } from "./read-bundle";
 import { buildSyntheticBundle } from "./synthetic-bundle";
 import { compareSides, readBadaBhaiFacts } from "./verify-report";
@@ -58,8 +67,8 @@ const DATABASE_URL =
 const TAG = randomUUID().slice(0, 8);
 
 /** A synthetic bundle, read through the real reader with every check on (in memory). */
-function bundleOf(seed: string, companies: number, phones?: string[]): CampusBundle {
-  const { manifest, texts } = buildSyntheticBundle({ companies, seed, phones });
+function bundleOf(seed: string, companies: number, phones?: string[], emails?: string[]): CampusBundle {
+  const { manifest, texts } = buildSyntheticBundle({ companies, seed, phones, emails });
   const files = new Map<string, Buffer>([
     [join("/b", "manifest.json"), Buffer.from(JSON.stringify(manifest))],
     ...Object.entries(texts).map(([n, t]) => [join("/b", n), Buffer.from(t)] as [string, Buffer]),
@@ -110,7 +119,13 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
       await sql`
         DELETE FROM company_import_rows
          WHERE batch_id IN (SELECT id FROM company_import_batches WHERE batch_key = ANY(${keys}::text[]))`;
+      await sql`
+        DELETE FROM company_import_notices
+         WHERE batch_id IN (SELECT id FROM company_import_batches WHERE batch_key = ANY(${keys}::text[]))`;
       await sql`DELETE FROM company_import_batches WHERE batch_key = ANY(${keys}::text[])`;
+      await sql`
+        DELETE FROM events
+         WHERE event_name = 'payer.move_notice_sent' AND payload->>'payer_id' = ANY(${ids}::text[])`;
       await sql`
         DELETE FROM events
          WHERE event_name = 'admin.payer_test_account_marked' AND payload->>'payer_id' = ANY(${ids}::text[])`;
@@ -644,5 +659,118 @@ describe.skipIf(!RUN)("Campus company import against Postgres (#2754 item 6)", {
       UPDATE company_import_batches SET state = 'rolled_back', rolled_back_at = now(), rolled_back_by = 'db-test'
        WHERE batch_key = ${`key-${TAG}`}`;
     await expect(open("key", bundle)).rejects.toThrow(/rolled back/);
+  });
+
+  // #2787 — the first sign-in message to each moved company, once per company per channel.
+  it("tells each moved company how to sign in, once per channel, and retries only what did not go", async () => {
+    expect(await moveNoticeLogExists(client.db)).toBe(true);
+    const emails = [1, 2, 3].map((n) => `notify${n}-${TAG}@example.com`);
+    const bundle = bundleOf(`notify-${TAG}`, 3, undefined, emails);
+    const opened = await open("notify", bundle);
+    const placed = await importCompanies(deps, opened, bundle, opts);
+    expect(placed.created).toBe(3);
+    await markBatchApplied(client.db, opened.id);
+    const batch = (await findBatch(client.db, `notify-${TAG}`))!;
+    const ids = [...placed.placed.values()];
+
+    const mails: EmailMessage[] = [];
+    const texts: { phoneE164: string; templateId: string; variables: readonly string[] }[] = [];
+    let failOnce = emails[2]!;
+    const noticeDeps: MoveNoticeDeps = {
+      db: client.db,
+      pii,
+      events: deps.events,
+      email: {
+        send: async (m) => {
+          if (m.to === failOnce) {
+            failOnce = "";
+            throw new Error("opaque");
+          }
+          mails.push(m);
+        },
+      },
+      sms: { sendTemplate: async (t) => void texts.push(t) },
+    };
+    const base = { signInUrl: "https://payer.example.in/login", runBy: "db-test" };
+    const { sql } = client;
+    const log = () => sql<{ payer_id: string; channel: string; state: string; reason: string | null; attempts: number }[]>`
+      SELECT payer_id, channel, state, reason, attempts FROM company_import_notices
+       WHERE payer_id = ANY(${ids}::uuid[]) ORDER BY channel, state, reason`;
+
+    // A preview writes nothing and sends nothing.
+    const preview = await notifyMovedCompanies(noticeDeps, batch, { ...base, smsTemplateId: null, send: false });
+    expect(preview).toEqual({ email: { would_send: 3 }, sms: { template_missing: 2, phone_not_proven: 1 } });
+    expect(await log()).toHaveLength(0);
+    expect(mails).toHaveLength(0);
+
+    // First send, no SMS template yet: two emails go, one fails, every SMS is skipped and logged.
+    const first = await notifyMovedCompanies(noticeDeps, batch, { ...base, smsTemplateId: null, send: true });
+    expect(first).toEqual({ email: { sent: 2, failed: 1 }, sms: { template_missing: 2, phone_not_proven: 1 } });
+    expect(mails.map((m) => m.purpose)).toEqual(["move_notice", "move_notice"]);
+    // Companies 1 and 2 have Campus's proven phone: SMS sign-in, last four digits only.
+    for (const m of mails) {
+      expect(m.text).toContain("code by SMS");
+      expect(m.text).toMatch(/ending in \d{4}\./);
+    }
+    expect((await log()).map((r) => `${r.channel}:${r.state}:${r.reason ?? "-"}`)).toEqual([
+      "email:failed:send_failed",
+      "email:sent:-",
+      "email:sent:-",
+      "sms:skipped:phone_not_proven",
+      "sms:skipped:template_missing",
+      "sms:skipped:template_missing",
+    ]);
+
+    // Second send, with the approved template: only what did not go is tried again.
+    const second = await notifyMovedCompanies(noticeDeps, batch, { ...base, smsTemplateId: "171234", send: true });
+    expect(second).toEqual({ email: { already_sent: 2, sent: 1 }, sms: { sent: 2, phone_not_proven: 1 } });
+    // Company 3 is e-mail only: told to sign in by e-mail code and confirm its phone.
+    expect(mails[2]!.text).toContain("Account page");
+    expect(texts).toHaveLength(2);
+    expect(texts.every((t) => t.templateId === "171234" && t.variables.length === 0)).toBe(true);
+    const rows = await log();
+    expect(rows.filter((r) => r.state === "sent")).toHaveLength(5);
+    expect(rows.find((r) => r.channel === "email" && r.attempts === 2)).toBeDefined();
+
+    // A third run sends nothing at all.
+    const third = await notifyMovedCompanies(noticeDeps, batch, { ...base, smsTemplateId: "171234", send: true });
+    expect(third).toEqual({ email: { already_sent: 3 }, sms: { already_sent: 2, phone_not_proven: 1 } });
+    expect(mails).toHaveLength(3);
+    expect(texts).toHaveLength(2);
+
+    const events = await sql<{ channel: string; sign_in_by: string }[]>`
+      SELECT payload->>'channel' AS channel, payload->>'sign_in_by' AS sign_in_by FROM events
+       WHERE event_name = 'payer.move_notice_sent' AND payload->>'payer_id' = ANY(${ids}::text[])
+       ORDER BY 1, 2`;
+    expect(events.map((e) => `${e.channel}:${e.sign_in_by}`)).toEqual([
+      "email:email_code",
+      "email:sms_code",
+      "email:sms_code",
+      "sms:sms_code",
+      "sms:sms_code",
+    ]);
+  });
+
+  it("an archived company is not told, and the skip is logged", async () => {
+    const bundle = bundleOf(`notify-arch-${TAG}`, 1, undefined, [`arch-${TAG}@example.com`]);
+    const opened = await open("notify-arch", bundle);
+    const placed = await importCompanies(deps, opened, bundle, opts);
+    await markBatchApplied(client.db, opened.id);
+    const [payerId] = [...placed.placed.values()];
+    await client.sql`UPDATE payers SET status = 'archived', previous_status = status WHERE id = ${payerId!}`;
+    const sent: EmailMessage[] = [];
+    const summary = await notifyMovedCompanies(
+      {
+        db: client.db,
+        pii,
+        events: deps.events,
+        email: { send: async (m) => void sent.push(m) },
+        sms: { sendTemplate: async () => undefined },
+      },
+      (await findBatch(client.db, `notify-arch-${TAG}`))!,
+      { signInUrl: "https://payer.example.in/login", runBy: "db-test", smsTemplateId: "171234", send: true },
+    );
+    expect(summary).toEqual({ email: { account_archived: 1 }, sms: { account_archived: 1 } });
+    expect(sent).toHaveLength(0);
   });
 });

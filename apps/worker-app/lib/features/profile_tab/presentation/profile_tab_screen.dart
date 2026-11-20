@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/bb_palette.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -60,6 +61,7 @@ class _ProfileTabView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // The IndexedStack keeps this branch mounted, so create: runs only on the
     // first visit — refetch when the tab comes back into view (T4).
     return TabFocusRefetch(
@@ -67,7 +69,7 @@ class _ProfileTabView extends StatelessWidget {
       index: TabIndex.profile,
       onFocused: () => context.read<ProfileTabCubit>().refresh(),
       child: Scaffold(
-        backgroundColor: OnboardingColors.canvasBg,
+        backgroundColor: p.page,
         body: Column(
           children: <Widget>[
             _header(context),
@@ -92,12 +94,13 @@ class _ProfileTabView extends StatelessWidget {
   /// Built OUTSIDE the BlocBuilder: the chrome no longer depends on the loaded
   /// summary, so it does not rebuild when the profile does.
   Widget _header(BuildContext context) {
+    final BbPalette p = context.bb;
     return KitTabHeader(
       title: 'Profile',
       actions: <Widget>[
         // Keeps the BbAlertsAction TYPE (its unread badge and the e2e finder
         // both hang off it); only the glyph colour changes for the navy band.
-        const BbAlertsAction(color: OnboardingColors.textOnBlue),
+         BbAlertsAction(color: p.onBrandSurface),
         KitHeaderIconAction(
           icon: Icons.settings_outlined,
           tooltip: 'Settings',
@@ -168,16 +171,17 @@ class _ProfileTabView extends StatelessWidget {
   /// signing out is reversible — unlike the test-delete below it, which stays
   /// filled.
   Widget _logoutButton(BuildContext context) {
+    final BbPalette p = context.bb;
     return OutlinedButton.icon(
       onPressed: () => _confirmLogout(context),
       icon: const Icon(Icons.logout_rounded, size: 20),
       label: const Text('Logout'),
       style: OutlinedButton.styleFrom(
-        backgroundColor: OnboardingColors.paperWhite,
-        foregroundColor: OnboardingColors.errorRed,
+        backgroundColor: p.card,
+        foregroundColor: p.danger,
         elevation: 0,
         shadowColor: Colors.transparent,
-        side: const BorderSide(color: OnboardingColors.errorRed, width: 1.2),
+        side:  BorderSide(color: p.danger, width: 1.2),
         minimumSize: const Size(
           double.infinity,
           OnboardingLayout.dockedButtonHeight,
@@ -286,7 +290,7 @@ class _ProfileTabView extends StatelessWidget {
             // The real total, digits only (ruling R8) — on the sheet's
             // header, where the old card carried it.
             count: skillCount,
-            rows: _structuredRows(s, education),
+            rows: _structuredRows(s, education, context.bb),
           ),
         ),
       if (_hasWorkInfo(s))
@@ -298,7 +302,7 @@ class _ProfileTabView extends StatelessWidget {
             context,
             title: 'Kaam ki jaankari',
             icon: Icons.work_rounded,
-            rows: _workInfoRows(s),
+            rows: _workInfoRows(s, context.bb),
           ),
         ),
     ];
@@ -313,11 +317,12 @@ class _ProfileTabView extends StatelessWidget {
     required List<Widget> rows,
     int? count,
   }) {
+    final BbPalette p = context.bb;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      backgroundColor: OnboardingColors.paperWhite,
+      backgroundColor: p.card,
       builder: (BuildContext sheet) => SafeArea(
         child: ConstrainedBox(
           constraints: BoxConstraints(
@@ -353,20 +358,25 @@ class _ProfileTabView extends StatelessWidget {
   /// The experience / education / skills / machines groups, separated by a
   /// consistent gap. Any absent group is dropped (never a fabricated
   /// placeholder).
-  List<Widget> _structuredRows(ProfileSummary s, String? education) {
+  List<Widget> _structuredRows(
+    ProfileSummary s,
+    String? education,
+    BbPalette p,
+  ) {
     final double? years = s.experienceYears;
     final List<Widget> groups = <Widget>[
       if (years != null)
         _infoRow(
           Icons.work_outline_rounded,
           'Anubhav: ${profileExperienceLabel(years)}',
+          p,
         ),
       if (education != null)
-        _infoRow(Icons.school_outlined, 'Padhai: $education'),
+        _infoRow(Icons.school_outlined, 'Padhai: $education', p),
       if (s.skills.isNotEmpty)
-        _chipGroup('Skills', s.skills, OnboardingColors.successGreen),
+        _chipGroup('Skills', s.skills, p.success),
       if (s.machines.isNotEmpty)
-        _chipGroup('Machines', s.machines, OnboardingColors.shiftBlue),
+        _chipGroup('Machines', s.machines, p.textBrand),
     ];
     return <Widget>[
       for (int i = 0; i < groups.length; i++) ...<Widget>[
@@ -379,17 +389,17 @@ class _ProfileTabView extends StatelessWidget {
   /// A single fact as the kit's full-width row (spec §4) — an icon, then the
   /// line. No green check: experience and schooling are self-declared, so a
   /// tick would claim a verification nobody performed.
-  Widget _infoRow(IconData icon, String text) {
+  Widget _infoRow(IconData icon, String text, BbPalette p) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: OnboardingColors.rowBg,
+        color: p.raised,
         borderRadius: BorderRadius.circular(OnboardingRadii.row),
-        border: Border.all(color: OnboardingColors.borderSubtle),
+        border: Border.all(color: p.borderSubtle),
       ),
       child: Row(
         children: <Widget>[
-          Icon(icon, size: 18, color: OnboardingColors.ink500),
+          Icon(icon, size: 18, color: p.textMuted),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -439,35 +449,38 @@ class _ProfileTabView extends StatelessWidget {
       s.trainings.isNotEmpty ||
       s.occupations.isNotEmpty;
 
-  List<Widget> _workInfoRows(ProfileSummary s) {
+  List<Widget> _workInfoRows(ProfileSummary s, BbPalette p) {
     final List<Widget> groups = <Widget>[
       if (s.commuteKm != null)
-        _infoRow(Icons.commute_rounded, 'Aane-jaane: ${s.commuteKm} km tak'),
+        _infoRow(Icons.commute_rounded, 'Aane-jaane: ${s.commuteKm} km tak', p),
       if (s.willingToTravel)
-        _infoRow(Icons.flight_takeoff_rounded, 'Travel kar sakte hain'),
+        _infoRow(Icons.flight_takeoff_rounded, 'Travel kar sakte hain', p),
       if (s.salaryPeriod?.isNotEmpty ?? false)
         _infoRow(
           Icons.payments_outlined,
           'Salary: ${s.salaryPeriod} ke hisaab se',
+          p,
         ),
       if (s.availabilityStatus?.isNotEmpty ?? false)
         _infoRow(
           Icons.event_available_outlined,
           'Uplabdhata: ${s.availabilityStatus}',
+          p,
         ),
       if (s.availableFrom?.isNotEmpty ?? false)
-        _infoRow(Icons.calendar_month_outlined, 'Kab se: ${s.availableFrom}'),
+        _infoRow(Icons.calendar_month_outlined, 'Kab se: ${s.availableFrom}', p),
       if (s.noticeDays != null)
         _infoRow(
           Icons.hourglass_bottom_outlined,
           'Notice: ${s.noticeDays} din',
+          p,
         ),
       for (final String training in s.trainings)
-        _infoRow(Icons.school_outlined, 'Training: $training'),
+        _infoRow(Icons.school_outlined, 'Training: $training', p),
       if (s.occupations.isNotEmpty)
         _chipGroup('Aur kaam', <String>[
           for (final o in s.occupations) o.label,
-        ], OnboardingColors.shiftBlue),
+        ], p.textBrand),
     ];
     return <Widget>[
       for (int i = 0; i < groups.length; i++) ...<Widget>[
@@ -607,22 +620,23 @@ class _ProfileFactIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool tappable = onTap != null;
     final Widget circle = Container(
       width: 36,
       height: 36,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: OnboardingColors.noteBg,
+        color: p.noteBg,
         shape: BoxShape.circle,
         border: Border.all(
           color: tappable
-              ? OnboardingColors.safetyYellow
-              : OnboardingColors.borderDefault,
+              ? p.action
+              : p.borderDefault,
           width: tappable ? 1.5 : 1,
         ),
       ),
-      child: Icon(icon, size: 18, color: OnboardingColors.shiftBlue),
+      child: Icon(icon, size: 18, color: p.textBrand),
     );
     return Tooltip(
       message: label,
@@ -660,16 +674,17 @@ class _ShortcutTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final BorderRadius radius = BorderRadius.circular(OnboardingRadii.card);
     return Semantics(
       button: true,
       label: '$title. $subtitle',
       excludeSemantics: true,
       child: Material(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         shape: RoundedRectangleBorder(
           borderRadius: radius,
-          side: const BorderSide(color: OnboardingColors.borderCard),
+          side:  BorderSide(color: p.borderCard),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -687,14 +702,14 @@ class _ShortcutTile extends StatelessWidget {
                       width: 32,
                       height: 32,
                       decoration: BoxDecoration(
-                        color: OnboardingColors.pillMutedBg,
+                        color: p.inset,
                         borderRadius: BorderRadius.circular(9),
                       ),
                       alignment: Alignment.center,
                       child: Icon(
                         icon,
                         size: 18,
-                        color: OnboardingColors.shiftBlue,
+                        color: p.textBrand,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -720,7 +735,7 @@ class _ShortcutTile extends StatelessWidget {
                   style: OnboardingTypography.inter(
                     size: 11.5,
                     height: 1.3,
-                    color: OnboardingColors.ink600,
+                    color: p.textSecondary,
                   ),
                 ),
               ],

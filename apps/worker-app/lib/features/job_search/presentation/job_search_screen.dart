@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/job_display.dart';
 import '../../../core/util/pay_format.dart';
@@ -164,8 +165,9 @@ class _JobSearchViewState extends State<_JobSearchView> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: BlocBuilder<JobSearchCubit, JobSearchState>(
         builder: (BuildContext context, JobSearchState state) {
           final double topInset = MediaQuery.paddingOf(context).top;
@@ -189,6 +191,7 @@ class _JobSearchViewState extends State<_JobSearchView> {
     JobSearchState state,
     double topInset,
   ) {
+    final BbPalette p = context.bb;
     final double scale = _scale(context);
     return SliverAppBar(
       pinned: true,
@@ -196,8 +199,8 @@ class _JobSearchViewState extends State<_JobSearchView> {
       snap: true,
       elevation: 0,
       scrolledUnderElevation: 0,
-      backgroundColor: OnboardingColors.shiftBlue,
-      foregroundColor: OnboardingColors.textOnBlue,
+      backgroundColor: p.brandSurface,
+      foregroundColor: p.onBrandSurface,
       systemOverlayStyle: SystemUiOverlayStyle.light,
       toolbarHeight: kToolbarHeight,
       collapsedHeight: kToolbarHeight,
@@ -210,16 +213,16 @@ class _JobSearchViewState extends State<_JobSearchView> {
       leading: IconButton(
         tooltip: 'Wapas',
         onPressed: () => Navigator.of(context).maybePop(),
-        icon: const Icon(
+        icon: Icon(
           Icons.arrow_back_rounded,
           size: 22,
-          color: OnboardingColors.textOnBlue,
+          color: p.onBrandSurface,
         ),
       ),
       titleTextStyle: OnboardingTypography.anek(
         size: 20,
         weight: FontWeight.w800,
-        color: OnboardingColors.textOnBlue,
+        color: p.onBrandSurface,
       ),
       title: const Text('Jobs dhoondein'),
       flexibleSpace: FlexibleSpaceBar(
@@ -231,10 +234,11 @@ class _JobSearchViewState extends State<_JobSearchView> {
   /// The two stacked inputs + Search button, sitting BELOW the pinned toolbar
   /// inside the flexible space. Sized to [_formHeight] exactly.
   Widget _searchForm(JobSearchState state, double topInset, double scale) {
+    final BbPalette p = context.bb;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: Container(
-        color: OnboardingColors.shiftBlue,
+        color: p.brandSurface,
         child: Column(
           children: <Widget>[
             // Clear the pinned toolbar (title + back) drawn on top of us.
@@ -300,6 +304,7 @@ class _JobSearchViewState extends State<_JobSearchView> {
     required double height,
     ValueChanged<String>? onSubmitted,
   }) {
+    final BbPalette p = context.bb;
     // A persistent accessible name — the [hint] disappears on input, so TalkBack
     // and low-literacy users would otherwise have no name for the field. The
     // prefix icon is the persistent VISUAL cue; this is the persistent AURAL one.
@@ -318,19 +323,19 @@ class _JobSearchViewState extends State<_JobSearchView> {
             hintText: hint,
             hintStyle: OnboardingTypography.inter(
               size: 14,
-              color: OnboardingColors.ink500,
+              color: p.textMuted,
             ),
-            prefixIcon: Icon(icon, size: 20, color: OnboardingColors.ink500),
+            prefixIcon: Icon(icon, size: 20, color: p.textMuted),
             isDense: true,
             filled: true,
-            fillColor: OnboardingColors.paperWhite,
+            fillColor: p.card,
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
               vertical: 8,
             ),
-            enabledBorder: _border(OnboardingColors.borderDefault, 1.2),
-            border: _border(OnboardingColors.borderDefault, 1.2),
-            focusedBorder: _border(OnboardingColors.shiftBlue, 1.8),
+            enabledBorder: _border(p.borderDefault, 1.2),
+            border: _border(p.borderDefault, 1.2),
+            focusedBorder: _border(p.focusRing, 1.8),
           ),
         ),
       ),

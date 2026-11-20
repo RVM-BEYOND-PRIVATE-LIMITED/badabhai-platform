@@ -133,13 +133,17 @@ const WorkPreferencesDto _savedEverything = WorkPreferencesDto(
   ),
 );
 
-/// The server's closed `AVAILABILITY_STATUSES` slugs, exactly
-/// (`worker-preferences.vocabulary.ts`).
+/// The server's closed availability slugs, exactly
+/// (`worker-preferences.vocabulary.ts` — both answer sets, #2753 item 3).
 const Set<String> _serverStatusSlugs = <String>{
   'immediate',
   'within_week',
   'within_month',
   'serving_notice',
+  'join_now',
+  'in_15_days',
+  'in_30_days',
+  'working_open',
 };
 
 void main() {

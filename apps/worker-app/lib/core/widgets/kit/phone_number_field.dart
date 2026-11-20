@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../auth/phone_format.dart';
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// The phone input (spec §3.2): a 54dp white box with a fixed `+91`, a hairline
@@ -41,6 +42,7 @@ class PhoneNumberField extends StatelessWidget {
     return ListenableBuilder(
       listenable: focusNode,
       builder: (BuildContext context, _) {
+        final BbPalette p = context.bb;
         final bool focused = focusNode.hasFocus;
         return GestureDetector(
           // The whole box is the target, not only the text run inside it.
@@ -49,12 +51,10 @@ class PhoneNumberField extends StatelessWidget {
             height: 54,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
-              color: OnboardingColors.paperWhite,
+              color: p.card,
               borderRadius: BorderRadius.circular(OnboardingRadii.phoneField),
               border: Border.all(
-                color: focused
-                    ? OnboardingColors.shiftBlue
-                    : OnboardingColors.borderDefault,
+                color: focused ? p.focusRing : p.borderDefault,
                 width: focused ? 1.8 : 1.2,
               ),
             ),
@@ -65,14 +65,14 @@ class PhoneNumberField extends StatelessWidget {
                   Text(
                     kIndiaDialCode,
                     style: OnboardingTypography.subheadBold(
-                      color: OnboardingColors.shiftBlue,
+                      color: p.textBrand,
                     ),
                   ),
                   Container(
                     width: 1,
                     height: 24,
                     margin: const EdgeInsets.symmetric(horizontal: 14),
-                    color: OnboardingColors.borderDefault,
+                    color: p.borderDefault,
                   ),
                   Expanded(
                     child: Semantics(
@@ -90,7 +90,7 @@ class PhoneNumberField extends StatelessWidget {
                         style: OnboardingTypography.mono(
                           size: 16,
                           weight: FontWeight.w600,
-                          color: OnboardingColors.ink900,
+                          color: p.textPrimary,
                         ),
                         inputFormatters: <TextInputFormatter>[
                           FilteringTextInputFormatter.digitsOnly,
@@ -106,7 +106,7 @@ class PhoneNumberField extends StatelessWidget {
                           hintStyle: OnboardingTypography.mono(
                             size: 16,
                             weight: FontWeight.w600,
-                            color: OnboardingColors.ink500,
+                            color: p.textMuted,
                           ),
                           counterText: '',
                           filled: false,

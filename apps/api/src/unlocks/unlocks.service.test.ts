@@ -95,6 +95,8 @@ interface SetupOpts {
   tenancy?: PayerTenantScopeService;
   /** #2752: what the institute open gate answers (default: not a linked student). */
   institute?: "not_linked" | "open" | "closed";
+  /** #2954 — may the quote treat an RVM student as one (default yes: he applied, or a grant). */
+  quotesAsStudent?: boolean;
   /** #2747: the `contact_rules` switch for the company (default: no rollout service = off). */
   contactRules?: boolean;
   /** #2747: the worker's encrypted full name (the contact read decrypts it). */
@@ -275,7 +277,10 @@ function setup(opts: SetupOpts = {}) {
     ...txMethods,
   };
 
-  const instituteGate = { decide: vi.fn(async () => opts.institute ?? "not_linked") };
+  const instituteGate = {
+    decide: vi.fn(async () => opts.institute ?? "not_linked"),
+    quotesAsStudent: vi.fn(async () => opts.quotesAsStudent ?? true),
+  };
   const consents = {
     findLatestByWorker: vi.fn(async () =>
       consentPurposes === null
@@ -3027,6 +3032,42 @@ describe("#2750 item 5 — a waived open", () => {
     expect((await plain.svc.quoteContacts(PAYER, [WORKER])).quotes).toEqual([
       { worker_id: WORKER, credits: 1 },
     ]);
+  });
+});
+
+// ===========================================================================
+// #2954 — the quote never tells a company that a worker it could not open is an RVM student
+// ===========================================================================
+describe("#2954 — the quote hides an RVM student the company could not open", () => {
+  const SETTER_4Y = { rungs: [{ skillId: "mskill_cnc_turner", tradeLevel: "setter", months: 48 }] };
+  const WAIVER = { waiverId: "waiver-1", scope: "company" as const };
+
+  it("not entitled: priced exactly like an ordinary worker with the same facts (Higher stays Higher)", async () => {
+    const hidden = setup({ creditRules: "on", costFacts: { ...SETTER_4Y, rvmStudent: true }, quotesAsStudent: false });
+    const ordinary = setup({ creditRules: "on", costFacts: { ...SETTER_4Y, rvmStudent: false } });
+    const quote = (await hidden.svc.quoteContacts(PAYER, [WORKER])).quotes;
+    expect(quote).toEqual((await ordinary.svc.quoteContacts(PAYER, [WORKER])).quotes);
+    expect(quote).toEqual([{ worker_id: WORKER, credits: 2 }]);
+    expect(hidden.instituteGate.quotesAsStudent).toHaveBeenCalledWith(WORKER, PAYER);
+  });
+
+  it("not entitled: a company-wide waiver does not quote him free, so the waiver tells nothing either", async () => {
+    const s = setup({ creditRules: "on", costFacts: { rvmStudent: true }, waiver: WAIVER, quotesAsStudent: false });
+    expect((await s.svc.quoteContacts(PAYER, [WORKER])).quotes).toEqual([{ worker_id: WORKER, credits: 1 }]);
+  });
+
+  it("entitled (he applied, a grant, or admin-visible): the RVM price and the waiver, as the open charges", async () => {
+    const s = setup({ creditRules: "on", costFacts: { ...SETTER_4Y, rvmStudent: true }, waiver: WAIVER });
+    expect((await s.svc.quoteContacts(PAYER, [WORKER])).quotes).toEqual([
+      { worker_id: WORKER, credits: 0, waived: true },
+    ]);
+  });
+
+  it("asks the quote gate only about RVM students, and never the consent-checking open gate", async () => {
+    const s = setup({ creditRules: "on", costFacts: { rvmStudent: false } });
+    await s.svc.quoteContacts(PAYER, [WORKER]);
+    expect(s.instituteGate.quotesAsStudent).not.toHaveBeenCalled();
+    expect(s.instituteGate.decide).not.toHaveBeenCalled();
   });
 });
 

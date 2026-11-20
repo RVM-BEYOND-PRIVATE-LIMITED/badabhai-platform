@@ -3,6 +3,7 @@ import type { ServerConfig } from "@badabhai/config";
 import {
   RVM_SELECTION_EVENTS_PATH,
   RvmSelectionEventBodySchema,
+  RvmSelectionWithdrawalBodySchema,
   RvmStudentApiClient,
   RvmStudentApiUnavailableError,
 } from "./rvm-student-api.client";
@@ -321,5 +322,70 @@ describe("RvmStudentApiClient.postSelectionEvent — the selection-event contrac
     const err = await failureOf(api.postSelectionEvent(BODY));
     expect(err.message).not.toContain(BODY.company);
     expect(err.message).not.toContain(REF);
+  });
+});
+
+/**
+ * #2771 — the withdrawal of a mark RVM was sent. Same route and same answers as a selection event;
+ * a body of ids, a status and a day. RVM's live route does not accept it yet (it takes
+ * `selected | hired` only), which it answers 400: `rejected`.
+ */
+describe("RvmStudentApiClient.postSelectionWithdrawal (#2771)", () => {
+  const EVENT = "22222222-2222-4222-8222-000000000001";
+  const WITHDRAWN = "7b0f4f64-8a2b-4e0c-9d2e-1f3a4b5c6d7e";
+  const BODY = {
+    event_id: EVENT,
+    withdraws_event_id: WITHDRAWN,
+    status: "withdrawn" as const,
+    date: "2026-11-19",
+  };
+
+  it("POSTs exactly the four keys to the selection-event route, keyed by its own event id", async () => {
+    const { api, fetchImpl } = client(() => json(201, { ok: true }));
+    await expect(api.postSelectionWithdrawal(BODY)).resolves.toEqual({ kind: "accepted" });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("http://127.0.0.1:4000/internal/campus/selection-events");
+    expect(init.method).toBe("POST");
+    const headers = init.headers as Record<string, string>;
+    expect(headers["x-service-token"]).toBe(TOKEN);
+    expect(headers["idempotency-key"]).toBe(EVENT);
+    expect(init.redirect).toBe("error");
+    expect(JSON.parse(String(init.body))).toEqual(BODY);
+  });
+
+  it("the body schema is strict: no student reference, name, company, title or amount", () => {
+    for (const extra of ["student_ref", "phone", "name", "company", "job_title", "amount"]) {
+      expect(
+        RvmSelectionWithdrawalBodySchema.safeParse({ ...BODY, [extra]: "x" }).success,
+        extra,
+      ).toBe(false);
+    }
+    expect(RvmSelectionWithdrawalBodySchema.safeParse(BODY).success).toBe(true);
+  });
+
+  it("refuses an off-contract body before anything leaves the process", async () => {
+    const { api, fetchImpl } = client(() => json(201, {}));
+    for (const bad of [
+      { ...BODY, status: "selected" },
+      { ...BODY, withdraws_event_id: "not-a-uuid" },
+      { ...BODY, event_id: ".." },
+      { ...BODY, date: "19 Nov" },
+    ]) {
+      await expect(
+        api.postSelectionWithdrawal(bad as never),
+        JSON.stringify(bad),
+      ).rejects.toThrow();
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("today's RVM answer to an unknown status, 400, is a refusal (rejected); 5xx is an outage", async () => {
+    const refused = client(() => json(400, { code: "VALIDATION" }));
+    await expect(refused.api.postSelectionWithdrawal(BODY)).resolves.toEqual({
+      kind: "rejected",
+      status: 400,
+    });
+    const down = client(() => json(503, {}));
+    expect((await failureOf(down.api.postSelectionWithdrawal(BODY))).failure).toBe("http_status");
   });
 });

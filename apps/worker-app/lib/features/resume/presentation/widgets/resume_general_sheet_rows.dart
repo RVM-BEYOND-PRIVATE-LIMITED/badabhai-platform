@@ -8,6 +8,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 import '../../../../core/theme/onboarding_theme.dart';
 
@@ -49,6 +50,7 @@ class ResumeSheetHeadRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String suffix = titleSuffix ?? '';
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -63,7 +65,7 @@ class ResumeSheetHeadRow extends StatelessWidget {
                     size: 14,
                     weight: FontWeight.w700,
                     height: 1.35,
-                    color: OnboardingColors.ink900,
+                    color: p.textPrimary,
                   ),
                 ),
                 if (suffix.isNotEmpty)
@@ -72,7 +74,7 @@ class ResumeSheetHeadRow extends StatelessWidget {
                     style: OnboardingTypography.inter(
                       size: 12,
                       height: 1.35,
-                      color: OnboardingColors.ink500,
+                      color: p.textMuted,
                     ),
                   ),
               ],
@@ -96,7 +98,7 @@ class ResumeSheetHeadRow extends StatelessWidget {
               style: OnboardingTypography.inter(
                 size: 12,
                 height: 1.35,
-                color: OnboardingColors.ink500,
+                color: p.textMuted,
               ),
             ),
           ),
@@ -115,10 +117,11 @@ class ResumeSheetBullet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final TextStyle style = OnboardingTypography.inter(
       size: 13,
       height: 1.45,
-      color: OnboardingColors.ink600,
+      color: p.textSecondary,
     );
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -150,6 +153,7 @@ class ResumeSheetStint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Padding(
       padding: EdgeInsets.only(top: 4, left: stepped ? 12 : 0),
       child: Text.rich(
@@ -161,7 +165,7 @@ class ResumeSheetStint extends StatelessWidget {
                 size: 13,
                 weight: FontWeight.w700,
                 height: 1.35,
-                color: OnboardingColors.ink900,
+                color: p.textPrimary,
               ),
             ),
             if (when.isNotEmpty)
@@ -170,7 +174,7 @@ class ResumeSheetStint extends StatelessWidget {
                 style: OnboardingTypography.inter(
                   size: 12,
                   height: 1.35,
-                  color: OnboardingColors.ink500,
+                  color: p.textMuted,
                 ),
               ),
           ],
@@ -199,6 +203,7 @@ class ResumeSheetLabelValue extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Text.rich(
       TextSpan(
         children: <InlineSpan>[
@@ -208,7 +213,7 @@ class ResumeSheetLabelValue extends StatelessWidget {
               size: 13,
               weight: FontWeight.w700,
               height: 1.4,
-              color: OnboardingColors.ink900,
+              color: p.textPrimary,
             ),
           ),
           TextSpan(
@@ -216,7 +221,7 @@ class ResumeSheetLabelValue extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 13,
               height: 1.4,
-              color: OnboardingColors.ink600,
+              color: p.textSecondary,
             ),
           ),
         ],

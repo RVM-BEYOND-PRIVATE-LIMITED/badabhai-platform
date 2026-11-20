@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import '../../../core/theme/bb_palette.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -75,10 +76,11 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
         }
       },
       builder: (BuildContext context, ResumeEditState state) {
+        final BbPalette p = context.bb;
         final ResumeEditCubit cubit = context.read<ResumeEditCubit>();
         final bool ready = state.status == ResumeEditStatus.ready;
         return Scaffold(
-          backgroundColor: OnboardingColors.canvasBg,
+          backgroundColor: p.page,
           body: Column(
             children: <Widget>[
               // A PUSHED route, so it gets the back-arrow header rather than a
@@ -301,6 +303,7 @@ class _NameField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return _FieldRow(
       child: Row(
         children: <Widget>[
@@ -310,7 +313,7 @@ class _NameField extends StatelessWidget {
               children: <Widget>[
                 Text('Naam ki spelling', style: _kRowLabelStyle),
                 const SizedBox(height: 2),
-                Text(value, style: _kRowValueStyle),
+                Text(value, style: _rowValueStyle(p)),
               ],
             ),
           ),
@@ -319,7 +322,7 @@ class _NameField extends StatelessWidget {
             tooltip: 'Edit',
             onPressed: onEdit,
             iconSize: 22,
-            color: OnboardingColors.shiftBlue,
+            color: p.textBrand,
             constraints: const BoxConstraints(
               minWidth: OnboardingLayout.tapTarget,
               minHeight: OnboardingLayout.tapTarget,
@@ -351,6 +354,7 @@ class _PhotoField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return _FieldRow(
       child: Row(
         children: <Widget>[
@@ -362,7 +366,7 @@ class _PhotoField extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   hasPhoto ? 'Photo lagi hai' : 'Photo add karein',
-                  style: _kRowValueStyle,
+                  style: _rowValueStyle(p),
                 ),
               ],
             ),
@@ -371,12 +375,12 @@ class _PhotoField extends StatelessWidget {
           _thumb(context),
           const SizedBox(width: 12),
           if (busy)
-            const SizedBox(
+            SizedBox(
               width: 22,
               height: 22,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: OnboardingColors.shiftBlue,
+                color: p.textBrand,
               ),
             )
           else
@@ -384,7 +388,7 @@ class _PhotoField extends StatelessWidget {
               tooltip: hasPhoto ? 'Change photo' : 'Add photo',
               onPressed: onEdit,
               iconSize: 22,
-              color: OnboardingColors.shiftBlue,
+              color: p.textBrand,
               constraints: const BoxConstraints(
                 minWidth: OnboardingLayout.tapTarget,
                 minHeight: OnboardingLayout.tapTarget,
@@ -399,12 +403,13 @@ class _PhotoField extends StatelessWidget {
   }
 
   Widget _thumb(BuildContext context) {
+    final BbPalette p = context.bb;
     final String? url = photoUrl;
     // Decode to the on-screen size, not the photo's full resolution.
     final int cachePx = (44 * MediaQuery.devicePixelRatioOf(context)).round();
     return CircleAvatar(
       radius: 22,
-      backgroundColor: OnboardingColors.surfaceMuted,
+      backgroundColor: p.raised,
       child: (hasPhoto && url != null)
           ? ClipOval(
               child: Image.network(
@@ -415,17 +420,17 @@ class _PhotoField extends StatelessWidget {
                 cacheHeight: cachePx,
                 fit: BoxFit.cover,
                 // Signed url expired / offline → placeholder, never an error.
-                errorBuilder: (_, __, ___) => const Icon(
+                errorBuilder: (_, __, ___) =>  Icon(
                   Icons.person_outline,
                   size: 24,
-                  color: OnboardingColors.ink500,
+                  color: p.textMuted,
                 ),
               ),
             )
-          : const Icon(
+          :  Icon(
               Icons.person_outline,
               size: 24,
-              color: OnboardingColors.ink500,
+              color: p.textMuted,
             ),
     );
   }
@@ -470,12 +475,13 @@ class _FieldRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       decoration: BoxDecoration(
         border: last
             ? null
-            : const Border(
-                bottom: BorderSide(color: OnboardingColors.borderSubtle),
+            :  Border(
+                bottom: BorderSide(color: p.borderSubtle),
               ),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -488,7 +494,7 @@ final TextStyle _kRowLabelStyle = OnboardingTypography.inter(
   size: 14,
   weight: FontWeight.w600,
 );
-final TextStyle _kRowValueStyle = OnboardingTypography.inter(
+TextStyle _rowValueStyle(BbPalette p) => OnboardingTypography.inter(
   size: 13,
-  color: OnboardingColors.ink600,
+  color: p.textSecondary,
 );

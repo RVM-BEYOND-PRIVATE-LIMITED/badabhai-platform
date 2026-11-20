@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/api/api_models.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/error/failure_reason.dart';
 import '../../../../core/theme/onboarding_theme.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/kit/kit_callout.dart';
 import '../../../../core/widgets/kit/kit_card.dart';
@@ -71,7 +73,15 @@ class ChatResumeView extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Theme(
+        // A résumé is PRINTED output: it keeps the light design whatever the
+        // app theme is. Only the screen around it follows light/ink.
+        data: AppTheme.light(),
+        child: Builder(builder: _buildLight),
+      );
+
+  Widget _buildLight(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -89,7 +99,7 @@ class ChatResumeView extends StatelessWidget {
                 style: OnboardingTypography.inter(
                   size: 12,
                   height: 1.35,
-                  color: OnboardingColors.ink500,
+                  color: p.textMuted,
                 ),
               ),
             ],
@@ -129,7 +139,15 @@ class ResumeDocumentView extends StatelessWidget {
   final TradeSheetResumeDocument document;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Theme(
+        // The printable résumé/document stays LIGHT in both themes; the
+        // surrounding screen is what follows the theme.
+        data: AppTheme.light(),
+        child: Builder(builder: _buildLight),
+      );
+
+  Widget _buildLight(BuildContext context) {
+    final BbPalette p = context.bb;
     final ResumeSlots slots = mapTradeSheet(document);
     // `education.jpeg` — Education and Certificates leave the "Qualification,
     // documents & languages" card for a card of their own (see
@@ -156,7 +174,7 @@ class ResumeDocumentView extends StatelessWidget {
           document.footerMeta!,
           style: OnboardingTypography.inter(
             size: 11,
-            color: OnboardingColors.ink500,
+            color: p.textMuted,
           ),
         ),
     ];
@@ -221,13 +239,14 @@ class _MaterialsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return KitCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           _CardHeader(
             icon: Icons.category_rounded,
-            iconColor: OnboardingColors.safetyYellow,
+            iconColor: p.action,
             // The server's own row label ('Materials', 'Tool steels',
             // 'Electrode types'…). The spec's '4 Alloys' is wrong for brass,
             // aluminium or a powder coating, and there is no material-category
@@ -253,6 +272,7 @@ class _OperationsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final List<Widget> blocks = <Widget>[
       if (slots.operations.isNotEmpty)
         _LabelledBlock(
@@ -297,7 +317,7 @@ class _OperationsCard extends StatelessWidget {
         children: <Widget>[
           _CardHeader(
             icon: Icons.construction_rounded,
-            iconColor: OnboardingColors.successGreen,
+            iconColor: p.success,
             title:
                 slots.operationsTitle ??
                 (slots.hasCapabilityCard
@@ -372,6 +392,7 @@ class _WorkHistoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return KitCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -388,12 +409,12 @@ class _WorkHistoryCard extends StatelessWidget {
             if (i == 0)
               const SizedBox(height: 14)
             else
-              const Padding(
+               Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
                 child: Divider(
                   height: 1,
                   thickness: 1,
-                  color: OnboardingColors.borderDefault,
+                  color: p.borderDefault,
                 ),
               ),
             ResumeEmploymentEntry(employment: document.employments[i]),
@@ -405,7 +426,7 @@ class _WorkHistoryCard extends StatelessWidget {
               document.employmentsMore!,
               style: OnboardingTypography.inter(
                 size: 12,
-                color: OnboardingColors.ink500,
+                color: p.textMuted,
               ),
             ),
           ],
@@ -456,21 +477,22 @@ class _CardHeader extends StatelessWidget {
   const _CardHeader({
     required this.icon,
     required this.title,
-    this.iconColor = OnboardingColors.shiftBlue,
+    this.iconColor,
     this.count,
   });
 
   final IconData icon;
   final String title;
-  final Color iconColor;
+  final Color? iconColor;
   final int? count;
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return KitCardHeader(
       icon: icon,
       title: title,
-      iconColor: iconColor,
+      iconColor: iconColor ?? p.textBrand,
       count: count,
     );
   }
@@ -587,6 +609,7 @@ class _FactLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Text.rich(
       TextSpan(
         style: OnboardingTypography.inter(size: 13, height: 1.4),
@@ -596,7 +619,7 @@ class _FactLine extends StatelessWidget {
             style: OnboardingTypography.inter(
               size: 13,
               height: 1.4,
-              color: OnboardingColors.ink600,
+              color: p.textSecondary,
             ),
           ),
           TextSpan(
@@ -693,6 +716,7 @@ class _ResumeEmploymentEntryState extends State<ResumeEmploymentEntry> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final ResumeEmploymentDto employment = widget.employment;
     final String title = '${employment.employer}${employment.roleInline ?? ''}';
     // A genuine rewrite to compare, with an id to act on. See the DTO's own
@@ -725,7 +749,7 @@ class _ResumeEmploymentEntryState extends State<ResumeEmploymentEntry> {
                   size: 16,
                   weight: FontWeight.w700,
                   height: 1.3,
-                  color: OnboardingColors.shiftBlue,
+                  color: p.textBrand,
                 ),
               ),
             if (employment.when.isNotEmpty) ResumeWhenPill(text: employment.when),
@@ -739,7 +763,7 @@ class _ResumeEmploymentEntryState extends State<ResumeEmploymentEntry> {
             employment.locationSuffix!.replaceFirst(RegExp(r'^[\s·,—-]+'), ''),
             style: OnboardingTypography.inter(
               size: 13,
-              color: OnboardingColors.ink500,
+              color: p.textMuted,
             ),
           ),
         ],
@@ -750,7 +774,7 @@ class _ResumeEmploymentEntryState extends State<ResumeEmploymentEntry> {
             style: OnboardingTypography.inter(
               size: 14,
               height: 1.5,
-              color: OnboardingColors.ink600,
+              color: p.textSecondary,
             ),
           ),
         ],
@@ -790,7 +814,7 @@ class _ResumeEmploymentEntryState extends State<ResumeEmploymentEntry> {
                 '${employment.roles[i].role} · ${employment.roles[i].when}',
                 style: OnboardingTypography.inter(
                   size: 12,
-                  color: OnboardingColors.ink600,
+                  color: p.textSecondary,
                 ),
               ),
             ),
@@ -871,6 +895,7 @@ class _ResumeTrainingEntryState extends State<ResumeTrainingEntry> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final ResumeExperienceLineDto line = widget.line;
     final bool general = widget.style == ResumeEmploymentStyle.generalSheet;
     return Column(
@@ -900,7 +925,7 @@ class _ResumeTrainingEntryState extends State<ResumeTrainingEntry> {
               line.duration,
               style: OnboardingTypography.inter(
                 size: 12,
-                color: OnboardingColors.ink500,
+                color: p.textMuted,
               ),
             ),
         ],
@@ -963,6 +988,7 @@ class _OwnWordsChoice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -980,9 +1006,9 @@ class _OwnWordsChoice extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: OnboardingColors.surfaceMuted,
+              color: p.raised,
               borderRadius: BorderRadius.circular(OnboardingRadii.row),
-              border: Border.all(color: OnboardingColors.borderSubtle),
+              border: Border.all(color: p.borderSubtle),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -997,7 +1023,7 @@ class _OwnWordsChoice extends StatelessWidget {
                   style: OnboardingTypography.inter(
                     size: 11,
                     weight: FontWeight.w700,
-                    color: OnboardingColors.ink600,
+                    color: p.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -1041,6 +1067,7 @@ class _RevealLink extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1054,7 +1081,7 @@ class _RevealLink extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(icon, size: 18, color: OnboardingColors.shiftBlue),
+              Icon(icon, size: 18, color: p.textBrand),
               const SizedBox(width: 4),
               // FLEXIBLE, and it has to be: "Aapke apne shabdon mein dekhein"
               // beside its icon overflowed a 360dp phone by 128px — a real
@@ -1068,7 +1095,7 @@ class _RevealLink extends StatelessWidget {
                   style: OnboardingTypography.inter(
                     size: 13,
                     weight: FontWeight.w700,
-                    color: OnboardingColors.shiftBlue,
+                    color: p.textBrand,
                   ),
                 ),
               ),
@@ -1137,19 +1164,20 @@ class ResumeWhenPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
-        color: OnboardingColors.selectedCardBg,
+        color: p.selectedCardBg,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: OnboardingColors.safetyYellow),
+        border: Border.all(color: p.action),
       ),
       child: Text(
         text,
         style: OnboardingTypography.inter(
           size: 12,
           weight: FontWeight.w700,
-          color: OnboardingColors.shiftBlue,
+          color: p.textBrand,
         ),
       ),
     );

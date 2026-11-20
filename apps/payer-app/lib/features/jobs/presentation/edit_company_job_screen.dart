@@ -26,7 +26,9 @@ import '../../../core/widgets/bb_toast.dart';
 import 'cubit/jobs_cubit.dart';
 import 'widgets/job_content_input.dart';
 import 'widgets/job_form_rules.dart';
+import 'widgets/posting_audience_fields.dart';
 import 'widgets/trade_posting_fields.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Edit an existing COMPANY posting (`PATCH /payer/job-postings/:id`).
 ///
@@ -172,6 +174,17 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       widget.job.tradeAnswers ?? const <String, List<String>>{};
   late bool _tradeDirty = false;
 
+  // --- #2746 — audience and RVM targeting ------------------------------------
+  // Null until `GET audience-options` answers 200; a 404 (switch off) leaves it
+  // null, hides every audience control and sends none of the fields.
+  AudienceOptions? _audienceOptions;
+  late JobAudience _audience =
+      widget.job.audience ?? JobAudience.badabhaiWorkers;
+  late final Set<int> _rvmBranchIds = <int>{...widget.job.rvmBranchIds};
+  late final Set<String> _rvmCourseIds = <String>{...widget.job.rvmCourseIds};
+  // Set only by a payer tap, never by the options read (see the post form).
+  bool _audienceTouched = false;
+
   bool get _storedTradeFields =>
       widget.job.tradeLevel != null || widget.job.tradeAnswers != null;
 
@@ -238,6 +251,27 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
     // ignore: discarded_futures — fire-and-forget; state updates on done.
     _loadPostingTrades();
     _loadManagedHiring();
+    // ignore: discarded_futures — #2746 audience options; a 404 hides them.
+    _loadAudienceOptions();
+  }
+
+  Future<void> _loadAudienceOptions() async {
+    try {
+      final AudienceOptions? options =
+          await locator<PayerApiClient>().fetchAudienceOptions();
+      if (!mounted) return;
+      setState(() {
+        _audienceOptions = options;
+        if (options != null &&
+            !options.audiences.contains(_audience) &&
+            options.audiences.isNotEmpty) {
+          _audience = options.audiences.first;
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _audienceOptions = null);
+    }
   }
 
   List<TextEditingController> get _textBoxes => <TextEditingController>[
@@ -267,7 +301,8 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       ];
 
   /// True when leaving would throw an edit away.
-  bool get _hasUnsavedChanges => !listEquals(_snapshot(), _pristine);
+  bool get _hasUnsavedChanges =>
+      !listEquals(_snapshot(), _pristine) || _audienceTouched;
 
   /// What [field] holds now — a server refusal stands until it changes
   /// ([BbFormErrors.refuse]).
@@ -537,6 +572,18 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
     return true;
   }
 
+  /// Order-insensitive set compare for the RVM branch targeting.
+  static bool _sameIntSet(Set<int> a, List<int>? b) {
+    final Set<int> other = (b ?? const <int>[]).toSet();
+    return a.length == other.length && a.every(other.contains);
+  }
+
+  /// Order-insensitive set compare for the RVM course targeting.
+  static bool _sameStringSet(Set<String> a, List<String>? b) {
+    final Set<String> other = (b ?? const <String>[]).toSet();
+    return a.length == other.length && a.every(other.contains);
+  }
+
   Future<void> _save() async {
     // #2595 — every reason the save cannot go is shown AT its field, and the
     // payer is taken to the first (scroll + shake + error haptic) — the same
@@ -592,9 +639,17 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         JobPostingClearField.locationLabel,
     ];
 
+    // #2746 — compare as sets (the API stores targeting sorted). Only matters
+    // when the picker was shown (switch on).
+    final bool audienceChanged = _audienceOptions != null &&
+        (_audience != (widget.job.audience ?? JobAudience.badabhaiWorkers) ||
+            !_sameIntSet(_rvmBranchIds, widget.job.rvmBranchIds) ||
+            !_sameStringSet(_rvmCourseIds, widget.job.rvmCourseIds));
+
     final bool nothingChanged = roleTitle == null &&
         location == null &&
         band == null &&
+        !audienceChanged &&
         city == null &&
         area == null &&
         description == null &&
@@ -648,6 +703,15 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       tradeLevel:
           tradeChanged && _tradeLevel.isNotEmpty ? _tradeLevel : null,
       tradeAnswers: tradeChanged ? _tradeAnswers : null,
+      // #2746 — only when the picker was shown (switch on). `[]` means every
+      // branch / every course; moving back to BadaBhai-only drops targeting.
+      audience: _audienceOptions == null ? null : _audience,
+      rvmBranchIds: _audienceOptions == null
+          ? null
+          : _rvmBranchIds.toList(growable: false),
+      rvmCourseIds: _audienceOptions == null
+          ? null
+          : _rvmCourseIds.toList(growable: false),
       clear: clear.isEmpty ? null : clear,
     );
     if (!mounted) return;
@@ -679,7 +743,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
               style: AppTypography.heading(
                 size: AppTypography.sizeMd,
                 weight: FontWeight.w800,
-                color: AppColors.blue,
+                color: context.bb.textBrand,
               ),
             ),
             const SizedBox(height: AppSpacing.s3),
@@ -882,6 +946,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // #2595 — a pick can fix an error from another control; errors only drop.
     if (!_form.isEmpty) _form.settle(_validate());
     return BbLeaveGuard(
@@ -931,6 +996,12 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                     ),
                   ],
                 ),
+                // #2746 — a stored RVM decision is shown even while the
+                // audience controls are hidden (switch off).
+                if (widget.job.rvmReview != null) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s4),
+                  RvmReviewNote(review: widget.job.rvmReview!),
+                ],
                 const SizedBox(height: AppSpacing.s4),
                 _sectionCard('Job details', <Widget>[
                   _anchored(
@@ -999,6 +1070,32 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                     labelOf: (String b) => b,
                     onSelected: (String v) => setState(() => _band = v),
                   ),
+                  if (_audienceOptions != null) ...<Widget>[
+                    const SizedBox(height: AppSpacing.s4),
+                    PostingAudienceFields(
+                      options: _audienceOptions!,
+                      audience: _audience,
+                      branchIds: _rvmBranchIds,
+                      courseIds: _rvmCourseIds,
+                      review: widget.job.rvmReview,
+                      onChanged: (
+                        JobAudience audience,
+                        Set<int> branchIds,
+                        Set<String> courseIds,
+                      ) {
+                        setState(() {
+                          _audience = audience;
+                          _rvmBranchIds
+                            ..clear()
+                            ..addAll(branchIds);
+                          _rvmCourseIds
+                            ..clear()
+                            ..addAll(courseIds);
+                          _audienceTouched = true;
+                        });
+                      },
+                    ),
+                  ],
                 ]),
                 if (_showTradeForm) ...<Widget>[
                   const SizedBox(height: AppSpacing.s4),
@@ -1025,7 +1122,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                         'appear here.',
                         style: AppTypography.body(
                           size: AppTypography.sizeSm,
-                          color: AppColors.textMuted,
+                          color: p.textMuted,
                           height: 1.45,
                         ),
                       ),
@@ -1176,7 +1273,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                   'trade requirements stay on the worker’s job detail.',
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    color: AppColors.textMuted,
+                    color: p.textMuted,
                     height: 1.45,
                   ),
                 ),

@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Theme applied to the Android Window while the process is starting when the OS's Dark Mode setting is off -->
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <!-- #2824: never let a phone\'s force-dark recolour the app. -->
+        <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
         <!-- Show a splash screen on the activity. Automatically removed when
              the Flutter engine draws its first frame -->
         <item name="android:windowBackground">@drawable/launch_background</item>
@@ -13,6 +15,8 @@
 
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <!-- #2824: never let a phone\'s force-dark recolour the app. -->
+        <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
         <!-- Brand blue (matches the Flutter SplashScreen) so the native→Flutter
              handoff frame never flashes white. -->
         <item name="android:windowBackground">@color/bb_launch_bg</item>

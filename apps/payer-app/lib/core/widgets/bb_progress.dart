@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/bb_palette.dart';
 
 /// A labelled progress meter — the design system's `.bb-progress`. A head row
 /// (label + a Roboto-Mono "filled/quota" count) over a slim sunken track with a
@@ -28,6 +28,7 @@ class BbProgress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -41,7 +42,7 @@ class BbProgress extends StatelessWidget {
                   style: AppTypography.body(
                     size: AppTypography.sizeXs,
                     weight: FontWeight.w600,
-                    color: AppColors.textSecondary,
+                    color: p.textSecondary,
                   ),
                 ),
               if (countText != null)
@@ -50,7 +51,7 @@ class BbProgress extends StatelessWidget {
                   style: AppTypography.mono(
                     size: AppTypography.sizeXs,
                     weight: FontWeight.w700,
-                    color: AppColors.textPrimary,
+                    color: p.textPrimary,
                   ),
                 ),
             ],
@@ -61,7 +62,7 @@ class BbProgress extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadii.pill),
           child: Container(
             height: 10,
-            color: AppColors.surfaceInset,
+            color: p.inset,
             child: TweenAnimationBuilder<double>(
               tween: Tween<double>(begin: 0, end: value.clamp(0, 1)),
               duration: AppMotion.slow,
@@ -70,8 +71,8 @@ class BbProgress extends StatelessWidget {
                 return FractionallySizedBox(
                   widthFactor: t,
                   alignment: Alignment.centerLeft,
-                  child: const DecoratedBox(
-                    decoration: BoxDecoration(color: AppColors.success),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(color: p.success),
                   ),
                 );
               },

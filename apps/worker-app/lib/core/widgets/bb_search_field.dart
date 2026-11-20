@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 
 /// The app's one token-driven search input: a white fill, 10dp corners, a
@@ -45,6 +46,7 @@ class BbSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Semantics(
       label: label,
       textField: true,
@@ -61,25 +63,21 @@ class BbSearchField extends StatelessWidget {
             hintText: hint,
             hintStyle: OnboardingTypography.inter(
               size: 14,
-              color: OnboardingColors.ink500,
+              color: p.textMuted,
             ),
             // Icons.search, not the rounded variant: bb_search_field_test
             // asserts this exact glyph.
-            prefixIcon: const Icon(
-              Icons.search,
-              size: 20,
-              color: OnboardingColors.ink500,
-            ),
+            prefixIcon: Icon(Icons.search, size: 20, color: p.textMuted),
             isDense: true,
             filled: true,
-            fillColor: OnboardingColors.paperWhite,
+            fillColor: p.card,
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
               vertical: 8,
             ),
-            enabledBorder: _border(OnboardingColors.borderDefault, 1.2),
-            border: _border(OnboardingColors.borderDefault, 1.2),
-            focusedBorder: _border(OnboardingColors.shiftBlue, 1.8),
+            enabledBorder: _border(p.borderDefault, 1.2),
+            border: _border(p.borderDefault, 1.2),
+            focusedBorder: _border(p.focusRing, 1.8),
           ),
         ),
       ),

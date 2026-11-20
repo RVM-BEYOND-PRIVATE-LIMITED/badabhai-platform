@@ -93,8 +93,18 @@ export class PayerValidationError extends PayerHttpError {
  * which reads the same status across module instances).
  */
 export class PayerForbiddenError extends PayerHttpError {
-  constructor(path: string) {
+  /** The API's machine-readable `reason` when the 403 names one (a campus-drive refusal). */
+  readonly reason: string | null;
+  /**
+   * A campus-drive `403 company_not_verified` names the steps missing, in order
+   * (`admin_approval` | `gst_number`). Empty for every other 403, which names none.
+   */
+  readonly missing: readonly string[];
+
+  constructor(path: string, reason: string | null = null, missing: readonly string[] = []) {
     super(path, 403);
+    this.reason = reason;
+    this.missing = missing;
   }
 }
 
@@ -131,6 +141,26 @@ export const POSTING_TRADE_REQUIRED_REASON = "posting_trade_required";
 /** Was a company job refused for want of one of the 16 trades? Read by `reason`, never the message. */
 export function isPostingTradeRequired(e: unknown): boolean {
   return e instanceof PayerBadRequestError && e.reason === POSTING_TRADE_REQUIRED_REASON;
+}
+
+/**
+ * #2746 — a posting write named targeting with an audience that has no RVM part.
+ * Read by the API's `reason`, never its message.
+ */
+export const TARGETING_NEEDS_RVM_AUDIENCE_REASON = "targeting_needs_rvm_audience";
+/** #2746 — a targeting id is not an active option of its kind (an id already held stays valid). */
+export const TARGETING_OPTION_NOT_OFFERED_REASON = "targeting_option_not_offered";
+
+export function isTargetingNeedsRvmAudience(e: unknown): boolean {
+  return (
+    e instanceof PayerBadRequestError && e.reason === TARGETING_NEEDS_RVM_AUDIENCE_REASON
+  );
+}
+
+export function isTargetingOptionNotOffered(e: unknown): boolean {
+  return (
+    e instanceof PayerBadRequestError && e.reason === TARGETING_OPTION_NOT_OFFERED_REASON
+  );
 }
 
 /**

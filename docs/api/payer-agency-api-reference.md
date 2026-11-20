@@ -880,7 +880,7 @@ So a screen can draw the Selected and Hired controls only when a move would be a
 
 #### `PUT /ops/agency-jobs/:jobId/match-skills` — **OPS ONLY, not a payer/mobile route** (#1983)
 
-- **Auth:** `InternalServiceGuard` **and** `AdminAuthGuard`, both required (the `POST /job-postings/:id/reach/widen` precedent). The recorded actor is the authenticated admin, never a body field.
+- **Auth:** `InternalServiceGuard`, `AdminAuthGuard` **and** the `manage_agency_match_skills` capability (currently `super_admin` only), all required (the `POST /job-postings/:id/reach/widen` precedent, plus the same capability as the Admin Portal twin below, #2902). Any other admin role gets `403`. The recorded actor is the authenticated admin, never a body field.
 - **Body:** `{ match_skill_ids: 'mskill_*'[] (0–50) }` (`.strict()`). This is the full desired set; `[]` resets it to "not chosen yet".
 - **Response:** `{ job_id, match_skill_ids, changed: boolean }`. An unchanged set (in any order) returns `changed: false` with no write and no event.
 - **Errors:** a job that is not an **agency** job (unknown id, a seed/ops row, an employer-owned legacy row) → neutral `404 "Job not found"`. A closed job → `400 "Job is closed and cannot be edited"`. Vocabulary and cap errors are the same as on the agency form.
@@ -951,9 +951,11 @@ Owner rulings 2026-11-03: payer-web's **Candidates** opens on **All candidates**
 
   **#2747:** every row also carries `source` (`'rvm_student'` only for a student your company holds a named-company search grant for, §4.5), `notRecentlyActive` while `WORKER_ACTIVITY_ENABLED` is on (#2753, §4.5; a mark only, the search order is unchanged), and, while `APPLICANT_FACTS_ROLLOUT` is on for your company, the six facts before paying (`firstName`, `tradeLine`, `expectedSalary`, `machines`, `area`, `lastActiveOn`; §4.5). With the switch on, the "no name, no salary" line above becomes "no surname, no phone".
 
+  **#2838 daily cap (search only):** your company sees the facts for at most `APPLICANT_FACTS_SEARCH_DAILY_DISTINCT_CAP` (default 300) different workers per IST day. A worker already shown today keeps his facts on later pages; a new worker past the cap is still listed, with every fact `null` ("not given"), exactly like a worker who has not agreed to share. The cap never changes who is listed, the order, or the counts. The applicant lists (`/payer/applicants`, the posting inbox) are not capped.
+
 - **Sample candidates (R74, 2026-11-04):** `isSample: true` marks a synthetic-workforce seed row shown for demos, not a person. Clients badge the card "Sample candidate" and offer no unlock. `POST /payer/unlocks` for a sample worker returns the normal neutral `unavailable` body with **no credit debited and no unlock row written** (only `unlock.requested` is recorded). Sample rows are ranked and counted like any other candidate.
 - **Cursor:** opaque base64url of `{ v: 1, f: <search fingerprint>, w: <last worker served>, o: <rows served> }` — it names who you were last shown, never a sort key. Bound to its search: reused under different filters or `strict` → `400`. The next page resumes after that worker's current position (or, if he has left the pool, at position `o`).
-- **Events:** one `payer.candidate_search_performed` v1 per page — the shape (closed role ids, which filters were engaged as booleans, strict, first page, page size, the three counts); never a worker id or a city.
+- **Events:** one `payer.candidate_search_performed` v1 per page — the shape (closed role ids, which filters were engaged as booleans, strict, first page, page size, the three counts); never a worker id or a city. While the facts switch is on, `payer.candidate_search_volume_alert` v1 once per company per IST day when the distinct workers shown facts reach half the daily cap, and once at the cap (#2838).
 - **Errors:** `400` bad body / unknown role / malformed or foreign cursor; `401` no session; `429` cap or Redis down; a DB failure is a `5xx`.
 
 #### `GET /payer/candidates/filters`

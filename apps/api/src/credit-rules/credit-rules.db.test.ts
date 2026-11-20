@@ -528,6 +528,175 @@ describe.skipIf(!RUN)("rvm applicant waivers — against real Postgres", () => {
 });
 
 /**
+ * #2778 — waiver end dates against real Postgres. What only a real database proves: the end-date
+ * clause, on the database's own clock in India time, frees a waiver through its last day and not
+ * the day after, in the quote's read (`waiversFor`), the open's re-read under a share lock
+ * (`isActiveForShare`) and the in-force list alike; nothing is deleted (the ended waiver stays
+ * `active` and shows in the full history); one end date per waiver; and an ended waiver, once
+ * retired, makes room for a new one. With the switch off the same rows read exactly as before.
+ */
+describe.skipIf(!RUN)("rvm waiver end dates (#2778) — against real Postgres", () => {
+  let client: DbClient;
+  let on: RvmWaiversRepository;
+  let off: RvmWaiversRepository;
+  const T = randomUUID().slice(0, 8);
+  const COMPANY = randomUUID();
+  const P_JOB = randomUUID(); // a job waiver ending TODAY (India)
+  const P_PLAIN = randomUUID(); // covered only by a company waiver that ended YESTERDAY
+  const A = randomUUID(); // applied to P_JOB
+  const B = randomUUID(); // applied to P_PLAIN
+  const STAFF = randomUUID();
+  const tenant = COMPANY as TenantKey;
+  let today: string;
+  let yesterday: string;
+  let jobWaiver: string;
+  let companyWaiver: string;
+
+  const insertWaiver = (repo: RvmWaiversRepository, scope: "company" | "job", posting: string | null) =>
+    client.db.transaction((tx) =>
+      repo.insert(tx as never, {
+        scope,
+        tenant,
+        jobPostingId: posting,
+        source: "campus",
+        setByRef: STAFF,
+        setByLabelEnc: "enc:staff",
+        reason: "Drive partner",
+      }),
+    );
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL);
+    on = new RvmWaiversRepository(client.db, { RVM_WAIVER_END_DATES_ENABLED: true });
+    off = new RvmWaiversRepository(client.db, { RVM_WAIVER_END_DATES_ENABLED: false });
+    const { sql } = client;
+    const [d] = await sql<{ today: string; yesterday: string }[]>`
+      SELECT ((now() AT TIME ZONE 'Asia/Kolkata')::date)::text AS today,
+             ((now() AT TIME ZONE 'Asia/Kolkata')::date - 1)::text AS yesterday`;
+    today = d!.today;
+    yesterday = d!.yesterday;
+    await sql`
+      INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+      VALUES (${COMPANY}::uuid, 'employer', ${`enc:2778-${T}`}, ${`hash:2778-${T}`},
+              ${`enc:co-${T}`}, 'active')`;
+    for (const id of [P_JOB, P_PLAIN]) {
+      await sql`
+        INSERT INTO job_postings
+          (id, created_by, payer_id, org_label, role_title, vacancy_band, status, verification_status)
+        VALUES (${id}::uuid, ${COMPANY}::uuid, ${COMPANY}::uuid, 'Waiver Co', 'CNC Operator', '1',
+                'open', 'verified')`;
+    }
+    for (const id of [A, B]) {
+      await sql`
+        INSERT INTO workers (id, phone_e164, phone_hash, status)
+        VALUES (${id}::uuid, ${`enc:2778-${T}-${id}`}, ${`hash:2778-${T}-${id}`}, 'active')`;
+    }
+    for (const [worker, posting] of [
+      [A, P_JOB],
+      [B, P_PLAIN],
+    ] as const) {
+      await sql`
+        INSERT INTO applications (job_posting_id, worker_id, action, source_surface)
+        VALUES (${posting}::uuid, ${worker}::uuid, 'applied', 'other')`;
+    }
+    jobWaiver = (await insertWaiver(on, "job", P_JOB)).id;
+    companyWaiver = (await insertWaiver(on, "company", null)).id;
+    await client.db.transaction(async (tx) => {
+      await on.insertEndDate(tx as never, { waiverId: jobWaiver, tenant, endsOn: today });
+      await on.insertEndDate(tx as never, { waiverId: companyWaiver, tenant, endsOn: yesterday });
+    });
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      const { sql } = client;
+      await sql`DELETE FROM rvm_waiver_end_dates WHERE payer_id = ${COMPANY}::uuid`;
+      await sql`DELETE FROM rvm_applicant_waivers WHERE payer_id = ${COMPANY}::uuid`;
+      await sql`DELETE FROM job_postings WHERE payer_id = ${COMPANY}::uuid`;
+      await sql`DELETE FROM workers WHERE phone_hash LIKE ${`hash:2778-${T}-%`}`;
+      await sql`DELETE FROM payers WHERE id = ${COMPANY}::uuid`;
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  it("the table is there, and each waiver reads its end: today's runs, yesterday's has ended", async () => {
+    expect(await on.endDatesReadable()).toBe(true);
+    const ends = await on.endsOf([jobWaiver, companyWaiver]);
+    expect(ends.get(jobWaiver)).toEqual({ endsOn: today, ended: false });
+    expect(ends.get(companyWaiver)).toEqual({ endsOn: yesterday, ended: true });
+  });
+
+  it("the quote: a waiver frees through its last day, never the day after", async () => {
+    const freed = await on.waiversFor(tenant, [A, B]);
+    expect([...freed.entries()]).toEqual([[A, { waiverId: jobWaiver, scope: "job" }]]);
+  });
+
+  it("the open's re-read agrees with the quote, under the share lock", async () => {
+    await client.db.transaction(async (tx) => {
+      expect(await on.isActiveForShare(tx as never, jobWaiver)).toBe(true);
+      expect(await on.isActiveForShare(tx as never, companyWaiver)).toBe(false);
+    });
+  });
+
+  it("nothing is deleted: the ended waiver stays active, out of the in-force list, in the history", async () => {
+    const [row] = await client.sql<{ active: boolean }[]>`
+      SELECT active FROM rvm_applicant_waivers WHERE id = ${companyWaiver}::uuid`;
+    expect(row!.active).toBe(true);
+    const inForce = await on.list({ tenant, includeCleared: false, after: null, limit: 10 });
+    expect(inForce.map((w) => w.id)).toEqual([jobWaiver]);
+    expect(inForce[0]!.end).toEqual({ endsOn: today, ended: false });
+    const all = await on.list({ tenant, includeCleared: true, after: null, limit: 10 });
+    expect(new Map(all.map((w) => [w.id, w.end]))).toEqual(
+      new Map([
+        [jobWaiver, { endsOn: today, ended: false }],
+        [companyWaiver, { endsOn: yesterday, ended: true }],
+      ]),
+    );
+  });
+
+  it("switch off: the same rows read as before #2778 (no end applies, none is shown)", async () => {
+    const freed = await off.waiversFor(tenant, [A, B]);
+    expect(freed.get(B)).toEqual({ waiverId: companyWaiver, scope: "company" });
+    await client.db.transaction(async (tx) => {
+      expect(await off.isActiveForShare(tx as never, companyWaiver)).toBe(true);
+    });
+    expect(await off.endsOf([companyWaiver])).toEqual(new Map());
+    const inForce = await off.list({ tenant, includeCleared: false, after: null, limit: 10 });
+    expect(inForce.map((w) => w.end)).toEqual([null, null]);
+  });
+
+  it("one end date per waiver", async () => {
+    await expect(
+      client.db.transaction((tx) =>
+        on.insertEndDate(tx as never, { waiverId: jobWaiver, tenant, endsOn: today }),
+      ),
+    ).rejects.toSatisfy(isUniqueViolation);
+  });
+
+  it("an ended waiver, once retired, makes room for a new one, which frees again", async () => {
+    // Still holding the company's one active slot: a second company waiver is refused.
+    await expect(insertWaiver(on, "company", null)).rejects.toSatisfy(isUniqueViolation);
+    const retired = await client.db.transaction((tx) =>
+      on.clear(tx as never, companyWaiver, {
+        clearedByRef: STAFF,
+        clearedByLabelEnc: "enc:staff",
+        clearReason: `Ended on ${yesterday}; replaced by a new waiver`,
+        at: new Date(),
+      }),
+    );
+    expect(retired).toMatchObject({ active: false });
+    const fresh = await insertWaiver(on, "company", null);
+    const freed = await on.waiversFor(tenant, [A, B]);
+    expect(freed.get(B)).toEqual({ waiverId: fresh.id, scope: "company" });
+    // The retired row and its end date are kept.
+    expect((await on.endsOf([companyWaiver])).get(companyWaiver)?.ended).toBe(true);
+  });
+});
+
+
+/**
  * #2750 item 6 — the opening limits' counts against real Postgres: a worker's NEW opens in the
  * window by every company (granted, revealed and lapsed rows count; a denied row and an open from
  * before the window do not), and one company's new opens since a given instant.

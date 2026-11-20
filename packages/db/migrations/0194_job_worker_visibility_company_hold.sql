@@ -1,0 +1,53 @@
+-- ===========================================================================
+-- 0194 - job_posting_worker_visibility: hold a company job in a trade RVM trains
+--
+-- #2956 follow-up (Prakash, 19 Nov 2026, point 3): a NEW company job in a trade RVM
+-- trains (`campus_trades`, #2957) is hidden from BadaBhai workers until an admin
+-- decides where it shows. The #2891 hold already hides a posting on every worker path
+-- (`reachesBadaBhaiWorkers()`), so the company publish writes a hold row with a new
+-- origin, `company_rvm_trade`, and the admin's decision releases it.
+--
+-- ONE CHECK WIDENED, ADDITIVE. DROP + ADD of
+--   jpwv_origin_chk  + 'company_rvm_trade'
+-- Every value 0184 allowed is still allowed, so no stored row can fail the re-add.
+-- No column, no index, no row.
+--
+-- DEPLOY ORDER - APPLY BEFORE ADMIN_JOB_AUDIENCE_ENABLED IS TURNED ON, NOT BEFORE THE
+-- DEPLOY, AND AFTER 0184. No column changes, so no select is affected by a build that
+-- reaches the database first. Nothing writes the new origin while the switch is off.
+-- With the switch on before 0194, a company publish in a trade on the Campus list fails
+-- this CHECK (23514): the publish transaction rolls back, the job stays a draft, and
+-- the request answers 500.
+--
+-- LOCKS. DROP CONSTRAINT and a validated ADD CONSTRAINT ... CHECK take ACCESS
+-- EXCLUSIVE on `job_posting_worker_visibility` and the ADD scans it (one row per held
+-- posting, so the scan is small). Every worker read takes ACCESS SHARE on this table
+-- through the hold fragment, so a long lock wait queues worker reads. Applied by hand:
+-- wrap BOTH statements in ONE explicit BEGIN/COMMIT with `SET LOCAL lock_timeout =
+-- '3s';`, and retry on 55P03 (the 0129 / 0130 / 0166 / 0191 precedent):
+--   BEGIN;
+--   SET LOCAL lock_timeout = '3s';
+--   <the two statements below>
+--   COMMIT;
+--
+-- VERIFY AFTER APPLYING, BEFORE THE SWITCH GOES ON:
+--   SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'jpwv_origin_chk';
+-- must list 'company_rvm_trade'. Then record it with the owner-db-ledger workflow.
+--
+-- ROLLBACK. A CODE rollback needs no schema change: the widened CHECK admits every
+-- value an older build writes. An older build reads a `company_rvm_trade` row as a
+-- hold like any other (the worker fragment reads only `state`), and its admin
+-- audience route treats the job as Campus-origin (exempt from the trade list). A
+-- SCHEMA rollback (switch off first) is valid only while no such row exists - check
+--   SELECT count(*) FROM job_posting_worker_visibility WHERE origin = 'company_rvm_trade';
+-- is 0 - then, in one transaction:
+--   ALTER TABLE "job_posting_worker_visibility" DROP CONSTRAINT "jpwv_origin_chk";
+--   ALTER TABLE "job_posting_worker_visibility" ADD CONSTRAINT "jpwv_origin_chk" CHECK ("job_posting_worker_visibility"."origin" IN ('campus_posted', 'campus_imported'));
+-- and delete this migration's row from drizzle.__drizzle_migrations (the one whose
+-- created_at is this entry's journal `when`).
+--
+-- SAFE TO RE-RUN: yes in effect (DROP + ADD of the same constraint), but each run
+-- takes the lock again. Apply once.
+-- ===========================================================================
+ALTER TABLE "job_posting_worker_visibility" DROP CONSTRAINT "jpwv_origin_chk";--> statement-breakpoint
+ALTER TABLE "job_posting_worker_visibility" ADD CONSTRAINT "jpwv_origin_chk" CHECK ("job_posting_worker_visibility"."origin" IN ('campus_posted', 'campus_imported', 'company_rvm_trade'));

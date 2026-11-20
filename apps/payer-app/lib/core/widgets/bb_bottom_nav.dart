@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_pressable.dart';
+import '../theme/bb_palette.dart';
 
 /// One bottom-nav destination — Phosphor-style glyph + text label.
 class BbNavTab {
@@ -41,10 +41,11 @@ class BbBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: AppColors.surfaceCard,
-        border: Border(top: BorderSide(color: AppColors.borderSubtle)),
+      decoration: BoxDecoration(
+        color: p.card,
+        border: Border(top: BorderSide(color: p.borderSubtle)),
       ),
       child: SafeArea(
         top: false,
@@ -105,6 +106,7 @@ class _TabIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     if (count == 0 || index < 0) return const SizedBox.shrink();
     return FractionallySizedBox(
       alignment: Alignment.centerLeft,
@@ -118,7 +120,7 @@ class _TabIndicator extends StatelessWidget {
           child: Container(
             width: AppSpacing.s7,
             decoration: BoxDecoration(
-              color: AppColors.blue,
+              color: p.textBrand,
               borderRadius: BorderRadius.circular(BbBottomNav.indicatorHeight),
             ),
           ),
@@ -141,7 +143,8 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color color = active ? AppColors.blue : AppColors.textMuted;
+    final BbPalette p = context.bb;
+    final Color color = active ? p.textBrand : p.textMuted;
     return BbPressable(
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadii.sm),

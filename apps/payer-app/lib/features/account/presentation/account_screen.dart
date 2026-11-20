@@ -8,14 +8,16 @@ import '../../../core/data/payer_account_api.dart';
 import '../../../core/util/phone_format.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/session/app_session.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/bb_palette.dart';
+import '../../../core/theme/theme_cubit.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
+import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_tab_scope.dart';
@@ -24,6 +26,7 @@ import '../../../core/widgets/payer_role_badge.dart';
 import '../../capacity/presentation/capacity_screen.dart';
 import '../../org/presentation/team_screen.dart';
 import '../../referral/presentation/referral_screen.dart';
+import '../domain/display_prefs.dart';
 import 'cubit/account_cubit.dart';
 
 /// Account — the real `GET /payer/me` identity (org · email · role · status ·
@@ -116,7 +119,7 @@ class _AccountView extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.s4),
             if (state.status == AccountStatus.loading && state.me == null)
-              const _LoadingCard()
+              _LoadingCard()
             else if (state.status == AccountStatus.error && state.me == null)
               _ErrorCard(
                 message: state.error ??
@@ -134,7 +137,7 @@ class _AccountView extends StatelessWidget {
                     state.error!,
                     style: AppTypography.body(
                       size: AppTypography.sizeSm,
-                      color: AppColors.danger,
+                      color: context.bb.danger,
                     ),
                   ),
                 ),
@@ -161,6 +164,7 @@ class _AccountView extends StatelessWidget {
                     label: 'Hiring capacity',
                     onTap: () => _openCapacity(context),
                   ),
+                  const _AppearanceRow(),
                   // Agency-only supply surface — the referral link + funnel are
                   // agent-gated routes (they 403 for a company session).
                   if (session.isAgency)
@@ -177,6 +181,7 @@ class _AccountView extends StatelessWidget {
                     label: 'Privacy & DPDP consent',
                     showChevron: false,
                   ),
+                  const _DebugInkPreviewRow(),
                   _SettingsRow(
                     icon: Icons.logout_rounded,
                     label: 'Sign out',
@@ -296,7 +301,7 @@ class _AccountView extends StatelessWidget {
       context: context,
       sheetAnimationStyle: AppMotion.sheetStyle(context),
       isScrollControlled: true,
-      backgroundColor: AppColors.surfaceCard,
+      backgroundColor: context.bb.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.xxl)),
       ),
@@ -445,7 +450,7 @@ class _EditSheetState extends State<_EditSheet> {
               _phoneError!,
               style: AppTypography.body(
                 size: AppTypography.sizeXs,
-                color: AppColors.danger,
+                color: context.bb.danger,
               ),
             ),
           ],
@@ -455,7 +460,7 @@ class _EditSheetState extends State<_EditSheet> {
             'the last 4 digits.',
             style: AppTypography.body(
               size: AppTypography.sizeXs,
-              color: AppColors.textMuted,
+              color: context.bb.textMuted,
             ),
           ),
           const SizedBox(height: AppSpacing.s5),
@@ -506,7 +511,7 @@ class _IdentityCard extends StatelessWidget {
                   subline,
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    color: AppColors.textMuted,
+                    color: context.bb.textMuted,
                   ),
                 ),
               ],
@@ -573,20 +578,20 @@ class _InfoRow extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         border: showBorder
-            ? const Border(bottom: BorderSide(color: AppColors.divider))
+            ? Border(bottom: BorderSide(color: context.bb.borderSubtle))
             : null,
       ),
       constraints: const BoxConstraints(minHeight: AppSpacing.tap),
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
       child: Row(
         children: <Widget>[
-          Icon(icon, size: 22, color: AppColors.textMuted),
+          Icon(icon, size: 22, color: context.bb.textMuted),
           const SizedBox(width: AppSpacing.s3),
           Text(
             label,
             style: AppTypography.body(
               size: AppTypography.sizeBase,
-              color: AppColors.textSecondary,
+              color: context.bb.textSecondary,
             ),
           ),
           const Spacer(),
@@ -638,7 +643,7 @@ class _ErrorCard extends StatelessWidget {
               message,
               style: AppTypography.body(
                 size: AppTypography.sizeBase,
-                color: AppColors.textPrimary,
+                color: context.bb.textPrimary,
               ),
             ),
             const SizedBox(height: AppSpacing.s3),
@@ -651,6 +656,148 @@ class _ErrorCard extends StatelessWidget {
           ],
         ),
       );
+}
+
+/// The payer's Light / Dark / System choice (#2832).
+///
+/// Renders only while the rollout switch is open for this person
+/// ([ThemeState.canChoose]); a closed switch shows no row and the app stays on
+/// Light. A tap applies at once through [ThemeCubit.choose], which saves it.
+class _AppearanceRow extends StatelessWidget {
+  const _AppearanceRow();
+
+  @override
+  Widget build(BuildContext context) {
+    if (!locator.isRegistered<ThemeCubit>()) return const SizedBox.shrink();
+    final ThemeCubit cubit = locator<ThemeCubit>();
+    return BlocBuilder<ThemeCubit, ThemeState>(
+      bloc: cubit,
+      builder: (BuildContext context, ThemeState state) {
+        if (!state.canChoose) return const SizedBox.shrink();
+        final BbPalette p = context.bb;
+        return Container(
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: p.borderSubtle)),
+          ),
+          constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Icon(Icons.brightness_6_rounded,
+                      size: 22, color: p.textMuted),
+                  const SizedBox(width: AppSpacing.s3),
+                  Expanded(
+                    child: Text(
+                      'Appearance',
+                      style: AppTypography.body(
+                        size: AppTypography.sizeBase,
+                        color: p.textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.s2),
+              Wrap(
+                spacing: AppSpacing.s2,
+                runSpacing: AppSpacing.s2,
+                children: <Widget>[
+                  BbChip(
+                    label: 'Light',
+                    selected: state.choice == DisplayTheme.light,
+                    onTap: () => cubit.choose(DisplayTheme.light),
+                  ),
+                  BbChip(
+                    label: 'Dark',
+                    selected: state.choice == DisplayTheme.dark,
+                    onTap: () => cubit.choose(DisplayTheme.dark),
+                  ),
+                  BbChip(
+                    label: 'System',
+                    selected: state.choice == DisplayTheme.system,
+                    onTap: () => cubit.choose(DisplayTheme.system),
+                  ),
+                ],
+              ),
+              if (state.choice == DisplayTheme.system)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.s1),
+                  child: Text(
+                    "Follows your phone's setting",
+                    style: AppTypography.body(
+                      size: AppTypography.sizeXs,
+                      color: p.textMuted,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Debug-only preview of the ink theme (#2830 item 6).
+///
+/// Compiled in only as a guard: a release build renders nothing and
+/// [ThemeCubit.debugSetDark] refuses to change state, so no payer ever sees it.
+class _DebugInkPreviewRow extends StatelessWidget {
+  const _DebugInkPreviewRow();
+
+  @override
+  Widget build(BuildContext context) {
+    if (kReleaseMode) return const SizedBox.shrink();
+    if (!locator.isRegistered<ThemeCubit>()) return const SizedBox.shrink();
+    final ThemeCubit cubit = locator<ThemeCubit>();
+    return BlocBuilder<ThemeCubit, ThemeState>(
+      bloc: cubit,
+      builder: (BuildContext context, ThemeState state) {
+        final BbPalette bb = context.bb;
+        return Container(
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: bb.borderSubtle)),
+          ),
+          constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
+          child: Row(
+            children: <Widget>[
+              Icon(Icons.brightness_6_rounded, size: 22, color: bb.textMuted),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'DEVELOPER · ink preview',
+                      style: AppTypography.body(
+                        size: AppTypography.sizeBase,
+                        color: bb.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      'Debug builds only',
+                      style: AppTypography.body(
+                        size: AppTypography.sizeSm,
+                        color: bb.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Switch.adaptive(
+                value: state.debugDark,
+                onChanged: cubit.debugSetDark,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _SettingsRow extends StatelessWidget {
@@ -672,13 +819,13 @@ class _SettingsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color color = danger ? AppColors.danger : AppColors.textPrimary;
-    final Color iconColor = danger ? AppColors.danger : AppColors.textMuted;
+    final Color color = danger ? context.bb.danger : context.bb.textPrimary;
+    final Color iconColor = danger ? context.bb.danger : context.bb.textMuted;
 
     final Widget row = Container(
       decoration: BoxDecoration(
         border: showBorder
-            ? const Border(bottom: BorderSide(color: AppColors.divider))
+            ? Border(bottom: BorderSide(color: context.bb.borderSubtle))
             : null,
       ),
       constraints: const BoxConstraints(minHeight: AppSpacing.tap),
@@ -697,8 +844,8 @@ class _SettingsRow extends StatelessWidget {
             ),
           ),
           if (showChevron)
-            const Icon(Icons.chevron_right_rounded,
-                size: 20, color: AppColors.textFaint),
+            Icon(Icons.chevron_right_rounded,
+                size: 20, color: context.bb.textMuted),
         ],
       ),
     );

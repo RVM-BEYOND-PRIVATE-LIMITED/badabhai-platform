@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 import '../../../../core/theme/onboarding_theme.dart';
 
@@ -38,6 +39,7 @@ class ResumeActionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final Widget row = Row(
       children: <Widget>[
         Expanded(child: share),
@@ -56,10 +58,10 @@ class ResumeActionRow extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const Icon(
+             Icon(
               Icons.error_rounded,
               size: 16,
-              color: OnboardingColors.errorRed,
+              color: p.danger,
             ),
             const SizedBox(width: 6),
             Expanded(
@@ -69,7 +71,7 @@ class ResumeActionRow extends StatelessWidget {
                   size: 12,
                   weight: FontWeight.w600,
                   height: 1.4,
-                  color: OnboardingColors.errorRed,
+                  color: p.danger,
                 ),
               ),
             ),

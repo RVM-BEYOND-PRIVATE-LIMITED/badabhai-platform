@@ -57,6 +57,7 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 | 409    | `REQUEST_IN_PROGRESS`        | The same `POST job-postings` key while the first request still runs                   | Yes, after a pause |
 | 409    | `DECISION_NOT_ALLOWED`       | The drive request's `status` (in the body) allows no such decision                    | No                 |
 | 409    | `COMPANY_WITHDRAWN`          | The request's company is no longer verified, or is suspended or archived              | Once reinstated    |
+| 409    | `WAIVER_END_DATE_DIFFERS`    | `PUT waivers`: the waiver in force has another end date (or none); clear, then set   | No, not same body  |
 | 429    | `RATE_LIMITED`               | Over the per-minute cap                                                               | Yes, after a pause |
 | 503    | `RVM_UNAVAILABLE`            | RVM's Student API did not answer; nothing was created                                 | Yes, same key      |
 
@@ -78,11 +79,13 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 | `DELETE students/:student_ref`      | Unlink a student (consent withdrawn or deleted)         | **live**   |
 | `GET drive-requests`                | Companies' campus-drive requests, with contacts         | **live**   |
 | `POST drive-requests/:id/decision`  | Schedule, decline or complete a drive request           | **live**   |
+| `PUT applications-check`            | Campus reports its nightly applications check           | #2890      |
 | `PUT waivers`                       | Set or clear the waiver of one company or one job       | #2750      |
 | `GET waivers`                       | The waivers in force, with the opens each paid for      | #2750      |
 
 The two waiver routes (#2750 item 5) answer a neutral 404 until BadaBhai's credit rules are
-switched on (`CREDIT_RULES_ROLLOUT` pilot or on); see `PUT waivers` below.
+switched on (`CREDIT_RULES_ROLLOUT` pilot or on); see `PUT waivers` below. `PUT applications-check`
+(#2890) answers a neutral 404 until BadaBhai's daily flow check is switched on (`FLOW_CHECK_ENABLED`).
 
 ### GET ping
 
@@ -426,6 +429,16 @@ the company found only by search (a named-company grant) is not covered.
   member's own words (up to 500 characters). The same holds for a clear: who cleared it and why.
 - An unknown or barred `company_id`, or a `posting_id` that is not that company's, is a neutral 404.
 - `Idempotency-Key` is required, as on every write.
+- **`ends_on`** (optional, #2778; only with `active: true`): the LAST DAY the new waiver applies,
+  `YYYY-MM-DD` in India time, today or later. From the next day the waiver frees nobody: the company
+  is charged the normal contact cost again, the waiver drops out of `GET waivers` and answers
+  `"ended": true`. Nothing is deleted. Leave it out for a waiver that runs until cleared. Accepted
+  only once BadaBhai switches end dates on (`RVM_WAIVER_END_DATES_ENABLED`); until then a body with
+  `ends_on` is a 400 `VALIDATION_FAILED`. To change an end date, clear and set again: a set whose
+  `ends_on` differs from the waiver in force (including one present where the other is absent) is
+  a 409 `WAIVER_END_DATE_DIFFERS` and stores nothing. Setting a scope whose waiver has ENDED clears
+  that one (by the same staff member, reason "Ended on …; replaced by a new waiver") and sets the
+  new one.
 
 Answers the scope's state after the call:
 
@@ -448,7 +461,9 @@ Answers the scope's state after the call:
     "cleared_by_ref": null,
     "cleared_by_label": null,
     "clear_reason": null,
-    "waived_opens": 0
+    "waived_opens": 0,
+    "ends_on": "2026-12-15",
+    "ended": false
   }
 }
 ```
@@ -456,16 +471,17 @@ Answers the scope's state after the call:
 `waiver` is the active waiver after a set, the one just cleared after a clear, the newest one of the
 scope when nothing changed and none is active, or `null` when the scope never had one. `source` is
 `admin` for a waiver a BadaBhai super admin set from the admin console (`/admin/waivers`); either
-side may clear either. `waived_opens` counts the contacts the waiver made free so far.
+side may clear either. `waived_opens` counts the contacts the waiver made free so far. `ends_on` is
+the waiver's last day (`null`: it runs until cleared) and `ended` says that day has passed (#2778).
 
 A waived open moves no credit: BadaBhai writes a zero-credit `waived` line on the company's ledger
-and records which waiver paid for it. If a waiver is cleared while an open is in flight, the open is
-refused and the company retries at the normal price.
+and records which waiver paid for it. If a waiver is cleared (or reaches the end of its last day) while an
+open is in flight, the open is refused and the company retries at the normal price.
 
 ### GET waivers
 
-`?company_id=&cursor=&limit=` (limit 1 to 200, default 100). The waivers **in force** (active only),
-newest first, each in the shape above; `company_id` narrows to one company (an unknown one is an
+`?company_id=&cursor=&limit=` (limit 1 to 200, default 100). The waivers **in force** (active, and not past
+their `ends_on`), newest first, each in the shape above; `company_id` narrows to one company (an unknown one is an
 empty page). Answers `{ "waivers": [ ... ], "next_cursor": null }`. Campus keeps its own history in
 `credit_waiver_log`; cleared waivers are read on BadaBhai's admin console.
 
@@ -651,6 +667,42 @@ A decision that changed the request writes, in one transaction, the request, the
 `campus_drive.decided` v1 (ids, enums and dates: never the reason text) and an `audit_logs` row
 whose actor is `decided_by_ref` (`actor_type` `campus_staff`) and which names this call's
 `X-Campus-Call-Id`.
+
+### PUT applications-check
+
+Campus's nightly applications check (Campus #155 item 13), reported to BadaBhai's daily flow check
+(#2890). BadaBhai cannot read Campus's outbox or its application table, so these two counts reach
+its alerts only this way. Send it after **every** successful run, including a clean one.
+
+```json
+{
+  "checked_at": "2026-11-20T03:30:00.000+05:30",
+  "outbox_undelivered": 1,
+  "missing_on_badabhai": 0,
+  "not_sent": 0,
+  "dispatcher_on": true
+}
+```
+
+- `checked_at`: when the check ran, Campus's clock (offset within ±14:00).
+- `outbox_undelivered`: `badabhai.apply` and `badabhai.withdraw` outbox rows not delivered (pending,
+  sending, failed or given up) that were made at least an hour before `checked_at`.
+- `missing_on_badabhai` and `not_sent`: the run's findings of those two kinds. BadaBhai adds them up
+  as "Campus application ids with no BadaBhai row" (#2782).
+- `dispatcher_on`: whether `integration_outbox_dispatch_enabled` was on. It is logged with a breach,
+  so "the dispatcher is off" reads at once.
+- Counts and the flag only: the findings and their ids stay in Campus's `sync_runs`.
+
+Answers `200 { "recorded": true }`, or `{ "recorded": false }` for the same `Idempotency-Key` again
+(stored with the report, so a retry records once). A neutral 404 while BadaBhai's
+`FLOW_CHECK_ENABLED` is off, as every route is while `CAMPUS_LINK_ENABLED` is.
+
+BadaBhai's flow check runs at 05:00 IST and reads the newest report it **received** in the last
+26 hours (`campus_report_max_age_hours`). While the link is on, no report in that time is itself a
+breach (`campus_report_missing`): a Campus that stopped checking, or cannot reach BadaBhai, is what
+it is there to catch. Any `outbox_undelivered` or missing id above zero is a breach by default.
+Until Campus sends the report, BadaBhai sets `outbox_undelivered_max=off,campus_missing_max=off` in
+`FLOW_CHECK_THRESHOLDS`, which also stops the missing report from alerting.
 
 ## Decisions behind this shape (answers to Campus's points of 13 Nov 2026)
 

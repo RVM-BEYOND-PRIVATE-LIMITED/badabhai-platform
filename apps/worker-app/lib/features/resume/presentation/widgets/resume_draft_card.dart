@@ -1,6 +1,7 @@
 import 'dart:ui' show PathMetric;
 
 import 'package:flutter/material.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../domain/resume_form_progress.dart';
@@ -39,6 +40,7 @@ class ResumeDraftCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String note = resumeFormNote(progress.left);
     final int percent = progress.percent;
     final String? trade = tradeLabel;
@@ -46,7 +48,7 @@ class ResumeDraftCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: OnboardingColors.selectedCardBg,
+          color: p.selectedCardBg,
           borderRadius: BorderRadius.circular(OnboardingRadii.card),
         ),
         child: Column(
@@ -60,13 +62,13 @@ class ResumeDraftCard extends StatelessWidget {
                   height: 44,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: OnboardingColors.yellowTint20,
+                    color: p.actionTint,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(
+                  child:  Icon(
                     Icons.edit_note_outlined,
                     size: 22,
-                    color: OnboardingColors.safetyYellowDark,
+                    color: p.actionPressed,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -77,7 +79,7 @@ class ResumeDraftCard extends StatelessWidget {
                       vertical: 3,
                     ),
                     decoration: BoxDecoration(
-                      color: OnboardingColors.yellowTint20,
+                      color: p.actionTint,
                       borderRadius: BorderRadius.circular(
                         OnboardingRadii.pillSm,
                       ),
@@ -88,7 +90,7 @@ class ResumeDraftCard extends StatelessWidget {
                       style: OnboardingTypography.inter(
                         size: 10,
                         weight: FontWeight.w800,
-                        color: OnboardingColors.safetyYellowDark,
+                        color: p.actionPressed,
                       ),
                     ),
                   ),
@@ -103,12 +105,12 @@ class ResumeDraftCard extends StatelessWidget {
               style: OnboardingTypography.anek(
                 size: 16,
                 weight: FontWeight.w800,
-                color: OnboardingColors.ink900,
+                color: p.textPrimary,
               ),
             ),
             if (progress.total > 0) ...<Widget>[
               const SizedBox(height: 10),
-              const Divider(height: 1, color: OnboardingColors.borderSubtle),
+               Divider(height: 1, color: p.borderSubtle),
               const SizedBox(height: 10),
               Row(
                 children: <Widget>[
@@ -118,7 +120,7 @@ class ResumeDraftCard extends StatelessWidget {
                       style: OnboardingTypography.inter(
                         size: 12,
                         weight: FontWeight.w600,
-                        color: OnboardingColors.ink600,
+                        color: p.textSecondary,
                       ),
                     ),
                   ),
@@ -127,7 +129,7 @@ class ResumeDraftCard extends StatelessWidget {
                     style: OnboardingTypography.inter(
                       size: 12,
                       weight: FontWeight.w800,
-                      color: OnboardingColors.safetyYellowDark,
+                      color: p.actionPressed,
                     ),
                   ),
                 ],
@@ -138,9 +140,9 @@ class ResumeDraftCard extends StatelessWidget {
                 child: LinearProgressIndicator(
                   value: percent / 100,
                   minHeight: 7,
-                  backgroundColor: OnboardingColors.borderDefault,
-                  valueColor: const AlwaysStoppedAnimation<Color>(
-                    OnboardingColors.safetyYellow,
+                  backgroundColor: p.borderDefault,
+                  valueColor:  AlwaysStoppedAnimation<Color>(
+                    p.action,
                   ),
                 ),
               ),
@@ -152,7 +154,7 @@ class ResumeDraftCard extends StatelessWidget {
                 style: OnboardingTypography.inter(
                   size: 12,
                   height: 1.4,
-                  color: OnboardingColors.ink600,
+                  color: p.textSecondary,
                 ),
               ),
             ],
@@ -160,8 +162,8 @@ class ResumeDraftCard extends StatelessWidget {
             ElevatedButton(
               onPressed: onContinue,
               style: ElevatedButton.styleFrom(
-                backgroundColor: OnboardingColors.safetyYellow,
-                foregroundColor: OnboardingColors.textOnYellow,
+                backgroundColor: p.action,
+                foregroundColor: p.onAction,
                 elevation: 0,
                 minimumSize: const Size(
                   double.infinity,
@@ -178,7 +180,7 @@ class ResumeDraftCard extends StatelessWidget {
                     child: Text(
                       kResumeDraftCta,
                       style: OnboardingTypography.buttonLabel(
-                        color: OnboardingColors.textOnYellow,
+                        color: p.onAction,
                       ),
                     ),
                   ),
@@ -206,9 +208,10 @@ class DottedAmberBorder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return CustomPaint(
       foregroundPainter: _DashedBorderPainter(
-        color: OnboardingColors.safetyYellow,
+        color: p.action,
         radius: OnboardingRadii.card,
       ),
       child: child,

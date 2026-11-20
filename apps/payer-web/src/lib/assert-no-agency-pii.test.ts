@@ -33,8 +33,13 @@ describe("assertNoAgencyPII — passes faceless data", () => {
       roleTitle: "CNC Operator",
       relay_handle: "rl_opaque_handle",
       displayInitials: "R***** K.",
+      // #2747 — the sanctioned first-name fact; a surname or full name is still refused.
+      firstName: "Aslam",
     };
     expect(() => assertNoAgencyPII(own)).not.toThrow();
+    expect(() => assertNoAgencyPII({ firstName: "Aslam", lastName: "Khan" })).toThrow(
+      /forbidden PII key/i,
+    );
   });
 });
 

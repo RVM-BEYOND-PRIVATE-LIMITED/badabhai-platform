@@ -9,9 +9,10 @@
     "start": "next start -p 3004",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "clean": "rimraf --glob .next .turbo *.tsbuildinfo"
+    "clean": "rimraf --glob .next .next-build .turbo *.tsbuildinfo"
   },
   "dependencies": {
+    "@badabhai/design-tokens": "workspace:*",
     "next": "^15.5.28",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

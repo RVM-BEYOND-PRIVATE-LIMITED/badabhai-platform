@@ -6,7 +6,6 @@ import '../../../core/data/job_posting_chat_models.dart';
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/session/app_session_cubit.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_badge.dart';
@@ -28,7 +27,9 @@ import 'edit_company_job_screen.dart';
 import 'widgets/job_card_actions.dart';
 import 'widgets/job_list_format.dart';
 import 'widgets/jobs_empty_state.dart';
+import 'widgets/posting_audience_fields.dart' show RvmReviewNote;
 import 'widgets/trade_posting_fields.dart' show humaniseTradeKey;
+import '../../../core/theme/bb_palette.dart';
 
 /// Entry point label for the conversational create path (ADR-0035).
 const String kAiPostLabel = 'Create with AI';
@@ -154,6 +155,7 @@ class _JobsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // #2592 — job-card skeletons while the postings load; the list
     // cross-fades in over them.
     return BbLoadingBuilder<JobsCubit, JobsState>(
@@ -241,7 +243,7 @@ class _JobsView extends StatelessWidget {
                           Text(
                             'MY JOB POSTINGS',
                             style: AppTypography.eyebrow(
-                                color: AppColors.textMuted),
+                                color: p.textMuted),
                           ),
                           const SizedBox(height: 2),
                           Text(
@@ -324,6 +326,7 @@ class _ResumeChatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return BlocBuilder<ChatSessionsCubit, ChatSessionsState>(
       builder: (BuildContext context, ChatSessionsState state) {
         final JobPostingChatSessionSummary? session = state.mostRecent;
@@ -345,7 +348,7 @@ class _ResumeChatCard extends StatelessWidget {
             onTap: () => onResume(session.id),
             child: Row(
               children: <Widget>[
-                const Icon(Icons.forum_rounded, color: AppColors.brand),
+                Icon(Icons.forum_rounded, color: p.action),
                 const SizedBox(width: AppSpacing.s3),
                 Expanded(
                   child: Column(
@@ -362,14 +365,14 @@ class _ResumeChatCard extends StatelessWidget {
                         subtitle,
                         style: AppTypography.body(
                           size: AppTypography.sizeSm,
-                          color: AppColors.textMuted,
+                          color: p.textMuted,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right_rounded,
-                    color: AppColors.textMuted),
+                Icon(Icons.chevron_right_rounded,
+                    color: p.textMuted),
               ],
             ),
           ),
@@ -505,6 +508,7 @@ class _RealJobCardState extends State<_RealJobCard> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final (String label, BbBadgeTone tone) = _pill;
     final String? posted =
         job.createdAt == null ? null : readableDate(job.createdAt!);
@@ -553,7 +557,7 @@ class _RealJobCardState extends State<_RealJobCard> {
               meta.join(' · '),
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
-                color: AppColors.textMuted,
+                color: p.textMuted,
               ),
             ),
           ],
@@ -581,6 +585,12 @@ class _RealJobCardState extends State<_RealJobCard> {
                   ),
               ],
             ),
+          ],
+          // #2746 — the placement team's decision and its plain-text note, on a
+          // posting that has an RVM part. Absent for a BadaBhai-only job.
+          if (job.rvmReview != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.s2),
+            RvmReviewNote(review: job.rvmReview!),
           ],
           if (job.quota > 0) ...<Widget>[
             const SizedBox(height: AppSpacing.s3),
@@ -623,7 +633,7 @@ class _RealJobCardState extends State<_RealJobCard> {
         'This job is closed.',
         style: AppTypography.body(
           size: AppTypography.sizeSm,
-          color: AppColors.textMuted,
+          color: context.bb.textMuted,
         ),
       );
     }
@@ -717,6 +727,7 @@ class _JobCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool dim = job.status == JobStatus.filled;
     // Green stays reserved for VERIFIED — a live posting is an active/info tone.
     final BbBadgeTone statusTone = switch (job.status) {
@@ -752,7 +763,7 @@ class _JobCard extends StatelessWidget {
             '${countLabel(job.unlocks, 'unlock')} used',
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
+              color: p.textMuted,
             ),
           ),
           if (job.verified || job.boosted) ...<Widget>[

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/data/models.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_card.dart';
 import '../../../../core/widgets/bb_chip.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// Matching V1 — the COMPANY posting skill picker + live reach meter.
 ///
@@ -81,6 +81,7 @@ class MatchSkillPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -97,7 +98,7 @@ class MatchSkillPicker extends StatelessWidget {
           'workers who match.',
           style: AppTypography.body(
             size: AppTypography.sizeSm,
-            color: AppColors.textMuted,
+            color: p.textMuted,
             height: 1.4,
           ),
         ),
@@ -112,7 +113,7 @@ class MatchSkillPicker extends StatelessWidget {
         ),
         if (showReach) ...<Widget>[
           const SizedBox(height: AppSpacing.s4),
-          _reachMeter(),
+          _reachMeter(context),
         ],
       ],
     );
@@ -136,9 +137,9 @@ class MatchSkillPicker extends StatelessWidget {
   ///  - nothing picked → a quiet prompt (Post stays disabled upstream).
   ///  - picked, [ReachPreview.zeroReach] → a haldi warning (E13 gate).
   ///  - picked, reach > 0 → a green count + per-skill breakdown + related chips.
-  Widget _reachMeter() {
+  Widget _reachMeter(BuildContext context) {
     if (pickedIds.isEmpty) {
-      return _hint(
+      return _hint(context,
         icon: Icons.groups_rounded,
         text: 'Pick a skill to see how many workers you can reach.',
       );
@@ -149,13 +150,13 @@ class MatchSkillPicker extends StatelessWidget {
       // Fetch failed and nothing is in flight → an honest error + Retry, so the
       // payer is not stranded on a spinner with Post disabled.
       if (reachFailed && !reachLoading) {
-        return _hint(
+        return _hint(context,
           icon: Icons.error_rounded,
           text: "Couldn't count workers — check your connection.",
           onRetry: onRetryReach,
         );
       }
-      return _hint(
+      return _hint(context,
         icon: Icons.groups_rounded,
         text: 'Counting workers…',
         busy: true,
@@ -174,21 +175,21 @@ class MatchSkillPicker extends StatelessWidget {
 
     return BbCard(
       padding: const EdgeInsets.all(AppSpacing.s4),
-      border: Border.all(color: AppColors.success, width: 1.5),
+      border: Border.all(color: context.bb.success, width: 1.5),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              const Icon(Icons.groups_rounded, size: 24, color: AppColors.green700),
+              Icon(Icons.groups_rounded, size: 24, color: context.bb.success),
               const SizedBox(width: AppSpacing.s2),
               Expanded(
                 child: RichText(
                   text: TextSpan(
                     style: AppTypography.body(
                       size: AppTypography.sizeMd,
-                      color: AppColors.textPrimary,
+                      color: context.bb.textPrimary,
                     ),
                     children: <InlineSpan>[
                       const TextSpan(text: 'Reaches '),
@@ -197,7 +198,7 @@ class MatchSkillPicker extends StatelessWidget {
                         style: AppTypography.mono(
                           size: AppTypography.sizeXl,
                           weight: FontWeight.w700,
-                          color: AppColors.green700,
+                          color: context.bb.success,
                         ),
                       ),
                       const TextSpan(text: ' workers'),
@@ -206,12 +207,12 @@ class MatchSkillPicker extends StatelessWidget {
                 ),
               ),
               if (reachLoading)
-                const SizedBox(
+                SizedBox(
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: AppColors.green500,
+                    color: context.bb.success,
                   ),
                 ),
             ],
@@ -222,17 +223,17 @@ class MatchSkillPicker extends StatelessWidget {
               '${r.reachTier1} are a direct match',
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
-                color: AppColors.textMuted,
+                color: context.bb.textMuted,
               ),
             ),
           ],
-          for (final ReachSkill s in r.skills) ..._skillBreakdown(s),
+          for (final ReachSkill s in r.skills) ..._skillBreakdown(context, s),
         ],
       ),
     );
   }
 
-  List<Widget> _skillBreakdown(ReachSkill s) {
+  List<Widget> _skillBreakdown(BuildContext context, ReachSkill s) {
     return <Widget>[
       const SizedBox(height: AppSpacing.s3),
       Row(
@@ -251,7 +252,7 @@ class MatchSkillPicker extends StatelessWidget {
             style: AppTypography.mono(
               size: AppTypography.sizeSm,
               weight: FontWeight.w700,
-              color: AppColors.green700,
+              color: context.bb.success,
             ),
           ),
         ],
@@ -282,7 +283,7 @@ class MatchSkillPicker extends StatelessWidget {
     );
   }
 
-  Widget _hint({
+  Widget _hint(BuildContext context, {
     required IconData icon,
     required String text,
     bool busy = false,
@@ -291,30 +292,30 @@ class MatchSkillPicker extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.s3),
       decoration: BoxDecoration(
-        color: AppColors.surfaceSunken,
+        color: context.bb.raised,
         borderRadius: BorderRadius.circular(AppRadii.md),
-        border: Border.all(color: AppColors.borderDefault),
+        border: Border.all(color: context.bb.borderDefault),
       ),
       child: Row(
         children: <Widget>[
           if (busy)
-            const SizedBox(
+            SizedBox(
               width: 18,
               height: 18,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: AppColors.textMuted,
+                color: context.bb.textMuted,
               ),
             )
           else
-            Icon(icon, size: 20, color: AppColors.textMuted),
+            Icon(icon, size: 20, color: context.bb.textMuted),
           const SizedBox(width: AppSpacing.s2),
           Expanded(
             child: Text(
               text,
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
-                color: AppColors.textSecondary,
+                color: context.bb.textSecondary,
                 height: 1.4,
               ),
             ),
@@ -328,7 +329,7 @@ class MatchSkillPicker extends StatelessWidget {
                 style: AppTypography.body(
                   size: AppTypography.sizeSm,
                   weight: FontWeight.w700,
-                  color: AppColors.blue,
+                  color: context.bb.textBrand,
                 ),
               ),
             ),
@@ -355,28 +356,29 @@ class _WarnCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.s3),
       decoration: BoxDecoration(
-        color: AppColors.warningTint,
+        color: p.warningBg,
         borderRadius: BorderRadius.circular(AppRadii.md),
-        border: Border.all(color: AppColors.warning, width: 1.5),
+        border: Border.all(color: p.warning, width: 1.5),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           if (busy)
-            const SizedBox(
+            SizedBox(
               width: 22,
               height: 22,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: AppColors.onHaldi,
+                color: p.isDark ? p.warning : p.onAction,
               ),
             )
           else
-            const Icon(Icons.error_rounded,
-                size: 22, color: AppColors.onHaldi),
+            Icon(Icons.error_rounded,
+                size: 22, color: p.isDark ? p.warning : p.onAction),
           const SizedBox(width: AppSpacing.s2),
           Expanded(
             child: Column(
@@ -387,7 +389,7 @@ class _WarnCard extends StatelessWidget {
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
                     weight: FontWeight.w800,
-                    color: AppColors.onHaldi,
+                    color: p.isDark ? p.warning : p.onAction,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -395,7 +397,7 @@ class _WarnCard extends StatelessWidget {
                   body,
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    color: AppColors.onHaldi,
+                    color: p.isDark ? p.warning : p.onAction,
                     height: 1.4,
                   ),
                 ),

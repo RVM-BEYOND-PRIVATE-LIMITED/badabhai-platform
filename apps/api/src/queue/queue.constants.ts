@@ -381,3 +381,39 @@ export const STILL_LOOKING_SWEEP_SCHEDULER_ID = "still-looking-sweep";
  */
 export const NUMBERS_WEEKLY_SWEEP_QUEUE = "numbers-weekly-sweep";
 export const NUMBERS_WEEKLY_SWEEP_SCHEDULER_ID = "numbers-weekly-sweep";
+
+/**
+ * #2774 — the nightly credit balance audit. A repeatable daily tick with no payload: the audit is
+ * one read-only snapshot of every wallet, so a lost or duplicated Redis job is harmless (the next
+ * tick reads the same books, and the alert's per-day key raises it once). Inert while
+ * CREDIT_BALANCE_AUDIT_ENABLED is off: a tick returns at once without a query.
+ */
+export const CREDIT_BALANCE_AUDIT_QUEUE = "credit-balance-audit";
+export const CREDIT_BALANCE_AUDIT_SCHEDULER_ID = "credit-balance-audit";
+
+/**
+ * #2773 — the nightly Razorpay reconciliation. A repeatable daily tick with no payload: each run
+ * reads the last 48 hours of Razorpay payments and our payment_orders, so a lost or duplicated
+ * Redis job is harmless (the windows overlap, and the alert's per-day key raises it once). Inert
+ * while RAZORPAY_RECONCILE_ENABLED is off: a tick returns at once without a call or a query.
+ */
+export const RAZORPAY_RECONCILE_QUEUE = "razorpay-reconcile";
+export const RAZORPAY_RECONCILE_SCHEDULER_ID = "razorpay-reconcile";
+
+/**
+ * #2890 — the daily flow check. A repeatable tick at 05:00 IST (after Campus's 03:30 IST check
+ * reports in) with no payload: the check is one read-only snapshot, so a lost or duplicated Redis
+ * job is harmless (the next tick reads the same tables, and the day's record and alert are keyed on
+ * the IST day). Inert while FLOW_CHECK_ENABLED is off: a tick returns at once without a query.
+ */
+export const FLOW_CHECK_QUEUE = "flow-check";
+export const FLOW_CHECK_SCHEDULER_ID = "flow-check";
+
+/**
+ * #2967 — the daily synthetic run of the posting → application flow. A repeatable tick at 04:30 IST
+ * with no payload: each tick is one walk inside a transaction that is always rolled back, so a lost
+ * or duplicated Redis job is harmless (the day's alert is keyed on the IST day). Inert while
+ * FLOW_SYNTHETIC_RUN_ENABLED is off: a tick returns at once.
+ */
+export const FLOW_SYNTHETIC_RUN_QUEUE = "flow-synthetic-run";
+export const FLOW_SYNTHETIC_RUN_SCHEDULER_ID = "flow-synthetic-run";

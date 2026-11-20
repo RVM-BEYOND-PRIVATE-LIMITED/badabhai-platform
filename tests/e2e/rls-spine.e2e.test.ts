@@ -302,6 +302,9 @@ const LOCKED_TABLES = [
   // time). RLS+FORCE+REVOKE in the hand-written tail of `*_rvm_applicant_waivers`.
   "rvm_applicant_waivers",
   "rvm_waiver_uses",
+  // #2778: the last day each waiver applies (opaque waiver / tenant ids, a date and a time).
+  // RLS+FORCE+REVOKE in the hand-written tail of `*_rvm_waiver_end_dates`.
+  "rvm_waiver_end_dates",
   // #2750 item 7: the couldn't-reach cases (opaque unlock / tenant / worker / login / admin ids,
   // a closed status, an integer and times) and the desk's call attempts (ids, a closed result
   // code, a time). RLS+FORCE+REVOKE in the hand-written tail of `*_contact_reach_cases`.
@@ -341,9 +344,17 @@ const LOCKED_TABLES = [
   // BadaBhai ids, reason codes). RLS+FORCE+REVOKE in the hand-written tail of `*_company_import`.
   "company_import_batches",
   "company_import_rows",
+  // #2787: the send log of the first sign-in message to a moved company (payer ids, channel, outcome
+  // codes). RLS+FORCE+REVOKE in the hand-written tail of `*_company_import_notices`.
+  "company_import_notices",
   // #2891: a Campus-origin posting's BadaBhai worker visibility (a posting id, off/on, the deciding
   // admin id, times). RLS+FORCE+REVOKE in the hand-written tail of `*_job_posting_worker_visibility`.
   "job_posting_worker_visibility",
+  // #2956 / #2957: the admin's decision on where each job shows (a posting id, the audience, a
+  // content hash, the deciding admin id, times) and the trades RVM trains (trade keys, admin ids,
+  // times). RLS+FORCE+REVOKE in the hand-written tail of `*_admin_job_audience`.
+  "job_posting_audience_decisions",
+  "campus_trades",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

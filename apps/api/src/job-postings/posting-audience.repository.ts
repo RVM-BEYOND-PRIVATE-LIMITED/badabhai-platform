@@ -179,4 +179,26 @@ export class PostingAudienceRepository {
       rows.map((r) => [r.id, { stateNow: r.stateNow, reason: r.reason, reviewedAt: r.reviewedAt }]),
     );
   }
+
+  /**
+   * #2956 follow-up — does a company posting in this trade wait for an admin? Yes when the trade is
+   * an ACTIVE row of the Campus trade list (#2957) and no admin has decided where the posting shows
+   * (`job_posting_audience_decisions`). Read on the publish transaction.
+   */
+  async awaitsAdminDecision(
+    jobPostingId: string,
+    roleKind: string,
+    executor: Database = this.db,
+  ): Promise<boolean> {
+    const rows = (await executor.execute(sql`
+      SELECT 1
+      WHERE EXISTS (
+          SELECT 1 FROM campus_trades ct
+          WHERE ct.trade_key = ${roleKind} AND ct.removed_at IS NULL)
+        AND NOT EXISTS (
+          SELECT 1 FROM job_posting_audience_decisions d
+          WHERE d.job_posting_id = ${jobPostingId}::uuid)
+    `)) as unknown as unknown[];
+    return rows.length > 0;
+  }
 }

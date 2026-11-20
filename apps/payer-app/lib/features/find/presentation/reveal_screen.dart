@@ -4,11 +4,11 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_haptics.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/name_mask.dart';
+import '../../../core/util/prepay_facts.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_badge.dart';
@@ -21,6 +21,7 @@ import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/reveal_cubit.dart';
 import 'reveal_args.dart';
+import '../../../core/theme/bb_palette.dart';
 
 /// Hands a signed, expiring URL to the OS. Returns false when nothing on the
 /// device could open it.
@@ -64,6 +65,10 @@ const String kUnlockedToastTitle = 'Unlocked!';
 /// The relay card's closed state: the neutral deny and an outage alike.
 const String kRelayUnavailableMessage =
     'Contact relay is not available right now.';
+
+/// #2747 — the polite line when the hourly disclosure cap refuses the contact read.
+const String kContactLimitedMessage =
+    'Contact details can’t be shown right now. Please try again later.';
 
 /// Revealed profile. Two shapes behind one screen (see [RevealArgs]):
 ///
@@ -229,10 +234,11 @@ class _RealReveal extends StatelessWidget {
                 AppSpacing.s6,
               ),
               children: <Widget>[
-                _header(),
+                _header(context),
                 const SizedBox(height: AppSpacing.s4),
-                _identityCard(),
+                _identityCard(context),
                 const SizedBox(height: AppSpacing.s4),
+                _contactCard(context, state),
                 _relayCard(context, state),
                 const SizedBox(height: AppSpacing.s4),
                 _resumeRow(context, state),
@@ -260,7 +266,7 @@ class _RealReveal extends StatelessWidget {
     );
   }
 
-  Widget _header() {
+  Widget _header(BuildContext context) {
     return Row(
       children: <Widget>[
         BbIconButton(
@@ -284,7 +290,7 @@ class _RealReveal extends StatelessWidget {
 
   /// The masked identity block. Both real feeds fill it through [RevealArgs]:
   /// a masked handle + coarse facets, never a name or phone.
-  Widget _identityCard() {
+  Widget _identityCard(BuildContext context) {
     final List<String> facets = args.facets;
     return BbCard(
       festive: true,
@@ -314,7 +320,20 @@ class _RealReveal extends StatelessWidget {
               style: AppTypography.body(
                 size: AppTypography.sizeBase,
                 weight: FontWeight.w600,
-                color: AppColors.textSecondary,
+                color: context.bb.textSecondary,
+              ),
+            ),
+          ],
+          // #2747 — null is open for good: no "until" date at all. A window that has an end
+          // prints the day only.
+          if (args.openUntil != null) ...<Widget>[
+            const SizedBox(height: 2),
+            Text(
+              'Open until ${args.openUntil!.split('T').first}',
+              textAlign: TextAlign.center,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: context.bb.textMuted,
               ),
             ),
           ],
@@ -325,12 +344,89 @@ class _RealReveal extends StatelessWidget {
             textAlign: TextAlign.center,
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
+              color: context.bb.textMuted,
             ),
           ),
         ],
       ),
     );
+  }
+
+  /// #2747 — what the credit opened: the name and number, with Call and Copy. A neutral deny
+  /// shows nothing new; a 404 keeps today's relay + résumé screen; a 429 says so politely.
+  /// Nothing here is cached, stored or logged.
+  Widget _contactCard(BuildContext context, RevealState state) {
+    final ContactReadResult? contact = state.contact;
+    if (contact != null && contact.status == ContactReadStatus.contact) {
+      final String phone = contact.phone ?? '';
+      final String name = factText(contact.fullName);
+      return Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.s4),
+        child: BbCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              _sectionLabel(context, 'Contact'),
+              const SizedBox(height: AppSpacing.s2),
+              Text(
+                name,
+                style: AppTypography.body(
+                  size: AppTypography.sizeBase,
+                  weight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.gap2),
+              Text(
+                phone,
+                style: AppTypography.mono(
+                  size: AppTypography.sizeBase,
+                  weight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.s3),
+              Wrap(
+                spacing: AppSpacing.s2,
+                runSpacing: AppSpacing.s2,
+                children: <Widget>[
+                  BbButton(
+                    label: 'Call',
+                    iconLeft: Icons.phone_rounded,
+                    onPressed: () async {
+                      // The number goes to the dialer only; it is never logged or stored.
+                      await launchUrl(
+                        Uri(scheme: 'tel', path: phone),
+                        mode: LaunchMode.externalApplication,
+                      );
+                    },
+                  ),
+                  BbCopyButton(
+                    text: phone,
+                    label: 'Copy',
+                    copiedLabel: 'Copied',
+                    variant: BbButtonVariant.secondary,
+                    size: BbButtonSize.lg,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (state.contactLimited) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.s4),
+        child: Text(
+          kContactLimitedMessage,
+          style: AppTypography.body(
+            size: AppTypography.sizeSm,
+            color: context.bb.textMuted,
+          ),
+        ),
+      );
+    }
+    // Unavailable / off / not yet read: nothing new; today's relay and résumé screens stay.
+    return const SizedBox.shrink();
   }
 
   Widget _relayCard(BuildContext context, RevealState state) {
@@ -353,14 +449,14 @@ class _RealReveal extends StatelessWidget {
       card = BbCard(
         child: Row(
           children: <Widget>[
-            const Icon(Icons.info_rounded, color: AppColors.textMuted),
+            Icon(Icons.info_rounded, color: context.bb.textMuted),
             const SizedBox(width: AppSpacing.s3),
             Expanded(
               child: Text(
                 kRelayUnavailableMessage,
                 style: AppTypography.body(
                   size: AppTypography.sizeSm,
-                  color: AppColors.textSecondary,
+                  color: context.bb.textSecondary,
                 ),
               ),
             ),
@@ -374,7 +470,7 @@ class _RealReveal extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            _sectionLabel('Contact relay'),
+            _sectionLabel(context, 'Contact relay'),
             const SizedBox(height: AppSpacing.s2),
             Row(
               children: <Widget>[
@@ -387,7 +483,7 @@ class _RealReveal extends StatelessWidget {
                       vertical: AppSpacing.s2,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.surfaceSunken,
+                      color: context.bb.raised,
                       borderRadius: BorderRadius.circular(AppRadii.pill),
                     ),
                     child: Text(
@@ -437,11 +533,11 @@ class _RealReveal extends StatelessWidget {
             height: 46,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: AppColors.brandTint,
+              color: context.bb.selectedCardBg,
               borderRadius: BorderRadius.circular(AppRadii.md),
             ),
-            child: const Icon(Icons.description_rounded,
-                size: 24, color: AppColors.brandPress),
+            child: Icon(Icons.description_rounded,
+                size: 24, color: context.bb.actionPressed),
           ),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
@@ -468,28 +564,28 @@ class _RealReveal extends StatelessWidget {
                   },
                   style: AppTypography.body(
                     size: AppTypography.sizeXs,
-                    color: AppColors.textMuted,
+                    color: context.bb.textMuted,
                   ),
                 ),
               ],
             ),
           ),
           if (loading)
-            const SizedBox(
+            SizedBox(
               width: 22,
               height: 22,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           else
-            const Icon(Icons.download_rounded, size: 22, color: AppColors.textMuted),
+            Icon(Icons.download_rounded, size: 22, color: context.bb.textMuted),
         ],
       ),
     );
   }
 
-  Widget _sectionLabel(String text) => Text(
+  Widget _sectionLabel(BuildContext context, String text) => Text(
         text.toUpperCase(),
-        style: AppTypography.eyebrow(color: AppColors.textBrand),
+        style: AppTypography.eyebrow(color: context.bb.textBrand),
       );
 }
 
@@ -513,7 +609,7 @@ class _MockReveal extends StatelessWidget {
     // The same one-shot stamp as the real reveal, on the same terms (#2596).
     return Stack(
       children: <Widget>[
-        _list(),
+        _list(context),
         if (justUnlocked)
           const Positioned.fill(
             child: BbStampCelebration(
@@ -526,7 +622,7 @@ class _MockReveal extends StatelessWidget {
     );
   }
 
-  Widget _list() {
+  Widget _list(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.gutter,
@@ -583,7 +679,7 @@ class _MockReveal extends StatelessWidget {
                 style: AppTypography.body(
                   size: AppTypography.sizeBase,
                   weight: FontWeight.w600,
-                  color: AppColors.textSecondary,
+                  color: context.bb.textSecondary,
                 ),
               ),
               const SizedBox(height: AppSpacing.s3),
@@ -593,13 +689,13 @@ class _MockReveal extends StatelessWidget {
                   vertical: AppSpacing.s2,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.surfaceSunken,
+                  color: context.bb.raised,
                   borderRadius: BorderRadius.circular(AppRadii.pill),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    const Icon(Icons.phone_rounded, size: 16, color: AppColors.success),
+                    Icon(Icons.phone_rounded, size: 16, color: context.bb.success),
                     const SizedBox(width: 6),
                     Text(
                       candidate.phone,
@@ -619,7 +715,7 @@ class _MockReveal extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              _sectionLabel('Skills'),
+              _sectionLabel(context, 'Skills'),
               const SizedBox(height: AppSpacing.s2),
               Wrap(
                 spacing: 7,
@@ -631,13 +727,13 @@ class _MockReveal extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: AppSpacing.s4),
-              _sectionLabel('Location & availability'),
+              _sectionLabel(context, 'Location & availability'),
               const SizedBox(height: AppSpacing.s2),
               RichText(
                 text: TextSpan(
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    color: AppColors.textSecondary,
+                    color: context.bb.textSecondary,
                   ),
                   children: <InlineSpan>[
                     TextSpan(text: '${candidate.loc} · '),
@@ -646,7 +742,7 @@ class _MockReveal extends StatelessWidget {
                       style: AppTypography.body(
                         size: AppTypography.sizeSm,
                         weight: FontWeight.w600,
-                        color: AppColors.success,
+                        color: context.bb.success,
                       ),
                     ),
                   ],
@@ -665,11 +761,11 @@ class _MockReveal extends StatelessWidget {
                 height: 46,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: AppColors.brandTint,
+                  color: context.bb.selectedCardBg,
                   borderRadius: BorderRadius.circular(AppRadii.md),
                 ),
-                child: const Icon(Icons.description_rounded,
-                    size: 24, color: AppColors.brandPress),
+                child: Icon(Icons.description_rounded,
+                    size: 24, color: context.bb.actionPressed),
               ),
               const SizedBox(width: AppSpacing.s3),
               Expanded(
@@ -687,13 +783,13 @@ class _MockReveal extends StatelessWidget {
                       'Generated by BadaBhai · PDF',
                       style: AppTypography.body(
                         size: AppTypography.sizeXs,
-                        color: AppColors.textMuted,
+                        color: context.bb.textMuted,
                       ),
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.download_rounded, size: 22, color: AppColors.textMuted),
+              Icon(Icons.download_rounded, size: 22, color: context.bb.textMuted),
             ],
           ),
         ),
@@ -708,10 +804,10 @@ class _MockReveal extends StatelessWidget {
     );
   }
 
-  Widget _sectionLabel(String text) {
+  Widget _sectionLabel(BuildContext context, String text) {
     return Text(
       text.toUpperCase(),
-      style: AppTypography.eyebrow(color: AppColors.textBrand),
+      style: AppTypography.eyebrow(color: context.bb.textBrand),
     );
   }
 }

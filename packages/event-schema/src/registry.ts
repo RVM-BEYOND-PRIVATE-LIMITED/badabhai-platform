@@ -2037,6 +2037,65 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminStudentVisibilityBulkChangedPayload,
   },
+  // #2838 (ADR-0064 §4) — a company's all-candidates search reached half, or all, of its daily cap
+  // on distinct workers shown pre-pay facts. Once per company per IST day per level. PII-free: the
+  // company's anchor id, the level, the day and three counts. Appended at the tail per protocol. v1.
+  "payer.candidate_search_volume_alert": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerCandidateSearchVolumeAlertPayload,
+  },
+  // #2774 — the nightly credit balance audit found wallets whose balance, ledger and lots
+  // disagree. ONE per failing run (an alert, counts only). v1.
+  "payer.credit_balance_audit_failed": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerCreditBalanceAuditFailedPayload,
+  },
+  // #2773 — the nightly Razorpay reconciliation found captured payments and paid orders that
+  // disagree. ONE per failing day (an alert, counts only). v1.
+  "payment.reconciliation_failed": {
+    version: 1,
+    domain: "payment",
+    payload: p.PaymentReconciliationFailedPayload,
+  },
+  // #2890 — the daily flow check: one record per IST day (the admin's 14-day read), one breach
+  // alert per IST day (the breach counter), and Campus's nightly report of what only it can see.
+  // Counts only. v1.
+  "flow_check.day_recorded": {
+    version: 1,
+    domain: "flow_check",
+    payload: p.FlowCheckDayRecordedPayload,
+  },
+  "flow_check.breached": {
+    version: 1,
+    domain: "flow_check",
+    payload: p.FlowCheckBreachedPayload,
+  },
+  "flow_check.campus_report_received": {
+    version: 1,
+    domain: "flow_check",
+    payload: p.FlowCheckCampusReportReceivedPayload,
+  },
+  // #2967 — the daily synthetic run: one record per run, one breach alert per IST day. Closed
+  // codes only. v1.
+  "flow_check.synthetic_run_recorded": {
+    version: 1,
+    domain: "flow_check",
+    payload: p.FlowCheckSyntheticRunRecordedPayload,
+  },
+  "flow_check.synthetic_run_failed": {
+    version: 1,
+    domain: "flow_check",
+    payload: p.FlowCheckSyntheticRunFailedPayload,
+  },
+  // #2787 (parent #2754) — a moved Campus company was sent its first sign-in message on one channel.
+  // Once per company per channel, ever. PII-free: ids, the channel and how it was told to sign in. v1.
+  "payer.move_notice_sent": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerMoveNoticeSentPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

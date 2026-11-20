@@ -19,6 +19,7 @@ import '../nav/job_feed_invalidation.dart';
 import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
+import '../theme/theme_cubit.dart';
 import '../consent/voice_consent.dart';
 import '../session/chat_turn_resume_store.dart';
 import '../session/resume_download_offer_store.dart';
@@ -61,9 +62,14 @@ import '../../features/invite/presentation/cubit/invite_cubit.dart';
 import '../../features/job_search/data/job_search_repository_impl.dart';
 import '../../features/job_search/domain/job_search_repository.dart';
 import '../../features/job_search/presentation/cubit/job_search_cubit.dart';
+import '../../features/settings/data/display_prefs_repository_impl.dart';
 import '../../features/settings/data/notification_prefs_repository_impl.dart';
+import '../../features/settings/data/search_visibility_repository_impl.dart';
+import '../../features/settings/domain/display_prefs_repository.dart';
 import '../../features/settings/domain/notification_prefs_repository.dart';
+import '../../features/settings/domain/search_visibility_repository.dart';
 import '../../features/settings/presentation/cubit/account_delete_cubit.dart';
+import '../../features/settings/presentation/cubit/search_visibility_cubit.dart';
 import '../../features/voice/data/record_package_voice_recorder.dart';
 import '../../features/voice/data/session_voice_recorder.dart';
 import '../../features/voice/data/speech_dictation_impl.dart';
@@ -380,6 +386,17 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   locator.registerLazySingleton<NotificationPrefsRepository>(
     () => NotificationPrefsRepositoryImpl(
         locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  locator.registerLazySingleton<DisplayPrefsRepository>(
+    () => DisplayPrefsRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  locator.registerLazySingleton<SearchVisibilityRepository>(
+    () => SearchVisibilityRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  locator.registerLazySingleton<ThemeCubit>(
+    () => ThemeCubit(locator<DisplayPrefsRepository>()),
   );
   // E4 (#1828) — stateless (caches nothing), so no logout teardown needed.
   locator.registerLazySingleton<MatchSkillsRepository>(
@@ -755,6 +772,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   locator.registerFactory<AccountDeleteCubit>(
     () => AccountDeleteCubit(),
   );
+  // #2753 item 6 — the lighter "leave company search" switch in Settings.
+  locator.registerFactory<SearchVisibilityCubit>(
+    () => SearchVisibilityCubit(locator<SearchVisibilityRepository>()),
+  );
 }
 
 /// Registers the SharedPreferences-backed auth singletons ([LocaleStore] +
@@ -1002,6 +1023,9 @@ void _clearSessionScopedCaches() {
   }
   if (locator.isRegistered<NotificationPrefsRepository>()) {
     locator<NotificationPrefsRepository>().onLogout();
+  }
+  if (locator.isRegistered<ThemeCubit>()) {
+    locator<ThemeCubit>().onLogout();
   }
   // #692 H1 — purge the offline voice-clip queue: its prefs keys + on-disk audio
   // are not worker-bound, so on a shared handset the next worker's drain loop

@@ -7,6 +7,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
 import '../../../core/observability/analytics.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
@@ -228,7 +229,7 @@ class _TierChoiceScreenState extends State<TierChoiceScreen> {
   Widget build(BuildContext context) {
     final List<TierEstimate> options = _options;
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: context.bb.page,
       body: Column(
         children: <Widget>[
           ShiftBlueHeader(

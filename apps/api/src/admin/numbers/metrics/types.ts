@@ -1,3 +1,4 @@
+import type { PaymentOrderProductKind } from "@badabhai/types";
 import { weekEndDayOf, weekRange } from "../week";
 import type { NumbersDims } from "./cells";
 
@@ -54,6 +55,11 @@ export type NumbersDimsLookup = (id: string) => NumbersDims;
 /** A paid order of a countable company, settled before the week's end. */
 export interface NumbersPaidOrderRow {
   readonly payerId: string;
+  /**
+   * What the order sold (`payment_orders.product_kind`): a credit pack, or a #2751 Managed Hiring
+   * order. Revenue by pack counts packs only; Managed Hiring has its own figure (version 5).
+   */
+  readonly productKind: PaymentOrderProductKind;
   /**
    * The pack bought. Nullable since #2749 part 3 (a product other than a credit pack carries none;
    * a credit-pack order always does, `payment_orders_pack_code_chk`): none reads as `other`.

@@ -1332,6 +1332,41 @@
       "when": 1795065078780,
       "tag": "0189_managed_hiring",
       "breakpoints": true
+    },
+    {
+      "idx": 190,
+      "version": "7",
+      "when": 1795082263220,
+      "tag": "0190_admin_job_audience",
+      "breakpoints": true
+    },
+    {
+      "idx": 191,
+      "version": "7",
+      "when": 1795083816459,
+      "tag": "0191_outbound_signal_withdrawals",
+      "breakpoints": true
+    },
+    {
+      "idx": 192,
+      "version": "7",
+      "when": 1795086605631,
+      "tag": "0192_rvm_waiver_end_dates",
+      "breakpoints": true
+    },
+    {
+      "idx": 193,
+      "version": "7",
+      "when": 1795091192543,
+      "tag": "0193_company_import_notices",
+      "breakpoints": true
+    },
+    {
+      "idx": 194,
+      "version": "7",
+      "when": 1795093996414,
+      "tag": "0194_job_worker_visibility_company_hold",
+      "breakpoints": true
     }
   ]
 }

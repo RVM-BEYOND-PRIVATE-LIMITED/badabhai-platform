@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/bb_palette.dart';
 import 'bb_search_field.dart';
 
 /// A closed, single-select dropdown field that opens a searchable bottom
@@ -52,6 +52,7 @@ class BbSearchableDropdownField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool set = selected != null && selected!.isNotEmpty;
     return InkWell(
       onTap: enabled ? () => _open(context) : null,
@@ -63,9 +64,9 @@ class BbSearchableDropdownField extends StatelessWidget {
           vertical: AppSpacing.s3,
         ),
         decoration: BoxDecoration(
-          color: enabled ? AppColors.surfaceCard : AppColors.disabled,
+          color: enabled ? p.card : p.disabledBg,
           borderRadius: BorderRadius.circular(AppRadii.md),
-          border: Border.all(color: AppColors.borderSubtle),
+          border: Border.all(color: p.borderDefault),
         ),
         child: Row(
           children: <Widget>[
@@ -74,14 +75,11 @@ class BbSearchableDropdownField extends StatelessWidget {
                 set ? selected! : placeholder,
                 style: AppTypography.body(
                   size: AppTypography.sizeBase,
-                  color: set ? AppColors.textPrimary : AppColors.textFaint,
+                  color: set ? p.textPrimary : p.textMuted,
                 ),
               ),
             ),
-            Icon(
-              Icons.arrow_drop_down_rounded,
-              color: enabled ? AppColors.textMuted : AppColors.textFaint,
-            ),
+            Icon(Icons.arrow_drop_down_rounded, color: p.textMuted),
           ],
         ),
       ),
@@ -91,7 +89,7 @@ class BbSearchableDropdownField extends StatelessWidget {
   Future<void> _open(BuildContext context) async {
     final String? picked = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: AppColors.surfaceCard,
+      backgroundColor: context.bb.card,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.lg)),
@@ -136,6 +134,7 @@ class _DropdownSearchSheetState extends State<_DropdownSearchSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String q = _query.trim().toLowerCase();
     final List<String> visible = q.isEmpty
         ? widget.options
@@ -173,7 +172,7 @@ class _DropdownSearchSheetState extends State<_DropdownSearchSheet> {
                         widget.emptyHint,
                         style: AppTypography.body(
                           size: AppTypography.sizeSm,
-                          color: AppColors.textFaint,
+                          color: p.textMuted,
                         ),
                       ),
                     )
@@ -181,7 +180,7 @@ class _DropdownSearchSheetState extends State<_DropdownSearchSheet> {
                       shrinkWrap: true,
                       itemCount: visible.length,
                       separatorBuilder: (BuildContext context, int i) =>
-                          const Divider(height: 1, color: AppColors.borderSubtle),
+                          Divider(height: 1, color: p.borderDefault),
                       itemBuilder: (BuildContext context, int i) => ListTile(
                         title: Text(
                           visible[i],

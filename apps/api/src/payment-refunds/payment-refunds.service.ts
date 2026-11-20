@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   ConflictException,
   Inject,
@@ -413,7 +414,7 @@ export class PaymentRefundsService {
       const moved = await this.move(row, target.status, {
         providerRefundId: event.refundId,
         failureCode: target.status === "failed" ? "provider_failed" : null,
-      }, { correlationId: `razorpay-refund:${event.refundId}` });
+      }, { correlationId: randomUUID() }); // a UUID: the event envelope refuses anything else
       return moved ? "updated" : "no_op";
     } catch (err) {
       if (sqlStateOf(err) === UNDEFINED_TABLE) {

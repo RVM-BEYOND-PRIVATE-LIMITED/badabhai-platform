@@ -1745,6 +1745,20 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "grant lets any PostgREST role read which company opened which RVM applicant for free, " +
       "or rewrite the count the placement team reads",
   },
+  {
+    id: "0192-rvm-waiver-end-dates-rls",
+    migration: "0192_rvm_waiver_end_dates",
+    kind: "rls",
+    table: "rvm_waiver_end_dates",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides when a placement-team waiver stops freeing a company's RVM " +
+      "applicants; an open grant lets any PostgREST role push a waiver's end date out (free " +
+      "opens after the placement team meant them to stop) or read which companies are waived",
+  },
   // #2887: the bulk student move. Every statement naming these tables asks first whether
   // `student_visibility` exists (the reach statements key on that alone; search, the open gate and
   // the admin routes also wait for STUDENT_MOVE_ENABLED), so a deploy ahead of the migration
@@ -2089,6 +2103,55 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     failureMode:
       "SILENT. The admin callback queue; an open grant lets any PostgREST role read which " +
       "companies asked for a call or forge requests",
+  },
+  // #2956 / #2957: the admin's decision on where each job shows, and the trades RVM trains. Only the
+  // admin audience routes name either table, and they answer 404 while ADMIN_JOB_AUDIENCE_ENABLED is
+  // off (the default), so a deploy ahead of the migration breaks no request and neither is a
+  // `table` entry. Listed for their locks (the 0134 rule). APPLY BEFORE THE SWITCH (migration
+  // header). The ids and tag carry the slot number: regenerated with the migration when it moves.
+  {
+    id: "0190-job-posting-audience-decisions-rls",
+    migration: "0190_admin_job_audience",
+    kind: "rls",
+    table: "job_posting_audience_decisions",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which admin decided where each job shows; an open grant lets any " +
+      "PostgREST role forge or erase a decision, hiding a job from the admin's to-decide list",
+  },
+  {
+    id: "0190-campus-trades-rls",
+    migration: "0190_admin_job_audience",
+    kind: "rls",
+    table: "campus_trades",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The list decides which trades an admin may send to Campus; an open grant lets any " +
+      "PostgREST role add a trade RVM does not teach, so jobs in it can reach RVM students",
+  },
+  // #2787: the send log of the first sign-in message to a moved company. Only the import CLI names
+  // it (no route, sweep or read path), so a deploy ahead of the migration breaks nothing and it is
+  // not a `table` entry. Listed for its locks (the 0134 rule). The id and tag carry the slot number:
+  // regenerated with the migration when the slot moves.
+  {
+    id: "0193-company-import-notices-rls",
+    migration: "0193_company_import_notices",
+    kind: "rls",
+    table: "company_import_notices",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which moved companies were sent their first sign-in message; an " +
+      "open grant lets any PostgREST role mark a notice sent so a company is never told how to sign in, " +
+      "or erase the log so every company is messaged again",
   },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks

@@ -20,5 +20,7 @@ import { ApplicationsRepository } from "./applications.repository";
   imports: [AuthModule],
   controllers: [ApplicationsController],
   providers: [ApplicationsService, ApplicationsRepository],
+  // #2967 — the daily synthetic run applies through the worker app's own service.
+  exports: [ApplicationsService],
 })
 export class ApplicationsModule {}

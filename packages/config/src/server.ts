@@ -11,6 +11,7 @@ import {
   isDevEnv,
   formatEnvError,
 } from "./shared";
+import { flowCheckThresholdsFromString } from "./flow-check";
 
 /**
  * Server-side (secret-bearing) configuration.
@@ -1071,6 +1072,61 @@ export const serverEnvSchema = z.object({
   // Per-tick cap on WALLETS processed (each in its own transaction) — a backlog drains across
   // ticks, never one unbounded run (same posture as REACH_WIDEN_EXPIRY_BATCH_LIMIT).
   CREDIT_LOT_EXPIRY_BATCH_LIMIT: z.coerce.number().int().positive().default(200),
+  // THE NIGHTLY CREDIT BALANCE AUDIT (#2774). With it on, a daily READ-ONLY check compares every
+  // wallet's `payer_credits.balance` with the sum of its `credit_ledger` deltas and the sum of its
+  // lots' `credits_remaining` (the invariant `credit-wallet.ts` keeps), and counts wallet keys that
+  // hold ledger lines or lots but no balance row. Any mismatch logs the wallet ids and emits ONE
+  // `payer.credit_balance_audit_failed` (counts only), which the admin dashboard's breach counter
+  // shows. It never writes a wallet: repair stays a deliberate, separate step.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the daily tick returns at once without a query.
+  CREDIT_BALANCE_AUDIT_ENABLED: booleanFromString,
+  // THE NIGHTLY RAZORPAY RECONCILIATION (#2773). With it on, a daily READ-ONLY job lists the
+  // payments Razorpay created in the last 48 hours and compares them with `payment_orders`: a
+  // captured payment whose order is not paid on it, a paid order with no captured payment (and no
+  // refund of ours), and an amount that differs. Any finding logs the order and payment ids and
+  // emits ONE `payment.reconciliation_failed` per day (counts only), which the admin dashboard's
+  // breach counter shows. It never changes money. A `rzp_test_` key id skips the run.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the daily tick returns at once without a call or a query.
+  RAZORPAY_RECONCILE_ENABLED: booleanFromString,
+  // THE DAILY FLOW CHECK (#2890, with #2769 and #2782 folded in). With it on, a daily READ-ONLY
+  // tick counts each step of the posting → reach → application flow across BadaBhai and Campus
+  // (jobs posted, RVM reviews waiting too long, live jobs with zero reach, Campus applications,
+  // Campus ids whose BadaBhai row is gone, untouched applications, and what Campus last reported
+  // about its outbox), records ONE `flow_check.day_recorded` per IST day for the admin's 14-day
+  // read, and emits ONE `flow_check.breached` (counts only) when a count passes its threshold,
+  // which the admin dashboard's breach counter shows. It also opens Campus's
+  // `PUT applications-check` route (still behind CAMPUS_LINK_ENABLED and the Campus credential).
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the tick returns at once without a query, and
+  // `GET /admin/flow-check` and Campus's report route are a neutral 404.
+  FLOW_CHECK_ENABLED: booleanFromString,
+  // The flow check's thresholds, `key=value` pairs (`./flow-check.ts`); empty = every default.
+  FLOW_CHECK_THRESHOLDS: flowCheckThresholdsFromString,
+  // END DATES ON THE PLACEMENT TEAM'S WAIVERS (#2778). With it on, a waiver may be set with an
+  // `ends_on` day (the admin route and the Campus route); from the next day (India time) the waiver
+  // no longer frees anyone, so the quote and the open both charge the normal contact cost again.
+  // Nothing is deleted. The dates live in `rvm_waiver_end_dates`.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: nothing names `rvm_waiver_end_dates`, a set that sends
+  // `ends_on` is refused, and every waiver runs until it is cleared. APPLY THE
+  // `rvm_waiver_end_dates` MIGRATION BEFORE TURNING IT ON (on without it: a dated set answers 503
+  // and the reads ignore end dates, logged once). Turning it OFF again makes dated waivers
+  // open-ended until cleared.
+  RVM_WAIVER_END_DATES_ENABLED: booleanFromString,
+  // THE DAILY SYNTHETIC RUN (#2967, #2890 item 4). With it on, once a day (04:30 IST) the api walks
+  // the whole flow through its real services on accounts it makes for the run: a company posts and
+  // publishes a job, an admin opens it to RVM students as well, reach is built, the Campus feed lists
+  // it approved, a worker applies in the app, an RVM student applies from Campus, the company lists
+  // its applicants and opens the student's contact. ALL OF IT RUNS IN ONE TRANSACTION THAT IS ALWAYS
+  // ROLLED BACK: no row, event or credit stays, nobody sees the job, and RVM is never called (the
+  // run's student is answered in-process). One `flow_check.synthetic_run_recorded` per run, and ONE
+  // `flow_check.synthetic_run_failed` per IST day on a failure (the admin breach counter).
+  //
+  // DEFAULT OFF, AND OFF IS TODAY EXACTLY: the tick returns at once, and the ops trigger
+  // (`POST /flow-check/synthetic-run`, ops token) is a neutral 404.
+  FLOW_SYNTHETIC_RUN_ENABLED: booleanFromString,
 
   // ── LEARN label producer (migration 0091): spine events → training labels ──
   // Cadence (hours) of the sweep tick. The cursor + UNIQUE impression key in the store
@@ -1441,6 +1497,13 @@ export const serverEnvSchema = z.object({
   // each page is at most 50 masked rows, so the default bounds a login to 6,000 masked rows an
   // hour — identity still costs a credit per worker. Fail-closed (a Redis outage rejects).
   PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR: z.coerce.number().int().positive().default(120),
+  // #2838 (ADR-0064 §4) — per-COMPANY daily cap on the DISTINCT workers the all-candidates search
+  // shows pre-pay facts for (first name, trade, area, expected salary) while APPLICANT_FACTS_ROLLOUT
+  // is on for it. Counted per tenant key per IST day in Redis; a worker already shown today costs
+  // nothing again. Past the cap the rows stay and the facts read "not given". Search only — the
+  // applicant lists are not capped. Fail-closed (a Redis outage shows no facts). Owner ruling
+  // 19 Nov 2026: 300. `payer.candidate_search_volume_alert` fires at half and at the cap.
+  APPLICANT_FACTS_SEARCH_DAILY_DISTINCT_CAP: z.coerce.number().int().positive().default(300),
   // Per-PAYER hourly cap on the Agency Supply Portal INVITE-MINT endpoint (ADR-0022
   // security condition — the invite analogue of XB-G). Minting an invite creates an
   // opaque attribution code; an uncapped account could mint unboundedly to spam/seed
@@ -1600,6 +1663,13 @@ export const serverEnvSchema = z.object({
   // (migration 0162); the snapshot needs the `numbers_weekly` migration, APPLY BEFORE THE SWITCH
   // (on without it, the weekly route answers 503 and the sweep logs and skips).
   ADMIN_NUMBERS_ENABLED: booleanFromString,
+  // AN ADMIN DECIDES WHERE EACH JOB SHOWS (#2956, owner direction of 19 Nov 2026, #2959): Campus
+  // only, both, or BadaBhai only, on any posting, with a reason and an audit row; the admin list
+  // of jobs to decide; and Campus's review of a job an admin sent to Campus without the company's
+  // `job_audience` pilot. Default OFF: every `/admin/postings/audience` route is a neutral 404 and
+  // nothing names the two 0190 tables. APPLY 0190 BEFORE TURNING IT ON. It gates the admin write
+  // only: the stored audience and the Campus hold are honoured whatever it says (R81).
+  ADMIN_JOB_AUDIENCE_ENABLED: booleanFromString,
   // How many whole days after a week ends (Sunday 23:59:59 India time) the nightly numbers sweep
   // FREEZES it (#2755 part B): from then on the sweep never recomputes that week, and only the
   // logged recompute tool (`recompute-numbers.cli.ts`) can change it. Default 3 (the issue's "a few

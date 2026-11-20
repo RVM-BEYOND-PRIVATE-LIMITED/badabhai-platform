@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_haptics.dart';
 import '../theme/app_motion.dart';
+import '../theme/bb_palette.dart';
 
 /// The one tactile press for every tappable surface (#2591, M3) — CRED/NeoPOP
 /// style, built in-house (no `neopop` dependency: it ships its own colour
@@ -92,6 +92,7 @@ class _BbPressableState extends State<BbPressable> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final Duration duration = AppMotion.resolve(context, AppMotion.press);
     final bool pressed = widget.enabled && _pressed;
 
@@ -131,7 +132,7 @@ class _BbPressableState extends State<BbPressable> {
                 child: DecoratedBox(
                   key: BbPressable.edgeKey,
                   decoration: BoxDecoration(
-                    color: AppColors.blue,
+                    color: p.brandSurface,
                     borderRadius: widget.borderRadius,
                   ),
                 ),

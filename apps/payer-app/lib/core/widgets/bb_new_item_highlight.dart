@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
 import 'bb_card.dart';
+import '../theme/bb_palette.dart';
 
 /// "Show me the row I just made" — a ONE-SHOT request a host hands to a list
 /// (#2596: Post a job → land on Jobs with the new card highlighted).
@@ -30,8 +30,8 @@ class BbHighlightRequest {
 }
 
 /// Wraps one list row. When mounted [active], it scrolls the row into view and
-/// paints its card's surface [AppColors.haldiTint] (the brand's soft yellow,
-/// ≈20% of haldi on white), easing back to [AppColors.surfaceCard] over
+/// paints its card's surface with the action tint (the brand's soft yellow),
+/// easing back to the card surface over
 /// [AppMotion.highlightFade], ease-in.
 ///
 /// Only the SURFACE changes ([BbCardSurfaceTint], read by the row's [BbCard]):
@@ -123,6 +123,7 @@ class _BbNewItemHighlightState extends State<BbNewItemHighlight>
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final Animation<double>? fade = _fade;
     if (!_playing || fade == null) return widget.child;
     // The scope stays in the tree after the fade (null: the card's own white)
@@ -134,7 +135,7 @@ class _BbNewItemHighlightState extends State<BbNewItemHighlight>
         key: BbNewItemHighlight.tintKey,
         color: fade.value >= 1
             ? null
-            : Color.lerp(AppColors.haldiTint, AppColors.surfaceCard, fade.value),
+            : Color.lerp(p.actionTint, p.card, fade.value),
         child: child!,
       ),
     );

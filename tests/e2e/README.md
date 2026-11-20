@@ -64,6 +64,7 @@ or both of them:
 | `phase1-onboarding.e2e.test.ts` | worker seam | wired, opt-in (`RUN_E2E` + `TEST_LOGIN_TOKEN`) |
 | `swipe-to-apply.e2e.test.ts` | worker seam | wired, opt-in |
 | `contact-unlock.e2e.test.ts` | worker seam | wired, **armed in CI** (`E2E_UNLOCK_SUITE=1`) |
+| `contact-reach-guarantee.e2e.test.ts` | worker seam + payer seam | wired, **armed in CI** (`E2E_UNLOCK_SUITE=1` + `CREDIT_RULES_ROLLOUT=pilot`; #2750 couldn't-reach guarantee, drives the real deadline sweep through its BullMQ queue) |
 | `referral-round-trip.e2e.test.ts` | worker seam | wired, opt-in |
 | `match-skills-clear-all.e2e.test.ts` | worker seam | wired, opt-in (E4 clear-all `cleared` count over real SQL, #1850) |
 | `payer-tenancy.e2e.test.ts` | worker seam + payer seam | wired, opt-in (adds `PAYER_TEST_LOGIN_TOKEN`) |

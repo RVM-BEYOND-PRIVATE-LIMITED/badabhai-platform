@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/bb_palette.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
-import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/push_once.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
@@ -79,8 +79,9 @@ class _KitViewState extends State<_KitView> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: BlocBuilder<KitListCubit, KitListState>(
         builder: (BuildContext context, KitListState state) {
           final bool ready = state.status == KitListStatus.ready;

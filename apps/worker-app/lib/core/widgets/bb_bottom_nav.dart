@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../theme/bb_palette.dart';
 import '../theme/onboarding_theme.dart';
 import 'kit/kit_content_column.dart';
 
@@ -72,14 +73,15 @@ class BbBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final double safeBottom = MediaQuery.paddingOf(context).bottom;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       // The bar owns the BOTTOM edge of the screen, so this is the region the
-      // engine reads for the system navigation bar: white with dark icons,
-      // matching the surface the bar paints behind it. The navy tab headers
+      // engine reads for the system navigation bar: the bar's surface with dark
+      // icons, matching what the bar paints behind it. The navy tab headers
       // annotate the top edge (light status icons) separately.
-      value: const SystemUiOverlayStyle(
-        systemNavigationBarColor: OnboardingColors.paperWhite,
+      value: SystemUiOverlayStyle(
+        systemNavigationBarColor: p.card,
         systemNavigationBarIconBrightness: Brightness.dark,
         systemNavigationBarContrastEnforced: false,
       ),
@@ -88,11 +90,9 @@ class BbBottomNav extends StatelessWidget {
         child: Container(
           height: barHeight + safeBottom,
           padding: EdgeInsets.only(bottom: safeBottom),
-          decoration: const BoxDecoration(
-            color: OnboardingColors.paperWhite,
-            border: Border(
-              top: BorderSide(color: OnboardingColors.borderDefault),
-            ),
+          decoration: BoxDecoration(
+            color: p.card,
+            border: Border(top: BorderSide(color: p.borderDefault)),
           ),
           // On a tablet the four items stop spreading at
           // [OnboardingLayout.maxTabContentWidth] and centre, while the white
@@ -144,11 +144,10 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The selected tab reads in shift blue: it holds contrast on the white bar,
-    // where safety yellow would not, and the yellow is spent on the marker.
-    final Color color = active
-        ? OnboardingColors.shiftBlue
-        : OnboardingColors.ink500;
+    final BbPalette p = context.bb;
+    // The selected tab reads in the brand ink: it holds contrast on the bar,
+    // where the action yellow would not, and the yellow is spent on the marker.
+    final Color color = active ? p.textBrand : p.textMuted;
 
     return Semantics(
       button: true,
@@ -170,9 +169,7 @@ class _NavItem extends StatelessWidget {
               width: BbBottomNav.markerWidth,
               height: BbBottomNav.markerHeight,
               decoration: BoxDecoration(
-                color: active
-                    ? OnboardingColors.safetyYellow
-                    : Colors.transparent,
+                color: active ? p.action : Colors.transparent,
                 borderRadius: BorderRadius.circular(BbBottomNav.markerRadius),
               ),
             ),

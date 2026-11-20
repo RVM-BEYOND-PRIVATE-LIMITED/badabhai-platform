@@ -106,7 +106,9 @@ describe("drive-request contract — the feed", () => {
 
   it("shares the review's DECISION_SUPERSEDED (once) and appends the two drive codes last", () => {
     expect(CAMPUS_ERROR_CODES.filter((c) => c === "DECISION_SUPERSEDED")).toHaveLength(1);
-    expect(CAMPUS_ERROR_CODES.slice(-2)).toEqual(["DECISION_NOT_ALLOWED", "COMPANY_WITHDRAWN"]);
+    // The two drive codes stay together, in order; later codes (#2778's waiver code) follow them.
+    const at = CAMPUS_ERROR_CODES.indexOf("DECISION_NOT_ALLOWED");
+    expect(CAMPUS_ERROR_CODES.slice(at, at + 2)).toEqual(["DECISION_NOT_ALLOWED", "COMPANY_WITHDRAWN"]);
     expect(new Set(CAMPUS_ERROR_CODES).size).toBe(CAMPUS_ERROR_CODES.length);
     expect(CAMPUS_ERROR_CODES.slice(0, 11)).toEqual([
       "ADDRESS_NOT_ALLOWED",

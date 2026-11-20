@@ -49,9 +49,10 @@ export async function previewReachAction(input: {
   try {
     return {
       ok: true,
-      preview: await previewReach(
-        role === undefined ? parsed.data : { ...parsed.data, roleKind: role.data },
-      ),
+      preview: await previewReach({
+        ...parsed.data,
+        ...(role !== undefined ? { roleKind: role.data } : {}),
+      }),
     };
   } catch {
     // A 400 from the cap check and a transport failure collapse to one retryable line:

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_chip.dart';
 import 'bb_field_error.dart';
+import '../theme/bb_palette.dart';
 
 /// A labelled single-select drawn as aligned kit chips — the JUL31 pattern for
 /// enum choices on the posting forms; the picked option flips to a solid haldi
@@ -36,6 +36,7 @@ class BbChipSelect<T extends Object> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -44,7 +45,7 @@ class BbChipSelect<T extends Object> extends StatelessWidget {
           style: AppTypography.body(
             size: AppTypography.sizeSm,
             weight: FontWeight.w700,
-            color: AppColors.textPrimary,
+            color: p.textPrimary,
           ),
         ),
         const SizedBox(height: AppSpacing.s2),

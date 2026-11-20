@@ -125,6 +125,17 @@ export class AdminEventsService {
     // for a call.
     "managed_hiring.order_closed_unmet",
     "managed_hiring.callback_requested",
+    // #2774 — the nightly credit balance audit found wallets whose balance, ledger and lots disagree.
+    "payer.credit_balance_audit_failed",
+    // #2773 — the nightly Razorpay reconciliation found captured payments and paid orders that
+    // disagree.
+    "payment.reconciliation_failed",
+    // #2890 — the daily flow check found a step of posting → reach → application past its
+    // threshold (one per IST day, counts only; #2769's overdue review and #2782's missing Campus
+    // ids are two of its checks).
+    "flow_check.breached",
+    // #2967 — the daily synthetic run of the flow failed a step (one per IST day, closed codes).
+    "flow_check.synthetic_run_failed",
   ] as const;
 
   constructor(

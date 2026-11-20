@@ -4,24 +4,29 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requirePayer } from "../../../../../lib/auth";
 import {
+  getApplicantStageOptions,
   getCredits,
+  getUnlockContact,
   requestUnlock,
   reveal,
   revealMaskedResume,
   setApplicantStage,
 } from "../../../../../lib/payer-api";
 import type { BalanceReading } from "../../../../../lib/contracts";
-import { isPayerRateLimited } from "../../../../../lib/payer-errors";
+import { isPayerRateLimited, isPayerStatus } from "../../../../../lib/payer-errors";
 import { APPLICANT_STAGES, type ApplicantStage } from "../../../../../lib/applicant-stages";
 import {
+  mapContactLookup,
   mapContactResult,
   mapRevealResult,
   mapUnlockResult,
   NEUTRAL_UNLOCK_MESSAGE,
+  type ContactLookupView,
   type ContactView,
   type RevealView,
   type UnlockView,
 } from "../../../../../lib/unlock-view";
+import type { ApplicantStageOptions } from "../../../../../lib/contracts";
 
 /**
  * Server Actions for the unlock + reveal flow (ADR-0010 / ADR-0019 Decision E).
@@ -145,6 +150,45 @@ export async function revealContactAction(input: {
   }
 }
 
+/** #2747 — the contact read's outcome: the typed view, or a polite retry reason. */
+export type UnlockContactActionResult =
+  | { ok: true; view: ContactLookupView }
+  | { ok: false; error: "limited" | "failed" };
+
+/**
+ * #2747 — read what a credit opens, EVERY time the contact screen opens. The response is
+ * `no-store`; this action returns it to the screen and nothing here caches, stores or logs it (no
+ * name, no number, no body). A 404 is the rule being off for the company and maps to `off`; the
+ * neutral 200 body says nothing new; a 429 is the hourly disclosure cap.
+ */
+export async function readUnlockContactAction(input: {
+  unlockId: string;
+}): Promise<UnlockContactActionResult> {
+  await requirePayer();
+  if (!uuid.safeParse(input.unlockId).success) {
+    return { ok: false, error: "failed" };
+  }
+  try {
+    return { ok: true, view: mapContactLookup(await getUnlockContact(input.unlockId)) };
+  } catch (e) {
+    return { ok: false, error: isPayerRateLimited(e) ? "limited" : "failed" };
+  }
+}
+
+/**
+ * #2747 — `GET /payer/reach/applicant-stages`, read once per board load (and again after a 400
+ * on an outcome move). Null while the board flag is off or the read failed: the screen then draws
+ * today's board.
+ */
+export async function applicantStageOptionsAction(): Promise<ApplicantStageOptions | null> {
+  await requirePayer();
+  try {
+    return await getApplicantStageOptions();
+  } catch {
+    return null;
+  }
+}
+
 /**
  * LIVE: the MASKED resume via the payer-authed `POST /payer/resume-disclosures`
  * (XB-E). The posting id rides along as the disclosure's audit context (optional on
@@ -197,7 +241,10 @@ export async function maskedResumeAction(input: {
  */
 export type StageActionResult =
   | { ok: true; stage: ApplicantStage; changed: boolean }
-  | { ok: false; reason: "gone" | "rate-limited" | "failed" };
+  | {
+      ok: false;
+      reason: "gone" | "rate-limited" | "stage-not-open" | "unavailable" | "failed";
+    };
 
 const stageInputSchema = z
   .object({ jobId: uuid, workerId: uuid, stage: z.enum(APPLICANT_STAGES) })
@@ -219,6 +266,12 @@ export async function setApplicantStageAction(input: {
     }
     return { ok: true, stage: change.stage, changed: change.changed };
   } catch (e) {
-    return { ok: false, reason: isPayerRateLimited(e) ? "rate-limited" : "failed" };
+    if (isPayerRateLimited(e)) return { ok: false, reason: "rate-limited" };
+    // #2747: a 400 on an outcome stage means the switch is not open for this company (the same
+    // body the route always gave for a value outside the three); a 503 means the pilot list could
+    // not be read, so nothing was saved. Both put the row back.
+    if (isPayerStatus(e, 400)) return { ok: false, reason: "stage-not-open" };
+    if (isPayerStatus(e, 503)) return { ok: false, reason: "unavailable" };
+    return { ok: false, reason: "failed" };
   }
 }

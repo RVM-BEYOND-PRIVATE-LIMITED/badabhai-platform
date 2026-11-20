@@ -413,6 +413,53 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /ADMIN_NUMBERS_ENABLED:\s*\$\{\{\s*secrets\.ADMIN_NUMBERS_ENABLED\s*\}\}/,
       /envs:[^\n]*\bADMIN_NUMBERS_ENABLED\b/,
     ],
+    // #2956 — an admin decides where each job shows (/admin/postings/audience). A plain boolean on
+    // the api only, turned on in production ONLY by the environment secret, after 0190 is applied.
+    [
+      "ADMIN_JOB_AUDIENCE_ENABLED",
+      /ADMIN_JOB_AUDIENCE_ENABLED:\s*\$\{\{\s*secrets\.ADMIN_JOB_AUDIENCE_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bADMIN_JOB_AUDIENCE_ENABLED\b/,
+    ],
+    // #2774 — the nightly credit balance audit. A plain read-only boolean on the api, turned on in
+    // production only by its environment secret.
+    [
+      "CREDIT_BALANCE_AUDIT_ENABLED",
+      /CREDIT_BALANCE_AUDIT_ENABLED:\s*\$\{\{\s*secrets\.CREDIT_BALANCE_AUDIT_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCREDIT_BALANCE_AUDIT_ENABLED\b/,
+    ],
+    // #2773 — the nightly Razorpay reconciliation. A plain read-only boolean on the api, turned on in
+    // production only by its environment secret.
+    [
+      "RAZORPAY_RECONCILE_ENABLED",
+      /RAZORPAY_RECONCILE_ENABLED:\s*\$\{\{\s*secrets\.RAZORPAY_RECONCILE_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bRAZORPAY_RECONCILE_ENABLED\b/,
+    ],
+    // #2890 — the daily flow check. A plain read-only boolean on the api, turned on in production
+    // only by its environment secret; its thresholds ride beside it as one key=value string.
+    [
+      "FLOW_CHECK_ENABLED",
+      /FLOW_CHECK_ENABLED:\s*\$\{\{\s*secrets\.FLOW_CHECK_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bFLOW_CHECK_ENABLED\b/,
+    ],
+    [
+      "FLOW_CHECK_THRESHOLDS",
+      /FLOW_CHECK_THRESHOLDS:\s*\$\{\{\s*secrets\.FLOW_CHECK_THRESHOLDS\s*\}\}/,
+      /envs:[^\n]*\bFLOW_CHECK_THRESHOLDS\b/,
+    ],
+    // #2778 — end dates on the placement team's waivers. A plain boolean on the api only, turned
+    // on in production ONLY by the environment secret, after the `rvm_waiver_end_dates` migration.
+    [
+      "RVM_WAIVER_END_DATES_ENABLED",
+      /RVM_WAIVER_END_DATES_ENABLED:\s*\$\{\{\s*secrets\.RVM_WAIVER_END_DATES_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bRVM_WAIVER_END_DATES_ENABLED\b/,
+    ],
+    // #2967 — the daily synthetic run. A plain boolean on the api, on in production only by its
+    // environment secret.
+    [
+      "FLOW_SYNTHETIC_RUN_ENABLED",
+      /FLOW_SYNTHETIC_RUN_ENABLED:\s*\$\{\{\s*secrets\.FLOW_SYNTHETIC_RUN_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bFLOW_SYNTHETIC_RUN_ENABLED\b/,
+    ],
     // #2887 — the bulk student move. A plain boolean on the api only, turned on in production
     // ONLY by the environment secret, after the `student_move` migration is applied.
     [
@@ -649,6 +696,20 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["STILL_LOOKING_EVERY_DAYS", "30"],
     // #2755 — off is no numbers route at all: a neutral 404 before any query.
     ["ADMIN_NUMBERS_ENABLED", "false"],
+    // #2956 — off is no admin audience route at all: a neutral 404 before any query.
+    ["ADMIN_JOB_AUDIENCE_ENABLED", "false"],
+    // #2774 — off is today: the nightly balance audit's tick returns at once without a query.
+    ["CREDIT_BALANCE_AUDIT_ENABLED", "false"],
+    // #2773 — off is today: the nightly reconciliation's tick returns at once without a call.
+    ["RAZORPAY_RECONCILE_ENABLED", "false"],
+    // #2890 — off is today: the flow check's tick returns at once and both routes 404. Empty
+    // thresholds are every default (the api reads "" as no override).
+    ["FLOW_CHECK_ENABLED", "false"],
+    ["FLOW_CHECK_THRESHOLDS", ""],
+    // #2778 — off is today: nothing names rvm_waiver_end_dates, every waiver runs until cleared.
+    ["RVM_WAIVER_END_DATES_ENABLED", "false"],
+    // #2967 — off is today: the synthetic run's tick returns at once and its route 404s.
+    ["FLOW_SYNTHETIC_RUN_ENABLED", "false"],
     // #2755 part B — the zod default: a week freezes 3 days after it ends.
     ["NUMBERS_FREEZE_AFTER_DAYS", "3"],
     // #2887 — off is today: nothing names the student-move tables, /admin/students/* is a 404.

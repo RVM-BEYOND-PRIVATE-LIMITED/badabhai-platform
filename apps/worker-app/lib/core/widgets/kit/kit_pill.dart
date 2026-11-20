@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/bb_palette.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// Colour tone of a [KitPill].
@@ -40,30 +41,19 @@ class KitPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final (Color background, Color foreground) = switch (tone) {
-      KitPillTone.green => (
-        OnboardingColors.successBg,
-        OnboardingColors.successGreen,
-      ),
-      KitPillTone.yellow => (
-        OnboardingColors.yellowTint20,
-        OnboardingColors.safetyYellow,
-      ),
+      KitPillTone.green => (p.successBg, p.success),
+      KitPillTone.yellow => (p.actionTint, p.action),
       // ON NAVY the 20%-yellow wash is not yellow at all: 0x33FFB32C over
       // #05194C composites to about #373846 — a neutral slate — so the pill
       // read as a grey chip carrying a yellow numeral. Raising the alpha only
       // turns it brown; yellow over deep navy cannot be warm at any alpha. So
       // the fill is spec §1.1's own answer, `shiftBlueSurface` ("pill on
       // navy"), with the yellow kept for the label.
-      KitPillTone.onNavy => (
-        OnboardingColors.shiftBlueSurface,
-        OnboardingColors.safetyYellow,
-      ),
-      KitPillTone.neutral => (
-        OnboardingColors.pillMutedBg,
-        OnboardingColors.ink500,
-      ),
-      KitPillTone.red => (OnboardingColors.errorBg, OnboardingColors.errorRed),
+      KitPillTone.onNavy => (p.brandSurfaceRaised, p.action),
+      KitPillTone.neutral => (p.inset, p.textMuted),
+      KitPillTone.red => (p.dangerBg, p.danger),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -95,10 +85,11 @@ class KitCountPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: OnboardingColors.pillMutedBg,
+        color: p.inset,
         borderRadius: BorderRadius.circular(OnboardingRadii.countPill),
       ),
       child: Text('$count', style: OnboardingTypography.countPill()),

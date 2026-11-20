@@ -4494,6 +4494,285 @@ export const PayerCreditsExpiredPayload = z
   .strict();
 export type PayerCreditsExpiredPayload = z.infer<typeof PayerCreditsExpiredPayload>;
 
+/**
+ * #2774 — the nightly credit balance audit found wallets that break the wallet invariant
+ * (`credit-wallet.ts`): `payer_credits.balance` = Σ `credit_ledger.delta` = Σ
+ * `credit_lots.credits_remaining`, and no wallet key holding ledger lines or lots without a
+ * balance row.
+ *
+ * ONE EVENT PER FAILING RUN, never one per wallet: it is an alert ("the books do not add up
+ * tonight"), counted on the admin dashboard's breach counter. A clean run emits nothing.
+ *
+ * COUNTS ONLY: how many wallets were read and how many fall in each class, plus the net gaps in
+ * credits. The wallet ids go to the server log for whoever repairs them, never onto the spine.
+ * Actor `system`; subject the aggregate `payer` with a null id (no single wallet breached). v1.
+ */
+export const PayerCreditBalanceAuditFailedPayload = z
+  .object({
+    /** Wallet keys the run read (balance rows, plus keys found only on the ledger or lots). */
+    wallets_checked: z.number().int().nonnegative(),
+    /** Wallets whose balance differs from the sum of their ledger lines. */
+    ledger_mismatches: z.number().int().nonnegative(),
+    /** Wallets whose balance differs from the sum of their lots' remaining credits. */
+    lot_mismatches: z.number().int().nonnegative(),
+    /** Wallet keys holding ledger lines or lots but no `payer_credits` row. */
+    orphan_wallets: z.number().int().nonnegative(),
+    /** Σ (balance − ledger sum) over the ledger mismatches, in credits (signed). */
+    ledger_gap_credits: z.number().int(),
+    /** Σ (balance − lots sum) over the lot mismatches, in credits (signed). */
+    lot_gap_credits: z.number().int(),
+  })
+  .strict()
+  .refine((p) => p.ledger_mismatches + p.lot_mismatches + p.orphan_wallets > 0, {
+    message: "an audit failure names at least one mismatch",
+  });
+export type PayerCreditBalanceAuditFailedPayload = z.infer<
+  typeof PayerCreditBalanceAuditFailedPayload
+>;
+
+/**
+ * #2773 — the nightly Razorpay reconciliation found captured payments and paid orders that
+ * disagree, over the window it read (the last 48 hours).
+ *
+ * ONE EVENT PER FAILING DAY, never one per payment: it is an alert ("Razorpay and our books
+ * disagree tonight"), counted on the admin dashboard's breach counter. A clean run emits nothing.
+ *
+ * COUNTS ONLY: how many payments and orders were compared and how many fall in each class. The
+ * order and payment ids go to the server log for whoever repairs them, never onto the spine.
+ * Actor `system`; subject the aggregate `payer` with a null id (no single company). v1.
+ */
+export const PaymentReconciliationFailedPayload = z
+  .object({
+    /** How far back the run read, in hours. */
+    window_hours: z.number().int().positive(),
+    /** Payments Razorpay captured in the window. */
+    payments_checked: z.number().int().nonnegative(),
+    /** Our `paid` orders created in the window. */
+    orders_checked: z.number().int().nonnegative(),
+    /** Captured at Razorpay, but our order is not paid on that payment (the company got nothing). */
+    captured_not_paid: z.number().int().nonnegative(),
+    /** Our order is paid, but Razorpay holds no captured payment for it (and no refund of ours). */
+    paid_not_captured: z.number().int().nonnegative(),
+    /** Paid on the payment, but the captured amount or currency is not the order's. */
+    amount_mismatches: z.number().int().nonnegative(),
+    /** Captured on a Razorpay order we hold no `payment_orders` row for. */
+    captured_unknown_order: z.number().int().nonnegative(),
+  })
+  .strict()
+  .refine(
+    (p) =>
+      p.captured_not_paid + p.paid_not_captured + p.amount_mismatches + p.captured_unknown_order >
+      0,
+    { message: "a reconciliation failure names at least one finding" },
+  );
+export type PaymentReconciliationFailedPayload = z.infer<typeof PaymentReconciliationFailedPayload>;
+
+/**
+ * #2890 — the daily flow check's checks that can BREACH, in the order the admin read shows them.
+ * The informational counts (jobs posted, applications received, Campus applications) have no
+ * threshold and never breach.
+ *  - `rvm_review_overdue`: open, visible RVM-audience jobs whose placement-team review has been
+ *    pending longer than `review_wait_hours` (#2769).
+ *  - `live_zero_reach`: open jobs a BadaBhai worker may see, published longer than
+ *    `zero_reach_grace_hours` ago, with no reach row.
+ *  - `campus_unlinked`: live Campus applications whose BadaBhai application row is gone (#2782,
+ *    BadaBhai's half).
+ *  - `applications_untouched`: applications that crossed `untouched_hours` in the last day with no
+ *    company stage move and no contact open.
+ *  - `campus_outbox_undelivered`, `campus_ids_missing`: what Campus last reported about its outbox
+ *    and about its application ids that never reached BadaBhai (#2782, Campus's half).
+ *  - `campus_report_missing`: the Campus link is on, one of the two Campus counts can alert, and
+ *    Campus sent no report within `campus_report_max_age_hours`, so those counts are unknown.
+ */
+export const FLOW_CHECK_NAMES = [
+  "rvm_review_overdue",
+  "live_zero_reach",
+  "campus_unlinked",
+  "applications_untouched",
+  "campus_outbox_undelivered",
+  "campus_ids_missing",
+  "campus_report_missing",
+] as const;
+export type FlowCheckName = (typeof FLOW_CHECK_NAMES)[number];
+
+const flowCount = z.number().int().nonnegative();
+
+/**
+ * The counts one daily flow check read, shared by `flow_check.day_recorded` and
+ * `flow_check.breached`. COUNTS, CLOSED NAMES, ONE DAY AND ONE TIME ONLY: no posting, application,
+ * worker or company id ever rides here (the ids go to the server log for whoever investigates).
+ */
+const FlowCheckCountsShape = {
+  /** The IST calendar day the run belongs to (`YYYY-MM-DD`). One record per day. */
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** The window the per-day counts cover, ending at the run. */
+  window_hours: z.number().int().positive().max(168),
+  /** Jobs published in the window. */
+  jobs_posted: flowCount,
+  /** Applications (worker app and Campus) to job postings in the window. */
+  applications_received: flowCount,
+  /** Of those, applications that came from Campus. */
+  campus_applications: flowCount,
+  rvm_review_overdue: flowCount,
+  live_zero_reach: flowCount,
+  campus_unlinked: flowCount,
+  applications_untouched: flowCount,
+  /** Null when no Campus report was in time, or the Campus link is off. */
+  campus_outbox_undelivered: flowCount.nullable(),
+  /** Null when no Campus report was in time, or the Campus link is off. */
+  campus_ids_missing: flowCount.nullable(),
+  /** When Campus ran the check it reported (Campus's clock); null as above. */
+  campus_reported_at: isoDateTimeSchema.nullable(),
+  /** The thresholds the run used, by key; null = that maximum is off. */
+  thresholds: z.record(
+    z.string().regex(/^[a-z_]{1,40}$/),
+    z.number().int().nonnegative().nullable(),
+  ),
+  /** The checks that breached, in {@link FLOW_CHECK_NAMES} order, each once. */
+  breached: z
+    .array(z.enum(FLOW_CHECK_NAMES))
+    .max(FLOW_CHECK_NAMES.length)
+    .refine((names) => new Set(names).size === names.length, { message: "a check is named twice" }),
+};
+
+/**
+ * #2890 — one day of the flow check, recorded whether or not anything breached: the source of the
+ * admin's 14-day read (`GET /admin/flow-check`). ONE PER IST DAY (keyed on `day`), however many
+ * ticks or replicas run. Actor `system`; subject the aggregate `job_posting` with a null id (no
+ * single posting is meant). v1.
+ */
+export const FlowCheckDayRecordedPayload = z.object(FlowCheckCountsShape).strict();
+export type FlowCheckDayRecordedPayload = z.infer<typeof FlowCheckDayRecordedPayload>;
+
+/**
+ * #2890 — the day's flow check found at least one count past its threshold. ONE PER IST DAY, an
+ * alert counted on the admin dashboard's breach counter (`AdminEventsService.BREACH_EVENTS`). The
+ * same counts as the day's record, so the alert reads on its own. v1.
+ */
+export const FlowCheckBreachedPayload = z
+  .object(FlowCheckCountsShape)
+  .strict()
+  .refine((p) => p.breached.length > 0, { message: "a breach names at least one check" });
+export type FlowCheckBreachedPayload = z.infer<typeof FlowCheckBreachedPayload>;
+
+/**
+ * #2890 — Campus reported its nightly applications check (`PUT applications-check`, Campus #155
+ * item 13): what only Campus can see. BadaBhai cannot read Campus's outbox or its application
+ * table, so the flow check reads the latest of these. COUNTS, A FLAG AND CAMPUS'S TIME ONLY: the
+ * findings themselves (Campus and BadaBhai ids) stay in Campus's own run record. Actor `system`
+ * (the Campus service credential, as every Campus write); subject the aggregate `job_posting`. v1.
+ */
+export const FlowCheckCampusReportReceivedPayload = z
+  .object({
+    /** When Campus's check ran, Campus's clock. */
+    checked_at: isoDateTimeSchema,
+    /** `badabhai.apply` / `badabhai.withdraw` outbox rows not delivered an hour or more after they were made. */
+    outbox_undelivered: flowCount,
+    /** Campus holds BadaBhai's application id, but BadaBhai's feed has no such application. */
+    missing_on_badabhai: flowCount,
+    /** Neither on BadaBhai nor refused, past Campus's retry window. */
+    not_sent: flowCount,
+    /** Was Campus's outbox dispatcher switched on when it checked? */
+    dispatcher_on: z.boolean(),
+  })
+  .strict();
+export type FlowCheckCampusReportReceivedPayload = z.infer<
+  typeof FlowCheckCampusReportReceivedPayload
+>;
+
+/**
+ * #2967 — the daily synthetic run's steps, in the order it walks them. `setup` makes the run's own
+ * company, worker and credits; the rest are the flow of #2890: the company posts and publishes, an
+ * admin opens the job to RVM students too, reach is built, Campus's feed lists it approved, a worker
+ * applies in the app, an RVM student applies from Campus, the company lists its applicants and opens
+ * the student's contact.
+ */
+export const FLOW_SYNTHETIC_STEPS = [
+  "setup",
+  "posted",
+  "published",
+  "rvm_audience",
+  "reached",
+  "campus_listed",
+  "worker_applied",
+  "campus_applied",
+  "applicants_listed",
+  "contact_opened",
+] as const;
+export type FlowSyntheticStep = (typeof FLOW_SYNTHETIC_STEPS)[number];
+
+/**
+ * Why a step failed, as a closed code (the message goes to the server log only).
+ *  - `no_campus_trade`: no trade on the Campus trade list is a postable trade, so no job can go to
+ *    Campus (`rvm_audience`).
+ *  - `refused`: the step answered, but not what the flow needs (an audience refused, a neutral
+ *    unlock answer, an applicant missing from the list).
+ *  - `not_found` / `conflict` / `invalid` / `unavailable`: the step threw the HTTP error of that kind
+ *    (404, 409, 400, 503).
+ *  - `timeout`: a statement or lock timed out inside the run's transaction.
+ *  - `error`: anything else thrown.
+ */
+export const FLOW_SYNTHETIC_FAILURES = [
+  "no_campus_trade",
+  "refused",
+  "not_found",
+  "conflict",
+  "invalid",
+  "unavailable",
+  "timeout",
+  "error",
+] as const;
+export type FlowSyntheticFailure = (typeof FLOW_SYNTHETIC_FAILURES)[number];
+
+const FlowSyntheticRunShape = {
+  /** The IST calendar day the run belongs to (`YYYY-MM-DD`). */
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** The daily tick, or an operator's run-now. */
+  trigger: z.enum(["schedule", "ops"]),
+  passed: z.boolean(),
+  /** How many steps passed before the first failure (all of them on a pass). */
+  steps_passed: z.number().int().min(0).max(FLOW_SYNTHETIC_STEPS.length),
+  failed_step: z.enum(FLOW_SYNTHETIC_STEPS).nullable(),
+  failure: z.enum(FLOW_SYNTHETIC_FAILURES).nullable(),
+  /** The whole run, transaction included. */
+  duration_ms: z.number().int().nonnegative(),
+};
+
+const consistentRun = (p: {
+  passed: boolean;
+  steps_passed: number;
+  failed_step: FlowSyntheticStep | null;
+  failure: FlowSyntheticFailure | null;
+}) =>
+  p.passed
+    ? p.failed_step === null && p.failure === null && p.steps_passed === FLOW_SYNTHETIC_STEPS.length
+    : p.failed_step !== null &&
+      p.failure !== null &&
+      FLOW_SYNTHETIC_STEPS.indexOf(p.failed_step) === p.steps_passed;
+
+/**
+ * #2967 — one synthetic run, passed or failed: the source of the admin read's synthetic rows. One
+ * per run (a run-now adds one). COUNTS, CLOSED CODES AND A DAY ONLY: nothing the run made survives
+ * it, so no id would mean anything. Actor `system`; subject the aggregate `job_posting`. v1.
+ */
+export const FlowCheckSyntheticRunRecordedPayload = z
+  .object(FlowSyntheticRunShape)
+  .strict()
+  .refine(consistentRun, { message: "passed, steps_passed and the failure must agree" });
+export type FlowCheckSyntheticRunRecordedPayload = z.infer<
+  typeof FlowCheckSyntheticRunRecordedPayload
+>;
+
+/**
+ * #2967 — the synthetic run failed a step: ONE PER IST DAY, an alert on the admin dashboard's breach
+ * counter (`AdminEventsService.BREACH_EVENTS`). The same fields as the run's record. v1.
+ */
+export const FlowCheckSyntheticRunFailedPayload = z
+  .object(FlowSyntheticRunShape)
+  .strict()
+  .refine((p) => !p.passed && consistentRun(p), { message: "a failure names its step and code" });
+export type FlowCheckSyntheticRunFailedPayload = z.infer<typeof FlowCheckSyntheticRunFailedPayload>;
+
 /** #2750 item 4 — what made a company's welcome credits due (`payer.welcome_credits_granted`). */
 export const WELCOME_CREDITS_TRIGGERS = [
   /** An admin or ops approval of a posting (or an agency job) made the company eligible. */
@@ -6811,6 +7090,28 @@ export type PayerCandidateSearchPerformedPayload = z.infer<
 >;
 
 /**
+ * #2838 (ADR-0064 §4) — the search-volume alert. A company's all-candidates search has shown
+ * pre-pay facts (first name, trade, area, salary) for `distinct_workers` different workers today
+ * (IST), reaching half of `cap` (`level: "half"`) or all of it (`level: "cap"`); past the cap the
+ * facts read "not given". `pages` is the company's facts-on search pages today. Emitted at most
+ * once per company per day per level. PII-FREE: the company's anchor id (`payer_id`, the tenant
+ * key), the day and counts; never a worker id or a filter value.
+ */
+export const PayerCandidateSearchVolumeAlertPayload = z
+  .object({
+    payer_id: uuidSchema,
+    level: z.enum(["half", "cap"]),
+    day: z.string().regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/),
+    cap: z.number().int().positive(),
+    distinct_workers: z.number().int().nonnegative(),
+    pages: z.number().int().nonnegative(),
+  })
+  .strict();
+export type PayerCandidateSearchVolumeAlertPayload = z.infer<
+  typeof PayerCandidateSearchVolumeAlertPayload
+>;
+
+/**
  * [B13] (#2567) — one AI task's fallback share crossed its threshold over the window.
  *
  * WHY A NEW NAME AND NOT A FLAG ON `ai.cost_recorded`. A cost row is a per-call fact;
@@ -7666,3 +7967,20 @@ export const ManagedHiringCallbackRequestedPayload = z
 export type ManagedHiringCallbackRequestedPayload = z.infer<
   typeof ManagedHiringCallbackRequestedPayload
 >;
+
+/**
+ * #2787 (parent #2754) — a company moved from BadaBhai Campus was sent its first sign-in message on
+ * one channel. Once per company per channel, ever (the import's send log is unique on both).
+ * PII-FREE: the company's id, the channel, the import batch and whether the message told the
+ * company to sign in by SMS code (a proven phone) or by email code. Never the address, the number or
+ * the text.
+ */
+export const PayerMoveNoticeSentPayload = z
+  .object({
+    payer_id: uuidSchema,
+    batch_id: uuidSchema,
+    channel: z.enum(["email", "sms"]),
+    sign_in_by: z.enum(["sms_code", "email_code"]),
+  })
+  .strict();
+export type PayerMoveNoticeSentPayload = z.infer<typeof PayerMoveNoticeSentPayload>;

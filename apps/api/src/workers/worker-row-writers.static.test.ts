@@ -38,6 +38,11 @@ const ALLOWED_INSERTS: Record<string, string> = {
     "a plain insert with no production caller (pinned by ALLOWED_CALLERS.create being empty)",
   "workers/workers.repository.ts WorkersRepository.createOrGetByPhoneHash":
     "the race-safe insert-or-get (TD23); its callers are pinned in ALLOWED_CALLERS",
+  "flow-check/synthetic-run.service.ts SyntheticRunService.setup":
+    "#2967 — the daily synthetic run's own test worker (`is_test_account`), written ONLY inside " +
+    "`runRolledBack`'s transaction, which is always rolled back: the row is never committed, no " +
+    "other session ever sees it, and no profile exists afterwards. Behind FLOW_SYNTHETIC_RUN_ENABLED; " +
+    "`runRolledBack` has this one caller (synthetic-run.service.test.ts pins it)",
 };
 
 type RepoWriter = "create" | "createOrGetByPhoneHash";

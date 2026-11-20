@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  FLOW_CHECK_THRESHOLD_DEFAULTS,
+  FLOW_CHECK_THRESHOLD_KEYS,
+  parseFlowCheckThresholds,
+} from "./flow-check";
+import {
   loadServerConfig,
   realAiCallsBlockedReason,
   areRealAiCallsEnabled,
@@ -1097,6 +1102,20 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ ADMIN_NUMBERS_ENABLED: "yes" })).toThrow();
   });
 
+  it("ADMIN_JOB_AUDIENCE_ENABLED (#2956) is OFF by default and for the empty string", () => {
+    // Off: every /admin/postings/audience route is a neutral 404 before any query.
+    const read = (v?: string) =>
+      loadServerConfig(v === undefined ? {} : { ADMIN_JOB_AUDIENCE_ENABLED: v })
+        .ADMIN_JOB_AUDIENCE_ENABLED;
+    expect(read()).toBe(false);
+    expect(read("")).toBe(false);
+    expect(read("0")).toBe(false);
+    expect(read("false")).toBe(false);
+    expect(read("true")).toBe(true);
+    expect(read("1")).toBe(true);
+    expect(() => loadServerConfig({ ADMIN_JOB_AUDIENCE_ENABLED: "yes" })).toThrow();
+  });
+
   it("STUDENT_MOVE_ENABLED (#2887) is OFF by default and for the empty string", () => {
     // Off: nothing names the student-move tables and every /admin/students/* route is a 404.
     expect(loadServerConfig({}).STUDENT_MOVE_ENABLED).toBe(false);
@@ -1186,6 +1205,101 @@ describe("loadServerConfig", () => {
           .PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR,
       ).toBe(50);
       expect(() => loadServerConfig({ PAYER_UNLOCK_OUTCOME_MAX_PER_HOUR: "0" })).toThrow();
+    });
+  });
+
+  describe("the nightly credit balance audit (#2774)", () => {
+    it("CREDIT_BALANCE_AUDIT_ENABLED is OFF by default and for the empty string", () => {
+      // Off: the daily tick returns at once without a query.
+      expect(loadServerConfig({}).CREDIT_BALANCE_AUDIT_ENABLED).toBe(false);
+      expect(loadServerConfig({ CREDIT_BALANCE_AUDIT_ENABLED: "" }).CREDIT_BALANCE_AUDIT_ENABLED).toBe(false);
+      expect(loadServerConfig({ CREDIT_BALANCE_AUDIT_ENABLED: "0" }).CREDIT_BALANCE_AUDIT_ENABLED).toBe(false);
+      expect(loadServerConfig({ CREDIT_BALANCE_AUDIT_ENABLED: "true" }).CREDIT_BALANCE_AUDIT_ENABLED).toBe(true);
+      expect(() => loadServerConfig({ CREDIT_BALANCE_AUDIT_ENABLED: "yes" })).toThrow();
+    });
+  });
+
+  describe("the nightly Razorpay reconciliation (#2773)", () => {
+    it("RAZORPAY_RECONCILE_ENABLED is OFF by default and for the empty string", () => {
+      // Off: the daily tick returns at once without a provider call or a query.
+      expect(loadServerConfig({}).RAZORPAY_RECONCILE_ENABLED).toBe(false);
+      expect(loadServerConfig({ RAZORPAY_RECONCILE_ENABLED: "" }).RAZORPAY_RECONCILE_ENABLED).toBe(false);
+      expect(loadServerConfig({ RAZORPAY_RECONCILE_ENABLED: "0" }).RAZORPAY_RECONCILE_ENABLED).toBe(false);
+      expect(loadServerConfig({ RAZORPAY_RECONCILE_ENABLED: "true" }).RAZORPAY_RECONCILE_ENABLED).toBe(true);
+      expect(() => loadServerConfig({ RAZORPAY_RECONCILE_ENABLED: "yes" })).toThrow();
+    });
+  });
+
+  describe("the daily flow check (#2890)", () => {
+    it("FLOW_CHECK_ENABLED is OFF by default and for the empty string", () => {
+      expect(loadServerConfig({}).FLOW_CHECK_ENABLED).toBe(false);
+      expect(loadServerConfig({ FLOW_CHECK_ENABLED: "" }).FLOW_CHECK_ENABLED).toBe(false);
+      expect(loadServerConfig({ FLOW_CHECK_ENABLED: "true" }).FLOW_CHECK_ENABLED).toBe(true);
+      expect(() => loadServerConfig({ FLOW_CHECK_ENABLED: "yes" })).toThrow();
+    });
+
+    it("FLOW_CHECK_THRESHOLDS unset or empty is every default", () => {
+      expect(loadServerConfig({}).FLOW_CHECK_THRESHOLDS).toEqual(FLOW_CHECK_THRESHOLD_DEFAULTS);
+      expect(loadServerConfig({ FLOW_CHECK_THRESHOLDS: "  " }).FLOW_CHECK_THRESHOLDS).toEqual(
+        FLOW_CHECK_THRESHOLD_DEFAULTS,
+      );
+      // The two counts that only Campus can see, and the review wait, have sane defaults.
+      expect(FLOW_CHECK_THRESHOLD_DEFAULTS.review_wait_hours).toBe(48);
+      expect(FLOW_CHECK_THRESHOLD_DEFAULTS.untouched_max).toBeNull();
+    });
+
+    it("a pair overrides its key alone; `off` turns a maximum off", () => {
+      const t = loadServerConfig({
+        FLOW_CHECK_THRESHOLDS: "review_wait_hours=72, zero_reach_max=5,campus_unlinked_max=off",
+      }).FLOW_CHECK_THRESHOLDS;
+      expect(t.review_wait_hours).toBe(72);
+      expect(t.zero_reach_max).toBe(5);
+      expect(t.campus_unlinked_max).toBeNull();
+      expect(t.untouched_hours).toBe(FLOW_CHECK_THRESHOLD_DEFAULTS.untouched_hours);
+    });
+
+    it.each([
+      ["review_wait_hours=0", "hours"],
+      ["review_wait_hours=721", "hours"],
+      ["review_wait_hours=off", "hours"],
+      ["zero_reach_max=100001", "0 to"],
+      ["zero_reach_max=-1", "key=value"],
+      ["zero_reach_max=1.5", "key=value"],
+      ["zero_reach_maximum=1", "unknown key"],
+      ["zero_reach_max=1,zero_reach_max=2", "twice"],
+      ["zero_reach_max", "key=value"],
+      ["zero_reach_max=1,", "key=value"],
+    ])("refuses %s at boot", (value, why) => {
+      expect(() => loadServerConfig({ FLOW_CHECK_THRESHOLDS: value })).toThrow(why);
+      expect(() => parseFlowCheckThresholds(value)).toThrow(why);
+    });
+
+    it("FLOW_SYNTHETIC_RUN_ENABLED (#2967) is OFF by default and for the empty string", () => {
+      expect(loadServerConfig({}).FLOW_SYNTHETIC_RUN_ENABLED).toBe(false);
+      expect(loadServerConfig({ FLOW_SYNTHETIC_RUN_ENABLED: "" }).FLOW_SYNTHETIC_RUN_ENABLED).toBe(
+        false,
+      );
+      expect(
+        loadServerConfig({ FLOW_SYNTHETIC_RUN_ENABLED: "true" }).FLOW_SYNTHETIC_RUN_ENABLED,
+      ).toBe(true);
+      expect(() => loadServerConfig({ FLOW_SYNTHETIC_RUN_ENABLED: "yes" })).toThrow();
+    });
+
+    it("every key is either an hours key or a maximum", () => {
+      for (const key of FLOW_CHECK_THRESHOLD_KEYS) {
+        expect(key.endsWith("_hours") || key.endsWith("_max"), key).toBe(true);
+      }
+    });
+  });
+
+  describe("end dates on the placement team's waivers (#2778)", () => {
+    it("RVM_WAIVER_END_DATES_ENABLED is OFF by default and for the empty string", () => {
+      // Off: nothing names rvm_waiver_end_dates and every waiver runs until it is cleared.
+      expect(loadServerConfig({}).RVM_WAIVER_END_DATES_ENABLED).toBe(false);
+      expect(loadServerConfig({ RVM_WAIVER_END_DATES_ENABLED: "" }).RVM_WAIVER_END_DATES_ENABLED).toBe(false);
+      expect(loadServerConfig({ RVM_WAIVER_END_DATES_ENABLED: "0" }).RVM_WAIVER_END_DATES_ENABLED).toBe(false);
+      expect(loadServerConfig({ RVM_WAIVER_END_DATES_ENABLED: "true" }).RVM_WAIVER_END_DATES_ENABLED).toBe(true);
+      expect(() => loadServerConfig({ RVM_WAIVER_END_DATES_ENABLED: "yes" })).toThrow();
     });
   });
 

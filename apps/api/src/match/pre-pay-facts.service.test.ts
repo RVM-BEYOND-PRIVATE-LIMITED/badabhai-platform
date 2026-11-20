@@ -361,3 +361,109 @@ describe("PrePayFactsService.decorate — the last-active day and its mark (#275
     expect(out.map((r) => r.workerId)).toEqual([W2, W1]);
   });
 });
+
+/**
+ * #2838 — the search's daily cap. With `searchCap`, only the workers the company's daily cap
+ * admits keep their facts; the rest read "not given" and stay on the page. Without it (the
+ * applicant lists) the cap is never consulted.
+ */
+describe("PrePayFactsService.decorate with the search's daily cap (#2838)", () => {
+  const W3 = "33333333-3333-4333-8333-333333333333";
+  const CALLER = {
+    actorPayerId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    ctx: { correlationId: "corr-1", requestId: "req-1" },
+  } as unknown as import("./pre-pay-facts-daily-cap.service").SearchCapCaller;
+
+  function capped(opts: {
+    rows: PrePayFactsRawRow[];
+    admit?: (ids: readonly string[]) => Promise<ReadonlySet<string>>;
+    noCap?: boolean;
+  }) {
+    const base = setup({ on: true, rows: opts.rows });
+    const dailyCap = {
+      admit: vi.fn(
+        async (_t: TenantKey, ids: readonly string[]) =>
+          (await opts.admit?.(ids)) ?? new Set(ids),
+      ),
+    };
+    const svc = new PrePayFactsService(
+      base.repo as unknown as PrePayFactsRepository,
+      { isEnabledFor: vi.fn(async () => true) } as unknown as FeatureRolloutService,
+      base.pii as unknown as PiiCryptoService,
+      base.corrections as unknown as EffectiveFactsService,
+      undefined,
+      opts.noCap
+        ? undefined
+        : (dailyCap as unknown as import("./pre-pay-facts-daily-cap.service").PrePayFactsDailyCapService),
+    );
+    return { svc, dailyCap };
+  }
+
+  const named = [
+    raw(W1, { fullNameEnc: "enc:Ramesh Kumar", workersCity: "Pune" }),
+    raw(W2, { fullNameEnc: "enc:Suresh Patil", workersCity: "Nashik" }),
+    raw(W3, { fullNameEnc: "enc:Mahesh Rao", workersCity: "Pune" }),
+  ];
+
+  it("keeps facts for admitted workers; the rest read not given and STAY on the page, in order", async () => {
+    const { svc, dailyCap } = capped({ rows: named, admit: async () => new Set([W1, W3]) });
+    const out = await svc.decorate(
+      [{ workerId: W1 }, { workerId: W2 }, { workerId: W3 }],
+      TENANT,
+      NOW,
+      { searchCap: CALLER },
+    );
+    expect(out.map((r) => r.workerId)).toEqual([W1, W2, W3]);
+    expect(out[0]!.firstName).toBe("Ramesh");
+    expect(out[1]!.firstName).toBeNull();
+    expect(out[1]!.area ?? null).toBeNull();
+    expect(out[1]!.source).toBe("badabhai_worker");
+    expect(out[2]!.firstName).toBe("Mahesh");
+    expect(dailyCap.admit).toHaveBeenCalledWith(TENANT, [W1, W2, W3], CALLER);
+  });
+
+  it("does not count a worker whose facts are not given anyway (no consent)", async () => {
+    const { svc, dailyCap } = capped({
+      rows: [named[0]!, raw(W2, { fullNameEnc: "enc:Suresh Patil", employerSharing: false })],
+    });
+    await svc.decorate([{ workerId: W1 }, { workerId: W2 }], TENANT, NOW, { searchCap: CALLER });
+    expect(dailyCap.admit).toHaveBeenCalledWith(TENANT, [W1], CALLER);
+  });
+
+  it("still counts the page when nobody on it would be shown facts", async () => {
+    const { svc, dailyCap } = capped({ rows: [raw(W1, { employerSharing: false })] });
+    await svc.decorate([{ workerId: W1 }], TENANT, NOW, { searchCap: CALLER });
+    expect(dailyCap.admit).toHaveBeenCalledWith(TENANT, [], CALLER);
+  });
+
+  it("fails closed without the cap service: every fact not given, rows kept", async () => {
+    const { svc } = capped({ rows: named, noCap: true });
+    const out = await svc.decorate([{ workerId: W1 }, { workerId: W2 }], TENANT, NOW, {
+      searchCap: CALLER,
+    });
+    expect(out).toHaveLength(2);
+    for (const row of out) for (const key of PRE_PAY_FACT_KEYS) expect(row[key] ?? null).toBeNull();
+  });
+
+  it("the applicant lists (no searchCap) never consult the cap", async () => {
+    const { svc, dailyCap } = capped({ rows: named, admit: async () => new Set() });
+    const out = await svc.decorate([{ workerId: W1 }], TENANT, NOW);
+    expect(dailyCap.admit).not.toHaveBeenCalled();
+    expect(out[0]!.firstName).toBe("Ramesh");
+  });
+
+  it("switch off: the cap is never consulted and nothing is counted", async () => {
+    const base = setup({ on: false, rows: named });
+    const dailyCap = { admit: vi.fn() };
+    const svc = new PrePayFactsService(
+      base.repo as unknown as PrePayFactsRepository,
+      base.rollout as unknown as FeatureRolloutService,
+      base.pii as unknown as PiiCryptoService,
+      base.corrections as unknown as EffectiveFactsService,
+      undefined,
+      dailyCap as unknown as import("./pre-pay-facts-daily-cap.service").PrePayFactsDailyCapService,
+    );
+    await svc.decorate([{ workerId: W1 }], TENANT, NOW, { searchCap: CALLER });
+    expect(dailyCap.admit).not.toHaveBeenCalled();
+  });
+});

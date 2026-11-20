@@ -166,6 +166,9 @@ export default async function PostingDetailPage({
           }
         />
 
+        {/* Where the job shows, and RVM's review of it, are not shown to the company: a BadaBhai
+            admin decides where each job shows (Prakash, 19 Nov 2026, #2956). */}
+
         {isDraft ? (
           <div className="alert alert--info">
             <Icon name="info" className="alert__icon" />

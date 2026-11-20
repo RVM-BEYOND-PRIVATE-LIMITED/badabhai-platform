@@ -7,9 +7,11 @@ import type { OutboundSignalFailure } from "@badabhai/db";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import {
   RvmSelectionEventBodySchema,
+  RvmSelectionWithdrawalBodySchema,
   RvmStudentApiClient,
   RvmStudentApiUnavailableError,
   type RvmSelectionEventBody,
+  type RvmSelectionWithdrawalBody,
 } from "../campus-link/rvm-student-api.client";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import {
@@ -17,6 +19,12 @@ import {
   OUTBOUND_SIGNALS_SWEEP_SCHEDULER_ID,
 } from "../queue/queue.constants";
 import { OutboundSignalsRepository, type ClaimedSignal } from "./outbound-signals.repository";
+import {
+  STILL_TRUE,
+  WITHDRAWAL_KIND,
+  isSelectionRow,
+  lastDeliveredFrom,
+} from "./outbound-signals.service";
 
 /** How often the sweep looks for due rows. */
 export const OUTBOUND_SWEEP_EVERY_MS = 60_000;
@@ -61,13 +69,24 @@ const SelectionPayloadSchema = z.object({
   worker_id: z.string().min(1),
   stage: z.enum(["selected", "hired"]),
   marked_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** #2771 — a re-mark after a withdrawal: the chain row it follows. */
+  after_signal_id: z.string().min(1).optional(),
 });
 
-/** The stored stages under which a signalled mark is still true when it is sent. */
-const STILL_TRUE: Readonly<Record<"selected" | "hired", readonly string[]>> = {
-  selected: ["selected", "hired"],
-  hired: ["hired"],
-};
+/** #2771 — what a withdrawal row's payload must be. */
+const WithdrawalPayloadSchema = z.object({
+  posting_kind: z.enum(APPLICANT_POSTING_KINDS),
+  posting_id: z.string().min(1),
+  worker_id: z.string().min(1),
+  stage: z.enum(["selected", "hired"]),
+  undone_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  after_signal_id: z.string().min(1),
+});
+
+/** A body ready to go, and the route call that sends it. */
+type Built =
+  | { readonly kind: "selection"; readonly body: RvmSelectionEventBody }
+  | { readonly kind: "withdrawal"; readonly body: RvmSelectionWithdrawalBody };
 
 /** What one tick did — counts only, no ids (BullMQ job-inspection surface). */
 export interface OutboundSweepResult {
@@ -83,7 +102,8 @@ export interface OutboundSweepResult {
 type Outcome = "delivered" | "retried" | "dead" | "cancelled";
 
 /**
- * #2747 item 8 (ADR-0064 §3.6) — sends each queued mark on an RVM student to RVM once
+ * #2747 item 8 (ADR-0064 §3.6) — sends each queued mark on an RVM student to RVM once, and (#2771)
+ * each withdrawal of a mark RVM was sent and the company then took back
  * (`POST /internal/campus/selection-events`, Scheduler_Backend#162 item 8), with back-off and a
  * dead-letter state.
  *
@@ -99,6 +119,16 @@ type Outcome = "delivered" | "retried" | "dead" | "cancelled";
  * (ended: `cancelled`). Then it builds the body: the student ref, the posting's title, the company
  * as students see it (a company posting's `org_label`, the name Campus shows; an agency job's
  * owner account name, decrypted here and never stored in clear), the stage and the day.
+ *
+ * WITHDRAWALS (#2771). A mark the company takes back queues a withdrawal after the selection it
+ * withdraws (see `OutboundSignalsService`). A row is not claimed while the row before it in its
+ * mark's chain is still pending, so the sender decides each one on what RVM really received:
+ *  - a withdrawal goes only when RVM holds a delivered selection for the mark and the board still
+ *    shows the mark undone (else `cancelled`: `mark_never_sent`, `mark_restored`). Its body is ids,
+ *    a status and a day (`withdraws_event_id` names the selection), so a worker suspended or a
+ *    link ended since does not stop it;
+ *  - a fresh selection after a withdrawal goes only when RVM does not already hold the mark (else
+ *    `cancelled` / `mark_already_sent`: the withdrawal before it never went).
  *
  * OFF IS IDLE. While `OUTBOUND_SIGNALS_ROLLOUT` is off everywhere, or RVM's settings are not set,
  * the tick claims nothing; rows wait and go once both are in place.
@@ -173,11 +203,14 @@ export class OutboundSignalsSender extends WorkerHost implements OnApplicationBo
   /** One row, start to finish. Never throws: a failure is recorded on the row. */
   private async sendOne(row: ClaimedSignal): Promise<Outcome> {
     const at = this.clock();
-    let body: RvmSelectionEventBody;
+    let built: Built;
     try {
-      const built = await this.buildBody(row);
-      if (typeof built === "string") return built;
-      body = built;
+      const result =
+        row.kind === WITHDRAWAL_KIND
+          ? await this.buildWithdrawal(row)
+          : await this.buildSelection(row);
+      if (typeof result === "string") return result;
+      built = result;
     } catch (err) {
       // A read failed (a dropped connection, say): nothing was sent, so try again later.
       this.logger.warn(
@@ -187,7 +220,10 @@ export class OutboundSignalsSender extends WorkerHost implements OnApplicationBo
     }
 
     try {
-      const answer = await this.rvm.postSelectionEvent(body);
+      const answer =
+        built.kind === "withdrawal"
+          ? await this.rvm.postSelectionWithdrawal(built.body)
+          : await this.rvm.postSelectionEvent(built.body);
       if (answer.kind === "accepted") {
         await this.repo.markDelivered(row.id, at);
         return "delivered";
@@ -207,10 +243,11 @@ export class OutboundSignalsSender extends WorkerHost implements OnApplicationBo
   }
 
   /**
-   * The body to send, or the outcome when nothing may be sent: the mark is undone, the worker or
-   * his link is no longer there, the posting or company is gone, or the row is off-contract.
+   * The selection body to send, or the outcome when nothing may be sent: the mark is undone, the
+   * worker or his link is no longer there, RVM already holds the mark (#2771), the posting or
+   * company is gone, or the row is off-contract.
    */
-  private async buildBody(row: ClaimedSignal): Promise<RvmSelectionEventBody | Outcome> {
+  private async buildSelection(row: ClaimedSignal): Promise<Built | Outcome> {
     const payload = SelectionPayloadSchema.safeParse(row.payload);
     if (!payload.success || payload.data.worker_id !== row.workerId) {
       return this.final(row, "dead", "contract");
@@ -222,6 +259,20 @@ export class OutboundSignalsSender extends WorkerHost implements OnApplicationBo
     }
     if (!ctx.workerActive) return this.final(row, "cancelled", "worker_inactive");
     if (ctx.studentRef === null) return this.final(row, "cancelled", "link_inactive");
+    if (p.after_signal_id !== undefined) {
+      // #2771: a re-mark. The withdrawal (or cancelled selection) before it has settled; if RVM's
+      // last delivered word on this mark is still a selection, it has the mark already.
+      const chain = await this.repo.chainFor({
+        postingKind: p.posting_kind,
+        postingId: p.posting_id,
+        workerId: row.workerId,
+        stage: p.stage,
+      });
+      const held = lastDeliveredFrom(chain, p.after_signal_id);
+      if (held !== null && isSelectionRow(held)) {
+        return this.final(row, "cancelled", "mark_already_sent");
+      }
+    }
     if (ctx.jobTitle === null) return this.final(row, "dead", "context_missing");
 
     let company: string | null = ctx.companyLabel;
@@ -249,7 +300,44 @@ export class OutboundSignalsSender extends WorkerHost implements OnApplicationBo
     if (!RvmSelectionEventBodySchema.safeParse(candidate).success) {
       return this.final(row, "dead", "contract");
     }
-    return candidate;
+    return { kind: "selection", body: candidate };
+  }
+
+  /**
+   * #2771 — the withdrawal body to send, or the outcome when nothing may be sent: RVM never
+   * received the mark (`mark_never_sent`), the company gave the mark back before this went
+   * (`mark_restored`), or the row is off-contract.
+   */
+  private async buildWithdrawal(row: ClaimedSignal): Promise<Built | Outcome> {
+    const payload = WithdrawalPayloadSchema.safeParse(row.payload);
+    if (!payload.success || payload.data.worker_id !== row.workerId) {
+      return this.final(row, "dead", "contract");
+    }
+    const p = payload.data;
+    const chain = await this.repo.chainFor({
+      postingKind: p.posting_kind,
+      postingId: p.posting_id,
+      workerId: row.workerId,
+      stage: p.stage,
+    });
+    const held = lastDeliveredFrom(chain, p.after_signal_id);
+    if (held === null || !isSelectionRow(held)) {
+      return this.final(row, "cancelled", "mark_never_sent");
+    }
+    const current = await this.repo.currentStage(p.posting_kind, p.posting_id, row.workerId);
+    if (current !== null && STILL_TRUE[p.stage].includes(current)) {
+      return this.final(row, "cancelled", "mark_restored");
+    }
+    const candidate = {
+      event_id: row.id,
+      withdraws_event_id: held.id,
+      status: "withdrawn" as const,
+      date: p.undone_on,
+    };
+    if (!RvmSelectionWithdrawalBodySchema.safeParse(candidate).success) {
+      return this.final(row, "dead", "contract");
+    }
+    return { kind: "withdrawal", body: candidate };
   }
 
   private async retryOrDie(

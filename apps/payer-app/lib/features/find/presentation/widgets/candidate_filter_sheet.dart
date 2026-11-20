@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/data/candidate_search_models.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_motion.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
@@ -9,6 +8,7 @@ import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
 import '../../../../core/widgets/bb_field.dart';
 import '../../../../core/widgets/bb_searchable_dropdown_field.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// Opens the all-candidates filter sheet over [filters], starting from
 /// [current]. Resolves to the query to run, or null when dismissed.
@@ -23,7 +23,7 @@ Future<CandidateSearchQuery?> showCandidateFilterSheet(
     isScrollControlled: true,
     useSafeArea: true,
     showDragHandle: true,
-    backgroundColor: AppColors.surfaceCard,
+    backgroundColor: context.bb.card,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.xxl)),
     ),
@@ -94,6 +94,7 @@ class _CandidateFilterSheetState extends State<CandidateFilterSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final CandidateFilters f = widget.filters;
     return ConstrainedBox(
       constraints: BoxConstraints(
@@ -184,7 +185,7 @@ class _CandidateFilterSheetState extends State<CandidateFilterSheet> {
                       'City — no cities recorded yet',
                       style: AppTypography.body(
                         size: AppTypography.sizeSm,
-                        color: AppColors.textMuted,
+                        color: p.textMuted,
                       ),
                     )
                   else
@@ -375,6 +376,7 @@ class _StrictSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return MergeSemantics(
       child: InkWell(
         onTap: enabled ? () => onChanged(!value) : null,
@@ -392,8 +394,8 @@ class _StrictSwitch extends StatelessWidget {
                       style: AppTypography.body(
                         weight: FontWeight.w700,
                         color: enabled
-                            ? AppColors.textPrimary
-                            : AppColors.textMuted,
+                            ? p.textPrimary
+                            : p.textMuted,
                       ),
                     ),
                     Text(
@@ -403,7 +405,7 @@ class _StrictSwitch extends StatelessWidget {
                           : 'Pick a filter first — with none, everyone matches.',
                       style: AppTypography.body(
                         size: AppTypography.sizeSm,
-                        color: AppColors.textMuted,
+                        color: p.textMuted,
                         height: 1.35,
                       ),
                     ),
@@ -415,8 +417,8 @@ class _StrictSwitch extends StatelessWidget {
                 key: const Key('filter_strict'),
                 value: value,
                 onChanged: enabled ? onChanged : null,
-                activeThumbColor: AppColors.onBlue,
-                activeTrackColor: AppColors.blue,
+                activeThumbColor: p.onBrandSurface,
+                activeTrackColor: p.textBrand,
               ),
             ],
           ),

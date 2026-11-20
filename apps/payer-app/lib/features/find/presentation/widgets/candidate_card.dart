@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/data/candidate_search_models.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/util/activity_mark.dart';
 import '../../../../core/util/months_label.dart';
+import '../../../../core/util/prepay_facts.dart';
 import '../../../../core/widgets/bb_avatar.dart';
 import '../../../../core/widgets/bb_badge.dart';
 import '../../../../core/widgets/bb_card.dart';
 import '../../../../core/widgets/bb_shake.dart';
 import 'unlock_button.dart';
+import '../../../../core/theme/bb_palette.dart';
 
 /// "4 yrs experience" — years on the role the card leads with. A 0 bucket is
 /// under six months (months are bucketed DOWN to 6), never "0 yrs".
@@ -100,6 +102,7 @@ class CandidateCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final CandidateTradeLevel? rung = row.leadTradeLevel;
     final List<LabelledId> others =
         row.otherRoles.take(maxOtherRoles).toList(growable: false);
@@ -116,7 +119,7 @@ class CandidateCard extends StatelessWidget {
       child: BbCard(
         // Same marks as the applicant card: a green outline once unlocked.
         border: showUnlocked
-            ? Border.all(color: AppColors.success, width: 1.5)
+            ? Border.all(color: p.success, width: 1.5)
             : null,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -131,7 +134,7 @@ class CandidateCard extends StatelessWidget {
                   sealed: true,
                 ),
                 const SizedBox(width: AppSpacing.s3),
-                Expanded(child: _facts(rung, others, related, industry, sample)),
+                Expanded(child: _facts(context, rung, others, related, industry, sample)),
               ],
             ),
             const SizedBox(height: AppSpacing.s3),
@@ -156,6 +159,7 @@ class CandidateCard extends StatelessWidget {
 
   /// Everything the card says about him, beside the avatar.
   Widget _facts(
+    BuildContext context,
     CandidateTradeLevel? rung,
     List<LabelledId> others,
     String? related,
@@ -180,9 +184,17 @@ class CandidateCard extends StatelessWidget {
           maxLines: 1,
           style: AppTypography.mono(
             size: AppTypography.sizeXs,
-            color: AppColors.textMuted,
+            color: context.bb.textMuted,
           ),
         ),
+        if (applicantSourceLabel(row.source) != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.gap6),
+          BbBadge(
+            applicantSourceLabel(row.source)!,
+            tone: BbBadgeTone.neutral,
+            icon: Icons.workspace_premium_rounded,
+          ),
+        ],
         if (sample) ...<Widget>[
           const SizedBox(height: AppSpacing.gap6),
           const BbBadge(
@@ -201,6 +213,28 @@ class CandidateCard extends StatelessWidget {
             icon: Icons.hub_rounded,
           ),
         ],
+        // #2753 item 7 — the server's activity mark, present only while its
+        // switch is on. A label only: no row is hidden or re-sorted.
+        if (row.notRecentlyActive) ...<Widget>[
+          const SizedBox(height: AppSpacing.gap6),
+          const BbBadge(
+            kNotRecentlyActiveLabel,
+            tone: BbBadgeTone.neutral,
+            icon: Icons.schedule_rounded,
+          ),
+        ],
+        if (row.hasFacts) ...<Widget>[
+          const SizedBox(height: AppSpacing.gap6),
+          for (final (String label, String value) in prePayFactLines(
+            firstName: row.firstName,
+            tradeLine: row.tradeLine,
+            expectedSalary: row.expectedSalary,
+            machines: row.machines,
+            area: row.area,
+            lastActiveOn: row.lastActiveOn,
+          ))
+            _Fact(text: '$label: $value'),
+        ] else ...<Widget>[
         const SizedBox(height: AppSpacing.gap6),
         _Fact(text: candidateExperienceLine(row), strong: true),
         if (industry != null) _Fact(text: industry),
@@ -225,6 +259,7 @@ class CandidateCard extends StatelessWidget {
             ],
           ),
         ],
+        ],
       ],
     );
   }
@@ -237,11 +272,12 @@ class _SampleNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Text(
       kSampleNoUnlockNote,
       style: AppTypography.body(
         size: AppTypography.sizeXs,
-        color: AppColors.textMuted,
+        color: p.textMuted,
         height: 1.35,
       ),
     );
@@ -257,10 +293,11 @@ class _Fact extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final TextStyle style = AppTypography.body(
       size: AppTypography.sizeSm,
       weight: strong ? FontWeight.w600 : FontWeight.w400,
-      color: AppColors.textSecondary,
+      color: p.textSecondary,
       height: 1.35,
     );
     return Padding(
@@ -271,7 +308,7 @@ class _Fact extends StatelessWidget {
           if (icon != null) ...<Widget>[
             Padding(
               padding: const EdgeInsets.only(top: AppSpacing.gap2),
-              child: Icon(icon, size: 15, color: AppColors.textMuted),
+              child: Icon(icon, size: 15, color: p.textMuted),
             ),
             const SizedBox(width: AppSpacing.s1),
           ],

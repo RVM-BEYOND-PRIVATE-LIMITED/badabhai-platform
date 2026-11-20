@@ -186,8 +186,13 @@ export class CandidateSearchService {
     });
 
     // #2747 — the label and (switch on) the pre-pay facts, before anything is emitted.
+    // #2838 — the search counts against the company's daily cap on distinct workers shown facts.
     const candidates =
-      this.prePay && tenant !== undefined ? await this.prePay.decorate(baseRows, tenant) : baseRows;
+      this.prePay && tenant !== undefined
+        ? await this.prePay.decorate(baseRows, tenant, undefined, {
+            searchCap: { actorPayerId, ctx },
+          })
+        : baseRows;
 
     const filtered =
       roleFiltered ||

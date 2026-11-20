@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 
 /// A custom on-screen 0–9 keypad + backspace — NO OS keyboard.
@@ -113,9 +114,10 @@ class _KeySurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final BorderRadius radius = BorderRadius.circular(OnboardingRadii.pinBox);
     return Material(
-      color: OnboardingColors.paperWhite,
+      color: p.card,
       borderRadius: radius,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -127,10 +129,7 @@ class _KeySurface extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             borderRadius: radius,
-            border: Border.all(
-              color: OnboardingColors.borderDefault,
-              width: 1.2,
-            ),
+            border: Border.all(color: p.borderDefault, width: 1.2),
           ),
           child: child,
         ),
@@ -155,7 +154,7 @@ class _DigitKey extends StatelessWidget {
         style: OnboardingTypography.mono(
           size: 24,
           weight: FontWeight.w700,
-          color: OnboardingColors.shiftBlue,
+          color: context.bb.textBrand,
         ),
       ),
     );
@@ -172,6 +171,7 @@ class _BackspaceKey extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     // #375 — the digit keys are announced because they carry text; this one is a
     // bare Icon, so TalkBack read only "button". A worker who mistyped a digit
     // could not find the key to correct it and drove into the PIN lockout — on
@@ -188,9 +188,7 @@ class _BackspaceKey extends StatelessWidget {
         child: Icon(
           Icons.backspace_outlined,
           size: 24,
-          color: onTap == null
-              ? OnboardingColors.disabledText
-              : OnboardingColors.ink600,
+          color: onTap == null ? p.disabledText : p.textSecondary,
         ),
       ),
     );

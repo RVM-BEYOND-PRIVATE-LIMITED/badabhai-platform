@@ -100,5 +100,15 @@
     "description": "#2451 — shown when the worker asks to enable biometrics but the device has no usable/enrolled sensor."
   },
   "pinVerifying": "PIN check kar rahe hain…",
-  "biometricVerifying": "Biometric check kar rahe hain…"
+  "biometricVerifying": "Biometric check kar rahe hain…",
+  "appearanceTitle": "Appearance",
+  "@appearanceTitle": {"description": "#2828 — Settings row title for the Light / Dark / System theme choice."},
+  "appearanceLight": "Light",
+  "@appearanceLight": {"description": "#2828 — the Light theme option. English is the brand word for the theme."},
+  "appearanceDark": "Dark",
+  "@appearanceDark": {"description": "#2828 — the Dark theme option."},
+  "appearanceSystem": "System",
+  "@appearanceSystem": {"description": "#2828 — the System theme option."},
+  "appearanceSystemHelper": "Phone ki setting follow karta hai",
+  "@appearanceSystemHelper": {"description": "#2828 — helper under the System option: it follows the phone setting."}
 }

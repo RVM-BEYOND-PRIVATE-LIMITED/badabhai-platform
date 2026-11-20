@@ -679,6 +679,81 @@ NestJS boot assertion).
     and skips). Bridged through the GitHub `production` environment secret of the same name
     (compose `${ADMIN_NUMBERS_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
     `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+  - `CREDIT_BALANCE_AUDIT_ENABLED` (`booleanFromString`, default off; #2774). Off is today exactly:
+    the daily `credit-balance-audit` tick returns at once without a query. On, it reads every wallet
+    in one read-only snapshot and checks the invariant `credit-wallet.ts` keeps: `payer_credits.balance`
+    = Σ `credit_ledger.delta` = Σ `credit_lots.credits_remaining`, and no wallet key holds ledger lines
+    or lots without a balance row. A mismatch logs the wallet ids (opaque) and emits one
+    `payer.credit_balance_audit_failed` (counts only), counted on the admin dashboard's breach
+    counter. It never writes: a repair is a separate, deliberate step. No migration. Bridged
+    through the GitHub `production` environment secret of the same name (compose
+    `${CREDIT_BALANCE_AUDIT_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+    `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+  - `RAZORPAY_RECONCILE_ENABLED` (`booleanFromString`, default off; #2773). Off is today exactly: the
+    daily `razorpay-reconcile` tick returns at once without a provider call or a query. On, it lists
+    the payments Razorpay created in the last 48 hours (less the newest 30 minutes, still settling)
+    and compares them with `payment_orders` in one read-only snapshot. Findings: (a) captured at
+    Razorpay, but our order is not `paid` on that payment; (b) our order is `paid`, but Razorpay
+    holds no captured payment for it and our refund path made no refund; (c) the captured amount or
+    currency is not the order's; plus a captured payment on a Razorpay order we hold no row for. Any
+    finding logs the order and payment ids (opaque) and emits one `payment.reconciliation_failed` per
+    day (counts only), counted on the admin dashboard's breach counter. It never changes money. A
+    `rzp_test_` key id skips the run (the invoice code's test-mode rule). No migration. Bridged
+    through the GitHub `production` environment secret of the same name (compose
+    `${RAZORPAY_RECONCILE_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+    `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
+  - `FLOW_CHECK_ENABLED` (`booleanFromString`, default off; #2890, with #2769 and #2782). Off is
+    today exactly: the daily `flow-check` tick (23:30 UTC = 05:00 IST) returns at once without a
+    query, and `GET /admin/flow-check` and Campus's `PUT /internal/campus/v1/applications-check` are
+    a neutral 404. On, it reads one read-only snapshot of the posting → reach → application flow
+    (jobs published in the last day, applications and Campus applications received, open RVM-audience
+    jobs whose placement-team review has waited past the threshold, open worker-visible jobs with no
+    reach row, live Campus applications whose BadaBhai row is gone, applications no company moved or
+    opened) plus Campus's latest report of its outbox and its ids that never reached BadaBhai. It
+    records one `flow_check.day_recorded` per IST day (the admin's 14-day read) and, when a count
+    passes its threshold, one `flow_check.breached` (counts only) on the admin dashboard's breach
+    counter. While `CAMPUS_LINK_ENABLED` is on, no Campus report within the allowed age is itself a
+    breach (unless both `outbox_undelivered_max` and `campus_missing_max` are `off`, the setting for
+    a link switched on before Campus sends reports). It writes no row. No migration. Bridged through the GitHub `production` environment
+    secret of the same name (compose `${FLOW_CHECK_ENABLED:-false}` on `api`, `ci.yml` `env:` +
+    `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`); values lowercase
+    `true`/`false`/`1`/`0`/empty only.
+  - `FLOW_CHECK_THRESHOLDS` (string, default empty = every default; #2890). Comma-separated
+    `key=value` pairs; a key left out keeps its default. `*_hours` keys take whole hours 1–720,
+    `*_max` keys take 0–100000 or `off` (still counted, never alerts); `0` means any one is a breach.
+    Keys and defaults: `review_wait_hours=48`, `review_overdue_max=0`, `zero_reach_grace_hours=24`,
+    `zero_reach_max=0`, `untouched_hours=72`, `untouched_max=off`, `campus_unlinked_max=0`,
+    `outbox_undelivered_max=0`, `campus_missing_max=0`, `campus_report_max_age_hours=26`. A
+    malformed pair, an unknown key or a key given twice fails boot; the deploy preflight refuses the
+    same before a container moves. Bridged like the switch (compose `${FLOW_CHECK_THRESHOLDS:-}`).
+  - `RVM_WAIVER_END_DATES_ENABLED` (`booleanFromString`, default off; #2778). Off is today exactly:
+    nothing names `rvm_waiver_end_dates`, a waiver set that sends `ends_on` is refused (admin 400,
+    Campus 400), and every waiver runs until it is cleared. On, `PUT /admin/waivers` and Campus's
+    `PUT waivers` accept an optional `ends_on` (`YYYY-MM-DD`, today or later in India time): the
+    last day the waiver applies. From the next day the quote and the open both charge the normal
+    contact cost, the in-force lists leave the waiver out, and nothing is deleted. APPLY THE
+    `rvm_waiver_end_dates` MIGRATION BEFORE TURNING IT ON (on without it: a dated set answers 503
+    and the reads ignore end dates, logged once). Turning it off again makes dated waivers
+    open-ended until cleared. Bridged through the GitHub `production` environment secret of the
+    same name (compose `${RVM_WAIVER_END_DATES_ENABLED:-false}` on `api`, `ci.yml` `env:` +
+    `envs:`, preflighted in `scripts/deploy/staging-deploy.sh`); values lowercase
+    `true`/`false`/`1`/`0`/empty only.
+  - `FLOW_SYNTHETIC_RUN_ENABLED` (`booleanFromString`, default off; #2967, #2890 item 4). Off is
+    today exactly: the daily `flow-synthetic-run` tick (23:00 UTC = 04:30 IST) returns at once and
+    `POST /flow-check/synthetic-run` (ops token) is a neutral 404. On, the api walks the flow
+    through its real services on a company, worker and RVM student it makes for the run: post,
+    publish, the admin audience `both` (approving the RVM part), reach, the Campus feed listing it
+    approved, an app apply, a Campus apply, the applicant list and opening the student's contact.
+    ALL OF IT RUNS IN ONE TRANSACTION THAT IS ALWAYS ROLLED BACK (`apps/api/src/database/
+    synthetic-scope.ts`): no row, event or credit is kept, nobody sees the job, and RVM's Student
+    API is never called (the run's student is answered in-process). It keeps one
+    `flow_check.synthetic_run_recorded` per run and, on a failure, one
+    `flow_check.synthetic_run_failed` per IST day (the admin breach counter); the admin read
+    (`GET /admin/flow-check`) lists the runs. With no postable trade on the Campus trade list it
+    fails at `rvm_audience` (`no_campus_trade`) every day: list a trade first. No migration.
+    Bridged through the GitHub `production` environment secret of the same name (compose
+    `${FLOW_SYNTHETIC_RUN_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+    `scripts/deploy/staging-deploy.sh`); values lowercase `true`/`false`/`1`/`0`/empty only.
   - `ADMIN_AI_TRACE_READ_ENABLED` (`booleanFromString`, default off; #2739). Off is today exactly:
     `GET /admin/ai-traces` and `GET /admin/ai-traces/:id` are a neutral 404 for every role, so the
     admin portal's AI calls tab shows "unavailable". On, `read_ai_traces` (super_admin only) reads
@@ -727,6 +802,14 @@ NestJS boot assertion).
   the whole consented pool through `POST /payer/candidates/search` (≤ 50 masked rows a page);
   identity still costs an unlock per worker. Not a flag — the route is always on. Runs on its
   default; neither compose file forwards it.
+- **Pre-pay facts daily cap (#2838, ADR-0064 §4, owner ruling 2026-11-19)** —
+  `APPLICANT_FACTS_SEARCH_DAILY_DISTINCT_CAP`, api only (default 300). While
+  `APPLICANT_FACTS_ROLLOUT` is on for a company, the all-candidates search shows the facts before
+  paying (first name, trade, area, salary) for at most this many DISTINCT workers per company per
+  IST day; past it the rows stay and the facts read "not given". Search only, never the applicant
+  lists. Counted in Redis (`prepay_facts:<tenant>:<day>:*`, expiring with the day), fail-closed.
+  `payer.candidate_search_volume_alert` fires at half and at the cap. Runs on its default; neither
+  compose file forwards it.
 - **Admin Engine view demo allow-list (owner ruling 2026-10-06, #2014)** —
   `ADMIN_ENGINE_VIEW_ALLOW_PHONES`, api only. The Engine view (`/admin/match/engine/*`) shows
   DEMO WORKERS ONLY: phones in the reserved demo block `+910000026xxx`, plus the handsets listed

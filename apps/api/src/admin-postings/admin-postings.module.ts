@@ -11,6 +11,12 @@ import { AdminPostingsService } from "./admin-postings.service";
 import { AdminPostingWorkerVisibilityController } from "./admin-posting-worker-visibility.controller";
 import { AdminPostingWorkerVisibilityRepository } from "./admin-posting-worker-visibility.repository";
 import { AdminPostingWorkerVisibilityService } from "./admin-posting-worker-visibility.service";
+import { AdminPostingAudienceController } from "./admin-posting-audience.controller";
+import { AdminPostingAudienceRepository } from "./admin-posting-audience.repository";
+import { AdminPostingAudienceService } from "./admin-posting-audience.service";
+import { AdminCampusTradesController } from "./admin-campus-trades.controller";
+import { AdminCampusTradesRepository } from "./admin-campus-trades.repository";
+import { AdminCampusTradesService } from "./admin-campus-trades.service";
 
 /**
  * #2566 — the ADMIN posting-control write surface.
@@ -33,12 +39,25 @@ import { AdminPostingWorkerVisibilityService } from "./admin-posting-worker-visi
     CreditRulesModule,
   ],
   // #2891 — BadaBhai worker visibility of Campus-origin postings, under the same capability.
-  controllers: [AdminPostingsController, AdminPostingWorkerVisibilityController],
+  // #2956 — where a posting shows, decided by an admin, under the same capability.
+  controllers: [
+    AdminPostingsController,
+    AdminPostingWorkerVisibilityController,
+    AdminPostingAudienceController,
+    // #2957 — the trades RVM trains (who may be sent to Campus).
+    AdminCampusTradesController,
+  ],
   providers: [
     AdminPostingsRepository,
     AdminPostingsService,
     AdminPostingWorkerVisibilityRepository,
     AdminPostingWorkerVisibilityService,
+    AdminPostingAudienceRepository,
+    AdminPostingAudienceService,
+    AdminCampusTradesRepository,
+    AdminCampusTradesService,
   ],
+  // #2967 — the daily synthetic run records its audience decision through the admin path.
+  exports: [AdminPostingAudienceService],
 })
 export class AdminPostingsModule {}

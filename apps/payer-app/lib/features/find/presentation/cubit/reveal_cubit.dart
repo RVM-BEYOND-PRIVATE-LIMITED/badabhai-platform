@@ -20,16 +20,28 @@ class RevealCubit extends Cubit<RevealState> {
       final RevealResult result = await _api.reveal(unlockId);
       if (!result.revealed) {
         emit(state.copyWith(status: RevealStatus.unavailable));
-        return;
+      } else {
+        emit(state.copyWith(
+          status: RevealStatus.ready,
+          relayHandle: result.relayHandle,
+          channel: result.channel,
+          expiresAt: result.expiresAt,
+        ));
       }
-      emit(state.copyWith(
-        status: RevealStatus.ready,
-        relayHandle: result.relayHandle,
-        channel: result.channel,
-        expiresAt: result.expiresAt,
-      ));
     } catch (_) {
       emit(state.copyWith(status: RevealStatus.error));
+    }
+    // #2747 — read what the credit opens on EVERY open of this screen. It spends no credit; a
+    // 404 keeps today's relay + résumé screen; the neutral body shows nothing new. Never cached,
+    // stored or logged (the response is no-store).
+    try {
+      final ContactReadResult contact = await _api.readContact(unlockId);
+      if (isClosed) return;
+      emit(state.copyWith(contact: contact));
+    } on PayerApiException catch (e) {
+      if (e.statusCode == 429 && !isClosed) emit(state.copyWith(contactLimited: true));
+    } catch (_) {
+      // An outage keeps today's opened screen.
     }
   }
 
@@ -108,6 +120,8 @@ class RevealState extends Equatable {
     this.resumeUrl,
     this.historyStatus = DisclosureHistoryStatus.idle,
     this.disclosures = const <PayerDisclosure>[],
+    this.contact,
+    this.contactLimited = false,
   });
 
   final RevealStatus status;
@@ -120,6 +134,12 @@ class RevealState extends Equatable {
   /// The caller's own disclosure history (`GET /payer/resume-disclosures`).
   final DisclosureHistoryStatus historyStatus;
   final List<PayerDisclosure> disclosures;
+
+  /// #2747 — the contact read for this unlock (display only; never stored or logged).
+  final ContactReadResult? contact;
+
+  /// The hourly disclosure cap (429) was hit while reading the contact.
+  final bool contactLimited;
 
   /// Human channel label — the relay is an in-app address, never a raw phone.
   String get channelLabel => switch (channel) {
@@ -136,6 +156,8 @@ class RevealState extends Equatable {
     String? resumeUrl,
     DisclosureHistoryStatus? historyStatus,
     List<PayerDisclosure>? disclosures,
+    ContactReadResult? contact,
+    bool? contactLimited,
   }) {
     return RevealState(
       status: status ?? this.status,
@@ -146,6 +168,8 @@ class RevealState extends Equatable {
       resumeUrl: resumeUrl ?? this.resumeUrl,
       historyStatus: historyStatus ?? this.historyStatus,
       disclosures: disclosures ?? this.disclosures,
+      contact: contact ?? this.contact,
+      contactLimited: contactLimited ?? this.contactLimited,
     );
   }
 
@@ -159,5 +183,7 @@ class RevealState extends Equatable {
         resumeUrl,
         historyStatus,
         disclosures,
+        contact,
+        contactLimited,
       ];
 }

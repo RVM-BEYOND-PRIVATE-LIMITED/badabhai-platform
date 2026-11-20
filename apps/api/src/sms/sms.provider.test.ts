@@ -192,3 +192,54 @@ describe("Fast2SmsProvider.sendOtp", () => {
     expect(logged).not.toContain(PHONE); // the raw E.164 phone
   });
 });
+
+describe("Fast2SmsProvider.sendTemplate (#2787)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const okFetch = () =>
+    vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ return: true }) });
+
+  it("sends on the named template with its variables in order, pipe-separated", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    await new Fast2SmsProvider(fast2smsConfig, pii).sendTemplate({
+      phoneE164: PHONE,
+      templateId: "555000",
+      variables: ["https://example.test/login", "two"],
+    });
+    const url = new URL(fetchMock.mock.calls[0]![0] as string);
+    expect(url.searchParams.get("message")).toBe("555000");
+    expect(url.searchParams.get("variables_values")).toBe("https://example.test/login|two");
+    expect(url.searchParams.get("numbers")).toBe("9876543210");
+  });
+
+  it("sends no variables_values for a template with no variables", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    await new Fast2SmsProvider(fast2smsConfig, pii).sendTemplate({ phoneE164: PHONE, templateId: "555000", variables: [] });
+    expect(new URL(fetchMock.mock.calls[0]![0] as string).searchParams.has("variables_values")).toBe(false);
+  });
+
+  it("refuses a variable carrying a pipe, before any request", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      new Fast2SmsProvider(fast2smsConfig, pii).sendTemplate({ phoneE164: PHONE, templateId: "555000", variables: ["a|b"] }),
+    ).rejects.toThrow(/pipe/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("a rejection is the same typed SmsSendError as the OTP send", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ return: false }) }),
+    );
+    const err = await new Fast2SmsProvider(fast2smsConfig, pii)
+      .sendTemplate({ phoneE164: PHONE, templateId: "555000", variables: [] })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SmsSendError);
+    expect((err as SmsSendError).reason).toBe("provider_rejected");
+  });
+});

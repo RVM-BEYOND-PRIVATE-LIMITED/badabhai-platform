@@ -48,6 +48,10 @@ import { CampusDrivesModule } from "./campus-drives/campus-drives.module";
 import { DisplayPrefsModule } from "./display-prefs/display-prefs.module";
 import { SearchExitModule } from "./search-exit/search-exit.module";
 import { StillLookingModule } from "./still-looking/still-looking.module";
+import { CreditBalanceAuditModule } from "./credit-audit/credit-balance-audit.module";
+import { RazorpayReconcileModule } from "./payment-reconcile/razorpay-reconcile.module";
+import { FlowCheckModule } from "./flow-check/flow-check.module";
+import { SyntheticRunModule } from "./flow-check/synthetic-run.module";
 import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
 import { AdminModule } from "./admin/admin.module";
 import { AdminPostingsModule } from "./admin-postings/admin-postings.module";
@@ -180,6 +184,19 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // sweep. INERT until STILL_LOOKING_CHECK_ENABLED is on: both routes are a plain 404 and the sweep
     // reads nothing. Its push also needs STILL_LOOKING_PUSH_ENABLED (default off).
     StillLookingModule,
+    // #2774 — the nightly credit balance audit (read-only). INERT until CREDIT_BALANCE_AUDIT_ENABLED
+    // is on: the daily tick returns at once without a query.
+    CreditBalanceAuditModule,
+    // #2773 — the nightly Razorpay reconciliation (read-only). INERT until
+    // RAZORPAY_RECONCILE_ENABLED is on: the daily tick returns at once without a call or a query.
+    RazorpayReconcileModule,
+    // #2890 — the daily flow check (read-only), Campus's applications-check report and the admin's
+    // 14-day read. INERT until FLOW_CHECK_ENABLED is on: the tick returns at once without a query
+    // and both routes are a neutral 404.
+    FlowCheckModule,
+    // #2967 — the daily synthetic run of the flow, in one always-rolled-back transaction. INERT
+    // until FLOW_SYNTHETIC_RUN_ENABLED is on: the tick returns at once and the ops route is a 404.
+    SyntheticRunModule,
     ReferralAttributionModule,
     // Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1): the 4th principal
     // (`/admin/*` route group behind AdminAuthGuard). Auth + RBAC + MFA only; the feature

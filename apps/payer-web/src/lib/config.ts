@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { loadPublicConfig } from "@badabhai/config/public";
 import {
+  resolveServerTheme,
   THEME_COOKIE_NAME,
   THEME_COOKIE_MAX_AGE,
   parseThemePreference,
   type ResolvedTheme,
   type ThemePreference,
-} from "./theme-constants";
+} from "@badabhai/theme-web";
 
 // Re-export the shared theme constants/types so existing consumers + tests can keep importing
 // them from `lib/config` (the server-facing theme surface).
@@ -140,22 +141,6 @@ function envThemeDefault(): ResolvedTheme | "system" {
  * inline script corrects it before paint. Returns one of `"paper" | "ink"`.
  */
 export function resolvePayerTheme(cookieValue?: string | null): ResolvedTheme {
-  const pref = parseThemePreference(cookieValue);
-  if (pref === "ink" || pref === "paper") return pref; // explicit user choice wins
-  if (pref === "system") return systemFallback(); // user asked to follow OS → stable default
-  // No (valid) cookie → fall back to the env default, then to the system/paper baseline.
-  const env = envThemeDefault();
-  if (env === "ink" || env === "paper") return env;
-  return systemFallback();
-}
-
-/**
- * Server-side fallback for `system`: the server can't read `prefers-color-scheme`, so it
- * renders the stable `paper` baseline. The inline no-FOUC script flips it to ink before the
- * first paint when the OS prefers dark — and the SSR/client `data-theme` only ever diverge on
- * this no-explicit-cookie path (the script runs before React hydrates), so there is no
- * hydration mismatch on the cookie path.
- */
-function systemFallback(): ResolvedTheme {
-  return "paper";
+  // The shared resolver owns the precedence: explicit cookie → env default → system/paper.
+  return resolveServerTheme(cookieValue, envThemeDefault());
 }

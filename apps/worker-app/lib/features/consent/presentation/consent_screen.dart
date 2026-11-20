@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/di/locator.dart';
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/kit/kit_docked_bar.dart';
@@ -87,6 +89,7 @@ class _ConsentView extends StatelessWidget {
         }
       },
       builder: (BuildContext context, ConsentState state) {
+        final BbPalette p = context.bb;
         final ConsentCubit cubit = context.read<ConsentCubit>();
         // TERMINAL under-18 screen. No retry: the server wrote no consent and
         // answering again cannot change the declaration. Acknowledging clears
@@ -100,7 +103,7 @@ class _ConsentView extends StatelessWidget {
         // go back to what they were doing.
         final bool canGoBack = returnToCaller && context.canPop();
         return Scaffold(
-          backgroundColor: OnboardingColors.canvasBg,
+          backgroundColor: p.page,
           body: Column(
             children: <Widget>[
               PrivacyTopBar(
@@ -123,6 +126,10 @@ class _ConsentView extends StatelessWidget {
                         const EmployerSharingNotice(),
                         const SizedBox(height: 12),
                         const _NoticeCard(),
+                        if (state.noticeUrl != null) ...<Widget>[
+                          const SizedBox(height: 8),
+                          _PrivacyNoticeLink(url: state.noticeUrl!),
+                        ],
                         const SizedBox(height: 12),
                         _AgreeRow(
                           accepted: state.accepted,
@@ -240,21 +247,20 @@ class _AgeGateCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(OnboardingRadii.card),
-        border: Border.all(color: OnboardingColors.borderSubtle),
+        border: Border.all(color: p.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
             'Kya aapki umar 18 saal ya usse zyada hai?',
-            style: OnboardingTypography.questionHeadline(
-              color: OnboardingColors.shiftBlue,
-            ),
+            style: OnboardingTypography.questionHeadline(color: p.textBrand),
           ),
           const SizedBox(height: 14),
           Wrap(
@@ -289,8 +295,9 @@ class _AgeBlockedView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Scaffold(
-      backgroundColor: OnboardingColors.canvasBg,
+      backgroundColor: p.page,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -298,11 +305,7 @@ class _AgeBlockedView extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const Icon(
-                Icons.lock_clock_rounded,
-                size: 64,
-                color: OnboardingColors.shiftBlue,
-              ),
+              Icon(Icons.lock_clock_rounded, size: 64, color: p.textBrand),
               const SizedBox(height: 24),
               Text(
                 '18 saal ke baad aana',
@@ -310,7 +313,7 @@ class _AgeBlockedView extends StatelessWidget {
                 style: OnboardingTypography.anek(
                   size: 26,
                   weight: FontWeight.w800,
-                  color: OnboardingColors.shiftBlue,
+                  color: p.textBrand,
                 ),
               ),
               const SizedBox(height: 12),
@@ -321,7 +324,7 @@ class _AgeBlockedView extends StatelessWidget {
                 style: OnboardingTypography.inter(
                   size: 15,
                   height: 1.45,
-                  color: OnboardingColors.ink600,
+                  color: p.textSecondary,
                 ),
               ),
               const SizedBox(height: 32),
@@ -363,15 +366,14 @@ class _NoticeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return ConsentNoticeCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
             'Aapki awaaz record karne ki ijaazat',
-            style: OnboardingTypography.questionHeadline(
-              color: OnboardingColors.shiftBlue,
-            ),
+            style: OnboardingTypography.questionHeadline(color: p.textBrand),
           ),
           const SizedBox(height: 6),
           Text.rich(
@@ -384,9 +386,9 @@ class _NoticeCard extends StatelessWidget {
               ],
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 14),
-            child: Divider(color: OnboardingColors.borderSubtle, height: 1),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            child: Divider(color: p.borderSubtle, height: 1),
           ),
           Text(
             'Agar aap bolkar jawaab dete hain:',
@@ -438,6 +440,53 @@ class _NoticeCard extends StatelessWidget {
 /// The kit's screen has only a Continue button, but DPDP consent needs a clear
 /// affirmative act, and this tick is it — 'Aage Badhein' stays disabled until
 /// it is ticked.
+/// The published privacy notice, shown only when `GET /consent/notice` returned
+/// a non-null `notice_url` (#2753 item 13). A server with no URL configured
+/// draws no control at all, so today's screen is unchanged in that case.
+class _PrivacyNoticeLink extends StatelessWidget {
+  const _PrivacyNoticeLink({required this.url});
+
+  final String url;
+
+  Future<void> _open(BuildContext context) async {
+    final Uri? uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      // A device with no browser is not a consent blocker — the notices on
+      // this screen are the consent, and the link simply did not open.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton(
+        onPressed: () => _open(context),
+        style: TextButton.styleFrom(
+          foregroundColor: context.bb.textBrand,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          minimumSize: const Size(
+            OnboardingLayout.tapTarget,
+            OnboardingLayout.tapTarget,
+          ),
+          tapTargetSize: MaterialTapTargetSize.padded,
+        ),
+        child: Text(
+          'Privacy notice dekhein',
+          style: OnboardingTypography.inter(
+            size: 13,
+            weight: FontWeight.w600,
+            color: context.bb.textBrand,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _AgreeRow extends StatelessWidget {
   const _AgreeRow({
     required this.accepted,

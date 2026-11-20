@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/bb_job_card.dart';
 import '../../../../core/widgets/kit/kit_square_icon_button.dart';
@@ -83,24 +84,18 @@ class Design1JobCard extends StatelessWidget {
   /// clip never eats the salary box: the worker's pay outranks decoration.
   final bool compact;
 
-  // Design1 pastels, measured off the mock. Kept local: they are this
-  // card's drawing, not app-wide tokens.
-  static const Color _salaryBg = Color(0xFFFFFBEB);
-  static const Color _salaryBorder = Color(0xFFF59E0B);
-  static const Color _payInk = Color(0xFF9A3412);
-  static const Color _dutyGreyBg = Color(0xFFF1F5F9);
-
   /// The role illustration heads THIS face at its own 3:1 (as the payer's
   /// live preview draws it); the small brand plate overlaps its top-left.
   /// The shared [RoleArtBanner] (detail screen, [BbJobCard]) is untouched.
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(OnboardingRadii.card),
-        border: Border.all(color: OnboardingColors.borderDefault),
+        border: Border.all(color: p.borderDefault),
       ),
       child: Padding(
         padding: const EdgeInsets.all(10),
@@ -245,11 +240,12 @@ class _BrandPlate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
+        color: p.card,
         borderRadius: BorderRadius.circular(OnboardingRadii.chip),
-        border: Border.all(color: OnboardingColors.borderSubtle),
+        border: Border.all(color: p.borderSubtle),
       ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(6, 4, 8, 4),
@@ -274,7 +270,7 @@ class _BrandPlate extends StatelessWidget {
                 style: OnboardingTypography.anek(
                   size: 10,
                   weight: FontWeight.w800,
-                  color: OnboardingColors.ink900,
+                  color: p.textPrimary,
                 ),
               ),
             ],
@@ -309,6 +305,7 @@ class _TitleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final VoidCallback? onTap = onTitleTap;
     if (onTap == null) return _title();
     return MergeSemantics(
@@ -330,10 +327,10 @@ class _TitleRow extends StatelessWidget {
                 children: <Widget>[
                   Expanded(child: _title()),
                   const SizedBox(width: 8),
-                  const Icon(
+                  Icon(
                     Icons.chevron_right_rounded,
                     size: 26,
-                    color: OnboardingColors.safetyYellow,
+                    color: p.action,
                   ),
                 ],
               ),
@@ -352,12 +349,13 @@ class _PlaceRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       children: <Widget>[
-        const Icon(
+        Icon(
           Icons.place_outlined,
           size: 14,
-          color: OnboardingColors.ink500,
+          color: p.textMuted,
         ),
         const SizedBox(width: 5),
         Flexible(
@@ -387,13 +385,14 @@ class _SalaryBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Design1JobCard._salaryBg,
+        color: p.selectedCardBg,
         borderRadius: BorderRadius.circular(OnboardingRadii.row),
-        border: Border.all(color: Design1JobCard._salaryBorder),
+        border: Border.all(color: p.action),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -410,7 +409,7 @@ class _SalaryBox extends StatelessWidget {
                     size: 11,
                     weight: FontWeight.w700,
                     letterSpacing: 0.6,
-                    color: Design1JobCard._payInk,
+                    color: p.warning,
                   ),
                 ),
               ),
@@ -421,10 +420,10 @@ class _SalaryBox extends StatelessWidget {
                     vertical: 3,
                   ),
                   decoration: BoxDecoration(
-                    color: OnboardingColors.paperWhite,
+                    color: p.card,
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(
-                      color: Design1JobCard._salaryBorder,
+                      color: p.action,
                     ),
                   ),
                   child: Text(
@@ -433,7 +432,7 @@ class _SalaryBox extends StatelessWidget {
                       size: 10,
                       weight: FontWeight.w800,
                       letterSpacing: 0.4,
-                      color: Design1JobCard._payInk,
+                      color: p.warning,
                     ),
                   ),
                 ),
@@ -449,7 +448,7 @@ class _SalaryBox extends StatelessWidget {
             style: OnboardingTypography.anek(
               size: 18,
               weight: FontWeight.w800,
-              color: Design1JobCard._payInk,
+              color: p.warning,
             ),
           ),
         ],
@@ -467,30 +466,31 @@ class _DutySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final List<_DutyChip> chips = <_DutyChip>[
       if (data.shift != null)
         _DutyChip(
           label: '${data.shift} Shift',
           icon: Icons.schedule_outlined,
-          bg: Design1JobCard._dutyGreyBg,
+          bg: p.inset,
         ),
       if (data.experience != null)
         _DutyChip(
           label: data.experience!,
           icon: Icons.person_outline_rounded,
-          bg: Design1JobCard._dutyGreyBg,
+          bg: p.inset,
         ),
       if (data.neededBy != null)
         _DutyChip(
           label: data.neededBy!,
           icon: Icons.bolt_outlined,
-          bg: OnboardingColors.infoBg,
+          bg: p.infoBg,
         ),
       for (final String tag in data.tags)
         _DutyChip(
           label: tag,
           icon: Icons.build_outlined,
-          bg: Design1JobCard._salaryBg,
+          bg: p.selectedCardBg,
         ),
       // A benefit is what the POSTER claims, not something the platform checked
       // — so the chip carries a neutral "perk" glyph. It used to carry
@@ -499,7 +499,7 @@ class _DutySection extends StatelessWidget {
         _DutyChip(
           label: benefit,
           icon: Icons.card_giftcard_outlined,
-          bg: OnboardingColors.infoBg,
+          bg: p.infoBg,
         ),
     ];
     if (chips.isEmpty) return const SizedBox.shrink();
@@ -513,7 +513,7 @@ class _DutySection extends StatelessWidget {
           style: OnboardingTypography.inter(
             size: 12,
             weight: FontWeight.w600,
-            color: OnboardingColors.ink600,
+            color: p.textSecondary,
           ),
         ),
         const SizedBox(height: 8),
@@ -536,6 +536,7 @@ class _DutyChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
@@ -545,7 +546,7 @@ class _DutyChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(icon, size: 14, color: OnboardingColors.ink600),
+          Icon(icon, size: 14, color: p.textSecondary),
           const SizedBox(width: 6),
           Flexible(
             child: Text(
@@ -555,7 +556,7 @@ class _DutyChip extends StatelessWidget {
               style: OnboardingTypography.inter(
                 size: 12,
                 weight: FontWeight.w600,
-                color: OnboardingColors.ink900,
+                color: p.textPrimary,
               ),
             ),
           ),
@@ -573,13 +574,14 @@ class _MatchLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const Icon(
+        Icon(
           Icons.info_outline,
           size: 16,
-          color: OnboardingColors.shiftBlue,
+          color: p.textBrand,
         ),
         const SizedBox(width: 8),
         Expanded(
@@ -589,7 +591,7 @@ class _MatchLine extends StatelessWidget {
               size: 12,
               weight: FontWeight.w600,
               height: 1.4,
-              color: OnboardingColors.infoText,
+              color: p.infoText,
             ),
           ),
         ),
@@ -605,6 +607,7 @@ class _OptionsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       children: <Widget>[
         Expanded(
@@ -616,7 +619,7 @@ class _OptionsHeader extends StatelessWidget {
               size: 10,
               weight: FontWeight.w700,
               letterSpacing: 0.8,
-              color: OnboardingColors.ink500,
+              color: p.textMuted,
             ),
           ),
         ),
@@ -640,7 +643,7 @@ class _OptionsHeader extends StatelessWidget {
                       style: OnboardingTypography.inter(
                         size: 12,
                         weight: FontWeight.w600,
-                        color: OnboardingColors.infoText,
+                        color: p.infoText,
                       ),
                     ),
                   ),
@@ -667,13 +670,14 @@ class _NextTeaser extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final String sub = nextPayFull == null
         ? next.place
         : '${next.place} • $nextPayFull';
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(OnboardingRadii.row),
-        border: Border.all(color: OnboardingColors.borderDefault),
+        border: Border.all(color: p.borderDefault),
       ),
       child: InkWell(
         onTap: onTap,
@@ -714,7 +718,7 @@ class _NextTeaser extends StatelessWidget {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: OnboardingColors.pillMutedBg,
+                  color: p.inset,
                   borderRadius: BorderRadius.circular(OnboardingRadii.chip),
                 ),
                 child: Text(
@@ -722,7 +726,7 @@ class _NextTeaser extends StatelessWidget {
                   style: OnboardingTypography.inter(
                     size: 12,
                     weight: FontWeight.w700,
-                    color: OnboardingColors.ink600,
+                    color: p.textSecondary,
                   ),
                 ),
               ),
@@ -747,6 +751,7 @@ class _ActionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       children: <Widget>[
         Expanded(
@@ -754,14 +759,14 @@ class _ActionRow extends StatelessWidget {
           child: _DockButton(
             buttonKey: const Key('design1FeedbackButton'),
             onPressed: onFeedback,
-            bg: OnboardingColors.shiftBlue,
-            fg: OnboardingColors.textOnBlue,
+            bg: p.brandSurface,
+            fg: p.onBrandSurface,
             icon: Icons.chat_bubble_outline_rounded,
             label: 'Feedback',
             labelStyle: OnboardingTypography.inter(
               size: 14,
               weight: FontWeight.w700,
-              color: OnboardingColors.textOnBlue,
+              color: p.onBrandSurface,
             ),
           ),
         ),
@@ -771,14 +776,14 @@ class _ActionRow extends StatelessWidget {
           child: _DockButton(
             buttonKey: const Key('swipeApplyButton'),
             onPressed: onApply,
-            bg: OnboardingColors.safetyYellow,
-            fg: OnboardingColors.textOnYellow,
+            bg: p.action,
+            fg: p.onAction,
             icon: Icons.check_rounded,
             label: 'Apply',
             labelStyle: OnboardingTypography.anek(
               size: 16,
               weight: FontWeight.w800,
-              color: OnboardingColors.textOnYellow,
+              color: p.onAction,
             ),
           ),
         ),
@@ -810,6 +815,7 @@ class Design1DeckDock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return Row(
       children: <Widget>[
         // #375 — an icon-only control announces nothing to TalkBack without
@@ -818,7 +824,7 @@ class Design1DeckDock extends StatelessWidget {
           key: const Key('swipeSkipButton'),
           icon: Icons.close_rounded,
           semanticLabel: kSkipSemanticLabel,
-          iconColor: OnboardingColors.ink600,
+          iconColor: p.textSecondary,
           onTap: locked ? null : onSkip,
         ),
         const SizedBox(width: 10),
@@ -827,19 +833,19 @@ class Design1DeckDock extends StatelessWidget {
             buttonKey: const Key('design1FeedbackButton'),
             onPressed: locked ? null : onFeedback,
             bg: locked
-                ? OnboardingColors.disabledBg
-                : OnboardingColors.shiftBlue,
+                ? p.disabledBg
+                : p.brandSurface,
             fg: locked
-                ? OnboardingColors.disabledText
-                : OnboardingColors.textOnBlue,
+                ? p.disabledText
+                : p.onBrandSurface,
             icon: Icons.chat_bubble_outline_rounded,
             label: 'Feedback',
             labelStyle: OnboardingTypography.inter(
               size: 14,
               weight: FontWeight.w700,
               color: locked
-                  ? OnboardingColors.disabledText
-                  : OnboardingColors.textOnBlue,
+                  ? p.disabledText
+                  : p.onBrandSurface,
             ),
           ),
         ),
@@ -849,19 +855,19 @@ class Design1DeckDock extends StatelessWidget {
             buttonKey: const Key('swipeApplyButton'),
             onPressed: locked ? null : onApply,
             bg: locked
-                ? OnboardingColors.disabledBg
-                : OnboardingColors.safetyYellow,
+                ? p.disabledBg
+                : p.action,
             fg: locked
-                ? OnboardingColors.disabledText
-                : OnboardingColors.textOnYellow,
+                ? p.disabledText
+                : p.onAction,
             icon: Icons.check_rounded,
             label: 'Apply',
             labelStyle: OnboardingTypography.anek(
               size: 16,
               weight: FontWeight.w800,
               color: locked
-                  ? OnboardingColors.disabledText
-                  : OnboardingColors.textOnYellow,
+                  ? p.disabledText
+                  : p.onAction,
             ),
           ),
         ),

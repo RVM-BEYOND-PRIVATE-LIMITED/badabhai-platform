@@ -1,19 +1,29 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import {
   DEFAULT_JOB_POSTING_AUDIENCE,
   JOB_POSTING_AUDIENCES,
   audienceReachesRvmStudents,
+  holdPostingFromWorkers,
   rvmReviewStateFor,
   type Database,
   type JobPostingAudience,
   type RvmTargetingKind,
 } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
+import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
 import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 import type { PostingAudienceInput } from "./job-postings.dto";
+import { adminJobAudienceEnabled, type AdminJobAudienceConfig } from "./admin-job-audience.flag";
 import type { JobPostingApi } from "./job-postings.repository";
 import { PostingAudienceRepository } from "./posting-audience.repository";
 import { rvmReviewView, type RvmReviewView } from "./rvm-review-view";
@@ -109,10 +119,22 @@ export class PostingAudienceService {
     private readonly rollout: FeatureRolloutService,
     private readonly repo: PostingAudienceRepository,
     private readonly events: EventsService,
+    // #2956 — the admin audience control (ADR-0068). Optional: suites built before it.
+    @Optional() @Inject(SERVER_CONFIG) private readonly config?: AdminJobAudienceConfig,
   ) {}
 
-  /** Is the audience capability on for this company (its TENANT key)? */
-  enabledFor(scope: PayerTenantScope): Promise<boolean> {
+  /**
+   * Is the audience capability on for this company (its TENANT key)?
+   *
+   * #2956 (owner direction of 19 Nov 2026, ADR-0068): AN ADMIN, NOT THE COMPANY, DECIDES WHERE A
+   * JOB SHOWS. While `ADMIN_JOB_AUDIENCE_ENABLED` is on the company never has the capability,
+   * whatever `job_audience` and its pilot list say: its audience fields are ignored and
+   * `audience-options` is the neutral 404. Its own read still shows the audience an admin set
+   * (`payerViews`: a non-default audience is always shown). The company path is removed with the
+   * `JOB_AUDIENCE_ROLLOUT` clean-up.
+   */
+  async enabledFor(scope: PayerTenantScope): Promise<boolean> {
+    if (adminJobAudienceEnabled(this.config)) return false;
     return this.rollout.isEnabledFor("job_audience", scope.tenantKey);
   }
 
@@ -252,6 +274,24 @@ export class PostingAudienceService {
   }
 
   /**
+   * #2956 follow-up (Prakash, 19 Nov 2026, point 3): A COMPANY JOB IN A TRADE RVM TRAINS WAITS FOR
+   * AN ADMIN. Called in the company's PUBLISH transaction (draft -> open), after the posting row is
+   * written and before reach is built: while `ADMIN_JOB_AUDIENCE_ENABLED` is on, a posting whose
+   * trade is on the Campus list (#2957) and that no admin has decided yet is held from BadaBhai
+   * workers (`company_rvm_trade`, 0194). The hold hides it on every worker path
+   * (`reachesBadaBhaiWorkers()`), so the reach built after the commit is empty, and it shows under
+   * "To decide" until the admin's decision releases it. A posting already held (it came from
+   * Campus) keeps its row. True when it was held here.
+   */
+  async holdForAdminDecisionWithin(tx: Database, posting: JobPostingApi): Promise<boolean> {
+    if (!adminJobAudienceEnabled(this.config)) return false;
+    if (posting.role_kind === null) return false;
+    if (!(await this.repo.awaitsAdminDecision(posting.id, posting.role_kind, tx))) return false;
+    await holdPostingFromWorkers(tx, posting.id, "company_rvm_trade");
+    return true;
+  }
+
+  /**
    * The company's own postings as it reads them. One switch read per call (only when some posting
    * holds the default audience, which is when the answer matters) and one review read for the
    * postings with an RVM part, so a page costs the same two queries whatever its size.
@@ -261,6 +301,14 @@ export class PostingAudienceService {
     postings: readonly JobPostingApi[],
   ): Promise<PayerJobPostingApi[]> {
     if (postings.length === 0) return [];
+    // #2956 follow-up (Prakash, 19 Nov 2026, point 4): A COMPANY DOES NOT SEE WHERE ITS JOB SHOWS.
+    // While the admin decides (`ADMIN_JOB_AUDIENCE_ENABLED`), no company read carries the audience,
+    // the targeting or the RVM review, whatever is stored.
+    if (adminJobAudienceEnabled(this.config)) {
+      return postings.map(
+        ({ audience: _a, rvm_branch_ids: _b, rvm_course_ids: _c, ...rest }) => rest,
+      );
+    }
     const isDefault = (p: JobPostingApi) => p.audience === DEFAULT_JOB_POSTING_AUDIENCE;
     const enabled = postings.some(isDefault) ? await this.enabledFor(scope) : false;
     const reviews = await this.repo.reviewStatesFor(

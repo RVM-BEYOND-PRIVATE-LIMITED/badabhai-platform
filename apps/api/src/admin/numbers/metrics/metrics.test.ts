@@ -9,7 +9,7 @@ import { contactsPerHire } from "./contacts-per-hire";
 import { formCompletedUnconfirmed } from "./form-completed-unconfirmed";
 import { payingCompanies } from "./paying-companies";
 import { postingChoiceShares } from "./posting-choice";
-import { revenueByPack, revenueGstSplit } from "./revenue-by-pack";
+import { revenueByPack, revenueGstSplit, revenueManagedHiring } from "./revenue-by-pack";
 import { weekWindow, type NumbersDimsLookup } from "./types";
 
 /**
@@ -53,6 +53,7 @@ describe("the week window", () => {
 describe("payingCompanies", () => {
   const order = (payerId: string, settledAt: Date) => ({
     payerId,
+    productKind: "credit_pack" as const,
     packCode: "pack_50",
     amountInr: 2000,
     taxablePaise: null,
@@ -223,6 +224,7 @@ describe("confirmedHires and contactsPerHire", () => {
 describe("revenueByPack", () => {
   const order = (payerId: string, packCode: string, amountInr: number, settledAt: Date) => ({
     payerId,
+    productKind: "credit_pack" as const,
     packCode,
     amountInr,
     taxablePaise: null,
@@ -237,6 +239,8 @@ describe("revenueByPack", () => {
       order("b", "pack_50", 2000, BEFORE), // sold before: pack_50 already exists
       order("c", "pack_1000", 32000, NEXT_MONDAY), // after the week: no row yet
       order("a", "Weird Code!", 1, MONDAY_START),
+      // Version 5: a Managed Hiring order is no pack: not in the total, never folded into other.
+      { ...order("a", "", 4720, MONDAY_START), productKind: "managed_hiring" as const, packCode: null },
     ],
     dimsOf({ a: PUNE_CNC }),
   );
@@ -296,6 +300,7 @@ describe("computeNumbersWeek", () => {
         return [
           {
             payerId: "a",
+            productKind: "credit_pack",
             packCode: "pack_50",
             amountInr: 2000,
             taxablePaise: 169500,
@@ -308,8 +313,8 @@ describe("computeNumbersWeek", () => {
         calls.push("cohortOrders");
         // "a" first paid in the week; "c" paid before it (not in the cohort).
         return [
-          { payerId: "a", packCode: "pack_50", amountInr: 2000, taxablePaise: null, gstPaise: null, settledAt: MONDAY_START },
-          { payerId: "c", packCode: "pack_50", amountInr: 2000, taxablePaise: null, gstPaise: null, settledAt: BEFORE },
+          { payerId: "a", productKind: "credit_pack", packCode: "pack_50", amountInr: 2000, taxablePaise: null, gstPaise: null, settledAt: MONDAY_START },
+          { payerId: "c", productKind: "credit_pack", packCode: "pack_50", amountInr: 2000, taxablePaise: null, gstPaise: null, settledAt: BEFORE },
         ];
       },
       firstPublications: async () => {
@@ -385,6 +390,8 @@ describe("computeNumbersWeek", () => {
       // Version 3: the GST split of the same orders.
       "revenue_gst_split",
       "revenue_gst",
+      // Version 5: Managed Hiring revenue.
+      "revenue_managed_hiring",
       "repeat_purchase_30d",
       "repeat_purchase_60d",
       "repeat_purchase_90d",
@@ -414,6 +421,7 @@ describe("revenueGstSplit (version 3)", () => {
     split: { taxablePaise: number; gstPaise: number } | null,
   ) => ({
     payerId,
+    productKind: "credit_pack" as const,
     packCode: "pack_20",
     amountInr: 1179,
     taxablePaise: split?.taxablePaise ?? null,
@@ -437,6 +445,65 @@ describe("revenueGstSplit (version 3)", () => {
     expect(total(byId(out, "revenue_gst"))).toBe(36000);
     expect(at(byId(out, "revenue_gst_split"), "pune", "cnc_operator").value).toBe(99900);
     expect(at(byId(out, "revenue_gst"), "ncr", "all").value).toBe(18000);
+  });
+
+  it("version 5: a Managed Hiring order's split counts too, so it adds up to both revenue figures", () => {
+    const mh = {
+      ...order("a", MONDAY_START, { taxablePaise: 400000, gstPaise: 72000 }),
+      productKind: "managed_hiring" as const,
+      packCode: null,
+      amountInr: 4720,
+    };
+    const both = [order("b", SUNDAY_END, { taxablePaise: 99900, gstPaise: 18000 }), mh];
+    const dims = dimsOf({ a: PUNE_CNC, b: NCR_CAD });
+    const split = revenueGstSplit(W, both, dims);
+    expect(total(byId(split, "revenue_gst_split"))).toBe(499900);
+    expect(total(byId(split, "revenue_gst"))).toBe(90000);
+    // Before GST + GST + round-off (here 0) = revenue by pack + Managed Hiring revenue.
+    const asCharged =
+      total(byId(revenueByPack(W, both, dims), "revenue_by_pack"))! +
+      total(byId(revenueManagedHiring(W, both, dims), "revenue_managed_hiring"))!;
+    expect(asCharged).toBe(499900 + 90000); // ₹1,179 + ₹4,720 = (₹999 + ₹4,000) + (₹180 + ₹720)
+  });
+});
+
+describe("revenueManagedHiring (version 5)", () => {
+  const order = (
+    payerId: string,
+    productKind: "credit_pack" | "managed_hiring",
+    amountInr: number,
+    settledAt: Date,
+  ) => ({
+    payerId,
+    productKind,
+    packCode: productKind === "credit_pack" ? "pack_50" : null,
+    amountInr,
+    taxablePaise: null,
+    gstPaise: null,
+    settledAt,
+  });
+  const out = revenueManagedHiring(
+    W,
+    [
+      order("a", "managed_hiring", 4720, MONDAY_START),
+      order("b", "managed_hiring", 9440, SUNDAY_END),
+      order("a", "credit_pack", 2000, MONDAY_START), // a pack: revenue by pack, not here
+      order("a", "managed_hiring", 4720, BEFORE), // the week before
+      order("b", "managed_hiring", 9440, NEXT_MONDAY), // the week after
+    ],
+    dimsOf({ a: PUNE_CNC, b: NCR_CAD }),
+  );
+
+  it("sums amount_inr × 100 of the week's paid Managed Hiring orders, as charged, in paise", () => {
+    expect(out.map((m) => m.metric)).toEqual(["revenue_managed_hiring"]);
+    expect(total(byId(out, "revenue_managed_hiring"))).toBe(1_416_000);
+    expect(at(byId(out, "revenue_managed_hiring"), "pune", "cnc_operator").value).toBe(472_000);
+    expect(at(byId(out, "revenue_managed_hiring"), "ncr", "all").value).toBe(944_000);
+  });
+
+  it("a week with no Managed Hiring order is a real zero, not a missing figure", () => {
+    const none = revenueManagedHiring(W, [], dimsOf({}));
+    expect(total(byId(none, "revenue_managed_hiring"))).toBe(0);
   });
 });
 

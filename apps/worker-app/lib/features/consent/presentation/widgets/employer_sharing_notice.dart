@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/bb_palette.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import 'consent_notice_parts.dart';
 
@@ -26,6 +27,7 @@ class EmployerSharingNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final TextStyle leadIn = OnboardingTypography.inter(
       size: 14,
       weight: FontWeight.w500,
@@ -37,9 +39,7 @@ class EmployerSharingNotice extends StatelessWidget {
         children: <Widget>[
           Text(
             heading,
-            style: OnboardingTypography.questionHeadline(
-              color: OnboardingColors.shiftBlue,
-            ),
+            style: OnboardingTypography.questionHeadline(color: p.textBrand),
           ),
           const SizedBox(height: 6),
           Text(
@@ -128,8 +128,8 @@ class _NoticeDivider extends StatelessWidget {
   const _NoticeDivider();
 
   @override
-  Widget build(BuildContext context) => const Padding(
-        padding: EdgeInsets.symmetric(vertical: 14),
-        child: Divider(color: OnboardingColors.borderSubtle, height: 1),
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        child: Divider(color: context.bb.borderSubtle, height: 1),
       );
 }

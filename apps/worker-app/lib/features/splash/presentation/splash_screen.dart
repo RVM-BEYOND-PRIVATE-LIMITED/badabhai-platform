@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../router.dart';
 import 'widgets/animated_get_started_button.dart';
@@ -29,7 +30,7 @@ class SplashScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: OnboardingColors.shiftBlue,
+      backgroundColor: context.bb.brandSurface,
       body: Stack(
         fit: StackFit.expand,
         children: <Widget>[

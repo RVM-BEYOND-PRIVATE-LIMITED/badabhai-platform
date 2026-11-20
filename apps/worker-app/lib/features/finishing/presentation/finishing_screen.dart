@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/api/api_client.dart' show WorkPrefOptionsDto;
 import '../../../core/di/locator.dart';
 import '../../../core/session/known_worker_facts_store.dart' show WorkerFact;
+import '../../../core/theme/bb_palette.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/tap_guard.dart';
 import '../../../core/widgets/bb_status_view.dart';
@@ -311,6 +312,7 @@ class _StatusScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final bool crowded = _keyboardCrowdsChrome(context);
     return Scaffold(
       backgroundColor: FormFlowColors.canvas,
@@ -319,7 +321,7 @@ class _StatusScaffold extends StatelessWidget {
           ShiftBlueHeader(
             title: _kHistoryTitle,
             subtitle: _kRewardLine,
-            titleColor: OnboardingColors.safetyYellow,
+            titleColor: p.action,
             // The approved form-flow drawing, except on a keyboard-crowded
             // short screen: this header carries a title AND a subtitle, which
             // at a 2.0 system font on a 320dp phone is taller than what the
@@ -366,7 +368,7 @@ class _ErrorBody extends StatelessWidget {
     // internet".
     return BbStatusView(
       icon: Icons.error_outline_rounded,
-      iconColor: OnboardingColors.errorRed,
+      iconColor: context.bb.danger,
       title: message,
       action: PrimaryActionButton(
         label: _kRetry,
@@ -428,6 +430,7 @@ class _WizardScaffold extends StatelessWidget {
     final bool crowded = _keyboardCrowdsChrome(context);
     // The header collapses on a short screen too, not only under a keyboard.
     final bool headerCrowded = _chromeCrowdsChrome(context);
+    final BbPalette p = context.bb;
     return Scaffold(
       backgroundColor: FormFlowColors.canvas,
       body: Column(
@@ -437,7 +440,7 @@ class _WizardScaffold extends StatelessWidget {
           ShiftBlueHeader(
             title: _topicFor(state.page).$1,
             stepBadge: crowded ? null : _stepBadge(state),
-            titleColor: OnboardingColors.safetyYellow,
+            titleColor: p.action,
             onBack: state.isFirstPage ? null : cubit.previousPage,
             // The approved form-flow drawing everywhere except a crowded short
             // screen, where it does not fit at all and the kit's collapsed
@@ -589,7 +592,7 @@ class _SectionLabel extends StatelessWidget {
             weight: FontWeight.w700,
             height: 1.25,
             // Navy, like the form-flow question headline it sits under.
-            color: OnboardingColors.shiftBlue,
+            color: context.bb.textBrand,
           ),
         ),
       );
@@ -605,7 +608,7 @@ class _FieldLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
-        child: Text(text, style: finishingFieldLabelStyle()),
+        child: Text(text, style: finishingFieldLabelStyle(context.bb.textSecondary)),
       );
 }
 
@@ -885,6 +888,7 @@ class _AddCityButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     final BorderRadius radius =
         BorderRadius.circular(OnboardingRadii.nameField);
     return Semantics(
@@ -893,16 +897,19 @@ class _AddCityButton extends StatelessWidget {
       excludeSemantics: true,
       onTap: onPressed,
       child: Material(
-        color: OnboardingColors.shiftBlue,
+        color: p.brandSurface,
         borderRadius: radius,
         child: InkWell(
           onTap: onPressed,
           borderRadius: radius,
-          child: const SizedBox(
+          child: SizedBox(
             width: OnboardingLayout.tapTarget,
             height: OnboardingLayout.tapTarget,
-            child: Icon(Icons.add_rounded,
-                size: 24, color: OnboardingColors.textOnBlue),
+            child: Icon(
+              Icons.add_rounded,
+              size: 24,
+              color: p.onBrandSurface,
+            ),
           ),
         ),
       ),
@@ -1058,19 +1065,20 @@ class _AddEmployerButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return OutlinedButton.icon(
       onPressed: onPressed,
       icon: const Icon(Icons.add_rounded, size: 20),
       label: Text(
         _kAddEmployer,
-        style: OnboardingTypography.buttonLabel(),
+        style: OnboardingTypography.buttonLabel(color: p.textBrand),
       ),
       style: OutlinedButton.styleFrom(
         minimumSize: const Size.fromHeight(OnboardingLayout.tapTarget),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        backgroundColor: OnboardingColors.paperWhite,
-        foregroundColor: OnboardingColors.shiftBlue,
-        side: const BorderSide(color: OnboardingColors.borderDefault, width: 1.2),
+        backgroundColor: p.card,
+        foregroundColor: p.textBrand,
+        side: BorderSide(color: p.borderDefault, width: 1.2),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
         ),
@@ -1132,23 +1140,24 @@ class _SubmitError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: Container(
         width: double.infinity,
-        color: OnboardingColors.errorBg,
+        color: p.dangerBg,
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(context).height * _maxScreenFraction,
         ),
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: _content(),
+          child: _content(p),
         ),
       ),
     );
   }
 
-  Widget _content() {
+  Widget _content(BbPalette p) {
     return Center(
       heightFactor: 1,
       child: ConstrainedBox(
@@ -1157,10 +1166,13 @@ class _SubmitError extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const Padding(
-              padding: EdgeInsets.only(top: 1),
-              child: Icon(Icons.error_outline_rounded,
-                  size: 18, color: OnboardingColors.errorRed),
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Icon(
+                Icons.error_outline_rounded,
+                size: 18,
+                color: p.danger,
+              ),
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -1169,7 +1181,7 @@ class _SubmitError extends StatelessWidget {
                 style: OnboardingTypography.inter(
                   size: 13,
                   weight: FontWeight.w500,
-                  color: OnboardingColors.errorRed,
+                  color: p.danger,
                 ),
               ),
             ),
