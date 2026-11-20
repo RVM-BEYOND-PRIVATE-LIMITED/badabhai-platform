@@ -58,7 +58,7 @@ void main() {
 
   test('the notice version it compares against is the app consent version', () {
     expect(gate().noticeVersion, kConsentVersion);
-    expect(kConsentVersion, '2026-11-04');
+    expect(kConsentVersion, '2026-11-19');
   });
 
   group('show-condition matrix', () {

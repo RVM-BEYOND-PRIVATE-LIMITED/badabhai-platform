@@ -177,7 +177,7 @@ function libReads(): Map<string, Map<string, Read[]>> {
       const calls = [...body.matchAll(/adminFetch(?:<[^>]*>)?\(\s*(`[^`]*`|"[^"]*")\s*(,[^)]*)?/g)]
         // This rule maps READ paths to the API's GET routes. A governed write (`method: "POST"`)
         // is deliberately not a read: its route is checked by the route's own authz tests.
-        .filter((c) => !/method:\s*"POST"/.test(c[2] ?? ""));
+        .filter((c) => !/method:\s*"(POST|PUT|PATCH|DELETE)"/.test(c[2] ?? ""));
       if (calls.length === 0) return;
       reads.set(
         m[1]!,
@@ -315,7 +315,7 @@ describe("the source this test derives from is where it expects", () => {
         (n, f) =>
           n +
           [...read(f).matchAll(/adminFetch(?:<[^>]*>)?\(\s*(`[^`]*`|"[^"]*")\s*(,[^)]*)?/g)].filter(
-            (m) => !/method:\s*"POST"/.test(m[2] ?? ""),
+            (m) => !/method:\s*"(POST|PUT|PATCH|DELETE)"/.test(m[2] ?? ""),
           ).length,
         0,
       );

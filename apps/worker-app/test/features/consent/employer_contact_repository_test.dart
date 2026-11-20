@@ -149,7 +149,7 @@ void main() {
     expect(captured.url.path, '/consent/employer-contact/grant');
     expect(captured.headers['authorization'], 'Bearer tok');
     expect(jsonDecode(captured.body), <String, dynamic>{
-      'consent_version': '2026-11-04',
+      'consent_version': '2026-11-19',
     });
   });
 

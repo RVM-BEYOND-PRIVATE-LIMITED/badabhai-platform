@@ -353,9 +353,9 @@ void main() {
         findsOneWidget,
       );
       for (final String claim in <String>[
-        'Aapka naam, phone number aur photo nahi dikhta.',
-        'Agar koi company paise dekar aapki profile unlock karti hai, to 14 '
-            'din tak:',
+        'Aapka poora naam, phone number aur photo nahi dikhta.',
+        'Agar koi company paise dekar aapki profile unlock karti hai, to woh '
+            'hamesha ke liye:',
         'Woh aapko BadaBhai ke andar message kar sakti hai.',
       ]) {
         expect(find.text(claim, findRichText: true), findsOneWidget,

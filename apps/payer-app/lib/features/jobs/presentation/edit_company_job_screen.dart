@@ -1,6 +1,9 @@
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/config/app_config.dart';
+import '../../../core/data/managed_hiring_models.dart';
 import '../../../core/data/models.dart';
 import '../../../core/data/payer_api_client.dart';
 import '../../../core/di/locator.dart';
@@ -184,6 +187,12 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
   bool get _storedTradeFields =>
       widget.job.tradeLevel != null || widget.job.tradeAnswers != null;
 
+  // #2751 — Managed Hiring. Null quote (a 404 from the switch) means show nothing at all.
+  ManagedHiringQuote? _managedQuote;
+  ManagedHiringOrder? _managedOrder;
+  bool _managedLoading = true;
+  bool _managedBusy = false;
+
   /// A pre-0141 OPEN posting may hold a hand-picked match set; showing the
   /// trade panel there would let a display-only rung rewrite it. Mirror the web
   /// gate: drafts and trade-form postings show it, and an explicit role change
@@ -240,6 +249,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
     _inputs.addListener(_onInputChanged);
     // ignore: discarded_futures — fire-and-forget; state updates on done.
     _loadPostingTrades();
+    _loadManagedHiring();
     // ignore: discarded_futures — #2746 audience options; a 404 hides them.
     _loadAudienceOptions();
   }
@@ -361,6 +371,88 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
   /// A keystroke: drop the inline errors it fixed (nothing new until Save).
   void _onInputChanged() {
     if (!_form.isEmpty && _form.settle(_validate())) setState(() {});
+  }
+
+  /// #2751 — read the quote and the latest order. Any failure hides the product; a switch-off
+  /// 404 returns null and shows nothing.
+  Future<void> _loadManagedHiring() async {
+    final String? jobId = widget.job.id;
+    ManagedHiringQuote? quote;
+    ManagedHiringOrder? order;
+    try {
+      if (jobId != null) {
+        quote = await locator<PayerApiClient>().fetchManagedHiringQuote(jobId);
+        if (quote != null && quote.isOrder) {
+          final List<ManagedHiringOrder> orders =
+              await locator<PayerApiClient>().fetchManagedHiringOrders(jobId);
+          order = orders.isEmpty ? null : orders.first;
+        }
+      }
+    } catch (_) {
+      quote = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      _managedQuote = quote;
+      _managedOrder = order;
+      _managedLoading = false;
+    });
+  }
+
+  /// The app contains no payment UI: the paid button opens payer-web in the external browser.
+  Future<void> _openManagedHiringOnWeb() async {
+    final String? base = resolvePayerWebUrl();
+    if (base == null) {
+      showBbToast(
+        context,
+        title: 'Not available',
+        message: 'Could not open the web portal.',
+        icon: Icons.info_rounded,
+      );
+      return;
+    }
+    final String? jobId = widget.job.id;
+    if (jobId == null) return;
+    await launchUrl(
+      Uri.parse('$base/postings/$jobId'),
+      mode: LaunchMode.externalApplication,
+    );
+  }
+
+  Future<void> _requestManagedHiringCallback() async {
+    setState(() => _managedBusy = true);
+    final String? jobId = widget.job.id;
+    if (jobId == null) return;
+    try {
+      await locator<PayerApiClient>()
+          .requestManagedHiringCallback(jobId);
+      if (!mounted) return;
+      setState(() => _managedQuote = _managedQuote == null
+          ? null
+          : ManagedHiringQuote(
+              jobPostingId: _managedQuote!.jobPostingId,
+              offer: _managedQuote!.offer,
+              terms: _managedQuote!.terms,
+              tier: _managedQuote!.tier,
+              price: _managedQuote!.price,
+              targetCount: _managedQuote!.targetCount,
+              workingDays: _managedQuote!.workingDays,
+              extensionDays: _managedQuote!.extensionDays,
+              openOrderId: _managedQuote!.openOrderId,
+              callbackRequestId: 'requested',
+            ));
+    } catch (_) {
+      if (mounted) {
+        showBbToast(
+          context,
+          title: 'Not now',
+          message: 'Could not request a call. Please retry.',
+          icon: Icons.info_rounded,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _managedBusy = false);
+    }
   }
 
   /// Load — or, from Retry, reload — the 16-trade catalogue. A failure keeps
@@ -776,6 +868,81 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
     }
   }
 
+  /// #2751 — the price and terms are the server's; no copy here promises a hire.
+  Widget _managedHiringCard(ManagedHiringQuote quote) {
+    final ManagedHiringOrder? order = _managedOrder;
+    return _sectionCard('Managed Hiring', <Widget>[
+      if (quote.isOrder && quote.price != null) ...<Widget>[
+        Text(
+          '₹${(quote.price!.totalPaise / 100).round()} '
+          '(₹${(quote.price!.taxablePaise / 100).round()} plus GST '
+          '₹${(quote.price!.gstPaise / 100).round()})',
+          style: AppTypography.header(
+            size: AppTypography.sizeLg,
+            weight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s2),
+        Text(
+          'At least ${quote.targetCount ?? 5} phone-confirmed interested workers in '
+          '${quote.workingDays ?? 7} working days, free extension to day '
+          '${quote.extensionDays ?? 30}.',
+          style: AppTypography.body(
+            size: AppTypography.sizeSm,
+            color: context.bb.textMuted,
+            height: 1.45,
+          ),
+        ),
+        if (order != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.s3),
+          Text(
+            '${order.status.replaceAll('_', ' ')} · ${order.confirmedCount} of '
+            '${order.targetCount} confirmed${order.dueAt == null ? '' : ' · by the end of ${order.dueAt!.substring(0, 10)}'}',
+            style: AppTypography.body(size: AppTypography.sizeSm),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.s3),
+        BbButton(
+          label: order == null ? 'Buy Managed Hiring on web' : 'Finish payment on web',
+          iconLeft: Icons.open_in_new_rounded,
+          block: true,
+          onPressed: _managedLoading ? null : _openManagedHiringOnWeb,
+        ),
+      ] else ...<Widget>[
+        if (quote.callbackRequestId != null)
+          Text(
+            'We will call you.',
+            style: AppTypography.body(size: AppTypography.sizeSm),
+          )
+        else
+          BbButton(
+            label: 'Request a call',
+            iconLeft: Icons.phone_rounded,
+            block: true,
+            loading: _managedBusy,
+            onPressed: _managedBusy ? null : _requestManagedHiringCallback,
+          ),
+      ],
+      const SizedBox(height: AppSpacing.s3),
+      Text(
+        quote.terms,
+        style: AppTypography.body(
+          size: AppTypography.sizeSm,
+          color: context.bb.textMuted,
+          height: 1.45,
+        ),
+      ),
+      const SizedBox(height: AppSpacing.s2),
+      Text(
+        'Payment happens on the BadaBhai web portal, never inside this app.',
+        style: AppTypography.body(
+          size: AppTypography.sizeXs,
+          color: context.bb.textMuted,
+        ),
+      ),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final BbPalette p = context.bb;
@@ -1094,6 +1261,10 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                     ),
                   ),
                 ]),
+                if (_managedQuote != null) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s4),
+                  _managedHiringCard(_managedQuote!),
+                ],
                 const SizedBox(height: AppSpacing.s4),
                 Text(
                   'Emptying Area or Location removes it from the job. The other '

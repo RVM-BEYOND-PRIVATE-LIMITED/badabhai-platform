@@ -107,7 +107,7 @@ void main() {
   test('the line ships with no consent-version change', () {
     // A notice change must bump the version in the same change; this line is
     // not notice text, so the version stays the approved notice's.
-    expect(kConsentVersion, '2026-11-04');
+    expect(kConsentVersion, '2026-11-19');
   });
 
   test('the line is neutral copy: no price, no amount', () {

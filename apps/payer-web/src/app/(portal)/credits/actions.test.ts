@@ -320,6 +320,22 @@ describe("verifyPaymentAction — gate FIRST, and NEVER a fabricated success", (
     expect(await verifyPaymentAction(INPUT)).toEqual({ ok: true, balance: 60, creditsAdded: 0 });
   });
 
+  it("#2750: passes credits_returned through so the success screen can show them", async () => {
+    verifyCreditPayment.mockResolvedValueOnce({
+      payer_id: "p1",
+      balance: 62,
+      credits: 50,
+      pack_code: "pack_50",
+      credits_returned: 12,
+    });
+    expect(await verifyPaymentAction(INPUT)).toEqual({
+      ok: true,
+      balance: 62,
+      creditsAdded: 50,
+      creditsReturned: 12,
+    });
+  });
+
   it("an UNVERIFIED payment is an honest failure that points at support, never a fake success", async () => {
     verifyCreditPayment.mockResolvedValueOnce(null);
     const res = await verifyPaymentAction(INPUT);

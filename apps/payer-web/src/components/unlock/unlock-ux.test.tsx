@@ -30,8 +30,10 @@ function deepText(node: ReactNode, seen: WeakSet<object> = new WeakSet()): strin
   const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode; footer?: ReactNode }>;
   if (seen.has(el)) return "";
   seen.add(el);
-  const isDialog = typeof el.type === "function" && (el.type as { name?: string }).name === "Dialog";
-  if (typeof el.type === "function" && !isDialog) {
+  const hooked =
+    typeof el.type === "function" &&
+    ["Dialog", "CouldntReach"].includes((el.type as { name?: string }).name ?? "");
+  if (typeof el.type === "function" && !hooked) {
     return deepText((el.type as (p: unknown) => ReactNode)(el.props), seen);
   }
   let out = "";

@@ -25,7 +25,7 @@ export 'api_models.dart';
 /// 2026-11-04: bumped alongside the employer-sharing notice
 /// (`docs/product/employer-sharing-consent-notice.md`, approved 2026-11-04) —
 /// the server rejects the employer purposes paired with any other version.
-const String kConsentVersion = '2026-11-04';
+const String kConsentVersion = '2026-11-19';
 
 /// Hard ceiling on any single HTTP request.
 ///

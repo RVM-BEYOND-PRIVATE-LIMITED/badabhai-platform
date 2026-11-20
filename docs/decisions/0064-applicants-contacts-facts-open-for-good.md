@@ -153,7 +153,7 @@ So every #2747 rule that the notice contradicts is gated **per worker**, in addi
 
 **Who keeps the old rules.** A worker on the 2026-11-04 notice keeps initials, the 14-day window and no facts before paying. That holds even for a pilot company.
 
-**The list is empty today.** No notice describing the brief exists yet, so for BadaBhai workers the switches change nothing until one is approved and shipped. The steps when it is:
+**The list ships with the 2026-11-19 notice.** The copy was approved and the worker app renders it; `BRIEF_CONTACT_NOTICE_VERSIONS` now names that version, so a worker whose latest consent is on it follows the brief. The steps that were run:
 
 1. Approve the new copy (Prakash, owner).
 2. Ship it in the worker app (Rishi).

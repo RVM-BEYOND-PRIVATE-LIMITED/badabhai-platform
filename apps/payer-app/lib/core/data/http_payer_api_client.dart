@@ -2,6 +2,7 @@ import '../auth/payer_http.dart';
 import 'candidate_search_models.dart';
 import 'job_posting_chat_models.dart';
 import 'models.dart';
+import 'managed_hiring_models.dart';
 import 'payer_api_client.dart';
 
 /// What a refused job write says (see `_jobWriteRejection`): a typed [code],
@@ -176,6 +177,46 @@ class HttpPayerApiClient implements PayerApiClient {
     // the Post form can show each reason AT its box.
     if (!res.isSuccess) throw _jobWriteFailure(res);
     return _jobFromRow(res.body);
+  }
+
+  @override
+  Future<ManagedHiringQuote?> fetchManagedHiringQuote(String jobId) async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.get,
+      '/payer/managed-hiring/quote?job_posting_id=${Uri.encodeQueryComponent(jobId)}',
+    );
+    // The switch's neutral 404 means "no Managed Hiring here" — not an error.
+    if (res.statusCode == 404) return null;
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    return ManagedHiringQuote.fromJson(res.body);
+  }
+
+  @override
+  Future<List<ManagedHiringOrder>> fetchManagedHiringOrders(String jobId) async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.get,
+      '/payer/managed-hiring/orders?job_posting_id=${Uri.encodeQueryComponent(jobId)}',
+    );
+    if (res.statusCode == 404) return const <ManagedHiringOrder>[];
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final Object? rows = res.body['orders'];
+    if (rows is! List) return const <ManagedHiringOrder>[];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(ManagedHiringOrder.fromJson)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<String?> requestManagedHiringCallback(String jobId) async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/managed-hiring/callback-requests',
+      body: <String, dynamic>{'job_posting_id': jobId},
+    );
+    if (res.statusCode == 404) return null;
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    return res.body['request_id'] as String?;
   }
 
   @override

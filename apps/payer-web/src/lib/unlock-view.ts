@@ -59,6 +59,8 @@ export type UnlockView =
       kind: "granted";
       unlockId: string;
       expiresAt: string;
+      /** #2750 — when this grant was opened, for the couldn't-reach 7-day window. */
+      grantedAt?: string;
       /** #2747 — null = open for good (no "until" date); absent = an older server. */
       openUntil?: string | null;
       creditsCharged?: number;

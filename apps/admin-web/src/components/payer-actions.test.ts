@@ -20,10 +20,12 @@ const adminFetch = vi.fn();
 
 class FakeRequestError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  body?: Record<string, unknown>;
+  constructor(status: number, message: string, body?: Record<string, unknown>) {
     super(message);
     this.name = "AdminRequestError";
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -188,6 +190,55 @@ describe("grantCreditsAction", () => {
     const res = await grantCreditsAction("p-1", { ...validInput, idempotencyKey: "not-a-uuid" });
     expect(res.ok).toBe(false);
     expect(adminFetch).not.toHaveBeenCalled();
+  });
+
+  it("#2750: forwards the written reason and the corrected ledger row", async () => {
+    adminFetch.mockResolvedValueOnce({
+      target_id: "p-1",
+      changed: true,
+      ledger_id: "l-2",
+      balance: 1500,
+    });
+    await grantCreditsAction("p-1", {
+      ...validInput,
+      reasonCode: "correction",
+      reasonText: "Correcting the grant that landed on the wrong company.",
+      correctsLedgerId: "22222222-2222-4222-8222-222222222222",
+    });
+    expect(adminFetch).toHaveBeenCalledWith(
+      "/admin/payers/p-1/credits",
+      expect.objectContaining({
+        body: expect.objectContaining({
+          reason_code: "correction",
+          reason_text: "Correcting the grant that landed on the wrong company.",
+          corrects_ledger_id: "22222222-2222-4222-8222-222222222222",
+        }),
+      }),
+    );
+  });
+
+  it("#2750: shows the goodwill cap answer with the server's used and cap", async () => {
+    adminFetch.mockRejectedValueOnce(
+      new FakeRequestError(409, "goodwill this quarter", {
+        code: "GOODWILL_CAP_EXCEEDED",
+        used: 3,
+        cap: 5,
+      }),
+    );
+    const res = await grantCreditsAction("p-1", validInput);
+    expect(res).toEqual({
+      ok: false,
+      error: "3 of 5 goodwill credits already granted this quarter.",
+    });
+  });
+
+  it("#2750: a retired reason names the two reasons a pilot company accepts", async () => {
+    adminFetch.mockRejectedValueOnce(
+      new FakeRequestError(400, "retired", { code: "GRANT_REASON_RETIRED" }),
+    );
+    const res = await grantCreditsAction("p-1", { ...validInput, reasonCode: "promo" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toMatch(/goodwill or a correction/);
   });
 
   it("surfaces the server's suspended-payer conflict verbatim", async () => {

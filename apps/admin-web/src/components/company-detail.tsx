@@ -43,6 +43,10 @@ export interface CompanyDetailViewProps {
   maySuspend: boolean;
   mayGrantCredits: boolean;
   mayReadIdentity: boolean;
+  /** #2750 item 11 — a correction is a super admin's grant. */
+  isSuperAdmin?: boolean;
+  /** #2750 items 10/12 — the super admin's refund action on a real paid order. */
+  mayRefundPayments?: boolean;
   /** Whether User accounts (and its filtered view) is open to this role. */
   mayOpenAccounts: boolean;
   /** #2750 part C: undefined = waiver read off/failed; null = read but none. */
@@ -84,6 +88,8 @@ export function CompanyDetailView(props: CompanyDetailViewProps) {
     maySuspend,
     mayGrantCredits,
     mayReadIdentity,
+    isSuperAdmin = false,
+    mayRefundPayments = false,
     mayOpenAccounts,
     companyWaiver,
     mayManageWaivers,
@@ -125,6 +131,7 @@ export function CompanyDetailView(props: CompanyDetailViewProps) {
             mayGrantCredits={mayGrantCredits}
             mayReadEvents={mayReadEvents}
             mayReadIdentity={mayReadIdentity}
+            isSuperAdmin={isSuperAdmin}
             timelineHref={timelineHref}
           />
         }
@@ -217,6 +224,7 @@ export function CompanyDetailView(props: CompanyDetailViewProps) {
             history={paymentHistory}
             cursor={cursors.payments}
             basePath={basePath}
+            mayRefund={mayRefundPayments}
           />
         )}
         {activeTab === "credits" && (

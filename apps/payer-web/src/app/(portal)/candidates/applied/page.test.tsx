@@ -365,7 +365,7 @@ describe("candidates page — already unlocked rows start unlocked (liveUnlocksF
     ]);
     const props = await listProps();
     expect(props.unlocked).toEqual({
-      [W1]: { kind: "granted", unlockId: unlock(W1).unlockId, expiresAt: FUTURE },
+      [W1]: { kind: "granted", grantedAt: "2026-09-01T00:00:00.000Z", unlockId: unlock(W1).unlockId, expiresAt: FUTURE },
     });
   });
 

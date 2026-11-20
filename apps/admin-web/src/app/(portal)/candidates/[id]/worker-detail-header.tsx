@@ -54,7 +54,10 @@ export function WorkerDetailHeader({
 }) {
   const router = useRouter();
   const [reasonCode, setReasonCode] = useState<WorkerFlagReasonCode>(WORKER_FLAG_REASON_CODES[0]);
+  const [unflagReason, setUnflagReason] = useState("");
   const [outcome, setOutcome] = useState<AdminActionOutcome | null>(null);
+  const unflagReasonValid =
+    unflagReason.trim().length >= 15 && unflagReason.trim().length <= 500;
 
   function handleSettled(o: AdminActionOutcome) {
     setOutcome(o);
@@ -95,6 +98,19 @@ export function WorkerDetailHeader({
                 action={() => flagWorkerAction(workerId, reasonCode)}
                 onSettled={handleSettled}
               />
+              {/* #2914 — one fixed reason code; the written reason says why. The API refuses a
+                  missing, too-short or identifier-bearing reason, and the banner shows it. */}
+              <label className="field">
+                <span className="field__label sr-only">Unflag reason</span>
+                <textarea
+                  className="field__input"
+                  rows={2}
+                  value={unflagReason}
+                  onChange={(e) => setUnflagReason(e.target.value)}
+                  placeholder="Why the flag is lifted (15–500 characters)"
+                  aria-label="Unflag reason"
+                />
+              </label>
               {/* The REINSTATE glyph, not a second flag (final sweep AW-17): the two opposite
                   verbs drew one icon side by side. Unflag reverses a restriction exactly as
                   Reinstate reverses Suspend, so it wears that action's icon (one concept, one
@@ -104,7 +120,8 @@ export function WorkerDetailHeader({
                 icon={ACTION_ICON.reinstate}
                 confirmLabel="Confirm unflag?"
                 variant="primary"
-                action={() => unflagWorkerAction(workerId)}
+                disabled={!unflagReasonValid}
+                action={() => unflagWorkerAction(workerId, unflagReason.trim())}
                 onSettled={handleSettled}
               />
             </>

@@ -46,6 +46,8 @@ import {
   jobPostingWireSchema,
   matchSkillListWireSchema,
   postingTradeListWireSchema,
+  reachCaseWireSchema,
+  postingOptionsWireSchema,
   reachPreviewWireSchema,
   maskedResumeResultSchema,
   maskedResumeWireSchema,
@@ -113,6 +115,8 @@ import {
   type PostingTradeFormWire,
   type ReachApplicantWire,
   type PostingSummary,
+  type PostingOptions,
+  type PostingChoice,
   type ReachPreview,
   type RevealResult,
   type TopUpResult,
@@ -265,10 +269,20 @@ async function sessionOrgLabel(): Promise<string> {
   return postingOrgLabel(me);
 }
 
-/** GET /payer/credits — the caller's OWN balance (the one knowable signal). */
+/** GET /payer/credits — the caller's OWN balance + wallet lots (the one knowable signal). */
 export async function getCredits(): Promise<CreditBalance> {
   const wire = await payerFetch("/payer/credits", { schema: creditsWireSchema });
-  return { payerId: wire.payer_id, balance: wire.balance };
+  return {
+    payerId: wire.payer_id,
+    balance: wire.balance,
+    lots: wire.lots.map((l) => ({
+      source: l.source,
+      creditsRemaining: l.credits_remaining,
+      creditsGranted: l.credits_granted,
+      expiresAt: l.expires_at,
+      packCode: l.pack_code,
+    })),
+  };
 }
 
 /** GET /payer/unlocks — the caller's OWN unlock history (PII-free projection). */
@@ -298,6 +312,45 @@ export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
         jobPostingId: u.job_posting_id ?? null,
       }))
   );
+}
+
+/** #2750 item 7 — the couldn't-reach case for one of this payer's opens, or null when none. */
+export async function getReachCase(unlockId: string) {
+  try {
+    const wire = await payerFetch(
+      `/payer/unlocks/${encodeURIComponent(unlockId)}/couldnt-reach`,
+      { schema: reachCaseWireSchema },
+    );
+    return {
+      caseId: wire.case_id,
+      unlockId: wire.unlock_id,
+      status: wire.status,
+      reportedAt: wire.reported_at,
+      deadlineAt: wire.deadline_at,
+      resolvedAt: wire.resolved_at,
+      creditsReturned: wire.credits_returned,
+    };
+  } catch (e) {
+    if (isPayerStatus(e, 404)) return null;
+    throw e;
+  }
+}
+
+/** #2750 item 7 — report that this company could not reach the worker it opened. */
+export async function reportCouldntReach(unlockId: string) {
+  const wire = await payerFetch(
+    `/payer/unlocks/${encodeURIComponent(unlockId)}/couldnt-reach`,
+    { method: "POST", body: {}, schema: reachCaseWireSchema },
+  );
+  return {
+    caseId: wire.case_id,
+    unlockId: wire.unlock_id,
+    status: wire.status,
+    reportedAt: wire.reported_at,
+    deadlineAt: wire.deadline_at,
+    resolvedAt: wire.resolved_at,
+    creditsReturned: wire.credits_returned,
+  };
 }
 
 /**
@@ -890,12 +943,22 @@ export async function createCreditOrder(input: {
   packCode: string;
   /** The ₹ the payer saw on the pack they chose (#2085). */
   expectedPriceInr?: number;
+  /** #2938 — a paid posting tap carries the job as its origin. */
+  origin?: "posting_flow";
+  originJobPostingId?: string;
 }): Promise<CreditOrder | null> {
   try {
     return await payerFetch("/payer/credits/order", {
       method: "POST",
       // pack CODE (+ the confirmed price guard) — never an amount to charge
-      body: { pack_code: input.packCode, ...confirmedPrice(input.expectedPriceInr) },
+      body: {
+        pack_code: input.packCode,
+        ...confirmedPrice(input.expectedPriceInr),
+        ...(input.origin ? { origin: input.origin } : {}),
+        ...(input.originJobPostingId
+          ? { origin_job_posting_id: input.originJobPostingId }
+          : {}),
+      },
       schema: creditOrderWireSchema,
     });
   } catch (e) {
@@ -1991,6 +2054,7 @@ export function toPayerJobPostingPatchBody(
   if (input.tradeLevel !== undefined) body.trade_level = input.tradeLevel;
   if (input.tradeAnswers !== undefined) body.trade_answers = input.tradeAnswers;
 
+
   // The clear diff: a field the payer BLANKED (present in `initial`, absent from `input`).
   if (initial) {
     const clear: string[] = [];
@@ -2105,7 +2169,22 @@ export async function previewReach(
 export async function publishPostingWithMatchSkills(
   postingId: string,
   selection: MatchSelectionInput,
+  choice?: { choice: "free" | "free_plus_pack"; surface: "web" | "app" },
 ): Promise<PostingSummary | null> {
+  const out = await publishPostingWithChoice(postingId, selection, choice);
+  return out?.posting ?? null;
+}
+
+/**
+ * #2938 — publish and read the additive `posting_choice` block back. The block is present only
+ * when the switch was on for this company at publish; its `checkout` (paid tap) is the exact body
+ * to send to POST /payer/credits/order.
+ */
+export async function publishPostingWithChoice(
+  postingId: string,
+  selection: MatchSelectionInput,
+  choice?: { choice: "free" | "free_plus_pack"; surface: "web" | "app" },
+): Promise<{ posting: PostingSummary; choice: PostingChoice | null } | null> {
   try {
     const wire = await payerFetch(`/payer/job-postings/${postingId}`, {
       method: "PATCH",
@@ -2113,12 +2192,25 @@ export async function publishPostingWithMatchSkills(
         match_skill_ids: selection.matchSkillIds,
         unticked_related_ids: selection.untickedRelatedIds,
         status: "open",
+        ...(choice ? { posting_choice: choice.choice, surface: choice.surface } : {}),
       },
       schema: jobPostingWireSchema,
     });
-    return toPostingSummary(wire);
+    return { posting: toPostingSummary(wire), choice: wire.posting_choice ?? null };
   } catch (e) {
     if (isPayerStatus(e, 404)) return null;
+    throw e;
+  }
+}
+
+/** #2938 — GET /payer/job-postings/posting-options; null on the switch's 404 or an agency 403. */
+export async function getPostingOptions(): Promise<PostingOptions | null> {
+  try {
+    return await payerFetch("/payer/job-postings/posting-options", {
+      schema: postingOptionsWireSchema,
+    });
+  } catch (e) {
+    if (isPayerStatus(e, 404) || isPayerStatus(e, 403)) return null;
     throw e;
   }
 }

@@ -253,7 +253,7 @@ describe("agency applicants page — rows the agency already unlocked stay unloc
     getUnlocks.mockResolvedValue([unlock(A)]);
     expect(await html()).toContain(`data-unlocked="${A}"`);
     expect((await feedProps()).unlocked).toEqual({
-      [A]: { kind: "granted", unlockId: unlock(A).unlockId, expiresAt: FUTURE },
+      [A]: { kind: "granted", grantedAt: "2026-09-01T00:00:00.000Z", unlockId: unlock(A).unlockId, expiresAt: FUTURE },
     });
   });
 

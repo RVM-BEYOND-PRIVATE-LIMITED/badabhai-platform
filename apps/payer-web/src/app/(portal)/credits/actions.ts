@@ -10,7 +10,7 @@ import {
   topUp,
   verifyCreditPayment,
 } from "../../../lib/payer-api";
-import { PriceMismatchError } from "../../../lib/payer-errors";
+import { PriceMismatchError, isPayerStatus } from "../../../lib/payer-errors";
 import {
   PRICE_UNREADABLE_MESSAGE,
   readExpectedPrice,
@@ -145,7 +145,13 @@ export type CreateOrderActionResult =
   | { ok: false; error: string };
 
 export type VerifyPaymentActionResult =
-  | { ok: true; balance: number; creditsAdded: number }
+  | {
+      ok: true;
+      balance: number;
+      creditsAdded: number;
+      /** #2750 item 9: expired credits returned with this pack (already in `balance`). */
+      creditsReturned?: number;
+    }
   | { ok: false; error: string };
 
 /**
@@ -192,6 +198,13 @@ export async function createOrderAction(input: {
     if (e instanceof PriceMismatchError) {
       return { ok: false, priceChanged: true, currentPriceInr: e.currentPriceInr };
     }
+    // #2749 part 4 — a real checkout needs saved billing details first.
+    if (isPayerStatus(e, 409)) {
+      return { ok: false, error: "Add your billing details first, then retry the purchase." };
+    }
+    if (isPayerStatus(e, 503)) {
+      return { ok: false, error: "Checkout is temporarily unavailable. Please retry shortly." };
+    }
     // A 403 created no order, so no money moved — and a retry is the same 403.
     if (e instanceof PurchaseForbiddenError) return { ok: false, error: PURCHASE_NOT_AVAILABLE };
     return { ok: false, error: "Couldn't start checkout. Please retry." };
@@ -229,7 +242,13 @@ export async function verifyPaymentAction(input: {
       // payer may genuinely have been charged and needs a person, not a retry loop.
       return { ok: false, error: PAYMENT_UNCONFIRMED };
     }
-    return { ok: true, balance: verified.balance, creditsAdded: verified.credits };
+    const returned = verified.credits_returned ?? 0;
+    return {
+      ok: true,
+      balance: verified.balance,
+      creditsAdded: verified.credits,
+      ...(returned > 0 ? { creditsReturned: returned } : {}),
+    };
   } catch (e) {
     // A 403 refused the CONFIRM call, not the checkout: the payer may have been charged, and the
     // webhook still settles. Same honest line as an unverified payment — never "it failed".

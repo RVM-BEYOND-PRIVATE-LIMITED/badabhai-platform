@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildTransactionHistory } from "./credit-history";
-import type { CreditTopUp, UnlockHistoryItem } from "./contracts";
+import {
+  buildTransactionHistory,
+  creditLotSchedule,
+  nextCreditExpiry,
+} from "./credit-history";
+import type { CreditLot, CreditTopUp, UnlockHistoryItem } from "./contracts";
 
 /**
  * Pure credit-history math tests — merge/sort logic verified WITHOUT a render (same
@@ -60,13 +64,51 @@ describe("buildTransactionHistory — merge spends + top-ups, newest first, PII-
   });
 });
 
-describe("#2744 item 1 — no browser-side credit expiry maths", () => {
-  it("exports no expiry schedule or month arithmetic — a lot's expiry is the server's", async () => {
+describe("#2939 — expiry is the wallet's real lot timestamp, never computed here", () => {
+  const lot = (over: Partial<CreditLot> = {}): CreditLot => ({
+    source: "purchased",
+    creditsRemaining: 10,
+    creditsGranted: 10,
+    expiresAt: null,
+    packCode: null,
+    ...over,
+  });
+
+  it("exports no month arithmetic — a lot's expiry is the server's", async () => {
     const exported = Object.keys(await import("./credit-history"));
     expect(exported).toContain("buildTransactionHistory");
-    expect(exported.filter((name) => /expir|month/i.test(name))).toEqual([]);
+    expect(exported).toContain("creditLotSchedule");
+    expect(exported.filter((name) => /month|validity/i.test(name))).toEqual([]);
     // …nor a browser-side credit validity setting to feed one.
     const config = Object.keys(await import("./pricing-config"));
-    expect(config.filter((name) => /validity|expir/i.test(name))).toEqual([]);
+    expect(config.filter((name) => /validity|month/i.test(name))).toEqual([]);
+  });
+
+  it("lists open lots soonest-expiring first, no-expiry lots last", () => {
+    const schedule = creditLotSchedule([
+      lot({ source: "legacy", creditsRemaining: 50 }),
+      lot({ source: "purchased", expiresAt: "2027-01-10T00:00:00.000Z" }),
+      lot({ source: "migrated", expiresAt: "2026-12-18T00:00:00.000Z" }),
+    ]);
+    expect(schedule.map((e) => e.source)).toEqual(["migrated", "purchased", "legacy"]);
+    expect(schedule[0]!.sourceLabel).toBe("Moved from Campus");
+    expect(schedule[1]!.sourceLabel).toBe("Purchased");
+    expect(schedule[2]!.sourceLabel).toBe("Older balance");
+    expect(schedule[2]!.expiresAt).toBeNull();
+  });
+
+  it("skips spent lots and sums the credits on the earliest real expiry", () => {
+    const next = nextCreditExpiry([
+      lot({ source: "spent", creditsRemaining: 0, expiresAt: "2026-12-01T00:00:00.000Z" }),
+      lot({ source: "migrated", creditsRemaining: 18, expiresAt: "2026-12-18T00:00:00.000Z" }),
+      lot({ source: "returned", creditsRemaining: 12, expiresAt: "2026-12-18T00:00:00.000Z" }),
+      lot({ source: "legacy", creditsRemaining: 50 }),
+    ]);
+    expect(next).toEqual({ credits: 30, expiresAt: "2026-12-18T00:00:00.000Z" });
+    expect(creditLotSchedule([lot({ source: "returned" })]).filter((e) => e.source === "returned")).toHaveLength(1);
+  });
+
+  it("returns null when no open lot expires", () => {
+    expect(nextCreditExpiry([lot({ source: "legacy", creditsRemaining: 50 })])).toBeNull();
   });
 });

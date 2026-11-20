@@ -35,10 +35,20 @@ export async function flagWorkerAction(
   }
 }
 
-export async function unflagWorkerAction(workerId: string): Promise<AdminActionOutcome> {
+const unflagReasonSchema = z.string().trim().min(15).max(500);
+
+export async function unflagWorkerAction(
+  workerId: string,
+  reasonText: string,
+): Promise<AdminActionOutcome> {
+  const reason = unflagReasonSchema.safeParse(reasonText);
+  if (!reason.success) {
+    return { ok: false, error: "Add a reason of 15–500 characters before unflagging." };
+  }
   try {
     const res = await adminFetch(`/admin/workers/${encodeURIComponent(workerId)}/unflag`, {
       method: "POST",
+      body: { reason_code: "worker_unflag", reason_text: reason.data },
       schema: resultSchema,
     });
     return {

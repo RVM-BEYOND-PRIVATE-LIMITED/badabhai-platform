@@ -37,6 +37,7 @@ export function CompanyHeaderActions({
   mayGrantCredits,
   mayReadEvents,
   mayReadIdentity,
+  isSuperAdmin = false,
   timelineHref,
 }: {
   company: CompanyDetail;
@@ -46,6 +47,7 @@ export function CompanyHeaderActions({
   mayGrantCredits: boolean;
   mayReadEvents: boolean;
   mayReadIdentity: boolean;
+  isSuperAdmin?: boolean;
   timelineHref: string | null;
 }) {
   const router = useRouter();
@@ -151,6 +153,7 @@ export function CompanyHeaderActions({
         companyId={company.id}
         balance={balance}
         mayGrant={mayGrantCredits}
+        isSuperAdmin={isSuperAdmin}
         timelineHref={timelineHref}
       />
 

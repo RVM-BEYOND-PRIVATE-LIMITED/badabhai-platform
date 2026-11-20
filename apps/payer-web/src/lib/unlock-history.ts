@@ -58,6 +58,7 @@ export function liveUnlocksFor(
       kind: "granted",
       unlockId: u.unlockId,
       expiresAt: u.expiresAt,
+      grantedAt: unlockedAt(u),
       openUntil: u.openUntil,
     };
   }

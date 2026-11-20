@@ -1,6 +1,7 @@
 import 'candidate_search_models.dart';
 import 'job_posting_chat_models.dart';
 import 'models.dart';
+import 'managed_hiring_models.dart';
 import 'payer_api_client.dart';
 
 /// In-memory [PayerApiClient] seeded with sample data from the Payer App kit's
@@ -413,6 +414,16 @@ class MockPayerApiClient implements PayerApiClient {
   @override
   Future<JobPosting?> getJob(String id) async =>
       _cannedJob(id, wireStatus: 'open');
+
+  @override
+  Future<ManagedHiringQuote?> fetchManagedHiringQuote(String jobId) async => null;
+
+  @override
+  Future<List<ManagedHiringOrder>> fetchManagedHiringOrders(String jobId) async =>
+      const <ManagedHiringOrder>[];
+
+  @override
+  Future<String?> requestManagedHiringCallback(String jobId) async => null;
 
   @override
   Future<JobPosting> updateJob(

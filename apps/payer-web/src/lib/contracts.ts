@@ -78,10 +78,35 @@ export const postingSummarySchema = z.object({
 });
 export type PostingSummary = z.infer<typeof postingSummarySchema>;
 
+/**
+ * One open credit lot in the wallet (GET /payer/credits, #2749). Spend order is
+ * soonest-expiry-first; `expires_at` is null for credits that never lapse. PII-free.
+ */
+export const creditLotWireSchema = z.object({
+  source: z.string(),
+  credits_remaining: z.number().int().nonnegative(),
+  credits_granted: z.number().int().nonnegative(),
+  expires_at: z.string().nullable(),
+  pack_code: z.string().nullable(),
+});
+export type CreditLotWire = z.infer<typeof creditLotWireSchema>;
+
+/** One wallet lot, mapped from the wire. PII-free: source, credits and a timestamp only. */
+export const creditLotSchema = z.object({
+  source: z.string(),
+  creditsRemaining: z.number().int().nonnegative(),
+  creditsGranted: z.number().int().nonnegative(),
+  expiresAt: z.string().nullable(),
+  packCode: z.string().nullable(),
+});
+export type CreditLot = z.infer<typeof creditLotSchema>;
+
 /** A payer's own credit balance — the one legitimately-knowable signal (no-oracle). */
 export const creditBalanceSchema = z.object({
   payerId: z.string().uuid(),
   balance: z.number().int().nonnegative(),
+  /** Wallet lots, soonest expiry first. Absent for a pre-#2749 API build. */
+  lots: z.array(creditLotSchema).optional(),
 });
 export type CreditBalance = z.infer<typeof creditBalanceSchema>;
 
@@ -1072,10 +1097,11 @@ export const agencyAccountSchema = z.object({
 });
 export type AgencyAccount = z.infer<typeof agencyAccountSchema>;
 
-/** GET /payer/credits — `{ payer_id, balance }`. */
+/** GET /payer/credits — `{ payer_id, balance, lots }` (#2749; `lots` optional on older builds). */
 export const creditsWireSchema = z.object({
   payer_id: z.string().uuid(),
   balance: z.number().int().nonnegative(),
+  lots: z.array(creditLotWireSchema).optional().default([]),
 });
 
 /**
@@ -1124,6 +1150,18 @@ export const unlockGrantedWireSchema = z.object({
   /** #2747 — null = open for good; absent = an older server. */
   open_until: z.string().nullable().optional(),
 });
+/** #2750 item 7 — POST/GET /payer/unlocks/:unlockId/couldnt-reach. */
+export const reachCaseWireSchema = z.object({
+  case_id: z.string().uuid(),
+  unlock_id: z.string().uuid(),
+  status: z.enum(["open", "reached_interested", "reached_declined", "not_reached"]),
+  reported_at: z.string(),
+  deadline_at: z.string(),
+  resolved_at: z.string().nullable(),
+  credits_returned: z.number().int().nonnegative(),
+});
+export type ReachCaseWire = z.infer<typeof reachCaseWireSchema>;
+
 export const neutralWireSchema = z.object({ status: z.literal("unavailable") });
 export const unlockInsufficientWireSchema = z.object({
   status: z.literal("insufficient_credits"),
@@ -1224,6 +1262,8 @@ export const verifyPaymentWireSchema = z.object({
   balance: z.number().int().nonnegative(),
   credits: z.number().int().nonnegative(),
   pack_code: z.string(),
+  /** #2750 item 9, additive: expired credits returned with this pack (already in `balance`). */
+  credits_returned: z.number().int().nonnegative().optional().default(0),
 });
 export type VerifiedPayment = z.infer<typeof verifyPaymentWireSchema>;
 
@@ -1587,8 +1627,51 @@ export type ApplicantStageChange = z.infer<typeof applicantStageChangeWireSchema
  * mapper DROPS them: only the faceless {@link postingSummarySchema} fields reach the UI. No raw
  * worker PII exists on this row by construction (applicants are a separate faceless reach feed).
  */
+/** #2938 — GET /payer/job-postings/posting-options (404 while the switch is off). */
+export const postingOptionsWireSchema = z.object({
+  free: z.object({
+    choice: z.literal("free"),
+    offered: z.literal(true),
+    label: z.string(),
+    welcome_credits: z.number().nullable(),
+  }),
+  free_plus_pack: z.object({
+    choice: z.literal("free_plus_pack"),
+    offered: z.boolean(),
+    label: z.string().nullable(),
+    pack: z
+      .object({
+        code: z.string(),
+        price_inr: z.number(),
+        total_paise: z.number(),
+        credits: z.number(),
+      })
+      .nullable(),
+    checkout_origin: z.literal("posting_flow"),
+  }),
+});
+export type PostingOptions = z.infer<typeof postingOptionsWireSchema>;
+
+/** The additive `posting_choice` block on a publish answer (#2938). */
+export const postingChoiceWireSchema = z.object({
+  choice: z.enum(["free", "free_plus_pack"]),
+  surface: z.enum(["web", "app"]),
+  recorded: z.boolean(),
+  checkout: z
+    .object({
+      pack_code: z.string(),
+      expected_price_inr: z.number(),
+      origin: z.literal("posting_flow"),
+      origin_job_posting_id: z.string(),
+    })
+    .nullable(),
+});
+export type PostingChoice = z.infer<typeof postingChoiceWireSchema>;
+
 export const jobPostingWireSchema = z.object({
   id: z.string().uuid(),
+  /** #2938 — present only on a publish that recorded a choice. */
+  posting_choice: postingChoiceWireSchema.optional(),
   payer_id: z.string().uuid().nullable(),
   created_by: z.string().uuid(),
   org_label: z.string(),
