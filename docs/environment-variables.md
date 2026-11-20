@@ -201,8 +201,8 @@ NestJS boot assertion).
   `FORM_TENURE_MONTHS_ENABLED` is set explicitly, and `FORM_TYPED_TENURE_DERIVE_ENABLED` too when the
   first is true, so an operator's shell cannot silently write different months from the live path.
   A dry run assumes false for an unset switch and prints `(assumed: unset)`.
-  Arming changes rank inputs for every form worker, so it waits for the owner's `engine_version`
-  ruling (ADR-0036), then: the secret `true` plus a redeploy, then from a tree equal to origin/main
+  Arming changes rank inputs for every form worker: ruled by the CEO on 20 Nov 2026 as engine `v1.2`
+  (ADR-0069). The secret `true` plus a redeploy, then from a tree equal to origin/main
   `pnpm --filter @badabhai/db db:backfill:worker-skills --apply` (both switches exported) and
   `pnpm --filter @badabhai/db db:materialize:reach --apply`.
 - **Stopping AI calls nobody uses (token-audit fixes, 2026-10-22)** — every one defaults to
