@@ -1,11 +1,11 @@
 /**
- * IS THIS WORKER ONE OF THE 21, OR OUTSIDE THEM? (ADR-0045 §3.1, ruling R1)
+ * IS THIS WORKER ONE OF THE 63, OR OUTSIDE THEM? (ADR-0045 §3.1, ruling R1)
  *
  * THE QUESTION THIS ANSWERS. An armed chat session runs today's Phase A until the role is known,
  * then settles into one of two lanes: `classic` (today's interview, byte for byte) or `skills`
  * (the general road — a skills-only model stage, the "Kya aur koi skill jodni hai?" gate, then the
- * offline general form). The owner's ruling R1 is that ONLY roles outside the 21 declared roles
- * take the skills lane, and "the 21" is every descriptor in `ROLE_FORM_DESCRIPTORS` — the 16 whose
+ * offline general form). The owner's ruling R1 is that ONLY roles outside the 63 declared roles
+ * take the skills lane, and "the 63" is every descriptor in `ROLE_FORM_DESCRIPTORS` — the 16 whose
  * forms ship AND the 5 polymer roles whose forms do not exist yet. This module is the read the
  * lane decision is built on. It decides nothing else, calls nothing, and nothing calls it yet.
  *
@@ -15,9 +15,9 @@
  *
  * ── THREE ANSWERS, NOT TWO ───────────────────────────────────────────────────────────────────
  *
- *   declared  Something names one of the 21 — the lane is `classic`.
+ *   declared  Something names one of the 63 — the lane is `classic`.
  *   outside   The model captured a role, and after every word that is not evidence has been
- *             removed, something is still left that names none of the 21 — the lane is `skills`.
+ *             removed, something is still left that names none of the 63 — the lane is `skills`.
  *   unknown   Nothing yet says either. The caller keeps asking Phase A, or — if Phase A has ended —
  *             stays on `classic`, as §3.1 says a Phase A that ended without a role does.
  *
@@ -31,8 +31,8 @@
  * The two mistakes do not cost the same.
  *
  *   A FALSE `declared` costs the worker nothing they have today. They get today's interview,
- *   exactly — the path every worker outside the 21 was on until this ADR.
- *   A FALSE `outside` takes one of the 21 off the path the owner built for them: no trade-form
+ *   exactly — the path every worker outside the 63 was on until this ADR.
+ *   A FALSE `outside` takes one of the 63 off the path the owner built for them: no trade-form
  *   offer, no trade sheet, a general résumé for a turner. That is the mistake the ruling exists
  *   to prevent.
  *
@@ -43,8 +43,8 @@
  * ── WHY THE ROUTER'S VETO IS NEVER APPLIED HERE ──────────────────────────────────────────────
  *
  * `routeToTradeForm`'s conflict terms answer a DIFFERENT question: "which ONE form fits?". A
- * worker who says "CNC turning aur VMC" is vetoed there because two of the 21 claim him and the
- * honest answer is to keep talking. That is still two of the 21. Applying the veto here would
+ * worker who says "CNC turning aur VMC" is vetoed there because two of the 63 claim him and the
+ * honest answer is to keep talking. That is still two of the 63. Applying the veto here would
  * turn "ambiguous between two declared roles" into "outside all of them" — the false `outside`
  * above, produced by exactly the workers most certainly inside. The veto keeps its job in the
  * router, which the classic lane still runs.
@@ -126,7 +126,7 @@ function joinLetterRuns(prepared: string): string {
  * BOTH, BECAUSE A JOIN CAN SWALLOW A WORD. "I am a C.N.C operator" joins to "i am acnc operator":
  * the article "a" is a single letter too, and "acnc" names nothing. Read as written, the same label
  * is "i am a c n c operator", which strips to nothing. So each reading is asked and the asymmetry
- * in the header picks the answer: `declared` if ANY reading names one of the 21, `unknown` if ANY
+ * in the header picks the answer: `declared` if ANY reading names one of the 63, `unknown` if ANY
  * reading strips to nothing, and `outside` only when EVERY reading still has a role left.
  */
 function readings(prepared: string): readonly string[] {
@@ -152,25 +152,25 @@ function prepareTerms(terms: Iterable<string>): readonly string[] {
 }
 
 /**
- * Every occupation term of ALL 21 — enabled or not.
+ * Every occupation term of ALL 63 — enabled or not.
  *
- * ALL 21, NOT `ENABLED_ROLE_DESCRIPTORS`. The router routes only the 16 whose forms ship; the
- * ruling's "21" includes the 5 polymer roles, and a worker who says "injection moulding" has
- * named one of them. Those five keep today's chat (R1), which is precisely `declared`.
+ * ALL 63, NOT `ENABLED_ROLE_DESCRIPTORS`. The router routes only the 16 whose forms ship; the
+ * ruling's set covers every declared role, and a worker who says "injection moulding" has
+ * named one of them. The formless keep today's chat (R1), which is precisely `declared`.
  */
 export const DECLARED_OCCUPATION_TERMS: readonly string[] = prepareTerms(
   ROLE_FORM_DESCRIPTORS.flatMap((descriptor) => descriptor.detection.occupationTerms),
 );
 
 /**
- * WORDS THAT NAME ONE OF THE 21 BUT THAT THE ROLE FILES LEAVE OUT ON PURPOSE — this module's own
+ * WORDS THAT NAME ONE OF THE 63 BUT THAT THE ROLE FILES LEAVE OUT ON PURPOSE — this module's own
  * recall list, never the router's.
  *
  * WHY THE REGISTRY'S TERMS ARE NOT ENOUGH HERE. An occupation term answers the ROUTER's question,
  * "which ONE form?", and routes with no pin at all, so every role file tunes its terms for
  * PRECISION: `press-operator.role.ts` bans bare "press" (a printing press), `fitter.role.ts` bans
  * "mechanical fitter" (a control-panel fitter's catalogue title), and the polymer roles list only
- * compounds. This module asks a RECALL question — "could this be one of the 21?" — and reading a
+ * compounds. This module asks a RECALL question — "could this be one of the 63?" — and reading a
  * precision list for recall is exactly how "Moulder" and "Machinist" became a false `outside`.
  * So the gap is closed HERE, where a false `declared` costs nothing, and NEVER in a role file,
  * where the same word would route a form.
@@ -209,7 +209,7 @@ export const SCOPE_DECLARED_TERMS: readonly string[] = prepareTerms([
   "प्लास्टिक",
   "रबर",
   // ── MACHINIST. `conventional-machinist.role.ts` lists the bare Devanagari "मशीनिस्ट" but not the
-  // Latin word, so the lane depended on the script. A bare machinist is one of the 21 whichever
+  // Latin word, so the lane depended on the script. A bare machinist is one of the 63 whichever
   // machining role he is.
   "machinist",
   // ── ASSEMBLY. The same script split: the bare Devanagari "असेंबली" is the assembly line's term,
@@ -249,16 +249,16 @@ export const SCOPE_DECLARED_TERMS: readonly string[] = prepareTerms([
   "qa inspector",
 ]);
 
-/** The 21 descriptors' own families. A pin to any of them is one of the 21 on the pin alone. */
+/** The 63 descriptors' own families. A pin to any of them is one of the 63 on the pin alone. */
 export const DECLARED_FAMILY_IDS: ReadonlySet<string> = new Set(
   ROLE_FORM_DESCRIPTORS.map((descriptor) => descriptor.familyId),
 );
 
 /**
- * GENERIC SIBLING FAMILIES whose members are overwhelmingly the 21's trades (ADR-0045 §6, "added
+ * GENERIC SIBLING FAMILIES whose members are overwhelmingly the 63's trades (ADR-0045 §6, "added
  * while building").
  *
- * WHY A PIN HERE IS ENOUGH. These are the generic unit families the 21's own families sit beside
+ * WHY A PIN HERE IS ENOUGH. These are the generic unit families the 63's own families sit beside
  * — `fam_machining` ("kharad aur CNC"), `fam_fitting`, `fam_toolmaking`, `fam_sheet_metal`,
  * `fam_assembly`, `fam_rubber_plastic`, `fam_welding` (a role pack sits beside the family pack,
  * never instead of it). A worker pinned into one of them is almost always a turner, a fitter, a
@@ -275,7 +275,7 @@ export const DECLARED_FAMILY_IDS: ReadonlySet<string> = new Set(
  *
  * WHAT IS DELIBERATELY NOT HERE. `fam_electrical`, `fam_electrical_equipment` and `fam_painting`
  * are the domestic electrician and the house painter, and an earlier ruling puts both outside the
- * 21 (ruling A2 for the electrician; `painter-coating.role.ts` for the painter). Adding them
+ * 63 (ruling A2 for the electrician; `painter-coating.role.ts` for the painter). Adding them
  * would keep exactly the workers the general road is for off it.
  */
 export const ADJACENT_FAMILY_IDS: ReadonlySet<string> = new Set([
@@ -291,7 +291,7 @@ export const ADJACENT_FAMILY_IDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * LEVEL RUNGS THAT AN OWNER RULING PLACES OUTSIDE THE 21 WHEN THEY STAND ALONE — the one
+ * LEVEL RUNGS THAT AN OWNER RULING PLACES OUTSIDE THE 63 WHEN THEY STAND ALONE — the one
  * exception to "level words are not evidence".
  *
  * WHY THE EXCEPTION EXISTS. These words are on a declared role's ladder only as a RUNG, and
@@ -310,7 +310,7 @@ export const ADJACENT_FAMILY_IDS: ReadonlySet<string> = new Set([
  *
  * NOT EXTENDED TO OTHER SHARED RUNGS. "fitter", "draughtsman", "programmer", "inspector" and
  * "technician" are shared too, but no ruling says their bare form lives outside — "fitter" is
- * one of the highest-volume ITI trades and most of the men who say it ARE the 21's fitter. They
+ * one of the highest-volume ITI trades and most of the men who say it ARE the 63's fitter. They
  * stay stripped, so bare they are `unknown` and qualified they are decided by the qualifier
  * ("pipe fitter" and "AC technician" are `outside`, as their own role files already rule).
  */
@@ -327,7 +327,7 @@ export const OUTSIDE_RULED_RUNGS: readonly string[] = prepareTerms([
  * `unknown`, not `outside`.
  *
  * WHY. The exemption above is for the BARE word: `industrial-electrician.role.ts` rules that the
- * industrial qualifier ("industrial", "plant") is exactly what makes an electrician one of the 21.
+ * industrial qualifier ("industrial", "plant") is exactly what makes an electrician one of the 63.
  * But these words are also {@link NOT_EVIDENCE_WORDS}, and the occupation terms match only one
  * word order — so "Electrician industrial", "Electrician in plant" or "Factory painter" stripped to
  * the bare rung and read `outside`. With a place word anywhere in the role, the rung no longer
@@ -351,14 +351,14 @@ export const RULED_RUNG_QUALIFIERS: readonly string[] = prepareTerms([
 /**
  * WORDS THAT SAY WHERE, WHO, AT WHAT RANK OR IN WHAT GRAMMAR — never WHAT THE WORK IS.
  *
- * Authored here, and CLOSED. The registry's machine and level terms are the 21's own vocabulary;
+ * Authored here, and CLOSED. The registry's machine and level terms are the 63's own vocabulary;
  * these are the words every role label is padded with regardless of trade. A label made only of
  * them has not told us a role, so it must be `unknown` rather than `outside`: "CNC operator",
  * "machine operator", "factory worker", "mazdoor", "khraad chalata hoon".
  *
  * GROWING THIS LIST IS THE SAFE DIRECTION — a word added here can only turn an `outside` into an
  * `unknown`, which keeps a worker on today's path. Removing one is the direction that needs a
- * reason. It must never hold one of the 21's occupation terms (the test holds that), though it
+ * reason. It must never hold one of the 63's occupation terms (the test holds that), though it
  * cannot matter: occupation terms are read before anything is stripped.
  *
  * EVERY LATIN WORD HAS ITS DEVANAGARI TWIN, where the twin is a word people type. The model copies
@@ -444,7 +444,7 @@ export const NOT_EVIDENCE_WORDS: readonly string[] = prepareTerms([
   "स्टाफ",
   "कर्मचारी",
   // ── RANK: a rung on somebody's ladder, whose ladder it does not say. "engineer" is the top rung
-  // of three of the 21 ("design engineer", "process engineer", "qc engineer") exactly as
+  // of three of the 63 ("design engineer", "process engineer", "qc engineer") exactly as
   // "technician" is a rung of two; "software engineer" still keeps its "software".
   "senior",
   "junior",
@@ -463,7 +463,7 @@ export const NOT_EVIDENCE_WORDS: readonly string[] = prepareTerms([
   "engineer",
   // Where he trained, not which trade: `fitter.role.ts` keeps "iti fitter" out of its terms because
   // "any trade's ITI pass-out" says it. Without this, "I.T.I. fitter" read `unknown` (its letters
-  // are dropped) and "ITI fitter" read `outside` — the 21's highest-volume ITI trade.
+  // are dropped) and "ITI fitter" read `outside` — the 63's highest-volume ITI trade.
   "iti",
   "आईटीआई",
   // "सीनियर", "हेल्पर" and "ऑपरेटर" are also on some role's ladder today — listed anyway, so the
@@ -594,8 +594,8 @@ export const NOT_EVIDENCE_WORDS: readonly string[] = prepareTerms([
  * EVERYTHING THAT IS STRIPPED from the role before asking "is anything left?", longest phrase
  * first.
  *
- * THE 21's MACHINE AND LEVEL TERMS, because §3.1 says they are not evidence either way: "lathe"
- * is two of the 21 and a man who runs one outside them, and "operator" is everybody. Plus the
+ * THE 63's MACHINE AND LEVEL TERMS, because §3.1 says they are not evidence either way: "lathe"
+ * is two of the 63 and a man who runs one outside them, and "operator" is everybody. Plus the
  * authored {@link NOT_EVIDENCE_WORDS}, minus the {@link OUTSIDE_RULED_RUNGS} exemption.
  *
  * LONGEST PHRASE FIRST, because a phrase is not the sum of its words. "Machine repair" is the
@@ -624,12 +624,12 @@ export const STRIPPED_TERMS: readonly string[] = (() => {
 })();
 
 /**
- * Does anything name one of the 21? ANY ONE of four pieces of evidence is enough — see the
+ * Does anything name one of the 63? ANY ONE of four pieces of evidence is enough — see the
  * asymmetry in the header.
  *
- *   (a) an occupation term of any of the 21, or one of {@link SCOPE_DECLARED_TERMS}, anywhere in
+ *   (a) an occupation term of any of the 63, or one of {@link SCOPE_DECLARED_TERMS}, anywhere in
  *       domain + role + pin label, in any of its {@link readings};
- *   (b) a pin to one of the 21's own families;
+ *   (b) a pin to one of the 63's own families;
  *   (c) a pin to an adjacent generic family ({@link ADJACENT_FAMILY_IDS});
  *   (d) the live router would route it.
  *
@@ -641,7 +641,7 @@ export const STRIPPED_TERMS: readonly string[] = (() => {
  * withholds a route — and its `null` is never read as `outside`: a vetoed, ambiguous or formless
  * trade returns `null` too.
  */
-function namesOneOfThe21(input: RoleScopeInput, pinLabel: string | null): boolean {
+function namesOneOfThe63(input: RoleScopeInput, pinLabel: string | null): boolean {
   const haystack = prepare(`${input.domainLabel ?? ""} ${input.roleLabel ?? ""} ${pinLabel ?? ""}`);
   const named = readings(haystack).some(
     (reading) =>
@@ -700,17 +700,17 @@ function isQualifiedRuledRung(role: string): boolean {
 }
 
 /**
- * Is this worker's role one of the 21, outside them, or not known yet? See the header.
+ * Is this worker's role one of the 63, outside them, or not known yet? See the header.
  *
  * THE ORDER IS THE RULE. `declared` is decided FIRST, on the unstripped text, because several
  * occupation terms are also level terms — "welder", "mould maker", "tool maker", "process
  * technician" — and stripping first would read a welder as `unknown`. Only then does a missing
- * role make the answer `unknown`: the domain and the pin can prove a worker is one of the 21, but
+ * role make the answer `unknown`: the domain and the pin can prove a worker is one of the 63, but
  * they can never prove one is not, because §3.1 requires that the model captured the role.
  */
 export function classifyRoleScope(input: RoleScopeInput): RoleScope {
   const pinLabel = isUniversalPlaceholderLabel(input.pinLabel) ? null : input.pinLabel;
-  if (namesOneOfThe21(input, pinLabel)) return "declared";
+  if (namesOneOfThe63(input, pinLabel)) return "declared";
 
   // BLANK AFTER PREPARATION, not merely after `trim()`: a label of "—" or "?" carries no more of
   // a role than "   " does, and must not reach the strip as if it did.

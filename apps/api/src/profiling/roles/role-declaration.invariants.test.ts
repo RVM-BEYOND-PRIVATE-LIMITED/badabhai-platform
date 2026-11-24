@@ -121,7 +121,7 @@ describe("the declared-role set", () => {
     });
   });
 
-  it("keeps the six clusters populated as the rollout plan assigns them", () => {
+  it("keeps the nine clusters populated as the rollout plan assigns them", () => {
     // A CHANGE-DETECTOR ON PURPOSE, and the only one in this file. Cluster membership is what
     // decides who vetoes whom, so moving a role between clusters silently rewrites five other
     // roles' conflict sets. That is a reviewable decision; this makes it one.
@@ -137,6 +137,12 @@ describe("the declared-role set", () => {
         "conventional_machinist",
         "tool_die_maker",
         "edm_wirecut_operator",
+        // CEO pack v2 (#3004) — the Wave-2 gear, boring and finishing trades, plus the Wave-1
+        // ArtCAM router. Formless vocabulary for the veto derivation, like EDM.
+        "gear_cutting_operator",
+        "boring_machine_operator",
+        "spm_finishing_operator",
+        "cnc_router_operator",
       ],
       design: ["cam_programmer", "cad_draughtsman", "cad_designer_3d"],
       fabrication: [
@@ -146,12 +152,24 @@ describe("the declared-role set", () => {
         "painter_coating",
         "heat_treatment_technician",
         "foundry_forging_operator",
+        // CEO pack v2 (#3004) — the casting, forging, fabrication and plating trades.
+        "fabricator",
+        "tube_bending_operator",
+        "foundry_operator",
+        "die_casting_operator",
+        "forging_operator",
+        "plating_operator",
       ],
       maintenance: [
         "fitter",
         "maintenance_technician",
         "industrial_electrician",
         "plc_automation_technician",
+        // CEO pack v2 (#3004) — the robot, instrument, HVAC and utility trades.
+        "robot_operator_programmer",
+        "instrumentation_technician",
+        "hvac_rac_technician",
+        "utility_operator",
       ],
       production: ["assembly_line_worker", "quality_inspector", "production_supervisor"],
       polymer: [
@@ -160,6 +178,37 @@ describe("the declared-role set", () => {
         "blow_moulding_operator",
         "rubber_moulding_operator",
         "plastic_process_technician",
+        // CEO pack v2 (#3004) — the extrusion operator, formless like the batch.
+        "plastic_extrusion_operator",
+      ],
+      // CEO pack v2 (#3004) — the three conflict scopes the desk and quality trades need.
+      quality_lab: [
+        "cmm_operator",
+        "ndt_technician",
+        "calibration_technician",
+        "material_lab_technician",
+      ],
+      engineering_desk: [
+        "quality_engineer",
+        "maintenance_engineer",
+        "service_engineer",
+        "production_engineer",
+        "process_engineer",
+        "npd_engineer",
+        "safety_officer",
+        "project_site_engineer",
+        "technical_sales_engineer",
+        "ppc_engineer",
+        "purchase_engineer",
+        // CEO pack v2 (#3004) — the analysis and piping trades sit on the desk, not the board.
+        "cae_analyst",
+        "piping_designer",
+      ],
+      supply_chain: [
+        "store_keeper",
+        "dispatch_logistics_executive",
+        "forklift_operator",
+        "crane_operator",
       ],
     });
   });

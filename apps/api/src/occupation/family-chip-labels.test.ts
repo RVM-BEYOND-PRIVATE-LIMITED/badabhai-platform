@@ -174,6 +174,11 @@ describe("FAMILY_CHIP_LABELS", () => {
       // maintenance") and `fam_machinery_repair` stay off this table: bare "maintenance" is a
       // corroborated term (owner ruling 2026-09-25), so it routes only under this family's pin.
       fam_maintenance_tech: "maintenance_technician",
+      // #3004 — "quality engineer" is the QC inspector role's own occupation term, so a worker
+      // pinned to the engineer family on that label is handed the inspector form. That is the
+      // status quo ante (the label did not exist; the words already routed), not a new route:
+      // the inspector form is the nearest live quality form until the engineer form ships.
+      fam_quality_engineer: "quality_inspector",
     });
   });
 });
