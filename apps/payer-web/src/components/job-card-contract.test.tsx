@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JobCardPreview } from "./job-card-preview";
 import { JOB_CARD_CLAMPS, type CardFields } from "../lib/job-card-view";
+import { ROLE_ART_KINDS } from "@badabhai/role-art";
 import { TRADE_FORM_KINDS_ALL } from "../lib/job-roles";
 
 /**
@@ -140,9 +141,14 @@ describe("the worker-card contract fixture", () => {
 });
 
 describe("the worker-card contract fixture — role_kind → the card's role illustration", () => {
-  it("covers every declared role kind", () => {
+  it("covers every declared role kind that has a drawing", () => {
     const kinds = FIXTURE.role_art.cases.map((c) => c.input.role_kind);
-    for (const kind of TRADE_FORM_KINDS_ALL) expect(kinds).toContain(kind);
+    // #2999 declares 36 kinds before their art exists (#3026). The fixture must cover every
+    // kind this build can draw; the resolver sends the rest to generic.
+    const drawn = new Set<string>(ROLE_ART_KINDS);
+    for (const kind of TRADE_FORM_KINDS_ALL) {
+      if (drawn.has(kind)) expect(kinds).toContain(kind);
+    }
   });
 
   it.each(FIXTURE.role_art.cases.map((c) => [c.name, c] as const))("%s", (_name, c) => {

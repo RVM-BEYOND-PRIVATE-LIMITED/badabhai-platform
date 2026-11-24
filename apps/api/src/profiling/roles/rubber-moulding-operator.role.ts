@@ -16,17 +16,12 @@ export const RUBBER_MOULDING_OPERATOR = {
   familyId: "fam_rubber_moulding",
   cluster: "polymer",
   formEnabled: false,
-  displayName: "Rubber Moulding / Compression Operator",
+  displayName: "Rubber Moulding Operator",
   offerName: "rubber moulding operator",
   levelLadder: ["Helper", "Operator", "Setter"],
   tenureQuestionKey: "rubber_experience",
   detection: {
-    occupationTerms: [
-      "rubber moulding",
-      "rubber molding",
-      "compression moulding",
-      "रबर मोल्डिंग",
-    ],
+    occupationTerms: ["rubber moulding", "rubber molding", "compression moulding", "रबर मोल्डिंग"],
     machineTerms: [
       "transfer moulding",
       "rubber injection",

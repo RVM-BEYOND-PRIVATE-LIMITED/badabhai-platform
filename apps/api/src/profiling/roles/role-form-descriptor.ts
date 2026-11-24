@@ -76,6 +76,11 @@ export const ROLE_CLUSTERS = [
   "maintenance",
   "production",
   "polymer",
+  // CEO pack v2 (#2999) — the three scopes the desk and quality trades need. Appended so
+  // every existing descriptor's cluster keeps its meaning.
+  "quality_lab",
+  "engineering_desk",
+  "supply_chain",
 ] as const;
 export type RoleCluster = (typeof ROLE_CLUSTERS)[number];
 

@@ -11,6 +11,7 @@ import {
 import { companyPostingFacts } from "../lib/posting-facts";
 import { toPayerJobPostingBody } from "../lib/payer-api";
 import { jobPostingWireSchema, type CreatePostingInput } from "../lib/contracts";
+import { resolveRoleArtKind } from "@badabhai/role-art";
 import { JOB_ROLE_LABELS, TRADE_FORM_KINDS_ALL } from "../lib/job-roles";
 
 /**
@@ -19,7 +20,7 @@ import { JOB_ROLE_LABELS, TRADE_FORM_KINDS_ALL } from "../lib/job-roles";
  * worker's card — ADR-0024 addendum, #1823, #1651), that it carries the exact ADR-0024 caption,
  * that every clamped slot is stamped with the phone's line limit, and — the lineage — that a role
  * picked in the form round-trips through the create body and the wire echo to the "Also in your
- * posting" list (not the card), for all 21 roles. Slot ORDER vs the worker card is pinned by the
+ * posting" list (not the card), for all 63 roles. Slot ORDER vs the worker card is pinned by the
  * cross-language fixture (job-card-contract.test.tsx).
  */
 
@@ -88,9 +89,13 @@ describe("JobCardPreview — the worker card's rows, never a trust/identity clai
   });
 
   it.each(TRADE_FORM_KINDS_ALL)(
-    "role_kind=%s draws that role's art (the picker changes the picture)",
+    "role_kind=%s draws that role's art, or generic until #3026 draws it",
     (kind) => {
-      expect(html({ ...FULL, role_kind: kind })).toContain(`data-role-art="${kind}"`);
+      // #2999 declares the 36 new kinds before their art exists (#3026); the resolver is the
+      // single answer to which picture a kind draws.
+      expect(html({ ...FULL, role_kind: kind })).toContain(
+        `data-role-art="${resolveRoleArtKind(kind)}"`,
+      );
     },
   );
 

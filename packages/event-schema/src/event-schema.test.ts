@@ -1013,7 +1013,7 @@ describe("job_posting events (ops-created, vacancy-banded, PII-free)", () => {
     }
   });
 
-  it("carries job_posting.created role_kind as one of the 27 declared kinds, or null (0131)", () => {
+  it("carries job_posting.created role_kind as one of the 63 declared kinds, or null (0131)", () => {
     const base = {
       ...workerCreatedEvent(),
       event_name: "job_posting.created",
@@ -1826,7 +1826,7 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
       expect(result.event.payload.role_kind).toBeNull();
       // No field could carry an employer name / address / worker id — opaque ids +
       // coarse bands + closed enums only (the city label is the only non-id string,
-      // capped + coarse; `role_kind` is a closed 27-slug enum).
+      // capped + coarse; `role_kind` is a closed 63-slug enum).
       expect(Object.keys(result.event.payload).sort()).toEqual(
         [
           "city",
@@ -1844,7 +1844,7 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
     }
   });
 
-  it("carries job.created role_kind as one of the 27 declared kinds, or null (0131)", () => {
+  it("carries job.created role_kind as one of the 63 declared kinds, or null (0131)", () => {
     const payload = {
       job_id: UUID_A,
       payer_id: UUID_B,
@@ -2757,14 +2757,28 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
         event_name: "payer.candidate_search_volume_alert",
         actor: { actor_type: "payer", actor_id: UUID_A },
         subject: { subject_type: "payer", subject_id: UUID_A },
-        payload: { payer_id: UUID_A, level, day: "2026-11-19", cap: 300, distinct_workers: 150, pages: 9 },
+        payload: {
+          payer_id: UUID_A,
+          level,
+          day: "2026-11-19",
+          cap: 300,
+          distinct_workers: 150,
+          pages: 9,
+        },
       });
       expect(result.success).toBe(true);
     }
   });
 
   it("rejects payer.candidate_search_volume_alert with a worker id, a bad level or a bad day (#2838)", () => {
-    const ok = { payer_id: UUID_A, level: "cap", day: "2026-11-19", cap: 300, distinct_workers: 300, pages: 20 };
+    const ok = {
+      payer_id: UUID_A,
+      level: "cap",
+      day: "2026-11-19",
+      cap: 300,
+      distinct_workers: 300,
+      pages: 20,
+    };
     for (const payload of [
       { ...ok, worker_id: UUID_A },
       { ...ok, level: "warn" },
@@ -5452,7 +5466,7 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
   });
 
   it("allows a null form_kind on the chat route, and a real one on the form route", () => {
-    // Only 9 of 21 declared roles have a form, so the chat route is the COMMON outcome and must
+    // Only a minority of the 63 declared roles have a form, so the chat route is the COMMON outcome and must
     // be representable without inventing a kind. The pairing itself is enforced in the database
     // by `wri_form_kind_chk`; the event only has to be able to express both.
     expect(
@@ -6005,7 +6019,7 @@ describe("the general road (ADR-0045)", () => {
     }
   });
 
-  it("ties the lane to its reason — only 'outside the 21' is the skills lane", () => {
+  it("ties the lane to its reason — only 'outside the 63' is the skills lane", () => {
     const lane = VALID["profile.profiling_lane_decided"]!;
     expect(
       validateEvent(

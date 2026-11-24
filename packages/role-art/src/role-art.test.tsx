@@ -18,18 +18,72 @@ import { buildArtifacts } from "../scripts/generate.mjs";
 
 const PKG = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+/**
+ * #2999 declares the 36 new kinds before their art exists (#3026). Until that PR draws
+ * them, every new kind resolves to the generic fallback; this set is deleted there.
+ */
+const PENDING_ROLE_ART_KINDS: ReadonlySet<string> = new Set([
+  "gear_cutting_operator",
+  "boring_machine_operator",
+  "spm_finishing_operator",
+  "cnc_router_operator",
+  "fabricator",
+  "tube_bending_operator",
+  "foundry_operator",
+  "die_casting_operator",
+  "forging_operator",
+  "plating_operator",
+  "plastic_extrusion_operator",
+  "cmm_operator",
+  "ndt_technician",
+  "calibration_technician",
+  "material_lab_technician",
+  "quality_engineer",
+  "robot_operator_programmer",
+  "instrumentation_technician",
+  "hvac_rac_technician",
+  "utility_operator",
+  "maintenance_engineer",
+  "service_engineer",
+  "production_engineer",
+  "process_engineer",
+  "npd_engineer",
+  "safety_officer",
+  "project_site_engineer",
+  "technical_sales_engineer",
+  "ppc_engineer",
+  "store_keeper",
+  "purchase_engineer",
+  "dispatch_logistics_executive",
+  "forklift_operator",
+  "crane_operator",
+  "cae_analyst",
+  "piping_designer",
+]);
+
+const ART_KINDS_WITH_PENDING = [
+  ...TRADE_FORM_KINDS_ALL.filter((kind) => !PENDING_ROLE_ART_KINDS.has(kind)),
+  ROLE_ART_FALLBACK,
+];
+
 describe("role art — coverage", () => {
-  it("has art for EVERY declared role kind, plus the generic fallback, and nothing else", () => {
-    expect([...ROLE_ART_KINDS]).toEqual([...TRADE_FORM_KINDS_ALL, ROLE_ART_FALLBACK]);
-    for (const kind of TRADE_FORM_KINDS_ALL) expect(ROLE_ART_DATA[kind], kind).toBeDefined();
+  it("has art for every declared kind that has a drawing, plus the generic fallback", () => {
+    expect([...ROLE_ART_KINDS]).toEqual(ART_KINDS_WITH_PENDING);
+    for (const kind of TRADE_FORM_KINDS_ALL) {
+      if (PENDING_ROLE_ART_KINDS.has(kind)) {
+        expect(resolveRoleArtKind(kind), kind).toBe(ROLE_ART_FALLBACK);
+      } else {
+        expect(ROLE_ART_DATA[kind as (typeof ROLE_ART_KINDS)[number]], kind).toBeDefined();
+      }
+    }
   });
 
-  it("art/ORDER lists exactly the declared kinds in declared order", () => {
+  it("art/ORDER lists exactly the drawn kinds in declared order", () => {
     const order = readFileSync(join(PKG, "art", "ORDER"), "utf8")
       .split("\n")
       .map((l) => l.replace(/#.*/, "").trim())
       .filter(Boolean);
-    expect(order).toEqual([...TRADE_FORM_KINDS_ALL, "generic"]);
+    expect(order).toEqual(ART_KINDS_WITH_PENDING);
   });
 });
 
@@ -79,7 +133,9 @@ describe("resolveRoleArtKind — defensive", () => {
     "%s → generic",
     (v) => expect(resolveRoleArtKind(v)).toBe("generic"),
   );
-  it.each(TRADE_FORM_KINDS_ALL)("%s → itself", (k) => expect(resolveRoleArtKind(k)).toBe(k));
+  it.each(TRADE_FORM_KINDS_ALL)("%s → itself, or generic until #3026 draws it", (k) =>
+    expect(resolveRoleArtKind(k)).toBe(PENDING_ROLE_ART_KINDS.has(k) ? ROLE_ART_FALLBACK : k),
+  );
 });
 
 describe("<RoleArt>", () => {

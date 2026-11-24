@@ -1648,7 +1648,7 @@ const JOB_POSTING_CHANGED_FIELDS = [
   "benefits",
   "requirements",
   // Migration 0131 (ADDITIVE enum member, same precedent as "skills", the ADR-0036 block and
-  // #1646/#1648 above). The payer set, changed or cleared the posting's ROLE — one of the 21
+  // #1646/#1648 above). The payer set, changed or cleared the posting's ROLE — one of the 63
   // declared kinds. The KEY only: which role moved to is not on this event, exactly as the
   // other card fields report their key and never their value. Display / classification only
   // (ADR-0036 addendum 2026-09-29), so a reader must not treat it as a match change —
@@ -1679,7 +1679,7 @@ export const JobPostingCreatedPayload = z.object({
   has_location: z.boolean(),
   has_description: z.boolean(),
   /**
-   * The role the poster picked (migration 0131) — one of the 21 DECLARED kinds in
+   * The role the poster picked (migration 0131) — one of the 63 DECLARED kinds in
    * {@link TRADE_FORM_KINDS_ALL}, or null for "no role picked" (every chat-published posting,
    * every posting created before the column existed).
    *
@@ -2991,7 +2991,7 @@ export const JobCreatedPayload = z.object({
    * The role the poster picked (migration 0131), or null. The twin of
    * `job_posting.created.role_kind` — see there. ADDITIVE and defaulted exactly like the bands
    * above, so `job.created` stays v1. Distinct from `trade_key`, which stays the agency job's
-   * matching classifier; this is the 21-kind display role and never a match input.
+   * matching classifier; this is the 63-kind display role and never a match input.
    */
   role_kind: z.enum(TRADE_FORM_KINDS_ALL).nullable().default(null),
 });
@@ -3024,7 +3024,7 @@ export const JOB_CHANGED_FIELDS = [
   // #1648 — ADDITIVE, same precedent. The agency job gained a pay-type claim; the KEY says
   // the poster changed what the band MEANS, never what it says.
   "pay_type",
-  // Migration 0131 — ADDITIVE, same precedent. The agency job's display ROLE (one of the 21
+  // Migration 0131 — ADDITIVE, same precedent. The agency job's display ROLE (one of the 63
   // declared kinds) was set, changed or cleared. KEY only. Not `trade_key`: that key above is
   // still the one that says the job's matching classifier moved.
   "role_kind",
@@ -3085,7 +3085,6 @@ export type JobHiddenPayload = z.infer<typeof JobHiddenPayload>;
 /** An ADMIN restored a hidden agency job to the worker feed/search. */
 export const JobUnhiddenPayload = z.object({ job_id: uuidSchema }).strict();
 export type JobUnhiddenPayload = z.infer<typeof JobUnhiddenPayload>;
-
 
 // ---------------------------------------------------------------------------
 // Worker-facing notification events (TD64). These are per-worker events emitted at
@@ -4239,9 +4238,7 @@ export const JobPostingMatchSkillsScopedPayload = z
     dropped_skill_ids: z.array(matchSkillIdSchema).min(1),
   })
   .strict();
-export type JobPostingMatchSkillsScopedPayload = z.infer<
-  typeof JobPostingMatchSkillsScopedPayload
->;
+export type JobPostingMatchSkillsScopedPayload = z.infer<typeof JobPostingMatchSkillsScopedPayload>;
 
 /** #2746 — who sees a posting (`job_postings.audience`, migration 0162). */
 const JOB_POSTING_AUDIENCE_VALUES = ["badabhai_workers", "rvm_students", "both"] as const;
@@ -4842,7 +4839,11 @@ export const PayerRvmWaiverChangedPayload = z
 export type PayerRvmWaiverChangedPayload = z.infer<typeof PayerRvmWaiverChangedPayload>;
 
 /** #2750 item 7 — how a couldn't-reach case closed. */
-export const CONTACT_REACH_OUTCOMES = ["reached_interested", "reached_declined", "not_reached"] as const;
+export const CONTACT_REACH_OUTCOMES = [
+  "reached_interested",
+  "reached_declined",
+  "not_reached",
+] as const;
 /** #2750 item 7 — who closed it: a desk staff member, or the deadline (nobody closed it in time). */
 export const CONTACT_REACH_RESOLVERS = ["desk", "deadline"] as const;
 
@@ -6932,7 +6933,9 @@ export const PayerApplicantStageChangedV2Payload = z
     (v) =>
       (APPLICANT_OUTCOME_STAGES as readonly string[]).includes(v.stage) ||
       (APPLICANT_OUTCOME_STAGES as readonly string[]).includes(v.previous_stage),
-    { message: "a move between the board's first three stages is payer.applicant_stage_changed v1" },
+    {
+      message: "a move between the board's first three stages is payer.applicant_stage_changed v1",
+    },
   );
 export type PayerApplicantStageChangedV2Payload = z.infer<
   typeof PayerApplicantStageChangedV2Payload
