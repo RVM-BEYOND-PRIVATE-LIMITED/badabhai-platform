@@ -373,10 +373,10 @@ function setup(opts: SetupOpts = {}) {
               : feature === "managed_hiring"
                 ? (opts.managedHiring ?? "off")
                 : opts.rolloutUnavailable
-                ? "unavailable"
-                : opts.contactRules
-                  ? "on"
-                  : "off",
+                  ? "unavailable"
+                  : opts.contactRules
+                    ? "on"
+                    : "off",
           ),
         } as never),
     // #2750 — the credit rules service only when a test names the switch.
@@ -676,7 +676,10 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
 
   it.each([
     // A4 item 8: the same `technician` key, priced by each trade's own sheet.
-    ["mskill_plc_automation_tech", "technician", "higher"],
+    // CEO pack v2 sheet T38 (#3000) prices Higher from senior_technician; the live
+    // v1 override is removed, so technician is Lower like the other sheets.
+    ["mskill_plc_automation_tech", "technician", "lower"],
+    ["mskill_plc_automation_tech", "senior_technician", "higher"],
     ["mskill_industrial_electrician", "technician", "lower"],
   ])(
     "A4 item 8 — %s %s prices %s on its own sheet, and the debit is still one credit",
@@ -2464,7 +2467,11 @@ describe("UnlockService — #2747 contact rules: open for good", () => {
   });
 
   it("rule on: the attempt cap still limits a FIRST reveal (no relay wired yet)", async () => {
-    const t = setup({ consentVersion: BRIEF, contactRules: true, existingUnlock: held({ revealCount: 9 }) });
+    const t = setup({
+      consentVersion: BRIEF,
+      contactRules: true,
+      existingUnlock: held({ revealCount: 9 }),
+    });
     expect(await t.svc.reveal("unlock-old", CTX, PAYER)).toEqual(neutralUnavailable());
     expect(t.txMethods.createRouting).not.toHaveBeenCalled();
   });
@@ -2865,7 +2872,14 @@ describe("#2750 credit rules — the priced open", () => {
   });
 
   it("#2751 item 11 — a worker on the company's paid Managed Hiring tracker opens free: no credit needed, none debited", async () => {
-    const s = setup({ creditRules: "on", managedHiring: "on", tracked: [WORKER], costFacts: SETTER_4Y, balance: 0, spendable: 0 });
+    const s = setup({
+      creditRules: "on",
+      managedHiring: "on",
+      tracked: [WORKER],
+      costFacts: SETTER_4Y,
+      balance: 0,
+      spendable: 0,
+    });
     expect(await open(s)).toMatchObject({ credits_charged: 0 });
     expect(s.txMethods.tryDebitCredits).not.toHaveBeenCalled();
     expect(s.repo.findManagedHiringTracked).toHaveBeenCalledWith(PAYER, [WORKER]);
@@ -2926,7 +2940,12 @@ describe("#2750 item 3 — the quote", () => {
 
   it("#2751 item 11 — a worker on a paid Managed Hiring tracker quotes 0, only while its switch is on", async () => {
     const SETTER = { rungs: [{ skillId: "mskill_cnc_turner", tradeLevel: "setter", months: 48 }] };
-    const on = setup({ creditRules: "on", managedHiring: "on", tracked: [WORKER], costFacts: SETTER });
+    const on = setup({
+      creditRules: "on",
+      managedHiring: "on",
+      tracked: [WORKER],
+      costFacts: SETTER,
+    });
     expect((await on.svc.quoteContacts(PAYER, [WORKER, OTHER])).quotes).toEqual([
       { worker_id: WORKER, credits: 0 },
       { worker_id: OTHER, credits: 2 },
@@ -2995,7 +3014,12 @@ describe("#2750 item 5 — a waived open", () => {
   });
 
   it("a waiver cleared since the price was read refuses the open: neutral, nothing written", async () => {
-    const s = setup({ creditRules: "on", costFacts: RVM, waiver: WAIVER, waiverStillActive: false });
+    const s = setup({
+      creditRules: "on",
+      costFacts: RVM,
+      waiver: WAIVER,
+      waiverStillActive: false,
+    });
     expect(await open(s)).toEqual({ status: "unavailable" });
     expect(s.txMethods.upsertGrant).not.toHaveBeenCalled();
     expect(s.txMethods.appendLedger).not.toHaveBeenCalled();
@@ -3043,7 +3067,11 @@ describe("#2954 — the quote hides an RVM student the company could not open", 
   const WAIVER = { waiverId: "waiver-1", scope: "company" as const };
 
   it("not entitled: priced exactly like an ordinary worker with the same facts (Higher stays Higher)", async () => {
-    const hidden = setup({ creditRules: "on", costFacts: { ...SETTER_4Y, rvmStudent: true }, quotesAsStudent: false });
+    const hidden = setup({
+      creditRules: "on",
+      costFacts: { ...SETTER_4Y, rvmStudent: true },
+      quotesAsStudent: false,
+    });
     const ordinary = setup({ creditRules: "on", costFacts: { ...SETTER_4Y, rvmStudent: false } });
     const quote = (await hidden.svc.quoteContacts(PAYER, [WORKER])).quotes;
     expect(quote).toEqual((await ordinary.svc.quoteContacts(PAYER, [WORKER])).quotes);
@@ -3052,12 +3080,23 @@ describe("#2954 — the quote hides an RVM student the company could not open", 
   });
 
   it("not entitled: a company-wide waiver does not quote him free, so the waiver tells nothing either", async () => {
-    const s = setup({ creditRules: "on", costFacts: { rvmStudent: true }, waiver: WAIVER, quotesAsStudent: false });
-    expect((await s.svc.quoteContacts(PAYER, [WORKER])).quotes).toEqual([{ worker_id: WORKER, credits: 1 }]);
+    const s = setup({
+      creditRules: "on",
+      costFacts: { rvmStudent: true },
+      waiver: WAIVER,
+      quotesAsStudent: false,
+    });
+    expect((await s.svc.quoteContacts(PAYER, [WORKER])).quotes).toEqual([
+      { worker_id: WORKER, credits: 1 },
+    ]);
   });
 
   it("entitled (he applied, a grant, or admin-visible): the RVM price and the waiver, as the open charges", async () => {
-    const s = setup({ creditRules: "on", costFacts: { ...SETTER_4Y, rvmStudent: true }, waiver: WAIVER });
+    const s = setup({
+      creditRules: "on",
+      costFacts: { ...SETTER_4Y, rvmStudent: true },
+      waiver: WAIVER,
+    });
     expect((await s.svc.quoteContacts(PAYER, [WORKER])).quotes).toEqual([
       { worker_id: WORKER, credits: 0, waived: true },
     ]);

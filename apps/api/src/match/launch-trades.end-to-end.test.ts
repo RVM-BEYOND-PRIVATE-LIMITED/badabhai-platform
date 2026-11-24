@@ -493,14 +493,16 @@ describe("sheet-metal programmer and 3D CAD designer have their own levels", () 
         tradeLevelLabelFor(cad.packId, o.value_text),
       ]),
     );
+    // CEO pack v2 sheet T58 (#3000) prints the sheet's own lead/head words and
+    // prices Designer Higher; the v2 form itself lands in #3008.
     expect(labels).toEqual({
       trainee: "Trainee",
       designer: "Designer",
       senior_designer: "Senior Designer",
-      lead: "Lead",
-      supervisor: "Supervisor",
+      lead: "Lead / Design Engineer",
+      supervisor: "Design Head",
     });
-    expect(priceTierForTradeSkill(cad.skillId, "designer")).toBe("lower");
+    expect(priceTierForTradeSkill(cad.skillId, "designer")).toBe("higher");
     expect(priceTierForTradeSkill(cad.skillId, "senior_designer")).toBe("higher");
   });
 });
