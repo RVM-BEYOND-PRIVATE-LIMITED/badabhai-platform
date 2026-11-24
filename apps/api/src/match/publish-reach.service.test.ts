@@ -34,10 +34,11 @@ const VMC = "mskill_vmc_operator";
 const HMC = "mskill_hmc_operator";
 const TURNER = "mskill_cnc_turner";
 const SETTER = "mskill_cnc_setter_operator";
+const BORING = "mskill_boring_machine_operator";
 /** A real closed-set id that is NOT related to the VMC — an untick of it must do nothing. */
 const PLUMBER = "mskill_plumber";
 /** Sorted, because `resolveReachSet` sorts: reach expansion is byte-stable. */
-const VMC_FULL_REACH = [SETTER, TURNER, HMC, VMC];
+const VMC_FULL_REACH = [BORING, SETTER, TURNER, HMC, VMC];
 
 interface EmittedEvent {
   event_name: string;
@@ -186,7 +187,7 @@ describe("materialize — the reach set is RESOLVED server-side, never accepted 
       CTX,
     );
 
-    expect(result.reachSkillIds).toEqual([SETTER, TURNER, VMC]);
+    expect(result.reachSkillIds).toEqual([BORING, SETTER, TURNER, VMC]);
     expect(result.reachSkillIds).not.toContain(HMC);
     expect(result.appliedUntickedIds).toEqual([HMC]);
     // The audit trail the company's edit leaves behind.
@@ -363,7 +364,7 @@ describe("materialize — the audit event reports the set that just went live", 
     expect(ev.payload).toEqual({
       job_posting_id: POSTING,
       match_skill_count: 1,
-      reach_skill_count: 3, // VMC + setter + turner, HMC unticked
+      reach_skill_count: 4, // VMC + setter + turner + boring, HMC unticked
       unticked_count: 1,
       reach_total: 10,
       reach_tier1: 3,
@@ -424,7 +425,7 @@ describe("materialize — the E12/E13 ops alert fires only when supply is actual
       reason: "zero_reach",
       reach_total: 0,
       reach_tier1: 0,
-      reach_skill_count: 4,
+      reach_skill_count: 5,
     });
     expect(alert.actor).toEqual({ actor_type: "system" });
     // Keyed, so republishing a still-empty posting does not spam the spine.
@@ -827,7 +828,7 @@ describe("materialize — a lifecycle rebuild KEEPS in-force ops widens (Policy 
     );
 
   /** The base VMC reach set with HMC unticked, so a widen of HMC is observable. */
-  const VMC_WITHOUT_HMC = [SETTER, TURNER, VMC];
+  const VMC_WITHOUT_HMC = [BORING, SETTER, TURNER, VMC];
 
   it("UNPAUSE keeps an active widen in the persisted AND materialized reach set", async () => {
     const t = setup();
