@@ -48,7 +48,14 @@ export type TradeLevel =
   | "electrician"
   // Track B #3 (CEO Launch Plan Pack v1, sheet 8) — the welder operator rung.
   // Lower; stored by qp_welding_trade@1 already, rendered null until now.
-  | "welder";
+  | "welder"
+  // CEO pack v2 (RULED 2026-11-23, #3000) — the desk and supply-chain rungs. The
+  // engineer and senior-engineer rows carry the desk ladders; the executive rows
+  // carry Stores and Dispatch. Appended, never renamed: stored answers keep rendering.
+  | "engineer"
+  | "senior_engineer"
+  | "executive"
+  | "senior_executive";
 
 /**
  * C6 CROSSWALK — pack level answers → trade skill + `trade_level` (Middle Way P5).
@@ -113,8 +120,14 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // extension: every sheet-15 rung is already a member. Supervisor by rule.
   qp_cnc_grinding: { skillId: "mskill_cnc_grinding_operator", levelKey: "grinding_level" },
   qp_cam_programming: { skillId: "mskill_cam_programmer", levelKey: "cam_level" },
-  // Track A #4 — the 3D CAD Designer (CEO Launch Plan Pack v1, sheet 4).
-  qp_cad_design_3d: { skillId: "mskill_cad_designer_3d", levelKey: "design_level" },
+  // Track A #4 — the 3D CAD Designer (CEO Launch Plan Pack v1, sheet 4; labels and
+  // designer tier from CEO pack v2 sheet T58, #3000). #3008 publishes the v2 form.
+  qp_cad_design_3d: {
+    skillId: "mskill_cad_designer_3d",
+    levelKey: "design_level",
+    labels: { lead: "Lead / Design Engineer", supervisor: "Design Head" },
+    tierOverrides: { designer: "higher" },
+  },
   // Track A #5 — the 2D Draughtsman (CEO Launch Plan Pack v1, sheet 5). Labels
   // are the trade's own words (sheet headline "Senior Draughtsman").
   qp_cad_drafting: {
@@ -134,14 +147,20 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // Track B #2 — the electrician (CEO Launch Plan Pack v1, sheet 7). The
   // stored `senior` key IS the sheet's senior_technician rung (Higher,
   // confirmed); shared labels print it. Supervisor by rule (no confirm item).
-  qp_industrial_electrician: { skillId: "mskill_industrial_electrician", levelKey: "electrician_level" },
+  qp_industrial_electrician: {
+    skillId: "mskill_industrial_electrician",
+    levelKey: "electrician_level",
+  },
   // Track B #3 — the welder (CEO Launch Plan Pack v1, sheet 8). Shared labels
   // already print the trade's words (Welder / Skilled / Senior / Supervisor).
   qp_welding_trade: { skillId: "mskill_welder", levelKey: "welder_level" },
   // Track B #4 — the conventional machinist (CEO Launch Plan Pack v1,
   // sheet 9). No union extension: `skilled`/`senior` already confirm,
   // helper/operator already Lower. Supervisor by rule (no confirm item).
-  qp_conventional_machining: { skillId: "mskill_conventional_machinist", levelKey: "machining_level" },
+  qp_conventional_machining: {
+    skillId: "mskill_conventional_machinist",
+    levelKey: "machining_level",
+  },
   // Track B #5 — the sheet-metal operator (CEO Launch Plan Pack v1,
   // sheet 10). No union extension either. Supervisor by rule.
   // #2753 item 1 (@3) — the @2 "Senior / Programmer" chip is split: `senior`
@@ -177,12 +196,14 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // Phase 2 #6 — the PLC / automation technician (CEO Launch Plan Pack v1, sheet 14), a
   // new trade. No union extension: trainee, technician, senior_technician, lead and
   // supervisor are all members. Supervisor by rule.
-  // A4 item 8: the sheet's "technician+ Higher" (the deviation EXPAND-12 recorded for #2536);
-  // `technician` stays Lower in every other trade.
+  // A4 item 8: pack v1 priced "technician+ Higher" (the deviation EXPAND-12 recorded
+  // for #2536). CEO pack v2 sheet T38 rules Higher from `senior_technician`, so the
+  // override is removed and `technician` takes the shared Lower tier (#3000; #2995
+  // point 8 default).
   qp_plc_automation: {
     skillId: "mskill_plc_automation_tech",
     levelKey: "plc_level",
-    tierOverrides: { technician: "higher" },
+    labels: { senior_technician: "Automation Engineer" },
   },
   // Phase 2 #7 — the EDM / wire-cut operator (CEO Launch Plan Pack v1, sheet 16), a new
   // trade. No union extension: the CNC ladder's rungs are all members. Supervisor by rule.
@@ -198,7 +219,11 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // Phase 2 #9 — the injection-moulding operator / setter (CEO Launch Plan Pack v1, sheet 22),
   // the first pack for the declared kind. No union extension: trainee, operator, setter,
   // senior and supervisor are all members. Supervisor by rule.
-  qp_injection_moulding: { skillId: "mskill_imm_operator", levelKey: "moulding_level" },
+  qp_injection_moulding: {
+    skillId: "mskill_imm_operator",
+    levelKey: "moulding_level",
+    labels: { senior: "Process Technician" },
+  },
   // Phase 2 #10 — the production supervisor (CEO Launch Plan Pack v1, sheet 23), a new
   // cross-trade trade. No union extension: senior, supervisor and lead are all members (all
   // Higher). Labels print the sheet's own chips; confirmed FROM supervisor, so the Line Leader
@@ -213,6 +238,228 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
     },
     unconfirmedRungs: ["senior"],
   },
+  // ══ Wave 1 — the 12 new forms (CEO pack v2, #3000) ═════════════════════════
+  qp_cnc_router: {
+    skillId: "mskill_cnc_router_operator",
+    levelKey: "router_level",
+    labels: { programmer: "Designer-cum-Programmer" },
+    tierOverrides: { setter: "lower" },
+  }, // T21
+  qp_foundry_casting: { skillId: "mskill_foundry_operator", levelKey: "foundry_level" }, // T24
+  qp_die_casting: {
+    skillId: "mskill_die_casting_operator",
+    levelKey: "diecast_level",
+    labels: { senior: "Process Technician" },
+  }, // T25
+  qp_forging: {
+    skillId: "mskill_forging_operator",
+    levelKey: "forging_level",
+    labels: { setter: "Die Setter / Hammerman" },
+  }, // T26
+  qp_cmm: { skillId: "mskill_cmm_operator", levelKey: "cmm_level" }, // T33
+  qp_quality_engineer: {
+    skillId: "mskill_quality_engineer",
+    levelKey: "qe_level",
+    labels: {
+      trainee: "Trainee (GET / DET)",
+      lead: "Lead / Asst. Manager",
+      supervisor: "Manager / HOD",
+    },
+  }, // T37
+  qp_maintenance_engineer: {
+    skillId: "mskill_maintenance_engineer",
+    levelKey: "me_level",
+    labels: {
+      trainee: "Trainee (GET / DET)",
+      lead: "Lead / Asst. Manager",
+      supervisor: "Manager / HOD",
+    },
+  }, // T43
+  qp_production_engineer: {
+    skillId: "mskill_production_engineer",
+    levelKey: "prod_level",
+    labels: {
+      trainee: "Trainee (GET / DET)",
+      lead: "Lead / Asst. Manager",
+      supervisor: "Manager / HOD",
+    },
+  }, // T46
+  qp_process_engineer: {
+    skillId: "mskill_process_engineer",
+    levelKey: "proc_level",
+    labels: {
+      trainee: "Trainee (GET / DET)",
+      lead: "Lead / Asst. Manager",
+      supervisor: "Manager / HOD",
+    },
+  }, // T47
+  qp_npd_engineer: {
+    skillId: "mskill_npd_engineer",
+    levelKey: "npd_level",
+    labels: {
+      trainee: "Trainee (GET / DET)",
+      lead: "Lead / Asst. Manager",
+      supervisor: "Manager / HOD",
+    },
+  }, // T48
+  qp_ppc: {
+    skillId: "mskill_ppc_engineer",
+    levelKey: "ppc_level",
+    labels: {
+      trainee: "Trainee (GET / DET)",
+      engineer: "PPC Executive / Engineer",
+      lead: "Lead / Asst. Manager",
+      supervisor: "Manager / HOD",
+    },
+  }, // T52
+  qp_purchase: {
+    skillId: "mskill_purchase_engineer",
+    levelKey: "purchase_level",
+    labels: {
+      engineer: "Purchase Executive / Engineer",
+      lead: "Lead / Asst. Manager",
+      supervisor: "Manager / HOD",
+    },
+  }, // T54
+  // ══ Wave 2 — the 18 shop-floor forms (CEO pack v2, #3000) ══════════════════
+  qp_gear_cutting: { skillId: "mskill_gear_cutting_operator", levelKey: "gear_level" }, // T18
+  qp_boring_machine: {
+    skillId: "mskill_boring_machine_operator",
+    levelKey: "boring_level",
+  }, // T19
+  qp_spm_finishing: {
+    skillId: "mskill_spm_finishing_operator",
+    levelKey: "spm_level",
+  }, // T20
+  qp_fabrication: {
+    skillId: "mskill_fabricator",
+    levelKey: "fab_level",
+    labels: { operator: "Fabricator" },
+  }, // T22
+  qp_tube_forming: {
+    skillId: "mskill_tube_bending_operator",
+    levelKey: "tube_level",
+  }, // T23
+  qp_surface_treatment: {
+    skillId: "mskill_plating_operator",
+    levelKey: "plating_level",
+  }, // T28
+  qp_blow_moulding: {
+    skillId: "mskill_blow_moulding_operator",
+    levelKey: "blow_level",
+  }, // T30
+  qp_plastic_extrusion: {
+    skillId: "mskill_plastic_extrusion_operator",
+    levelKey: "extrusion_level",
+  }, // T31
+  qp_rubber_moulding: {
+    skillId: "mskill_rubber_moulding_operator",
+    levelKey: "rubber_level",
+  }, // T32
+  qp_ndt: {
+    skillId: "mskill_ndt_technician",
+    levelKey: "ndt_level",
+    labels: { technician: "Level I", senior_technician: "Level II", lead: "Level III" },
+  }, // T34
+  qp_calibration: {
+    skillId: "mskill_calibration_technician",
+    levelKey: "calib_level",
+  }, // T35
+  qp_material_lab: {
+    skillId: "mskill_material_lab_technician",
+    levelKey: "matlab_level",
+  }, // T36
+  qp_robotics: {
+    skillId: "mskill_robot_operator_programmer",
+    levelKey: "robot_level",
+  }, // T39
+  qp_instrumentation: {
+    skillId: "mskill_instrumentation_technician",
+    levelKey: "instr_level",
+  }, // T40
+  qp_hvac_rac: {
+    skillId: "mskill_hvac_rac_technician",
+    levelKey: "hvac_level",
+  }, // T41
+  qp_utility: {
+    skillId: "mskill_utility_operator",
+    levelKey: "utility_level",
+    labels: { skilled: "Licensed / Certified Operator" },
+  }, // T42
+  qp_forklift: { skillId: "mskill_forklift_operator", levelKey: "forklift_level" }, // T56
+  qp_crane_rigging: { skillId: "mskill_crane_operator", levelKey: "crane_level" }, // T57
+  // ══ Wave 3 — the 8 forms that complete the catalogue (CEO pack v2, #3000) ══
+  qp_service_engineer: {
+    skillId: "mskill_service_engineer",
+    levelKey: "service_level",
+    labels: {
+      engineer: "Service Engineer",
+      lead: "Area / Team Lead",
+      supervisor: "Service Manager",
+    },
+  }, // T44
+  qp_safety_ehs: {
+    skillId: "mskill_safety_officer",
+    levelKey: "ehs_level",
+    labels: {
+      trainee: "Safety Supervisor / Trainee",
+      engineer: "Safety Officer",
+      senior_engineer: "Senior Safety Officer",
+      lead: "Lead / Asst. Manager EHS",
+      supervisor: "EHS Manager / HOD",
+    },
+  }, // T49
+  qp_project_site: {
+    skillId: "mskill_project_site_engineer",
+    levelKey: "site_level",
+    labels: {
+      trainee: "Trainee (GET / DET)",
+      lead: "Site In-charge",
+      supervisor: "Manager",
+    },
+  }, // T50
+  qp_technical_sales: {
+    skillId: "mskill_technical_sales_engineer",
+    levelKey: "sales_level",
+    labels: {
+      engineer: "Sales Engineer",
+      lead: "Area / Regional Manager",
+      supervisor: "Manager / Head",
+    },
+  }, // T51
+  qp_stores: {
+    skillId: "mskill_store_keeper",
+    levelKey: "store_level",
+    labels: {
+      trainee: "Store Helper / Assistant",
+      executive: "Store Keeper / Executive",
+      supervisor: "Store In-charge",
+    },
+  }, // T53
+  qp_dispatch_logistics: {
+    skillId: "mskill_dispatch_logistics_executive",
+    levelKey: "dispatch_level",
+    labels: {
+      trainee: "Dispatch Helper / Assistant",
+      executive: "Dispatch Executive",
+      supervisor: "Dispatch / Logistics In-charge",
+    },
+  }, // T55
+  qp_cae_fea: {
+    skillId: "mskill_cae_analyst",
+    levelKey: "cae_level",
+    labels: {
+      engineer: "Analyst",
+      senior_engineer: "Senior Analyst",
+      supervisor: "Manager / Head",
+    },
+  }, // T59
+  qp_piping_design: {
+    skillId: "mskill_piping_designer",
+    levelKey: "piping_level",
+    labels: { supervisor: "Head" },
+    tierOverrides: { designer: "higher" },
+  }, // T60
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -286,6 +533,12 @@ export const TRADE_LEVEL_LABELS: Readonly<Record<TradeLevel, string>> = {
   electrician: "Electrician",
   // Track B #3 — the welder operator rung (sheet 8).
   welder: "Welder",
+  // CEO pack v2 — the desk and supply-chain rungs (#3000). Per-trade labels override
+  // these where the sheet speaks its own words (Service Engineer, Store Keeper, ...).
+  engineer: "Engineer",
+  senior_engineer: "Senior Engineer",
+  executive: "Executive",
+  senior_executive: "Senior Executive",
 };
 
 /**
@@ -319,6 +572,11 @@ const CONFIRMED_RUNGS: ReadonlySet<string> = new Set([
   "lead",
   // Track B #1 — the fitter senior rung confirms (sheet 6: Senior Fitter Higher).
   "senior_fitter",
+  // CEO pack v2 — the desk and supply-chain confirming rungs (#3000). `engineer` and
+  // `executive` are the first rungs of their ladders, so they confirm only through
+  // their own question (T49, T53, T55); the senior keys confirm by rule.
+  "senior_engineer",
+  "senior_executive",
 ]);
 
 /** True once the separating question was answered (Setter and above only). */
@@ -407,6 +665,9 @@ function levelTier(level: TradeLevel): PriceTier {
     case "fitter":
     case "electrician":
     case "welder":
+    // CEO pack v2 — the Stores and Dispatch entry rung (#3000). `engineer` and the
+    // two senior keys fall through to Higher, as the desk sheets rule.
+    case "executive":
       return "lower";
     default:
       return "higher";
@@ -457,176 +718,395 @@ export interface TradeLevelEntry {
  * team count) counts as an answer, hence confirmed: the worker engaged the
  * separating question instead of skipping it.
  */
-export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
-  Record<string, Readonly<Record<string, string>>>
-> = {
-  qp_cnc_turning: {
-    setter: "setting_confirm",
-    setter_programmer: "program_edit_confirm",
-    programmer: "program_write_confirm",
-    supervisor: "team_confirm",
-  },
-  // Track A #2 — the VMC/HMC confirms (CEO Launch Plan Pack v1, sheet 2).
-  qp_vmc_milling: {
-    setter: "milling_setting_confirm",
-    setter_programmer: "milling_program_edit_confirm",
-    programmer: "milling_program_write_confirm",
-    supervisor: "milling_team_confirm",
-  },
-  // Track A #3 — the CAM confirms (CEO Launch Plan Pack v1, sheet 3).
-  // Confirmed from `programmer`: programmer, senior, lead, supervisor.
-  qp_cam_programming: {
-    programmer: "cam_program_confirm",
-    senior: "cam_senior_confirm",
-    lead: "cam_lead_confirm",
-    supervisor: "cam_team_confirm",
-  },
-  // Track A #4 — the 3D design confirms (CEO Launch Plan Pack v1, sheet 4).
-  // Confirmed from `senior_designer`: senior_designer, lead, supervisor.
-  qp_cad_design_3d: {
-    senior_designer: "design_senior_confirm",
-    lead: "design_lead_confirm",
-    supervisor: "design_team_confirm",
-  },
-  // Track A #5 — the 2D draughtsman confirms (CEO Launch Plan Pack v1, sheet 5).
-  // Confirmed from `senior_designer`: senior_designer, lead, supervisor.
-  qp_cad_drafting: {
-    senior_designer: "cad_senior_confirm",
-    lead: "cad_lead_confirm",
-    supervisor: "cad_team_confirm",
-  },
-  // Track B #1 — the fitter confirms (CEO Launch Plan Pack v1, sheet 6).
-  // Confirmed from `skilled`: skilled, senior_fitter; supervisor by rule.
-  qp_fitter: {
-    skilled: "fitter_skilled_confirm",
-    senior_fitter: "fitter_team_confirm",
-  },
-  // Track B #2 — the electrician confirm (CEO Launch Plan Pack v1, sheet 7).
-  // Confirmed from `senior` (the sheet's senior_technician rung): senior only;
-  // supervisor by rule.
-  qp_industrial_electrician: {
-    senior: "electrician_senior_confirm",
-  },
-  // Track B #3 — the welder confirms (CEO Launch Plan Pack v1, sheet 8).
-  // Confirmed from `skilled`: skilled, senior; supervisor by rule.
-  qp_welding_trade: {
-    skilled: "welder_skilled_confirm",
-    senior: "welder_senior_confirm",
-  },
-  // Track B #4 — the conventional confirms (CEO Launch Plan Pack v1, sheet 9).
-  // Confirmed from `skilled`: skilled, senior; supervisor by rule.
-  qp_conventional_machining: {
-    skilled: "machining_skilled_confirm",
-    senior: "machining_senior_confirm",
-  },
-  // Track B #5 — the sheet-metal confirms (CEO Launch Plan Pack v1, sheet 10).
-  // Confirmed from `skilled`: skilled, senior; supervisor by rule.
-  // #2753 item 1 (@3) — `programmer` is the rung above `senior` and has no sheet
-  // question of its own, so the standing owner rule (2026-11-03) asks it the
-  // senior's one question, which is the programmer's evidence anyway ("Nesting /
-  // press-brake program khud banate ho?").
-  qp_sheet_metal_fab: {
-    skilled: "sheet_skilled_confirm",
-    senior: "sheet_senior_confirm",
-    programmer: "sheet_senior_confirm",
-  },
-  // Track B #6 — the assembly confirms (CEO Launch Plan Pack v1, sheet 11).
-  // Confirmed from `skilled`: skilled, senior (team count); supervisor by rule.
-  qp_assembly_line: {
-    skilled: "assembly_skilled_confirm",
-    senior: "assembly_team_confirm",
-  },
-  // Track B #7 — the QC confirms (CEO Launch Plan Pack v1, sheet 12).
-  // Confirmed from `senior_inspector`: senior_inspector, qc_engineer;
-  // supervisor by rule.
-  qp_quality_inspection: {
-    senior_inspector: "inspection_senior_confirm",
-    qc_engineer: "inspection_engineer_confirm",
-  },
-  // Phase 2 #1 — the tool-room confirms (CEO Launch Plan Pack v1, sheet 13).
-  // Confirmed from `skilled`: skilled, senior; supervisor by rule.
-  qp_tool_die_making: {
-    skilled: "toolroom_skilled_confirm",
-    senior: "toolroom_senior_confirm",
-  },
-  // Phase 2 #2 — the grinding confirm (CEO Launch Plan Pack v1, sheet 15).
-  // Confirmed from `setter`. The sheet writes one separating question (the
-  // setter's) and none for setter-cum-programmer, so by owner ruling
-  // (2026-11-03) that one question is asked of both rungs. Supervisor by rule.
-  qp_cnc_grinding: {
-    setter: "grinding_setting_confirm",
-    setter_programmer: "grinding_setting_confirm",
-  },
-  // Phase 2 #3 — the press-shop confirm (CEO Launch Plan Pack v1, sheet 18).
-  // Confirmed from `setter`. The sheet writes one separating question (the
-  // setter's) and none for senior, so — the grinding ruling of 2026-11-03,
-  // applied here by owner decision — that one question is asked of both.
-  // Supervisor by rule.
-  qp_press_operation: {
-    setter: "press_setting_confirm",
-    senior: "press_setting_confirm",
-  },
-  // Phase 2 #4 — the coating confirm (CEO Launch Plan Pack v1, sheet 20).
-  // Confirmed from `skilled`; the sheet's one question is asked of skilled and
-  // senior (standing owner rule, 2026-11-03). Supervisor by rule.
-  qp_powder_coating: {
-    skilled: "coating_skilled_confirm",
-    senior: "coating_skilled_confirm",
-  },
-  // Phase 2 #5 — the maintenance confirm (CEO Launch Plan Pack v1, sheet 21).
-  // Confirmed from `senior_technician`; the only rung above is supervisor,
-  // confirmed by rule — so one rung, one question.
-  qp_maintenance_tech: {
-    senior_technician: "maintenance_senior_confirm",
-  },
-  // Phase 2 #6 — the PLC confirms (CEO Launch Plan Pack v1, sheet 14). Confirmed from
-  // `technician`: the sheet writes a question for technician and one for senior
-  // technician; lead has none, so it takes the senior question (standing owner rule,
-  // 2026-11-03). Supervisor by rule. The technician confirm is what confirms that rung:
-  // its shared key is not in CONFIRMED_RUNGS (maintenance/electrician sheets rule it
-  // Lower), so with no answer the rung rule leaves it unconfirmed.
-  qp_plc_automation: {
-    technician: "plc_technician_confirm",
-    senior_technician: "plc_senior_confirm",
-    lead: "plc_senior_confirm",
-  },
-  // Phase 2 #7 — the EDM confirms (CEO Launch Plan Pack v1, sheet 16). Confirmed from
-  // `setter`; the sheet writes a question for setter and one for setter-cum-programmer, both
-  // verbatim. Supervisor by rule.
-  qp_edm_wirecut: {
-    setter: "edm_setting_confirm",
-    setter_programmer: "edm_program_confirm",
-  },
-  // Phase 2 #8 — the heat-treatment confirm (CEO Launch Plan Pack v1, sheet 17). Confirmed
-  // from `skilled`; the sheet writes one question, for skilled, and none for senior, so the
-  // owner's standing rule asks the same question of both. Supervisor by rule.
-  qp_heat_treatment: {
-    skilled: "heat_skilled_confirm",
-    senior: "heat_skilled_confirm",
-  },
-  // Phase 2 #11 — the foundry / forging confirm (CEO Launch Plan Pack v1, sheet 19). Confirmed
-  // from `skilled`; the sheet writes one question, for skilled, and none for senior, so the
-  // owner's standing rule asks the same question of both. Supervisor by rule.
-  qp_foundry_forging: {
-    skilled: "foundry_skilled_confirm",
-    senior: "foundry_skilled_confirm",
-  },
-  // Phase 2 #9 — the injection-moulding confirms (CEO Launch Plan Pack v1, sheet 22).
-  // Confirmed from `setter`; the sheet writes a question for setter and one for senior
-  // (process technician), both verbatim. Supervisor by rule.
-  qp_injection_moulding: {
-    setter: "moulding_setting_confirm",
-    senior: "moulding_senior_confirm",
-  },
-  // Phase 2 #10 — the production supervisor confirm (CEO Launch Plan Pack v1, sheet 23). The
-  // sheet's two-question prompt is split along its own rows (owner ruling 2026-11-04): the
-  // shift-report half confirms supervisor, and — by the standing owner rule of 2026-11-03 —
-  // production in-charge (`lead`), for which the sheet writes none.
-  qp_production_supervisor: {
-    supervisor: "supervision_report_confirm",
-    lead: "supervision_report_confirm",
-  },
-};
+export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<Record<string, Readonly<Record<string, string>>>> =
+  {
+    qp_cnc_turning: {
+      setter: "setting_confirm",
+      setter_programmer: "program_edit_confirm",
+      programmer: "program_write_confirm",
+      supervisor: "team_confirm",
+    },
+    // Track A #2 — the VMC/HMC confirms (CEO Launch Plan Pack v1, sheet 2).
+    qp_vmc_milling: {
+      setter: "milling_setting_confirm",
+      setter_programmer: "milling_program_edit_confirm",
+      programmer: "milling_program_write_confirm",
+      supervisor: "milling_team_confirm",
+    },
+    // Track A #3 — the CAM confirms (CEO Launch Plan Pack v1, sheet 3).
+    // Confirmed from `programmer`: programmer, senior, lead, supervisor.
+    qp_cam_programming: {
+      programmer: "cam_program_confirm",
+      senior: "cam_senior_confirm",
+      lead: "cam_lead_confirm",
+      supervisor: "cam_team_confirm",
+    },
+    // Track A #4 — the 3D design confirms (CEO Launch Plan Pack v1, sheet 4).
+    // Confirmed from `senior_designer`: senior_designer, lead, supervisor.
+    qp_cad_design_3d: {
+      senior_designer: "design_senior_confirm",
+      lead: "design_lead_confirm",
+      supervisor: "design_team_confirm",
+    },
+    // Track A #5 — the 2D draughtsman confirms (CEO Launch Plan Pack v1, sheet 5).
+    // Confirmed from `senior_designer`: senior_designer, lead, supervisor.
+    qp_cad_drafting: {
+      senior_designer: "cad_senior_confirm",
+      lead: "cad_lead_confirm",
+      supervisor: "cad_team_confirm",
+    },
+    // Track B #1 — the fitter confirms (CEO Launch Plan Pack v1, sheet 6).
+    // Confirmed from `skilled`: skilled, senior_fitter; supervisor by rule.
+    qp_fitter: {
+      skilled: "fitter_skilled_confirm",
+      senior_fitter: "fitter_team_confirm",
+    },
+    // Track B #2 — the electrician confirm (CEO Launch Plan Pack v1, sheet 7).
+    // Confirmed from `senior` (the sheet's senior_technician rung): senior only;
+    // supervisor by rule.
+    qp_industrial_electrician: {
+      senior: "electrician_senior_confirm",
+    },
+    // Track B #3 — the welder confirms (CEO Launch Plan Pack v1, sheet 8).
+    // Confirmed from `skilled`: skilled, senior; supervisor by rule.
+    qp_welding_trade: {
+      skilled: "welder_skilled_confirm",
+      senior: "welder_senior_confirm",
+    },
+    // Track B #4 — the conventional confirms (CEO Launch Plan Pack v1, sheet 9).
+    // Confirmed from `skilled`: skilled, senior; supervisor by rule.
+    qp_conventional_machining: {
+      skilled: "machining_skilled_confirm",
+      senior: "machining_senior_confirm",
+    },
+    // Track B #5 — the sheet-metal confirms (CEO Launch Plan Pack v1, sheet 10).
+    // Confirmed from `skilled`: skilled, senior; supervisor by rule.
+    // #2753 item 1 (@3) — `programmer` is the rung above `senior` and has no sheet
+    // question of its own, so the standing owner rule (2026-11-03) asks it the
+    // senior's one question, which is the programmer's evidence anyway ("Nesting /
+    // press-brake program khud banate ho?").
+    qp_sheet_metal_fab: {
+      skilled: "sheet_skilled_confirm",
+      senior: "sheet_senior_confirm",
+      programmer: "sheet_senior_confirm",
+    },
+    // Track B #6 — the assembly confirms (CEO Launch Plan Pack v1, sheet 11).
+    // Confirmed from `skilled`: skilled, senior (team count); supervisor by rule.
+    qp_assembly_line: {
+      skilled: "assembly_skilled_confirm",
+      senior: "assembly_team_confirm",
+    },
+    // Track B #7 — the QC confirms (CEO Launch Plan Pack v1, sheet 12).
+    // Confirmed from `senior_inspector`: senior_inspector, qc_engineer;
+    // supervisor by rule.
+    qp_quality_inspection: {
+      senior_inspector: "inspection_senior_confirm",
+      qc_engineer: "inspection_engineer_confirm",
+    },
+    // Phase 2 #1 — the tool-room confirms (CEO Launch Plan Pack v1, sheet 13).
+    // Confirmed from `skilled`: skilled, senior; supervisor by rule.
+    qp_tool_die_making: {
+      skilled: "toolroom_skilled_confirm",
+      senior: "toolroom_senior_confirm",
+    },
+    // Phase 2 #2 — the grinding confirm (CEO Launch Plan Pack v1, sheet 15).
+    // Confirmed from `setter`. The sheet writes one separating question (the
+    // setter's) and none for setter-cum-programmer, so by owner ruling
+    // (2026-11-03) that one question is asked of both rungs. Supervisor by rule.
+    qp_cnc_grinding: {
+      setter: "grinding_setting_confirm",
+      setter_programmer: "grinding_setting_confirm",
+    },
+    // Phase 2 #3 — the press-shop confirm (CEO Launch Plan Pack v1, sheet 18).
+    // Confirmed from `setter`. The sheet writes one separating question (the
+    // setter's) and none for senior, so — the grinding ruling of 2026-11-03,
+    // applied here by owner decision — that one question is asked of both.
+    // Supervisor by rule.
+    qp_press_operation: {
+      setter: "press_setting_confirm",
+      senior: "press_setting_confirm",
+    },
+    // Phase 2 #4 — the coating confirm (CEO Launch Plan Pack v1, sheet 20).
+    // Confirmed from `skilled`; the sheet's one question is asked of skilled and
+    // senior (standing owner rule, 2026-11-03). Supervisor by rule.
+    qp_powder_coating: {
+      skilled: "coating_skilled_confirm",
+      senior: "coating_skilled_confirm",
+    },
+    // Phase 2 #5 — the maintenance confirm (CEO Launch Plan Pack v1, sheet 21).
+    // Confirmed from `senior_technician`; the only rung above is supervisor,
+    // confirmed by rule — so one rung, one question.
+    qp_maintenance_tech: {
+      senior_technician: "maintenance_senior_confirm",
+    },
+    // Phase 2 #6 — the PLC confirms (CEO Launch Plan Pack v1, sheet 14). Confirmed from
+    // `technician`: the sheet writes a question for technician and one for senior
+    // technician; lead has none, so it takes the senior question (standing owner rule,
+    // 2026-11-03). Supervisor by rule. The technician confirm is what confirms that rung:
+    // its shared key is not in CONFIRMED_RUNGS (maintenance/electrician sheets rule it
+    // Lower), so with no answer the rung rule leaves it unconfirmed.
+    qp_plc_automation: {
+      technician: "plc_technician_confirm",
+      senior_technician: "plc_senior_confirm",
+      lead: "plc_senior_confirm",
+    },
+    // Phase 2 #7 — the EDM confirms (CEO Launch Plan Pack v1, sheet 16). Confirmed from
+    // `setter`; the sheet writes a question for setter and one for setter-cum-programmer, both
+    // verbatim. Supervisor by rule.
+    qp_edm_wirecut: {
+      setter: "edm_setting_confirm",
+      setter_programmer: "edm_program_confirm",
+    },
+    // Phase 2 #8 — the heat-treatment confirm (CEO Launch Plan Pack v1, sheet 17). Confirmed
+    // from `skilled`; the sheet writes one question, for skilled, and none for senior, so the
+    // owner's standing rule asks the same question of both. Supervisor by rule.
+    qp_heat_treatment: {
+      skilled: "heat_skilled_confirm",
+      senior: "heat_skilled_confirm",
+    },
+    // Phase 2 #11 — the foundry / forging confirm (CEO Launch Plan Pack v1, sheet 19). Confirmed
+    // from `skilled`; the sheet writes one question, for skilled, and none for senior, so the
+    // owner's standing rule asks the same question of both. Supervisor by rule.
+    qp_foundry_forging: {
+      skilled: "foundry_skilled_confirm",
+      senior: "foundry_skilled_confirm",
+    },
+    // Phase 2 #9 — the injection-moulding confirms (CEO Launch Plan Pack v1, sheet 22).
+    // Confirmed from `setter`; the sheet writes a question for setter and one for senior
+    // (process technician), both verbatim. Supervisor by rule.
+    qp_injection_moulding: {
+      setter: "moulding_setting_confirm",
+      senior: "moulding_senior_confirm",
+    },
+    // Phase 2 #10 — the production supervisor confirm (CEO Launch Plan Pack v1, sheet 23). The
+    // sheet's two-question prompt is split along its own rows (owner ruling 2026-11-04): the
+    // shift-report half confirms supervisor, and — by the standing owner rule of 2026-11-03 —
+    // production in-charge (`lead`), for which the sheet writes none.
+    qp_production_supervisor: {
+      supervisor: "supervision_report_confirm",
+      lead: "supervision_report_confirm",
+    },
+    // ══ Wave 1 — the 12 new forms (CEO pack v2, #3000) ═════════════════════════
+    qp_cnc_router: {
+      setter: "router_setter_confirm",
+      programmer: "router_programmer_confirm",
+      supervisor: "router_team_confirm",
+    },
+    qp_foundry_casting: {
+      skilled: "foundry_skilled_confirm",
+      senior: "foundry_senior_confirm",
+      supervisor: "foundry_team_confirm",
+    },
+    qp_die_casting: {
+      setter: "diecast_setter_confirm",
+      senior: "diecast_senior_confirm",
+      supervisor: "diecast_team_confirm",
+    },
+    qp_forging: {
+      setter: "forging_setter_confirm",
+      senior: "forging_senior_confirm",
+      supervisor: "forging_team_confirm",
+    },
+    qp_cmm: {
+      programmer: "cmm_programmer_confirm",
+      senior: "cmm_senior_confirm",
+      supervisor: "cmm_team_confirm",
+    },
+    qp_quality_engineer: {
+      senior_engineer: "qe_senior_engineer_confirm",
+      lead: "qe_lead_confirm",
+      supervisor: "qe_team_confirm",
+    },
+    qp_maintenance_engineer: {
+      senior_engineer: "me_senior_engineer_confirm",
+      lead: "me_lead_confirm",
+      supervisor: "me_team_confirm",
+    },
+    qp_production_engineer: {
+      senior_engineer: "prod_senior_engineer_confirm",
+      lead: "prod_lead_confirm",
+      supervisor: "prod_team_confirm",
+    },
+    qp_process_engineer: {
+      senior_engineer: "proc_senior_engineer_confirm",
+      lead: "proc_lead_confirm",
+      supervisor: "proc_team_confirm",
+    },
+    qp_npd_engineer: {
+      senior_engineer: "npd_senior_engineer_confirm",
+      lead: "npd_lead_confirm",
+      supervisor: "npd_team_confirm",
+    },
+    qp_ppc: {
+      senior_engineer: "ppc_senior_engineer_confirm",
+      lead: "ppc_lead_confirm",
+      supervisor: "ppc_team_confirm",
+    },
+    qp_purchase: {
+      senior_engineer: "purchase_senior_engineer_confirm",
+      lead: "purchase_lead_confirm",
+      supervisor: "purchase_team_confirm",
+    },
+    // ══ Wave 2 — the 18 shop-floor forms (CEO pack v2, #3000) ══════════════════
+    qp_gear_cutting: {
+      setter: "gear_setter_confirm",
+      setter_programmer: "gear_setter_programmer_confirm",
+      supervisor: "gear_team_confirm",
+    },
+    qp_boring_machine: {
+      setter: "boring_setter_confirm",
+      setter_programmer: "boring_setter_programmer_confirm",
+      supervisor: "boring_team_confirm",
+    },
+    qp_spm_finishing: {
+      setter: "spm_setter_confirm",
+      senior: "spm_senior_confirm",
+      supervisor: "spm_team_confirm",
+    },
+    qp_fabrication: {
+      skilled: "fab_skilled_confirm",
+      senior: "fab_senior_confirm",
+      supervisor: "fab_team_confirm",
+    },
+    qp_tube_forming: {
+      setter: "tube_setter_confirm",
+      senior: "tube_senior_confirm",
+      supervisor: "tube_team_confirm",
+    },
+    qp_surface_treatment: {
+      skilled: "plating_skilled_confirm",
+      senior: "plating_senior_confirm",
+      supervisor: "plating_team_confirm",
+    },
+    qp_blow_moulding: {
+      setter: "blow_setter_confirm",
+      senior: "blow_senior_confirm",
+      supervisor: "blow_team_confirm",
+    },
+    qp_plastic_extrusion: {
+      setter: "extrusion_setter_confirm",
+      senior: "extrusion_senior_confirm",
+      supervisor: "extrusion_team_confirm",
+    },
+    qp_rubber_moulding: {
+      setter: "rubber_setter_confirm",
+      senior: "rubber_senior_confirm",
+      supervisor: "rubber_team_confirm",
+    },
+    qp_ndt: {
+      senior_technician: "ndt_senior_technician_confirm",
+      lead: "ndt_lead_confirm",
+    },
+    qp_calibration: {
+      senior_technician: "calib_senior_technician_confirm",
+      supervisor: "calib_team_confirm",
+    },
+    qp_material_lab: {
+      senior_technician: "matlab_senior_technician_confirm",
+      supervisor: "matlab_team_confirm",
+    },
+    qp_robotics: {
+      programmer: "robot_programmer_confirm",
+      senior: "robot_senior_confirm",
+      supervisor: "robot_team_confirm",
+    },
+    qp_instrumentation: {
+      senior_technician: "instr_senior_technician_confirm",
+      supervisor: "instr_team_confirm",
+    },
+    qp_hvac_rac: {
+      senior_technician: "hvac_senior_technician_confirm",
+      supervisor: "hvac_team_confirm",
+    },
+    qp_utility: {
+      skilled: "utility_skilled_confirm",
+      senior: "utility_senior_confirm",
+      supervisor: "utility_team_confirm",
+    },
+    qp_forklift: {
+      operator: "forklift_operator_confirm",
+      senior: "forklift_senior_confirm",
+      supervisor: "forklift_team_confirm",
+    },
+    qp_crane_rigging: {
+      operator: "crane_operator_confirm",
+      senior: "crane_senior_confirm",
+      supervisor: "crane_team_confirm",
+    },
+    // ══ Wave 3 — the 8 forms that complete the catalogue (CEO pack v2, #3000) ══
+    qp_service_engineer: {
+      senior_engineer: "service_senior_engineer_confirm",
+      lead: "service_lead_confirm",
+      supervisor: "service_team_confirm",
+    },
+    qp_safety_ehs: {
+      engineer: "ehs_engineer_confirm",
+      senior_engineer: "ehs_senior_engineer_confirm",
+      lead: "ehs_lead_confirm",
+      supervisor: "ehs_team_confirm",
+    },
+    qp_project_site: {
+      senior_engineer: "site_senior_engineer_confirm",
+      lead: "site_lead_confirm",
+      supervisor: "site_team_confirm",
+    },
+    qp_technical_sales: {
+      senior_engineer: "sales_senior_engineer_confirm",
+      lead: "sales_lead_confirm",
+      supervisor: "sales_team_confirm",
+    },
+    qp_stores: {
+      senior_executive: "store_senior_executive_confirm",
+      supervisor: "store_team_confirm",
+    },
+    qp_dispatch_logistics: {
+      senior_executive: "dispatch_senior_executive_confirm",
+      supervisor: "dispatch_team_confirm",
+    },
+    qp_cae_fea: {
+      senior_engineer: "cae_senior_engineer_confirm",
+      lead: "cae_lead_confirm",
+      supervisor: "cae_team_confirm",
+    },
+    qp_piping_design: {
+      senior_designer: "piping_senior_designer_confirm",
+      lead: "piping_lead_confirm",
+      supervisor: "piping_team_confirm",
+    },
+    // ══ The six deepened forms' v2 maps (#3000) ═══════════════════════════════
+    // VERSIONED ON PURPOSE. The live v1 entries above stay authoritative for v1; a
+    // v2 pack id prefers its own map, so a v1 "koi aur" answer keeps its meaning until
+    // #3008 publishes the v2 forms. #3008 then makes v2 the base entry.
+    "qp_edm_wirecut@2": {
+      setter: "edm_setting_confirm",
+      setter_programmer: "edm_program_confirm",
+      supervisor: "edm_team_confirm",
+    },
+    "qp_heat_treatment@2": {
+      skilled: "heat_skilled_confirm",
+      senior: "ht_senior_confirm",
+      supervisor: "ht_team_confirm",
+    },
+    "qp_injection_moulding@2": {
+      setter: "moulding_setting_confirm",
+      senior: "moulding_senior_confirm",
+      supervisor: "moulding_team_confirm",
+    },
+    "qp_plc_automation@2": {
+      senior_technician: "plc_senior_confirm",
+      lead: "plc_lead_confirm",
+      supervisor: "plc_team_confirm",
+    },
+    "qp_production_supervisor@2": {
+      supervisor: "prodsup_team_confirm",
+      lead: "prodsup_incharge_confirm",
+    },
+    "qp_cad_design_3d@2": {
+      senior_designer: "design_senior_confirm",
+      lead: "design_lead_confirm",
+      supervisor: "design_team_confirm",
+    },
+  };
 
 /**
  * The authored skill rows for one pack's projected answers (Middle Way P5 persist).
@@ -654,7 +1134,13 @@ export function tradeLevelEntriesForPackAnswers(
   const raw = attributes.find((a) => a.attributeKey === entry.levelKey)?.value;
   const level = normalizeTradeLevelKey(singleText(raw));
   if (level === null) return [];
-  return [{ skillId: entry.skillId, tradeLevel: level, levelConfirmed: isConfirmed(packId, level, attributes) }];
+  return [
+    {
+      skillId: entry.skillId,
+      tradeLevel: level,
+      levelConfirmed: isConfirmed(packId, level, attributes),
+    },
+  ];
 }
 
 /**
@@ -666,7 +1152,13 @@ function isConfirmed(
   level: TradeLevel,
   attributes: readonly LevelAnswerInput[],
 ): boolean {
-  const confirmKey = TRADE_LEVEL_CONFIRM_ITEMS[packId.split("@")[0]!]?.[level];
+  // Prefer the exact pack revision's map when one exists (#3000). The deepened forms
+  // keep their v1 map for stored v1 answers and gain a `@2` map for the new sheet's
+  // keys; a base-only id still resolves to the base map, so every existing caller is
+  // unchanged.
+  const confirmItem =
+    TRADE_LEVEL_CONFIRM_ITEMS[packId] ?? TRADE_LEVEL_CONFIRM_ITEMS[packId.split("@")[0]!];
+  const confirmKey = confirmItem?.[level];
   if (confirmKey !== undefined) {
     const raw = attributes.find((a) => a.attributeKey === confirmKey)?.value;
     const text = singleText(raw);

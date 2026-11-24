@@ -27,12 +27,9 @@ describe("which rungs price Higher", () => {
     ["a CAM trainee", "mskill_cam_programmer", "trainee", false],
     ["a 3D CAD designer (the trade, above trainee)", "mskill_cad_designer_3d", "designer", true],
     ["a 3D CAD trainee modeller", "mskill_cad_designer_3d", "trainee_modeller", false],
-    [
-      "a PLC technician (the sheet's own override)",
-      "mskill_plc_automation_tech",
-      "technician",
-      true,
-    ],
+    // CEO pack v2 sheet T38 (#3000): Higher from senior_technician, not technician.
+    ["a PLC technician", "mskill_plc_automation_tech", "technician", false],
+    ["a PLC senior technician", "mskill_plc_automation_tech", "senior_technician", true],
     ["an electrician technician", "mskill_industrial_electrician", "technician", false],
     ["an unknown rung", "mskill_cnc_turner", "astronaut", false],
   ])("%s", (_label, skillId, level, higher) => {
@@ -136,8 +133,15 @@ describe("the RVM label and a contact already held", () => {
 
   it("#2751 item 11 — a worker on a paid Managed Hiring tracker costs 0 (B7-15), even a Higher rung", () => {
     const r = row({ rungs: [{ skillId: "mskill_cnc_turner", tradeLevel: "setter", months: 60 }] });
-    expect(contactCostFactsOf(r, { forOpen: true, managedHiring: true }).managedHiringOrder).toBe(true);
-    expect(contactCost(DEFAULT_CREDIT_RULES, contactCostFactsOf(r, { forOpen: true, managedHiring: true }))).toEqual({
+    expect(contactCostFactsOf(r, { forOpen: true, managedHiring: true }).managedHiringOrder).toBe(
+      true,
+    );
+    expect(
+      contactCost(
+        DEFAULT_CREDIT_RULES,
+        contactCostFactsOf(r, { forOpen: true, managedHiring: true }),
+      ),
+    ).toEqual({
       credits: 0,
       basis: "managed_hiring",
     });
