@@ -6,6 +6,7 @@ const VMC = "mskill_vmc_operator";
 const HMC = "mskill_hmc_operator";
 const SETTER = "mskill_cnc_setter_operator";
 const TURNER = "mskill_cnc_turner";
+const BORING = "mskill_boring_machine_operator";
 const RIDER = "mskill_delivery_rider";
 const MIG = "mskill_mig_welder";
 const TIG = "mskill_tig_welder";
@@ -26,13 +27,17 @@ describe("resolveReachSet", () => {
   it("pre-ticks the curated related skills", () => {
     const reach = resolveReachSet({ postedSkillIds: [VMC], relatedDefault: "on" });
     expect(reach.postedSkillIds).toEqual([VMC]);
-    expect(reach.suggestedRelatedIds).toEqual([SETTER, TURNER, HMC].sort());
-    expect(reach.reachSkillIds).toEqual([VMC, SETTER, TURNER, HMC].sort());
+    expect(reach.suggestedRelatedIds).toEqual([BORING, SETTER, TURNER, HMC].sort());
+    expect(reach.reachSkillIds).toEqual([VMC, BORING, SETTER, TURNER, HMC].sort());
     expect(reach.appliedUntickedIds).toEqual([]);
   });
 
   it("honours an untick of a SUGGESTED related skill", () => {
-    const reach = resolveReachSet({ postedSkillIds: [VMC], relatedDefault: "on", untickedIds: [TURNER] });
+    const reach = resolveReachSet({
+      postedSkillIds: [VMC],
+      relatedDefault: "on",
+      untickedIds: [TURNER],
+    });
     expect(reach.appliedUntickedIds).toEqual([TURNER]);
     expect(reach.reachSkillIds).not.toContain(TURNER);
     expect(reach.reachSkillIds).toContain(HMC);
@@ -49,11 +54,15 @@ describe("resolveReachSet", () => {
       untickedIds: [MIG, RIDER, "mskill_not_real", "'; drop table --"],
     });
     expect(reach.appliedUntickedIds).toEqual([]);
-    expect(reach.reachSkillIds).toEqual([VMC, SETTER, TURNER, HMC].sort());
+    expect(reach.reachSkillIds).toEqual([VMC, BORING, SETTER, TURNER, HMC].sort());
   });
 
   it("a POSTED skill can NEVER be unticked", () => {
-    const reach = resolveReachSet({ postedSkillIds: [VMC, TURNER], relatedDefault: "on", untickedIds: [VMC, TURNER] });
+    const reach = resolveReachSet({
+      postedSkillIds: [VMC, TURNER],
+      relatedDefault: "on",
+      untickedIds: [VMC, TURNER],
+    });
     expect(reach.appliedUntickedIds).toEqual([]);
     expect(reach.reachSkillIds).toContain(VMC);
     expect(reach.reachSkillIds).toContain(TURNER);
@@ -65,7 +74,7 @@ describe("resolveReachSet", () => {
   it("relatedDefault 'off' reaches the posted skills only, but still suggests", () => {
     const reach = resolveReachSet({ postedSkillIds: [VMC], relatedDefault: "off" });
     expect(reach.reachSkillIds).toEqual([VMC]);
-    expect(reach.suggestedRelatedIds).toEqual([SETTER, TURNER, HMC].sort());
+    expect(reach.suggestedRelatedIds).toEqual([BORING, SETTER, TURNER, HMC].sort());
   });
 
   it("drops ids outside the closed set, and dedupes", () => {
@@ -131,13 +140,17 @@ describe("resolveReachSet — scopeSkillIds (#2635)", () => {
 
   it("an omitted scope is the unscoped relation, exactly as before", () => {
     const scoped = resolveReachSet({ postedSkillIds: [VMC], relatedDefault: "on" });
-    expect(scoped.reachSkillIds).toEqual([VMC, SETTER, TURNER, HMC].sort());
+    expect(scoped.reachSkillIds).toEqual([VMC, BORING, SETTER, TURNER, HMC].sort());
   });
 });
 
 describe("wantedSkillIds", () => {
   it("returns only the rows the worker wants, sorted and deduped", () => {
-    const rows = [row(TURNER), row(VMC, { wants: false }), row(TURNER, { industryId: "ind_quick_commerce" })];
+    const rows = [
+      row(TURNER),
+      row(VMC, { wants: false }),
+      row(TURNER, { industryId: "ind_quick_commerce" }),
+    ];
     expect(wantedSkillIds(rows)).toEqual([TURNER]);
   });
 
