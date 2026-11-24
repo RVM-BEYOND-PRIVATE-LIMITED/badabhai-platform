@@ -87,13 +87,7 @@ export const CandidateSearchSchema = z
      * free-text location the card hides), matched against every spelling of it the pool records.
      * `GET /payer/candidates/filters` offers the cities the pool actually records.
      */
-    city: z
-      .string()
-      .trim()
-      .min(1)
-      .max(80)
-      .nullable()
-      .default(null),
+    city: z.string().trim().min(1).max(80).nullable().default(null),
     strict: z.boolean().default(false),
     limit: z
       .number()
@@ -190,9 +184,22 @@ export interface CandidateSearchResponseDto {
   nextCursor: string | null;
 }
 
+/**
+ * One role option in the filters reply (#3031). `department` is the pack section 2 id,
+ * `department_label` its display name, and `legacy` marks a vocabulary id kept for workers
+ * who hold it after the trade was renamed or split. All three are additive; old clients
+ * ignore them.
+ */
+export interface CandidateRoleOptionDto extends LabelledIdDto {
+  industryId: string;
+  department: string;
+  department_label: string;
+  legacy: boolean;
+}
+
 /** `GET /payer/candidates/filters` — the options the filter controls offer. */
 export interface CandidateFiltersDto {
-  roles: (LabelledIdDto & { industryId: string })[];
+  roles: CandidateRoleOptionDto[];
   industries: LabelledIdDto[];
   experienceBuckets: LabelledIdDto[];
   /** Cities the eligible pool actually records (gazetteer-canonical), A→Z. */

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { JOB_ROLE_DEPARTMENTS } from "@badabhai/types";
+import { MATCH_SKILLS, TRADE_CATALOGUE } from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
 import type { MatchConfigService } from "../match/match-config.service";
@@ -13,6 +15,8 @@ import type {
 } from "./candidate-search.repository";
 import {
   CandidateSearchService,
+  LEGACY_ROLE_IDS,
+  OTHER_ROLE_IDS,
   expandSameLabelRoles,
   relatedSkillsOf,
   toCandidateRow,
@@ -51,13 +55,15 @@ interface Harness {
   emitted: unknown[];
 }
 
-function setup(opts: {
-  rows?: CandidatePoolRow[];
-  counts?: { total: number; matched: number; unrecorded: number };
-  cities?: string[];
-  roles?: CandidateRoleRow[];
-  levels?: CandidateTradeLevelRow[];
-} = {}): Harness {
+function setup(
+  opts: {
+    rows?: CandidatePoolRow[];
+    counts?: { total: number; matched: number; unrecorded: number };
+    cities?: string[];
+    roles?: CandidateRoleRow[];
+    levels?: CandidateTradeLevelRow[];
+  } = {},
+): Harness {
   const rows = opts.rows ?? [poolRow(W1)];
   const repo = {
     searchPool: vi.fn(async (_q: CandidatePoolQuery) => ({
@@ -139,7 +145,11 @@ describe("CandidateSearchService.search", () => {
   });
 
   it("mints nextCursor from the last row ON the page only when a row past it came back", async () => {
-    const rows = [poolRow(W1, { position: 1 }), poolRow(W2, { position: 2 }), poolRow(W3, { position: 3 })];
+    const rows = [
+      poolRow(W1, { position: 1 }),
+      poolRow(W2, { position: 2 }),
+      poolRow(W3, { position: 3 }),
+    ];
     const h = setup({ rows });
     const page = await search(h, { limit: 2 });
     expect(page.candidates.map((c) => c.workerId)).toEqual([W1, W2]);
@@ -150,7 +160,11 @@ describe("CandidateSearchService.search", () => {
   });
 
   it("resumes after the cursor's worker, and refuses a cursor minted under other filters", async () => {
-    const rows = [poolRow(W1, { position: 1 }), poolRow(W2, { position: 2 }), poolRow(W3, { position: 3 })];
+    const rows = [
+      poolRow(W1, { position: 1 }),
+      poolRow(W2, { position: 2 }),
+      poolRow(W3, { position: 3 }),
+    ];
     const first = await search(setup({ rows }), { skill_ids: ["mskill_cnc_turner"], limit: 2 });
     const h = setup({ rows: [poolRow(W3, { position: 3 })] });
     await search(h, { skill_ids: ["mskill_cnc_turner"], limit: 2, cursor: first.nextCursor });
@@ -164,7 +178,12 @@ describe("CandidateSearchService.search", () => {
       search(other, { skill_ids: ["mskill_vmc_operator"], limit: 2, cursor: first.nextCursor }),
     ).rejects.toMatchObject({ status: 400 });
     await expect(
-      search(other, { skill_ids: ["mskill_cnc_turner"], strict: true, limit: 2, cursor: first.nextCursor }),
+      search(other, {
+        skill_ids: ["mskill_cnc_turner"],
+        strict: true,
+        limit: 2,
+        cursor: first.nextCursor,
+      }),
     ).rejects.toMatchObject({ status: 400 });
     // Refused before any read, and nothing emitted.
     expect(other.repo.searchPool).not.toHaveBeenCalled();
@@ -174,12 +193,23 @@ describe("CandidateSearchService.search", () => {
   it("returns the three counts from the same read, and the mode it ran in", async () => {
     const h = setup({ counts: { total: 62, matched: 14, unrecorded: 9 } });
     const res = await search(h, { city: "Pune" });
-    expect(res).toMatchObject({ total: 62, matched: 14, unrecorded: 9, filtered: true, strict: false });
+    expect(res).toMatchObject({
+      total: 62,
+      matched: 14,
+      unrecorded: 9,
+      filtered: true,
+      strict: false,
+    });
   });
 
   it("unfiltered: the counts as read (every row matches nothing-asked) and filtered=false", async () => {
     const h = setup({ counts: { total: 5, matched: 5, unrecorded: 0 } });
-    expect(await search(h, {})).toMatchObject({ total: 5, matched: 5, unrecorded: 0, filtered: false });
+    expect(await search(h, {})).toMatchObject({
+      total: 5,
+      matched: 5,
+      unrecorded: 0,
+      filtered: false,
+    });
   });
 
   it("an empty pool is a real answer: the counts, no rows, no cursor", async () => {
@@ -232,10 +262,17 @@ describe("CandidateSearchService.search", () => {
   });
 
   it("emits ONE event with the search's shape and counts — never a worker id or the city", async () => {
-    const h = setup({ rows: [poolRow(W1), poolRow(W2)], counts: { total: 9, matched: 2, unrecorded: 1 } });
+    const h = setup({
+      rows: [poolRow(W1), poolRow(W2)],
+      counts: { total: 9, matched: 2, unrecorded: 1 },
+    });
     await search(h, { skill_ids: ["mskill_cnc_turner"], city: "Pune", strict: true });
     expect(h.emitted).toHaveLength(1);
-    const event = h.emitted[0] as { event_name: string; actor: unknown; payload: Record<string, unknown> };
+    const event = h.emitted[0] as {
+      event_name: string;
+      actor: unknown;
+      payload: Record<string, unknown>;
+    };
     expect(event.event_name).toBe("payer.candidate_search_performed");
     expect(event.actor).toEqual({ actor_type: "payer", actor_id: PAYER });
     expect(event.payload).toEqual({
@@ -331,25 +368,42 @@ describe("the masked row (toCandidateRow — the only builder)", () => {
   it("matchTier is null without a role filter, and for a worker holding neither role", () => {
     expect(toCandidateRow(poolRow(W1), false, [], []).matchTier).toBeNull();
     expect(toCandidateRow(poolRow(W1, { matchClass: 3 }), true, [], []).matchTier).toBeNull();
-    expect(toCandidateRow(poolRow(W1, { matched: false }), true, [], []).matchesFilters).toBe(false);
+    expect(toCandidateRow(poolRow(W1, { matched: false }), true, [], []).matchesFilters).toBe(
+      false,
+    );
     expect(toCandidateRow(poolRow(W1, { matchClass: 2 }), true, [], []).matchTier).toBe(2);
   });
 
   it("shows a city only when the gazetteer recognises it — raw free text never reaches a payer", () => {
     expect(toCandidateRow(poolRow(W1, { currentCity: "pune" }), false, [], []).city).toBe("Pune");
-    expect(toCandidateRow(poolRow(W1, { currentCity: "near the bus stand" }), false, [], []).city).toBeNull();
+    expect(
+      toCandidateRow(poolRow(W1, { currentCity: "near the bus stand" }), false, [], []).city,
+    ).toBeNull();
     expect(toCandidateRow(poolRow(W1, { currentCity: null }), false, [], []).city).toBeNull();
   });
 
   it("carries ONLY the lead role's rung — never one on a switched-off or other trade", () => {
-    const row = toCandidateRow(poolRow(W1, { skillId: "mskill_cnc_turner" }), false, [], [
-      { workerId: W1, skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true },
-      { workerId: W1, skillId: "mskill_vmc_operator", tradeLevel: "operator", levelConfirmed: false },
-    ]);
+    const row = toCandidateRow(
+      poolRow(W1, { skillId: "mskill_cnc_turner" }),
+      false,
+      [],
+      [
+        { workerId: W1, skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true },
+        {
+          workerId: W1,
+          skillId: "mskill_vmc_operator",
+          tradeLevel: "operator",
+          levelConfirmed: false,
+        },
+      ],
+    );
     expect(row.tradeLevels.map((l) => l.skillId)).toEqual(["mskill_cnc_turner"]);
-    const none = toCandidateRow(poolRow(W1, { skillId: "mskill_tig_welder" }), false, [], [
-      { workerId: W1, skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true },
-    ]);
+    const none = toCandidateRow(
+      poolRow(W1, { skillId: "mskill_tig_welder" }),
+      false,
+      [],
+      [{ workerId: W1, skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true }],
+    );
     expect(none.tradeLevels).toEqual([]);
   });
 
@@ -369,7 +423,16 @@ describe("the masked row (toCandidateRow — the only builder)", () => {
 
   it("cannot carry identity: no input field holds any, so no output can", () => {
     const text = JSON.stringify(toCandidateRow(poolRow(W1), true, [], []));
-    for (const marker of ["full_name", "fullName", "phone", "+91", "photo", "employer", "salary", "address"]) {
+    for (const marker of [
+      "full_name",
+      "fullName",
+      "phone",
+      "+91",
+      "photo",
+      "employer",
+      "salary",
+      "address",
+    ]) {
       expect(text).not.toContain(marker);
     }
   });
@@ -390,15 +453,107 @@ describe("vocabulary helpers", () => {
 });
 
 describe("CandidateSearchService.filters", () => {
+  const activeLabels = new Set(
+    MATCH_SKILLS.filter((s) => s.status === "active").map((s) => s.labelEn),
+  );
+  const tradeBySkill = new Map(TRADE_CATALOGUE.map((t) => [t.matchSkillId, t]));
+
   it("offers one role per label, the vocabulary's industries, the buckets and the pool's canonical cities", async () => {
     const h = setup({ cities: ["pune", "Pune", "Chennai", "near the bus stand"] });
     const f = await h.service.filters();
     const labels = f.roles.map((r) => r.label);
     expect(new Set(labels).size).toBe(labels.length);
+    expect(labels).toHaveLength(activeLabels.size);
     expect(labels.filter((l) => l === "3D CAD Designer")).toHaveLength(1);
     expect(f.industries.map((i) => i.id)).toContain("ind_industrial_manufacturing");
-    expect(f.experienceBuckets.map((b) => b.id)).toEqual(["under_1", "1_3", "3_5", "5_10", "10_plus"]);
+    expect(f.experienceBuckets.map((b) => b.id)).toEqual([
+      "under_1",
+      "1_3",
+      "3_5",
+      "5_10",
+      "10_plus",
+    ]);
     expect(f.cities).toEqual(["Chennai", "Pune"]);
     expect(f.maxRoles).toBe(5);
+  });
+
+  it("groups by pack department, keeps pack order inside a department, and puts legacy last", async () => {
+    const f = await setup().service.filters();
+    const departments = [...new Set(f.roles.map((r) => r.department))];
+    expect(departments).toEqual([...JOB_ROLE_DEPARTMENTS.map((d) => d.id), "other"]);
+
+    for (const department of departments) {
+      const roles = f.roles.filter((r) => r.department === department);
+      const firstLegacy = roles.findIndex((r) => r.legacy);
+      if (firstLegacy >= 0) {
+        expect(
+          roles.slice(firstLegacy).every((r) => r.legacy),
+          department,
+        ).toBe(true);
+      }
+      if (department !== "other") {
+        const codes = roles
+          .filter((r) => !r.legacy)
+          .map((r) => {
+            const trade = tradeBySkill.get(r.id);
+            expect(trade, `${r.id} is not a catalogue trade`).toBeDefined();
+            return Number(trade!.code.slice(1));
+          });
+        expect(codes, department).toEqual([...codes].sort((a, b) => a - b));
+      }
+    }
+
+    for (const role of f.roles) {
+      expect(role.department.length, role.id).toBeGreaterThan(0);
+      expect(role.department_label.length, role.id).toBeGreaterThan(0);
+      expect(typeof role.legacy, role.id).toBe("boolean");
+    }
+    expect(f.roles.find((r) => r.id === "mskill_foundry_forging_operator")).toMatchObject({
+      department: "casting_forging_surface",
+      department_label: "Casting, Forging & Surface Treatment",
+      legacy: true,
+    });
+    expect(f.roles.find((r) => r.id === "mskill_3d_designer")).toMatchObject({
+      department: "design",
+      legacy: true,
+    });
+    for (const id of OTHER_ROLE_IDS) {
+      expect(f.roles.find((r) => r.id === id)).toMatchObject({
+        department: "other",
+        department_label: "Other",
+        legacy: false,
+      });
+    }
+    for (const role of f.roles) {
+      if (LEGACY_ROLE_IDS.has(role.id)) expect(role.legacy, role.id).toBe(true);
+    }
+  });
+});
+
+describe("new-trade relations (#3031)", () => {
+  it("a new foundry search passes the old Foundry / Forging skill at the related tier", async () => {
+    for (const asked of [
+      "mskill_foundry_operator",
+      "mskill_die_casting_operator",
+      "mskill_forging_operator",
+    ]) {
+      const h = setup();
+      await search(h, { skill_ids: [asked] });
+      const q = h.repo.searchPool.mock.calls[0]![0] as CandidatePoolQuery;
+      expect(q.skillIds).toEqual([asked]);
+      expect(q.relatedSkillIds, asked).toContain("mskill_foundry_forging_operator");
+    }
+  });
+
+  it("Maintenance Technician now offers the five neighbouring maintenance trades as related", () => {
+    expect(relatedSkillsOf(["mskill_maintenance_technician"])).toEqual(
+      expect.arrayContaining([
+        "mskill_industrial_electrician",
+        "mskill_hvac_rac_technician",
+        "mskill_utility_operator",
+        "mskill_maintenance_engineer",
+        "mskill_service_engineer",
+      ]),
+    );
   });
 });
