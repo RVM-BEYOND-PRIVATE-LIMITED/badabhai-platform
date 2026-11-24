@@ -45,6 +45,8 @@ const getCapacity = vi.fn();
 const getJobPostingChatSessions = vi.fn();
 const getLiveCatalog = vi.fn();
 const listPostingTrades = vi.fn();
+const listPostingTradeCatalogue = vi.fn();
+const getPostingTradeForm = vi.fn();
 const getCandidateFilters = vi.fn();
 const READS = [
   getPostings,
@@ -54,6 +56,8 @@ const READS = [
   getJobPostingChatSessions,
   getLiveCatalog,
   listPostingTrades,
+  listPostingTradeCatalogue,
+  getPostingTradeForm,
   getCandidateFilters,
 ];
 
@@ -79,6 +83,8 @@ vi.mock("../../../lib/payer-api", () => ({
   getCapacity: () => getCapacity(),
   getJobPostingChatSessions: () => getJobPostingChatSessions(),
   listPostingTrades: () => listPostingTrades(),
+  listPostingTradeCatalogue: () => listPostingTradeCatalogue(),
+  getPostingTradeForm: (kind: string) => getPostingTradeForm(kind),
   getCandidateFilters: () => getCandidateFilters(),
 }));
 vi.mock("../../../lib/live-catalog", () => ({ getLiveCatalog: () => getLiveCatalog() }));
@@ -133,14 +139,23 @@ const DETAIL = (status = "open") => ({
   untickedRelatedIds: [],
 });
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
-/** One 16-trade catalogue row (#2645). */
+/** One trade's full form (the legacy 16-trade route, still read by the detail page). */
 const TRADE = {
   role_kind: "cnc_turner",
   role_label: "CNC Turner",
+  department: "machining",
   pack_id: "qp_cnc_turner",
   match_skill_id: "mskill_cnc_turner",
   ladder: [],
   questions: [],
+};
+/** One picker row from the #3020 catalogue route. */
+const CATALOGUE_ROW = {
+  role_kind: "cnc_turner",
+  role_label: "CNC Turner",
+  department: "machining",
+  department_label: "Machining",
+  kind: "shop_floor",
 };
 const FILTERS = {
   roles: [{ id: "mskill_cnc_turner", label: "CNC Turner", industryId: "machining" }],
@@ -253,6 +268,8 @@ beforeEach(() => {
   getJobPostingChatSessions.mockResolvedValue([]);
   getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, live: true });
   listPostingTrades.mockResolvedValue([TRADE]);
+  listPostingTradeCatalogue.mockResolvedValue([CATALOGUE_ROW]);
+  getPostingTradeForm.mockResolvedValue(TRADE);
   getCandidateFilters.mockResolvedValue(FILTERS);
 });
 
@@ -629,13 +646,13 @@ describe("#2645 — the company posting forms are handed the 16 trades, or why t
   ] as const) {
     it(`${name}: the trades the API served, with no problem`, async () => {
       const props = propsOf(await run(), form);
-      expect(props.postingTrades).toEqual([TRADE]);
+      expect(props.postingTrades).toEqual([CATALOGUE_ROW]);
       expect(props.postingTradesProblem).toBeNull();
     });
 
     it(`${name}: a failed read is its cause — never a silent empty list`, async () => {
-      listPostingTrades.mockRejectedValueOnce(
-        new Error("payer API /payer/posting-trades returned 429"),
+      listPostingTradeCatalogue.mockRejectedValueOnce(
+        new Error("payer API /payer/posting-trades/catalogue returned 429"),
       );
       const props = propsOf(await run(), form);
       expect(props.postingTrades).toEqual([]);

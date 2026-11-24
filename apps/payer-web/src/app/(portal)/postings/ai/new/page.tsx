@@ -3,7 +3,7 @@ import { requirePayer } from "../../../../../lib/auth";
 import { agentPostingRedirect } from "../../../../../lib/posting-routes";
 import { PageHeader } from "../../../../../components/page-header";
 import { getJobPostingChatSessions } from "../../../../../lib/payer-api";
-import { readPostingTrades } from "../../../../../lib/posting-trades.server";
+import { readPostingTradeCatalogue } from "../../../../../lib/posting-trades.server";
 import type { JobPostingChatSessionSummary } from "../../../../../lib/contracts";
 import { JobPostingChat } from "./job-posting-chat";
 
@@ -29,10 +29,10 @@ export default async function AiPostingChatPage() {
   const session = await requirePayer();
   if (session.role === "agent") redirect(agentPostingRedirect("create"));
 
-  // #2645 — the 16 trades the draft's trade is picked from at publish (a company job with none can
-  // never go live, #2635). Read alongside the sessions; a failure is said at that picker with a
-  // Retry (it never throws), and the chat itself still runs.
-  const tradesRead = readPostingTrades();
+  // #3020 — the catalogue the draft's trade is picked from at publish (a company job with none can
+  // never go live, #2635). A failure is said at that picker with a Retry (it never throws), and
+  // the chat itself still runs.
+  const tradesRead = readPostingTradeCatalogue();
 
   let sessions: JobPostingChatSessionSummary[] = [];
   let loadFailed = false;

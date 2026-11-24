@@ -9,14 +9,20 @@ import { PayerHttpError } from "./payer-errors";
  */
 
 const listPostingTrades = vi.fn();
-vi.mock("./payer-api", () => ({ listPostingTrades: () => listPostingTrades() }));
+const listPostingTradeCatalogue = vi.fn();
+vi.mock("./payer-api", () => ({
+  listPostingTrades: () => listPostingTrades(),
+  listPostingTradeCatalogue: () => listPostingTradeCatalogue(),
+}));
 // The transport's session-expiry error is private to it; its predicate is all this module reads.
 class SessionEnded extends Error {}
 vi.mock("./payer-http", () => ({
   isPayerUnauthorized: (e: unknown) => e instanceof SessionEnded,
 }));
 
-const { readPostingTrades, postingTradesProblemOf } = await import("./posting-trades.server");
+const { readPostingTradeCatalogue, readPostingTrades, postingTradesProblemOf } = await import(
+  "./posting-trades.server"
+);
 
 const TRADE = {
   role_kind: "cnc_turner",
@@ -27,7 +33,46 @@ const TRADE = {
   questions: [],
 };
 
-beforeEach(() => listPostingTrades.mockReset());
+beforeEach(() => {
+  listPostingTrades.mockReset();
+  listPostingTradeCatalogue.mockReset();
+});
+
+const CATALOGUE_ROW = {
+  role_kind: "cnc_turner",
+  role_label: "CNC Turner",
+  department: "machining",
+  department_label: "Machining",
+  kind: "shop_floor",
+};
+
+describe("readPostingTradeCatalogue", () => {
+  it("the picker rows, with no problem", async () => {
+    listPostingTradeCatalogue.mockResolvedValueOnce([CATALOGUE_ROW]);
+    await expect(readPostingTradeCatalogue()).resolves.toEqual({
+      trades: [CATALOGUE_ROW],
+      problem: null,
+    });
+  });
+
+  it("an empty catalogue is a problem of its own", async () => {
+    listPostingTradeCatalogue.mockResolvedValueOnce([]);
+    await expect(readPostingTradeCatalogue()).resolves.toEqual({
+      trades: [],
+      problem: { kind: "empty" },
+    });
+  });
+
+  it("a failed read carries its real cause, never a throw", async () => {
+    listPostingTradeCatalogue.mockRejectedValueOnce(
+      new PayerHttpError("/payer/posting-trades/catalogue", 429),
+    );
+    await expect(readPostingTradeCatalogue()).resolves.toEqual({
+      trades: [],
+      problem: { kind: "rate-limited" },
+    });
+  });
+});
 
 describe("readPostingTrades", () => {
   it("the 16 trades, with no problem", async () => {

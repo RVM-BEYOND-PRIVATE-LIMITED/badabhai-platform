@@ -42,6 +42,10 @@ vi.mock("../../trade-fields", async (importOriginal) => ({
 vi.mock("../../../../../components/retry-button", () => ({
   RetryButton: () => ({ type: "button", props: { type: "button", children: "Retry" } }),
 }));
+// The picker's lazy load (its own suite); here it must not reach the real server action.
+vi.mock("../../trade-form-action", () => ({
+  loadPostingTradeFormAction: vi.fn(async () => ({ ok: false, problem: { kind: "unreachable" } })),
+}));
 // #2645 — the focus a `?trade=required` page opens with goes through the shared helper (its frame
 // timing is form-focus.test.ts's); here: whether, and where, the form asks for it.
 const focusControlOnNextFrame = vi.fn();
@@ -180,16 +184,30 @@ function findForm(node: ReactNode): ReactElement<{ onSubmit: (e: unknown) => voi
   return el.props && "children" in el.props ? findForm(el.props.children) : null;
 }
 
-/** One 16-trade catalogue row (`GET /payer/posting-trades`), no chip questions. */
+/** One catalogue row (`GET /payer/posting-trades/catalogue`). */
 const tradeRow = (roleKind: string, roleLabel: string, matchSkillId: string) => ({
   role_kind: roleKind,
   role_label: roleLabel,
+  department: roleKind === "welder" ? "fabrication" : "machining",
+  department_label: roleKind === "welder" ? "Fabrication" : "Machining",
+  kind: "shop_floor" as const,
+  match_skill_id: matchSkillId,
+});
+/** One trade's full form (`GET /payer/posting-trades/:roleKind`). */
+const tradeDetail = (roleKind: string, roleLabel: string, matchSkillId: string) => ({
+  role_kind: roleKind,
+  role_label: roleLabel,
+  department: roleKind === "welder" ? "fabrication" : "machining",
   pack_id: `qp_${roleKind}`,
   match_skill_id: matchSkillId,
   ladder: [],
   questions: [],
 });
-/** The catalogue the page served (#2645) — two of the 16. */
+const DETAILS: Record<string, ReturnType<typeof tradeDetail>> = {
+  cnc_turner: tradeDetail("cnc_turner", "CNC Turner", "mskill_cnc_turner"),
+  welder: tradeDetail("welder", "Welder", "mskill_welder"),
+};
+/** The catalogue the page served (#3020) — two trades. */
 const TRADES = [
   tradeRow("cnc_turner", "CNC Turner", "mskill_cnc_turner"),
   tradeRow("welder", "Welder", "mskill_welder"),
@@ -223,6 +241,11 @@ function render(
     matchSkills?: unknown[];
     /** The posting's stored match set (`match_skill_ids` + unticks), as the page reads it. */
     matchSelection?: { matchSkillIds: string[]; untickedRelatedIds: string[] };
+    initialTradeForm?: ReturnType<typeof tradeDetail> | null;
+    storedRoleLabel?: string | null;
+    storedRoleInCatalogue?: boolean;
+    /** The form the picker loaded for the seeded role (default: its catalogue detail). */
+    tradeForm?: ReturnType<typeof tradeDetail> | null;
   } = {},
 ) {
   stateQueue = [
@@ -238,6 +261,17 @@ function render(
     appended.navigating ?? false, // navigating (9)
     appended.problem ?? null, // problem (10)
     appended.submitting ?? null, // submitting (11)
+    OWN_SEED, // serverFieldErrors (12)
+    OWN_SEED, // legacySelection (13)
+    page.tradeForm === undefined
+      ? (page.postingTrades ?? TRADES).some(
+          (trade) =>
+            trade.role_kind ===
+            ((page.initial?.roleKind ?? overrides.roleKind ?? "") as string),
+        )
+        ? (DETAILS[(page.initial?.roleKind ?? overrides.roleKind ?? "") as string] ?? null)
+        : null
+      : page.tradeForm, // loadedTradeForm (14)
   ];
   stateCursor = 0;
   refCursor = 0;
@@ -250,6 +284,9 @@ function render(
     initial: page.initial ?? INITIAL,
     postingTrades: (page.postingTrades ?? TRADES) as never,
     postingTradesProblem: (page.postingTradesProblem ?? null) as never,
+    initialTradeForm: (page.initialTradeForm ?? null) as never,
+    storedRoleLabel: (page.storedRoleLabel ?? null) as never,
+    storedRoleInCatalogue: page.storedRoleInCatalogue ?? true,
     tradeRequired: page.tradeRequired ?? false,
     matchSkills: (page.matchSkills ?? []) as never,
     matchSelection: page.matchSelection,
@@ -545,6 +582,36 @@ describe("EditPostingForm — #2645: the role is the job's trade, one of the 16"
     await Promise.resolve();
     expect(updatePostingAction).not.toHaveBeenCalled();
     expect(setters[10]).toHaveBeenCalledWith({ control: "roleKind", message: TRADE_MSG });
+  });
+
+  it("a switched-off stored trade is read-only with its stored label and saves the rest", async () => {
+    const stored = { ...INITIAL, roleKind: "retired_trade" };
+    const tree = render(
+      { roleKind: "retired_trade", city: "Pune" },
+      "open",
+      {},
+      undefined,
+      {},
+      {
+        initial: stored,
+        postingTrades: [],
+        postingTradesProblem: null,
+        storedRoleInCatalogue: false,
+        storedRoleLabel: "Old Trade",
+        initialTradeForm: null,
+        tradeForm: null,
+      },
+    );
+    const els = hosts(tree);
+    const role = els.find((e) => e.props.id === "roleKind")!;
+    expect(role.type).toBe("p");
+    expect(deepText(role)).toBe("Old Trade");
+    expect(els.some((e) => e.type === "select" && e.props.id === "roleKind")).toBe(false);
+
+    await submit(tree);
+    expect(updatePostingAction).toHaveBeenCalledTimes(1);
+    const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.roleKind).toBeUndefined();
   });
 
   it("a save that does not touch the role never sends it (and the seam never clears it)", async () => {

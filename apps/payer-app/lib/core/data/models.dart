@@ -770,8 +770,7 @@ class UnlockResult extends Equatable {
       !available && creditsNeeded != null && creditsAvailable != null;
 
   @override
-  List<Object?> get props =>
-      <Object?>[
+  List<Object?> get props => <Object?>[
         available,
         unlockId,
         expiresAt,
@@ -816,8 +815,9 @@ class UnlockQuotes extends Equatable {
     if (result.granted) {
       return UnlockQuotes(
         creditsByWorker: <String, int>{...creditsByWorker, workerId: 0},
-        creditsAvailable:
-            (creditsAvailable - (result.creditsCharged ?? 1)).clamp(0, creditsAvailable).toInt(),
+        creditsAvailable: (creditsAvailable - (result.creditsCharged ?? 1))
+            .clamp(0, creditsAvailable)
+            .toInt(),
         waivedWorkers: waivedWorkers,
       );
     }
@@ -865,7 +865,8 @@ class UnlockQuotes extends Equatable {
   }
 
   @override
-  List<Object?> get props => <Object?>[creditsByWorker, creditsAvailable, waivedWorkers];
+  List<Object?> get props =>
+      <Object?>[creditsByWorker, creditsAvailable, waivedWorkers];
 }
 
 /// One row of `GET /payer/unlocks` — the caller's OWN unlocks (#2033 payer
@@ -922,7 +923,8 @@ class PayerUnlock extends Equatable {
       // A KEY present with null means open for good; an ABSENT key is an older server, where the
       // stored window's end is the answer.
       openUntil: json.containsKey('open_until')
-          ? (json['open_until'] is String && (json['open_until'] as String).isNotEmpty
+          ? (json['open_until'] is String &&
+                  (json['open_until'] as String).isNotEmpty
               ? json['open_until'] as String
               : null)
           : (expires is String && expires.isNotEmpty ? expires : null),
@@ -930,7 +932,8 @@ class PayerUnlock extends Equatable {
   }
 
   @override
-  List<Object?> get props => <Object?>[unlockId, workerId, status, expiresAt, openUntil];
+  List<Object?> get props =>
+      <Object?>[unlockId, workerId, status, expiresAt, openUntil];
 }
 
 /// #2747 — what `GET /payer/unlocks/:unlockId/contact` says. The success carries the name and
@@ -965,7 +968,8 @@ class ContactReadResult extends Equatable {
   final String? openedAt;
 
   @override
-  List<Object?> get props => <Object?>[status, available, fullName, phone, openedAt];
+  List<Object?> get props =>
+      <Object?>[status, available, fullName, phone, openedAt];
 }
 
 enum ContactReadStatus { contact, unavailable, off }
@@ -1337,6 +1341,31 @@ const Map<String, String> kJobRoleLabels = <String, String>{
 /// Label for a role kind — null when the value is not one of the 27.
 String? jobRoleLabel(String? kind) =>
     kind == null ? null : kJobRoleLabels[kind];
+
+/// The label shown for a role kind — the server's catalogue label first, then
+/// the built-in 27 labels, then a readable title-cased kind. Never empty for a
+/// non-empty kind, so an installed copy that meets a new trade still shows a
+/// name instead of a blank line.
+String postingTradeLabelFor(
+  String? roleKind, {
+  Iterable<PostingTradeCatalogueRow> catalogue =
+      const <PostingTradeCatalogueRow>[],
+}) {
+  final String kind = roleKind?.trim() ?? '';
+  if (kind.isEmpty) return '';
+  for (final PostingTradeCatalogueRow row in catalogue) {
+    if (row.roleKind == kind && row.roleLabel.isNotEmpty) return row.roleLabel;
+  }
+  final String? known = kJobRoleLabels[kind];
+  if (known != null && known.isNotEmpty) return known;
+  return _titleCaseKind(kind);
+}
+
+String _titleCaseKind(String kind) => kind
+    .split('_')
+    .where((String word) => word.isNotEmpty)
+    .map((String word) => '${word[0].toUpperCase()}${word.substring(1)}')
+    .join(' ');
 
 /// The coarse `needed_by` timing enum the agency route accepts.
 const List<String> kAgencyNeededBy = <String>['immediate', 'soon', 'flexible'];
@@ -1914,13 +1943,56 @@ class PostingTradeRung extends Equatable {
       <Object?>[rung, monthsFloor, evidence, confirmed, priceTier];
 }
 
-/// The whole posting-side definition of one trade (`GET /payer/posting-trades`).
+/// One row of `GET /payer/posting-trades/catalogue` — the trade picker's
+/// server-ordered list. [roleKind] is the value a form is read for; all names
+/// ([roleLabel], [departmentLabel]) are the server's own display strings.
+class PostingTradeCatalogueRow extends Equatable {
+  const PostingTradeCatalogueRow({
+    required this.roleKind,
+    required this.roleLabel,
+    required this.department,
+    required this.departmentLabel,
+    required this.kind,
+  });
+
+  factory PostingTradeCatalogueRow.fromJson(Map<String, dynamic> row) =>
+      PostingTradeCatalogueRow(
+        roleKind: (row['role_kind'] ?? row['roleKind']) as String? ?? '',
+        roleLabel: (row['role_label'] ?? row['roleLabel']) as String? ??
+            (row['role_kind'] ?? row['roleKind']) as String? ??
+            '',
+        department:
+            (row['department'] ?? row['department_key']) as String? ?? '',
+        departmentLabel:
+            (row['department_label'] ?? row['departmentLabel']) as String? ??
+                '',
+        kind: row['kind'] as String? ?? '',
+      );
+
+  final String roleKind;
+  final String roleLabel;
+  final String department;
+  final String departmentLabel;
+
+  /// `shop_floor` or `desk`.
+  final String kind;
+
+  bool get isDesk => kind == 'desk';
+
+  @override
+  List<Object?> get props =>
+      <Object?>[roleKind, roleLabel, department, departmentLabel, kind];
+}
+
+/// The whole posting-side definition of one trade (`GET /payer/posting-trades`
+/// or `GET /payer/posting-trades/:roleKind`).
 class PostingTradeForm extends Equatable {
   const PostingTradeForm({
     required this.roleKind,
     required this.roleLabel,
     required this.packId,
     required this.matchSkillId,
+    this.department = '',
     this.ladder = const <PostingTradeRung>[],
     this.questions = const <PostingTradeQuestion>[],
   });
@@ -1932,6 +2004,7 @@ class PostingTradeForm extends Equatable {
             row['role_label'] as String? ?? row['role_kind'] as String? ?? '',
         packId: row['pack_id'] as String? ?? '',
         matchSkillId: row['match_skill_id'] as String? ?? '',
+        department: row['department'] as String? ?? '',
         ladder: (row['ladder'] as List<dynamic>? ?? const <dynamic>[])
             .whereType<Map<String, dynamic>>()
             .map(PostingTradeRung.fromJson)
@@ -1946,6 +2019,9 @@ class PostingTradeForm extends Equatable {
   final String roleLabel;
   final String packId;
   final String matchSkillId;
+
+  /// The department key added by `GET /payer/posting-trades/:roleKind`.
+  final String department;
   final List<PostingTradeRung> ladder;
   final List<PostingTradeQuestion> questions;
 
@@ -1964,8 +2040,15 @@ class PostingTradeForm extends Equatable {
   }
 
   @override
-  List<Object?> get props =>
-      <Object?>[roleKind, roleLabel, packId, matchSkillId, ladder, questions];
+  List<Object?> get props => <Object?>[
+        roleKind,
+        roleLabel,
+        packId,
+        matchSkillId,
+        department,
+        ladder,
+        questions,
+      ];
 }
 
 /// A related-skill preview under a picked [ReachSkill] (`related[]` rows of the

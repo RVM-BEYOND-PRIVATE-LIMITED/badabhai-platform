@@ -574,6 +574,33 @@ export const postingTradeListWireSchema = z.object({
 });
 
 /**
+ * `GET /payer/posting-trades/catalogue` — one picker row per postable trade, in department order
+ * then pack order. The client never writes a trade or department name: both labels come from the
+ * server. `kind` separates shop-floor trades from desk roles.
+ */
+export const postingTradeCatalogueEntryWireSchema = z.object({
+  role_kind: z.string(),
+  role_label: z.string(),
+  department: z.string(),
+  department_label: z.string(),
+  kind: z.enum(["shop_floor", "desk"]),
+});
+export type PostingTradeCatalogueEntryWire = z.infer<
+  typeof postingTradeCatalogueEntryWireSchema
+>;
+
+export const postingTradeCatalogueWireSchema = z.object({
+  trades: z.array(postingTradeCatalogueEntryWireSchema),
+});
+export type PostingTradeCatalogueWire = z.infer<typeof postingTradeCatalogueWireSchema>;
+
+/** `GET /payer/posting-trades/:roleKind` — one trade's full form, with its department added. */
+export const postingTradeDetailWireSchema = postingTradeFormWireSchema.extend({
+  department: z.string(),
+});
+export type PostingTradeDetailWire = z.infer<typeof postingTradeDetailWireSchema>;
+
+/**
  * `POST /payer/match/reach-preview` — the live "reaches N workers" the payer decides on.
  *
  * `reach_count` on a related skill is that skill's OWN worker count, NOT a marginal
@@ -1769,6 +1796,8 @@ export const jobPostingWireSchema = z.object({
   requirements: z.array(z.string()).nullable().optional(),
   benefits: z.array(z.string()).nullable().optional(),
   role_kind: z.string().nullable().optional(),
+  /** The stored trade's server label, when the projection carries it (#3020). */
+  role_label: z.string().nullable().optional(),
   // Migration 0141 — the display-only rung + the poster's chip answers.
   trade_level: z.string().nullable().optional(),
   trade_answers: z.record(z.string(), z.array(z.string())).nullable().optional(),

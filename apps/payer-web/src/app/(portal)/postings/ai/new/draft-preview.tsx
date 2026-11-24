@@ -1,7 +1,10 @@
 import { RoleArt } from "@badabhai/role-art";
 import { Badge, Card, Input } from "../../../../../components/ds";
 import { formatInr } from "../../../../../lib/format";
-import type { JobPostingDraft, PostingTradeFormWire } from "../../../../../lib/contracts";
+import type {
+  JobPostingDraft,
+  PostingTradeCatalogueEntryWire,
+} from "../../../../../lib/contracts";
 import type { PostingTradesProblem } from "../../../../../lib/posting-trades";
 import { PostingTradePicker } from "../../trade-picker";
 
@@ -159,8 +162,8 @@ export interface DraftPreviewProps {
    */
   roleKind: string;
   onRoleKindChange: (roleKind: string) => void;
-  /** The 16-trade catalogue the picker offers; empty ⇒ the cause and a Retry instead. */
-  trades: readonly PostingTradeFormWire[];
+  /** The catalogue the picker offers; empty ⇒ the cause and a Retry instead. */
+  trades: readonly PostingTradeCatalogueEntryWire[];
   /** Why `trades` is empty. */
   tradesProblem: PostingTradesProblem | null;
   /** A publish refused for want of a trade — "Pick one of the 16 trades" at the picker. */
@@ -203,12 +206,13 @@ export function DraftPreview({
       <PostingTradePicker
         id="chatRoleKind"
         label="Role"
-        hint="One of the 16 trades we match on — publishing needs one. It also picks the card's illustration."
+        hint="A trade we match on — publishing needs one. It also picks the card's illustration."
         trades={trades}
         problem={tradesProblem}
         value={roleKind}
         error={roleError}
         onChange={onRoleKindChange}
+        loadForm={false}
       />
 
       <Input

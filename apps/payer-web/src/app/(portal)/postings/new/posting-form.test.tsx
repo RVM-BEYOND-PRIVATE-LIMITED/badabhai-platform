@@ -152,6 +152,7 @@ vi.mock("react", async () => {
     // The voice-description control holds its recogniser/status in refs; the
     // plain-function walk has no React dispatcher, so answer it locally.
     useRef: (initial: unknown) => ({ current: initial }),
+    useEffect: () => undefined,
     useTransition: () => useTransition(),
   };
 });
@@ -204,20 +205,38 @@ const MSKILL = {
   related_skill_ids: ["mskill_vmc_operating"],
 };
 
-/** One 16-trade catalogue row (`GET /payer/posting-trades`), no chip questions. */
-const tradeRow = (roleKind: string, roleLabel: string, matchSkillId: string) => ({
+/** One catalogue row (`GET /payer/posting-trades/catalogue`). */
+const tradeRow = (
+  roleKind: string,
+  roleLabel: string,
+  department = "machining",
+  departmentLabel = "Machining",
+) => ({
   role_kind: roleKind,
   role_label: roleLabel,
+  department,
+  department_label: departmentLabel,
+  kind: "shop_floor" as const,
+});
+/** The catalogue the page served — two trades are enough to pin "only what the API lists". */
+const TRADES = [
+  tradeRow("cnc_turner", "CNC Turner"),
+  tradeRow("welder", "Welder", "fabrication", "Fabrication"),
+];
+/** One trade's full form (`GET /payer/posting-trades/:roleKind`). */
+const tradeDetail = (roleKind: string, roleLabel: string, matchSkillId: string) => ({
+  role_kind: roleKind,
+  role_label: roleLabel,
+  department: "machining",
   pack_id: `qp_${roleKind}`,
   match_skill_id: matchSkillId,
   ladder: [],
   questions: [],
 });
-/** The catalogue the page served — two of the 16 are enough to pin "only what the API lists". */
-const TRADES = [
-  tradeRow("cnc_turner", "CNC Turner", "mskill_cnc_turner"),
-  tradeRow("welder", "Welder", "mskill_welder"),
-];
+const DETAILS: Record<string, ReturnType<typeof tradeDetail>> = {
+  cnc_turner: tradeDetail("cnc_turner", "CNC Turner", "mskill_cnc_turner"),
+  welder: tradeDetail("welder", "Welder", "mskill_welder"),
+};
 
 /**
  * useState order in the source: fields, fieldErrors, error, navigating, selection, preview,
@@ -244,9 +263,11 @@ function render(seed: {
   step?: number;
   /** #2645 — index 13: the trade form's rung + answers. */
   trade?: { tradeLevel: string; answers: Record<string, string[]>; matchSkillIds: string[] };
-  /** #2645 — the 16-trade catalogue the page served (default: two trades). */
+  /** #3020 — the catalogue the page served (default: two trades). */
   postingTrades?: Array<ReturnType<typeof tradeRow>>;
   postingTradesProblem?: unknown;
+  /** The form the picker loaded for the seeded role (default: its catalogue detail). */
+  tradeForm?: ReturnType<typeof tradeDetail> | null;
 }) {
   stateQueue = [
     seed.fields,
@@ -263,6 +284,13 @@ function render(seed: {
     seed.revealed ?? {},
     seed.step ?? 1,
     seed.trade ?? { tradeLevel: "", answers: {}, matchSkillIds: [] },
+    seed.tradeForm === undefined
+      ? (seed.postingTrades ?? TRADES).some(
+          (trade) => trade.role_kind === (seed.fields.roleKind ?? ""),
+        )
+        ? (DETAILS[seed.fields.roleKind ?? ""] ?? null)
+        : null
+      : seed.tradeForm,
   ];
   setters = [];
   stateCursor = 0;
@@ -382,7 +410,7 @@ describe("PostingForm render — the role picker and the card fields are present
     // Declared role kinds the catalogue did not list are not offered (a polymer role, a 27-list one).
     expect(joined).not.toContain("Injection Moulding Operator");
     expect(joined).not.toContain("Production Supervisor");
-    expect(joined).toContain("— pick one of the 16 trades —");
+    expect(joined).toContain("— pick a trade —");
   });
 });
 
@@ -444,10 +472,10 @@ describe("PostingForm render — the live card preview + the DS error wiring", (
 describe("PostingForm render — #2645: the trade's fields are the only match surface", () => {
   beforeEach(() => tradeFieldsProps.mockClear());
 
-  it("hands the trade fields the catalogue, the vocabulary and the job's role for the reach preview", () => {
+  it("hands the trade fields the loaded form, the vocabulary and the job's role for the reach preview", () => {
     collect(render({ fields: { ...VALID_FIELDS, roleKind: "cnc_turner" }, fieldErrors: {} }));
     const props = tradeFieldsProps.mock.calls.at(-1)![0] as Record<string, unknown>;
-    expect(props.trades).toBe(TRADES);
+    expect(props.trades).toEqual([DETAILS.cnc_turner]);
     expect(props.roleKind).toBe("cnc_turner");
     expect(props.vocabulary).toEqual([MSKILL]);
     // POST /payer/match/reach-preview carries the company job's trade (#2635).

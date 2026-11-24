@@ -47,6 +47,8 @@ import {
   jobPostingListWireSchema,
   jobPostingWireSchema,
   matchSkillListWireSchema,
+  postingTradeCatalogueWireSchema,
+  postingTradeDetailWireSchema,
   postingTradeListWireSchema,
   reachCaseWireSchema,
   postingOptionsWireSchema,
@@ -116,6 +118,8 @@ import {
   type MatchCandidateWire,
   type MatchSelectionInput,
   type MatchSkillWire,
+  type PostingTradeCatalogueEntryWire,
+  type PostingTradeDetailWire,
   type PostingTradeFormWire,
   type ReachApplicantWire,
   type PostingSummary,
@@ -1927,6 +1931,8 @@ export interface PostingDetail {
   tradeLevel: string | null;
   /** Migration 0141 — the poster's chip answers, or null. */
   tradeAnswers: Record<string, string[]> | null;
+  /** The stored trade's server label, or null when the row came back without one (#3020). */
+  roleLabel?: string | null;
   /** #2746 — the audience block, or null when the API omitted it (switch off + default audience). */
   audience: PostingSummary["audience"] | null;
   rvmBranchIds: number[];
@@ -1961,6 +1967,7 @@ export async function getPostingDetail(postingId: string): Promise<PostingDetail
       untickedRelatedIds: wire.unticked_related_ids ?? [],
       tradeLevel: wire.trade_level ?? null,
       tradeAnswers: wire.trade_answers ?? null,
+      roleLabel: wire.role_label ?? null,
       audience: wire.audience ?? null,
       rvmBranchIds: wire.rvm_branch_ids ?? [],
       rvmCourseIds: wire.rvm_course_ids ?? [],
@@ -2193,6 +2200,29 @@ export async function listMatchSkills(): Promise<MatchSkillWire[]> {
 export async function listPostingTrades(): Promise<PostingTradeFormWire[]> {
   const wire = await payerFetch("/payer/posting-trades", { schema: postingTradeListWireSchema });
   return wire.trades;
+}
+
+/**
+ * GET /payer/posting-trades/catalogue — the trade picker's rows only (#3020): kind, label,
+ * department. Read SERVER-side through `readPostingTradeCatalogue`, so the Bearer never reaches
+ * the browser and the picker never holds a trade name of its own.
+ */
+export async function listPostingTradeCatalogue(): Promise<PostingTradeCatalogueEntryWire[]> {
+  const wire = await payerFetch("/payer/posting-trades/catalogue", {
+    schema: postingTradeCatalogueWireSchema,
+  });
+  return wire.trades;
+}
+
+/**
+ * GET /payer/posting-trades/:roleKind — ONE trade's full form (#3020), loaded when the payer picks
+ * it (or for an edit page's stored trade that is no longer in the catalogue). The path segment is
+ * URL-encoded: a role kind is a slug today, but it is still server data.
+ */
+export async function getPostingTradeForm(roleKind: string): Promise<PostingTradeDetailWire> {
+  return payerFetch(`/payer/posting-trades/${encodeURIComponent(roleKind)}`, {
+    schema: postingTradeDetailWireSchema,
+  });
 }
 
 /**

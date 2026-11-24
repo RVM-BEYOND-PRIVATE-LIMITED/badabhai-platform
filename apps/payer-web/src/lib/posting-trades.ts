@@ -18,7 +18,7 @@ export const POSTING_TRADE_REQUIRED_MESSAGE = "Pick one of the 16 trades";
 
 /** Whether `roleKind` is one of the trades the catalogue listed. */
 export function isPostingTrade(
-  trades: readonly PostingTradeFormWire[],
+  trades: readonly Pick<PostingTradeFormWire, "role_kind">[],
   roleKind: string | null | undefined,
 ): boolean {
   return (
@@ -65,6 +65,30 @@ export function postingTradesProblemMessage(problem: PostingTradesProblem | null
       return problem.status >= 500
         ? `${lead}: the BadaBhai server had a problem (error ${problem.status}).`
         : `${lead}: the server refused the request (error ${problem.status}).`;
+    case "unreadable":
+      return `${lead}: the server's answer could not be read.`;
+    case "unreachable":
+      return `${lead}: the BadaBhai server could not be reached.`;
+  }
+}
+
+/** Why ONE trade's form is not on screen, named from the same real causes as the catalogue. */
+export function postingTradeFormProblemMessage(problem: PostingTradesProblem | null): string {
+  const lead = "That trade's details did not load";
+  if (problem === null) return `${lead}. Try again in a moment.`;
+  switch (problem.kind) {
+    case "empty":
+      return "That trade is not open for posting right now.";
+    case "rate-limited":
+      return `${lead}: too many requests just now. Wait a minute, then retry.`;
+    case "session":
+      return `${lead}: your session has ended. Sign in again.`;
+    case "http":
+      return problem.status === 404
+        ? "That trade is not open for posting right now."
+        : problem.status >= 500
+          ? `${lead}: the BadaBhai server had a problem (error ${problem.status}).`
+          : `${lead}: the server refused the request (error ${problem.status}).`;
     case "unreadable":
       return `${lead}: the server's answer could not be read.`;
     case "unreachable":

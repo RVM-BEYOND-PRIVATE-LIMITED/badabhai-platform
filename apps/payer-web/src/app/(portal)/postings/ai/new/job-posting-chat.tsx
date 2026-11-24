@@ -5,7 +5,7 @@ import { looksLikePii } from "@badabhai/validators";
 import type {
   JobPostingChatSessionSummary,
   JobPostingDraft,
-  PostingTradeFormWire,
+  PostingTradeCatalogueEntryWire,
 } from "../../../../../lib/contracts";
 import { focusControl } from "../../../../../lib/form-focus";
 import {
@@ -116,8 +116,8 @@ export interface JobPostingChatProps {
   resumable: JobPostingChatSessionSummary[];
   /** True when that list read failed — we degrade to "start a new chat", never to fake rows. */
   loadFailed?: boolean;
-  /** #2645 — the 16 trades (`GET /payer/posting-trades`) the draft's trade is picked from. */
-  postingTrades?: PostingTradeFormWire[];
+  /** #3020 — the catalogue rows the draft's trade is picked from. */
+  postingTrades?: PostingTradeCatalogueEntryWire[];
   /** Why `postingTrades` is empty — said at the picker, with a Retry. */
   postingTradesProblem?: PostingTradesProblem | null;
 }

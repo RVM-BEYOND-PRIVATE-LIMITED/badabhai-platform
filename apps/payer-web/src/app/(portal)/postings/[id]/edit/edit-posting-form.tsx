@@ -16,7 +16,8 @@ import {
   PAY_TYPES,
   SHIFTS,
   type MatchSkillWire,
-  type PostingTradeFormWire,
+  type PostingTradeCatalogueEntryWire,
+  type PostingTradeDetailWire,
   type ReachPreview,
 } from "../../../../../lib/contracts";
 import {
@@ -171,6 +172,9 @@ export function EditPostingForm({
   matchSelection,
   postingTrades = [],
   postingTradesProblem = null,
+  initialTradeForm = null,
+  storedRoleLabel = null,
+  storedRoleInCatalogue = true,
   tradeRequired = false,
   lead,
 }: {
@@ -181,10 +185,16 @@ export function EditPostingForm({
   initial: EditPostingInitial;
   matchSkills?: MatchSkillWire[];
   matchSelection?: MatchSelection;
-  /** The 16-trade posting catalogue (migration 0141) — the only roles a company job can name. */
-  postingTrades?: PostingTradeFormWire[];
+  /** The picker's catalogue rows (#3020) — the only roles a company job can name. */
+  postingTrades?: PostingTradeCatalogueEntryWire[];
   /** Why `postingTrades` is empty (#2645) — said at the picker, with a Retry. */
   postingTradesProblem?: PostingTradesProblem | null;
+  /** The stored trade's form, fetched directly when the catalogue no longer lists it (#3020). */
+  initialTradeForm?: PostingTradeDetailWire | null;
+  /** The stored trade's server label, kept visible when its form cannot be loaded (#3020). */
+  storedRoleLabel?: string | null;
+  /** Whether the stored role is still one of the catalogue's offered trades. */
+  storedRoleInCatalogue?: boolean;
   /** #2645 — opened because the API would not put this job live without one of the 16 trades. */
   tradeRequired?: boolean;
   /** The page head, drawn at the top of the form column (the rail starts beside it). */
@@ -204,13 +214,16 @@ export function EditPostingForm({
   // draft save persists answers before its first publish materializes the match set).
   const storedTradeSeed =
     (initial.tradeLevel ?? null) !== null || (initial.tradeAnswers ?? null) !== null;
-  const initialTradeForm = postingTrades.find((form) => form.role_kind === initial.roleKind);
+  const seedTradeForm =
+    initialTradeForm !== null && initialTradeForm.role_kind === (initial.roleKind ?? "")
+      ? initialTradeForm
+      : null;
   const seedTrade = (): TradeFormValue & { matchSkillIds: string[]; dirty: boolean } => ({
     tradeLevel: initial.tradeLevel ?? "",
     answers: initial.tradeAnswers ?? {},
     matchSkillIds:
-      storedTradeSeed && initialTradeForm
-        ? derivedMatchSkills(initialTradeForm, initial.tradeAnswers ?? {})
+      storedTradeSeed && seedTradeForm
+        ? derivedMatchSkills(seedTradeForm, initial.tradeAnswers ?? {})
         : (matchSelection?.matchSkillIds ?? []),
     dirty: false,
   });
@@ -239,6 +252,10 @@ export function EditPostingForm({
   const seedLegacySelection = (): MatchSelection =>
     matchSelection ?? { matchSkillIds: [], untickedRelatedIds: [] };
   const [legacySelection, setLegacySelection] = useState<MatchSelection>(seedLegacySelection());
+  // APPENDED — the one trade's form the picker loaded for the current pick (#3020).
+  const [loadedTradeForm, setLoadedTradeForm] = useState<PostingTradeDetailWire | null>(
+    seedTradeForm,
+  );
   const [pending, startTransition] = useTransition();
   // A saved form lands on the posting with the shell's "Opening <title>…" cue; its button stays
   // pending (`navigating`) until the page is gone.
@@ -300,6 +317,7 @@ export function EditPostingForm({
     setBenDraft("");
     setError(null);
     setTrade(seedTrade());
+    setLoadedTradeForm(seedTradeForm);
     setPreview(null);
     setRevealed({});
     setProblem(null);
@@ -308,7 +326,20 @@ export function EditPostingForm({
   }
 
   const isDraft = status === "draft";
-  const tradeMode = postingTrades.length > 0;
+  const catalogueLoaded =
+    postingTradesProblem === null || postingTradesProblem.kind === "empty";
+  const lockedRole =
+    catalogueLoaded &&
+    !storedRoleInCatalogue &&
+    initial.roleKind !== null &&
+    initial.roleKind !== "" &&
+    storedRoleLabel !== null &&
+    storedRoleLabel !== "";
+  const tradeForm =
+    loadedTradeForm !== null && loadedTradeForm.role_kind === fields.roleKind
+      ? loadedTradeForm
+      : undefined;
+  const tradeMode = tradeForm !== undefined;
   // A posting created before migration 0141 has no trade fields and may carry a hand-picked
   // match set. Showing the trade panel there would let a display-only rung (or a facet chip)
   // rewrite that set to the role's base skill — a silent reach loss. The panel is therefore
@@ -322,7 +353,6 @@ export function EditPostingForm({
   // draft an older client saved with a hand-picked set publishes its trade's set, never those free
   // skills (#2645). Only a posting the panel is hidden for (a live one from before migration 0141,
   // which never publishes from here) shows its stored set; an empty one, its trade's own skill.
-  const tradeForm = postingTrades.find((form) => form.role_kind === fields.roleKind);
   const activeMatchSkillIds =
     tradeForm !== undefined && (showTradeForm || trade.matchSkillIds.length === 0)
       ? derivedMatchSkills(tradeForm, trade.answers)
@@ -335,12 +365,13 @@ export function EditPostingForm({
   // a payer who moved on to another control keeps it, since focus pulled onto the select as they
   // type would let its type-ahead change the trade.
   const tradeFocusTaken = useRef(false);
+  const pickerHasSelect = postingTrades.length > 0 && !lockedRole;
   useEffect(() => {
     if (!tradeRequired) return;
     if (tradeFocusTaken.current && !focusIsLost()) return;
     tradeFocusTaken.current = true;
     focusControlOnNextFrame("roleKind");
-  }, [tradeRequired, tradeMode]);
+  }, [tradeRequired, pickerHasSelect]);
 
   // THE ONE READ — the preview, the inline errors, the gaps and the save all use it.
   const read = readCardForm(
@@ -351,13 +382,8 @@ export function EditPostingForm({
   function set<K extends keyof FormFields>(key: K, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
     if (key === "roleKind") {
-      const form = postingTrades.find((tradeForm) => tradeForm.role_kind === value);
-      setTrade({
-        tradeLevel: "",
-        answers: {},
-        matchSkillIds: form ? derivedMatchSkills(form, {}) : [],
-        dirty: true,
-      });
+      setLoadedTradeForm(null);
+      setTrade({ tradeLevel: "", answers: {}, matchSkillIds: [], dirty: true });
       setPreview(null);
     }
     const pair = numberPairOf(key);
@@ -639,12 +665,20 @@ export function EditPostingForm({
             <PostingTradePicker
               id="roleKind"
               label="Role"
-              hint="One of the 16 trades we match on — it decides which workers see this posting."
+              hint={
+                lockedRole
+                  ? "The saved trade is kept — the rest of the posting can still be saved."
+                  : "A trade we match on — it decides which workers see this posting."
+              }
               trades={postingTrades}
               problem={postingTradesProblem}
               value={fields.roleKind}
               error={errorOf("roleKind")}
               onChange={(value) => set("roleKind", value)}
+              onFormLoaded={setLoadedTradeForm}
+              initialForm={seedTradeForm}
+              lockedLabel={lockedRole ? storedRoleLabel : null}
+              lockedLevel={tradeForm === undefined ? (initial.tradeLevel ?? null) : null}
             />
             <Input
               id="roleTitle"
@@ -839,7 +873,8 @@ export function EditPostingForm({
             <VoiceDescriptionButton
               onDraft={(description) => set("description", description)}
               tradeLabel={
-                postingTrades.find((t) => t.role_kind === fields.roleKind)?.role_label
+                postingTrades.find((t) => t.role_kind === fields.roleKind)?.role_label ??
+                tradeForm?.role_label
               }
               roleLabel={fields.roleTitle.trim() || undefined}
             />
@@ -847,14 +882,13 @@ export function EditPostingForm({
 
           {showTradeForm ? (
             <TradePostingFields
-              trades={postingTrades}
+              trades={tradeForm ? [tradeForm] : []}
               roleKind={fields.roleKind}
               value={{ tradeLevel: trade.tradeLevel, answers: trade.answers }}
               onChange={(next) => {
-                const form = postingTrades.find((t) => t.role_kind === fields.roleKind);
                 setTrade({
                   ...next,
-                  matchSkillIds: form ? derivedMatchSkills(form, next.answers) : [],
+                  matchSkillIds: tradeForm ? derivedMatchSkills(tradeForm, next.answers) : [],
                   dirty: true,
                 });
               }}
@@ -880,7 +914,7 @@ export function EditPostingForm({
           locationNote: fields.locationLabel,
           tradeLevel: showTradeForm ? trade.tradeLevel || null : null,
           tradeAnswers: showTradeForm ? trade.answers : null,
-          postingTrades: showTradeForm ? postingTrades : [],
+          postingTrades: tradeForm ? [tradeForm] : [],
           matchSkills:
             matchSkills.length > 0 ? { ids: activeMatchSkillIds, vocabulary: matchSkills } : null,
           description: fields.description,

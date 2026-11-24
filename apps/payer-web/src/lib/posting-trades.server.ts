@@ -1,7 +1,10 @@
 import "server-only";
 import { ZodError } from "zod";
-import type { PostingTradeFormWire } from "./contracts";
-import { listPostingTrades } from "./payer-api";
+import type {
+  PostingTradeCatalogueEntryWire,
+  PostingTradeFormWire,
+} from "./contracts";
+import { listPostingTradeCatalogue, listPostingTrades } from "./payer-api";
 import { httpStatusOf } from "./payer-errors";
 import { isPayerUnauthorized } from "./payer-http";
 import type { PostingTradesProblem } from "./posting-trades";
@@ -23,6 +26,23 @@ export interface PostingTradesRead {
 export async function readPostingTrades(): Promise<PostingTradesRead> {
   try {
     const trades = await listPostingTrades();
+    return trades.length > 0
+      ? { trades, problem: null }
+      : { trades: [], problem: { kind: "empty" } };
+  } catch (e) {
+    return { trades: [], problem: postingTradesProblemOf(e) };
+  }
+}
+
+/** #3020 — the picker's catalogue rows (`GET /payer/posting-trades/catalogue`), or why none. */
+export interface PostingTradeCatalogueRead {
+  trades: PostingTradeCatalogueEntryWire[];
+  problem: PostingTradesProblem | null;
+}
+
+export async function readPostingTradeCatalogue(): Promise<PostingTradeCatalogueRead> {
+  try {
+    const trades = await listPostingTradeCatalogue();
     return trades.length > 0
       ? { trades, problem: null }
       : { trades: [], problem: { kind: "empty" } };

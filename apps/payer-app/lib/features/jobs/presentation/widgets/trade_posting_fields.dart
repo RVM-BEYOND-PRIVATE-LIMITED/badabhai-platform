@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/data/models.dart';
 import '../../../../core/error/payer_failure.dart';
+import '../../../../core/theme/app_motion.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
+import '../../../../core/widgets/bb_field.dart';
 import '../../../../core/widgets/bb_field_error.dart';
 import '../../../../core/theme/bb_palette.dart';
 
@@ -114,6 +116,265 @@ class PostingTradesUnavailable extends StatelessWidget {
         const SizedBox(height: AppSpacing.s2),
         // The only way forward from here, so a full-size target (md, not the
         // quiet 36px sm).
+        BbButton(
+          label: 'Retry',
+          variant: BbButtonVariant.secondary,
+          size: BbButtonSize.md,
+          iconLeft: Icons.refresh_rounded,
+          onPressed: onRetry,
+        ),
+      ],
+    );
+  }
+}
+
+/// The catalogue-backed trade picker: the picked trade's server label in the
+/// field, then a searchable sheet whose trades are grouped under the server's
+/// department headings. Every name shown comes from the catalogue reply.
+class PostingTradePicker extends StatelessWidget {
+  const PostingTradePicker({
+    super.key,
+    required this.catalogue,
+    required this.value,
+    required this.onSelected,
+    this.errorText,
+  });
+
+  /// Key of the closed field (for widget tests).
+  @visibleForTesting
+  static const Key fieldKey = Key('posting_trade_picker_field');
+
+  /// Key of the sheet's search input (for widget tests).
+  @visibleForTesting
+  static const Key searchFieldKey = Key('posting_trade_picker_search');
+
+  static const String searchHint = 'Search roles';
+  static const String emptyHint = 'Nothing matches. Try another word.';
+
+  final List<PostingTradeCatalogueRow> catalogue;
+  final String? value;
+  final ValueChanged<String> onSelected;
+  final String? errorText;
+
+  Future<void> _open(BuildContext context) async {
+    final String? picked = await showModalBottomSheet<String>(
+      context: context,
+      sheetAnimationStyle: AppMotion.sheetStyle(context),
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: context.bb.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.xxl)),
+      ),
+      builder: (_) => _PostingTradePickerSheet(
+        catalogue: catalogue,
+        value: value,
+      ),
+    );
+    if (picked != null) onSelected(picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
+    final String label = postingTradeLabelFor(value, catalogue: catalogue);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(
+          kPostingTradePickerLabel,
+          style: AppTypography.body(
+            size: AppTypography.sizeSm,
+            weight: FontWeight.w700,
+            color: p.textPrimary,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s2),
+        Semantics(
+          button: true,
+          child: InkWell(
+            key: fieldKey,
+            onTap: () => _open(context),
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            child: InputDecorator(
+              decoration: InputDecoration(
+                suffixIcon: Icon(
+                  Icons.expand_more_rounded,
+                  color: p.textMuted,
+                ),
+              ),
+              child: Text(
+                label.isEmpty ? '— pick the role —' : label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.body(size: AppTypography.sizeBase),
+              ),
+            ),
+          ),
+        ),
+        BbFieldError(text: errorText),
+      ],
+    );
+  }
+}
+
+class _PostingTradePickerSheet extends StatefulWidget {
+  const _PostingTradePickerSheet({
+    required this.catalogue,
+    required this.value,
+  });
+
+  final List<PostingTradeCatalogueRow> catalogue;
+  final String? value;
+
+  @override
+  State<_PostingTradePickerSheet> createState() =>
+      _PostingTradePickerSheetState();
+}
+
+class _PostingTradePickerSheetState extends State<_PostingTradePickerSheet> {
+  final TextEditingController _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
+    final String query = _query.trim().toLowerCase();
+    final List<PostingTradeCatalogueRow> visible = query.isEmpty
+        ? widget.catalogue
+        : widget.catalogue
+            .where((PostingTradeCatalogueRow row) =>
+                row.roleLabel.toLowerCase().contains(query))
+            .toList(growable: false);
+
+    final List<Widget> rows = <Widget>[];
+    String? department;
+    for (final PostingTradeCatalogueRow row in visible) {
+      if (row.department != department) {
+        department = row.department;
+        if (rows.isNotEmpty) {
+          rows.add(const SizedBox(height: AppSpacing.s3));
+        }
+        rows.add(Text(
+          row.departmentLabel.isEmpty
+              ? humaniseTradeKey(row.department)
+              : row.departmentLabel,
+          style: AppTypography.eyebrow(color: p.textMuted),
+        ));
+        rows.add(const SizedBox(height: AppSpacing.s1));
+      }
+      final bool picked = row.roleKind == widget.value;
+      rows.add(ListTile(
+        contentPadding: EdgeInsets.zero,
+        title: Text(
+          row.roleLabel,
+          style: AppTypography.body(
+            size: AppTypography.sizeBase,
+            weight: picked ? FontWeight.w700 : FontWeight.w400,
+          ),
+        ),
+        trailing: picked ? Icon(Icons.check_rounded, color: p.textBrand) : null,
+        onTap: () => Navigator.of(context).pop(row.roleKind),
+      ));
+    }
+
+    final double keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: AppSpacing.gutter,
+          right: AppSpacing.gutter,
+          bottom: keyboard + AppSpacing.s4,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(
+                'Pick a role',
+                style: AppTypography.heading(size: AppTypography.sizeLg),
+              ),
+              const SizedBox(height: AppSpacing.s3),
+              BbField(
+                fieldKey: PostingTradePicker.searchFieldKey,
+                controller: _search,
+                hint: PostingTradePicker.searchHint,
+                icon: Icons.search_rounded,
+                textInputAction: TextInputAction.search,
+                onChanged: (String v) => setState(() => _query = v),
+              ),
+              const SizedBox(height: AppSpacing.s2),
+              if (rows.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.s5),
+                  child: Text(
+                    PostingTradePicker.emptyHint,
+                    style: AppTypography.body(
+                      size: AppTypography.sizeSm,
+                      color: p.textMuted,
+                    ),
+                  ),
+                )
+              else
+                ...rows,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// What stands where a picked trade's form will go while it loads, or after it
+/// failed — with a Retry, so picking a trade never leaves a silent blank.
+class PostingTradeFormStatus extends StatelessWidget {
+  const PostingTradeFormStatus({
+    super.key,
+    required this.loading,
+    required this.failure,
+    required this.onRetry,
+  });
+
+  static const String loadingLabel = 'Loading trade requirements…';
+
+  final bool loading;
+  final PayerFailure? failure;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final BbPalette p = context.bb;
+    if (loading) {
+      return Text(
+        loadingLabel,
+        style: AppTypography.body(
+          size: AppTypography.sizeSm,
+          color: p.textMuted,
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          failure == null
+              ? 'The trade requirements did not load.'
+              : 'The trade requirements did not load. ${failure!.message}',
+          style: AppTypography.body(
+            size: AppTypography.sizeSm,
+            color: p.warning,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s2),
         BbButton(
           label: 'Retry',
           variant: BbButtonVariant.secondary,

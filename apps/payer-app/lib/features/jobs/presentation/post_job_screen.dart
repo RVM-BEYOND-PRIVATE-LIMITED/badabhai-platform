@@ -232,12 +232,17 @@ class _PostJobScreenState extends State<PostJobScreen> {
   Timer? _reachDebounce;
 
   // --- Migration 0141 — the role-specific trade form -------------------------
-  List<PostingTradeForm> _postingTrades = const <PostingTradeForm>[];
+  List<PostingTradeCatalogueRow> _postingCatalogue =
+      const <PostingTradeCatalogueRow>[];
+  final Map<String, PostingTradeForm> _postingForms =
+      <String, PostingTradeForm>{};
   bool _postingTradesLoading = true;
 
   /// Why the last catalogue load failed (said at the company trade picker),
   /// or null.
   PayerFailure? _postingTradesFailure;
+  bool _tradeFormLoading = false;
+  PayerFailure? _tradeFormFailure;
   String _tradeLevel = '';
   Map<String, List<String>> _tradeAnswers = const <String, List<String>>{};
 
@@ -383,23 +388,23 @@ class _PostJobScreenState extends State<PostJobScreen> {
     }
   }
 
-  /// Load — or, from Retry, reload — the 16-trade posting catalogue. Never a
-  /// crash. #2635 — a failure no longer degrades the COMPANY form to a free
-  /// role list and the flat skill picker (a job posted that way could never go
-  /// live): its trade picker names the cause and offers Retry, and Post is
-  /// refused at it. The agency form keeps its trade-less fallback.
+  /// Load — or, from Retry, reload — the trade catalogue. Never a crash.
+  /// #2635 — a failure no longer degrades the COMPANY form to a free role list
+  /// and the flat skill picker (a job posted that way could never go live): its
+  /// trade picker names the cause and offers Retry, and Post is refused at it.
   Future<void> _loadPostingTrades() async {
     if (!_postingTradesLoading) setState(() => _postingTradesLoading = true);
-    List<PostingTradeForm> trades = const <PostingTradeForm>[];
+    List<PostingTradeCatalogueRow> catalogue =
+        const <PostingTradeCatalogueRow>[];
     PayerFailure? failure;
     try {
-      trades = await locator<PayerApiClient>().fetchPostingTrades();
+      catalogue = await locator<PayerApiClient>().fetchPostingTradeCatalogue();
     } catch (error) {
       failure = PayerFailure.from(error);
     }
     if (!mounted) return;
     setState(() {
-      _postingTrades = trades;
+      _postingCatalogue = catalogue;
       _postingTradesFailure = failure;
       _postingTradesLoading = false;
     });
@@ -407,23 +412,31 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   PostingTradeForm? _formForKind(String? kind) {
     if (kind == null) return null;
-    for (final PostingTradeForm trade in _postingTrades) {
-      if (trade.roleKind == kind) return trade;
-    }
-    return null;
+    return _postingForms[kind];
   }
 
   PostingTradeForm? get _tradeForm => _formForKind(_roleKind);
 
+  /// The agency wire's `trade_key` covers the original trades only, so its
+  /// picker shows just those rows; a company sees the whole catalogue.
+  List<PostingTradeCatalogueRow> get _roleCatalogue => _isAgency
+      ? _postingCatalogue
+          .where((PostingTradeCatalogueRow row) =>
+              agencyTradeKeyForRoleKind(row.roleKind) != null)
+          .toList(growable: false)
+      : _postingCatalogue;
+
   /// The role picker is the single entry point to every trade field. Selecting a
-  /// role resets the previous role's answers and seeds the base match skill.
+  /// role resets the previous role's answers, then loads that trade's form and
+  /// seeds its base match skill.
   ///
   /// #2635 — for a company job this is the TRADE picker, and it is always on
   /// the form: while the catalogue loads, or if it did not, the same spot says
   /// so (with a Retry) and carries the role's inline error, so a post refused
   /// for want of a trade is told why where the trade goes.
   Widget _roleField() {
-    if (_postingTradesLoading || _postingTrades.isEmpty) {
+    final List<PostingTradeCatalogueRow> catalogue = _roleCatalogue;
+    if (_postingTradesLoading || catalogue.isEmpty) {
       return PostingTradePickerPlaceholder(
         loading: _postingTradesLoading,
         failure: _postingTradesFailure,
@@ -431,44 +444,88 @@ class _PostJobScreenState extends State<PostJobScreen> {
         errorText: _form[JobFormField.role],
       );
     }
-    return BbSelect<String?>(
-      label: kPostingTradePickerLabel,
+    return PostingTradePicker(
+      catalogue: catalogue,
       value: _roleKind,
-      items: <String?>[
-        null,
-        ..._postingTrades.map((PostingTradeForm t) => t.roleKind)
-      ],
-      labelOf: (String? kind) =>
-          _formForKind(kind)?.roleLabel ?? '— pick the role —',
       errorText: _form[JobFormField.role],
-      onChanged: (String? kind) {
-        final PostingTradeForm? form = _formForKind(kind);
-        setState(() {
-          _roleKind = kind;
-          // #2718 — one picker. The agency wire's required trade_key is
-          // derived from the picked role here, never picked separately.
-          if (_isAgency) _tradeKey = agencyTradeKeyForRoleKind(kind);
-          _skillCapError = null;
-          _tradeLevel = '';
-          _tradeAnswers = const <String, List<String>>{};
-          _pickedSkillIds
-            ..clear()
-            ..addAll(form?.matchSkillIdsFor(const <String, List<String>>{}) ??
-                const <String>[]);
-        });
-        if (_pickedSkillIds.isEmpty) {
-          _reachDebounce?.cancel();
-          setState(() => _reach = null);
-        } else {
-          _scheduleReach();
-        }
-      },
+      onSelected: _selectRole,
     );
+  }
+
+  void _selectRole(String kind) {
+    setState(() {
+      _roleKind = kind;
+      // #2718 — one picker. The agency wire's required trade_key is derived
+      // from the picked role here, never picked separately.
+      if (_isAgency) _tradeKey = agencyTradeKeyForRoleKind(kind);
+      _skillCapError = null;
+      _tradeLevel = '';
+      _tradeAnswers = const <String, List<String>>{};
+      _pickedSkillIds.clear();
+    });
+    _reachDebounce?.cancel();
+    setState(() => _reach = null);
+    _loadTradeForm(kind);
+  }
+
+  Future<void> _loadTradeForm(String kind) async {
+    final PostingTradeForm? cached = _postingForms[kind];
+    if (cached != null) {
+      _seedTradeSkills(cached);
+      return;
+    }
+    setState(() {
+      _tradeFormLoading = true;
+      _tradeFormFailure = null;
+    });
+    try {
+      final PostingTradeForm form =
+          await locator<PayerApiClient>().fetchPostingTradeForm(kind);
+      if (!mounted || _roleKind != kind) return;
+      setState(() {
+        _postingForms[kind] = form;
+        _tradeFormLoading = false;
+      });
+      _seedTradeSkills(form);
+    } catch (error) {
+      if (!mounted || _roleKind != kind) return;
+      setState(() {
+        _tradeFormFailure = PayerFailure.from(error);
+        _tradeFormLoading = false;
+      });
+    }
+  }
+
+  void _seedTradeSkills(PostingTradeForm form) {
+    if (!mounted || _roleKind != form.roleKind) return;
+    final List<String> next =
+        form.matchSkillIdsFor(const <String, List<String>>{});
+    setState(() {
+      _pickedSkillIds
+        ..clear()
+        ..addAll(next);
+    });
+    if (next.isEmpty) {
+      _reachDebounce?.cancel();
+      setState(() => _reach = null);
+    } else {
+      _scheduleReach();
+    }
   }
 
   Widget _tradeSection() {
     final PostingTradeForm? form = _tradeForm;
     if (form == null) {
+      if (_tradeFormLoading || _tradeFormFailure != null) {
+        return PostingTradeFormStatus(
+          loading: _tradeFormLoading,
+          failure: _tradeFormFailure,
+          onRetry: () {
+            final String? kind = _roleKind;
+            if (kind != null) _loadTradeForm(kind);
+          },
+        );
+      }
       return Text(
         'Pick a role above and the facts that role is hired on appear here.',
         style: AppTypography.body(
@@ -745,7 +802,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
     // is picked (#2635).
     if (!_isAgency && !_companyCanPost) open.add(JobFormField.skills);
     return _sections
-        .where((Set<JobFormField> section) => section.intersection(open).isEmpty)
+        .where(
+            (Set<JobFormField> section) => section.intersection(open).isEmpty)
         .length;
   }
 
@@ -937,10 +995,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
         // #2746 — only when the audience options answered 200 (switch on). An
         // empty targeting set means every branch / every course.
         audience: _audienceOptions == null ? null : _audience,
-        rvmBranchIds:
-            _audienceOptions == null ? null : _rvmBranchIds.toList(growable: false),
-        rvmCourseIds:
-            _audienceOptions == null ? null : _rvmCourseIds.toList(growable: false),
+        rvmBranchIds: _audienceOptions == null
+            ? null
+            : _rvmBranchIds.toList(growable: false),
+        rvmCourseIds: _audienceOptions == null
+            ? null
+            : _rvmCourseIds.toList(growable: false),
       );
 
       // …and land whatever the create route dropped (see [_landDisplayFields]).
@@ -1216,10 +1276,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
             _matchV1 == _MatchV1.available && _pickedSkillIds.isNotEmpty
                 ? _pickedSkillIds.toList(growable: false)
                 : null,
-        tradeLevel: _postingTrades.isNotEmpty && _tradeLevel.isNotEmpty
+        tradeLevel: _postingCatalogue.isNotEmpty && _tradeLevel.isNotEmpty
             ? _tradeLevel
             : null,
-        tradeAnswers: _postingTrades.isNotEmpty ? _tradeAnswers : null,
+        tradeAnswers: _postingCatalogue.isNotEmpty ? _tradeAnswers : null,
       );
       if (!mounted) return;
       _posted = true;
@@ -1862,7 +1922,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// free-text box whose value could not be sent. Without the trade catalogue
   /// it keeps the flat picker (agency jobs are not scoped by trade, #2635).
   List<Widget> _agencySkillsSection() {
-    if (_postingTrades.isNotEmpty) return <Widget>[_tradeSection()];
+    if (_postingCatalogue.isNotEmpty) return <Widget>[_tradeSection()];
     switch (_matchV1) {
       case _MatchV1.loading:
         return <Widget>[_skillsLoading()];
@@ -2054,8 +2114,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Icon(Icons.info_rounded,
-                  size: 22, color: context.bb.infoText),
+              Icon(Icons.info_rounded, size: 22, color: context.bb.infoText),
               const SizedBox(width: AppSpacing.s2),
               Expanded(
                 child: Text(
