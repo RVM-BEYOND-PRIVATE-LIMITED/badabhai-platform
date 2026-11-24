@@ -1,0 +1,22 @@
+# RVM-minted trade domains for the 60-trade catalogue (CEO pack v2, ruled 2026-11-23; #3007).
+#
+# Pack section 13.2: India's occupation list (NCO-2015) has no entry for a CMM operator, an NDT
+# technician or a piping designer. A form's family must bind to an occupation and a phrase must
+# point at one, so these three are minted here under the `jd_rvm_<slug>` rule, in the shape of
+# rvm-3d-cad-design.jsonl. Pack rule 13.3.2: these three only. The other "partial gap" trades
+# (wire-cut EDM, CNC grinding, powder coating, laser cutting, tube bending, PLC programmer, ...)
+# each already have at least one bound NCO code and get no minted entry.
+#
+# Parents:
+#   CMM, NDT  -> ISCO 7543 Product Graders and Testers. NOT 3211.0100 "X-Ray Technician" for NDT:
+#               that code is medical.
+#   Piping    -> ISCO 3118 Draughtspersons, the same parent as the 3D CAD designer.
+#
+# Each entry carries one alias, the trade's plain English name, so it is visible to search. The
+# full phrase sets arrive with the waves (#3010 Wave 1 for T33 CMM, #3016 for T34 NDT, #3017 for
+# T60 Piping); the family bindings arrive with the forms (#3008, #3016, #3017). Until then the
+# entries resolve through their unit group like any unbound code. label_hi is null: no Devanagari
+# is signed for these names yet (#3018).
+{"source": "rvm", "code": null, "id_slug": "cmm_operator", "level": 5, "parent_code": "7543", "parent_source": "isco08", "isco_major": "7", "isco_unit": "7543", "skill_level": 2, "label_en": "CMM Operator / Programmer", "label_hi": null, "description_en": "Measures machined, cast and pressed parts on a coordinate measuring machine (CMM) against the drawing; writes and runs CMM part programs and reports the results.", "selectable": true, "industry_id": "ind_industrial_manufacturing", "canonical_role_id": null, "aliases": [{"text": "cmm operator", "lang": "en", "source": "rvm"}]}
+{"source": "rvm", "code": null, "id_slug": "ndt_technician", "level": 5, "parent_code": "7543", "parent_source": "isco08", "isco_major": "7", "isco_unit": "7543", "skill_level": 2, "label_en": "NDT Technician", "label_hi": null, "description_en": "Tests welds, castings and forgings for hidden defects without damaging them, using non-destructive methods such as ultrasonic, radiographic, magnetic particle and dye penetrant testing.", "selectable": true, "industry_id": "ind_industrial_manufacturing", "canonical_role_id": null, "aliases": [{"text": "ndt technician", "lang": "en", "source": "rvm"}]}
+{"source": "rvm", "code": null, "id_slug": "piping_designer", "level": 5, "parent_code": "3118", "parent_source": "isco08", "isco_major": "3", "isco_unit": "3118", "skill_level": 3, "label_en": "Piping Designer / Draughtsman", "label_hi": null, "description_en": "Draws piping layouts, isometrics and general arrangement drawings for plants and process lines in a CAD tool, and prepares the bill of materials from them.", "selectable": true, "industry_id": "ind_industrial_manufacturing", "canonical_role_id": null, "aliases": [{"text": "piping designer", "lang": "en", "source": "rvm"}]}
