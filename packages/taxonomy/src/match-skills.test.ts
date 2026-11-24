@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { INDUSTRIES, ROLES, getIndustry, labelForTaxonomyId } from "./index";
+import { TRADE_CATALOGUE } from "./trade-catalogue";
 import {
   ATTRIBUTE_TO_MATCH_SKILLS,
   MATCH_SKILLS,
@@ -80,6 +81,93 @@ describe("Matching V1 — the mskill_* vocabulary", () => {
     }
   });
 
+  it("#3001: 38 new trades appended, first 35 ids unchanged in place", () => {
+    expect(MATCH_SKILLS).toHaveLength(73);
+    expect(MATCH_SKILLS.slice(0, 35).map((s) => s.skillId)).toEqual([
+      "mskill_cnc_turner",
+      "mskill_vmc_operator",
+      "mskill_hmc_operator",
+      "mskill_cnc_setter_operator",
+      "mskill_cnc_programmer",
+      "mskill_cam_programmer",
+      "mskill_cnc_grinding_operator",
+      "mskill_cnc_operator_general",
+      "mskill_mig_welder",
+      "mskill_tig_welder",
+      "mskill_arc_welder",
+      "mskill_fitter",
+      "mskill_quality_inspector",
+      "mskill_plumber",
+      "mskill_carpenter",
+      "mskill_designer",
+      "mskill_interior_designer",
+      "mskill_delivery_rider",
+      "mskill_conventional_machinist",
+      "mskill_tool_die_maker",
+      "mskill_sheet_metal_worker",
+      "mskill_press_operator",
+      "mskill_painter_coater",
+      "mskill_maintenance_technician",
+      "mskill_industrial_electrician",
+      "mskill_assembly_line_worker",
+      "mskill_3d_designer",
+      "mskill_cad_designer_3d",
+      "mskill_welder",
+      "mskill_plc_automation_tech",
+      "mskill_edm_wirecut_operator",
+      "mskill_imm_operator",
+      "mskill_heat_treatment_tech",
+      "mskill_production_supervisor",
+      "mskill_foundry_forging_operator",
+    ]);
+    expect(MATCH_SKILLS.slice(35).map((s) => s.skillId)).toEqual([
+      "mskill_gear_cutting_operator",
+      "mskill_boring_machine_operator",
+      "mskill_spm_finishing_operator",
+      "mskill_cnc_router_operator",
+      "mskill_fabricator",
+      "mskill_tube_bending_operator",
+      "mskill_foundry_operator",
+      "mskill_die_casting_operator",
+      "mskill_forging_operator",
+      "mskill_plating_operator",
+      "mskill_blow_moulding_operator",
+      "mskill_plastic_extrusion_operator",
+      "mskill_rubber_moulding_operator",
+      "mskill_cmm_operator",
+      "mskill_ndt_technician",
+      "mskill_calibration_technician",
+      "mskill_material_lab_technician",
+      "mskill_quality_engineer",
+      "mskill_robot_operator_programmer",
+      "mskill_instrumentation_technician",
+      "mskill_hvac_rac_technician",
+      "mskill_utility_operator",
+      "mskill_maintenance_engineer",
+      "mskill_service_engineer",
+      "mskill_production_engineer",
+      "mskill_process_engineer",
+      "mskill_npd_engineer",
+      "mskill_safety_officer",
+      "mskill_project_site_engineer",
+      "mskill_technical_sales_engineer",
+      "mskill_ppc_engineer",
+      "mskill_store_keeper",
+      "mskill_purchase_engineer",
+      "mskill_dispatch_logistics_executive",
+      "mskill_forklift_operator",
+      "mskill_crane_operator",
+      "mskill_cae_analyst",
+      "mskill_piping_designer",
+    ]);
+    for (const s of MATCH_SKILLS.slice(35)) {
+      expect(s.industryId, s.skillId).toBe("ind_industrial_manufacturing");
+      expect(s.source, s.skillId).toBe("rvm");
+      expect(s.status, s.skillId).toBe("active");
+      expect(s.labelHi, s.skillId).toBeNull();
+    }
+  });
+
   it("#2022: the eight minted trades are appended, manufacturing, and follow the conventions", () => {
     // Positional, not from-the-end: Middle Way E0 appended one more skill after them.
     // The rule is unchanged — each mint lands AFTER everything that exists, so an old
@@ -108,8 +196,9 @@ describe("Matching V1 — the mskill_* vocabulary", () => {
     expect(MATCH_SKILLS[32]?.skillId).toBe("mskill_heat_treatment_tech");
     // Phase 2 #10 (sheet 23) appended the production supervisor after it.
     expect(MATCH_SKILLS[33]?.skillId).toBe("mskill_production_supervisor");
-    // Phase 2 #11 (sheet 19) appended the foundry / forging trade after it.
-    expect(MATCH_SKILLS.at(-1)?.skillId).toBe("mskill_foundry_forging_operator");
+    // Phase 2 #11 (sheet 19) appended the foundry / forging trade after it — still
+    // index 34, because every later mint appends after it.
+    expect(MATCH_SKILLS[34]?.skillId).toBe("mskill_foundry_forging_operator");
     expect(getMatchSkill("mskill_production_supervisor")?.domainId).toBe("general-machining");
     expect(matchSkillLabel("mskill_plc_automation_tech")).toBe("PLC / Automation Technician");
     expect(matchSkillLabel("mskill_imm_operator")).toBe("Injection Moulding Operator");
@@ -196,8 +285,9 @@ describe("MATCH_SKILL_RELATION_PAIRS — the authored source of truth", () => {
     expect(new Set(unordered).size).toBe(MATCH_SKILL_RELATION_PAIRS.length);
     // 18 before #2022; the owner's ruling minting eight form trades added four curated pairs;
     // Middle Way E0 (Q3) added the 2D/3D designer pair; the CEO-pack reconcile (2026-11-02)
-    // added the old/new-3D pair plus the three welder-umbrella edges.
-    expect(MATCH_SKILL_RELATION_PAIRS).toHaveLength(27);
+    // added the old/new-3D pair plus the three welder-umbrella edges; the CEO pack v2 ruling
+    // (section 5, #3001) added 58 pairs and completed the list.
+    expect(MATCH_SKILL_RELATION_PAIRS).toHaveLength(85);
   });
 
   it("is a TUPLE list, not an object list — the db seeder destructures [a, b]", () => {
@@ -221,6 +311,54 @@ describe("MATCH_SKILL_RELATION_PAIRS — the authored source of truth", () => {
     }
     const keys = MATCH_SKILL_RELATION_PAIRS.map(([a, b]) => `${a}|${b}`);
     expect(keys).toEqual([...keys].sort());
+  });
+
+  it("#3001: every catalogue relatedTo resolves to a pair (pack section 5)", () => {
+    // The catalogue's relatedTo IS the section-5 list transcribed (§5 "the complete
+    // list"); every entry must resolve to an authored pair, both directions at once.
+    const pairs = new Set(MATCH_SKILL_RELATION_PAIRS.map(([a, b]) => `${a}|${b}`));
+    for (const e of TRADE_CATALOGUE) {
+      for (const r of e.relatedTo) {
+        const key = [e.matchSkillId, r].sort().join("|");
+        expect(pairs.has(key), `${e.code} pair ${r}`).toBe(true);
+      }
+    }
+  });
+
+  it("#3001: the section-5 spot checks", () => {
+    // Foundry split: the three new trades pair with each other and the legacy label.
+    expect(RELATED_MATCH_SKILLS.mskill_foundry_operator).toEqual([
+      "mskill_die_casting_operator",
+      "mskill_foundry_forging_operator",
+    ]);
+    expect(RELATED_MATCH_SKILLS.mskill_die_casting_operator).toEqual([
+      "mskill_foundry_forging_operator",
+      "mskill_foundry_operator",
+    ]);
+    expect(RELATED_MATCH_SKILLS.mskill_forging_operator).toEqual([
+      "mskill_foundry_forging_operator",
+      "mskill_press_operator",
+    ]);
+    // Newly paired live trades (derived lists include every pair that names them:
+    // the electrician sits on the maintenance crew two ways plus PLC).
+    expect(RELATED_MATCH_SKILLS.mskill_industrial_electrician).toEqual([
+      "mskill_instrumentation_technician",
+      "mskill_maintenance_technician",
+      "mskill_plc_automation_tech",
+    ]);
+    expect(RELATED_MATCH_SKILLS.mskill_assembly_line_worker).toEqual(["mskill_fitter"]);
+    expect(RELATED_MATCH_SKILLS.mskill_cad_designer_3d).toContain("mskill_designer");
+    // Quality inspection collects its lab trades.
+    expect(RELATED_MATCH_SKILLS.mskill_quality_inspector).toEqual([
+      "mskill_calibration_technician",
+      "mskill_cmm_operator",
+      "mskill_fitter",
+      "mskill_material_lab_technician",
+      "mskill_ndt_technician",
+      "mskill_quality_engineer",
+    ]);
+    // Safety / EHS has no pair, by ruling.
+    expect(RELATED_MATCH_SKILLS.mskill_safety_officer).toEqual([]);
   });
 });
 
@@ -273,7 +411,9 @@ describe("RELATED_MATCH_SKILLS — DERIVED from the pair list", () => {
   it("reproduces the spec's reference relation for the VMC Operator job", () => {
     // The spec prints HMC · CNC Setter-Operator · CNC Turner; the derived list is the
     // same SET, sorted (the engine sorts the reach set anyway, so order is not meaning).
+    // #3001 adds the boring-machine neighbour (CEO pack v2, section 5).
     expect(RELATED_MATCH_SKILLS.mskill_vmc_operator).toEqual([
+      "mskill_boring_machine_operator",
       "mskill_cnc_setter_operator",
       "mskill_cnc_turner",
       "mskill_hmc_operator",
@@ -302,7 +442,12 @@ describe("RELATED_MATCH_SKILLS — DERIVED from the pair list", () => {
       "mskill_cad_designer_3d",
       "mskill_designer",
     ]);
-    expect(RELATED_MATCH_SKILLS.mskill_cad_designer_3d).toEqual(["mskill_3d_designer"]);
+    expect(RELATED_MATCH_SKILLS.mskill_cad_designer_3d).toEqual([
+      "mskill_3d_designer",
+      "mskill_cae_analyst",
+      "mskill_designer",
+      "mskill_npd_engineer",
+    ]);
     expect(matchSkillLabel("mskill_cad_designer_3d")).toBe("3D CAD Designer");
     expect(getMatchSkill("mskill_cad_designer_3d")).toMatchObject({
       industryId: "ind_industrial_manufacturing",
@@ -311,8 +456,10 @@ describe("RELATED_MATCH_SKILLS — DERIVED from the pair list", () => {
     });
     expect(RELATED_MATCH_SKILLS.mskill_designer).toEqual([
       "mskill_3d_designer",
+      "mskill_cad_designer_3d",
       "mskill_cam_programmer",
       "mskill_interior_designer",
+      "mskill_piping_designer",
     ]);
     // The bridge split: 2D drafting still claims the draughtsman; 3D modelling now
     // claims the 3D designer. The generic occupation stays on the 2D id (E0 scope:
@@ -343,6 +490,7 @@ describe("RELATED_MATCH_SKILLS — DERIVED from the pair list", () => {
     ]);
     expect(RELATED_MATCH_SKILLS.mskill_welder).toEqual([
       "mskill_arc_welder",
+      "mskill_fabricator",
       "mskill_mig_welder",
       "mskill_tig_welder",
     ]);
@@ -352,17 +500,46 @@ describe("RELATED_MATCH_SKILLS — DERIVED from the pair list", () => {
 
   it("#2022: the minted trades carry exactly the curated, conservative relations", () => {
     expect(RELATED_MATCH_SKILLS.mskill_conventional_machinist).toEqual([
+      "mskill_boring_machine_operator",
       "mskill_cnc_operator_general",
+      "mskill_gear_cutting_operator",
+      "mskill_spm_finishing_operator",
       "mskill_tool_die_maker",
     ]);
-    expect(RELATED_MATCH_SKILLS.mskill_tool_die_maker).toEqual(["mskill_conventional_machinist"]);
-    expect(RELATED_MATCH_SKILLS.mskill_sheet_metal_worker).toEqual(["mskill_press_operator"]);
-    expect(RELATED_MATCH_SKILLS.mskill_press_operator).toEqual(["mskill_sheet_metal_worker"]);
-    expect(RELATED_MATCH_SKILLS.mskill_maintenance_technician).toEqual(["mskill_fitter"]);
-    // Deliberately unpaired — see the note at the end of MATCH_SKILL_RELATION_PAIRS.
-    expect(RELATED_MATCH_SKILLS.mskill_painter_coater).toEqual([]);
-    expect(RELATED_MATCH_SKILLS.mskill_industrial_electrician).toEqual([]);
-    expect(RELATED_MATCH_SKILLS.mskill_assembly_line_worker).toEqual([]);
+    expect(RELATED_MATCH_SKILLS.mskill_tool_die_maker).toEqual([
+      "mskill_conventional_machinist",
+      "mskill_edm_wirecut_operator",
+    ]);
+    expect(RELATED_MATCH_SKILLS.mskill_sheet_metal_worker).toEqual([
+      "mskill_fabricator",
+      "mskill_press_operator",
+      "mskill_tube_bending_operator",
+    ]);
+    expect(RELATED_MATCH_SKILLS.mskill_press_operator).toEqual([
+      "mskill_forging_operator",
+      "mskill_sheet_metal_worker",
+      "mskill_tube_bending_operator",
+    ]);
+    expect(RELATED_MATCH_SKILLS.mskill_maintenance_technician).toEqual([
+      "mskill_fitter",
+      "mskill_hvac_rac_technician",
+      "mskill_industrial_electrician",
+      "mskill_maintenance_engineer",
+      "mskill_service_engineer",
+      "mskill_utility_operator",
+    ]);
+    // Deliberately unpaired no more: the CEO pack v2 ruling (section 5) pairs the
+    // painter with Plating — the finishing trade keeps its bench, not its isolation.
+    expect(RELATED_MATCH_SKILLS.mskill_painter_coater).toEqual(["mskill_plating_operator"]);
+    // The #2022 electrician and assembly holds are lifted by the CEO pack v2 ruling
+    // (section 5): Industrial Electrician with Maintenance Technician (plus its
+    // instrumentation and PLC edges), Assembly Line Worker with Fitter.
+    expect(RELATED_MATCH_SKILLS.mskill_industrial_electrician).toEqual([
+      "mskill_instrumentation_technician",
+      "mskill_maintenance_technician",
+      "mskill_plc_automation_tech",
+    ]);
+    expect(RELATED_MATCH_SKILLS.mskill_assembly_line_worker).toEqual(["mskill_fitter"]);
     // No CNC skill gains a manual neighbour: a manual lathe/mill claim derives the CNC skill
     // EXACTLY (#2022 point 1), so a relation would only put CNC hands on manual-only postings.
     for (const cnc of [
@@ -372,8 +549,10 @@ describe("RELATED_MATCH_SKILLS — DERIVED from the pair list", () => {
     ] as const) {
       expect(RELATED_MATCH_SKILLS[cnc]).not.toContain("mskill_conventional_machinist");
     }
-    // The pre-existing neighbourhoods the new pairs touch moved only by the new edge.
+    // The pre-existing neighbourhoods the new pairs touch moved only by the new edges.
     expect(RELATED_MATCH_SKILLS.mskill_fitter).toEqual([
+      "mskill_assembly_line_worker",
+      "mskill_fabricator",
       "mskill_maintenance_technician",
       "mskill_plumber",
       "mskill_quality_inspector",
@@ -386,11 +565,14 @@ describe("RELATED_MATCH_SKILLS — DERIVED from the pair list", () => {
     ]);
   });
 
-  it("carries 2-4 relations per related skill (the spec's curation shape)", () => {
+  it("carries 1-6 relations per related skill (the section-5 curation shape)", () => {
+    // CEO pack v2 section 5 is the complete list: quality inspection and maintenance
+    // each collect six neighbours (their lab/plant trades all answer to them). A seventh
+    // neighbour would mean a pair outside the ruled list.
     for (const [skillId, related] of Object.entries(RELATED_MATCH_SKILLS)) {
       if (related.length === 0) continue; // a curated empty set is legitimate
       expect(related.length, skillId).toBeGreaterThanOrEqual(1);
-      expect(related.length, skillId).toBeLessThanOrEqual(4);
+      expect(related.length, skillId).toBeLessThanOrEqual(6);
     }
   });
 });
@@ -495,8 +677,8 @@ describe("bridge — ATTRIBUTE_TO_MATCH_SKILLS", () => {
     // minted one more: the PLC / automation trade, a new CEO-pack trade. Phase 2 #7 minted
     // the EDM trade and Phase 2 #9 (sheet 22) the injection-moulding trade the same way, then
     // Phase 2 #8 (sheet 17) the heat-treatment trade and Phase 2 #10 (sheet 23) the production
-    // supervisor.
-    expect(MATCH_SKILLS).toHaveLength(18 + MINTED_FOR_2022.length + 9);
+    // supervisor. CEO pack v2 (#3001) minted one per NEW trade the same way: 38 more.
+    expect(MATCH_SKILLS).toHaveLength(18 + MINTED_FOR_2022.length + 9 + 38);
     for (const id of PROMOTABLE_SKILL_IDS) {
       for (const m of ATTRIBUTE_TO_MATCH_SKILLS[id] ?? []) {
         expect(MINTED_FOR_2022 as readonly string[], `${id} -> ${m}`).not.toContain(m);

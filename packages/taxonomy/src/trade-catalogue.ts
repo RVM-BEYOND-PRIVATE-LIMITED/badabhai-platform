@@ -245,7 +245,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "senior_designer",
     higherPriceFrom: "senior_designer",
     levelKey: "cad_level",
-    relatedTo: ["mskill_cam_programmer"],
+    relatedTo: ["mskill_cam_programmer", "mskill_cad_designer_3d"],
     postingQuestionKeys: [
       "cad_software",
       "cad_modules",
@@ -529,7 +529,11 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "skilled",
     higherPriceFrom: "skilled",
     levelKey: "fitter_level",
-    relatedTo: ["mskill_maintenance_technician", "mskill_quality_inspector"],
+    relatedTo: [
+      "mskill_maintenance_technician",
+      "mskill_quality_inspector",
+      "mskill_assembly_line_worker",
+    ],
     postingQuestionKeys: [
       "fitter_work_type",
       "fitter_equipment",
@@ -564,7 +568,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "senior_technician",
     higherPriceFrom: "senior_technician",
     levelKey: "maintenance_level",
-    relatedTo: ["mskill_fitter"],
+    relatedTo: ["mskill_fitter", "mskill_industrial_electrician", "mskill_maintenance_engineer"],
     postingQuestionKeys: [
       "maintenance_discipline",
       "maintenance_equipment",
@@ -609,7 +613,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "senior_technician",
     higherPriceFrom: "senior_technician",
     levelKey: "electrician_level",
-    relatedTo: [],
+    relatedTo: ["mskill_maintenance_technician"],
     postingQuestionKeys: [
       "electrical_work_type",
       "electrical_equipment",
@@ -645,7 +649,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "skilled",
     higherPriceFrom: "skilled",
     levelKey: "assembly_level",
-    relatedTo: [],
+    relatedTo: ["mskill_fitter"],
     postingQuestionKeys: [
       "assembly_stage",
       "assembly_line_product",
@@ -681,7 +685,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "senior_inspector",
     higherPriceFrom: "senior_inspector",
     levelKey: "inspection_level",
-    relatedTo: ["mskill_fitter"],
+    relatedTo: ["mskill_fitter", "mskill_quality_engineer"],
     postingQuestionKeys: [
       "measuring_tools",
       "inspection_level",
