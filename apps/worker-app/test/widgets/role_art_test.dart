@@ -85,6 +85,29 @@ void main() {
     );
   });
 
+  testWidgets('BbJobCard draws generic art for an unknown role kind', (
+    WidgetTester tester,
+  ) async {
+    // A future/differently-spelled kind must still head the card with a
+    // picture — the shared banner is the one place that decides, and a new
+    // kind must never leave the list card blank.
+    const BbJobCardData data = BbJobCardData(
+      title: 'EDM Operator',
+      place: 'Pune',
+      roleKind: 'crane_operator',
+    );
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: BbJobCard(data: data, showRoleArt: true)),
+      ),
+    );
+    expect(
+      find.byKey(const ValueKey<String>('roleArt:generic')),
+      findsOneWidget,
+    );
+    expect(find.text('crane_operator'), findsNothing);
+  });
+
   testWidgets('hideFloor windows y0–84: art paints, floor strip clips away', (
     WidgetTester tester,
   ) async {

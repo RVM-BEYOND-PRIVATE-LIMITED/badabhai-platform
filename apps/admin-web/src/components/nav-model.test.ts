@@ -22,13 +22,13 @@ describe("the groups and their items (A6)", () => {
       // User accounts (#2578) joins Directory with its page and its capability — see below.
       ["Directory", ["Candidates", "User accounts", "Companies", "Postings", "Hire records"]],
       ["Finance", ["Credits", "Payment orders", "Credit rules", "Waivers", "Numbers"]],
-      ["Quality & AI", ["Feedback", "AI calls", "Skill discovery", "Engine view"]],
+      ["Quality & AI", ["Feedback", "AI calls", "Skill discovery", "Engine view", "Trades"]],
       ["Audit & Admin", ["Events", "Admin users", "Roles", "System"]],
     ]);
   });
 
   it(`lists at most ${NAV_ITEM_LIMIT} items — it was 18`, () => {
-    expect(NAV_ITEM_LIMIT).toBe(19);
+    expect(NAV_ITEM_LIMIT).toBe(20);
     expect(items.length).toBeLessThanOrEqual(NAV_ITEM_LIMIT);
   });
 
@@ -122,6 +122,13 @@ describe("nav labels", () => {
     expect(NAV.some((s) => s.title === "Skills" || s.title === "Matching")).toBe(false);
   });
 
+  it("Trades sits in Quality & AI on the read floor (#3023)", () => {
+    expect(byHref("/trades")?.label).toBe("Trades");
+    expect(groupOf("/trades")).toBe("Quality & AI");
+    expect(byHref("/trades")?.capability).toBe("read_entities");
+    expect(items.length).toBeLessThanOrEqual(NAV_ITEM_LIMIT);
+  });
+
   it("routes and capability gates did not move with the labels", () => {
     expect(byHref("/jobs")?.capability).toBe("read_entities");
     expect(byHref("/candidates")?.capability).toBe("read_candidates");
@@ -186,11 +193,12 @@ describe("which item a path belongs to — one answer for the sidebar and the cr
 /**
  * THE NAV FITS 1920×1080 WITHOUT SCROLLING (A6 acceptance). The node env has no layout engine, so
  * this adds up the DECLARED heights — the sidebar's padding and gaps, the brand, every group's
- * toggle and every row at its declared minimum — with all groups open and the full plan of 19
- * rows (User accounts, Credit rules and Numbers included, so the budget holds the day they
- * ship). 960px is the 1080p browser viewport budget once #2878 added the credit-rules row; the
- * 900px plan covered the 15-row sidebar. The 1000px budget held 18 rows; #2753 raised it to
- * 1040 for 19 when Hire records joined Directory, still deliberately under a 1080p display.
+ * toggle and every row at its declared minimum — with all groups open and the full plan of 20
+ * rows (User accounts, Credit rules, Numbers and Trades included, so the budget holds the day
+ * they ship). 960px is the 1080p browser viewport budget once #2878 added the credit-rules row;
+ * the 900px plan covered the 15-row sidebar. The 1000px budget held 18 rows; #2753 raised it to
+ * 1040 for 19 when Hire records joined Directory, and #3023 raised it to 1080 for 20 with
+ * Trades in Quality & AI — still deliberately under a 1080p display.
  */
 describe("the nav fits a 1080p browser without scrolling", () => {
   const CSS = globalsCss();
@@ -214,7 +222,7 @@ describe("the nav fits a 1080p browser without scrolling", () => {
   /** A `padding` / `gap` shorthand's block (vertical) value. */
   const block = (shorthand: string): number => px(shorthand.split(/\s+/)[0]!);
 
-  it("adds up to at most 1040px with every group open and all 19 rows", () => {
+  it("adds up to at most 1080px with every group open and all 20 rows", () => {
     const groups = NAV.length;
     const rows = NAV_ITEM_LIMIT;
     const sidebarPad = block(last(".sidebar", "padding")) * 2;
@@ -233,7 +241,7 @@ describe("the nav fits a 1080p browser without scrolling", () => {
       (groups - 1) * groupGap +
       rows * row +
       (rows - groups) * rowGap;
-    expect(total).toBeLessThanOrEqual(1040);
+    expect(total).toBeLessThanOrEqual(1080);
   });
 
   it("has no sidebar foot left to push it down", () => {

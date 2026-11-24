@@ -206,6 +206,34 @@ void main() {
     expect(find.text('2 jobs aapke liye'), findsOneWidget);
   });
 
+  testWidgets(
+      'an unknown trade key is humanised on a job card, never a raw slug',
+      (WidgetTester tester) async {
+    // A role the build has never mapped (EDM is one of the new catalogue's
+    // trades): the feed carries no matched-skill label, so the card falls back
+    // to the humanised trade key. It must read as a trade, never `edm_operator`.
+    const FeedItem edm = FeedItem(
+      jobId: 'job-edm',
+      tradeKey: 'edm_operator',
+      title: 'Machine Operator — Night Shift',
+      city: 'Pune',
+      area: 'Chakan',
+      rank: 1,
+    );
+    final BbJobCardData data = feedItemCardData(edm);
+    expect(data.trade, 'EDM Operator');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(child: BbJobCard(data: data)),
+        ),
+      ),
+    );
+    expect(find.text('EDM Operator'), findsOneWidget);
+    expect(find.textContaining('edm_operator'), findsNothing);
+  });
+
   test('FeedItem parses the card content the feed sends', () {
     final FeedItem item = FeedItem.fromJson(<String, dynamic>{
       'job_id': 'job-1',

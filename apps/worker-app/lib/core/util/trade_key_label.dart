@@ -41,6 +41,7 @@ const Set<String> _kAcronyms = <String>{
   'cnc',
   'vmc',
   'hmc',
+  'edm',
   'cad',
   'cam',
   'qc',

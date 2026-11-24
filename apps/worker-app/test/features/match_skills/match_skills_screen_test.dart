@@ -100,6 +100,36 @@ void main() {
     expect(toggleOf(tester, 'mskill_vmc_operator').value, isFalse);
   });
 
+  testWidgets('new-catalogue skill labels from the server render unchanged',
+      (WidgetTester tester) async {
+    // These names are authored in the CEO pack and served as `label`; the
+    // screen must draw them, not a hard-coded local copy (which would lag
+    // every catalogue release).
+    register(const <MatchSkill>[
+      MatchSkill(
+        skillId: 'mskill_edm_operator',
+        label: 'EDM Operator',
+        wants: true,
+      ),
+      MatchSkill(
+        skillId: 'mskill_injection_moulding_setter',
+        label: 'Injection Moulding Setter',
+        wants: true,
+      ),
+      MatchSkill(
+        skillId: 'mskill_quality_engineer',
+        label: 'Quality Engineer',
+        wants: false,
+      ),
+    ]);
+    await pump(tester);
+
+    expect(find.text('EDM Operator'), findsOneWidget);
+    expect(find.text('Injection Moulding Setter'), findsOneWidget);
+    expect(find.text('Quality Engineer'), findsOneWidget);
+    expect(find.textContaining('mskill_'), findsNothing);
+  });
+
   testWidgets('a tap PUTs the resulting state and the row stays listed',
       (WidgetTester tester) async {
     register(_two);

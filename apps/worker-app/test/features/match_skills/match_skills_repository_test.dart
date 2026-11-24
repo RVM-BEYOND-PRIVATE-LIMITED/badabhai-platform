@@ -63,6 +63,49 @@ void main() {
     ]);
   });
 
+  test('new-catalogue skill labels are rendered exactly as the server sends '
+      'them — never a client-side name table', () async {
+    // The 60-trade catalogue adds skills the app has no local map for. The
+    // repository must carry the server's English `label` through unchanged,
+    // so the screen renders it without a release to teach the client.
+    final MatchSkillsRepositoryImpl repo = _repo(MockClient(
+      (_) async => _json(<String, dynamic>{
+        'skills': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'skill_id': 'mskill_edm_operator',
+            'label': 'EDM Operator',
+            'wants': true,
+          },
+          <String, dynamic>{
+            'skill_id': 'mskill_injection_moulding_setter',
+            'label': 'Injection Moulding Setter',
+            'wants': true,
+          },
+          <String, dynamic>{
+            'skill_id': 'mskill_quality_engineer',
+            'label': 'Quality Engineer',
+            'wants': false,
+          },
+        ],
+      }),
+    ));
+
+    final List<MatchSkill> skills = await repo.list();
+
+    expect(
+      skills.map((MatchSkill s) => s.label),
+      <String>[
+        'EDM Operator',
+        'Injection Moulding Setter',
+        'Quality Engineer',
+      ],
+    );
+    expect(
+      skills.map((MatchSkill s) => s.label),
+      everyElement(isNot(contains('mskill_'))),
+    );
+  });
+
   test('a row whose label is missing or is the bare id never renders the id',
       () async {
     final MatchSkillsRepositoryImpl repo = _repo(MockClient(
