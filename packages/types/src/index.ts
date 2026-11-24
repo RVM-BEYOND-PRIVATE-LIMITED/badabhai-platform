@@ -192,7 +192,8 @@ export type CompanionV2EditOp = (typeof COMPANION_V2_EDIT_OPS)[number];
 // the settings/Profile screen; `other` is anything else the parser recognised as out of scope.
 // The event carries these instead of the request text.
 export const COMPANION_V2_UNSUPPORTED_EDIT_TARGETS = ["identity", "contact", "other"] as const;
-export type CompanionV2UnsupportedEditTarget = (typeof COMPANION_V2_UNSUPPORTED_EDIT_TARGETS)[number];
+export type CompanionV2UnsupportedEditTarget =
+  (typeof COMPANION_V2_UNSUPPORTED_EDIT_TARGETS)[number];
 
 // HOW CONFIDENT THE CLASSIFIER WAS, BUCKETED FOR THE SPINE — never the raw score, which would be
 // a per-worker fingerprint of the model's behaviour rather than a metric anyone reads. `lt50` is
@@ -679,7 +680,10 @@ export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 export const CURRENT_CONSENT_VERSION = "2026-11-19" as const;
 
 /** The two purposes the employer-sharing notice asks for — granted and withdrawn together. */
-export const EMPLOYER_CONTACT_PURPOSES = ["employer_sharing", "employer_messaging"] as const satisfies readonly ConsentPurpose[];
+export const EMPLOYER_CONTACT_PURPOSES = [
+  "employer_sharing",
+  "employer_messaging",
+] as const satisfies readonly ConsentPurpose[];
 
 /**
  * The notice versions whose screen SHOWED the employer-sharing copy. A consent row may carry
@@ -1210,20 +1214,60 @@ export const TRADE_FORM_KINDS_ALL = Object.freeze([
 
   // ── PHASE 2 #11 — Foundry / Forging Operator (CEO Launch Plan Pack v1, sheet 19) ──
   "foundry_forging_operator", // qp_foundry_forging — `fabrication`; formless, like heat treatment
+
+  // ══ CEO PACK v2 — the 36 declared trades of the 60-trade catalogue (#2999) ══
+  // Declared before their forms exist, the house pattern. The v1 kinds above keep
+  // their keys; these append, so no stored row or event payload can lose its role.
+  "gear_cutting_operator", // T18 — Wave 2
+  "boring_machine_operator", // T19 — Wave 2
+  "spm_finishing_operator", // T20 — Wave 2
+  "cnc_router_operator", // T21 — Wave 1
+  "fabricator", // T22 — Wave 2
+  "tube_bending_operator", // T23 — Wave 2
+  "foundry_operator", // T24 — Wave 1
+  "die_casting_operator", // T25 — Wave 1
+  "forging_operator", // T26 — Wave 1
+  "plating_operator", // T28 — Wave 2
+  "plastic_extrusion_operator", // T31 — Wave 2
+  "cmm_operator", // T33 — Wave 1
+  "ndt_technician", // T34 — Wave 2
+  "calibration_technician", // T35 — Wave 2
+  "material_lab_technician", // T36 — Wave 2
+  "quality_engineer", // T37 — Wave 1
+  "robot_operator_programmer", // T39 — Wave 2
+  "instrumentation_technician", // T40 — Wave 2
+  "hvac_rac_technician", // T41 — Wave 2
+  "utility_operator", // T42 — Wave 2
+  "maintenance_engineer", // T43 — Wave 1
+  "service_engineer", // T44 — Wave 3
+  "production_engineer", // T46 — Wave 1
+  "process_engineer", // T47 — Wave 1
+  "npd_engineer", // T48 — Wave 1
+  "safety_officer", // T49 — Wave 3
+  "project_site_engineer", // T50 — Wave 3
+  "technical_sales_engineer", // T51 — Wave 3
+  "ppc_engineer", // T52 — Wave 1
+  "store_keeper", // T53 — Wave 3
+  "purchase_engineer", // T54 — Wave 1
+  "dispatch_logistics_executive", // T55 — Wave 3
+  "forklift_operator", // T56 — Wave 2
+  "crane_operator", // T57 — Wave 2
+  "cae_analyst", // T59 — Wave 3
+  "piping_designer", // T60 — Wave 3
 ] as const);
 
 export type TradeFormKindName = (typeof TRADE_FORM_KINDS_ALL)[number];
 
 const TRADE_FORM_KIND_SET: ReadonlySet<string> = new Set(TRADE_FORM_KINDS_ALL);
 
-/** Whether a value is one of the 22 DECLARED role kinds. A type guard, like the others here. */
+/** Whether a value is one of the 63 DECLARED role kinds. A type guard, like the others here. */
 export function isTradeFormKindName(value: unknown): value is TradeFormKindName {
   return typeof value === "string" && TRADE_FORM_KIND_SET.has(value);
 }
 
 // ---- Job-posting role (migration 0131) ----
 //
-// HERE FOR THE SAME REASON AS THE SETS BELOW: `packages/db` spells the 22 kinds into
+// HERE FOR THE SAME REASON AS THE SETS BELOW: `packages/db` spells the 63 kinds into
 // `job_postings_role_kind_chk` / `jobs_role_kind_chk`, `packages/event-schema` puts `role_kind` on
 // `job.created` / `job_posting.created`, `apps/api` validates the posting routes by it, and the web
 // clients render the picker and the preview from the labels below. Declared once so none can drift.
@@ -1234,9 +1278,9 @@ export function isTradeFormKindName(value: unknown): value is TradeFormKindName 
 // 2026-09-29, #1823).
 
 /**
- * The six role FAMILIES the picker groups the 22 kinds under — the same six the API's
+ * The nine role FAMILIES the picker groups the 63 kinds under — the same nine the API's
  * `ROLE_CLUSTERS` (`apps/api/src/profiling/roles/role-form-descriptor.ts`) veto within, in the same
- * order. The API's parity test asserts the two agree, so a seventh cluster turns it red until this
+ * order. The API's parity test asserts the two agree, so a tenth cluster turns it red until this
  * list learns it.
  */
 export const JOB_ROLE_FAMILIES = Object.freeze([
@@ -1246,6 +1290,9 @@ export const JOB_ROLE_FAMILIES = Object.freeze([
   "maintenance",
   "production",
   "polymer",
+  "quality_lab",
+  "engineering_desk",
+  "supply_chain",
 ] as const);
 export type JobRoleFamily = (typeof JOB_ROLE_FAMILIES)[number];
 
@@ -1257,6 +1304,10 @@ export const JOB_ROLE_FAMILY_LABELS: Readonly<Record<JobRoleFamily, string>> = O
   maintenance: "Maintenance",
   production: "Production & Quality",
   polymer: "Plastics & Rubber",
+  // CEO pack v2 — the three conflict scopes the desk and quality trades need (#2999).
+  quality_lab: "Quality & Metrology",
+  engineering_desk: "Engineering & Desk",
+  supply_chain: "Supply Chain",
 } satisfies Record<JobRoleFamily, string>);
 
 /** How one role kind reads on a job posting, and which family it is grouped under. */
@@ -1274,9 +1325,9 @@ export interface JobRoleLabel {
  * `job-role-labels.parity.test.ts` asserts label === displayName and family === cluster for every
  * kind, so an edit to either side alone turns it red.
  *
- * EXHAUSTIVE AT COMPILE TIME: a `Record` over {@link TradeFormKindName}, so a 23rd declared kind
+ * EXHAUSTIVE AT COMPILE TIME: a `Record` over {@link TradeFormKindName}, so a 64th declared kind
  * does not type-check until it has a label here. Deliberately carries no `formEnabled`: whether a
- * worker-side FORM exists says nothing about whether an employer may post the role, and all 22 are
+ * worker-side FORM exists says nothing about whether an employer may post the role, and all 63 are
  * postable by owner ruling.
  */
 export const JOB_ROLE_LABELS: Readonly<Record<TradeFormKindName, JobRoleLabel>> = Object.freeze({
@@ -1304,8 +1355,8 @@ export const JOB_ROLE_LABELS: Readonly<Record<TradeFormKindName, JobRoleLabel>> 
   quality_inspector: { label: "Quality Inspector / QC", family: "production" },
   injection_moulding_operator: { label: "Injection Moulding Operator", family: "polymer" },
   mould_die_maker: { label: "Mould / Die Maker (Plastics)", family: "polymer" },
-  blow_moulding_operator: { label: "Blow Moulding / Extrusion Operator", family: "polymer" },
-  rubber_moulding_operator: { label: "Rubber Moulding / Compression Operator", family: "polymer" },
+  blow_moulding_operator: { label: "Blow Moulding Operator", family: "polymer" },
+  rubber_moulding_operator: { label: "Rubber Moulding Operator", family: "polymer" },
   plastic_process_technician: { label: "Plastic Process / Quality Technician", family: "polymer" },
   cad_designer_3d: { label: "3D CAD Designer", family: "design" },
   // Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14).
@@ -1318,10 +1369,172 @@ export const JOB_ROLE_LABELS: Readonly<Record<TradeFormKindName, JobRoleLabel>> 
   production_supervisor: { label: "Production Supervisor", family: "production" },
   // Phase 2 #11 (CEO Launch Plan Pack v1, sheet 19).
   foundry_forging_operator: { label: "Foundry / Forging Operator", family: "fabrication" },
+
+  // ══ CEO pack v2 — the 36 declared trades (#2999) ═══════════════════════════
+  // Labels are the sheet titles; the family is the conflict scope, not the department.
+  gear_cutting_operator: { label: "Gear Cutting Operator", family: "machining" },
+  boring_machine_operator: { label: "Boring Machine Operator (HBM)", family: "machining" },
+  spm_finishing_operator: { label: "Honing / Broaching / SPM Operator", family: "machining" },
+  cnc_router_operator: { label: "CNC Router / Engraving Operator (ArtCAM)", family: "machining" },
+  fabricator: { label: "Fabricator / Structural Fitter", family: "fabrication" },
+  tube_bending_operator: { label: "Tube Bending / Roll Forming Operator", family: "fabrication" },
+  foundry_operator: { label: "Foundry / Casting Operator", family: "fabrication" },
+  die_casting_operator: { label: "Die Casting Operator (PDC / GDC)", family: "fabrication" },
+  forging_operator: { label: "Forging Operator", family: "fabrication" },
+  plating_operator: { label: "Plating / Surface Treatment Operator", family: "fabrication" },
+  plastic_extrusion_operator: { label: "Plastic Extrusion Operator", family: "polymer" },
+  cmm_operator: { label: "CMM Operator / Programmer", family: "quality_lab" },
+  ndt_technician: { label: "NDT Technician", family: "quality_lab" },
+  calibration_technician: {
+    label: "Calibration / Metrology Lab Technician",
+    family: "quality_lab",
+  },
+  material_lab_technician: {
+    label: "Material Testing / Met Lab Technician",
+    family: "quality_lab",
+  },
+  quality_engineer: { label: "Quality Engineer (QA / QC / SQA)", family: "engineering_desk" },
+  robot_operator_programmer: { label: "Robot Operator / Programmer", family: "maintenance" },
+  instrumentation_technician: { label: "Instrumentation Technician", family: "maintenance" },
+  hvac_rac_technician: { label: "Refrigeration & AC (HVAC) Technician", family: "maintenance" },
+  utility_operator: {
+    label: "Utility Operator (Boiler / Compressor / DG / ETP)",
+    family: "maintenance",
+  },
+  maintenance_engineer: { label: "Maintenance Engineer", family: "engineering_desk" },
+  service_engineer: {
+    label: "Service Engineer (Field / Machine Service)",
+    family: "engineering_desk",
+  },
+  production_engineer: { label: "Production Engineer", family: "engineering_desk" },
+  process_engineer: { label: "Process / Manufacturing Engineer", family: "engineering_desk" },
+  npd_engineer: { label: "NPD / Development Engineer", family: "engineering_desk" },
+  safety_officer: { label: "Safety / EHS Officer", family: "engineering_desk" },
+  project_site_engineer: {
+    label: "Project / Site Engineer (Mechanical)",
+    family: "engineering_desk",
+  },
+  technical_sales_engineer: {
+    label: "Technical Sales / Application Engineer",
+    family: "engineering_desk",
+  },
+  ppc_engineer: { label: "PPC / Production Planning Engineer", family: "engineering_desk" },
+  store_keeper: { label: "Store Keeper / Stores Executive", family: "supply_chain" },
+  purchase_engineer: {
+    label: "Purchase / Vendor Development Engineer",
+    family: "engineering_desk",
+  },
+  dispatch_logistics_executive: {
+    label: "Dispatch / Logistics Executive",
+    family: "supply_chain",
+  },
+  forklift_operator: { label: "Forklift / Reach Truck Operator", family: "supply_chain" },
+  crane_operator: { label: "EOT Crane Operator / Rigger", family: "supply_chain" },
+  cae_analyst: { label: "CAE / FEA Analyst", family: "engineering_desk" },
+  piping_designer: { label: "Piping Designer / Draughtsman", family: "engineering_desk" },
 } satisfies Record<TradeFormKindName, JobRoleLabel>);
 
 /**
- * The display label for a stored `role_kind`, or `null` when it is not one of the 22.
+ * The eleven DEPARTMENTS of CEO pack v2 section 2, in that order (#2999).
+ *
+ * A display grouping for the 63 kinds, coarser than the nine conflict families: Tool
+ * Room and Assembly are their own departments, while the family list splits production
+ * from maintenance and keeps a polymer scope the department list does not. The slug is
+ * stable; the label is the pack's heading.
+ */
+export const JOB_ROLE_DEPARTMENTS = Object.freeze([
+  { id: "machining", label: "Machining" },
+  { id: "tool_room", label: "Tool Room" },
+  { id: "sheet_metal_fabrication", label: "Sheet Metal & Fabrication" },
+  { id: "casting_forging_surface", label: "Casting, Forging & Surface Treatment" },
+  { id: "plastics_rubber", label: "Plastics & Rubber" },
+  { id: "assembly", label: "Assembly" },
+  { id: "quality_metrology", label: "Quality & Metrology" },
+  { id: "maintenance_automation", label: "Maintenance & Automation" },
+  { id: "production_engineering", label: "Production & Engineering" },
+  { id: "planning_supply_chain", label: "Planning & Supply Chain" },
+  { id: "design", label: "Design" },
+] as const);
+
+export type JobRoleDepartment = (typeof JOB_ROLE_DEPARTMENTS)[number]["id"];
+
+/**
+ * The department each declared kind belongs to, for all 63 kinds (#2999).
+ *
+ * The 60 catalogue trades take their sheet header's department. The three never-offered
+ * kinds take the department of the trade their phrases now lead to: Mould / Die Maker
+ * reads Tool Room (Tool & Die), Plastic Process Technician reads Plastics & Rubber
+ * (Injection Moulding), and Foundry / Forging reads Casting, Forging & Surface Treatment.
+ */
+export const JOB_ROLE_DEPARTMENT_BY_KIND: Readonly<Record<TradeFormKindName, JobRoleDepartment>> =
+  Object.freeze({
+    cnc_turner: "machining",
+    vmc_milling: "machining",
+    cnc_grinding: "machining",
+    cam_programmer: "machining",
+    cad_draughtsman: "design",
+    conventional_machinist: "machining",
+    tool_die_maker: "tool_room",
+    welder: "sheet_metal_fabrication",
+    sheet_metal_worker: "sheet_metal_fabrication",
+    press_operator: "sheet_metal_fabrication",
+    painter_coating: "casting_forging_surface",
+    fitter: "assembly",
+    maintenance_technician: "maintenance_automation",
+    industrial_electrician: "maintenance_automation",
+    assembly_line_worker: "assembly",
+    quality_inspector: "quality_metrology",
+    injection_moulding_operator: "plastics_rubber",
+    mould_die_maker: "tool_room",
+    blow_moulding_operator: "plastics_rubber",
+    rubber_moulding_operator: "plastics_rubber",
+    plastic_process_technician: "plastics_rubber",
+    cad_designer_3d: "design",
+    plc_automation_technician: "maintenance_automation",
+    edm_wirecut_operator: "machining",
+    heat_treatment_technician: "casting_forging_surface",
+    production_supervisor: "production_engineering",
+    foundry_forging_operator: "casting_forging_surface",
+    gear_cutting_operator: "machining",
+    boring_machine_operator: "machining",
+    spm_finishing_operator: "machining",
+    cnc_router_operator: "machining",
+    fabricator: "sheet_metal_fabrication",
+    tube_bending_operator: "sheet_metal_fabrication",
+    foundry_operator: "casting_forging_surface",
+    die_casting_operator: "casting_forging_surface",
+    forging_operator: "casting_forging_surface",
+    plating_operator: "casting_forging_surface",
+    plastic_extrusion_operator: "plastics_rubber",
+    cmm_operator: "quality_metrology",
+    ndt_technician: "quality_metrology",
+    calibration_technician: "quality_metrology",
+    material_lab_technician: "quality_metrology",
+    quality_engineer: "quality_metrology",
+    robot_operator_programmer: "maintenance_automation",
+    instrumentation_technician: "maintenance_automation",
+    hvac_rac_technician: "maintenance_automation",
+    utility_operator: "maintenance_automation",
+    maintenance_engineer: "maintenance_automation",
+    service_engineer: "maintenance_automation",
+    production_engineer: "production_engineering",
+    process_engineer: "production_engineering",
+    npd_engineer: "production_engineering",
+    safety_officer: "production_engineering",
+    project_site_engineer: "production_engineering",
+    technical_sales_engineer: "production_engineering",
+    ppc_engineer: "planning_supply_chain",
+    store_keeper: "planning_supply_chain",
+    purchase_engineer: "planning_supply_chain",
+    dispatch_logistics_executive: "planning_supply_chain",
+    forklift_operator: "planning_supply_chain",
+    crane_operator: "planning_supply_chain",
+    cae_analyst: "design",
+    piping_designer: "design",
+  });
+
+/**
+ * The display label for a stored `role_kind`, or `null` when it is not one of the 63.
  *
  * TAKES `unknown` ON PURPOSE: the value comes off a wire or a row, and a reader must not have to
  * narrow before asking. NEVER ECHOES ITS INPUT — an unknown or malformed value is `null`, so a
@@ -1723,7 +1936,10 @@ export type CreditCallResult = (typeof CREDIT_CALL_RESULTS)[number];
  * migration 0189) starts a Managed Hiring order on its job and grants no credits (a pack code and a
  * positive credit grant are required only of a `credit_pack` order).
  */
-export const PAYMENT_ORDER_PRODUCT_KINDS = Object.freeze(["credit_pack", "managed_hiring"] as const);
+export const PAYMENT_ORDER_PRODUCT_KINDS = Object.freeze([
+  "credit_pack",
+  "managed_hiring",
+] as const);
 export type PaymentOrderProductKind = (typeof PAYMENT_ORDER_PRODUCT_KINDS)[number];
 
 /**
@@ -1854,7 +2070,10 @@ export const PAYMENT_REFUND_STATUSES = Object.freeze([
 export type PaymentRefundStatusCode = (typeof PAYMENT_REFUND_STATUSES)[number];
 
 /** Why a refund failed: the provider call errored, or Razorpay reported the refund failed. */
-export const PAYMENT_REFUND_FAILURES = Object.freeze(["provider_error", "provider_failed"] as const);
+export const PAYMENT_REFUND_FAILURES = Object.freeze([
+  "provider_error",
+  "provider_failed",
+] as const);
 export type PaymentRefundFailureCode = (typeof PAYMENT_REFUND_FAILURES)[number];
 
 // ---- GST invoices and credit notes (#2749 part 4, migration 0188) ----

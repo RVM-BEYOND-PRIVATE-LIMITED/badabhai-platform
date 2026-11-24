@@ -13,7 +13,7 @@ export const BLOW_MOULDING_OPERATOR = {
   familyId: "fam_blow_moulding",
   cluster: "polymer",
   formEnabled: false,
-  displayName: "Blow Moulding / Extrusion Operator",
+  displayName: "Blow Moulding Operator",
   offerName: "blow moulding operator",
   levelLadder: ["Helper", "Operator", "Setter"],
   tenureQuestionKey: "extrusion_experience",
