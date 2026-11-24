@@ -1,10 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
-import { getPostingDetail, listMatchSkills } from "../../../../../lib/payer-api";
+import { getPostingDetail, getPostingTradeForm, listMatchSkills } from "../../../../../lib/payer-api";
 import { requirePayer } from "../../../../../lib/auth";
-import type { MatchSkillWire } from "../../../../../lib/contracts";
+import type { MatchSkillWire, PostingTradeDetailWire } from "../../../../../lib/contracts";
 import { TRADE_REQUIRED_PARAM, isTradeRequiredParam } from "../../../../../lib/posting-trades";
-import { readPostingTrades } from "../../../../../lib/posting-trades.server";
+import { readPostingTradeCatalogue } from "../../../../../lib/posting-trades.server";
 import { Badge } from "../../../../../components/ds";
 import { PageHeader } from "../../../../../components/page-header";
 import { EditPostingForm } from "./edit-posting-form";
@@ -56,12 +56,28 @@ export default async function EditPostingPage({
     matchSkills = [];
   }
 
-  // Migration 0141 / #2645 — the 16-trade catalogue, the only roles a company job can name. A
-  // failure never blocks an edit of the rest of the posting (an untouched role is not sent); the
-  // picker names the cause with a Retry, and a publish waits for the trades.
-  const { trades: postingTrades, problem: postingTradesProblem } = await readPostingTrades();
+  // #3020 — the catalogue rows for the picker. A failure never blocks an edit of the rest of the
+  // posting (an untouched role is not sent); the picker names the cause with a Retry.
+  const { trades: postingTrades, problem: postingTradesProblem } =
+    await readPostingTradeCatalogue();
 
   const { summary, card, description } = detail;
+  const storedRoleKind = card.role_kind ?? null;
+  const storedRoleInCatalogue = postingTrades.some(
+    (trade) => trade.role_kind === storedRoleKind,
+  );
+  // A stored trade the catalogue no longer offers must still load (and save). Fetch its form by
+  // itself; if that also fails, the form keeps the stored label/rung read-only.
+  let initialTradeForm: PostingTradeDetailWire | null = null;
+  if (storedRoleKind !== null && storedRoleKind !== "" && !storedRoleInCatalogue) {
+    try {
+      initialTradeForm = await getPostingTradeForm(storedRoleKind);
+    } catch {
+      initialTradeForm = null;
+    }
+  }
+  const storedRoleLabel =
+    detail.roleLabel ?? initialTradeForm?.role_label ?? storedRoleKind ?? null;
 
   // The page head leads the FORM column, so the card-preview rail starts beside it at the top.
   // Back to the posting by its own name — its details page's H1, and the applicants page's back
@@ -95,6 +111,9 @@ export default async function EditPostingPage({
       matchSkills={matchSkills}
       postingTrades={postingTrades}
       postingTradesProblem={postingTradesProblem}
+      initialTradeForm={initialTradeForm}
+      storedRoleLabel={storedRoleLabel}
+      storedRoleInCatalogue={storedRoleInCatalogue}
       tradeRequired={isTradeRequiredParam(query[TRADE_REQUIRED_PARAM])}
       matchSelection={{
         matchSkillIds: detail.matchSkillIds,

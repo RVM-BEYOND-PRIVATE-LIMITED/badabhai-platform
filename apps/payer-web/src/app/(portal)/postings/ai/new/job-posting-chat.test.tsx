@@ -92,6 +92,8 @@ vi.mock("react", async () => {
     ...actual,
     useId: () => `:r${(ids += 1)}:`,
     useState: (initial: unknown) => useState(initial),
+    useRef: (initial: unknown) => ({ current: initial }),
+    useEffect: () => undefined,
     useTransition: () => useTransition(),
   };
 });
@@ -147,16 +149,15 @@ interface Convo {
   suggestions: string[];
 }
 
-/** One 16-trade catalogue row (`GET /payer/posting-trades`). */
+/** One catalogue row (`GET /payer/posting-trades/catalogue`). */
 const tradeRow = (roleKind: string, roleLabel: string) => ({
   role_kind: roleKind,
   role_label: roleLabel,
-  pack_id: `qp_${roleKind}`,
-  match_skill_id: `mskill_${roleKind}`,
-  ladder: [],
-  questions: [],
+  department: "machining",
+  department_label: "Machining",
+  kind: "shop_floor" as const,
 });
-/** The catalogue the page served (#2645) — two of the 16. */
+/** The catalogue the page served (#3020) — two trades. */
 const TRADES = [tradeRow("cnc_turner", "CNC Turner"), tradeRow("fitter", "Fitter")];
 
 const CONVO: Convo = {
@@ -718,7 +719,11 @@ describe("rule A — the payer's company/org name is never asked in the chat", (
   it("the free-text fields are the answer composer and the area pick — never an org name", () => {
     const acc = render({ convo: CONVO });
     const freeText = acc.fields.filter((f) => f.tag === "textarea" || f.tag === "input");
-    expect(freeText.map((f) => f.id).sort()).toEqual(["chatArea", "chatTurn"]);
+    expect(freeText.map((f) => f.id).sort()).toEqual([
+      "chatArea",
+      "chatRoleKind-search",
+      "chatTurn",
+    ]);
   });
 
   it("tells the payer their company name is filled in automatically", () => {

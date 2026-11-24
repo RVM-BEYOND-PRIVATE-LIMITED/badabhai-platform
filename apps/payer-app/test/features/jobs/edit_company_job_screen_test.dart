@@ -13,6 +13,7 @@ import 'package:payer_app/core/widgets/bb_button.dart';
 import 'package:payer_app/core/widgets/bb_shake.dart';
 import 'package:payer_app/features/jobs/presentation/cubit/jobs_cubit.dart';
 import 'package:payer_app/features/jobs/presentation/edit_company_job_screen.dart';
+import 'package:payer_app/features/jobs/presentation/widgets/trade_posting_fields.dart';
 
 /// The COMPANY edit screen used to patch only role title / location / vacancy
 /// band and told the payer that "pay, experience and skills … are not editable
@@ -334,6 +335,14 @@ void main() {
       value,
     );
     await tester.pump();
+  }
+
+  /// Pick a trade from the catalogue-backed picker.
+  Future<void> pickTrade(WidgetTester tester, String label) async {
+    await tester.tap(find.byKey(PostingTradePicker.fieldKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(label).last);
+    await tester.pumpAndSettle();
   }
 
   /// Tap Save and pump just far enough for the toast to appear — a full drain
@@ -841,7 +850,11 @@ void main() {
 
       expect(api.tradeLoads, 2);
       expect(find.textContaining('did not load'), findsNothing);
+      await tester.tap(find.byKey(PostingTradePicker.fieldKey));
+      await tester.pumpAndSettle();
       expect(find.text('CNC Turner'), findsOneWidget);
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
     });
 
     testWidgets(
@@ -850,8 +863,7 @@ void main() {
       await open(tester);
       api.throwOnUpdate = tradeRequired;
 
-      await tester.tap(find.text('Welder'));
-      await tester.pumpAndSettle();
+      await pickTrade(tester, 'Welder');
       await tapSave(tester);
       await tester.pumpAndSettle();
 
@@ -869,8 +881,7 @@ void main() {
       );
 
       // Picking another trade is what clears it.
-      await tester.tap(find.text('CNC Turner'));
-      await tester.pumpAndSettle();
+      await pickTrade(tester, 'CNC Turner');
       expect(find.text('Pick one of the 16 trades'), findsNothing);
     });
 
@@ -890,8 +901,7 @@ void main() {
       expect(atPicker('Pick one of the 16 trades'), findsOneWidget);
 
       // …picking a trade clears it and opens that trade's form.
-      await tester.tap(find.text('Welder'));
-      await tester.pumpAndSettle();
+      await pickTrade(tester, 'Welder');
       expect(find.text('Pick one of the 16 trades'), findsNothing);
       expect(find.text('Trade requirements'), findsOneWidget);
 

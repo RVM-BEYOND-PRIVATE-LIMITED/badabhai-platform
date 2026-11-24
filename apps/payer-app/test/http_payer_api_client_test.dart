@@ -61,7 +61,8 @@ void main() {
     // turns ANY unparseable/non-object body into `{}`, so a 200 carrying
     // captive-portal HTML (or a drifted contract) sailed past it and `?? 0` then
     // minted a confident "0 credits" — telling the payer their balance was wiped.
-    test('#370: a 2xx with a malformed/contract-breaking body throws instead of '
+    test(
+        '#370: a 2xx with a malformed/contract-breaking body throws instead of '
         'fabricating a 0 balance', () async {
       final List<http.Response> badBodies = <http.Response>[
         // Captive-portal HTML served as 200.
@@ -83,7 +84,8 @@ void main() {
       }
     });
 
-    test('#370: a well-formed 2xx still returns the real balance (incl. a true 0)',
+    test(
+        '#370: a well-formed 2xx still returns the real balance (incl. a true 0)',
         () async {
       final h = _harness(<String, http.Response>{
         'GET /payer/credits': _json(<String, dynamic>{'balance': 0}),
@@ -98,12 +100,13 @@ void main() {
         () async {
       for (final int status in <int>[401, 429, 500]) {
         final h = _harness(<String, http.Response>{
-          'GET /payer/credits': _json(<String, dynamic>{'message': 'nope'}, status),
+          'GET /payer/credits':
+              _json(<String, dynamic>{'message': 'nope'}, status),
         });
         await expectLater(
           h.api.fetchCredits(),
-          throwsA(isA<PayerApiException>()
-              .having((PayerApiException e) => e.statusCode, 'statusCode', status)),
+          throwsA(isA<PayerApiException>().having(
+              (PayerApiException e) => e.statusCode, 'statusCode', status)),
         );
       }
     });
@@ -181,7 +184,8 @@ void main() {
     // never an exception.
     test('fetchApplicants 404 → empty feed (neutral, no throw)', () async {
       final h = _harness(<String, http.Response>{
-        'GET /payer/reach/jobs/job-1/applicants': _json(<String, dynamic>{}, 404),
+        'GET /payer/reach/jobs/job-1/applicants':
+            _json(<String, dynamic>{}, 404),
       });
 
       final List<Applicant> applicants = await h.api.fetchApplicants('job-1');
@@ -309,7 +313,8 @@ void main() {
     // Every list/view GET that used to decode the body unconditionally now
     // throws on a real server error instead of fabricating an empty/zero model
     // shown as a "ready" success.
-    test('list/view GETs throw PayerApiException on a 5xx (no fabricated zeros)',
+    test(
+        'list/view GETs throw PayerApiException on a 5xx (no fabricated zeros)',
         () async {
       Future<void> expectThrows(
         String routeKey,
@@ -333,8 +338,8 @@ void main() {
           (HttpPayerApiClient a) => a.fetchAgencyJobs());
       await expectThrows('GET /payer/agency/referrals/summary',
           (HttpPayerApiClient a) => a.fetchReferralsSummary());
-      await expectThrows(
-          'GET /payer/org/members', (HttpPayerApiClient a) => a.fetchOrgMembers());
+      await expectThrows('GET /payer/org/members',
+          (HttpPayerApiClient a) => a.fetchOrgMembers());
       await expectThrows(
           'GET /payer/capacity', (HttpPayerApiClient a) => a.fetchCapacity());
     });
@@ -507,7 +512,8 @@ void main() {
       expect(h.router.seen, isEmpty);
     });
 
-    test('unlockCandidate(int) throws UnsupportedError (real unlock is by UUID)',
+    test(
+        'unlockCandidate(int) throws UnsupportedError (real unlock is by UUID)',
         () async {
       final h = _harness(<String, http.Response>{});
       await expectLater(h.api.unlockCandidate(5), throwsUnsupportedError);
@@ -516,7 +522,8 @@ void main() {
   });
 
   group('P5 — the two newly-wired routes', () {
-    test('listDisclosures → GET /payer/resume-disclosures, parses rows + bearer',
+    test(
+        'listDisclosures → GET /payer/resume-disclosures, parses rows + bearer',
         () async {
       final h = _harness(<String, http.Response>{
         'GET /payer/resume-disclosures': _json(<String, dynamic>{
@@ -586,7 +593,8 @@ void main() {
   // #2746 — audience, RVM targeting and review. Only shown/sent when the
   // options route answers 200; a neutral 404 (switch off) hides everything.
   group('HttpPayerApiClient — job audience (#2746)', () {
-    test('fetchAudienceOptions → GET the options route; a 404 is null, not an error',
+    test(
+        'fetchAudienceOptions → GET the options route; a 404 is null, not an error',
         () async {
       final h = _harness(<String, http.Response>{
         'GET /payer/job-postings/audience-options': _json(<String, dynamic>{
@@ -676,7 +684,8 @@ void main() {
       expect(body['audience'], 'rvm_students');
     });
 
-    test('a row with an RVM review parses its audience block; one without stays null',
+    test(
+        'a row with an RVM review parses its audience block; one without stays null',
         () async {
       final h = _harness(<String, http.Response>{
         'GET /payer/job-postings/job-1': _json(<String, dynamic>{
@@ -713,4 +722,63 @@ void main() {
     });
   });
 
+  group('posting-trade catalogue (#3021)', () {
+    test('reads the catalogue rows and caches them for the session', () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/posting-trades/catalogue': _json(<String, dynamic>{
+          'trades': <dynamic>[
+            <String, dynamic>{
+              'role_kind': 'welder',
+              'role_label': 'Welder',
+              'department': 'fabrication_welding',
+              'department_label': 'Fabrication & Welding',
+              'kind': 'shop_floor',
+            },
+          ],
+        }),
+      });
+
+      final List<PostingTradeCatalogueRow> first =
+          await h.api.fetchPostingTradeCatalogue();
+      final List<PostingTradeCatalogueRow> second =
+          await h.api.fetchPostingTradeCatalogue();
+
+      expect(first.single.roleKind, 'welder');
+      expect(first.single.departmentLabel, 'Fabrication & Welding');
+      expect(second.single.roleLabel, 'Welder');
+      expect(h.router.seen, hasLength(1));
+    });
+
+    test('reads one encoded form and caches it', () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/posting-trades/laser%20cutter': _json(<String, dynamic>{
+          'role_kind': 'laser cutter',
+          'role_label': 'Laser Cutting Operator',
+          'department': 'sheet_metal',
+          'pack_id': 'qp_laser',
+          'match_skill_id': 'mskill_laser',
+        }),
+      });
+
+      final PostingTradeForm first =
+          await h.api.fetchPostingTradeForm('laser cutter');
+      final PostingTradeForm second =
+          await h.api.fetchPostingTradeForm('laser cutter');
+
+      expect(first.roleLabel, 'Laser Cutting Operator');
+      expect(first.department, 'sheet_metal');
+      expect(second.packId, 'qp_laser');
+      expect(h.router.seen.single.url.toString(), contains('laser%20cutter'));
+      expect(h.router.seen, hasLength(1));
+    });
+
+    test('a 404 for one trade is a PayerApiException', () async {
+      final h = _harness(<String, http.Response>{});
+      await expectLater(
+        h.api.fetchPostingTradeForm('switched_off'),
+        throwsA(isA<PayerApiException>()
+            .having((PayerApiException e) => e.statusCode, 'statusCode', 404)),
+      );
+    });
+  });
 }

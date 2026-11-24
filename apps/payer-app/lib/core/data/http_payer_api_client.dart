@@ -32,6 +32,13 @@ class HttpPayerApiClient implements PayerApiClient {
 
   final PayerHttp _http;
 
+  /// Session caches for the two picker reads. The catalogue is read once and
+  /// each picked trade's form once; neither is worker data, so keeping them for
+  /// the life of this client only saves repeat downloads.
+  List<PostingTradeCatalogueRow>? _postingCatalogueCache;
+  final Map<String, PostingTradeForm> _postingTradeFormCache =
+      <String, PostingTradeForm>{};
+
   // ---------------------------------------------------------------------------
   // BOUND — real endpoints
   // ---------------------------------------------------------------------------
@@ -85,8 +92,8 @@ class HttpPayerApiClient implements PayerApiClient {
 
   @override
   Future<AudienceOptions?> fetchAudienceOptions() async {
-    final PayerResponse res = await _http
-        .send(PayerMethod.get, '/payer/job-postings/audience-options');
+    final PayerResponse res = await _http.send(
+        PayerMethod.get, '/payer/job-postings/audience-options');
     // The house neutral 404: the `job_audience` switch is off for the company.
     // Every audience entry point stays hidden; never an error toast for a dark
     // feature. Any other failure is real and is surfaced.
@@ -193,7 +200,8 @@ class HttpPayerApiClient implements PayerApiClient {
   }
 
   @override
-  Future<List<ManagedHiringOrder>> fetchManagedHiringOrders(String jobId) async {
+  Future<List<ManagedHiringOrder>> fetchManagedHiringOrders(
+      String jobId) async {
     final PayerResponse res = await _http.send(
       PayerMethod.get,
       '/payer/managed-hiring/orders?job_posting_id=${Uri.encodeQueryComponent(jobId)}',
@@ -621,6 +629,38 @@ class HttpPayerApiClient implements PayerApiClient {
   }
 
   @override
+  Future<List<PostingTradeCatalogueRow>> fetchPostingTradeCatalogue() async {
+    final List<PostingTradeCatalogueRow>? cached = _postingCatalogueCache;
+    if (cached != null) return cached;
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/posting-trades/catalogue');
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final List<dynamic> rows = res.body['trades'] is List<dynamic>
+        ? res.body['trades'] as List<dynamic>
+        : const <dynamic>[];
+    final List<PostingTradeCatalogueRow> catalogue = rows
+        .whereType<Map<String, dynamic>>()
+        .map(PostingTradeCatalogueRow.fromJson)
+        .toList(growable: false);
+    _postingCatalogueCache = catalogue;
+    return catalogue;
+  }
+
+  @override
+  Future<PostingTradeForm> fetchPostingTradeForm(String roleKind) async {
+    final PostingTradeForm? cached = _postingTradeFormCache[roleKind];
+    if (cached != null) return cached;
+    final PayerResponse res = await _http.send(
+      PayerMethod.get,
+      '/payer/posting-trades/${Uri.encodeComponent(roleKind)}',
+    );
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final PostingTradeForm form = PostingTradeForm.fromJson(res.body);
+    _postingTradeFormCache[roleKind] = form;
+    return form;
+  }
+
+  @override
   Future<ReachPreview> reachPreview({
     required List<String> matchSkillIds,
     List<String> untickedRelatedIds = const <String>[],
@@ -943,10 +983,13 @@ class HttpPayerApiClient implements PayerApiClient {
     return UnlockResult.granted(
       unlockId: unlockId,
       expiresAt: res.body['expires_at'] as String?,
-      creditsCharged:
-          charged is num && charged.isFinite && charged >= 0 ? charged.toInt() : null,
+      creditsCharged: charged is num && charged.isFinite && charged >= 0
+          ? charged.toInt()
+          : null,
       openUntil: res.body.containsKey('open_until')
-          ? (res.body['open_until'] is String ? res.body['open_until'] as String : null)
+          ? (res.body['open_until'] is String
+              ? res.body['open_until'] as String
+              : null)
           : (res.body['expires_at'] as String?),
     );
   }
@@ -1004,7 +1047,9 @@ class HttpPayerApiClient implements PayerApiClient {
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
     if (res.body['ok'] != true) return const ContactReadResult.unavailable();
     final String? phone = res.body['phone'] as String?;
-    if (phone == null || phone.isEmpty) return const ContactReadResult.unavailable();
+    if (phone == null || phone.isEmpty) {
+      return const ContactReadResult.unavailable();
+    }
     // Never cached, stored or logged: the result lives on state only while this screen shows it.
     return ContactReadResult.contact(
       fullName: res.body['full_name'] as String?,
@@ -1260,7 +1305,8 @@ class HttpPayerApiClient implements PayerApiClient {
     final Map<String, dynamic> body = <String, dynamic>{
       'spoken_text': spokenText,
       // `.optional()` on the route, not `.nullable()`: omit, never send null.
-      if (tradeLabel != null && tradeLabel.isNotEmpty) 'trade_label': tradeLabel,
+      if (tradeLabel != null && tradeLabel.isNotEmpty)
+        'trade_label': tradeLabel,
       if (roleLabel != null && roleLabel.isNotEmpty) 'role_label': roleLabel,
     };
     final PayerResponse res = await _http.send(

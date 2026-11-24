@@ -9,7 +9,8 @@ import {
   PAY_TYPES,
   SHIFTS,
   type MatchSkillWire,
-  type PostingTradeFormWire,
+  type PostingTradeCatalogueEntryWire,
+  type PostingTradeDetailWire,
   type ReachPreview,
 } from "../../../../lib/contracts";
 import {
@@ -221,8 +222,8 @@ export function PostingForm({
   quotaStep?: number | null;
   /** The match vocabulary — labels only here; the trade decides the match set (#2635). */
   matchSkills?: MatchSkillWire[];
-  /** The 16-trade posting catalogue (migration 0141) — the ONLY roles a company job can name. */
-  postingTrades?: PostingTradeFormWire[];
+  /** The picker's catalogue rows (#3020) — the ONLY roles a company job can name. */
+  postingTrades?: PostingTradeCatalogueEntryWire[];
   /** Why `postingTrades` is empty (#2645) — said at the picker, with a Retry. */
   postingTradesProblem?: PostingTradesProblem | null;
   /** The page head + notices, drawn at the top of the form column (the rail starts beside it). */
@@ -259,6 +260,8 @@ export function PostingForm({
     ...BLANK_TRADE,
     matchSkillIds: [],
   });
+  // APPENDED — the one trade's form the picker loaded for the current pick (#3020).
+  const [loadedTradeForm, setLoadedTradeForm] = useState<PostingTradeDetailWire | null>(null);
   const [pending, startTransition] = useTransition();
   // The publish lands on the new posting's Applicants with the shell's "Opening Applicants…" cue
   // (the button stays "Publishing…" — `navigating` — until the page is gone).
@@ -316,6 +319,7 @@ export function PostingForm({
     setGap(null);
     setRevealed({});
     setTrade({ ...BLANK_TRADE, matchSkillIds: [] });
+    setLoadedTradeForm(null);
     goToStep(1);
   }
 
@@ -325,9 +329,12 @@ export function PostingForm({
     { requirements, benefits, reqDraft, benDraft },
   );
   const hasCardIssue = Object.keys(read.issues).length > 0;
-  // #2645 — the picked trade's form, or undefined until one of the 16 is picked. Its match set
-  // (base skill + match chips) is derived from the catalogue, never kept apart from it.
-  const tradeForm = postingTrades.find((form) => form.role_kind === fields.roleKind);
+  // #3020 — the picked trade's form, or undefined until the picker has loaded it. Its match set
+  // (base skill + match chips) is derived from that form, never kept apart from it.
+  const tradeForm =
+    loadedTradeForm !== null && loadedTradeForm.role_kind === fields.roleKind
+      ? loadedTradeForm
+      : undefined;
   const activeMatchSkillIds = tradeForm ? derivedMatchSkills(tradeForm, trade.answers) : [];
 
   function set<K extends keyof FormFields>(key: K, value: string) {
@@ -335,11 +342,8 @@ export function PostingForm({
     // The trade fields belong to a role. A role change must never keep the previous
     // role's chips (a turner's controller is not a welder's process).
     if (key === "roleKind") {
-      const form = postingTrades.find((tradeForm) => tradeForm.role_kind === value);
-      setTrade({
-        ...BLANK_TRADE,
-        matchSkillIds: form ? derivedMatchSkills(form, {}) : [],
-      });
+      setLoadedTradeForm(null);
+      setTrade({ ...BLANK_TRADE, matchSkillIds: [] });
       setSelection({ matchSkillIds: [], untickedRelatedIds: [] });
       setPreview(null);
     }
@@ -641,7 +645,7 @@ export function PostingForm({
     locationNote: fields.locationLabel,
     tradeLevel: trade.tradeLevel || null,
     tradeAnswers: trade.answers,
-    postingTrades,
+    postingTrades: tradeForm ? [tradeForm] : [],
     matchSkills: { ids: activeMatchSkillIds, vocabulary: matchSkills },
     description: fields.description,
   });
@@ -700,12 +704,13 @@ export function PostingForm({
               <PostingTradePicker
                 id="roleKind"
                 label="Role Category"
-                hint="One of the 16 trades we match on — it decides which workers see this posting."
+                hint="A trade we match on — it decides which workers see this posting."
                 trades={postingTrades}
                 problem={postingTradesProblem}
                 value={fields.roleKind}
                 error={errorOf("roleKind")}
                 onChange={(value) => set("roleKind", value)}
+                onFormLoaded={setLoadedTradeForm}
               />
 
               <Input
@@ -956,14 +961,13 @@ export function PostingForm({
                 {/* The trade's own fields — the ONLY match input of a company job (#2645): no
                     flat skill picker, no "could not load the skill list" fallback. */}
                 <TradePostingFields
-                  trades={postingTrades}
+                  trades={tradeForm ? [tradeForm] : []}
                   roleKind={fields.roleKind}
                   value={{ tradeLevel: trade.tradeLevel, answers: trade.answers }}
                   onChange={(next) => {
-                    const form = postingTrades.find((t) => t.role_kind === fields.roleKind);
                     setTrade({
                       ...next,
-                      matchSkillIds: form ? derivedMatchSkills(form, next.answers) : [],
+                      matchSkillIds: tradeForm ? derivedMatchSkills(tradeForm, next.answers) : [],
                     });
                   }}
                   onMatchSkillIdsChange={() => undefined}
@@ -989,7 +993,8 @@ export function PostingForm({
                 <VoiceDescriptionButton
                   onDraft={(description) => set("description", description)}
                   tradeLabel={
-                    postingTrades.find((t) => t.role_kind === fields.roleKind)?.role_label
+                    postingTrades.find((t) => t.role_kind === fields.roleKind)?.role_label ??
+                    tradeForm?.role_label
                   }
                   roleLabel={fields.roleTitle.trim() || undefined}
                 />

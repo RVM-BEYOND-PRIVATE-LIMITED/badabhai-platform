@@ -224,6 +224,7 @@ class _JobsView extends StatelessWidget {
                       ? _JobCard(job: job, onApplicants: onApplicants)
                       : _RealJobCard(
                           job: job,
+                          catalogue: state.postingCatalogue,
                           onApplicants: onApplicants,
                           onFindMatching: onFindMatching,
                         ),
@@ -242,8 +243,7 @@ class _JobsView extends StatelessWidget {
                         children: <Widget>[
                           Text(
                             'MY JOB POSTINGS',
-                            style: AppTypography.eyebrow(
-                                color: p.textMuted),
+                            style: AppTypography.eyebrow(color: p.textMuted),
                           ),
                           const SizedBox(height: 2),
                           Text(
@@ -371,8 +371,7 @@ class _ResumeChatCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                Icon(Icons.chevron_right_rounded,
-                    color: p.textMuted),
+                Icon(Icons.chevron_right_rounded, color: p.textMuted),
               ],
             ),
           ),
@@ -390,11 +389,13 @@ class _ResumeChatCard extends StatelessWidget {
 class _RealJobCard extends StatefulWidget {
   const _RealJobCard({
     required this.job,
+    required this.catalogue,
     this.onApplicants,
     this.onFindMatching,
   });
 
   final JobPosting job;
+  final List<PostingTradeCatalogueRow> catalogue;
   final ValueChanged<String?>? onApplicants;
   final ValueChanged<CandidateSearchQuery>? onFindMatching;
 
@@ -512,7 +513,10 @@ class _RealJobCardState extends State<_RealJobCard> {
     final (String label, BbBadgeTone tone) = _pill;
     final String? posted =
         job.createdAt == null ? null : readableDate(job.createdAt!);
+    final String roleLabel =
+        postingTradeLabelFor(job.roleKind, catalogue: widget.catalogue);
     final List<String> meta = <String>[
+      if (roleLabel.isNotEmpty && roleLabel != job.title) roleLabel,
       if (job.locationLabel != null && job.locationLabel!.isNotEmpty)
         job.locationLabel!,
       // #2548 — the posting's level, READ-ONLY here. Editing it in the app is

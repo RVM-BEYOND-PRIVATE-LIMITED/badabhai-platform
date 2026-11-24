@@ -312,7 +312,8 @@ class MockPayerApiClient implements PayerApiClient {
   int _jobSeq = 100;
 
   @override
-  Future<AudienceOptions?> fetchAudienceOptions() async => const AudienceOptions(
+  Future<AudienceOptions?> fetchAudienceOptions() async =>
+      const AudienceOptions(
         audiences: <JobAudience>[
           JobAudience.badabhaiWorkers,
           JobAudience.rvmStudents,
@@ -433,10 +434,12 @@ class MockPayerApiClient implements PayerApiClient {
       _cannedJob(id, wireStatus: 'open');
 
   @override
-  Future<ManagedHiringQuote?> fetchManagedHiringQuote(String jobId) async => null;
+  Future<ManagedHiringQuote?> fetchManagedHiringQuote(String jobId) async =>
+      null;
 
   @override
-  Future<List<ManagedHiringOrder>> fetchManagedHiringOrders(String jobId) async =>
+  Future<List<ManagedHiringOrder>> fetchManagedHiringOrders(
+          String jobId) async =>
       const <ManagedHiringOrder>[];
 
   @override
@@ -609,15 +612,16 @@ class MockPayerApiClient implements PayerApiClient {
     ),
   ];
 
-  /// A SMALL mock of the 16-trade posting catalogue. Two trades are enough for the
-  /// demo, and they exercise both a match chip and a facet chip. The live client
-  /// returns the server's full catalogue.
+  /// A representative posting catalogue: several departments, both kinds, and
+  /// the two rich forms (CNC Turner / Welder) that exercise a match chip and a
+  /// facet chip. The live client returns the server's full 60-trade catalogue.
   static const List<PostingTradeForm> _postingTrades = <PostingTradeForm>[
     PostingTradeForm(
       roleKind: 'cnc_turner',
       roleLabel: 'CNC Turner',
       packId: 'qp_cnc_turning',
       matchSkillId: 'cnc_operation',
+      department: 'machining',
       ladder: <PostingTradeRung>[
         PostingTradeRung(
           rung: 'helper',
@@ -715,6 +719,7 @@ class MockPayerApiClient implements PayerApiClient {
       roleLabel: 'Welder',
       packId: 'qp_welding_trade',
       matchSkillId: 'welding',
+      department: 'fabrication_welding',
       ladder: <PostingTradeRung>[
         PostingTradeRung(
           rung: 'helper',
@@ -755,13 +760,139 @@ class MockPayerApiClient implements PayerApiClient {
         ),
       ],
     ),
+    PostingTradeForm(
+      roleKind: 'fitter',
+      roleLabel: 'Fitter',
+      packId: 'qp_fitting',
+      matchSkillId: 'fitting',
+      department: 'fabrication_welding',
+    ),
+    PostingTradeForm(
+      roleKind: 'sheet_metal_worker',
+      roleLabel: 'Sheet Metal Worker',
+      packId: 'qp_sheet_metal',
+      matchSkillId: 'sheet_metal',
+      department: 'fabrication_welding',
+    ),
+    PostingTradeForm(
+      roleKind: 'press_operator',
+      roleLabel: 'Press-shop Operator',
+      packId: 'qp_press_shop',
+      matchSkillId: 'press_operation',
+      department: 'sheet_metal',
+    ),
+    PostingTradeForm(
+      roleKind: 'vmc_milling',
+      roleLabel: 'CNC Machining Centre Operator',
+      packId: 'qp_vmc_milling',
+      matchSkillId: 'vmc_operation',
+      department: 'machining',
+    ),
+    PostingTradeForm(
+      roleKind: 'cnc_grinding',
+      roleLabel: 'CNC Grinding Operator',
+      packId: 'qp_cnc_grinding',
+      matchSkillId: 'grinding',
+      department: 'machining',
+    ),
+    PostingTradeForm(
+      roleKind: 'conventional_machinist',
+      roleLabel: 'Conventional Machinist',
+      packId: 'qp_conventional_machining',
+      matchSkillId: 'conventional_machining',
+      department: 'machining',
+    ),
+    PostingTradeForm(
+      roleKind: 'tool_die_maker',
+      roleLabel: 'Tool & Die Maker',
+      packId: 'qp_tool_die',
+      matchSkillId: 'tool_die_making',
+      department: 'tooling',
+    ),
+    PostingTradeForm(
+      roleKind: 'mould_die_maker',
+      roleLabel: 'Mould / Die Maker (Plastics)',
+      packId: 'qp_mould_die',
+      matchSkillId: 'mould_making',
+      department: 'tooling',
+    ),
+    PostingTradeForm(
+      roleKind: 'maintenance_technician',
+      roleLabel: 'Maintenance Technician',
+      packId: 'qp_maintenance',
+      matchSkillId: 'maintenance',
+      department: 'maintenance',
+    ),
+    PostingTradeForm(
+      roleKind: 'industrial_electrician',
+      roleLabel: 'Industrial Electrician',
+      packId: 'qp_industrial_electrician',
+      matchSkillId: 'industrial_electrical',
+      department: 'maintenance',
+    ),
+    PostingTradeForm(
+      roleKind: 'cad_draughtsman',
+      roleLabel: 'CAD Designer / Draughtsman',
+      packId: 'qp_cad_draughting',
+      matchSkillId: 'cad_drafting',
+      department: 'design_office',
+    ),
+    PostingTradeForm(
+      roleKind: 'quality_inspector',
+      roleLabel: 'Quality Inspector / QC',
+      packId: 'qp_quality_inspection',
+      matchSkillId: 'quality_inspection',
+      department: 'quality',
+    ),
+    PostingTradeForm(
+      roleKind: 'assembly_line_worker',
+      roleLabel: 'Assembly Technician',
+      packId: 'qp_assembly',
+      matchSkillId: 'assembly',
+      department: 'assembly',
+    ),
   ];
+
+  static const Map<String, String> _departmentLabels = <String, String>{
+    'machining': 'Machining',
+    'fabrication_welding': 'Fabrication & Welding',
+    'sheet_metal': 'Sheet Metal',
+    'tooling': 'Tooling & Die Making',
+    'maintenance': 'Maintenance',
+    'design_office': 'Design Office',
+    'quality': 'Quality',
+    'assembly': 'Assembly',
+  };
 
   @override
   Future<List<MatchSkill>> fetchMatchSkills() async => _matchSkills;
 
   @override
   Future<List<PostingTradeForm>> fetchPostingTrades() async => _postingTrades;
+
+  @override
+  Future<List<PostingTradeCatalogueRow>> fetchPostingTradeCatalogue() async {
+    final List<PostingTradeForm> trades = await fetchPostingTrades();
+    return <PostingTradeCatalogueRow>[
+      for (final PostingTradeForm trade in trades)
+        PostingTradeCatalogueRow(
+          roleKind: trade.roleKind,
+          roleLabel: trade.roleLabel,
+          department: trade.department.isEmpty ? 'other' : trade.department,
+          departmentLabel:
+              _departmentLabels[trade.department] ?? 'Other trades',
+          kind: trade.department == 'design_office' ? 'desk' : 'shop_floor',
+        ),
+    ];
+  }
+
+  @override
+  Future<PostingTradeForm> fetchPostingTradeForm(String roleKind) async {
+    for (final PostingTradeForm trade in await fetchPostingTrades()) {
+      if (trade.roleKind == roleKind) return trade;
+    }
+    throw const PayerApiException(404);
+  }
 
   @override
   Future<ReachPreview> reachPreview({
@@ -1333,7 +1464,8 @@ class MockPayerApiClient implements PayerApiClient {
   @override
   Future<UnlockResult> unlock({required String workerId, String? jobId}) async {
     // R74: a sample worker gets the route's neutral deny, and no credit moves.
-    if (_kMockPool.any((_MockWorker w) => w.isSample && w.workerId == workerId)) {
+    if (_kMockPool
+        .any((_MockWorker w) => w.isSample && w.workerId == workerId)) {
       return const UnlockResult.unavailable();
     }
     // Canned grant — decrement the shared balance so the credits stat still
@@ -1641,7 +1773,8 @@ const LabelledId _kMockSetter =
     LabelledId(id: 'mskill_cnc_setter_operator', label: 'CNC Setter-Operator');
 const LabelledId _kMockWelder =
     LabelledId(id: 'mskill_mig_welder', label: 'MIG Welder');
-const LabelledId _kMockFitter = LabelledId(id: 'mskill_fitter', label: 'Fitter');
+const LabelledId _kMockFitter =
+    LabelledId(id: 'mskill_fitter', label: 'Fitter');
 const LabelledId _kMockRider =
     LabelledId(id: 'mskill_delivery_rider', label: 'Delivery Rider');
 
@@ -1702,9 +1835,10 @@ class _MockWorker {
       return null;
     }
 
-    final (LabelledId, int) lead = pick((LabelledId r) => asked.contains(r.id)) ??
-        pick((LabelledId r) => related.contains(r.id)) ??
-        roles.first;
+    final (LabelledId, int) lead =
+        pick((LabelledId r) => asked.contains(r.id)) ??
+            pick((LabelledId r) => related.contains(r.id)) ??
+            roles.first;
     final int matchClass = asked.isEmpty || asked.contains(lead.$1.id)
         ? 1
         : (related.contains(lead.$1.id) ? 2 : 3);

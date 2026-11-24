@@ -85,6 +85,36 @@ const Map<String, dynamic> _catalogue = <String, dynamic>{
   ],
 };
 
+const Map<String, dynamic> _catalogueRows = <String, dynamic>{
+  'trades': <Map<String, dynamic>>[
+    <String, dynamic>{
+      'role_kind': 'welder',
+      'role_label': 'Welder',
+      'department': 'fabrication_welding',
+      'department_label': 'Fabrication & Welding',
+      'kind': 'shop_floor',
+    },
+    <String, dynamic>{
+      'role_kind': 'fitter',
+      'role_label': 'Fitter',
+      'department': 'fabrication_welding',
+      'department_label': 'Fabrication & Welding',
+      'kind': 'shop_floor',
+    },
+  ],
+};
+
+Map<String, dynamic> _form(String roleKind, String roleLabel) =>
+    <String, dynamic>{
+      'role_kind': roleKind,
+      'role_label': roleLabel,
+      'pack_id': 'qp_$roleKind',
+      'match_skill_id': 'mskill_$roleKind',
+      'department': 'fabrication_welding',
+      'ladder': const <dynamic>[],
+      'questions': const <dynamic>[],
+    };
+
 void main() {
   late List<http.Request> seen;
 
@@ -101,6 +131,11 @@ void main() {
         return switch ('${req.method} ${req.url.path}') {
           'GET /payer/job-postings' => _json(<dynamic>[_draftRow]),
           'GET /payer/posting-trades' => _json(_catalogue),
+          'GET /payer/posting-trades/catalogue' => _json(_catalogueRows),
+          'GET /payer/posting-trades/welder' =>
+            _json(_form('welder', 'Welder')),
+          'GET /payer/posting-trades/fitter' =>
+            _json(_form('fitter', 'Fitter')),
           'PATCH /payer/job-postings/$_jobId' => publishResponse,
           _ => http.Response('{}', 404),
         };
@@ -122,7 +157,8 @@ void main() {
 
   testWidgets(
       'a Publish refused for want of a trade opens the trade picker, refused '
-      'there — no toast, never the server message', (WidgetTester tester) async {
+      'there — no toast, never the server message',
+      (WidgetTester tester) async {
     await pump(tester, _tradeRequired());
 
     await tester.tap(find.text('Publish'));
@@ -135,15 +171,23 @@ void main() {
 
     // …and the refusal opened the job's form at its trade picker.
     expect(find.text('Edit job'), findsOneWidget);
-    expect(find.text('Welder'), findsWidgets);
-    expect(find.text('Fitter'), findsOneWidget);
     expect(
       find.descendant(
-        of: find.ancestor(of: find.text('Role'), matching: find.byType(BbShake)),
+        of: find.ancestor(
+            of: find.text('Role'), matching: find.byType(BbShake)),
         matching: find.text('Pick one of the 16 trades'),
       ),
       findsOneWidget,
     );
+
+    // The catalogue sheet groups both trades under the server's department.
+    await tester.tap(find.text('— pick the role —'));
+    await tester.pumpAndSettle();
+    expect(find.text('Fabrication & Welding'), findsOneWidget);
+    expect(find.text('Fitter'), findsOneWidget);
+    expect(find.text('Welder'), findsWidgets);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
     expect(find.byType(SnackBar), findsNothing);
     expect(find.textContaining('a live job must name'), findsNothing);
 

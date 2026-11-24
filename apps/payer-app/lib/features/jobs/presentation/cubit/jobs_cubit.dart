@@ -47,11 +47,18 @@ class JobsCubit extends Cubit<JobsState> {
   /// list — without them the button simply reads the city as absent.
   Future<void> _loadMatchingVocabulary() async {
     final Future<List<PostingTradeForm>> tradesRead = _readTrades();
+    final Future<List<PostingTradeCatalogueRow>> catalogueRead =
+        _readCatalogue();
     final Future<CandidateFilters?> filtersRead = _readFilters();
     final List<PostingTradeForm> trades = await tradesRead;
+    final List<PostingTradeCatalogueRow> catalogue = await catalogueRead;
     final CandidateFilters? filters = await filtersRead;
     if (isClosed) return;
-    emit(state.copyWith(postingTrades: trades, candidateFilters: filters));
+    emit(state.copyWith(
+      postingTrades: trades,
+      postingCatalogue: catalogue,
+      candidateFilters: filters,
+    ));
   }
 
   Future<List<PostingTradeForm>> _readTrades() async {
@@ -59,6 +66,14 @@ class JobsCubit extends Cubit<JobsState> {
       return await _api.fetchPostingTrades();
     } catch (_) {
       return state.postingTrades;
+    }
+  }
+
+  Future<List<PostingTradeCatalogueRow>> _readCatalogue() async {
+    try {
+      return await _api.fetchPostingTradeCatalogue();
+    } catch (_) {
+      return state.postingCatalogue;
     }
   }
 
@@ -86,6 +101,7 @@ class JobsCubit extends Cubit<JobsState> {
         status: JobsStatus.ready,
         jobs: jobs,
         postingTrades: state.postingTrades,
+        postingCatalogue: state.postingCatalogue,
         candidateFilters: state.candidateFilters,
       ));
     } catch (e) {
@@ -122,6 +138,7 @@ class JobsCubit extends Cubit<JobsState> {
           status: JobsStatus.ready,
           jobs: jobs,
           postingTrades: state.postingTrades,
+          postingCatalogue: state.postingCatalogue,
           candidateFilters: state.candidateFilters,
         ));
       }
@@ -326,6 +343,7 @@ class JobsState extends Equatable {
     this.jobs = const <JobPosting>[],
     this.failure,
     this.postingTrades = const <PostingTradeForm>[],
+    this.postingCatalogue = const <PostingTradeCatalogueRow>[],
     this.candidateFilters,
   });
 
@@ -341,6 +359,11 @@ class JobsState extends Equatable {
   /// trade. Empty until loaded (or when the read failed).
   final List<PostingTradeForm> postingTrades;
 
+  /// The server-ordered trade catalogue (`GET /payer/posting-trades/catalogue`),
+  /// read beside the list so a card shows the server's label for its role.
+  /// Empty until loaded (or when the read failed).
+  final List<PostingTradeCatalogueRow> postingCatalogue;
+
   /// #2671 — the Candidates filter options, read for their city vocabulary
   /// only: a job city the search does not list is left out. Null until loaded
   /// (or when the read failed).
@@ -351,6 +374,7 @@ class JobsState extends Equatable {
     List<JobPosting>? jobs,
     PayerFailure? failure,
     List<PostingTradeForm>? postingTrades,
+    List<PostingTradeCatalogueRow>? postingCatalogue,
     CandidateFilters? candidateFilters,
   }) {
     return JobsState(
@@ -358,11 +382,18 @@ class JobsState extends Equatable {
       jobs: jobs ?? this.jobs,
       failure: failure ?? this.failure,
       postingTrades: postingTrades ?? this.postingTrades,
+      postingCatalogue: postingCatalogue ?? this.postingCatalogue,
       candidateFilters: candidateFilters ?? this.candidateFilters,
     );
   }
 
   @override
-  List<Object?> get props =>
-      <Object?>[status, jobs, failure, postingTrades, candidateFilters];
+  List<Object?> get props => <Object?>[
+        status,
+        jobs,
+        failure,
+        postingTrades,
+        postingCatalogue,
+        candidateFilters,
+      ];
 }

@@ -9,11 +9,13 @@ import type { ReactElement, ReactNode } from "react";
  */
 
 const getPostingDetail = vi.fn();
-const listPostingTrades = vi.fn(async (): Promise<unknown[]> => []);
+const listPostingTradeCatalogue = vi.fn(async (): Promise<unknown[]> => []);
+const getPostingTradeForm = vi.fn();
 vi.mock("../../../../../lib/payer-api", () => ({
   getPostingDetail: (id: string) => getPostingDetail(id),
+  getPostingTradeForm: (kind: string) => getPostingTradeForm(kind),
   listMatchSkills: async () => [],
-  listPostingTrades: () => listPostingTrades(),
+  listPostingTradeCatalogue: () => listPostingTradeCatalogue(),
 }));
 vi.mock("../../../../../lib/auth", () => ({ requirePayer: async () => ({ payerId: "p" }) }));
 vi.mock("next/navigation", () => ({
@@ -103,19 +105,55 @@ describe("EditPostingPage — the form is keyed on the saved revision", () => {
   });
 });
 
-describe("EditPostingPage — #2645: the 16 trades and the trade-required flag", () => {
-  const TRADE = { role_kind: "cnc_turner", role_label: "CNC Turner" };
+describe("EditPostingPage — #3020: the catalogue, the stored form and the trade-required flag", () => {
+  const TRADE = {
+    role_kind: "cnc_turner",
+    role_label: "CNC Turner",
+    department: "machining",
+    department_label: "Machining",
+    kind: "shop_floor",
+  };
 
-  it("hands the form the 16 trades, or why there are none (never a silent empty list)", async () => {
-    listPostingTrades.mockResolvedValueOnce([TRADE]);
+  it("hands the form the catalogue, or why there are none (never a silent empty list)", async () => {
+    listPostingTradeCatalogue.mockResolvedValueOnce([TRADE]);
     const ok = await formElement("2026-11-04T10:00:00.000Z");
     expect(ok.props.postingTrades).toEqual([TRADE]);
     expect(ok.props.postingTradesProblem).toBeNull();
 
-    listPostingTrades.mockRejectedValueOnce(new Error("payer API /payer/posting-trades returned 503"));
+    listPostingTradeCatalogue.mockRejectedValueOnce(
+      new Error("payer API /payer/posting-trades/catalogue returned 503"),
+    );
     const failed = await formElement("2026-11-04T10:00:00.000Z");
     expect(failed.props.postingTrades).toEqual([]);
     expect(failed.props.postingTradesProblem).toEqual({ kind: "http", status: 503 });
+  });
+
+  it("fetches a stored trade the catalogue no longer lists, and keeps its label if that fails", async () => {
+    listPostingTradeCatalogue.mockResolvedValueOnce([]);
+    getPostingTradeForm.mockResolvedValueOnce({
+      role_kind: "cnc_turner",
+      role_label: "CNC Turner",
+      department: "machining",
+      pack_id: "qp",
+      match_skill_id: "mskill_cnc_turner",
+      ladder: [],
+      questions: [],
+    });
+    const fetched = await formElement("2026-11-04T10:00:00.000Z");
+    expect(getPostingTradeForm).toHaveBeenCalledWith("cnc_turner");
+    expect((fetched.props as Record<string, unknown>).initialTradeForm).toMatchObject({
+      role_kind: "cnc_turner",
+    });
+
+    listPostingTradeCatalogue.mockResolvedValueOnce([]);
+    getPostingTradeForm.mockRejectedValueOnce(new Error("404"));
+    getPostingDetail.mockResolvedValueOnce({ ...detail("r2"), roleLabel: "Stored Trade" });
+    // formElement mocks its own detail; call the page directly for this branch.
+    const el = (await EditPostingPage({
+      params: Promise.resolve({ id: ID }),
+    })) as ReactElement<Record<string, unknown>>;
+    expect(el.props.initialTradeForm).toBeNull();
+    expect(el.props.storedRoleLabel).toBe("Stored Trade");
   });
 
   it("?trade=required opens the form refused at its trade picker; anything else does not", async () => {

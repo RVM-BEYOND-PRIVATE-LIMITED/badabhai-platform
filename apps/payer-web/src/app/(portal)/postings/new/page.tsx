@@ -7,7 +7,7 @@ import { PortalLink } from "../../../../components/portal-link";
 import { getLiveCatalog } from "../../../../lib/live-catalog";
 import { applicantQuotaStep, postingIsFreeThroughLaunch } from "../../../../lib/pricing-config";
 import { getCapacity, getPostingOptions, listMatchSkills } from "../../../../lib/payer-api";
-import { readPostingTrades } from "../../../../lib/posting-trades.server";
+import { readPostingTradeCatalogue } from "../../../../lib/posting-trades.server";
 import { CachedPricingNote } from "../../../../components/cached-pricing-note";
 import type { MatchSkillWire } from "../../../../lib/contracts";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
@@ -58,10 +58,10 @@ export default async function NewPostingPage() {
     matchSkills = [];
   }
 
-  // Migration 0141 / #2645 — the 16-trade catalogue, the ONLY roles a company job can name. A
-  // failure is not swallowed into a free role list: the picker names the cause with a Retry and
-  // the form refuses to post without a trade.
-  const { trades: postingTrades, problem: postingTradesProblem } = await readPostingTrades();
+  // #3020 — the catalogue rows for the picker; one trade's full form loads when it is picked. A
+  // failure is named at the picker with a Retry, and the form refuses to post without a trade.
+  const { trades: postingTrades, problem: postingTradesProblem } =
+    await readPostingTradeCatalogue();
 
   // #2938 — the server's two posting buttons; null (switch off) keeps today's single publish.
   let postingOptions: Awaited<ReturnType<typeof getPostingOptions>> = null;

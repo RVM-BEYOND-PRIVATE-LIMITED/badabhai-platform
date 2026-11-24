@@ -211,7 +211,20 @@ abstract class PayerApiClient {
 
   /// The 16-trade posting form catalogue (`GET /payer/posting-trades`).
   /// One read per form; each trade carries its display-only ladder and chip questions.
+  ///
+  /// Kept for installed copies and for readers that need every form's match
+  /// skill at once. The picker uses [fetchPostingTradeCatalogue] +
+  /// [fetchPostingTradeForm] so opening it never downloads 60 forms.
   Future<List<PostingTradeForm>> fetchPostingTrades();
+
+  /// The display rows of `GET /payer/posting-trades/catalogue`, in the server's
+  /// order (department order, then pack order). Names are the server's own.
+  Future<List<PostingTradeCatalogueRow>> fetchPostingTradeCatalogue();
+
+  /// One trade's form (`GET /payer/posting-trades/:roleKind`), with the added
+  /// `department`. A 404 for an unknown or switched-off kind surfaces as
+  /// [PayerApiException].
+  Future<PostingTradeForm> fetchPostingTradeForm(String roleKind);
 
   /// Deterministic reach preview for a picked skill set
   /// (`POST /payer/match/reach-preview`, body `{match_skill_ids,
@@ -225,6 +238,7 @@ abstract class PayerApiClient {
     required List<String> matchSkillIds,
     List<String> untickedRelatedIds = const <String>[],
     String? roleKind,
+
     /// #2746 — an RVM-only audience reaches no BadaBhai worker by design; sent
     /// only when the audience picker was shown.
     JobAudience? audience,
