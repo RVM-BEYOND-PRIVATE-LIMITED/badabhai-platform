@@ -402,8 +402,8 @@ export const MATCH_SKILLS = [
     // CEO Launch Plan Pack v1, Phase 2 #6 (sheet 14): the PLC / Automation Technician —
     // ladder logic, HMI/SCADA, VFD/servo and commissioning on automated lines and SPMs.
     // APPENDED, never inserted. The maintenance bench, beside the electrician it grows out
-    // of. UNPAIRED for now: #2022 left the electrician deliberately unpaired, and a new
-    // relation pair changes who sees whom — an owner call, not a retag default.
+    // of. PAIRED by the CEO pack v2 ruling (section 5) with the electrician, instrumentation
+    // and Robot Operator — the #2022 "deliberately unpaired" note below names the change.
     skillId: "mskill_plc_automation_tech",
     labelEn: "PLC / Automation Technician",
     labelHi: null,
@@ -415,8 +415,7 @@ export const MATCH_SKILLS = [
   {
     // CEO Launch Plan Pack v1, Phase 2 #7 (sheet 16): the EDM / Wire-cut Operator — wire-cut,
     // sinker and hole-drill EDM, from wire threading to programming. APPENDED, never inserted.
-    // UNPAIRED for now, like PLC: the sheet relates it to Tool & Die, VMC and CAM, and a new
-    // relation pair changes who sees whom — an owner call, not a build default.
+    // PAIRED by the CEO pack v2 ruling (section 5) with Tool & Die.
     skillId: "mskill_edm_wirecut_operator",
     labelEn: "EDM / Wire-cut Operator",
     labelHi: null,
@@ -429,8 +428,8 @@ export const MATCH_SKILLS = [
     // CEO Launch Plan Pack v1, Phase 2 #9 (sheet 22): the Injection-Moulding Operator / Setter —
     // runs, sets and optimises the plastics moulding machine. APPENDED, never inserted. Filed
     // under `fabrication` beside the press operator (no plastics skill domain exists, and the
-    // painter set the precedent of a non-sheet-metal bench there). UNPAIRED, like PLC and EDM:
-    // the sheet relates it to Tool & Die, Assembly and QC, and a relation pair is an owner call.
+    // painter set the precedent of a non-sheet-metal bench there). PAIRED by the CEO pack v2
+    // ruling (section 5) with Blow Moulding, Extrusion and Rubber.
     skillId: "mskill_imm_operator",
     labelEn: "Injection Moulding Operator",
     labelHi: null,
@@ -441,9 +440,8 @@ export const MATCH_SKILLS = [
   },
   {
     // CEO Launch Plan Pack v1, Phase 2 #8 (sheet 17): the Heat-Treatment Technician — hardening,
-    // carburising, nitriding, induction and annealing. APPENDED, never inserted. UNPAIRED for
-    // now, like PLC and EDM: the sheet relates it to Foundry/forging, the conventional machinist
-    // and QC, and a new relation pair changes who sees whom — an owner call, not a build default.
+    // carburising, nitriding, induction and annealing. APPENDED, never inserted. PAIRED by the
+    // CEO pack v2 ruling (section 5) with Material Testing / Met Lab.
     skillId: "mskill_heat_treatment_tech",
     labelEn: "Heat-Treatment Technician",
     labelHi: null,
@@ -456,8 +454,8 @@ export const MATCH_SKILLS = [
     // CEO Launch Plan Pack v1, Phase 2 #10 (sheet 23): the Production Supervisor — the shift,
     // section or line across trades. APPENDED, never inserted. Filed under the
     // `general-machining` OCCUPATION ANCHOR domain: supervision is an occupation, not a bench
-    // technique, and no supervision domain exists. UNPAIRED: the sheet relates it to every
-    // trade, and a relation pair changes who sees whom — an owner call.
+    // technique, and no supervision domain exists. PAIRED by the CEO pack v2 ruling (section 5)
+    // with the Production Engineer — the desk trade it promotes across to.
     skillId: "mskill_production_supervisor",
     labelEn: "Production Supervisor",
     labelHi: null,
@@ -469,14 +467,406 @@ export const MATCH_SKILLS = [
   {
     // CEO Launch Plan Pack v1, Phase 2 #11 (sheet 19): the Foundry / Forging Operator — sand and
     // shell moulding, core making, melting, die casting, fettling and hammer / press / upset
-    // forging. APPENDED, never inserted. UNPAIRED for now, like PLC, EDM and heat treatment: the
-    // sheet relates it to heat treatment, the conventional machinist and QC, and a new relation
-    // pair changes who sees whom — an owner call, not a build default.
+    // forging. APPENDED, never inserted. PAIRED by the CEO pack v2 ruling (section 5) with
+    // Foundry / Casting, Die Casting and Forging; kept as a legacy label, no new worker is
+    // given it.
     skillId: "mskill_foundry_forging_operator",
     labelEn: "Foundry / Forging Operator",
     labelHi: null,
     industryId: "ind_industrial_manufacturing",
     domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+
+  // ---- CEO pack v2 (RULED 2026-11-23): one skill per NEW trade (#3001) ----
+  // APPENDED, never inserted, so every earlier id keeps its position. PACK-ONLY like the
+  // #2022 mint: no role or corpus attribute bridges to them yet, so the only path that
+  // derives one is the worker's own pack answers (PACK_ANSWER_SKILLS, #3011).
+  // DOMAINS ARE BORROWED, NOT MINTED (same discipline as #2022): `domain_id` is the legacy
+  // 11-slug metadata with no retrieval effect for these rows. Machining trades take
+  // `cnc-machining` (the general machining domain); fabrication, metrology-quality and
+  // maintenance take their trade bench; desk trades and operators take the
+  // `general-machining` occupation anchor (the production-supervisor precedent).
+  {
+    // T18: gear cutting, Hobbing and shaping included.
+    skillId: "mskill_gear_cutting_operator",
+    labelEn: "Gear Cutting Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T19: horizontal boring on HBMs.
+    skillId: "mskill_boring_machine_operator",
+    labelEn: "Boring Machine Operator (HBM)",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T20: honing, broaching and special-purpose machines.
+    skillId: "mskill_spm_finishing_operator",
+    labelEn: "Honing / Broaching / SPM Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T21: CNC router and engraving, ArtCAM included.
+    skillId: "mskill_cnc_router_operator",
+    labelEn: "CNC Router / Engraving Operator (ArtCAM)",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T22: structural fabrication and fitting.
+    skillId: "mskill_fabricator",
+    labelEn: "Fabricator / Structural Fitter",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T23: tube bending and roll forming.
+    skillId: "mskill_tube_bending_operator",
+    labelEn: "Tube Bending / Roll Forming Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T24: the foundry half of the split — casting, melting and fettling. The legacy
+    // `mskill_foundry_forging_operator` stays live and related; new workers go here.
+    skillId: "mskill_foundry_operator",
+    labelEn: "Foundry / Casting Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T25: pressure and gravity die casting.
+    skillId: "mskill_die_casting_operator",
+    labelEn: "Die Casting Operator (PDC / GDC)",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T26: the forging half of the split — hammer, press and upset forging.
+    skillId: "mskill_forging_operator",
+    labelEn: "Forging Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T28: plating and surface treatment.
+    skillId: "mskill_plating_operator",
+    labelEn: "Plating / Surface Treatment Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T30: blow moulding.
+    skillId: "mskill_blow_moulding_operator",
+    labelEn: "Blow Moulding Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T31: plastic extrusion.
+    skillId: "mskill_plastic_extrusion_operator",
+    labelEn: "Plastic Extrusion Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T32: rubber moulding.
+    skillId: "mskill_rubber_moulding_operator",
+    labelEn: "Rubber Moulding Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T33: CMM operation and programming. Binds the minted entry jd_rvm_cmm_operator (#3007).
+    skillId: "mskill_cmm_operator",
+    labelEn: "CMM Operator / Programmer",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "metrology-quality",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T34: non-destructive testing.
+    skillId: "mskill_ndt_technician",
+    labelEn: "NDT Technician",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "metrology-quality",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T35: calibration and the metrology lab.
+    skillId: "mskill_calibration_technician",
+    labelEn: "Calibration / Metrology Lab Technician",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "metrology-quality",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T36: material testing and the metallurgy lab.
+    skillId: "mskill_material_lab_technician",
+    labelEn: "Material Testing / Met Lab Technician",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "metrology-quality",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T37: QA / QC / SQA engineering.
+    skillId: "mskill_quality_engineer",
+    labelEn: "Quality Engineer (QA / QC / SQA)",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "metrology-quality",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T39: robot operation and teaching.
+    skillId: "mskill_robot_operator_programmer",
+    labelEn: "Robot Operator / Programmer",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "maintenance",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T40: instrumentation.
+    skillId: "mskill_instrumentation_technician",
+    labelEn: "Instrumentation Technician",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "maintenance",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T41: refrigeration and air conditioning.
+    skillId: "mskill_hvac_rac_technician",
+    labelEn: "Refrigeration & AC (HVAC) Technician",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "maintenance",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T42: boiler, compressor, DG and ETP utilities. Holds the licence gate.
+    skillId: "mskill_utility_operator",
+    labelEn: "Utility Operator (Boiler / Compressor / DG / ETP)",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "maintenance",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T43: maintenance engineering, a desk trade on the maintenance bench.
+    skillId: "mskill_maintenance_engineer",
+    labelEn: "Maintenance Engineer",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "maintenance",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T44: field and machine service.
+    skillId: "mskill_service_engineer",
+    labelEn: "Service Engineer (Field / Machine Service)",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "maintenance",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T46: production engineering.
+    skillId: "mskill_production_engineer",
+    labelEn: "Production Engineer",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T47: process and manufacturing engineering.
+    skillId: "mskill_process_engineer",
+    labelEn: "Process / Manufacturing Engineer",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T48: new product development.
+    skillId: "mskill_npd_engineer",
+    labelEn: "NPD / Development Engineer",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T49: safety and EHS. Related to nothing, by ruling (a statutory role nothing
+    // substitutes for) — the only match skill with a curated empty set.
+    skillId: "mskill_safety_officer",
+    labelEn: "Safety / EHS Officer",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T50: project and site engineering.
+    skillId: "mskill_project_site_engineer",
+    labelEn: "Project / Site Engineer (Mechanical)",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T51: technical sales and application engineering.
+    skillId: "mskill_technical_sales_engineer",
+    labelEn: "Technical Sales / Application Engineer",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T52: production planning and control.
+    skillId: "mskill_ppc_engineer",
+    labelEn: "PPC / Production Planning Engineer",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T53: stores.
+    skillId: "mskill_store_keeper",
+    labelEn: "Store Keeper / Stores Executive",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T54: purchase and vendor development.
+    skillId: "mskill_purchase_engineer",
+    labelEn: "Purchase / Vendor Development Engineer",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T55: dispatch and logistics.
+    skillId: "mskill_dispatch_logistics_executive",
+    labelEn: "Dispatch / Logistics Executive",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T56: forklift and reach truck operation.
+    skillId: "mskill_forklift_operator",
+    labelEn: "Forklift / Reach Truck Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T57: EOT crane operation and rigging.
+    skillId: "mskill_crane_operator",
+    labelEn: "EOT Crane Operator / Rigger",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T59: CAE and FEA analysis, on the design desk.
+    skillId: "mskill_cae_analyst",
+    labelEn: "CAE / FEA Analyst",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-programming",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // T60: piping design and drafting, on the design desk.
+    skillId: "mskill_piping_designer",
+    labelEn: "Piping Designer / Draughtsman",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-programming",
     source: "rvm",
     status: "active",
   },
@@ -551,13 +941,39 @@ export const MATCH_SKILL_RELATION_PAIRS: readonly MatchSkillRelationPair[] = [
   // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): ONE welder trade — each process
   // ID related to the umbrella, which new assignments go to.
   ["mskill_arc_welder", "mskill_welder"],
+  // CEO pack v2 (RULED 2026-11-23, section 5): Assembly Line Worker and Fitter are
+  // paired — the line station and the bench cover each other's absence.
+  ["mskill_assembly_line_worker", "mskill_fitter"],
+  // CEO pack v2, Plastics & Rubber: blow moulding runs beside injection moulding.
+  ["mskill_blow_moulding_operator", "mskill_imm_operator"],
+  ["mskill_blow_moulding_operator", "mskill_plastic_extrusion_operator"],
+  // CEO pack v2, Machining: the HBM bores what the shop mills and turns.
+  ["mskill_boring_machine_operator", "mskill_conventional_machinist"],
+  ["mskill_boring_machine_operator", "mskill_vmc_operator"],
+  // CEO pack v2, Design: 3D CAD pairs with CAE analysis and NPD, and with 2D drafting
+  // (the E0 3D/2D edge above stays for the old ID).
+  ["mskill_cad_designer_3d", "mskill_cae_analyst"],
+  ["mskill_cad_designer_3d", "mskill_designer"],
+  ["mskill_cad_designer_3d", "mskill_npd_engineer"],
+  // CEO pack v2, Quality & Metrology: the calibration lab pairs with CMM,
+  // instrumentation and inspection.
+  ["mskill_calibration_technician", "mskill_cmm_operator"],
+  ["mskill_calibration_technician", "mskill_instrumentation_technician"],
+  ["mskill_calibration_technician", "mskill_quality_inspector"],
   // A CAM programmer and a (CAD) designer both work the part geometry in software;
   // shops routinely move a man between the two desks.
   ["mskill_cam_programmer", "mskill_cnc_programmer"],
+  // CEO pack v2, Machining: the CNC router is programmed like a mill.
+  ["mskill_cam_programmer", "mskill_cnc_router_operator"],
   ["mskill_cam_programmer", "mskill_designer"],
+  // CEO pack v2, Quality & Metrology: the CMM room answers to inspection.
+  ["mskill_cmm_operator", "mskill_quality_inspector"],
   // CNC family.
   ["mskill_cnc_grinding_operator", "mskill_cnc_operator_general"],
   ["mskill_cnc_grinding_operator", "mskill_cnc_turner"],
+  // CEO pack v2, Machining: gear cutting and SPM finishing grind beside the grinder.
+  ["mskill_cnc_grinding_operator", "mskill_gear_cutting_operator"],
+  ["mskill_cnc_grinding_operator", "mskill_spm_finishing_operator"],
   ["mskill_cnc_operator_general", "mskill_cnc_turner"],
   // #2022. The generic CNC operator names no machine family, and the shops that post it ask for
   // "ITI Machinist or Turner", which is the manual machinist's own training. A manual-work
@@ -572,12 +988,32 @@ export const MATCH_SKILL_RELATION_PAIRS: readonly MatchSkillRelationPair[] = [
   ["mskill_cnc_setter_operator", "mskill_hmc_operator"],
   ["mskill_cnc_setter_operator", "mskill_vmc_operator"],
   ["mskill_cnc_turner", "mskill_vmc_operator"],
+  // CEO pack v2, Machining: gear cutting and SPM finishing are conventional machining.
+  ["mskill_conventional_machinist", "mskill_gear_cutting_operator"],
+  ["mskill_conventional_machinist", "mskill_spm_finishing_operator"],
   // #2022. A tool & die maker's shop work IS conventional machining (surface grinder, mill and
   // lathe in the tool room; the ITI trade teaches all three), and a tool room hiring would
   // seriously consider a skilled manual machinist. Both directions hold.
   ["mskill_conventional_machinist", "mskill_tool_die_maker"],
+  // CEO pack v2, Planning & Supply Chain: the crane and the forklift share the yard.
+  ["mskill_crane_operator", "mskill_forklift_operator"],
   // Design family.
   ["mskill_designer", "mskill_interior_designer"],
+  // CEO pack v2, Design: piping drafting reads the same 2D drawings.
+  ["mskill_designer", "mskill_piping_designer"],
+  // CEO pack v2, Casting: the foundry split — casting, die casting and forging stay
+  // related to each other and to the legacy live skill. No new worker is given the
+  // legacy id; it only widens reach for existing rows.
+  ["mskill_die_casting_operator", "mskill_foundry_forging_operator"],
+  ["mskill_die_casting_operator", "mskill_foundry_operator"],
+  // CEO pack v2, Planning & Supply Chain: dispatch hands the store's goods over.
+  ["mskill_dispatch_logistics_executive", "mskill_store_keeper"],
+  // CEO pack v2, Machining: EDM pairs with Tool & Die — the wire-cut belongs to the room.
+  ["mskill_edm_wirecut_operator", "mskill_tool_die_maker"],
+  // CEO pack v2, Fabrication: the fabricator welds, forms sheet and fits.
+  ["mskill_fabricator", "mskill_fitter"],
+  ["mskill_fabricator", "mskill_sheet_metal_worker"],
+  ["mskill_fabricator", "mskill_welder"],
   // Fitting / quality / plumbing. A plumber IS a pipe fitter in the Indian trade
   // vocabulary, which is why the fitter relation is real and not a stretch.
   // #2022. A maintenance fitter (the fitter form's own `maintenance_fitting` chip) and a
@@ -586,21 +1022,79 @@ export const MATCH_SKILL_RELATION_PAIRS: readonly MatchSkillRelationPair[] = [
   ["mskill_fitter", "mskill_maintenance_technician"],
   ["mskill_fitter", "mskill_plumber"],
   ["mskill_fitter", "mskill_quality_inspector"],
+  // CEO pack v2, Casting: forging pairs with the legacy live skill and the press shop.
+  ["mskill_forging_operator", "mskill_foundry_forging_operator"],
+  ["mskill_forging_operator", "mskill_press_operator"],
+  ["mskill_foundry_forging_operator", "mskill_foundry_operator"],
+  // CEO pack v2, Casting: heat treatment proves the met lab's coupons.
+  ["mskill_heat_treatment_tech", "mskill_material_lab_technician"],
   // The spec's reference job: VMC Operator -> HMC · CNC Setter-Operator · CNC Turner.
   // Those three edges are (hmc,vmc) here, (setter,vmc) and (turner,vmc) above.
   ["mskill_hmc_operator", "mskill_vmc_operator"],
+  // CEO pack v2, Maintenance & Automation: HVAC pairs with maintenance and utilities.
+  ["mskill_hvac_rac_technician", "mskill_maintenance_technician"],
+  ["mskill_hvac_rac_technician", "mskill_utility_operator"],
+  // CEO pack v2, Plastics & Rubber: the injection moulder feeds blow moulding and extrusion.
+  ["mskill_imm_operator", "mskill_plastic_extrusion_operator"],
+  ["mskill_imm_operator", "mskill_rubber_moulding_operator"],
+  // CEO pack v2, Maintenance & Automation: the electrician, the instrument tech and PLC
+  // are one crew — each pairs with the other two.
+  ["mskill_industrial_electrician", "mskill_instrumentation_technician"],
+  ["mskill_industrial_electrician", "mskill_maintenance_technician"],
+  ["mskill_industrial_electrician", "mskill_plc_automation_tech"],
+  ["mskill_instrumentation_technician", "mskill_plc_automation_tech"],
+  // CEO pack v2, Maintenance & Automation: the desk and the floor promote across —
+  // maintenance engineer to technician, and service either way.
+  ["mskill_maintenance_engineer", "mskill_maintenance_technician"],
+  ["mskill_maintenance_engineer", "mskill_service_engineer"],
+  ["mskill_maintenance_technician", "mskill_service_engineer"],
+  ["mskill_maintenance_technician", "mskill_utility_operator"],
+  // CEO pack v2, Quality & Metrology: the met lab proves NDT indications and answers
+  // to inspection.
+  ["mskill_material_lab_technician", "mskill_ndt_technician"],
+  ["mskill_material_lab_technician", "mskill_quality_inspector"],
   ["mskill_mig_welder", "mskill_tig_welder"],
   ["mskill_mig_welder", "mskill_welder"],
+  // CEO pack v2, Quality & Metrology: NDT answers to inspection.
+  ["mskill_ndt_technician", "mskill_quality_inspector"],
+  ["mskill_npd_engineer", "mskill_process_engineer"],
+  // CEO pack v2, Casting: plating answers to the painter trade it split from.
+  ["mskill_painter_coater", "mskill_plating_operator"],
+  // CEO pack v2, Maintenance & Automation: the robot cell is a PLC cell — each
+  // programs the other's half (see the three second-skill chips, #3011).
+  ["mskill_plc_automation_tech", "mskill_robot_operator_programmer"],
+  // CEO pack v2, Planning & Supply Chain: PPC pairs with production and purchase.
+  ["mskill_ppc_engineer", "mskill_production_engineer"],
+  ["mskill_ppc_engineer", "mskill_purchase_engineer"],
   // #2022. Both trades form sheet and strip on the same floor: the press brake is in both forms,
   // and a sheet-metal shop runs its own power presses. Each would seriously consider the other.
   ["mskill_press_operator", "mskill_sheet_metal_worker"],
+  // CEO pack v2, Fabrication: the tube bender feeds the press shop.
+  ["mskill_press_operator", "mskill_tube_bending_operator"],
+  // CEO pack v2, Production & Engineering: process engineering is production's method arm.
+  ["mskill_process_engineer", "mskill_production_engineer"],
+  // CEO pack v2, Production & Engineering: the desk and the floor promote across —
+  // supervisor to production engineer.
+  ["mskill_production_engineer", "mskill_production_supervisor"],
+  // CEO pack v2, Production & Engineering: the site engineer is service's field half.
+  ["mskill_project_site_engineer", "mskill_service_engineer"],
+  // CEO pack v2, Planning & Supply Chain: purchase buys what the store keeps.
+  ["mskill_purchase_engineer", "mskill_store_keeper"],
+  // CEO pack v2, Quality & Metrology: the quality engineer answers to inspection.
+  ["mskill_quality_engineer", "mskill_quality_inspector"],
+  // CEO pack v2, Production & Engineering: technical sales is service's commercial half.
+  ["mskill_service_engineer", "mskill_technical_sales_engineer"],
+  // CEO pack v2, Fabrication: tube bending is sheet-metal work.
+  ["mskill_sheet_metal_worker", "mskill_tube_bending_operator"],
   // CEO umbrella, sorted last: TIG is one of its processes (see the arc/mig edges above).
   ["mskill_tig_welder", "mskill_welder"],
-  // DELIBERATELY UNPAIRED (#2022): `mskill_painter_coater` (a finishing trade nobody else does),
-  // `mskill_industrial_electrician` (licensed electrical work; neither a fitter nor a mechanical
-  // maintenance hand would be considered for it, so no pair is symmetric), and
-  // `mskill_assembly_line_worker` (a fitter shop would not post for a line station operator, so
-  // the fitter pair would hold one way only).
+  // DELIBERATELY UNPAIRED, past and present. The #2022 electrician and assembly holds
+  // are lifted by the CEO pack v2 ruling (section 5) — electrician with Maintenance,
+  // assembly with Fitter — and so is the painter's isolation, paired with Plating (T28).
+  // What stays empty is a curated empty set, never an oversight: `mskill_carpenter`
+  // (an interior designer specifies the work, they do not do it), `mskill_delivery_rider`
+  // (E1: delivery months contribute nothing to a factory job), and `mskill_safety_officer`
+  // (T49: a statutory role nothing substitutes for).
 ];
 
 /**

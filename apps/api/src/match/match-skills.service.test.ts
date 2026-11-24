@@ -29,6 +29,7 @@ const VMC = "mskill_vmc_operator";
 const HMC = "mskill_hmc_operator";
 const TURNER = "mskill_cnc_turner";
 const SETTER = "mskill_cnc_setter_operator";
+const BORING = "mskill_boring_machine_operator";
 const GENERAL = "mskill_cnc_operator_general";
 const CARPENTER = "mskill_carpenter";
 const RIDER = "mskill_delivery_rider";
@@ -103,8 +104,9 @@ describe("MatchSkillsService.listSkills — the closed vocabulary", () => {
   it("carries the SPEC's reference relations for the VMC job", () => {
     const { skills } = setup().svc.listSkills();
     const vmc = skills.find((s) => s.skill_id === VMC);
-    // ADR-0036's worked example: VMC Operator → HMC · CNC Setter-Operator · CNC Turner.
-    expect(vmc?.related_skill_ids).toEqual([SETTER, TURNER, HMC]);
+    // ADR-0036's worked example: VMC Operator → HMC · CNC Setter-Operator · CNC Turner,
+    // plus the boring-machine neighbour (CEO pack v2, #3001).
+    expect(vmc?.related_skill_ids).toEqual([BORING, SETTER, TURNER, HMC]);
   });
 
   it("keeps the CURATED EMPTY relation sets empty (E1 depends on that emptiness)", () => {
@@ -147,11 +149,12 @@ describe("MatchSkillsService.listSkills — the closed vocabulary", () => {
     // If the service returned the module-level array by reference, this second read —
     // and every reach expansion in the process from now on — would be poisoned.
     expect(svc.listSkills().skills.find((s) => s.skill_id === VMC)!.related_skill_ids).toEqual([
+      BORING,
       SETTER,
       TURNER,
       HMC,
     ]);
-    expect(RELATED_MATCH_SKILLS[VMC]).toEqual([SETTER, TURNER, HMC]);
+    expect(RELATED_MATCH_SKILLS[VMC]).toEqual([BORING, SETTER, TURNER, HMC]);
   });
 });
 
@@ -430,8 +433,8 @@ describe("MatchSkillsService.resolveForPublish — one resolver for publish/unpa
     const { svc } = setup();
     const out = await svc.resolveForPublish([VMC], []);
     expect(out.postedSkillIds).toEqual([VMC]);
-    expect(out.reachSkillIds).toEqual([SETTER, TURNER, HMC, VMC].sort());
-    expect(out.suggestedRelatedIds).toEqual([SETTER, TURNER, HMC].sort());
+    expect(out.reachSkillIds).toEqual([BORING, SETTER, TURNER, HMC, VMC].sort());
+    expect(out.suggestedRelatedIds).toEqual([BORING, SETTER, TURNER, HMC].sort());
   });
 
   it("applies the payer's honoured unticks at publish, exactly as the preview showed", async () => {
@@ -440,7 +443,7 @@ describe("MatchSkillsService.resolveForPublish — one resolver for publish/unpa
     // approved and the reach they paid for are two different sets.
     const out = await svc.resolveForPublish([VMC], [TURNER, CARPENTER]);
     expect(out.appliedUntickedIds).toEqual([TURNER]);
-    expect(out.reachSkillIds).toEqual([SETTER, HMC, VMC].sort());
+    expect(out.reachSkillIds).toEqual([BORING, SETTER, HMC, VMC].sort());
   });
 
   it("does NOT run the reach counters (publish resolves a set; it does not price a form)", async () => {
@@ -456,7 +459,7 @@ describe("MatchSkillsService.resolveForPublish — one resolver for publish/unpa
     // The suggestions are still computed and returned (the union of both postings'
     // relations, minus the posted pair) — "off" narrows what is REACHED, not what the
     // form may offer.
-    expect(out.suggestedRelatedIds).toEqual([GENERAL, SETTER, TURNER]);
+    expect(out.suggestedRelatedIds).toEqual([BORING, GENERAL, SETTER, TURNER]);
   });
 
   it("a posting with no role is never scoped — droppedSkillIds is always empty", async () => {

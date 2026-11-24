@@ -279,7 +279,8 @@ describe("the tripwire itself still decides nothing", () => {
     // + 1: Phase 2 #8 (sheet 17, 2026-11-04) minted the heat-treatment trade.
     // + 1: Phase 2 #10 (sheet 23, 2026-11-04) minted the production supervisor.
     // + 1: Phase 2 #11 (sheet 19, 2026-11-04) minted the foundry / forging trade.
-    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 9);
+    // + 38: CEO pack v2 (#3001, ruled 2026-11-23) minted one skill per new trade.
+    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 9 + 38);
     expect(artifact.match_vocabulary_size).toBe(18);
   });
 

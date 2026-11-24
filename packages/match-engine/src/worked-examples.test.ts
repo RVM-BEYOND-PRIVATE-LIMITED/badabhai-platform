@@ -36,6 +36,7 @@ const VMC: MatchSkillId = "mskill_vmc_operator";
 const HMC: MatchSkillId = "mskill_hmc_operator";
 const SETTER: MatchSkillId = "mskill_cnc_setter_operator";
 const TURNER: MatchSkillId = "mskill_cnc_turner";
+const BORING: MatchSkillId = "mskill_boring_machine_operator";
 const GENERAL: MatchSkillId = "mskill_cnc_operator_general";
 const FITTER: MatchSkillId = "mskill_fitter";
 const RIDER: MatchSkillId = "mskill_delivery_rider";
@@ -665,7 +666,7 @@ const EXAMPLES: WorkedExample[] = [
       // one. Without relations his feed is empty.
       const oneTag = [stint(TURNER, "2023-01-01", "2025-01-01", 24)];
       const reach = resolveReachSet({ postedSkillIds: [VMC], relatedDefault: cfg.relatedSkillsDefault });
-      expect([...reach.suggestedRelatedIds].sort()).toEqual([HMC, SETTER, TURNER].sort());
+      expect([...reach.suggestedRelatedIds].sort()).toEqual([BORING, HMC, SETTER, TURNER].sort());
       expect(reach.reachSkillIds).toContain(TURNER);
       expect(rankKey(visible({ id: "one-tag", rows: oneTag, postedSkillIds: [VMC], jobIndustryId: MFG }))).toEqual([2, 24, 24]);
 

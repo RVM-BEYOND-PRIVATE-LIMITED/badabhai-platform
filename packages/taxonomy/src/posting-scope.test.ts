@@ -75,12 +75,36 @@ describe("16-trade matching scope", () => {
     const leaks = POSTING_TRADES.flatMap((trade) =>
       relatedMatchSkills(trade.matchSkillId).filter((id) => !isInPostingScope(id)),
     );
+    // #3001 adds 22 more: every new trade relates out of the 16-trade scope until its
+    // wave loads a form for it. The engine trims them the same way.
     expect(new Set(leaks)).toEqual(
       new Set([
         "mskill_cnc_operator_general",
         "mskill_cnc_setter_operator",
         "mskill_interior_designer",
         "mskill_plumber",
+        "mskill_boring_machine_operator",
+        "mskill_cad_designer_3d",
+        "mskill_calibration_technician",
+        "mskill_cmm_operator",
+        "mskill_cnc_router_operator",
+        "mskill_edm_wirecut_operator",
+        "mskill_fabricator",
+        "mskill_forging_operator",
+        "mskill_gear_cutting_operator",
+        "mskill_hvac_rac_technician",
+        "mskill_instrumentation_technician",
+        "mskill_maintenance_engineer",
+        "mskill_material_lab_technician",
+        "mskill_ndt_technician",
+        "mskill_piping_designer",
+        "mskill_plating_operator",
+        "mskill_plc_automation_tech",
+        "mskill_quality_engineer",
+        "mskill_service_engineer",
+        "mskill_spm_finishing_operator",
+        "mskill_tube_bending_operator",
+        "mskill_utility_operator",
       ]),
     );
   });
