@@ -1388,6 +1388,13 @@
       "when": 1795506956505,
       "tag": "0197_wri_role_kind_trades_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 198,
+      "version": "7",
+      "when": 1795512807121,
+      "tag": "0198_trade_release",
+      "breakpoints": true
     }
   ]
 }

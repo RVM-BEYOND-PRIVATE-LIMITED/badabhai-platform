@@ -220,6 +220,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     work_managed_hiring: ["super_admin", "ops_admin", "support"],
     // #2957 — the Campus trade list. A policy list: super_admin only.
     manage_campus_trades: ["super_admin"],
+    // #3002 — the per-trade release switch. A policy list: super_admin only.
+    manage_trade_release: ["super_admin"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -232,7 +234,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     }
   });
 
-  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 68 cells", () => {
+  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL cells", () => {
     const roles: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
     for (const cap of ADMIN_CAPABILITIES) {
       for (const role of roles) {
@@ -292,6 +294,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "work_managed_hiring",
       // #2957 - changing which trades may go to Campus is a write.
       "manage_campus_trades",
+      // #3002 - switching a trade's release flags is a write.
+      "manage_trade_release",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }

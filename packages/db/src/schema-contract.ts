@@ -2149,6 +2149,25 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. The list decides which trades an admin may send to Campus; an open grant lets any " +
       "PostgREST role add a trade RVM does not teach, so jobs in it can reach RVM students",
   },
+  // #3002: the per-trade release switch. Only the admin trade-release routes and
+  // TradeReleaseService name the table, and both fail closed on a missing table (the reads
+  // answer off, the write answers 503), so a deploy ahead of the migration breaks no request
+  // and it is not a `table` entry. Listed for its lock (the 0134 rule). APPLY BEFORE THE
+  // READERS (#3005, #3006, #3014, which are the first unconditional readers).
+  {
+    id: "0198-trade-release-rls",
+    migration: "0198_trade_release",
+    kind: "rls",
+    table: "trade_release",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides which trades a company may post and which trade forms are " +
+      "live; an open grant lets any PostgREST role switch a trade on (companies post into an " +
+      "unreviewed trade) or off (a live trade stops being postable)",
+  },
   // #2787: the send log of the first sign-in message to a moved company. Only the import CLI names
   // it (no route, sweep or read path), so a deploy ahead of the migration breaks nothing and it is
   // not a `table` entry. Listed for its locks (the 0134 rule). The id and tag carry the slot number:

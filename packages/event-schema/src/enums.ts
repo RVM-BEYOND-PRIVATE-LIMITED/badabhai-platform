@@ -181,6 +181,11 @@ export const EVENT_DOMAINS = [
   // Campus's nightly report. A DISTINCT domain: no event here is about one posting, application or
   // company; each is an aggregate over the whole flow. COUNTS, CLOSED CHECK NAMES AND TIMES ONLY.
   "flow_check",
+  // #3002 — one trade's release switch (which trades a company may post, which trade forms are
+  // live). A DISTINCT domain from `admin` (the actor's identity and the audit row) and from
+  // `job_posting` (the inventory the switch gates): the switch is its own row with its own
+  // lifecycle. IDS AND CLOSED VALUES ONLY: the role kind, the two booleans, the admin id.
+  "trade_release",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;

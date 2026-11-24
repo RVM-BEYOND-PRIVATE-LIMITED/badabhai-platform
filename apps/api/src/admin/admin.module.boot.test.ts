@@ -19,6 +19,8 @@ import { AdminAiTracesController } from "./admin-ai-traces.controller";
 import { AdminPayerLoginsController } from "./admin-payer-logins.controller";
 import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controller";
 import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
+import { AdminTradeReleaseController } from "./trade-release/admin-trade-release.controller";
+import { TradeReleaseModule } from "../trade-release/trade-release.module";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 import { MatchModule } from "../match/match.module";
@@ -263,5 +265,13 @@ describe("AdminModule wiring (DI regression guard)", () => {
     expect(tokens).toContain("AdminCandidatesService");
     expect(tokens).toContain("AdminCandidatesIdentityCapService");
     expect(tokens).toContain("AdminCandidatesSearchCapService");
+  });
+
+  it("declares the #3002 trade-release controller + imports the module that provides it", () => {
+    // AdminTradeReleaseController injects TradeReleaseService, which lives in TradeReleaseModule
+    // (with its repository). A dropped controller or import is a BOOT failure every hand-built
+    // unit test misses.
+    expect(getMeta("controllers", AdminModule)).toContain(AdminTradeReleaseController);
+    expect(getMeta("imports", AdminModule)).toContain(TradeReleaseModule);
   });
 });

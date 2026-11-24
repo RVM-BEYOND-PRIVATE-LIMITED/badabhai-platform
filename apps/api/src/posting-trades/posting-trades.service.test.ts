@@ -302,6 +302,22 @@ describe("posting trade form", () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it("#3002: a trades-v2 kind with no release row is refused with the postable-role error", async () => {
+    // No release row reads as off; posting validation answers with the existing error (the
+    // release gate itself is wired in #3005 — this pins the refusal it must keep).
+    const svc = new PostingTradesService(packs);
+    await expect(svc.normalizeSelection("gear_cutting_operator", "trainee", {})).rejects.toThrow(
+      "trade fields are only available for a postable role",
+    );
+  });
+
+  it("#3002: listForms is byte-for-byte the 16 live trades (no release row may move a form)", async () => {
+    const svc = new PostingTradesService(packs);
+    const forms = await svc.listForms();
+    expect(forms.map((form) => form.role_kind)).toEqual(POSTING_TRADES.map((t) => t.roleKind));
+    expect(JSON.stringify(forms)).toMatchSnapshot();
+  });
+
   it("resolves corpus attributes through the same bridge the worker side uses", () => {
     expect(matchSkillsFromTaxonomyIds(["skill_turning"])).toContain("mskill_cnc_turner");
     expect(matchSkillsFromTaxonomyIds(["skill_fanuc"])).toEqual([]);

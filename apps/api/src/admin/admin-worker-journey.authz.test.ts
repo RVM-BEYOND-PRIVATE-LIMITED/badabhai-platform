@@ -199,6 +199,9 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
         // #2957 — the Campus trade list (super_admin). Not the journey's: it sets which trades may
         // go to Campus and reads no funnel step.
         "manage_campus_trades",
+        // #3002 — the per-trade release switch (super_admin). Not the journey's: it opens or
+        // closes whole trades to companies and reads no funnel step.
+        "manage_trade_release",
         // #2887 — the moved students' visibility switch (super_admin, ops_admin). Not the
         // journey's: it changes who is matched and shown, and reads no funnel step.
         "manage_student_visibility",

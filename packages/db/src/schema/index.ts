@@ -86,6 +86,7 @@ import {
 } from "./student-move";
 import { jobPostingWorkerVisibility } from "./job-worker-visibility";
 import { campusTrades, jobPostingAudienceDecisions } from "./admin-job-audience";
+import { tradeRelease } from "./trade-release";
 import { launchTestCohort, launchTestShares } from "./launch-test";
 import { companyImportBatches, companyImportNotices, companyImportRows } from "./company-import";
 import { companionConversationSummaries, companionMessages } from "./companion";
@@ -240,6 +241,7 @@ export * from "./student-move";
 export * from "./job-worker-visibility";
 // #2956 / #2957 - an admin decides where each job shows; the trades RVM trains (who may go to Campus).
 export * from "./admin-job-audience";
+export * from "./trade-release";
 // #2755 item 9 — launch test A: the factories, what each was sent, its payment link and result.
 export * from "./launch-test";
 // #2754 item 4 — the Campus company import: one row per batch, one row per source record moved.
@@ -617,6 +619,8 @@ export const schema = {
   // #2956 / #2957 - the admin audience decision and the Campus trade list (read only while ADMIN_JOB_AUDIENCE_ENABLED is on).
   jobPostingAudienceDecisions,
   campusTrades,
+  // #3002 - the per-trade release switch (no row reads as off; the 16 live kinds are seeded on).
+  tradeRelease,
   // #2749 part 4 - GST invoices and credit notes (the settle writes an invoice in a savepoint; refunds a credit note).
   sellerTaxConfig,
   payerBillingDetails,

@@ -113,6 +113,8 @@ import { AdminCreditRulesController } from "./credit-rules/admin-credit-rules.co
 import { CreditRulesModule } from "../credit-rules/credit-rules.module";
 import { AdminWaiversController } from "./waivers/admin-waivers.controller";
 import { RvmWaiversModule } from "../rvm-waivers/rvm-waivers.module";
+import { AdminTradeReleaseController } from "./trade-release/admin-trade-release.controller";
+import { TradeReleaseModule } from "../trade-release/trade-release.module";
 import { AdminReachDeskController } from "./reach-desk/admin-reach-desk.controller";
 import { ReachDeskModule } from "../reach-desk/reach-desk.module";
 import { ManagedHiringModule } from "../managed-hiring/managed-hiring.module";
@@ -242,6 +244,9 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // #2750 items 5 and 12 - the placement team's waivers (`/admin/waivers`). RvmWaiversModule
     // does not import AdminModule, so no cycle.
     RvmWaiversModule,
+    // #3002 - the per-trade release switch (`/admin/trade-release`). TradeReleaseModule does
+    // not import AdminModule, so no cycle.
+    TradeReleaseModule,
     // #2750 items 7 and 12 - the worker desk (`/admin/desk/reach-cases`). ReachDeskModule does not
     // import AdminModule, so no cycle.
     ReachDeskModule,
@@ -305,6 +310,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminCompaniesController,
     AdminCreditRulesController,
     AdminWaiversController,
+    AdminTradeReleaseController,
     AdminReachDeskController,
     AdminManagedHiringController,
     AdminPaymentRefundsController,
