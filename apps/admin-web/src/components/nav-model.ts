@@ -35,7 +35,7 @@ export interface NavSection {
 }
 
 /**
- * THE SIDEBAR (A6, #2576) — five groups, at most 19 items, so the whole nav fits a 1080p screen
+ * THE SIDEBAR (A6, #2576) — five groups, at most 20 items, so the whole nav fits a 1080p screen
  * with no scrolling (it was 18, which pushed Account and Sign out below the fold; those two now
  * live in the topbar's avatar menu). Workers is Candidates; Companies holds Agencies (a Kind
  * filter); Agency match skills is a tab on the agency posting, under Postings. Routes, API paths
@@ -44,7 +44,7 @@ export interface NavSection {
  * (`nav-model.test.ts` reads each page's source to hold that). Numbers (#2884) sits under
  * Finance, where the commercial figures live. Hire records (#2753) is the nineteenth and sits
  * under Directory; its pay-on-joining view is linked from that page's header rather than given
- * a second sidebar row.
+ * a second sidebar row. Trades (#3023) is the twentieth, in Quality & AI.
  */
 export const NAV: NavSection[] = [
   {
@@ -177,6 +177,15 @@ export const NAV: NavSection[] = [
         icon: "path",
         capability: "read_entities",
       },
+      // #3023 — the 60-trade catalogue, its two release switches and the held Campus roles.
+      // `read_entities` mirrors the page's own read floor; its switches additionally require
+      // `manage_postings`, which the page checks before offering them.
+      {
+        href: "/trades",
+        label: "Trades",
+        icon: "wrench",
+        capability: "read_entities",
+      },
     ],
   },
   {
@@ -202,10 +211,10 @@ export const NAV: NavSection[] = [
 
 /**
  * The most items the sidebar may list (A6 acceptance: it fits 1920×1080 with no scrolling).
- * Raised from 18 to 19 when Hire records (#2753) landed, deliberately — see the docs and the
- * height budget in `nav-model.test.ts`.
+ * Raised from 18 to 19 when Hire records (#2753) landed, then to 20 for Trades (#3023) —
+ * deliberately; see the docs and the height budget in `nav-model.test.ts`.
  */
-export const NAV_ITEM_LIMIT = 19;
+export const NAV_ITEM_LIMIT = 20;
 
 /**
  * Does `pathname` sit at or below `href`? Exact for the dashboard, prefix elsewhere — but on a

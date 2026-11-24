@@ -98,5 +98,10 @@ void main() {
         'GD&T / technical drawing reading',
       );
     });
+
+    test('a new-catalogue role id keeps EDM as an acronym', () {
+      expect(replaceTaxonomyIds('role_edm_operator'), 'EDM Operator');
+      expect(replaceTaxonomyIds('skill_edm_operation'), 'EDM Operation');
+    });
   });
 }

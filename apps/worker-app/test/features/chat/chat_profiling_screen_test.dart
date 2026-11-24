@@ -1289,6 +1289,79 @@ void main() {
       expect(await facts.knownFacts(), <WorkerFact>{WorkerFact.shift});
     },
   );
+  // #3015 / #3022 — the question above the chips is the SERVER's reply, not a
+  // fixed client line, and tapping a routing chip can lead to a second served
+  // chip question. The options-only hint below the chips is a composer
+  // instruction, never the question itself.
+  group('served routing question', () {
+    testWidgets(
+      'a served prompt renders above its chips, and a chip tap leads to the '
+      'next served chip question',
+      (WidgetTester tester) async {
+        const ChatTurn first = ChatTurn(
+          reply: 'Aap kaunsi machine chalate hain?',
+          suggestedOptions: <ChatOption>[
+            ChatOption(optionKey: 'lathe', labelText: 'Lathe'),
+            ChatOption(optionKey: 'vmc', labelText: 'VMC'),
+          ],
+          answerType: ChatAnswerType.singleSelect,
+          askedQuestionId: 'machine',
+        );
+        const ChatTurn second = ChatTurn(
+          reply: 'Aap kaunsi dhaatu par kaam karte hain?',
+          suggestedOptions: <ChatOption>[
+            ChatOption(optionKey: 'aluminium', labelText: 'Aluminium'),
+            ChatOption(optionKey: 'steel', labelText: 'Steel'),
+          ],
+          answerType: ChatAnswerType.singleSelect,
+          askedQuestionId: 'material',
+        );
+        when(
+          () => repo.sendMessage(
+            'machinist hoon',
+            submissionId: any(named: 'submissionId'),
+          ),
+        ).thenAnswer((_) async => first);
+        when(
+          () => repo.sendMessage(
+            'Lathe',
+            submissionId: any(named: 'submissionId'),
+          ),
+        ).thenAnswer((_) async => second);
+
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'machinist hoon');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        // The server's question is on screen ABOVE its chips.
+        expect(find.text(first.reply), findsOneWidget);
+        expect(find.text('Lathe'), findsOneWidget);
+        expect(
+          tester.getTopLeft(find.text(first.reply)).dy,
+          lessThan(tester.getTopLeft(find.text('Lathe')).dy),
+        );
+        // The fixed composer hint may sit below the chips, but it is not the
+        // question text above them.
+        expect(find.text(kChatOptionsOnlyHint), findsOneWidget);
+
+        await tester.tap(find.text('Lathe'));
+        await tester.pumpAndSettle();
+
+        // A second chip question, again with the served prompt above it.
+        expect(find.text(second.reply), findsOneWidget);
+        expect(find.text('Aluminium'), findsOneWidget);
+        expect(
+          tester.getTopLeft(find.text(second.reply)).dy,
+          lessThan(tester.getTopLeft(find.text('Aluminium')).dy),
+        );
+        // The first turn's chips are gone: the turn moved on.
+        expect(find.text('VMC'), findsNothing);
+        expect(find.text('Steel'), findsOneWidget);
+      },
+    );
+  });
+
   // #761 — a predicted chip renders the next prompt + chips instantly, before the
   // round trip. The optimistic render must not break the one-tap-per-turn latch.
   group('optimistic lookahead (#761)', () {

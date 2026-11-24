@@ -93,7 +93,7 @@ final RegExp _idTokenPattern =
     RegExp(r'\b(' + _idPrefixes + r')_[a-z][a-z0-9_]+\b');
 
 final Set<String> _acronyms = <String>{
-  'cnc', 'vmc', 'hmc', 'iti', 'mig', 'tig', 'gdt', 'cam', 'ncvt', 'nsqf',
+  'cnc', 'vmc', 'hmc', 'edm', 'iti', 'mig', 'tig', 'gdt', 'cam', 'ncvt', 'nsqf',
   'scvt', 'gtaw', 'gmaw', 'smaw', 'gd&t', 'hvac', 'plc', 'vfd',
 };
 

@@ -26,6 +26,7 @@ void main() {
   group('tradeKeyLabel — the fallback', () {
     test('title-cases an unknown slug and keeps the acronyms in caps', () {
       expect(tradeKeyLabel('vmc_setter'), 'VMC Setter');
+      expect(tradeKeyLabel('edm_operator'), 'EDM Operator');
       expect(tradeKeyLabel('quality_inspector'), 'Quality Inspector');
       expect(tradeKeyLabel('fitter'), 'Fitter');
       expect(tradeKeyLabel('iti_trainee'), 'ITI Trainee');

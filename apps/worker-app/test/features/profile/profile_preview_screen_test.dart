@@ -106,6 +106,37 @@ void main() {
     },
   );
 
+  testWidgets(
+    'an unknown snake_case trade label is humanised, never shown as a raw key',
+    (WidgetTester tester) async {
+      // The server label is a token for a trade this build has no map entry
+      // for (EDM is new in the 60-trade catalogue). The headline must read
+      // "EDM Operator", never the raw `edm_operator` slug.
+      await _pump(
+        tester,
+        const ProfileSummary(tradeLabel: 'edm_operator', strengthSignals: 0),
+      );
+
+      expect(find.text('EDM Operator'), findsOneWidget);
+      expect(find.text('edm_operator'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'a server-provided trade label is shown exactly as served',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(
+          tradeLabel: 'Injection Moulding Setter',
+          strengthSignals: 0,
+        ),
+      );
+
+      expect(find.text('Injection Moulding Setter'), findsOneWidget);
+    },
+  );
+
   // ---- Master UI Kit layout ---------------------------------------------------
   //
   // The kit redesign moved this screen off BbScaffold onto a raw Scaffold with a

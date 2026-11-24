@@ -17,6 +17,12 @@ export interface OverlayProps {
   /** Where focus starts; the panel's first control when omitted. */
   initialFocusRef?: RefObject<HTMLElement | null>;
   /**
+   * Whether Escape and a scrim click close the overlay. Default true. A dialog whose decision
+   * must be explicit (the trade-release switches, #3023) sets this false: only its own buttons
+   * close it.
+   */
+  dismissible?: boolean;
+  /**
    * Where focus goes when the overlay closes, ASKED AS IT CLOSES (A7, #2577) — for an overlay that
    * outlives its trigger: a drawer moved on to another row hands focus to that row, a confirm whose
    * success replaced the button that opened it hands it to what replaced it. Null, or nothing
@@ -45,6 +51,7 @@ export function Overlay({
   labelledBy,
   describedBy,
   initialFocusRef,
+  dismissible = true,
   returnFocus,
   children,
 }: OverlayProps) {
@@ -67,19 +74,27 @@ export function Overlay({
       container: panelRef.current,
       keyTarget: window,
       activeElement: () => document.activeElement,
-      onEscape: () => onCloseRef.current(),
+      onEscape: () => {
+        if (dismissible) onCloseRef.current();
+      },
       initial: initialFocusRef?.current ?? null,
       returnTo,
       returnFocus: () => returnFocusRef.current?.() ?? null,
     });
     // `host` re-runs it once the panel has moved into the portal.
-  }, [open, host, initialFocusRef]);
+  }, [open, host, initialFocusRef, dismissible]);
 
   if (presence === "closed") return null;
 
   const layer = (
     <div className={`overlay overlay--${kind}`} data-state={presence}>
-      <div className="overlay__scrim" aria-hidden="true" onClick={() => onCloseRef.current()} />
+      <div
+        className="overlay__scrim"
+        aria-hidden="true"
+        onClick={() => {
+          if (dismissible) onCloseRef.current();
+        }}
+      />
       <div
         ref={panelRef}
         className="overlay__panel"

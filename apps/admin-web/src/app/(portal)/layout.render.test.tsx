@@ -66,6 +66,7 @@ describe("the sidebar it hands the shell", () => {
       "Payment orders",
       "Skill discovery",
       "Engine view",
+      "Trades",
       "Events",
       "Roles",
       "System",
