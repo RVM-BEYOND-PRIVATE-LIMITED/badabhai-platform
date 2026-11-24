@@ -272,3 +272,5 @@ export * from "./skill-identity";
 // Shared enums (TradeKey, SkipReason, SourceSurface) — single source of truth
 // consumed by @badabhai/db and apps/api to avoid drift (TD31).
 export * from "./enums";
+// #2998 — the one statement of each of the 60 trades, and the loaded wave.
+export * from "./trade-catalogue";
