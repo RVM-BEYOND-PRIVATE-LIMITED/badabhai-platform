@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable, Logger, Optional } from "@nestjs/common";
 import { isSampleWorkerId } from "@badabhai/db";
 import { canonicalCity } from "@badabhai/profiling-lexicon";
+import { JOB_ROLE_DEPARTMENTS } from "@badabhai/types";
 import {
   INDUSTRIES,
   MATCH_SKILLS,
   matchSkillLabel,
   relatedMatchSkills,
+  TRADE_CATALOGUE,
   TRADE_LEVEL_LABELS,
   type TradeLevel,
 } from "@badabhai/taxonomy";
@@ -301,20 +303,118 @@ export class CandidateSearchService {
 }
 
 /**
- * The role options, ONE PER LABEL, in vocabulary order. Two vocabulary ids can share a label
- * (`mskill_3d_designer` and `mskill_cad_designer_3d` both read "3D CAD Designer"); a payer cannot
- * tell them apart, so the picker offers the first, and {@link expandSameLabelRoles} widens a
- * search for it to every id the label names.
+ * The vocabularies that must keep working after their trade was renamed or split (#3031).
+ * They stay searchable, and the picker marks them so a client can put them after the current
+ * roles of their department. `mskill_3d_designer` shares its label with the current 3D trade
+ * id; one option is enough, and {@link expandSameLabelRoles} still finds both holders.
+ */
+export const LEGACY_ROLE_IDS: ReadonlySet<string> = new Set([
+  "mskill_foundry_forging_operator",
+  "mskill_mig_welder",
+  "mskill_tig_welder",
+  "mskill_arc_welder",
+  "mskill_cnc_setter_operator",
+  "mskill_cnc_programmer",
+  "mskill_cnc_operator_general",
+  "mskill_hmc_operator",
+  "mskill_3d_designer",
+]);
+
+/** Active skills with no trade in the catalogue; the picker's last "Other" group. */
+export const OTHER_ROLE_IDS: ReadonlySet<string> = new Set([
+  "mskill_plumber",
+  "mskill_carpenter",
+  "mskill_interior_designer",
+  "mskill_delivery_rider",
+]);
+
+type CatalogueTrade = (typeof TRADE_CATALOGUE)[number];
+
+interface Department {
+  id: string;
+  label: string;
+}
+
+const OTHER_DEPARTMENT: Department = { id: "other", label: "Other" };
+const DEPARTMENT_BY_LABEL = new Map<string, Department>(
+  JOB_ROLE_DEPARTMENTS.map((d) => [d.label, d]),
+);
+const DEPARTMENT_ORDER = new Map<string, number>(
+  JOB_ROLE_DEPARTMENTS.map((d, index) => [d.id, index]),
+);
+const TRADE_BY_SKILL = new Map<string, CatalogueTrade>(
+  TRADE_CATALOGUE.map((trade) => [trade.matchSkillId, trade]),
+);
+
+/** T01 -> 1, T60 -> 60; the pack's own order inside a department. */
+function tradeRank(trade: CatalogueTrade): number {
+  return Number(trade.code.slice(1));
+}
+
+/**
+ * The catalogue trade a skill belongs to. A legacy process skill has no trade row of its own,
+ * so it follows its first related trade in pack order (foundry legacy -> T24, welding process
+ * skills -> T08, CNC legacy -> T01/T04, 3D legacy -> the design trade).
+ */
+function tradeForSkill(skillId: string): CatalogueTrade | null {
+  const direct = TRADE_BY_SKILL.get(skillId);
+  if (direct !== undefined) return direct;
+  const related = relatedMatchSkills(skillId)
+    .map((id) => TRADE_BY_SKILL.get(id))
+    .filter((trade): trade is CatalogueTrade => trade !== undefined)
+    .sort((a, b) => tradeRank(a) - tradeRank(b));
+  return related[0] ?? null;
+}
+
+/**
+ * The role options, ONE PER LABEL, in the pack's order (#3031): department order of pack
+ * section 2, current roles in pack order inside a department, then the legacy roles of that
+ * department, then the no-trade skills under "Other". Two vocabulary ids can share a label
+ * (`mskill_3d_designer` and `mskill_cad_designer_3d` both read "3D CAD Designer"); the picker
+ * offers the first, and {@link expandSameLabelRoles} widens a search for it to every id the
+ * label names.
  */
 function rolesForPicker(): CandidateFiltersDto["roles"] {
   const seen = new Set<string>();
-  const roles: CandidateFiltersDto["roles"] = [];
+  const options: { role: CandidateFiltersDto["roles"][number]; dept: number; trade: number }[] = [];
   for (const skill of MATCH_SKILLS) {
     if (skill.status !== "active" || seen.has(skill.labelEn)) continue;
     seen.add(skill.labelEn);
-    roles.push({ id: skill.skillId, label: skill.labelEn, industryId: skill.industryId });
+    const other = OTHER_ROLE_IDS.has(skill.skillId);
+    const trade = other
+      ? null
+      : (tradeForSkill(skill.skillId) ??
+        MATCH_SKILLS.filter((s) => s.labelEn === skill.labelEn)
+          .map((s) => tradeForSkill(s.skillId))
+          .find((t): t is CatalogueTrade => t !== null) ??
+        null);
+    const department =
+      (other
+        ? undefined
+        : trade === null
+          ? undefined
+          : DEPARTMENT_BY_LABEL.get(trade.department)) ?? OTHER_DEPARTMENT;
+    options.push({
+      role: {
+        id: skill.skillId,
+        label: skill.labelEn,
+        industryId: skill.industryId,
+        department: department.id,
+        department_label: department.label,
+        legacy: LEGACY_ROLE_IDS.has(skill.skillId),
+      },
+      dept: DEPARTMENT_ORDER.get(department.id) ?? JOB_ROLE_DEPARTMENTS.length,
+      trade: trade === null || other ? Number.MAX_SAFE_INTEGER : tradeRank(trade),
+    });
   }
-  return roles;
+  options.sort(
+    (a, b) =>
+      a.dept - b.dept ||
+      Number(a.role.legacy) - Number(b.role.legacy) ||
+      a.trade - b.trade ||
+      a.role.label.localeCompare(b.role.label, "en"),
+  );
+  return options.map((o) => o.role);
 }
 
 /** Every active vocabulary id sharing a label with an asked id (see {@link rolesForPicker}). */
