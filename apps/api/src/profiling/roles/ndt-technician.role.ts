@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T34) AND FORMLESS, like CMM: it supplies the vocabulary
  * its `quality_lab`-cluster siblings veto on, and its family (`fam_ndt`) is what the chat
- * interview serves through retrieval.
+ * interview serves through retrieval once #3008 binds it.
  *
  * THE TEST LAB, NOT THE HOSPITAL. An X-ray technician asks weld radiography or hospital — only
  * one of them is this trade — and "testing" alone asks which testing. Bare "x-ray" cannot

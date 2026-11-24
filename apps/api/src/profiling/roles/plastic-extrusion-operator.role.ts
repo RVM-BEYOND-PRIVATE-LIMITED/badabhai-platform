@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T31) AND FORMLESS, like the polymer batch: it supplies
  * the "extrusion" vocabulary its `polymer`-cluster siblings veto on, and its family
- * (`fam_plastic_extrusion`) is what the chat interview serves through retrieval.
+ * (`fam_plastic_extrusion`) is what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE PLASTIC LINE, NOT THE METAL ONE. Aluminium extrusion is a metal press, cable work asks
  * extrusion line or electrician, and rubber extrusion is the Rubber Moulding Operator's (same

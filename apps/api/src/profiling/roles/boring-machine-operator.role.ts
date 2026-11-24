@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T19) AND FORMLESS, like gear cutting: it supplies the
  * vocabulary its `machining`-cluster siblings veto on, and its family (`fam_boring_machine`)
- * is what the chat interview serves through retrieval.
+ * is what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE MACHINE TOOL, NOT THE BOREWELL. "paani ki boring" is a borewell driller, "cylinder
  * boring" and "engine boring" are garage reboring — none of them stands at an HBM — so they

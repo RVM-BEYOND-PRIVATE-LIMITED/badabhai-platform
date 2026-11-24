@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T26) AND FORMLESS, like die casting: it supplies the
  * vocabulary its `fabrication`-cluster siblings veto on, and its family (`fam_forging`) is what
- * the chat interview serves through retrieval.
+ * the chat interview serves through retrieval once #3008 binds it.
  *
  * THE FORGE SHOP, NOT THE SMITHY. "lohar ka kaam" by hand is not factory forging, and "bhatti
  * ka kaam" needs the asking the sheet asks — melting, billet heating or heat treatment. Bare

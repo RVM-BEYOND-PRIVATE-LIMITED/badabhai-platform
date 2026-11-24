@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T37) AND FORMLESS: the first `engineering_desk` role, it
  * supplies the vocabulary its eleven desk siblings veto on, and its family (`fam_quality_engineer`)
- * is what the chat interview serves through retrieval.
+ * is what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE ENGINEER, NOT THE INSPECTOR. "QC inspector" and "quality checker" are the Quality
  * Inspector's words (production cluster); a pharma QA, a QC chemist and a software tester are

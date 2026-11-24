@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T46) AND FORMLESS, like the service desk: it supplies
  * the vocabulary its desk siblings veto on, and its family (`fam_production_engineer`) is what
- * the chat interview serves through retrieval. Its machine vocabulary is empty on purpose: the
+ * the chat interview serves through retrieval once #3008 binds it. Its machine vocabulary is empty on purpose: the
  * sheet's words are all titles, and a process word here would claim a neighbouring trade.
  *
  * THE LINE'S OWNER, NOT ITS SUPERVISOR. The supervisor and the line incharge stand on the line

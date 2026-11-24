@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T49) AND FORMLESS, like the NPD desk: it supplies the
  * vocabulary its desk siblings veto on, and its family (`fam_safety_ehs`) is what the chat
- * interview serves through retrieval.
+ * interview serves through retrieval once #3008 binds it.
  *
  * THE STATUTORY TRADE, NOT THE GATE. Security supervision is guard work, a fireman alone is a
  * crew posting, and food safety is food quality — none of them is this trade. "suraksha" asks

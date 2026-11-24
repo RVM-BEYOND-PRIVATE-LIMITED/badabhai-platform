@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T25) AND FORMLESS, like the foundry: it supplies the
  * vocabulary its `fabrication`-cluster siblings veto on, and its family (`fam_die_casting`) is
- * what the chat interview serves through retrieval.
+ * what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE DIE SHOP, NOT THE TOOL ROOM. "die fitter" and "die ka kaam" are the Tool & Die Maker's
  * words (machining cluster), and a plastic "moulding machine" is the Injection Moulding

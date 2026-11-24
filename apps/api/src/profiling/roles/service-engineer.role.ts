@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T44) AND FORMLESS, like the maintenance desk: it
  * supplies the vocabulary its desk siblings veto on, and its family (`fam_service_engineer`)
- * is what the chat interview serves through retrieval.
+ * is what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE MACHINE'S SERVICE, NOT THE PLANT'S PROJECT. "site engineer" is the Project / Site
  * Engineer's word and vetoes from the cluster derivation; "installation engineer" is claimed

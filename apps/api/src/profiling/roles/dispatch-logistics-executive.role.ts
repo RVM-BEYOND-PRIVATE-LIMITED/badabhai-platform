@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T55) AND FORMLESS, like the store desk: it supplies
  * the vocabulary its yard siblings veto on, and its family (`fam_dispatch_logistics`) is what
- * the chat interview serves through retrieval.
+ * the chat interview serves through retrieval once #3008 binds it.
  *
  * THE DISPATCH, NOT THE DRIVING. A driver names which gaadi before any form; delivery boys and
  * couriers are not factory trades. "billing" cannot be a veto: it sits inside this role's own

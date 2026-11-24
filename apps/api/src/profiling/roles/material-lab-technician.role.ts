@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T36) AND FORMLESS, like calibration: it completes the
  * `quality_lab` cluster, and its family (`fam_material_lab`) is what the chat interview serves
- * through retrieval.
+ * through retrieval once #3008 binds it.
  *
  * THE MET LAB, NOT THE NDT BAY. NDT, UT and DP testing are the NDT Technician's trade (same
  * cluster, listed as well as derived, since bare "ndt" can never be a term); hardening and the

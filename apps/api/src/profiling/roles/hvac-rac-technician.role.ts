@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T41) AND FORMLESS, like instrumentation: it supplies
  * the vocabulary its `maintenance`-cluster siblings veto on, and its family (`fam_hvac_rac`)
- * is what the chat interview serves through retrieval.
+ * is what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE PLANT, NOT THE CAR OR THE DUCT. A car AC is workshop work, a duct fabricator is sheet
  * metal, and the cooling tower, the electrician and the pipe fitter are their own trades —

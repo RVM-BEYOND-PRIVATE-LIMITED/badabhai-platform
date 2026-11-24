@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T59) AND FORMLESS: it supplies the vocabulary its
  * `engineering_desk`-cluster siblings veto on, and its family (`fam_cae_fea`) is what the chat
- * interview serves through retrieval.
+ * interview serves through retrieval once #3008 binds it.
  *
  * THE SOLVER, NOT THE SPREADSHEET. Data analysis, lab analysis and physical testing are not
  * simulation; design engineering is the 3D CAD Designer's desk and pipe stress the Piping

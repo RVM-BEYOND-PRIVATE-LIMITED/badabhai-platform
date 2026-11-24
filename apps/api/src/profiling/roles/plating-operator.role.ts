@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T28) AND FORMLESS, like forging: it supplies the
  * vocabulary its `fabrication`-cluster siblings veto on, and its family (`fam_surface_treatment`)
- * is what the chat interview serves through retrieval.
+ * is what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE PLATING LINE, NOT THE PAINT SHOP. Powder coating, painting and the paint shop are the
  * Painter's trade (same cluster, so the veto derives as well as being listed); buffing is

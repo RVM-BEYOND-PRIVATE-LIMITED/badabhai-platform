@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T40) AND FORMLESS, like the robot cell: it supplies the
  * vocabulary its `maintenance`-cluster siblings veto on, and its family (`fam_instrumentation`)
- * is what the chat interview serves through retrieval.
+ * is what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE LOOP, NOT THE GAUGE ROOM. Calibration is the Calibration Lab's trade (quality_lab
  * cluster) — but bare "calibration" sits inside this role's own "transmitter calibration",

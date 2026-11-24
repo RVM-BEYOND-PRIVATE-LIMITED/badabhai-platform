@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T52) AND FORMLESS, like the sales desk: it supplies
  * the vocabulary its desk siblings veto on, and its family (`fam_ppc`) is what the chat
- * interview serves through retrieval.
+ * interview serves through retrieval once #3008 binds it.
  *
  * THE PLAN, NOT THE LINE. Running the line is the Production Engineer's job and owning it the
  * supervisor's; project planning (MS Project, Primavera) is the Project desk's. Bare "ppc"

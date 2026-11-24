@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T56) AND FORMLESS, like dispatch: it supplies the
  * vocabulary its yard siblings veto on, and its family (`fam_forklift`) is what the chat
- * interview serves through retrieval.
+ * interview serves through retrieval once #3008 binds it.
  *
  * THE FORKLIFT, NOT THE CRANE. Hydra and crane operation is the Crane Operator / Rigger's trade
  * (same cluster, listed as well as derived); JCBs, loaders and tractors are earthmoving, a lift

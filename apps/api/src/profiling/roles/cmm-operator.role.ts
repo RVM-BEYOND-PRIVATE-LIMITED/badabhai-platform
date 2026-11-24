@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T33) AND FORMLESS: the first `quality_lab` role, it
  * supplies the vocabulary its three lab siblings veto on, and its family (`fam_cmm`) is what
- * the chat interview serves through retrieval.
+ * the chat interview serves through retrieval once #3008 binds it.
  *
  * THE CMM ROOM, NOT THE QC BAY. Bare "quality" is the Quality Inspector's question, "CNC
  * programming" the CAM Programmer's (design cluster) — both keep the worker talking. "cmm"

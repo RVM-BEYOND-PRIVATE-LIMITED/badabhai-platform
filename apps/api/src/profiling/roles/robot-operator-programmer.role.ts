@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T39) AND FORMLESS, like the lab trades: it supplies the
  * vocabulary its `maintenance`-cluster siblings veto on, and its family (`fam_robotics`) is what
- * the chat interview serves through retrieval.
+ * the chat interview serves through retrieval once #3008 binds it.
  *
  * THE CELL, NOT THE GUN. A hand-held MIG welder is the Welder's trade (fabrication cluster),
  * and "PLC programmer" is the PLC technician's own word — but bare "fanuc" cannot be a veto:

@@ -7,7 +7,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T24) AND FORMLESS, like tube bending: it supplies the
  * vocabulary its `fabrication`-cluster siblings veto on, and its family (`fam_foundry_casting`)
- * is what the chat interview serves through retrieval.
+ * is what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE SAND SHOP, NOT THE DIE SHOP. Die casting is the Die Casting Operator's trade (same
  * cluster, so the veto derives), and bare "grinding" is the CNC Grinding Operator's word —

@@ -7,7 +7,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T42) AND FORMLESS, like HVAC: it supplies the vocabulary
  * its `maintenance`-cluster siblings veto on, and its family (`fam_utility`) is what the chat
- * interview serves through retrieval.
+ * interview serves through retrieval once #3008 binds it.
  *
  * THE UTILITY, NOT THE FIRE CREW. A fireman asks boiler fireman or fire safety; the chiller
  * plant, the substation and the generator and pump mechanics are their own trades. Bare

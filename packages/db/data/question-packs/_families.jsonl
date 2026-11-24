@@ -837,39 +837,3 @@
 {"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4402"}
 {"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4501"}
 {"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4502"}
-{"kind": "family", "family_id": "fam_gear_cutting", "label_en": "Gear Cutting Operator", "label_hi": "गियर कटिंग", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_boring_machine", "label_en": "Boring Machine Operator (HBM)", "label_hi": "बोरिंग मशीन", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_spm_finishing", "label_en": "Honing / Broaching / SPM Operator", "label_hi": "होनिंग / ब्रोचिंग", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_cnc_router", "label_en": "CNC Router / Engraving Operator (ArtCAM)", "label_hi": "सीएनसी राउटर", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_fabrication", "label_en": "Fabricator / Structural Fitter", "label_hi": "फैब्रिकेशन", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_tube_forming", "label_en": "Tube Bending / Roll Forming Operator", "label_hi": "पाइप बेंडिंग", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_foundry_casting", "label_en": "Foundry / Casting Operator", "label_hi": "फाउंड्री", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_die_casting", "label_en": "Die Casting Operator (PDC / GDC)", "label_hi": "डाई कास्टिंग", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_forging", "label_en": "Forging Operator", "label_hi": "फोर्जिंग", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_surface_treatment", "label_en": "Plating / Surface Treatment Operator", "label_hi": "प्लेटिंग", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_plastic_extrusion", "label_en": "Plastic Extrusion Operator", "label_hi": "प्लास्टिक एक्सट्रूज़न", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_cmm", "label_en": "CMM Operator / Programmer", "label_hi": "सीएमएम", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_ndt", "label_en": "NDT Technician", "label_hi": "एनडीटी", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_calibration", "label_en": "Calibration / Metrology Lab Technician", "label_hi": "कैलिब्रेशन", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_material_lab", "label_en": "Material Testing / Met Lab Technician", "label_hi": "मटेरियल टेस्टिंग", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_quality_engineer", "label_en": "Quality Engineer (QA / QC / SQA)", "label_hi": "क्वालिटी इंजीनियर", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_robotics", "label_en": "Robot Operator / Programmer", "label_hi": "रोबोट", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_instrumentation", "label_en": "Instrumentation Technician", "label_hi": "इंस्ट्रूमेंटेशन", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_hvac_rac", "label_en": "Refrigeration & AC (HVAC) Technician", "label_hi": "एचवीएसी", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_utility", "label_en": "Utility Operator (Boiler / Compressor / DG / ETP)", "label_hi": "यूटिलिटी", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_maintenance_engineer", "label_en": "Maintenance Engineer", "label_hi": "मेंटेनेंस इंजीनियर", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_service_engineer", "label_en": "Service Engineer (Field / Machine Service)", "label_hi": "सर्विस इंजीनियर", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_production_engineer", "label_en": "Production Engineer", "label_hi": "प्रोडक्शन इंजीनियर", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_process_engineer", "label_en": "Process / Manufacturing Engineer", "label_hi": "प्रोसेस इंजीनियर", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_npd_engineer", "label_en": "NPD / Development Engineer", "label_hi": "एनपीडी", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_safety_ehs", "label_en": "Safety / EHS Officer", "label_hi": "सेफ्टी", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_project_site", "label_en": "Project / Site Engineer (Mechanical)", "label_hi": "साइट इंजीनियर", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_technical_sales", "label_en": "Technical Sales / Application Engineer", "label_hi": "टेक्निकल सेल्स", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_ppc", "label_en": "PPC / Production Planning Engineer", "label_hi": "पीपीसी", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_stores", "label_en": "Store Keeper / Stores Executive", "label_hi": "स्टोर", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_purchase", "label_en": "Purchase / Vendor Development Engineer", "label_hi": "परचेज", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_dispatch_logistics", "label_en": "Dispatch / Logistics Executive", "label_hi": "डिस्पैच", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_forklift", "label_en": "Forklift / Reach Truck Operator", "label_hi": "फोर्कलिफ्ट", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_crane_rigging", "label_en": "EOT Crane Operator / Rigger", "label_hi": "क्रेन", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_cae_fea", "label_en": "CAE / FEA Analyst", "label_hi": "सीएई", "industry_id": "ind_industrial_manufacturing"}
-{"kind": "family", "family_id": "fam_piping_design", "label_en": "Piping Designer / Draughtsman", "label_hi": "पाइपिंग डिज़ाइन", "industry_id": "ind_industrial_manufacturing"}

@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T48) AND FORMLESS, like the process desk: it supplies
  * the vocabulary its desk siblings veto on, and its family (`fam_npd_engineer`) is what the
- * chat interview serves through retrieval.
+ * chat interview serves through retrieval once #3008 binds it.
  *
  * THE PLANT'S NPD, NOT THE LAB'S. Design engineering is the 3D CAD Designer's desk, vendor
  * development the Purchase desk's (both veto from the derivation); a pharma or lab R&D, a

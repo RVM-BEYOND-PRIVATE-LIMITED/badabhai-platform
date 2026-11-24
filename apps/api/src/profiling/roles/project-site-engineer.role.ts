@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T50) AND FORMLESS, like the safety desk: it supplies
  * the vocabulary its desk siblings veto on, and its family (`fam_project_site`) is what the
- * chat interview serves through retrieval.
+ * chat interview serves through retrieval once #3008 binds it.
  *
  * THE MECHANICAL SITE, NOT THE CIVIL ONE. Civil supervision and erection are construction work;
  * the service engineer services machines where this desk erects plants, and the site safety

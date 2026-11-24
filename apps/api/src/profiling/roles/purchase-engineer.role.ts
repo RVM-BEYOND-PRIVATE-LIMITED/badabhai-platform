@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T54) AND FORMLESS, like the PPC desk: it supplies the
  * vocabulary its desk siblings veto on, and its family (`fam_purchase`) is what the chat
- * interview serves through retrieval.
+ * interview serves through retrieval once #3008 binds it.
  *
  * THE BUYER, NOT THE STORE. "supply chain" asks which function; vendor quality is the Quality
  * Engineer's word, a store purchase entry the Store's, tally entry the accounts'. Bare

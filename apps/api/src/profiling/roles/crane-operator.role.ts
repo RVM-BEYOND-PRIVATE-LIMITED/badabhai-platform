@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T57) AND FORMLESS, like the forklift: it completes the
  * `supply_chain` cluster, and its family (`fam_crane_rigging`) is what the chat interview serves
- * through retrieval.
+ * through retrieval once #3008 binds it.
  *
  * THE HOOK, NOT THE JCB. Excavators and poclains are earthmoving, a lift operator serves
  * buildings, and crane maintenance is the Maintenance Technician's trade. Bare "operator"

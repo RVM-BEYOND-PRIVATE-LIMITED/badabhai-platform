@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T18) AND FORMLESS, like PLC and EDM: it supplies the
  * vocabulary its `machining`-cluster siblings veto on, and its family (`fam_gear_cutting`) is
- * what the chat interview serves through retrieval. Enabling a form later is a boolean on one
+ * what the chat interview serves through retrieval once #3008 binds it. Enabling a form later is a boolean on one
  * line.
  *
  * THE CUTTER, NOT THE BOX. "gearbox fitting" and "gearbox assembly" are the Fitter's job — a

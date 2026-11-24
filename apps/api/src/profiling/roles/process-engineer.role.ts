@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T47) AND FORMLESS, like the production desk: it supplies
  * the vocabulary its desk siblings veto on, and its family (`fam_process_engineer`) is what the
- * chat interview serves through retrieval.
+ * chat interview serves through retrieval once #3008 binds it.
  *
  * THE METHOD, NOT THE MODEL. Fixture and tool design are the 3D CAD Designer's desk (design
  * cluster); CNC programming the CAM Programmer's. "npd" is too short to route (#3010 holds

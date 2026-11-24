@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T23) AND FORMLESS, like the fabricator: it supplies
  * the vocabulary its `fabrication`-cluster siblings veto on, and its family (`fam_tube_forming`)
- * is what the chat interview serves through retrieval.
+ * is what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE TUBE, NOT THE BAR OR THE SHEET. Bar bending and sariya bending are construction work, a
  * rolling mill is a steel mill, and pipe fitting and plumbing are the Fitter's — different

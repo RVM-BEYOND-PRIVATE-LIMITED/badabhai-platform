@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T43) AND FORMLESS: the second `engineering_desk` role,
  * it supplies the vocabulary its desk siblings veto on, and its family (`fam_maintenance_engineer`)
- * is what the chat interview serves through retrieval.
+ * is what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE DESK, NOT THE SPANNER. The hands-on breakdown is the Maintenance Technician's job, fitting
  * the Fitter's, wiring the Electrician's and the PLC program the PLC technician's — three

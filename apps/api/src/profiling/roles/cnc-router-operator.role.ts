@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T21) AND FORMLESS, like SPM: it supplies the vocabulary
  * its `machining`-cluster siblings veto on, and its family (`fam_cnc_router`) is what the chat
- * interview serves through retrieval.
+ * interview serves through retrieval once #3008 binds it.
  *
  * THE ROUTER, NOT THE DESIGN DESK. Bare "designer" is the 3D CAD Designer's word, and a VMC
  * "CAM programmer" (Mastercam, NX) programs mills, not routers — but neither can be a veto

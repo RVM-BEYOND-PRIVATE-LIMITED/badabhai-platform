@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T35) AND FORMLESS, like NDT: it supplies the vocabulary
  * its `quality_lab`-cluster siblings veto on, and its family (`fam_calibration`) is what the
- * chat interview serves through retrieval.
+ * chat interview serves through retrieval once #3008 binds it.
  *
  * THE GAUGE LAB, NOT THE PLANT FLOOR. Instrumentation is the Instrumentation Technician's trade
  * (maintenance cluster), machine and laser calibration the Service Engineer's — both listed, as

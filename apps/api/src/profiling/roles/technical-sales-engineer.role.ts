@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T51) AND FORMLESS, like the project desk: it supplies
  * the vocabulary its desk siblings veto on, and its family (`fam_technical_sales`) is what the
- * chat interview serves through retrieval.
+ * chat interview serves through retrieval once #3008 binds it.
  *
  * THE INDUSTRIAL SALE, NOT THE SHOP FLOOR PITCH. Telecalling, inside sales, showroom and
  * insurance sales are not factory selling, and software coding is not this trade at all. The

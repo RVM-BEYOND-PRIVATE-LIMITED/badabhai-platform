@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T22) AND FORMLESS, like the router: it supplies the
  * vocabulary its `fabrication`-cluster siblings veto on, and its family (`fam_fabrication`) is
- * what the chat interview serves through retrieval.
+ * what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE STRUCTURAL FITTER, NOT EVERY FITTER. Bare "fitter" sits inside this role's own
  * "structural fitter", so it cannot be a veto — it would veto the role itself — and lives in

@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T20) AND FORMLESS, like boring: it supplies the
  * vocabulary its `machining`-cluster siblings veto on, and its family (`fam_spm_finishing`)
- * is what the chat interview serves through retrieval.
+ * is what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE FINISHING MACHINE, NOT EVERY SPM. A welding SPM is the Welder's line and an assembly SPM
  * the Assembly Line Worker's — different clusters, so the veto is authored here. "SPM" alone

@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T60) AND FORMLESS, like the analyst: it completes
  * the `engineering_desk` cluster, and its family (`fam_piping_design`) is what the chat interview
- * serves through retrieval.
+ * serves through retrieval once #3008 binds it.
  *
  * THE PROCESS PIPING DESK, NOT THE BUILDING'S. Pipe fitting and plumbing are hand trades, the
  * piping supervisor stands on site, and HVAC/MEP drafting is building services — each listed.

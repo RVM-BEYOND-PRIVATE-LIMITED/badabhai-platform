@@ -6,7 +6,7 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED FOR CEO PACK v2 (#3004, sheet T53) AND FORMLESS: the first `supply_chain` role, it
  * supplies the vocabulary its three yard siblings veto on, and its family (`fam_stores`) is
- * what the chat interview serves through retrieval.
+ * what the chat interview serves through retrieval once #3008 binds it.
  *
  * THE FACTORY STORE, NOT THE SHOP. A medical store is not a factory trade, and inventory
  * planning is the PPC desk's — both listed. "forklift" vetoes from the cluster derivation
