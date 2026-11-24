@@ -2096,6 +2096,14 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerMoveNoticeSentPayload,
   },
+  // #3002 — an admin switched one trade's release flags: which trade, the two booleans after the
+  // write, and the admin who made it. One event per REAL change (a set that changes nothing
+  // writes nothing and emits nothing). The role kind is trade policy, not PII. v1.
+  "trade_release.changed": {
+    version: 1,
+    domain: "trade_release",
+    payload: p.TradeReleaseChangedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

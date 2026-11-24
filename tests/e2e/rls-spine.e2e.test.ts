@@ -358,6 +358,9 @@ const LOCKED_TABLES = [
   // times). RLS+FORCE+REVOKE in the hand-written tail of `*_admin_job_audience`.
   "job_posting_audience_decisions",
   "campus_trades",
+  // #3002: the per-trade release switch (a role kind, two booleans, the admin id, times).
+  // RLS+FORCE+REVOKE in the hand-written tail of `*_trade_release`.
+  "trade_release",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

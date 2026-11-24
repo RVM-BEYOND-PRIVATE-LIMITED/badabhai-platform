@@ -343,6 +343,14 @@ export const ADMIN_CAPABILITIES = [
    * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
    */
   "manage_campus_trades",
+  /**
+   * #3002 — read and set the per-trade release switch (`/admin/trade-release`): which trades a
+   * company may post and which trade forms are live. A trade policy list, so `super_admin`
+   * only, like the Campus trade list. A set emits `trade_release.changed` with the admin.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "manage_trade_release",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -438,6 +446,9 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   work_managed_hiring: ["super_admin", "ops_admin", "support"],
   // #2957 — the Campus trade list (which trades may go to Campus). A policy list: super_admin only.
   manage_campus_trades: ["super_admin"],
+  // #3002 — the per-trade release switch. A trade policy list: super_admin only, like the
+  // Campus trade list (a flipped switch opens or closes a whole trade to companies).
+  manage_trade_release: ["super_admin"],
 } as const;
 
 /**

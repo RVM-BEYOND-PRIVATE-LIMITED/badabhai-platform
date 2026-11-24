@@ -7987,3 +7987,33 @@ export const PayerMoveNoticeSentPayload = z
   })
   .strict();
 export type PayerMoveNoticeSentPayload = z.infer<typeof PayerMoveNoticeSentPayload>;
+
+/**
+ * #3002 — an admin switched one trade's release flags. The change's durable record: which trade
+ * (`role_kind`, a `TradeFormKindName` — the same 63-kind shape the migration CHECKs, not a closed
+ * enum here so a new kind never needs a payload version bump), the two flags AFTER the write, and
+ * the admin who made it. A kind with no row reads as off, so turning a trade off is a row that
+ * says false, never a deletion — and this event fires exactly then, one per REAL change.
+ *
+ * FACELESS: the role kind is trade policy (the same class as `campus_trades_set`'s closed set),
+ * the flags are booleans, the admin id opaque. No reason text is recorded — the flags and the
+ * admin are the complete record (there is no `audit_logs` row: its `entity_id` is uuid-only and
+ * a trade is a slug, not a row id).
+ */
+export const TradeReleaseChangedPayload = z
+  .object({
+    /** The trade switched (`role_kind` value, `TradeFormKindName` shape). */
+    role_kind: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z][a-z0-9_]{0,63}$/),
+    /** After the write: may companies post this trade (#3005, #3006 read this). */
+    posting_enabled: z.boolean(),
+    /** After the write: is this trade's form live in the hand-over (#3014 reads this). */
+    form_enabled: z.boolean(),
+    /** The admin who switched it (`admin_users.id`). */
+    updated_by_admin_id: uuidSchema,
+  })
+  .strict();
+export type TradeReleaseChangedPayload = z.infer<typeof TradeReleaseChangedPayload>;
