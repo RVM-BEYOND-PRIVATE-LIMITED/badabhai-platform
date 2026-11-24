@@ -1,0 +1,687 @@
+{
+  "_comment": "Reviewed side file for the CEO pack v2 sheet compiler (#2997). One entry per form: the version to write, the key renames for the 7 deepened forms (key table #3008 §3), the retry wording for the experience and level questions (the sheets carry no second-ask wording), the reviewer notes, and the recorded option keys for every number band (so a generated key never changes between runs). Slug stored values use themselves as the option key; the escape chip always uses \"unknown\".",
+  "experienceOptions": [
+    { "label": "Fresher", "key": "fresher", "value": 0 },
+    { "label": "1 saal se kam", "key": "below_one", "value": 0 },
+    { "label": "1 se 3 saal", "key": "one_to_three", "value": 2 },
+    { "label": "3 se 5 saal", "key": "three_to_five", "value": 4 },
+    { "label": "5 se 10 saal", "key": "five_to_ten", "value": 7 },
+    { "label": "10 saal se zyada", "key": "above_ten", "value": 12 }
+  ],
+  "forms": {
+    "qp_edm_wirecut": {
+      "sheet": "T17",
+      "version": 2,
+      "keyRenames": {
+        "edm_setter_confirm": "edm_setting_confirm",
+        "edm_setter_programmer_confirm": "edm_program_confirm",
+        "edm_machine_type": "edm_machine",
+        "edm_machine_make": "edm_brand",
+        "tolerance_band": "edm_tolerance",
+        "edm_operation": "edm_work_type",
+        "edm_programming_level": "edm_program_source"
+      },
+      "retryExperience": "Lagbhag kitne saal Wire cut ya EDM ka kaam kiya hai?",
+      "retryLevel": "Machine par helper, operator ya setter hain?",
+      "why": "Role track for EDM / Wire-cut Operator (T17), deepening the live thin form (CEO pack v2). fam_edm_wirecut binds NCO 7223.2800.",
+      "scope": "Machining shop-floor trade, not the tool room. The interview separates at setter; higher contact price from setter.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v2 (CEO pack v2, sheet T17): deepens the live thin form. Sheet wording and chips under the kept live keys (key table #3008). Live-only questions stay in v1.",
+      "optionKeys": {
+        "tolerance_band": {
+          "0.10": "point_one_zero",
+          "0.05": "point_zero_five",
+          "0.02": "point_zero_two",
+          "0.01": "point_zero_one",
+          "0.005": "point_zero_zero_five"
+        }
+      }
+    },
+    "qp_gear_cutting": {
+      "sheet": "T18",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Gear cutting ka kaam kiya hai?",
+      "retryLevel": "Machine par helper, operator ya setter hain?",
+      "why": "Role track for Gear Cutting Operator (T18), new trade (CEO pack v2). fam_gear_cutting binds NCO 7223.1300.",
+      "scope": "Machining shop-floor trade. The interview separates at setter; higher contact price from setter.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T18): new trade."
+    },
+    "qp_boring_machine": {
+      "sheet": "T19",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Boring machine ka kaam kiya hai?",
+      "retryLevel": "Machine par helper, operator ya setter hain?",
+      "why": "Role track for Boring Machine Operator, HBM (T19), new trade (CEO pack v2). fam_boring_machine binds NCO 7222.0400, 7223.1701 and 7223.1800.",
+      "scope": "Machining shop-floor trade. The interview separates at setter; higher contact price from setter.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T19): new trade.",
+      "optionKeys": {
+        "tolerance_band": {
+          "0.10": "point_one_zero",
+          "0.05": "point_zero_five",
+          "0.02": "point_zero_two",
+          "0.01": "point_zero_one",
+          "0.005": "point_zero_zero_five"
+        }
+      }
+    },
+    "qp_spm_finishing": {
+      "sheet": "T20",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Honing, broaching ya SPM ka kaam kiya hai?",
+      "retryLevel": "Machine par helper, operator ya setter hain?",
+      "why": "Role track for Honing / Broaching / SPM Operator (T20), new trade (CEO pack v2). fam_spm_finishing binds NCO 7223.2600, 7224.0600, 7224.0700 and 7224.0701.",
+      "scope": "Machining shop-floor trade. The interview separates at setter; higher contact price from setter.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T20): new trade.",
+      "optionKeys": {
+        "tolerance_band": {
+          "0.05": "point_zero_five",
+          "0.02": "point_zero_two",
+          "0.01": "point_zero_one",
+          "0.005": "point_zero_zero_five"
+        }
+      }
+    },
+    "qp_cnc_router": {
+      "sheet": "T21",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal CNC router ya engraving ka kaam kiya hai?",
+      "retryLevel": "Machine par helper, operator ya setter hain?",
+      "why": "Role track for CNC Router / Engraving Operator, ArtCAM (T21), new trade (CEO pack v2). fam_cnc_router binds NCO 7523.0500 and 7523.1600.",
+      "scope": "Machining shop-floor trade. The interview separates at setter; higher contact price from programmer.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T21): new trade.",
+      "optionKeys": {
+        "router_bed_size": {
+          "6090": "bed_small",
+          "1325": "bed_four_eight",
+          "1530": "bed_five_ten",
+          "2030": "bed_large"
+        }
+      }
+    },
+    "qp_fabrication": {
+      "sheet": "T22",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Fabrication ka kaam kiya hai?",
+      "retryLevel": "Fabrication me helper, fabricator ya skilled hain?",
+      "why": "Role track for Fabricator / Structural Fitter (T22), new trade (CEO pack v2). fam_fabrication binds the 7212, 7214, 7222 and 7224 structural codes.",
+      "scope": "Sheet Metal and Fabrication shop-floor trade. The interview separates at skilled; higher contact price from skilled.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T22): new trade.",
+      "optionKeys": {
+        "fab_thickness_range": {
+          "6": "upto_six",
+          "12": "upto_twelve",
+          "25": "upto_twenty_five",
+          "50": "upto_fifty",
+          "75": "upto_seventy_five"
+        }
+      }
+    },
+    "qp_tube_forming": {
+      "sheet": "T23",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Tube bending ya roll forming ka kaam kiya hai?",
+      "retryLevel": "Machine par helper, operator ya setter hain?",
+      "why": "Role track for Tube Bending / Roll Forming Operator (T23), new trade (CEO pack v2). fam_tube_forming binds NCO 7223.2000.",
+      "scope": "Sheet Metal and Fabrication shop-floor trade. The interview separates at setter; higher contact price from setter.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T23): new trade.",
+      "optionKeys": {
+        "tube_size_range": {
+          "12": "upto_twelve",
+          "25": "upto_twenty_five",
+          "50": "upto_fifty",
+          "76": "upto_seventy_six",
+          "100": "upto_hundred"
+        }
+      }
+    },
+    "qp_foundry_casting": {
+      "sheet": "T24",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Foundry ya casting ka kaam kiya hai?",
+      "retryLevel": "Foundry me helper, operator ya skilled hain?",
+      "why": "Role track for Foundry / Casting Operator (T24), splitting the live Foundry / Forging Operator with T25 and T26 (CEO pack v2, #3009). fam_foundry_casting binds the 7211 and 8121 casting codes.",
+      "scope": "Casting, Forging and Surface Treatment shop-floor trade. The interview separates at skilled; higher contact price from skilled.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 3 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T24): new form in the foundry split (#3009). Reuses the live foundry experience, level, skilled-confirm, process and testing keys.",
+      "optionKeys": {
+        "foundry_casting_weight": {
+          "5": "upto_five",
+          "50": "upto_fifty",
+          "500": "upto_five_hundred",
+          "2000": "upto_two_thousand",
+          "5000": "upto_five_thousand"
+        }
+      }
+    },
+    "qp_die_casting": {
+      "sheet": "T25",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Die casting ka kaam kiya hai?",
+      "retryLevel": "Machine par helper, operator ya setter hain?",
+      "why": "Role track for Die Casting Operator, PDC / GDC (T25), new trade out of the foundry split (CEO pack v2, #3009). fam_die_casting binds NCO 8121.4200 and 8121.4201.",
+      "scope": "Casting, Forging and Surface Treatment shop-floor trade. The interview separates at setter; higher contact price from setter.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 3 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T25): new form in the foundry split (#3009).",
+      "optionKeys": {
+        "diecast_tonnage": {
+          "150": "upto_one_fifty",
+          "400": "upto_four_hundred",
+          "800": "upto_eight_hundred",
+          "1600": "upto_sixteen_hundred",
+          "2500": "upto_twenty_five_hundred"
+        }
+      }
+    },
+    "qp_forging": {
+      "sheet": "T26",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Forging ka kaam kiya hai?",
+      "retryLevel": "Forging shop me helper, operator ya die setter hain?",
+      "why": "Role track for Forging Operator (T26), new trade out of the foundry split (CEO pack v2, #3009). fam_forging binds the 7221 forging codes.",
+      "scope": "Casting, Forging and Surface Treatment shop-floor trade. The interview separates at setter; higher contact price from setter.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 3 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T26): new form in the foundry split (#3009)."
+    },
+    "qp_heat_treatment": {
+      "sheet": "T27",
+      "version": 2,
+      "keyRenames": {
+        "ht_experience": "heat_experience",
+        "ht_level": "heat_level",
+        "ht_skilled_confirm": "heat_skilled_confirm",
+        "ht_process": "heat_process",
+        "ht_furnace": "heat_furnace",
+        "ht_testing": "heat_testing",
+        "material_worked": "heat_material"
+      },
+      "retryExperience": "Lagbhag kitne saal Heat treatment ka kaam kiya hai?",
+      "retryLevel": "Heat treatment shop me helper, operator ya skilled hain?",
+      "why": "Role track for Heat-Treatment Technician (T27), deepening the live thin form (CEO pack v2). fam_heat_treatment binds NCO 8121.4700, 8121.4800 and 8121.4900.",
+      "scope": "Casting, Forging and Surface Treatment shop-floor trade. The interview separates at skilled; higher contact price from skilled.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 3 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v2 (CEO pack v2, sheet T27): deepens the live thin form. Sheet wording and chips under the kept live keys (key table #3008)."
+    },
+    "qp_surface_treatment": {
+      "sheet": "T28",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Plating ya surface treatment ka kaam kiya hai?",
+      "retryLevel": "Plating shop me helper, operator ya skilled hain?",
+      "why": "Role track for Plating / Surface Treatment Operator (T28), new trade (CEO pack v2). fam_surface_treatment binds the 7213, 7224 and 8122 plating codes.",
+      "scope": "Casting, Forging and Surface Treatment shop-floor trade. The interview separates at skilled; higher contact price from skilled.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 3 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T28): new trade."
+    },
+    "qp_injection_moulding": {
+      "sheet": "T29",
+      "version": 2,
+      "keyRenames": {
+        "imm_experience": "moulding_experience",
+        "imm_level": "moulding_level",
+        "imm_setter_confirm": "moulding_setting_confirm",
+        "imm_senior_confirm": "moulding_senior_confirm",
+        "imm_machine_brand": "moulding_machine_brand",
+        "imm_tonnage": "moulding_tonnage",
+        "material_worked": "moulding_material",
+        "troubleshooting": "moulding_defects",
+        "imm_setting_work": "moulding_process_work"
+      },
+      "retryExperience": "Lagbhag kitne saal Injection moulding ka kaam kiya hai?",
+      "retryLevel": "Machine par helper, operator ya setter hain?",
+      "why": "Role track for Injection Moulding Operator (T29), deepening the live thin form; the name Plastic Process Technician becomes the Senior rung (CEO pack v2). fam_injection_moulding binds NCO 8142.0501, 8142.0502, 8142.1300 and 8142.1301.",
+      "scope": "Plastics and Rubber shop-floor trade. The interview separates at setter; higher contact price from setter.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v2 (CEO pack v2, sheet T29): deepens the live thin form. Sheet wording and chips under the kept live keys (key table #3008). Live-only questions (moulding_training_institute) stay in v1.",
+      "optionKeys": {
+        "imm_tonnage": {
+          "100": "upto_hundred",
+          "250": "upto_two_fifty",
+          "450": "upto_four_fifty",
+          "850": "upto_eight_fifty",
+          "1300": "upto_thirteen_hundred",
+          "2000": "upto_two_thousand"
+        }
+      }
+    },
+    "qp_blow_moulding": {
+      "sheet": "T30",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Blow moulding ka kaam kiya hai?",
+      "retryLevel": "Machine par helper, operator ya setter hain?",
+      "why": "Role track for Blow Moulding Operator (T30), new trade (CEO pack v2). fam_blow_moulding binds NCO 8142.0700.",
+      "scope": "Plastics and Rubber shop-floor trade. The interview separates at setter; higher contact price from setter.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T30): new trade.",
+      "optionKeys": {
+        "blow_capacity": {
+          "1": "upto_one",
+          "5": "upto_five",
+          "30": "upto_thirty",
+          "250": "upto_two_fifty",
+          "1000": "upto_thousand"
+        }
+      }
+    },
+    "qp_plastic_extrusion": {
+      "sheet": "T31",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Extrusion line ka kaam kiya hai?",
+      "retryLevel": "Machine par helper, operator ya setter hain?",
+      "why": "Role track for Plastic Extrusion Operator (T31), new trade (CEO pack v2). fam_plastic_extrusion binds NCO 8142.0300 and 8142.0400.",
+      "scope": "Plastics and Rubber shop-floor trade. The interview separates at setter; higher contact price from setter.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T31): new trade."
+    },
+    "qp_rubber_moulding": {
+      "sheet": "T32",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Rubber moulding ya rubber plant ka kaam kiya hai?",
+      "retryLevel": "Rubber shop me helper, operator ya setter hain?",
+      "why": "Role track for Rubber Moulding Operator (T32), new trade (CEO pack v2). fam_rubber_moulding binds the 8131 and 8141 rubber codes.",
+      "scope": "Plastics and Rubber shop-floor trade. The interview separates at setter; higher contact price from setter.",
+      "budget": "21 questions (easy 6, medium 6, advanced 9); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T32): new trade. Two questions gate on the multi-select rubber_process, which the engine reads as any-overlap.",
+      "optionKeys": {
+        "rubber_press_capacity": {
+          "50": "upto_fifty",
+          "100": "upto_hundred",
+          "250": "upto_two_fifty",
+          "400": "upto_four_hundred",
+          "600": "upto_six_hundred"
+        }
+      }
+    },
+    "qp_cmm": {
+      "sheet": "T33",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal CMM ya VMM par kaam kiya hai?",
+      "retryLevel": "CMM room me helper, operator ya programmer hain?",
+      "why": "Role track for CMM Operator / Programmer (T33), new trade (CEO pack v2). fam_cmm binds the new CMM entry under NCO 7543 (#3007).",
+      "scope": "Quality and Metrology shop-floor trade. The interview separates at programmer; higher contact price from programmer.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T33): new trade.",
+      "optionKeys": {
+        "tolerance_band": {
+          "0.10": "point_one_zero",
+          "0.05": "point_zero_five",
+          "0.02": "point_zero_two",
+          "0.01": "point_zero_one",
+          "0.005": "point_zero_zero_five"
+        }
+      }
+    },
+    "qp_ndt": {
+      "sheet": "T34",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal NDT ka kaam kiya hai?",
+      "retryLevel": "NDT me helper, level I ya level II hain?",
+      "why": "Role track for NDT Technician (T34), new trade (CEO pack v2). fam_ndt binds the new NDT entry under NCO 7543 and 3119 (#3007).",
+      "scope": "Quality and Metrology shop-floor trade. The interview separates at senior_technician (Level II); higher contact price from senior_technician.",
+      "budget": "23 questions (easy 5, medium 6, advanced 12); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T34): new trade. The ladder tops at lead (Level III), with no supervisor rung."
+    },
+    "qp_calibration": {
+      "sheet": "T35",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Calibration ka kaam kiya hai?",
+      "retryLevel": "Calibration lab me helper, technician ya senior technician hain?",
+      "why": "Role track for Calibration / Metrology Lab Technician (T35), new trade (CEO pack v2). fam_calibration binds NCO 2111.1000, 7311.1000 and 8212.0600.",
+      "scope": "Quality and Metrology shop-floor trade. The interview separates at senior_technician; higher contact price from senior_technician.",
+      "budget": "22 questions (easy 5, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T35): new trade."
+    },
+    "qp_material_lab": {
+      "sheet": "T36",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Material testing lab me kaam kiya hai?",
+      "retryLevel": "Lab me helper, technician ya senior technician hain?",
+      "why": "Role track for Material Testing / Met Lab Technician (T36), new trade (CEO pack v2). fam_material_lab binds NCO 3117.0300, 3119.0100 and 8122.6000.",
+      "scope": "Quality and Metrology shop-floor trade. The interview separates at senior_technician; higher contact price from senior_technician.",
+      "budget": "23 questions (easy 5, medium 6, advanced 12); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T36): new trade."
+    },
+    "qp_quality_engineer": {
+      "sheet": "T37",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Quality department me kaam kiya hai?",
+      "retryLevel": "Quality department me trainee, engineer ya senior engineer hain?",
+      "why": "Role track for Quality Engineer, QA / QC / SQA (T37), new trade (CEO pack v2). fam_quality_engineer binds NCO 1213.0101, 2141.0100 and 3113.0801.",
+      "scope": "Quality and Metrology desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T37): new trade."
+    },
+    "qp_plc_automation": {
+      "sheet": "T38",
+      "version": 2,
+      "keyRenames": {
+        "plc_senior_technician_confirm": "plc_senior_confirm",
+        "plc_work_type": "plc_work",
+        "plc_hmi_scada": "plc_hmi_brand"
+      },
+      "retryExperience": "Lagbhag kitne saal PLC aur automation ka kaam kiya hai?",
+      "retryLevel": "PLC ke kaam me helper, technician ya senior technician hain?",
+      "why": "Role track for PLC / Automation Technician (T38), deepening the live thin form (CEO pack v2). fam_plc_automation binds NCO 7412.0101.",
+      "scope": "Maintenance and Automation shop-floor trade. The interview separates at senior_technician; higher contact price from senior_technician.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v2 (CEO pack v2, sheet T38): deepens the live thin form. Sheet wording and chips under the kept live keys (key table #3008). Live-only questions (plc_technician_confirm) stay in v1."
+    },
+    "qp_robotics": {
+      "sheet": "T39",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Robot par kaam kiya hai?",
+      "retryLevel": "Robot par helper, operator ya programmer hain?",
+      "why": "Role track for Robot Operator / Programmer (T39), new trade (CEO pack v2). fam_robotics binds NCO 3139.1400 and 3139.9900.",
+      "scope": "Maintenance and Automation shop-floor trade. The interview separates at programmer; higher contact price from programmer.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T39): new trade."
+    },
+    "qp_instrumentation": {
+      "sheet": "T40",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Instrumentation ka kaam kiya hai?",
+      "retryLevel": "Instrument ke kaam me helper, technician ya senior technician hain?",
+      "why": "Role track for Instrumentation Technician (T40), new trade (CEO pack v2). fam_instrumentation binds NCO 2141.0200, 7311.0100 and 7412.0100.",
+      "scope": "Maintenance and Automation shop-floor trade. The interview separates at senior_technician; higher contact price from senior_technician.",
+      "budget": "21 questions (easy 5, medium 6, advanced 10); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T40): new trade."
+    },
+    "qp_hvac_rac": {
+      "sheet": "T41",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal AC aur refrigeration ka kaam kiya hai?",
+      "retryLevel": "AC ke kaam me helper, technician ya senior technician hain?",
+      "why": "Role track for Refrigeration and AC, HVAC Technician (T41), new trade (CEO pack v2). fam_hvac_rac binds NCO 2144.1200, 3115.1100 and 7127.0100.",
+      "scope": "Maintenance and Automation shop-floor trade. The interview separates at senior_technician; higher contact price from senior_technician.",
+      "budget": "22 questions (easy 5, medium 6, advanced 11); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T41): new trade.",
+      "optionKeys": {
+        "hvac_capacity": {
+          "5": "upto_five",
+          "20": "upto_twenty",
+          "100": "upto_hundred",
+          "500": "upto_five_hundred",
+          "1000": "upto_thousand"
+        }
+      }
+    },
+    "qp_utility": {
+      "sheet": "T42",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Boiler, compressor ya utility ka kaam kiya hai?",
+      "retryLevel": "Utility me helper, operator ya licensed operator hain?",
+      "why": "Role track for Utility Operator (T42), new trade (CEO pack v2). fam_utility binds the 3122, 3131, 3132 and 8182 utility codes.",
+      "scope": "Maintenance and Automation shop-floor trade. The interview separates at skilled; higher contact price from skilled.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T42): new trade.",
+      "optionKeys": {
+        "utility_boiler_capacity": {
+          "1": "upto_one",
+          "3": "upto_three",
+          "10": "upto_ten",
+          "30": "upto_thirty",
+          "50": "upto_fifty"
+        }
+      }
+    },
+    "qp_maintenance_engineer": {
+      "sheet": "T43",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Maintenance engineer ka kaam kiya hai?",
+      "retryLevel": "Maintenance department me trainee, engineer ya senior engineer hain?",
+      "why": "Role track for Maintenance Engineer (T43), new trade (CEO pack v2). fam_maintenance_engineer binds NCO 2144.0600, 3113.0501 and 3115.0501.",
+      "scope": "Maintenance and Automation desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T43): new trade.",
+      "optionKeys": {
+        "me_machines_handled": {
+          "25": "upto_twenty_five",
+          "100": "upto_hundred",
+          "300": "upto_three_hundred",
+          "500": "upto_five_hundred"
+        }
+      }
+    },
+    "qp_service_engineer": {
+      "sheet": "T44",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Machine service ka kaam kiya hai?",
+      "retryLevel": "Service team me trainee, service engineer ya senior engineer hain?",
+      "why": "Role track for Service Engineer, field and machine service (T44), new trade (CEO pack v2). fam_service_engineer binds NCO 2144.0601, 2144.1401 and 2144.1402.",
+      "scope": "Maintenance and Automation desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+      "budget": "21 questions (easy 6, medium 6, advanced 9); 4 mandatory, 7 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T44): new trade."
+    },
+    "qp_production_supervisor": {
+      "sheet": "T45",
+      "version": 2,
+      "keyRenames": {
+        "prodsup_experience": "supervision_experience",
+        "prodsup_level": "supervision_level",
+        "prodsup_shop_area": "supervision_area",
+        "prodsup_manpower_handled": "supervision_team_size",
+        "prodsup_trade_background": "supervision_trade_background"
+      },
+      "retryExperience": "Lagbhag kitne saal Line ya shift sambhalne ka kaam kiya hai?",
+      "retryLevel": "Shop floor par line leader, supervisor ya in-charge hain?",
+      "why": "Role track for Production Supervisor (T45), deepening the live thin form (CEO pack v2). fam_production_supervisor binds the 3122 supervisor codes.",
+      "scope": "Production and Engineering shop-floor trade with a three-rung ladder and no trainee. The interview separates at supervisor; higher contact price from senior (line leader).",
+      "budget": "20 questions (easy 5, medium 4, advanced 11); 4 mandatory, 2 core. Gates are senior-or-above; the senior path stays inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v2 (CEO pack v2, sheet T45): deepens the live thin form. Sheet wording and chips under the kept live keys (key table #3008). Carries the sheet's in-charge wording verbatim; #2995 point 1 ruled it for #3008 to fix. Live-only questions stay in v1.",
+      "optionKeys": {
+        "prodsup_manpower_handled": {
+          "10": "upto_ten",
+          "25": "upto_twenty_five",
+          "50": "upto_fifty",
+          "100": "upto_hundred",
+          "150": "upto_one_fifty"
+        }
+      }
+    },
+    "qp_production_engineer": {
+      "sheet": "T46",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Production department me kaam kiya hai?",
+      "retryLevel": "Production me trainee, engineer ya senior engineer hain?",
+      "why": "Role track for Production Engineer (T46), new trade (CEO pack v2). fam_production_engineer binds NCO 2144.0401 and 2144.0403.",
+      "scope": "Production and Engineering desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T46): new trade.",
+      "optionKeys": {
+        "prod_manpower_handled": {
+          "25": "upto_twenty_five",
+          "50": "upto_fifty",
+          "100": "upto_hundred",
+          "250": "upto_two_fifty",
+          "500": "upto_five_hundred"
+        }
+      }
+    },
+    "qp_process_engineer": {
+      "sheet": "T47",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Process ya manufacturing engineering me kaam kiya hai?",
+      "retryLevel": "ME department me trainee, engineer ya senior engineer hain?",
+      "why": "Role track for Process / Manufacturing Engineer (T47), new trade (CEO pack v2). fam_process_engineer binds the 2141 and 2144 process codes.",
+      "scope": "Production and Engineering desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+      "budget": "21 questions (easy 6, medium 6, advanced 9); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T47): new trade."
+    },
+    "qp_npd_engineer": {
+      "sheet": "T48",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal NPD ya development ka kaam kiya hai?",
+      "retryLevel": "NPD department me trainee, engineer ya senior engineer hain?",
+      "why": "Role track for NPD / Development Engineer (T48), new trade (CEO pack v2). fam_npd_engineer binds NCO 1223.0101, 2144.0402 and 3115.0101.",
+      "scope": "Production and Engineering desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T48): new trade.",
+      "optionKeys": {
+        "npd_projects_handled": {
+          "5": "upto_five",
+          "15": "upto_fifteen",
+          "30": "upto_thirty",
+          "50": "upto_fifty"
+        }
+      }
+    },
+    "qp_safety_ehs": {
+      "sheet": "T49",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Safety ya EHS ka kaam kiya hai?",
+      "retryLevel": "Safety department me trainee, safety officer ya senior safety officer hain?",
+      "why": "Role track for Safety / EHS Officer (T49), new trade (CEO pack v2). fam_safety_ehs binds NCO 2141.2500, 2141.2600, 2263.9900 and 3257.0600.",
+      "scope": "Production and Engineering desk trade. The interview separates at engineer; higher contact price from engineer.",
+      "budget": "21 questions (easy 7, medium 6, advanced 8); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T49): new trade.",
+      "optionKeys": {
+        "ehs_strength_handled": {
+          "100": "upto_hundred",
+          "250": "upto_two_fifty",
+          "500": "upto_five_hundred",
+          "1000": "upto_thousand",
+          "2000": "upto_two_thousand"
+        }
+      }
+    },
+    "qp_project_site": {
+      "sheet": "T50",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Site ya project ka kaam kiya hai?",
+      "retryLevel": "Site par trainee, site engineer ya senior engineer hain?",
+      "why": "Role track for Project / Site Engineer, mechanical (T50), new trade (CEO pack v2). fam_project_site binds NCO 8211.1000.",
+      "scope": "Production and Engineering desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T50): new trade.",
+      "optionKeys": {
+        "site_project_value": {
+          "1": "upto_one",
+          "5": "upto_five",
+          "25": "upto_twenty_five",
+          "100": "upto_hundred",
+          "250": "upto_two_fifty"
+        }
+      }
+    },
+    "qp_technical_sales": {
+      "sheet": "T51",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Industrial sales ka kaam kiya hai?",
+      "retryLevel": "Sales team me trainee, sales engineer ya senior engineer hain?",
+      "why": "Role track for Technical Sales / Application Engineer (T51), new trade (CEO pack v2). fam_technical_sales binds NCO 3322.0101.",
+      "scope": "Production and Engineering desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T51): new trade.",
+      "optionKeys": {
+        "sales_target_size": {
+          "0.5": "point_five",
+          "2": "upto_two",
+          "5": "upto_five",
+          "20": "upto_twenty",
+          "50": "upto_fifty"
+        }
+      }
+    },
+    "qp_ppc": {
+      "sheet": "T52",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal PPC ya production planning ka kaam kiya hai?",
+      "retryLevel": "PPC department me trainee, executive ya senior engineer hain?",
+      "why": "Role track for PPC / Production Planning Engineer (T52), new trade (CEO pack v2). fam_ppc binds NCO 2141.0500 and 2141.0501.",
+      "scope": "Planning and Supply Chain desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T52): new trade."
+    },
+    "qp_stores": {
+      "sheet": "T53",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Store ka kaam kiya hai?",
+      "retryLevel": "Store me helper, store keeper ya senior executive hain?",
+      "why": "Role track for Store Keeper / Stores Executive (T53), new trade (CEO pack v2). fam_stores binds the 1324 and 4321 stores codes.",
+      "scope": "Planning and Supply Chain desk trade. The interview separates at senior_executive; higher contact price from senior_executive.",
+      "budget": "22 questions (easy 5, medium 6, advanced 11); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T53): new trade."
+    },
+    "qp_purchase": {
+      "sheet": "T54",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Purchase ya vendor development ka kaam kiya hai?",
+      "retryLevel": "Purchase department me trainee, executive ya senior engineer hain?",
+      "why": "Role track for Purchase / Vendor Development Engineer (T54), new trade (CEO pack v2). fam_purchase binds NCO 1324.0103 and the 3323 purchase codes.",
+      "scope": "Planning and Supply Chain desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T54): new trade."
+    },
+    "qp_dispatch_logistics": {
+      "sheet": "T55",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Dispatch ya logistics ka kaam kiya hai?",
+      "retryLevel": "Dispatch me helper, executive ya senior executive hain?",
+      "why": "Role track for Dispatch / Logistics Executive (T55), new trade (CEO pack v2). fam_dispatch_logistics binds the 1324, 3323, 4321 and 9321 dispatch codes.",
+      "scope": "Planning and Supply Chain desk trade. The interview separates at senior_executive; higher contact price from senior_executive.",
+      "budget": "22 questions (easy 5, medium 6, advanced 11); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T55): new trade."
+    },
+    "qp_forklift": {
+      "sheet": "T56",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Forklift ya reach truck chalane ka kaam kiya hai?",
+      "retryLevel": "Forklift par helper, operator ya senior operator hain?",
+      "why": "Role track for Forklift / Reach Truck Operator (T56), new trade (CEO pack v2). fam_forklift binds NCO 8344.0100, 8344.0201 and 8344.9900.",
+      "scope": "Planning and Supply Chain shop-floor trade. The interview separates at operator; higher contact price from senior.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 8 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T56): new trade."
+    },
+    "qp_crane_rigging": {
+      "sheet": "T57",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Crane chalane ya rigging ka kaam kiya hai?",
+      "retryLevel": "Crane par helper, operator ya senior operator hain?",
+      "why": "Role track for EOT Crane Operator / Rigger (T57), new trade (CEO pack v2). fam_crane_rigging binds the 7215 crane and 8343 rigger codes.",
+      "scope": "Planning and Supply Chain shop-floor trade. The interview separates at operator; higher contact price from senior.",
+      "budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 7 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T57): new trade."
+    },
+    "qp_cad_design_3d": {
+      "sheet": "T58",
+      "version": 2,
+      "keyRenames": {
+        "design_senior_designer_confirm": "design_senior_confirm",
+        "design_specialisation": "design_work_area",
+        "design_modules": "design_depth",
+        "design_gdt_tolerance": "design_tolerance",
+        "sector_worked": "design_industry"
+      },
+      "retryExperience": "Lagbhag kitne saal 3D design ka kaam kiya hai?",
+      "retryLevel": "Design office me trainee, designer ya senior designer hain?",
+      "why": "Role track for 3D CAD Designer / Mechanical Design Engineer (T58), deepening the live thin form (CEO pack v2). fam_cad_design_3d binds NCO 2144.0200 and 2144.0800.",
+      "scope": "Design desk trade. The interview separates at senior_designer; higher contact price from designer.",
+      "budget": "21 questions (easy 6, medium 6, advanced 9); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v2 (CEO pack v2, sheet T58): deepens the live thin form. Sheet wording and chips under the kept live keys (key table #3008); conditions on design_specialisation rewritten to design_work_area. Live-only questions stay in v1."
+    },
+    "qp_cae_fea": {
+      "sheet": "T59",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal CAE ya FEA ka kaam kiya hai?",
+      "retryLevel": "CAE team me trainee, analyst ya senior analyst hain?",
+      "why": "Role track for CAE / FEA Analyst (T59), new trade (CEO pack v2). fam_cae_fea binds NCO 2152.0301, 2512.0207 and 2512.0601.",
+      "scope": "Design desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+      "budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T59): new trade. Gated on the multi-select cae_domain, which the engine reads as any-overlap."
+    },
+    "qp_piping_design": {
+      "sheet": "T60",
+      "version": 1,
+      "retryExperience": "Lagbhag kitne saal Piping design ya drafting ka kaam kiya hai?",
+      "retryLevel": "Design office me trainee, designer ya senior designer hain?",
+      "why": "Role track for Piping Designer / Draughtsman (T60), new trade (CEO pack v2). fam_piping_design binds the new piping entries under NCO 3118 and 2144.",
+      "scope": "Design desk trade. The interview separates at senior_designer; higher contact price from designer.",
+      "budget": "21 questions (easy 6, medium 5, advanced 10); 4 mandatory, 3 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+      "reviewNote": "v1 (CEO pack v2, sheet T60): new trade."
+    }
+  }
+}
