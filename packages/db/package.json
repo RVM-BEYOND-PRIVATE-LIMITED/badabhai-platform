@@ -53,6 +53,7 @@
     "db:seed:domain-skills": "tsx src/seed-domain-skills.ts",
     "db:verify:taxonomy": "tsx src/taxonomy-corpus.ts",
     "db:report:taxonomy": "tsx src/taxonomy-quality-gate.ts",
+    "db:report:trade-codes": "tsx src/report-trade-code-bindings.ts",
     "db:eval:taxonomy": "tsx src/taxonomy-retrieval-eval.ts",
     "db:replay:path-a": "tsx src/replay-path-a.ts",
     "db:embed:replay-queries": "tsx src/embed-replay-queries.ts",
