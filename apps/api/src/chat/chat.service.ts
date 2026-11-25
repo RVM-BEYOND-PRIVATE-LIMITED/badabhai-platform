@@ -18,6 +18,7 @@ import {
 } from "../profiling/orchestrator.service";
 import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
 import { ttsField, ttsTextFor } from "../profiling/question-tts-text";
+import { voiceHeld } from "../profiling/voice-hold";
 import {
   readGeneralFormCompletedAt,
   readGeneralRoadStamp,
@@ -998,7 +999,11 @@ export class ChatService {
             // FROM THE REPLAYED TURN too — a resubmit over a bad link must read aloud exactly as
             // the response it claims to repeat. ADR-0051: a replayed MODEL reply carries
             // `read_aloud: false` and no twin, as the response it repeats did.
-            ...readAloudFields(outcome.turn, () => this.ttsField(outcome.turn.reply, null)),
+            ...readAloudFields(
+              outcome.turn,
+              () => this.ttsField(outcome.turn.reply, null),
+              voiceHeld(outcome.envelope, outcome.turn.questionKey, outcome.turn.reply),
+            ),
             blocked: false,
             is_mock: false,
             // FROM THE REPLAYED TURN, not empty (#695). The orchestrator caches the chips
@@ -1457,7 +1462,11 @@ export class ChatService {
       // identical `renderPackText` so both strings carry the name the same way.
       // ADR-0051 §3.8 — a MODEL-WRITTEN reply (the free chat's casual or career answer) is never
       // read aloud: `read_aloud: false` and no `tts_text`. Every other turn is byte-identical.
-      ...readAloudFields(turn, () => this.ttsField(replyText, workerFullName)),
+      ...readAloudFields(
+        turn,
+        () => this.ttsField(replyText, workerFullName),
+        voiceHeld(buffered.profiling, turn.questionKey, replyText),
+      ),
       blocked: false,
       // PERMANENTLY FALSE, and deliberately not repurposed. The field meant "this reply
       // came from a mock LLM instead of a real one"; there is no LLM in this path at all,
@@ -3366,8 +3375,11 @@ function durableGeneralFormOffer(conversationState: unknown): GeneralFormOffer |
 function readAloudFields(
   turn: Pick<TurnResult, "readAloud">,
   tts: () => { tts_text?: string },
+  // #3018 — a question from a form whose voice is not signed yet (`voice-hold.ts`). The same wire
+  // as a model-written turn: the speaker is hidden rather than reading romanized text aloud.
+  held = false,
 ): { read_aloud?: false; tts_text?: string } {
-  return turn.readAloud === false ? { read_aloud: false } : tts();
+  return turn.readAloud === false || held ? { read_aloud: false } : tts();
 }
 
 /**

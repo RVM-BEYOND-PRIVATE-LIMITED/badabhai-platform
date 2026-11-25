@@ -14,6 +14,7 @@ import { ChatService, type ChatTurnOutcome } from "../chat/chat.service";
 import { TURN_KINDS } from "./conversation-state";
 import type { Lookahead, LookaheadEntry } from "./lookahead";
 import type { ServedQuestion, SessionView, TurnResult } from "./orchestrator.service";
+import { VOICE_FALLBACK_HINT } from "./voice-hold";
 import { ProfilingSessionService } from "./profiling-session.service";
 import { ProfilingStepSchema, type ProfilingStep } from "./profiling.dto";
 import { clipId } from "./reply-closure";
@@ -109,6 +110,8 @@ function makeWorld(
       workerId: string;
       status: string;
       conversationState?: unknown;
+      packId?: string | null;
+      packVersion?: number | null;
     } | null;
     view?: SessionView | null;
     outcome?: ChatTurnOutcome;
@@ -1847,5 +1850,88 @@ describe("the review's fill view (fill-gap Phase 3)", () => {
       dropped_by_projector: true,
     });
     expect(fill.settled).not.toContain("current_city");
+  });
+});
+
+/**
+ * #3018 — a voice session on a form whose voice is not signed yet gets the fixed tap-or-type line
+ * and a tappable question, never silence. The EDM prompts are the real ones: v1's has a Devanagari
+ * twin, v2's (CEO pack v2, sheet T17) does not.
+ */
+describe("a held voice (#3018)", () => {
+  const V2_PROMPT = "Aap kaunsi EDM machine chalate hain?";
+  const V1_PROMPT = "Kaunsi EDM machine chalate hain?";
+  const MACHINES = [
+    { option_key: "wirecut", label_text: "CNC wire cut (brass wire)", is_none_of_above: false },
+    { option_key: "unknown", label_text: "Koi aur machine", is_none_of_above: true },
+  ] as never;
+  const pinnedTurn = (packVersion: number, reply: string): ChatTurnOutcome => ({
+    kind: "turn",
+    turn: turn({ questionKey: "edm_machine", reply, options: MACHINES, answerType: "multi_select" }),
+    buffered: { profiling: { packId: "qp_edm_wirecut", packVersion } } as never,
+    terminal: false,
+    updateQueued: false,
+  });
+
+  it("serves a not-voice-ready form's question with the hint, its chips, and no tts_text", async () => {
+    const { service } = makeWorld({ outcome: pinnedTurn(2, V2_PROMPT) });
+
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+
+    if (step.kind !== "question") throw new Error("expected a question");
+    expect(step.question.voice_ready).toBe(false);
+    expect(step.question.voice_hint).toBe(VOICE_FALLBACK_HINT);
+    expect(step.question).not.toHaveProperty("tts_text");
+    expect(step.question.prompt_text).toBe(V2_PROMPT);
+    expect(step.question.options.map((o) => o.option_key)).toEqual(["wirecut", "unknown"]);
+  });
+
+  it("leaves a voice-ready form's question exactly as before: its twin, no hint", async () => {
+    const { service } = makeWorld({ outcome: pinnedTurn(1, V1_PROMPT) });
+
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+
+    if (step.kind !== "question") throw new Error("expected a question");
+    expect(step.question.tts_text).toBeDefined();
+    expect(step.question).not.toHaveProperty("voice_ready");
+    expect(step.question).not.toHaveProperty("voice_hint");
+  });
+
+  it("holds the voice on a replayed turn too, read from its envelope", async () => {
+    const { service } = makeWorld({
+      outcome: {
+        kind: "replay",
+        turn: turn({ questionKey: "edm_machine", reply: V2_PROMPT, options: MACHINES }),
+        envelope: { packId: "qp_edm_wirecut", packVersion: 2 } as never,
+      },
+    });
+
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+
+    if (step.kind !== "question") throw new Error("expected a question");
+    expect(step.question.voice_ready).toBe(false);
+  });
+
+  it("holds the voice on a reattached session, from the row's durable pin, with no extra read", async () => {
+    const { service, orchestrator } = makeWorld({
+      latest: {
+        id: SESSION,
+        workerId: WORKER,
+        status: "active",
+        packId: "qp_edm_wirecut",
+        packVersion: 2,
+      },
+      opened: turn({ questionKey: "edm_machine", reply: V2_PROMPT, options: MACHINES }),
+    });
+    const viewsBefore = orchestrator.viewSession.mock.calls.length;
+
+    const result = await service.start(WORKER, CTX);
+
+    expect(result.session_id).toBe(SESSION);
+    if (result.step.kind !== "question") throw new Error("expected a question");
+    expect(result.step.question.voice_ready).toBe(false);
+    expect(result.step.question.voice_hint).toBe(VOICE_FALLBACK_HINT);
+    // The reattach check may read the envelope (`notContinuable`); the voice decision adds none.
+    expect(orchestrator.viewSession.mock.calls.length - viewsBefore).toBeLessThanOrEqual(1);
   });
 });

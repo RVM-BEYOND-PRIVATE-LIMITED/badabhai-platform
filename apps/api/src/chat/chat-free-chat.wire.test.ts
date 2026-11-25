@@ -486,6 +486,33 @@ describe("POST /chat/message — only fixed lines are read aloud (R17, ADR-0051 
     ]);
   });
 
+  // #3018 — a question from a form whose voice is not signed yet hides the speaker, rather than
+  // the phone's Hindi voice reading romanized text. The prompts are EDM's real v1 and v2 lines.
+  const pinned = (packVersion: number) => ({
+    profiling: { ...emptyProfilingEnvelope(), packId: "qp_edm_wirecut", packVersion },
+  });
+
+  it("a held form's question (no twin) carries read_aloud:false and NO tts_text (#3018)", async () => {
+    const { svc } = make({
+      turn: { reply: "Aap kaunsi EDM machine chalate hain?", questionKey: "edm_machine" },
+      buffer: pinned(2),
+    });
+    const res = await svc.postMessage(WORKER, DTO, CTX);
+    expect(res.read_aloud).toBe(false);
+    expect("tts_text" in res).toBe(false);
+    expect(PostMessageResponseSchema.safeParse(res).success).toBe(true);
+  });
+
+  it("a voice-ready form's question still reads aloud as its twin (#3018)", async () => {
+    const { svc } = make({
+      turn: { reply: "Kaunsi EDM machine chalate hain?", questionKey: "edm_machine" },
+      buffer: pinned(1),
+    });
+    const res = await svc.postMessage(WORKER, DTO, CTX);
+    expect(res.tts_text).toBeDefined();
+    expect("read_aloud" in res).toBe(false);
+  });
+
   it("a REPLAYED model turn is not read aloud either", async () => {
     const { svc } = make({ turn: { reply: "Sab badhiya.", replayed: true, readAloud: false } });
     const res = await svc.postMessage(WORKER, DTO, CTX);
