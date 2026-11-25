@@ -97,6 +97,23 @@ describe("the sidebar it hands the shell", () => {
     expect(labels().length).toBeLessThanOrEqual(16);
   });
 
+  it("App versions shows only to a session holding manage_app_release_policy (#3058)", async () => {
+    stub.capabilities = ["read_entities", "read_candidates", "read_events", "manage_admins"];
+    await render();
+    expect(labels()).not.toContain("App versions");
+    stub.capabilities = [
+      "read_entities",
+      "read_candidates",
+      "read_events",
+      "manage_app_release_policy",
+    ];
+    await render();
+    expect(labels()).toContain("App versions");
+    expect(
+      stub.shell!.sections.find((s) => s.title === "Audit & Admin")?.items.map((i) => i.label),
+    ).toEqual(["Events", "Roles", "System", "App versions"]);
+  });
+
   it("a group with nothing left in it is dropped, not drawn empty", async () => {
     stub.capabilities = [];
     await render();
