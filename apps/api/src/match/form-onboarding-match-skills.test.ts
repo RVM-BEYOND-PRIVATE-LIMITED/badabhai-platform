@@ -191,7 +191,8 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
     qp_foundry_forging: ["mskill_foundry_forging_operator"],
     qp_industrial_electrician: ["mskill_industrial_electrician"],
     qp_assembly_line: ["mskill_assembly_line_worker"],
-    // #3011: the nine new Wave 1 trades each reach their own skill and nothing else.
+    // #3011: the nine new Wave 1 trades each reach their own skill; the foundry split
+    // (T24-T26) joins them here.
     qp_cnc_router: ["mskill_cnc_router_operator"],
     qp_cmm: ["mskill_cmm_operator"],
     qp_quality_engineer: ["mskill_quality_engineer"],
@@ -201,6 +202,9 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
     qp_npd_engineer: ["mskill_npd_engineer"],
     qp_ppc: ["mskill_ppc_engineer"],
     qp_purchase: ["mskill_purchase_engineer"],
+    qp_foundry_casting: ["mskill_foundry_operator"],
+    qp_die_casting: ["mskill_die_casting_operator"],
+    qp_forging: ["mskill_forging_operator"],
   };
 
   it("pins every mapped pack", () => {
@@ -386,8 +390,7 @@ describe("a generic qp_electrical chat agrees with the industrial-electrician fo
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Driven by `TRADE_CATALOGUE.claimQuestionKey`, so a trade whose claim key is recorded is tested
- * here without another edit. The foundry split (#3009) and Waves 2 and 3 (#3016, #3017) join as
- * their keys land.
+ * here without another edit. Waves 2 and 3 (#3016, #3017) join as their keys land.
  */
 describe("each Wave 1 form's claim question (#3011)", () => {
   const WAVE1 = TRADE_CATALOGUE.filter((e) => e.wave === 1 && e.claimQuestionKey !== undefined);
@@ -403,6 +406,7 @@ describe("each Wave 1 form's claim question (#3011)", () => {
   /** Claim questions that offer no none-of-above chip, so the escape case does not apply. */
   const NO_ESCAPE_ON_CLAIM = [
     "qp_cad_design_3d",
+    "qp_foundry_casting",
     "qp_heat_treatment",
     "qp_maintenance_engineer",
     "qp_npd_engineer",
@@ -412,10 +416,13 @@ describe("each Wave 1 form's claim question (#3011)", () => {
     "qp_quality_engineer",
   ];
 
-  it("covers the fifteen Wave 1 forms on main (all but the #3009 foundry split)", () => {
+  it("covers the eighteen Wave 1 forms on main (fifteen plus the #3009 foundry split)", () => {
     expect(WAVE1.map((e) => e.code).sort()).toEqual([
       "T17",
       "T21",
+      "T24",
+      "T25",
+      "T26",
       "T27",
       "T29",
       "T33",

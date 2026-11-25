@@ -117,6 +117,9 @@ const PROCESS_ENGINEER = ["mskill_process_engineer"] as const;
 const NPD_ENGINEER = ["mskill_npd_engineer"] as const;
 const PPC_ENGINEER = ["mskill_ppc_engineer"] as const;
 const PURCHASE_ENGINEER = ["mskill_purchase_engineer"] as const;
+const FOUNDRY_OPERATOR = ["mskill_foundry_operator"] as const;
+const DIE_CASTING_OPERATOR = ["mskill_die_casting_operator"] as const;
+const FORGING_OPERATOR = ["mskill_forging_operator"] as const;
 /** A second-skill chip's skill (pack "Chips that add a second match skill"). */
 const ROBOT_OPERATOR_PROGRAMMER = ["mskill_robot_operator_programmer"] as const;
 /** The 3D CAD trade rides the ROLE bridge to `mskill_cad_designer_3d`. */
@@ -646,6 +649,55 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       import_purchase: PURCHASE_ENGINEER,
       capex_purchase: PURCHASE_ENGINEER,
       payment_followup: PURCHASE_ENGINEER,
+    },
+  },
+
+  // T24 "Foundry ke kaunse section me aap kaam karte hain?" — every section is the trade's
+  // claim; the stem scopes each chip to foundry work. The form offers no none-of-above chip
+  // on this question, so every option maps. `foundry_process` (the casting process) is the
+  // next mandatory select but is not the claim: the claim is the first mandatory select
+  // after the level and confirm questions (#3011 §1), and the other questions stay
+  // unmapped (rules 1 to 3).
+  qp_foundry_casting: {
+    foundry_section: {
+      moulding: FOUNDRY_OPERATOR,
+      core_making: FOUNDRY_OPERATOR,
+      melting: FOUNDRY_OPERATOR,
+      pouring: FOUNDRY_OPERATOR,
+      sand_plant: FOUNDRY_OPERATOR,
+      knock_out: FOUNDRY_OPERATOR,
+      fettling: FOUNDRY_OPERATOR,
+      shot_blasting: FOUNDRY_OPERATOR,
+      wax_shell_room: FOUNDRY_OPERATOR,
+    },
+  },
+
+  // T25 "Aap kaunsi die casting karte hain?" — every named process is the trade's claim.
+  // `unknown` ("Koi aur process") is the none-of-above escape and claims nothing.
+  qp_die_casting: {
+    diecast_process: {
+      hpdc_cold: DIE_CASTING_OPERATOR,
+      hpdc_hot: DIE_CASTING_OPERATOR,
+      lpdc: DIE_CASTING_OPERATOR,
+      gdc: DIE_CASTING_OPERATOR,
+    },
+  },
+
+  // T26 "Aap kaunsi forging machine par kaam karte hain?" — every named machine is the
+  // trade's claim. `unknown` ("Koi aur machine") is the none-of-above escape and claims
+  // nothing. `forging_type` (the forging process) is the next mandatory select but is not
+  // the claim: the claim is the first mandatory select after the level and confirm
+  // questions (#3011 §1).
+  qp_forging: {
+    forging_machine: {
+      drop_hammer: FORGING_OPERATOR,
+      power_hammer: FORGING_OPERATOR,
+      screw_press: FORGING_OPERATOR,
+      forging_press: FORGING_OPERATOR,
+      hydraulic_press: FORGING_OPERATOR,
+      upsetter: FORGING_OPERATOR,
+      ring_rolling_mill: FORGING_OPERATOR,
+      bolt_former: FORGING_OPERATOR,
     },
   },
 
