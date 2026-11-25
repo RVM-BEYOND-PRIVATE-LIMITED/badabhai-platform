@@ -1,9 +1,17 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { QuestionPack } from "@badabhai/ai-contracts";
-import { jobRoleLabel } from "@badabhai/types";
 import {
+  JOB_ROLE_DEPARTMENTS,
+  JOB_ROLE_DEPARTMENT_BY_KIND,
+  jobRoleLabel,
+  type JobRoleDepartment,
+  type TradeFormKindName,
+} from "@badabhai/types";
+import {
+  LIVE_POSTING_TRADE_KINDS,
   PACK_ANSWER_SKILLS,
   POSTING_TRADES,
+  TRADE_CATALOGUE,
   TRADE_LEVEL_LABELS,
   isMatchSkillId,
   matchSkillForRole,
@@ -46,6 +54,59 @@ export interface PostingTradeForm {
   match_skill_id: string;
   ladder: PostingTradeLadderRung[];
   questions: PostingTradeQuestion[];
+}
+
+/**
+ * #3006 — one row of the trade picker (`GET /payer/posting-trades/catalogue`). Labels only: the
+ * client never writes a trade or department name of its own.
+ */
+export interface PostingTradeCatalogueRow {
+  role_kind: string;
+  role_label: string;
+  /** The department id (`JOB_ROLE_DEPARTMENTS`, #2999). */
+  department: JobRoleDepartment;
+  department_label: string;
+  kind: "shop_floor" | "desk";
+}
+
+/** #3006 — one trade's form (`GET /payer/posting-trades/:roleKind`), with its department added. */
+export interface PostingTradeDetail extends PostingTradeForm {
+  department: JobRoleDepartment;
+}
+
+/**
+ * #3006 — THE TRADES `GET /payer/posting-trades` SERVES, WHATEVER THE RELEASE TABLE SAYS.
+ *
+ * That route returns every trade's WHOLE form in one reply, and it is what the installed
+ * company apps read. Those copies have no "update required" check, so they must keep receiving
+ * exactly the 16 trades they receive today: a 17th trade switched on would reach a build that
+ * was never tested with it, and a live trade switched off would vanish from a form a company is
+ * filling. New clients read `/catalogue` and `/:roleKind`, which follow the switch.
+ *
+ * LIFT THIS when the company app enforces a minimum build (server side #3048, app check #3049)
+ * and that minimum is raised past every build that reads this route; then the route can follow
+ * the switch, or be retired.
+ */
+export const LEGACY_LIST_TRADE_KINDS = LIVE_POSTING_TRADE_KINDS;
+
+const LEGACY_LIST_KIND_SET: ReadonlySet<string> = new Set(LEGACY_LIST_TRADE_KINDS);
+
+const DEPARTMENT_ORDER: ReadonlyMap<string, number> = new Map(
+  JOB_ROLE_DEPARTMENTS.map((department, i) => [department.id, i]),
+);
+const DEPARTMENT_LABEL: ReadonlyMap<string, string> = new Map(
+  JOB_ROLE_DEPARTMENTS.map((department) => [department.id, department.label]),
+);
+/** Pack order: the CEO pack's trade code, T01..T60. */
+const PACK_ORDER: ReadonlyMap<string, number> = new Map(
+  TRADE_CATALOGUE.map((entry) => [entry.roleKind, Number(entry.code.slice(1))]),
+);
+const TRADE_KIND: ReadonlyMap<string, "shop_floor" | "desk"> = new Map(
+  TRADE_CATALOGUE.map((entry) => [entry.roleKind, entry.kind]),
+);
+
+function departmentOf(roleKind: string): JobRoleDepartment {
+  return JOB_ROLE_DEPARTMENT_BY_KIND[roleKind as TradeFormKindName];
 }
 
 /** What a validated trade selection yields. */
@@ -122,6 +183,52 @@ export class PostingTradesService {
         this.buildForm(trade, now),
       ),
     );
+  }
+
+  /**
+   * #3006 — `GET /payer/posting-trades`: exactly the 16 {@link LEGACY_LIST_TRADE_KINDS}, in
+   * their catalogue order, whatever the release table says (installed apps read this route).
+   */
+  async listLegacyForms(now: number = Date.now()): Promise<PostingTradeForm[]> {
+    return Promise.all(
+      POSTING_TRADES.filter((trade) => LEGACY_LIST_KIND_SET.has(trade.roleKind)).map(
+        async (trade) => this.buildForm(trade, now),
+      ),
+    );
+  }
+
+  /**
+   * #3006 — `GET /payer/posting-trades/catalogue`: one light row per trade whose posting switch
+   * is on, in department order (`JOB_ROLE_DEPARTMENTS`) then pack order (T01..T60). One read of
+   * the switch table; no pack is loaded.
+   */
+  async catalogue(): Promise<PostingTradeCatalogueRow[]> {
+    const enabled = await this.release.postingEnabledKinds();
+    return POSTING_TRADES.filter((trade) => enabled.has(trade.roleKind))
+      .map((trade): PostingTradeCatalogueRow => {
+        const department = departmentOf(trade.roleKind);
+        return {
+          role_kind: trade.roleKind,
+          role_label: jobRoleLabel(trade.roleKind) ?? trade.roleKind,
+          department,
+          department_label: DEPARTMENT_LABEL.get(department) ?? department,
+          kind: TRADE_KIND.get(trade.roleKind) ?? "shop_floor",
+        };
+      })
+      .sort(
+        (a, b) =>
+          (DEPARTMENT_ORDER.get(a.department) ?? 99) - (DEPARTMENT_ORDER.get(b.department) ?? 99) ||
+          (PACK_ORDER.get(a.role_kind) ?? 99) - (PACK_ORDER.get(b.role_kind) ?? 99),
+      );
+  }
+
+  /**
+   * #3006 — `GET /payer/posting-trades/:roleKind`: one trade's form with its department, or null
+   * (the route's 404) for an unknown kind or one whose posting switch is off.
+   */
+  async detail(roleKind: string, now: number = Date.now()): Promise<PostingTradeDetail | null> {
+    const form = await this.formFor(roleKind, now);
+    return form === null ? null : { ...form, department: departmentOf(form.role_kind) };
   }
 
   /**

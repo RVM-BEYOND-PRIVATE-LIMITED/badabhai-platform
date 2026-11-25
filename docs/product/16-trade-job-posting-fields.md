@@ -80,7 +80,10 @@ kept, but matching runs only for the 16:
 - `PostingTradesModule` / `PostingTradesService` build the form from the **active pack** through
   `PackRegistryService`, so question text and chips cannot drift from the worker interview.
 - `GET /payer/posting-trades` (PayerAuthGuard) returns the 16 trades, ladders and questions;
-  each chip carries `match` and its `match_skill_ids`.
+  each chip carries `match` and its `match_skill_ids`. It stays on the 16 whatever the release
+  switch says (installed apps read it). `GET /payer/posting-trades/catalogue` (picker rows) and
+  `GET /payer/posting-trades/:roleKind` (one form) follow the switch: see
+  `docs/api/payer-posting-trades-api-reference.md` (#3006).
 - `PostingTradesService.normalizeSelection` validates the role, rung, question keys and option
   keys, and derives the match set server-side (base + selected match chips). A client cannot
   widen the set through the trade form.

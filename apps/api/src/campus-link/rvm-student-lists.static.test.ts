@@ -132,6 +132,8 @@ const COMPANY_ROUTES: Readonly<Record<string, RvmListClass>> = {
   "GET /payer/me/phone-proof": NONE,
   "GET /payer/org/members": NONE, // the company's own team
   "GET /payer/posting-trades": NONE,
+  "GET /payer/posting-trades/:P": NONE, // one trade's form (#3006)
+  "GET /payer/posting-trades/catalogue": NONE, // the picker rows (#3006)
   "GET /payer/pricing/catalog": NONE,
   "GET /payer/reach/applicant-stages": NONE,
   "GET /payer/relay/templates": NONE,
