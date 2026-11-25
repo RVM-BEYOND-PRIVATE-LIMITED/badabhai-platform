@@ -6,6 +6,14 @@ checked-in question packs under `packages/db/data/question-packs/packs`.
 Owner ruling: only the 16 non-polymer trades are postable today. The five polymer roles stay
 declared on the worker side, but they are absent from every posting picker.
 
+> **The catalogue is now 60 trades** (CEO pack v2, ruled 23 Nov 2026;
+> [ADR-0070](../decisions/0070-sixty-trade-catalogue.md)). The list lives in `TRADE_CATALOGUE`
+> (`packages/taxonomy/src/trade-catalogue.ts`), one row per trade with its department, ladder
+> and posting question keys. All 60 become postable, one wave at a time. A trade is postable
+> once its `trade_release` row has `posting_enabled` on (migration 0198), and the owner flips
+> that switch. Until the posting catalogue reads the switch (#3005, #3006), the 16 below
+> (`POSTING_TRADE_KINDS`) are still the only postable trades, and this document describes them.
+
 ## The rule the document states
 
 A posting form asks, in order:

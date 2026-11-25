@@ -1,9 +1,16 @@
 # Authoring a role pack
 
-How to add deep, role-specific profiling for one trade — the thing that turns a generic
-eight-question interview into a resume an employer will act on.
+How to add deep, role-specific profiling for one trade — the thing that turns the generic
+common interview into a resume an employer will act on.
 
 `qp_cnc_turning@1` is the worked example. Read it beside this guide.
+
+> **Since 25 Nov 2026 a trade is added through the 60-trade catalogue**
+> ([ADR-0070](../decisions/0070-sixty-trade-catalogue.md)). The form is compiled from the trade's
+> sheet in the CEO pack, never typed. Each trade has one row in `TRADE_CATALOGUE`, and three
+> consistency tests name every list the trade is still missing from. A release switch in the
+> database decides when companies can post the trade. Follow [§8](#8-checklist). §2–§7 still
+> explain what each list means and why the gates exist.
 
 > **Scope.** A role pack is **data**. Adding a role is authoring JSON + a review, not a code
 > change and not a deploy of new logic. If you find yourself needing an engine change, stop and
@@ -165,22 +172,47 @@ normalizer brings it back.
 
 ## 3. The ask budget
 
-**`MAX_ENGINE_ASKS = 24`** (`apps/api/src/profiling/next-question.ts`). `qp_universal@2` always
-spends **8** of them. Your role pack therefore has **~16**, and going over does not error — it
-**truncates the interview**, dropping your last questions for exactly the senior workers whose depth
-you wrote the pack for.
+**`MAX_ENGINE_ASKS = 48`** (`apps/api/src/profiling/next-question.ts`; raised 28 → 48 by owner
+policy on 2026-09-18). The common tail, `qp_universal@8`, costs **19** of them: 17 questions plus
+one retry each for its two mandatory questions, `primary_trade` and `current_city` (both
+`max_asks: 2`). Your trade form therefore has **29 asks, retries included**. Going over does not
+error: it **truncates the interview** and drops your last questions, for exactly the senior
+workers whose depth you wrote the form for.
 
-Budget it explicitly, and write the arithmetic into the pack's `_budget` note. `qp_cnc_turning`:
+**How the budget is counted** (`apps/api/src/profiling/ask-budget.guard.test.ts`): every question
+once, plus `max_asks − 1` retries for each **mandatory** question (an optional question is never
+pressed). Experience tiers that cannot both apply to one worker are maxed, not summed: a fresher
+block gated `lte 0` and a senior block gated `gte 5` never meet. The test pins the worst walk in
+the corpus exactly (**39** today, headroom **9**). A form that changes the worst walk updates that
+pin in the same commit, on purpose.
 
-| tier       | items | running total (+8 universal) |
-| ---------- | ----- | ---------------------------- |
-| base       | 8     | 16                           |
-| `>= 2 yrs` | +3    | 19                           |
-| `>= 5 yrs` | +4    | 23                           |
+A compiled sheet form at the largest size the pack allows (23 questions, 4 of them mandatory; the
+compiler gives the experience and level questions `max_asks: 2` and every other question
+`max_asks: 1`):
 
-`qp_universal@2` already asks: `primary_trade`, `experience_years`, `current_city`,
-`salary_expected`, `preferred_locations`, `availability`, `education`, `shift_preference`.
-**Never duplicate these.**
+| part                                   | asks         |
+| -------------------------------------- | ------------ |
+| trade form questions                   | at most 23   |
+| trade form retries (experience, level) | 2            |
+| `qp_universal@8` questions             | 17           |
+| `qp_universal@8` retries               | 2            |
+| **total**                              | **44 of 48** |
+
+The 23 is an upper bound. The fresher block is asked only at experience 0, so no real worker meets
+every question.
+
+`qp_universal@8` already asks: `primary_trade`, `experience_years`, `current_city`,
+`salary_expected`, `preferred_locations`, `availability`, `education`, `shift_preference`,
+`languages`, `work_types`, `willing_to_travel`, `commute_max_km`, `salary_period`,
+`training_done`, `training_name`, `training_provider`, `training_year`. **Never duplicate these.**
+
+### `_budget` notes in published forms are historical
+
+Many forms carry a `_budget` note written against the cap and the common tail of their day. For
+example, `qp_edm_wirecut.json` says "MAX_ENGINE_ASKS is 28 and qp_universal spends 8", and others
+say "qp_universal@4 spends at most 18". **Those numbers are history, not the budget.** A published
+file is never edited, so the old note stays. The current numbers are the ones in this section and
+in the guard test.
 
 ---
 
@@ -435,42 +467,72 @@ anything with `max_asks: 2`.
 
 ## 8. Checklist
 
-1. Confirm the trade has depth worth 8–16 questions that `qp_universal` does not already ask.
-2. **Do the reachability work in §2b FIRST** — list the phrases a worker says, find which job
-   domains own them, and decide which of those codes are unambiguously your trade. Authoring before
-   this step is how you write a pack nobody reaches.
-3. Find and **verify** every NCO `job_domain_id` exists in the catalogue.
-4. Add the family + one binding per occupation to `_families.jsonl`, and the family's **Latin twin**
-   to `FAMILY_CHIP_LABELS` (`apps/api/src/occupation/family-chip-labels.ts`) — see §2.
-5. Author `packs/<pack_id>.json` (v1; later versions are `<pack_id>@<n>.json` — a shipped version is
-   immutable and is never overwritten).
-6. Gate question first; tier the rest; keep the arithmetic inside the ask budget.
-   Tag every item's `min_tier` (§4, "Tag every question with `min_tier`"), and add the role's
-   Easy capability heading to its résumé map's `tier_section_titles`.
-7. Append to `_published-versions.jsonl`.
-8. Author a **Devanagari twin for every served string** you wrote — each `prompt_text`, `why_text`
-   and `retry_text` — in `apps/api/src/profiling/question-tts-text.ts` (prompts and retries go in
-   `QUESTION_TTS_TEXT`, why-texts in `WHY_TTS_TEXT`). The clarify twins compose themselves from the
-   why-prefix, so you never author those. Skip this and a voice-form worker meets **silence** at
-   your questions.
-9. Regenerate the two golden manifests, which is expected and additive for a new pack:
+Adding a trade is four steps ([ADR-0070](../decisions/0070-sixty-trade-catalogue.md)). You do
+not wire the lists one by one from memory: the consistency tests in step 4 name each one that is
+still missing.
+
+1. **Add the sheet to the pack.** The trade's sheet goes into section 9 of
+   `docs/reference/BadaBhai_Manufacturing_Taxonomy_and_Question_Pack_v2.md`, in the pack's sheet
+   format. The pack is the source of every name, ladder, question, chip, phrase and code, so the
+   sheet comes from a CEO ruling, not from an engineer. Do the reachability work in §2b on the
+   sheet's "Words" lines before you build anything: a form nobody reaches passes every other gate.
+2. **Add the manifest entry.** Add one row to `TRADE_CATALOGUE`
+   (`packages/taxonomy/src/trade-catalogue.ts`), copied from the sheet header: code, role kind,
+   department, shop floor or desk, status, wave, pack, family, base match skill, ladder, confirmed
+   and higher-price rungs, level key, related skills, posting question keys and NCO codes. A role
+   kind, match skill or rung key the trade needs and the code does not have yet is **declared
+   first**, in its own change: `TRADE_FORM_KINDS_ALL` plus the migration that widens the
+   role-kind CHECK lists, `MATCH_SKILLS` and its pairs, the `TradeLevel` keys.
+3. **Run the compiler.** Add the form's entry to
+   `packages/db/data/question-packs/_sheet-overrides.json`: version, retry wording, why, scope and
+   budget notes, kept live keys, and option keys for number bands. The compiler names anything
+   that is missing. Then:
+   ```bash
+   cd packages/db
+   pnpm run db:compile:sheets          # dry run: prints the diff, writes nothing
+   pnpm run db:compile:sheets --write  # writes packs/<pack_id>.json, or <pack_id>@<n>.json
+   ```
+   Append `<pack_id>@<version>` to `_published-versions.jsonl` (§2, "Record the version"). **A
+   changed form is a new version:** `--write` refuses a published version and never overwrites a
+   file with different bytes. Never hand-edit a compiled form; change the sheet or the overrides
+   and compile again.
+4. **Run the consistency tests** with the trade's wave loaded (`LOADED_WAVE` at or above the
+   row's `wave`; raise it in the change that loads the wave):
+
+   ```bash
+   cd packages/taxonomy && npx vitest run src/trade-catalogue.consistency.test.ts
+   cd apps/api          && npx vitest run src/profiling/roles/trade-catalogue.api-parity.test.ts
+   cd packages/db       && npx vitest run src/trade-catalogue.db-parity.test.ts
+   ```
+
+   Each failure names a list the trade is still missing from:
+   - role kind and label;
+   - match skill and its pairs;
+   - level table and confirm questions;
+   - posting ladder and answer-to-skill rows;
+   - role descriptor, résumé map and chip label;
+   - family, NCO code bindings and form file.
+
+   Fix each one and run again until all three are green. Then run the usual gates:
+   `db:verify:packs`, the `packages/db` suite, and `apps/api` `src/profiling`. The profiling run
+   covers the budget guard (§3) and the two goldens, which must change **additively only**:
+
    ```bash
    cd apps/api
    UPDATE_PACK_SERVED_TEXT=1 npx vitest run src/profiling/pack-served-text.golden.test.ts
    UPDATE_REPLY_CLOSURE=1    npx vitest run src/profiling/reply-closure.golden.test.ts
    ```
-   Check the diff is **additive only** — a deletion means you changed a shipped pack's wording,
-   which you may not do.
-10. Run the gates:
-    ```bash
-    cd packages/db && pnpm run db:verify:packs   # corpus + 12 structural checks
-    cd packages/db && npx vitest run             # reachability + coverage + predicate corpus
-    cd apps/api    && npx vitest run src/profiling
-    ```
-11. **Inject the `value_text` mutation into your gate and watch the proof test go red.** A green
-    test you have never seen fail is not evidence.
-12. Send the pack to a **practising worker in that trade** for vocabulary review. The validator
-    checks structure; only a turner knows whether "Khraad" is the word used on that shop floor.
+
+**The tests do not check these:**
+
+- **Reachability** (§2b): pin the sheet's phrases in `question-pack-reachability.test.ts`.
+- **The `value_text` trap** (§4): the compiler writes the experience question with `value_number`
+  only. If you touch a gate, inject the mutation and watch the proof test go red.
+- **Voice:** the Devanagari twins in `question-tts-text.ts` wait for the sheet's wording sign-off
+  (#3018). Until then a voice-form worker meets silence at those questions.
+- **Vocabulary review** by a practising worker in the trade (#3029).
+- **Going live is an owner step.** Merging a form makes it postable by nobody. The owner seeds the
+  phrases and codes and then flips the trade's `trade_release` row (ADR-0070 §2.5).
 
 ---
 
@@ -480,9 +542,9 @@ Honest state of the rails as of `qp_cnc_turning@1`:
 
 - **Work history (employer, city, dates, role stints) cannot come from a pack.** The engine asks
   each `question_key` once, so a multi-employer loop would need one fixed block of keys per
-  employer — roughly 6 questions each, which does not fit inside `MAX_ENGINE_ASKS = 24` alongside
-  real trade depth. This needs either a dedicated post-interview form screen or an engine-level
-  loop, and is an open decision, not something to solve inside a pack.
+  employer, roughly 6 questions each. That did not fit the cap of 24 when this was written, and it
+  still crowds out trade depth at 48. It is now the post-interview work-history form
+  (`apps/api/src/profiles/worker-employment.dto.ts`), not something to solve inside a pack.
 - **Trade-agnostic resume fields** — documents held, languages spoken, structured education
   (board / year / institution), certificates (issuer / year) — belong in a `qp_universal@3`, not in
   each role pack. Duplicating them per role is cheap to unwind later (`question_key` is stable
