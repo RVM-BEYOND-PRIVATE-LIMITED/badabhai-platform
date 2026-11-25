@@ -58,6 +58,13 @@ export interface TradeCatalogueEntry {
   readonly higherPriceFrom: string;
   /** The pack's level question key. */
   readonly levelKey: string;
+  /**
+   * The trade's main claim question (#3011): the first mandatory select after the level and
+   * confirm questions, the one the résumé headline names. Every non-escape chip of it yields
+   * `matchSkillId` through `PACK_ANSWER_SKILLS`. Recorded per trade as its rows land; absent
+   * until then (the foundry split #3009, Waves 2 and 3, and the 16 live trades).
+   */
+  readonly claimQuestionKey?: string;
   /** Related trade skills (pack section 5; pairs land with #3001). */
   readonly relatedTo: readonly string[];
   /** Ordered question keys a posting of this trade may ask (#3005 rule). */
@@ -738,6 +745,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "setter",
     higherPriceFrom: "setter",
     levelKey: "edm_level",
+    claimQuestionKey: "edm_machine",
     relatedTo: ["mskill_tool_die_maker"],
     postingQuestionKeys: [
       "edm_machine",
@@ -778,6 +786,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "setter",
     higherPriceFrom: "programmer",
     levelKey: "router_level",
+    claimQuestionKey: "router_machine_type",
     relatedTo: ["mskill_cam_programmer"],
     postingQuestionKeys: [
       "router_machine_type",
@@ -961,6 +970,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "skilled",
     higherPriceFrom: "skilled",
     levelKey: "heat_level",
+    claimQuestionKey: "heat_process",
     relatedTo: ["mskill_material_lab_technician"],
     postingQuestionKeys: [
       "heat_process",
@@ -1000,6 +1010,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "setter",
     higherPriceFrom: "setter",
     levelKey: "moulding_level",
+    claimQuestionKey: "moulding_machine_brand",
     relatedTo: [
       "mskill_blow_moulding_operator",
       "mskill_plastic_extrusion_operator",
@@ -1044,6 +1055,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "programmer",
     higherPriceFrom: "programmer",
     levelKey: "cmm_level",
+    claimQuestionKey: "cmm_machine_type",
     relatedTo: ["mskill_quality_inspector", "mskill_calibration_technician"],
     postingQuestionKeys: [
       "cmm_machine_type",
@@ -1085,6 +1097,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "senior_engineer",
     higherPriceFrom: "engineer",
     levelKey: "qe_level",
+    claimQuestionKey: "qe_function",
     relatedTo: ["mskill_quality_inspector"],
     postingQuestionKeys: [
       "qe_function",
@@ -1125,6 +1138,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "senior_technician",
     higherPriceFrom: "senior_technician",
     levelKey: "plc_level",
+    claimQuestionKey: "plc_brand",
     relatedTo: [
       "mskill_industrial_electrician",
       "mskill_instrumentation_technician",
@@ -1169,6 +1183,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "senior_engineer",
     higherPriceFrom: "engineer",
     levelKey: "me_level",
+    claimQuestionKey: "me_function",
     relatedTo: ["mskill_maintenance_technician", "mskill_service_engineer"],
     postingQuestionKeys: [
       "me_function",
@@ -1207,6 +1222,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "supervisor",
     higherPriceFrom: "senior",
     levelKey: "supervision_level",
+    claimQuestionKey: "supervision_area",
     relatedTo: ["mskill_production_engineer"],
     postingQuestionKeys: [
       "supervision_area",
@@ -1273,6 +1289,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "senior_engineer",
     higherPriceFrom: "engineer",
     levelKey: "prod_level",
+    claimQuestionKey: "prod_shop_type",
     relatedTo: ["mskill_production_supervisor", "mskill_process_engineer", "mskill_ppc_engineer"],
     postingQuestionKeys: [
       "prod_shop_type",
@@ -1313,6 +1330,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "senior_engineer",
     higherPriceFrom: "engineer",
     levelKey: "proc_level",
+    claimQuestionKey: "proc_function",
     relatedTo: ["mskill_production_engineer", "mskill_npd_engineer"],
     postingQuestionKeys: [
       "proc_function",
@@ -1366,6 +1384,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "senior_engineer",
     higherPriceFrom: "engineer",
     levelKey: "npd_level",
+    claimQuestionKey: "npd_function",
     relatedTo: ["mskill_process_engineer", "mskill_cad_designer_3d"],
     postingQuestionKeys: [
       "npd_function",
@@ -1414,6 +1433,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "senior_engineer",
     higherPriceFrom: "engineer",
     levelKey: "ppc_level",
+    claimQuestionKey: "ppc_function",
     relatedTo: ["mskill_production_engineer", "mskill_purchase_engineer"],
     postingQuestionKeys: [
       "ppc_function",
@@ -1454,6 +1474,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "senior_engineer",
     higherPriceFrom: "engineer",
     levelKey: "purchase_level",
+    claimQuestionKey: "purchase_function",
     relatedTo: ["mskill_ppc_engineer", "mskill_store_keeper"],
     postingQuestionKeys: [
       "purchase_function",
@@ -1494,6 +1515,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "senior_designer",
     higherPriceFrom: "designer",
     levelKey: "design_level",
+    claimQuestionKey: "design_work_area",
     relatedTo: ["mskill_designer", "mskill_npd_engineer", "mskill_cae_analyst"],
     postingQuestionKeys: [
       "design_work_area",

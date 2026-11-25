@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { resolveReachSet } from "@badabhai/match-engine";
 import {
+  LOADED_WAVE,
   PACKS_WITHOUT_MATCH_SKILL,
   PACK_ANSWER_SKILLS,
   ROLE_TO_MATCH_SKILL,
+  TRADE_CATALOGUE,
   isMatchSkillId,
 } from "@badabhai/taxonomy";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
@@ -127,13 +129,18 @@ describe("demo-matching plan — catalogue", () => {
   it("every form-onboarding trade the taxonomy bridges is posted; every no-skill pack's kind is skipped", () => {
     const posted = new Set(DEMO_TRADES.map((t) => t.roleKind));
     const skipped = new Set<string>(SKIPPED_ROLE_KINDS);
+    // A CEO pack v2 trade above the loaded wave can be bridged (#3011 lands its rows ahead of the
+    // wave) while its demo row waits for #3025; it must be posted once its wave loads (#3013).
+    const unloaded = new Set(
+      TRADE_CATALOGUE.filter((e) => e.wave > LOADED_WAVE).map((e) => e.roleKind),
+    );
     for (const [kind, packId] of Object.entries(FORM_KIND_PACK)) {
       if ((PACKS_WITHOUT_MATCH_SKILL as readonly string[]).includes(packId)) {
         expect(skipped.has(kind), `${kind} (${packId}) has no match skill — must be skipped`).toBe(
           true,
         );
       }
-      if (packId in PACK_ANSWER_SKILLS) {
+      if (packId in PACK_ANSWER_SKILLS && !(unloaded.has(kind) && skipped.has(kind))) {
         expect(posted.has(kind as never), `${kind} (${packId}) is bridged — must be posted`).toBe(
           true,
         );

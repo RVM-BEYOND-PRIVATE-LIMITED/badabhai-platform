@@ -106,6 +106,22 @@ const PRODUCTION_SUPERVISOR = ["mskill_production_supervisor"] as const;
 const INDUSTRIAL_ELECTRICIAN = ["mskill_industrial_electrician"] as const;
 const ASSEMBLY_LINE_WORKER = ["mskill_assembly_line_worker"] as const;
 
+// ── The Wave 1 trades of CEO pack v2 (#3011) — each pack-only skill, named once ────────────────
+// Minted by #3001 with no role and no corpus id, so the trade's own form is the only evidence.
+const CNC_ROUTER_OPERATOR = ["mskill_cnc_router_operator"] as const;
+const CMM_OPERATOR = ["mskill_cmm_operator"] as const;
+const QUALITY_ENGINEER = ["mskill_quality_engineer"] as const;
+const MAINTENANCE_ENGINEER = ["mskill_maintenance_engineer"] as const;
+const PRODUCTION_ENGINEER = ["mskill_production_engineer"] as const;
+const PROCESS_ENGINEER = ["mskill_process_engineer"] as const;
+const NPD_ENGINEER = ["mskill_npd_engineer"] as const;
+const PPC_ENGINEER = ["mskill_ppc_engineer"] as const;
+const PURCHASE_ENGINEER = ["mskill_purchase_engineer"] as const;
+/** A second-skill chip's skill (pack "Chips that add a second match skill"). */
+const ROBOT_OPERATOR_PROGRAMMER = ["mskill_robot_operator_programmer"] as const;
+/** The 3D CAD trade rides the ROLE bridge to `mskill_cad_designer_3d`. */
+const CAD_DESIGNER_3D = ["role_cad_designer_3d"] as const;
+
 /**
  * `pack_id` → `attribute_key` (= the pack item's `question_key`) → `option_key` → taxonomy ids.
  *
@@ -365,6 +381,11 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       moulding: PRODUCTION_SUPERVISOR,
       paint_shop: PRODUCTION_SUPERVISOR,
       packaging: PRODUCTION_SUPERVISOR,
+      // v2 (sheet T45, #3011) asks the kept key with the sheet's shop chips; the same rule.
+      press_shop: PRODUCTION_SUPERVISOR,
+      weld_shop: PRODUCTION_SUPERVISOR,
+      casting_forging: PRODUCTION_SUPERVISOR,
+      packing: PRODUCTION_SUPERVISOR,
     },
   },
 
@@ -382,6 +403,10 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       engel: IMM_OPERATOR,
       arburg: IMM_OPERATOR,
       larsen_toubro: IMM_OPERATOR,
+      // v2 (sheet T29, #3011): the sheet's brand chips under the kept key, the same rule.
+      milacron: IMM_OPERATOR,
+      shibaura: IMM_OPERATOR,
+      electronica: IMM_OPERATOR,
     },
   },
 
@@ -415,6 +440,14 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       annealing_normalising: HEAT_TREATMENT_TECH,
       vacuum_heat_treatment: HEAT_TREATMENT_TECH,
       salt_bath: HEAT_TREATMENT_TECH,
+      // v2 (sheet T27, #3011) splits v1's paired chips and adds three processes; every named
+      // HT process is still the claim.
+      carburising: HEAT_TREATMENT_TECH,
+      carbonitriding: HEAT_TREATMENT_TECH,
+      annealing: HEAT_TREATMENT_TECH,
+      normalising: HEAT_TREATMENT_TECH,
+      stress_relieving: HEAT_TREATMENT_TECH,
+      austempering: HEAT_TREATMENT_TECH,
     },
   },
 
@@ -461,6 +494,158 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       vfd_servo: PLC_AUTOMATION_TECH,
       robot_teaching: PLC_AUTOMATION_TECH,
       commissioning: PLC_AUTOMATION_TECH,
+      // v2 (sheet T38, #3011): the same programming-side claims under the sheet's own keys.
+      // `online_monitoring`, `io_checking`, `panel_wiring` and `program_backup` stay unmapped:
+      // a maintenance electrician watches a PLC online, checks I/O, wires a panel and takes a
+      // backup too, so none of them claims the PLC chair (the A3 rule above).
+      program_edit: PLC_AUTOMATION_TECH,
+      program_write: PLC_AUTOMATION_TECH,
+      hmi_design: PLC_AUTOMATION_TECH,
+    },
+    // SECOND-SKILL CHIP (pack "Chips that add a second match skill", #3011 §3). The chip claims
+    // robot programming, so it names that skill only; the PLC skill comes from the worker's own
+    // PLC answers, which the chip presupposes ("bhi karta hoon"). Every other advanced system
+    // (DCS, safety PLC, vision, robot interfacing, motion, IIoT) is depth and stays unmapped.
+    plc_advanced_system: {
+      robot_programming: ROBOT_OPERATOR_PROGRAMMER,
+    },
+  },
+
+  // ══ WAVE 1 NEW TRADES (CEO pack v2, #3011) ══════════════════════════════════════════════════
+  // One claim question per form (`claimQuestionKey` in TRADE_CATALOGUE): the first mandatory
+  // select after the level and confirm questions, the one the résumé headline names. Each stem
+  // scopes every chip to the trade, so every chip but the none-of-above escape is the claim, and
+  // the escape claims nothing. No other question of these forms is mapped (rules 1 to 3).
+
+  // T21 "Aap kaunsi machine chalate hain?" on the router form — each machine is a router claim.
+  qp_cnc_router: {
+    router_machine_type: {
+      wood_router: CNC_ROUTER_OPERATOR,
+      atc_router: CNC_ROUTER_OPERATOR,
+      multi_head: CNC_ROUTER_OPERATOR,
+      rotary_axis: CNC_ROUTER_OPERATOR,
+      stone_router: CNC_ROUTER_OPERATOR,
+      metal_engraver: CNC_ROUTER_OPERATOR,
+      jewellery_cnc: CNC_ROUTER_OPERATOR,
+      laser_engraver: CNC_ROUTER_OPERATOR,
+    },
+  },
+
+  // T33 "Aap kaunsi measuring machine chalate hain?" on the CMM form — the metrology-room
+  // machines of the sheet, each the trade's claim. `qp_quality_inspection`'s own CMM chips stay
+  // the inspector's (`skill_cmm`): pack-scoped, rule 4.
+  qp_cmm: {
+    cmm_machine_type: {
+      bridge_cmm: CMM_OPERATOR,
+      gantry_cmm: CMM_OPERATOR,
+      horizontal_arm: CMM_OPERATOR,
+      portable_arm: CMM_OPERATOR,
+      vmm: CMM_OPERATOR,
+      three_d_scanner: CMM_OPERATOR,
+      profile_projector: CMM_OPERATOR,
+      contour_tester: CMM_OPERATOR,
+    },
+  },
+
+  // T37 "Quality me aap kaunsa area dekhte hain?" — every quality area is the engineer's claim.
+  qp_quality_engineer: {
+    qe_function: {
+      in_process: QUALITY_ENGINEER,
+      final_pdi: QUALITY_ENGINEER,
+      incoming: QUALITY_ENGINEER,
+      supplier_quality: QUALITY_ENGINEER,
+      customer_quality: QUALITY_ENGINEER,
+      qms: QUALITY_ENGINEER,
+      npd_quality: QUALITY_ENGINEER,
+      standards_room: QUALITY_ENGINEER,
+      warranty: QUALITY_ENGINEER,
+    },
+  },
+
+  // T43 "Aap maintenance ka kaunsa hissa sambhalte hain?" — every area is the engineer's claim;
+  // `electrical` and `electronics_automation` stay MAINTENANCE claims here (no electrician or PLC
+  // skill: rule 2).
+  qp_maintenance_engineer: {
+    me_function: {
+      mechanical: MAINTENANCE_ENGINEER,
+      electrical: MAINTENANCE_ENGINEER,
+      electronics_automation: MAINTENANCE_ENGINEER,
+      utility: MAINTENANCE_ENGINEER,
+      tooling_maintenance: MAINTENANCE_ENGINEER,
+      planning: MAINTENANCE_ENGINEER,
+      projects: MAINTENANCE_ENGINEER,
+      facility: MAINTENANCE_ENGINEER,
+    },
+  },
+
+  // T46 "Aap kaunsi shop ya line ka production dekhte hain?" — every shop is the claim; the shop
+  // names where he works, never another trade's skill (a press shop is not a press operator).
+  qp_production_engineer: {
+    prod_shop_type: {
+      machine_shop: PRODUCTION_ENGINEER,
+      press_shop: PRODUCTION_ENGINEER,
+      weld_shop: PRODUCTION_ENGINEER,
+      assembly: PRODUCTION_ENGINEER,
+      moulding: PRODUCTION_ENGINEER,
+      casting: PRODUCTION_ENGINEER,
+      forging: PRODUCTION_ENGINEER,
+      paint_shop: PRODUCTION_ENGINEER,
+    },
+  },
+
+  // T47 "ME me aapka main kaam kya hai?" — every ME function is the claim.
+  qp_process_engineer: {
+    proc_function: {
+      process_planning: PROCESS_ENGINEER,
+      industrial_engg: PROCESS_ENGINEER,
+      tooling_fixture: PROCESS_ENGINEER,
+      new_line_setup: PROCESS_ENGINEER,
+      tool_optimisation: PROCESS_ENGINEER,
+      layout_capacity: PROCESS_ENGINEER,
+      lca_poka_yoke: PROCESS_ENGINEER,
+      cost_reduction_vave: PROCESS_ENGINEER,
+    },
+  },
+
+  // T48 "NPD me aapka main kaam kya hai?" — every NPD function is the claim.
+  qp_npd_engineer: {
+    npd_function: {
+      rfq_costing: NPD_ENGINEER,
+      apqp_timing: NPD_ENGINEER,
+      tooling_development: NPD_ENGINEER,
+      gauge_fixture_development: NPD_ENGINEER,
+      sample_prototype: NPD_ENGINEER,
+      ppap_submission: NPD_ENGINEER,
+      customer_communication: NPD_ENGINEER,
+      testing_validation: NPD_ENGINEER,
+      vendor_part_development: NPD_ENGINEER,
+    },
+  },
+
+  // T52 "PPC me aap kaunsa kaam sambhalte hain?" — every PPC task is the claim.
+  qp_ppc: {
+    ppc_function: {
+      production_planning: PPC_ENGINEER,
+      material_planning: PPC_ENGINEER,
+      dispatch_planning: PPC_ENGINEER,
+      jobwork_planning: PPC_ENGINEER,
+      inventory_control: PPC_ENGINEER,
+      customer_schedule: PPC_ENGINEER,
+      mis_reporting: PPC_ENGINEER,
+    },
+  },
+
+  // T54 "Purchase me aap kaunsa kaam sambhalte hain?" — every purchase task is the claim.
+  qp_purchase: {
+    purchase_function: {
+      po_followup: PURCHASE_ENGINEER,
+      rfq_negotiation: PURCHASE_ENGINEER,
+      vendor_development: PURCHASE_ENGINEER,
+      npd_sourcing: PURCHASE_ENGINEER,
+      jobwork_outsourcing: PURCHASE_ENGINEER,
+      import_purchase: PURCHASE_ENGINEER,
+      capex_purchase: PURCHASE_ENGINEER,
+      payment_followup: PURCHASE_ENGINEER,
     },
   },
 
@@ -519,6 +704,10 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   // ══ 3D CAD DESIGN (Track A #4) ════════════════════════════════════════════════
   // "Aap kaunsa 3D software chalate hain?" A named package is a 3D claim; `other_software`
   // names nothing. The role bridge derives the trade's permanent ID directly.
+  // v2 (sheet T58, #3011) keeps `design_software` and puts `design_work_area` first: "Aap kis
+  // cheez ka design karte hain?" — every design area is the trade's claim, and it is v2's claim
+  // question. v2's `autocad` chip ("AutoCAD, 2D ke liye") stays unmapped: 2D drafting is the
+  // draughtsman's trade, and AutoCAD alone does not say he models (the CAD drafting rule below).
   qp_cad_design_3d: {
     design_software: {
       solidworks: ["role_cad_designer_3d"],
@@ -528,6 +717,17 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       inventor: ["role_cad_designer_3d"],
       fusion: ["role_cad_designer_3d"],
       solid_edge: ["role_cad_designer_3d"],
+    },
+    design_work_area: {
+      product_design: CAD_DESIGNER_3D,
+      spm_machine: CAD_DESIGNER_3D,
+      sheet_metal: CAD_DESIGNER_3D,
+      plastic_part: CAD_DESIGNER_3D,
+      jig_fixture: CAD_DESIGNER_3D,
+      press_tool: CAD_DESIGNER_3D,
+      mould_design: CAD_DESIGNER_3D,
+      biw_fixture: CAD_DESIGNER_3D,
+      reverse_engg: CAD_DESIGNER_3D,
     },
   },
   // ══ CAD DRAFTING ════════════════════════════════════════════════════════════════════
