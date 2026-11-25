@@ -13,6 +13,7 @@ import {
   workerProfiles,
   workers,
   workerSkills,
+  readPostingEnabledKinds,
   type Database,
 } from "@badabhai/db";
 import type { EventsService } from "../events/events.service";
@@ -27,8 +28,10 @@ import type {
 } from "./campus-student-bundle";
 import {
   mapCampusStudentProfile,
+  type CampusMappingContext,
   type MappedStudentProfile,
   type UnmappedField,
+  type UnmappedReason,
 } from "./campus-profile-mapping";
 
 /**
@@ -59,6 +62,10 @@ import {
  * and visibility are never touched again.
  *
  * Writes nothing in a dry run: the same decisions and mapping, reported.
+ *
+ * ROLES AND COURSES (#3014) are translated by the one Campus table (pack section 7). The trade
+ * release switch (#3002) is read ONCE per run: a role or course whose trade companies cannot post
+ * yet is held (reported, no skill). A failed read refuses the run before anything is written.
  */
 
 /** The fields the import may write, as admin-override fact keys (the marker's vocabulary). */
@@ -105,6 +112,13 @@ export interface ImportReport {
   readonly unmapped: readonly {
     readonly field: UnmappedField;
     readonly value: string;
+    readonly reason: UnmappedReason;
+    readonly students: number;
+  }[];
+  /** Roles and courses ruled "label only" (no skill, not held), with how many students. */
+  readonly labelOnly: readonly {
+    readonly field: "job_role" | "course";
+    readonly value: string;
     readonly students: number;
   }[];
   readonly lineErrors: readonly {
@@ -124,6 +138,8 @@ export interface ImportOptions {
   readonly since: boolean;
   readonly limit?: number;
   readonly now?: Date;
+  /** The release switch, when the caller already read it; read from the database otherwise. */
+  readonly postingEnabled?: ReadonlySet<string>;
 }
 
 /** Refused before anything is read or written. */
@@ -265,6 +281,7 @@ interface WriteContext {
   readonly batchId: string;
   readonly manifestGeneratedAt: Date | null;
   readonly now: Date;
+  readonly mapping: CampusMappingContext;
 }
 
 /** Writes one new student. Returns the new worker id and the fields written. */
@@ -549,6 +566,11 @@ export async function importCampusStudents(
     if (!opts.batchLabel) throw new StudentImportRefused("--apply needs --batch <label>");
   }
 
+  // Read once, before any write: a failed read throws here and the run writes nothing.
+  const mapping: CampusMappingContext = {
+    postingEnabled: opts.postingEnabled ?? (await readPostingEnabledKinds(db)),
+  };
+
   const lines = bundle.students.slice(0, opts.limit ?? bundle.students.length);
   const sources = new WorkerFieldSourcesRepository(db);
   const generatedAt = new Date(bundle.manifest.generated_at);
@@ -618,10 +640,14 @@ export async function importCampusStudents(
   const outcomes: StudentOutcome[] = [];
   const unmapped = new Map<
     string,
-    { field: UnmappedField; value: string; students: Set<string> }
+    { field: UnmappedField; value: string; reason: UnmappedReason; students: Set<string> }
+  >();
+  const labelOnly = new Map<
+    string,
+    { field: "job_role" | "course"; value: string; students: Set<string> }
   >();
   const ctx: WriteContext | null = batchId
-    ? { db, crypto, sources, batchId, manifestGeneratedAt, now }
+    ? { db, crypto, sources, batchId, manifestGeneratedAt, now, mapping }
     : null;
 
   for (const line of lines) {
@@ -635,12 +661,23 @@ export async function importCampusStudents(
     });
 
     if (decision.kind !== "held") {
-      const mapped = mapCampusStudentProfile(s);
+      const mapped = mapCampusStudentProfile(s, mapping);
       for (const u of mapped.unmapped) {
         const key = `${u.field}|${u.value.toLowerCase()}`;
-        const entry = unmapped.get(key) ?? { field: u.field, value: u.value, students: new Set() };
+        const entry = unmapped.get(key) ?? {
+          field: u.field,
+          value: u.value,
+          reason: u.reason,
+          students: new Set(),
+        };
         entry.students.add(s.source_id);
         unmapped.set(key, entry);
+      }
+      for (const l of mapped.labelOnly) {
+        const key = `${l.field}|${l.value.toLowerCase()}`;
+        const entry = labelOnly.get(key) ?? { field: l.field, value: l.value, students: new Set() };
+        entry.students.add(s.source_id);
+        labelOnly.set(key, entry);
       }
     }
 
@@ -694,7 +731,15 @@ export async function importCampusStudents(
     failedByReason,
     problemsByKind,
     unmapped: [...unmapped.values()]
-      .map((u) => ({ field: u.field, value: u.value, students: u.students.size }))
+      .map((u) => ({ field: u.field, value: u.value, reason: u.reason, students: u.students.size }))
+      .sort(
+        (a, b) =>
+          b.students - a.students ||
+          a.field.localeCompare(b.field) ||
+          a.value.localeCompare(b.value),
+      ),
+    labelOnly: [...labelOnly.values()]
+      .map((l) => ({ field: l.field, value: l.value, students: l.students.size }))
       .sort(
         (a, b) =>
           b.students - a.students ||
@@ -766,7 +811,7 @@ async function applyOne(
   try {
     return await ctx.db.transaction(async (txRaw) => {
       const tx = txRaw as unknown as Database;
-      const mapped = mapCampusStudentProfile(line.student);
+      const mapped = mapCampusStudentProfile(line.student, ctx.mapping);
       let workerId: string;
       let fields: string[];
       if (decision.kind === "create") {

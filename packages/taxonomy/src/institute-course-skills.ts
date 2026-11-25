@@ -1,59 +1,43 @@
-import { matchSkillIndustry, type MatchSkillId } from "./match-skills";
+import type { MatchSkillId } from "./match-skills";
 import type { IndustryId } from "./index";
+import { RVM_COURSE_ROWS, campusTradeEntry, rvmCourseTrades } from "./campus-trade-map";
 
 /**
- * #2752 item 10 — the ONE match skill an institute course maps to, for named-company search.
+ * #2752 item 10, ruled by #3014 — the match skills an institute course maps to.
  *
  * A linked student has no `worker_skill` row of his own, and a company's search builds every card
- * from a skill. So a search grant carries the skill his course maps to, with its industry (months
- * unknown, printed as unrecorded). A deterministic rule over the course NAME RVM sends
- * (`v_admission_financial_summary.courses_str`, Scheduler_Backend#162): the name is split into
- * lower-case words, and the FIRST rule below with a word in it wins, so a student with "AutoCAD,
- * SolidWorks" maps to the 3D designer, the more advanced of the two. A course no rule names maps to
- * null: the grant is still stored and lets that company open him, but he has no card in its search
- * until a rule covers his course.
+ * from a skill, so a search grant carries a skill from his course. The rule is CEO pack v2 section
+ * 7.3, through the one Campus table (`campus-trade-map.ts`): each course NAME in RVM's course
+ * string (`v_admission_financial_summary.courses_str`, comma-separated) is matched WHOLE, every
+ * course gives its trade at level `trainee` (not confirmed), and a student with two courses gets
+ * both. "CNC" is the CNC Turner, never the CNC Programmer.
  *
- * Words, never substrings: "cam" must not match "campus", and "nx" only the NX (Unigraphics) word.
+ * A course with no row, a "label only" course (Revit, Staad), or a course whose trade is new in
+ * CEO pack v2 and companies cannot post yet (#3002 switch off) gives nothing; a skill live before
+ * v2 always passes (`CAMPUS_PRE_V2_SKILLS`). The grant is still stored and lets that company
+ * open him; he has no card in its search until his course gives a released trade.
  */
-const RULES: readonly { readonly words: readonly string[]; readonly skillId: MatchSkillId }[] = [
-  { words: ["cnc"], skillId: "mskill_cnc_programmer" },
-  { words: ["cam", "mastercam", "powermill", "edgecam"], skillId: "mskill_cam_programmer" },
-  {
-    words: ["solidworks", "catia", "creo", "nx", "unigraphics", "inventor", "fusion", "3d"],
-    skillId: "mskill_cad_designer_3d",
-  },
-  {
-    words: ["interior", "sketchup", "3ds", "3dsmax", "vray", "lumion"],
-    skillId: "mskill_interior_designer",
-  },
-  { words: ["autocad", "cad", "drafting", "draughting", "2d"], skillId: "mskill_designer" },
-];
 
 export interface InstituteCourseSkill {
   readonly skillId: MatchSkillId;
   readonly industryId: IndustryId;
 }
 
-/** The skill and industry for a course name, or null when no rule names one of its words. */
-export function instituteCourseMatchSkill(
+/**
+ * Every skill the course string gives, in the order its courses are listed (first listed first).
+ * `postingEnabled` is the set of kinds companies may post now (`TradeReleaseService`).
+ */
+export function instituteCourseMatchSkills(
   course: string | null | undefined,
-): InstituteCourseSkill | null {
-  if (!course) return null;
-  const words = new Set(
-    course
-      .toLowerCase()
-      .split(/[^a-z0-9]+/)
-      .filter((w) => w.length > 0),
-  );
-  for (const rule of RULES) {
-    if (!rule.words.some((w) => words.has(w))) continue;
-    const industryId = matchSkillIndustry(rule.skillId);
-    // Every rule names a seeded match skill (pinned by the test), so this never fires; if a seed
-    // ever loses one, the course maps to nothing rather than to a skill with no industry.
-    return industryId === undefined ? null : { skillId: rule.skillId, industryId };
-  }
-  return null;
+  postingEnabled: ReadonlySet<string>,
+): InstituteCourseSkill[] {
+  return rvmCourseTrades(course, postingEnabled).trades.map((t) => ({
+    skillId: t.skillId,
+    industryId: t.industryId,
+  }));
 }
 
-/** For the test: every skill a rule can return. */
-export const INSTITUTE_COURSE_RULE_SKILLS: readonly MatchSkillId[] = RULES.map((r) => r.skillId);
+/** For the test: every skill a course row can give. */
+export const INSTITUTE_COURSE_RULE_SKILLS: readonly string[] = RVM_COURSE_ROWS.flatMap((r) =>
+  r.target.kind === "trade" ? [campusTradeEntry(r.target.code)?.matchSkillId ?? "(missing)"] : [],
+);

@@ -24,9 +24,9 @@ import type { InstituteCode } from "./institute-link";
 // open him (`InstituteOpenGate`).
 //
 // THE SEARCH ROW IS HERE, NOT IN `worker_skill`. The search builds a card from a skill; a student
-// has none of his own, so the grant carries the one skill his course maps to
-// (`@badabhai/taxonomy` instituteCourseMatchSkill) with its industry, both null when the course
-// maps to none. Nothing is written to `worker_skill`, so no reach row, no feed card and nothing to
+// has none of his own, so the grant carries one skill from his course: the first course listed
+// that gives a released trade (`@badabhai/taxonomy` instituteCourseMatchSkills, #3014), with its
+// industry, both null when no course gives one. Nothing is written to `worker_skill`, so no reach row, no feed card and nothing to
 // remove when the grant ends.
 //
 // `grant_ref` is Campus's own id for the grant: the same ref again answers the row it made, for

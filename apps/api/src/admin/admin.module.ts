@@ -115,6 +115,8 @@ import { AdminWaiversController } from "./waivers/admin-waivers.controller";
 import { RvmWaiversModule } from "../rvm-waivers/rvm-waivers.module";
 import { AdminTradeReleaseController } from "./trade-release/admin-trade-release.controller";
 import { TradeReleaseModule } from "../trade-release/trade-release.module";
+import { AdminCampusHeldRolesController } from "./campus-held-roles/admin-campus-held-roles.controller";
+import { AdminCampusHeldRolesService } from "./campus-held-roles/admin-campus-held-roles.service";
 import { AdminAppReleasePolicyController } from "./app-release-policy/admin-app-release-policy.controller";
 import { AppVersionModule } from "../app-version/app-version.module";
 import { AdminReachDeskController } from "./reach-desk/admin-reach-desk.controller";
@@ -316,6 +318,8 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminCreditRulesController,
     AdminWaiversController,
     AdminTradeReleaseController,
+    // #3014 - the Campus held list (`/admin/campus-roles/held`), read through TradeReleaseModule.
+    AdminCampusHeldRolesController,
     AdminAppReleasePolicyController,
     AdminReachDeskController,
     AdminManagedHiringController,
@@ -325,6 +329,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminCorrectionsController,
   ],
   providers: [
+    AdminCampusHeldRolesService,
     AdminRepository,
     AdminSessionService,
     AdminOtpService,
