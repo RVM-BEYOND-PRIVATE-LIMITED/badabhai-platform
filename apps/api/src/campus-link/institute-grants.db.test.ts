@@ -18,6 +18,8 @@ import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { WorkersRepository } from "../workers/workers.repository";
+import type { TradeReleaseService } from "../trade-release/trade-release.service";
+import { LIVE_POSTING_TRADE_KINDS } from "@badabhai/taxonomy";
 import { InstituteLinkRepository } from "./institute-link.repository";
 import { InstituteLinkService, StudentNotAvailableError } from "./institute-link.service";
 import { InstituteOpenGate } from "./institute-open-gate.service";
@@ -149,6 +151,10 @@ describe.skipIf(!RUN)("#2752 named-company search grants — against Postgres", 
       rvm,
       tenancy,
       eventsService,
+      // The 0198 seed: the 16 live kinds (#3014 release gate).
+      {
+        postingEnabledKinds: async () => new Set<string>(LIVE_POSTING_TRADE_KINDS),
+      } as unknown as TradeReleaseService,
     );
     gate = new InstituteOpenGate(linkRepo, links);
     search = new CandidateSearchRepository(client.db);

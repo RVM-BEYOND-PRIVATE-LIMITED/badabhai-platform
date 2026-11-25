@@ -12,6 +12,7 @@ import { InstituteOpenGate } from "./institute-open-gate.service";
 import { InstituteSearchGrantsRepository } from "./institute-search-grants.repository";
 import { InstituteSearchGrantsService } from "./institute-search-grants.service";
 import { RvmStudentApiClient } from "./rvm-student-api.client";
+import { TradeReleaseModule } from "../trade-release/trade-release.module";
 
 /**
  * The Campus link, BadaBhai side (#2752). DATABASE, SERVER_CONFIG, SubjectRateLimit,
@@ -29,13 +30,15 @@ import { RvmStudentApiClient } from "./rvm-student-api.client";
  *
  * `PayersModule` (one-way: it imports nothing from here) — `PayerTenantScopeService`, so a grant
  * is stored under the company's TENANT key, the key its search and its opens are asked by.
+ * `TradeReleaseModule` (imports nothing) — the release switch a grant's course skill must pass
+ * (#3014).
  *
  * Part E's jobs and applications routes live in `CampusJobsModule`, which imports this one: they
  * need `JobPostingsModule`, whose tree reaches the modules that import this one, so here it would
  * close a cycle.
  */
 @Module({
-  imports: [PayersModule],
+  imports: [PayersModule, TradeReleaseModule],
   controllers: [CampusLinkController, CampusGrantsController],
   providers: [
     CampusCallAuditRepository,

@@ -1,12 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import type { Database, InstituteCode, InstituteSearchGrantRow } from "@badabhai/db";
 import type { PayloadInputOf } from "@badabhai/event-schema";
-import { instituteCourseMatchSkill } from "@badabhai/taxonomy";
+import { instituteCourseMatchSkills } from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { isBarredPayerStatus } from "../payers/payer-barred-status";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import { TradeReleaseService } from "../trade-release/trade-release.service";
 import { InstituteLinkRepository } from "./institute-link.repository";
 import { InstituteLinkService, StudentNotAvailableError } from "./institute-link.service";
 import {
@@ -65,6 +66,11 @@ export interface SearchGrantView {
  * IDEMPOTENT FOR GOOD on `grant_ref`: the same ref again answers the row it made, revoked or
  * not; the same ref for another company or student is a conflict. The company is stored as its
  * TENANT key (ADR-0053), the key its search and its opens are asked by.
+ *
+ * THE CARD'S SKILL (#3014, pack section 7.3): the grant holds ONE skill, the first course in his
+ * course string that gives a trade companies may post now (owner ruling 25 Nov 2026: first course
+ * listed). A course with no released trade stores the grant with no skill (no card); the release
+ * read fails closed to "none released", which stores the same.
  */
 @Injectable()
 export class InstituteSearchGrantsService {
@@ -75,6 +81,7 @@ export class InstituteSearchGrantsService {
     private readonly rvm: RvmStudentApiClient,
     private readonly tenancy: PayerTenantScopeService,
     private readonly events: EventsService,
+    private readonly releases: TradeReleaseService,
   ) {}
 
   /**
@@ -112,7 +119,10 @@ export class InstituteSearchGrantsService {
     const linked = await this.links.linkStudent(studentRef, ctx);
     const link = await this.linkRepo.findActiveByWorker(linked.workerId);
     if (!link) throw new StudentNotAvailableError();
-    const skill = instituteCourseMatchSkill(link.course);
+    const [skill] = instituteCourseMatchSkills(
+      link.course,
+      await this.releases.postingEnabledKinds(),
+    );
 
     const row = await this.repo.withTransaction(async (tx) => {
       await this.repo.lockRef(tx, RVM, grantRef);

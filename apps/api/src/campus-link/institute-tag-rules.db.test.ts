@@ -13,6 +13,7 @@ import {
   workerSkills,
   workers,
   materializeJobReachWithin,
+  CAMPUS_POSTING_CREATED_AUDIT_ACTION,
   type DbClient,
 } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
@@ -46,6 +47,8 @@ import {
 import { StudentVisibilityRepository } from "../student-move/student-visibility.repository";
 import { StudentVisibilityService } from "../student-move/student-visibility.service";
 import { toProfileSummary } from "../workers/profile-summary.mapper";
+import { AdminCampusHeldRolesService } from "../admin/campus-held-roles/admin-campus-held-roles.service";
+import { LIVE_POSTING_TRADE_KINDS } from "@badabhai/taxonomy";
 import { recordImportedConsent } from "../student-move/imported-consent";
 import {
   markWorkerEditedWithin,
@@ -990,7 +993,11 @@ describe.skipIf(!RUN)("#2887 the student move — import, sign-in, reach, rollba
       SELECT count(*)::int AS n FROM student_visibility WHERE worker_id = ${existingWorker}::uuid`;
     expect(Number(ex!.n)).toBe(0);
     // The unmapped report names what had no certain skill.
-    expect(first.unmapped).toEqual([{ field: "skill", value: "ANSYS", students: 1 }]);
+    expect(first.unmapped).toEqual([
+      { field: "skill", value: "ANSYS", reason: "no_certain_skill", students: 1 },
+    ]);
+    // #3014: no role or course here is label only.
+    expect(first.labelOnly).toEqual([]);
   });
 
   it("the same bundle again changes nothing", async () => {
@@ -1087,5 +1094,142 @@ describe.skipIf(!RUN)("#2887 the student move — import, sign-in, reach, rollba
       WHERE event_name = 'worker.account_deleted' AND subject_id = ${b}::uuid`;
     expect(Number(erased[0]!.n)).toBe(1);
     expect((await rollbackStudentImport(client.db, first.batchId!, events)).alreadyRolledBack).toBe(true);
+  }, 60_000);
+});
+
+/**
+ * #3014 — the Campus table in the student import, and the held list, against Postgres.
+ *   - a dry run over a fixture bundle lists the held role and course (with the reason) and
+ *     writes nothing;
+ *   - applied, the student is created and gets NO skill for a held role or course;
+ *   - the admin held list reads those names (and a Campus-made job's title) back, names and counts
+ *     only.
+ */
+describe.skipIf(!RUN)("#3014 the Campus table — import held roles, and the held list", () => {
+  let client: DbClient;
+  let pii: PiiCryptoService;
+  const T = randomUUID().slice(0, 8);
+  const E = `cand-e-${T}`;
+  const PHONE_E = phone10();
+  const HELD_ROLE = `Senior CNC Operator ${T}`;
+  const HELD_COURSE = `Spoken English ${T}`;
+  const HELD_JOB = `Urgent Turner Helper ${T}`;
+  const COMPANY = randomUUID();
+  const POSTING = randomUUID();
+  /** The 0198 seed: the 16 live kinds (passed in, so a shared test DB's switches cannot move it). */
+  const LIVE = new Set<string>(LIVE_POSTING_TRADE_KINDS);
+  const created: string[] = [];
+  const batches: string[] = [];
+
+  const student = () =>
+    syntheticStudent(E, PHONE_E, {
+      rvm: { status: "current", course: HELD_COURSE, trade: null, branch: { id: 2, name: "Pune" } },
+      profile: {
+        total_experience_months: 12,
+        is_fresher: false,
+        skills: [],
+        cad_software: [],
+        job_domain: "Production",
+        job_role: HELD_ROLE,
+      },
+      experience: [{ job_role: "Quality Engineer", skills: [], duration_months: 12 }],
+      skill_experience: [],
+      rvm_certifications: [],
+    });
+  const bundleOf = async () =>
+    readCampusStudentBundle(await writeSyntheticBundle({ students: [student()] }), TEST_PASSPHRASE);
+
+  beforeAll(async () => {
+    assertLocalDatabase(DATABASE_URL);
+    client = createDbClient(DATABASE_URL, { max: 2 });
+    pii = new PiiCryptoService({
+      PII_HASH_PEPPER: `campus-table-test-pepper-${T}`,
+      PII_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
+      PIN_PEPPER: "campus-table-test-pin",
+    } as never);
+    const { sql } = client;
+    await sql`
+      INSERT INTO payers (id, role, email_enc, email_hash, org_name_enc, status)
+      VALUES (${COMPANY}::uuid, 'employer', ${`enc:3014-${T}`}, ${`hash:3014-${T}`},
+              ${`enc:co-${T}`}, 'active')`;
+    await sql`
+      INSERT INTO job_postings
+        (id, created_by, payer_id, org_label, role_title, vacancy_band, status, verification_status)
+      VALUES (${POSTING}::uuid, ${COMPANY}::uuid, ${COMPANY}::uuid, 'Campus Co', ${HELD_JOB},
+              '1', 'open', 'verified')`;
+    await sql`
+      INSERT INTO audit_logs (actor_type, actor_id, action, entity_type, entity_id, metadata)
+      VALUES ('campus_service', NULL, ${CAMPUS_POSTING_CREATED_AUDIT_ACTION}, 'job_posting',
+              ${POSTING}::uuid, ${JSON.stringify({ institute_code: "rvm" })}::jsonb)`;
+  }, 60_000);
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      const { sql } = client;
+      await sql`DELETE FROM audit_logs WHERE entity_id = ${POSTING}::uuid`;
+      await sql`DELETE FROM job_postings WHERE id = ${POSTING}::uuid`;
+      await sql`DELETE FROM payers WHERE id = ${COMPANY}::uuid`;
+      for (const id of created) await sql`DELETE FROM workers WHERE id = ${id}::uuid`;
+      for (const b of batches) {
+        await sql`DELETE FROM student_import_subjects WHERE first_batch_id = ${b}::uuid OR last_batch_id = ${b}::uuid`;
+        await sql`DELETE FROM student_import_batches WHERE id = ${b}::uuid`;
+      }
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  it("a dry run lists the held role and course, with the reason, and writes nothing", async () => {
+    const report = await importCampusStudents(client.db, pii, await bundleOf(), {
+      apply: false,
+      batchLabel: null,
+      since: false,
+      postingEnabled: LIVE,
+    });
+    expect(report.mode).toBe("dry_run");
+    expect(report.batchId).toBeNull();
+    expect(report.unmapped).toEqual(
+      expect.arrayContaining([
+        { field: "job_role", value: HELD_ROLE, reason: "not_in_table", students: 1 },
+        { field: "job_role", value: "Quality Engineer", reason: "trade_switched_off", students: 1 },
+        { field: "course", value: HELD_COURSE, reason: "not_in_table", students: 1 },
+      ]),
+    );
+    const rows = await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM workers WHERE phone_hash = ${pii.hashPhone(`+91${PHONE_E}`)}`;
+    expect(Number(rows[0]!.n)).toBe(0);
+  }, 60_000);
+
+  it("applied, the student is created and gets no skill for a held role or course", async () => {
+    const report = await importCampusStudents(client.db, pii, await bundleOf(), {
+      apply: true,
+      batchLabel: `test 3014 ${T}`,
+      since: false,
+      postingEnabled: LIVE,
+    });
+    batches.push(report.batchId!);
+    const outcome = report.students.find((o) => o.sourceId === E)!;
+    expect(outcome.action).toBe("created");
+    created.push(outcome.workerId!);
+    const skills = await client.sql<{ skill_id: string }[]>`
+      SELECT skill_id FROM worker_skill WHERE worker_id = ${outcome.workerId!}::uuid`;
+    expect(skills).toEqual([]);
+  }, 60_000);
+
+  it("the held list names the held student role and the Campus job title, names and counts only", async () => {
+    const service = new AdminCampusHeldRolesService(client.db, {
+      postingEnabledKinds: async () => LIVE,
+    } as never);
+    const out = await service.held();
+    expect(out.roles).toEqual(
+      expect.arrayContaining([
+        { role_label: HELD_ROLE, count: 1, jobs: 0, students: 1, reason: "not_in_table" },
+        { role_label: HELD_JOB, count: 1, jobs: 1, students: 0, reason: "not_in_table" },
+      ]),
+    );
+    for (const r of out.roles) {
+      expect(Object.keys(r).sort()).toEqual(["count", "jobs", "reason", "role_label", "students"]);
+    }
   }, 60_000);
 });

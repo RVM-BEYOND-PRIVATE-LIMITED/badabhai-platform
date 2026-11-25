@@ -244,3 +244,13 @@ export {
   planCostLedgerBackfill,
   type CostLedgerBackfillPlan,
 } from "./backfill-0158-cost-ledger";
+
+// #3014 - the Campus held list and coverage reads (names and counts only), and the release read
+// for code outside the API app.
+export {
+  CAMPUS_POSTING_CREATED_AUDIT_ACTION,
+  readCampusJobRoleCounts,
+  readOpenJobsBySkill,
+  readPostingEnabledKinds,
+  readRvmStudentGroups,
+} from "./campus-coverage-reads";

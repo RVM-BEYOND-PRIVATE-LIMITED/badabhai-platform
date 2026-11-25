@@ -260,8 +260,11 @@ export * from "./trade-levels";
 export * from "./posting-trades";
 // #2635 — matching runs only for the 16 postable trades: each trade's own skill set + the scope.
 export * from "./posting-scope";
-// #2752 item 10 — the one match skill an institute course maps to (named-company search).
+// #2752 item 10 — the match skills an institute course maps to (named-company search), ruled
+// by #3014 through the one Campus table (pack section 7).
 export * from "./institute-course-skills";
+export * from "./campus-trade-map";
+export * from "./campus-coverage";
 export * from "./level-needed";
 
 // ADR-0030 / TAX-5 — PROPOSED vernacular wedge aliases (RVM ratification-gated).

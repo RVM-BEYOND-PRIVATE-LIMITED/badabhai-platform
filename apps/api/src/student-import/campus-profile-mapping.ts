@@ -1,8 +1,14 @@
 import { bucketMonthValue } from "@badabhai/match-engine";
 import {
-  instituteCourseMatchSkill,
+  campusRoleTrade,
+  campusSkillReleased,
   isMatchSkillId,
   matchSkillIndustry,
+  normalizeCampusName,
+  rvmCourseTrades,
+  type CampusHeldReason,
+  type CampusHint,
+  type CampusTranslation,
   type IndustryId,
   type MatchSkillId,
 } from "@badabhai/taxonomy";
@@ -11,17 +17,25 @@ import {
  * #2887 — mapping a moved RVM student's Campus job profile to BadaBhai's match skills.
  *
  * THE RULE (owner ruling, 17 Nov 2026): map only values whose BadaBhai skill is CERTAIN. Every
- * other value — a closest fit (Mold Maker, Machine Setter, a tool or piping designer), a value
- * with no BadaBhai skill at all (civil, BIM, structural, architecture, CAE/FEA), or free text —
- * goes to the UNMAPPED REPORT with where it came from, for an owner ruling before the bulk run.
- * Nothing is guessed: a student whose values are all unmapped gets no skill row and reaches no job.
+ * other value goes to the UNMAPPED REPORT with where it came from, for an owner ruling before the
+ * bulk run. Nothing is guessed: a student whose values are all unmapped gets no skill row and
+ * reaches no job.
+ *
+ * ROLES AND COURSES (#3014): through the ONE Campus table (`@badabhai/taxonomy`
+ * campus-trade-map, CEO pack v2 section 7). A role or course the table does not name, or whose
+ * trade companies cannot post yet (#3002 switch off), is HELD: reported, no skill. A "label only"
+ * role or course (civil, architecture, HVAC design, Revit, Staad) is ruled, so it is not reported
+ * as unmapped; it is listed in `labelOnly` and gets no skill (#3033 keeps it as a label). Hints the
+ * table declares are listed in `hints`, never written (owner ruling 25 Nov 2026).
  *
  * WHERE A SKILL COMES FROM (in this order, all of them feeding one set):
- *   1. the profile's `job_role`, and each experience row's and RVM certification's `job_role`;
+ *   1. the profile's `job_role`, and each experience row's and RVM certification's `job_role`
+ *      (pack 7.2; CAD Designer reads the profile's `cad_software` for its AutoCAD-only rule);
  *   2. the profile's `cad_software` and `skills`, each experience row's and RVM certification's
- *      `skills`, and each `skill_experience` row's `skill`;
- *   3. the RVM course and trade, through #2752's existing word rule (`instituteCourseMatchSkill`),
- *      so a moved student and a linked student with the same course get the same skill.
+ *      `skills`, and each `skill_experience` row's `skill` (the 17 Nov software table below);
+ *   3. the RVM course and trade (pack 7.3, `rvmCourseTrades`), the same rule a linked student's
+ *      search grant reads, so a moved student and a linked student with the same course get the
+ *      same skills. Two courses give both trades.
  * `job_domain` and `industry` never decide a skill on their own: every domain spans several skills,
  * so a domain is reported when nothing else on the profile maps.
  *
@@ -83,6 +97,15 @@ export interface CampusStudentProfileInput {
 /** Where an unmapped value was found. */
 export type UnmappedField = "job_role" | "job_domain" | "skill" | "cad_software" | "course";
 
+/** Why a value is unmapped: the Campus table's held reasons, or no certain skill (the rest). */
+export type UnmappedReason = CampusHeldReason | "no_certain_skill";
+
+/** What the mapping needs besides the line: the release switch (#3002). */
+export interface CampusMappingContext {
+  /** Kinds companies may post now (`TradeReleaseService.postingEnabledKinds`). */
+  readonly postingEnabled: ReadonlySet<string>;
+}
+
 export interface MappedSkill {
   readonly skillId: MatchSkillId;
   readonly industryId: IndustryId;
@@ -108,48 +131,22 @@ export interface MappedStudentProfile {
   readonly totalExperienceMonths: number | null;
   readonly certificates: readonly MappedCertificate[];
   /** Each distinct value with no certain BadaBhai skill, with the field it came from. */
-  readonly unmapped: readonly { readonly field: UnmappedField; readonly value: string }[];
+  readonly unmapped: readonly {
+    readonly field: UnmappedField;
+    readonly value: string;
+    readonly reason: UnmappedReason;
+  }[];
+  /** Roles and courses the table rules "label only" (no skill, not held). Sorted. */
+  readonly labelOnly: readonly { readonly field: "job_role" | "course"; readonly value: string }[];
+  /** Hints the table declares for a mapped role (reported, never written). */
+  readonly hints: readonly { readonly role: string; readonly hint: CampusHint }[];
 }
 
 /** The month bucket every derived skill row uses (`packages/match-engine` config `monthBucket`). */
 export const CAMPUS_IMPORT_MONTH_BUCKET = 6;
 
-/** Lower-case, `&` as `and`, punctuation to spaces, one space: the dictionaries' key form. */
-export function normalizeCampusValue(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, " ");
-}
-
-/**
- * CERTAIN job roles only (Campus's `JOB_TAXONOMY`, its legacy domains and its course prefill).
- * Every role not listed here is reported.
- */
-const ROLE_SKILLS: Readonly<Record<string, MatchSkillId>> = keyed({
-  "Product Design Engineer": "mskill_cad_designer_3d",
-  "BIW Designer (Automotive)": "mskill_cad_designer_3d",
-  "BIW Designer": "mskill_cad_designer_3d",
-  "CAD Draftsman": "mskill_designer",
-  "CAM Programmer": "mskill_cam_programmer",
-  "CAD/CAM Programmer": "mskill_cam_programmer",
-  "CAM Engineer": "mskill_cam_programmer",
-  "Toolpath Programmer": "mskill_cam_programmer",
-  "CNC Programmer": "mskill_cnc_programmer",
-  "VMC Programmer": "mskill_cnc_programmer",
-  "CNC//VMC Programmer": "mskill_cnc_programmer",
-  "CNC/VMC Programmer": "mskill_cnc_programmer",
-  Welder: "mskill_welder",
-  Fitter: "mskill_fitter",
-  "Tool & Die Maker": "mskill_tool_die_maker",
-  "Press Operator": "mskill_press_operator",
-  "Interior Designer": "mskill_interior_designer",
-  "Quality Inspector": "mskill_quality_inspector",
-  "CMM Operator / Programmer": "mskill_quality_inspector",
-  "CMM Operator": "mskill_quality_inspector",
-});
+/** Lower-case, `&` as `and`, punctuation to spaces, one space: the Campus table's key form. */
+export const normalizeCampusValue: (value: string) => string = normalizeCampusName;
 
 /**
  * CERTAIN software and skill names (Campus's `cad_software` options and the matching `skills`
@@ -189,10 +186,16 @@ function keyed(table: Record<string, MatchSkillId>): Record<string, MatchSkillId
   return out;
 }
 
-/** The certain skill for a job role, or null. */
-export function campusRoleSkill(role: string | null | undefined): MatchSkillId | null {
-  if (!role) return null;
-  return ROLE_SKILLS[normalizeCampusValue(role)] ?? null;
+/**
+ * The Campus table's answer for a job role (pack 7.2). `software` is the profile's software list
+ * (CAD Designer's AutoCAD-only rule).
+ */
+export function campusRoleSkill(
+  role: string | null | undefined,
+  ctx: CampusMappingContext,
+  software?: readonly (string | null | undefined)[] | null,
+): CampusTranslation {
+  return campusRoleTrade(role, { postingEnabled: ctx.postingEnabled, software });
 }
 
 /** The certain skill for a software or skill name, or null. */
@@ -222,27 +225,60 @@ function clean(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-export function mapCampusStudentProfile(input: CampusStudentProfileInput): MappedStudentProfile {
+export function mapCampusStudentProfile(
+  input: CampusStudentProfileInput,
+  ctx: CampusMappingContext,
+): MappedStudentProfile {
   const months = new Map<MatchSkillId, number>();
-  const unmapped = new Map<string, { field: UnmappedField; value: string }>();
+  const unmapped = new Map<
+    string,
+    { field: UnmappedField; value: string; reason: UnmappedReason }
+  >();
+  const labelOnly = new Map<string, { field: "job_role" | "course"; value: string }>();
+  const hints = new Map<string, { role: string; hint: CampusHint }>();
+  const software = input.profile?.cad_software ?? null;
 
   const credit = (skill: MatchSkillId, m: number | null): void => {
     if (!isMatchSkillId(skill)) return;
     months.set(skill, Math.max(months.get(skill) ?? 0, m ?? 0));
   };
-  const report = (field: UnmappedField, value: string | null | undefined): void => {
+  const report = (
+    field: UnmappedField,
+    value: string | null | undefined,
+    reason: UnmappedReason = "no_certain_skill",
+  ): void => {
     const v = clean(value);
     if (v === null) return;
     const key = `${field}|${normalizeCampusValue(v)}`;
-    if (!unmapped.has(key)) unmapped.set(key, { field, value: v });
+    if (!unmapped.has(key)) unmapped.set(key, { field, value: v, reason });
   };
-  /** A role: its certain skill gets `m` months, or the role is reported. */
+  const label = (field: "job_role" | "course", value: string): void => {
+    const key = `${field}|${normalizeCampusValue(value)}`;
+    if (!labelOnly.has(key)) labelOnly.set(key, { field, value });
+  };
+  /** A role: its trade's skill gets `m` months; a label-only role is listed; any other is held. */
   const role = (value: string | null | undefined, m: number | null): MatchSkillId | null => {
-    if (!clean(value)) return null;
-    const skill = campusRoleSkill(value);
-    if (skill) credit(skill, m);
-    else report("job_role", value);
-    return skill;
+    const v = clean(value);
+    if (!v) return null;
+    const t = campusRoleSkill(v, ctx, software);
+    switch (t.kind) {
+      case "trade":
+      case "general_cnc":
+        credit(t.skillId, m);
+        if (t.kind === "trade" && t.hint) {
+          const key = normalizeCampusValue(v);
+          if (!hints.has(key)) hints.set(key, { role: v, hint: t.hint });
+        }
+        return t.skillId;
+      case "label_only":
+        label("job_role", v);
+        return null;
+      case "held":
+        report("job_role", v, t.reason);
+        return null;
+      case "no_role":
+        return null;
+    }
   };
   /** A software or skill name: its certain skill gets `m` months, or the name is reported. */
   const named = (
@@ -252,8 +288,17 @@ export function mapCampusStudentProfile(input: CampusStudentProfileInput): Mappe
   ): MatchSkillId | null => {
     if (!clean(value)) return null;
     const skill = campusSoftwareSkill(value);
-    if (skill) credit(skill, m);
-    else report(field, value);
+    if (!skill) {
+      report(field, value);
+      return null;
+    }
+    // The same release gate as roles and courses (#3014): a software skill on a new trade that is
+    // switched off is held. Every skill in the table below predates v2, so none is held today.
+    if (!campusSkillReleased(skill, ctx.postingEnabled)) {
+      report(field, value, "trade_switched_off");
+      return null;
+    }
+    credit(skill, m);
     return skill;
   };
 
@@ -277,19 +322,15 @@ export function mapCampusStudentProfile(input: CampusStudentProfileInput): Mappe
     for (const s of row.skills ?? []) if (named("skill", s, m)) anySkill = true;
   }
 
-  // The RVM course and trade, through #2752's rule (the same skill a linked student's grant gets).
-  const course = [clean(input.rvm?.course), clean(input.rvm?.trade)].filter(
-    (v): v is string => v !== null,
-  );
-  if (course.length > 0) {
-    const fromCourse = instituteCourseMatchSkill(course.join(" "));
-    if (fromCourse) {
-      credit(fromCourse.skillId, null);
-      anySkill = true;
-    } else {
-      report("course", course.join(" / "));
-    }
+  // The RVM course and trade (pack 7.3): the same rule a linked student's grant reads. Every
+  // course gives its trade at trainee; two courses give both.
+  const fromCourse = rvmCourseTrades([input.rvm?.course, input.rvm?.trade], ctx.postingEnabled);
+  for (const t of fromCourse.trades) {
+    credit(t.skillId, null);
+    anySkill = true;
   }
+  for (const c of fromCourse.labelOnly) label("course", c);
+  for (const h of fromCourse.held) report("course", h.course, h.reason);
 
   // A domain is a hint only: reported when nothing on the profile mapped, so a ruling can follow.
   if (!anySkill) {
@@ -353,5 +394,9 @@ export function mapCampusStudentProfile(input: CampusStudentProfileInput): Mappe
     unmapped: [...unmapped.values()].sort(
       (a, b) => a.field.localeCompare(b.field) || a.value.localeCompare(b.value),
     ),
+    labelOnly: [...labelOnly.values()].sort(
+      (a, b) => a.field.localeCompare(b.field) || a.value.localeCompare(b.value),
+    ),
+    hints: [...hints.values()].sort((a, b) => a.role.localeCompare(b.role)),
   };
 }
