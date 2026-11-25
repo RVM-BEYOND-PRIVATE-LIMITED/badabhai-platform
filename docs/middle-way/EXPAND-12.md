@@ -1,5 +1,14 @@
 # Middle Way — EXPAND plan (P6): Grinding/CAM aliases + 12 remaining live trades
 
+> STATUS 2026-11-25 — REPLACED BY CEO PACK v2. Akshit's ruling of 23 Nov 2026
+> (`docs/reference/BadaBhai_Manufacturing_Taxonomy_and_Question_Pack_v2.md`) replaces the
+> trade list and the Phase 2 sheets of pack v1. The catalogue is now 60 trades in 11
+> departments: the 16 live forms are not touched, 7 are deepened, and 37 are new. The
+> order of work is the tracking issue #3024, and how a trade is added is
+> [ADR-0070](../decisions/0070-sixty-trade-catalogue.md): forms compiled from the pack,
+> one `TRADE_CATALOGUE` row per trade, a release switch per trade. Everything below is
+> history.
+
 > SUPERSEDED FOR ORDER (2026-11-02): the CEO Launch Plan Pack v1 replaces the
 > E6–E17 queue below with its §4 build order (Track A retag first, then Track B).
 > The per-trade recipe (§3) and the DONE records (E0–E2, E4, E5) stand; E-items

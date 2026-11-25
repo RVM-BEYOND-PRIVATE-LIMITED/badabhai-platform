@@ -1,5 +1,24 @@
 # Level ladders — stored for development (per owner: keep everything in one place)
 
+> **Since CEO pack v2 (23 Nov 2026) the one place is `TRADE_CATALOGUE`**
+> (`packages/taxonomy/src/trade-catalogue.ts`). It holds every ladder of the 60 trades,
+> including the 18 desk ladders, with each trade's confirmed and higher-price rung. The rung
+> keys, labels, confirm questions and per-trade price tiers are in
+> `packages/taxonomy/src/trade-levels.ts` (`TRADE_LEVEL_PACKS`, `TRADE_LEVEL_CONFIRM_ITEMS`).
+> The consistency test holds the two files together. The sections below are the history of
+> the first trades and are not kept up to date.
+>
+> Pack v2 added four rung keys (#3000), appended so stored answers keep rendering:
+>
+> | key                | used by                                     | confirmed                     | price  |
+> | ------------------ | ------------------------------------------- | ----------------------------- | ------ |
+> | `engineer`         | the desk ladders (engineer rows)            | only through its own question | Higher |
+> | `senior_engineer`  | the desk ladders                            | by rule                       | Higher |
+> | `executive`        | Stores (T53) and Dispatch (T55), entry rung | only through its own question | Lower  |
+> | `senior_executive` | Stores and Dispatch                         | by rule                       | Higher |
+>
+> A sheet's own tier row (`tierOverrides`) wins over this shared rule for that trade.
+
 Source: code `levelLadder` + spec §8 ladders. Code ladders are form truth today; spec extends with Helper/Trainee + Supervisor. P1 will store `trade_level` keys (lowercase, e.g. `setter_programmer`).
 
 ## Turner (`mskill_cnc_turner` / `cnc_turner` / `qp_cnc_turning`)
