@@ -17,6 +17,7 @@
     "@badabhai/design-tokens": "workspace:*",
     "@badabhai/icons": "workspace:*",
     "@badabhai/pricing": "workspace:*",
+    "@badabhai/taxonomy": "workspace:*",
     "@badabhai/theme-web": "workspace:*",
     "@badabhai/types": "workspace:*",
     "@badabhai/validators": "workspace:*",

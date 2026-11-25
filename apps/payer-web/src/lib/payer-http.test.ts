@@ -141,7 +141,7 @@ describe("a 400 that names a reason and no issues carries the reason (#2635 post
         error: {
           statusCode: 400,
           error: "Bad Request",
-          message: "a live job must name one of the 16 trades",
+          message: "a live job must name a trade companies can post",
           reason,
         },
       },
@@ -195,7 +195,7 @@ describe("a 400 that names a reason and no issues carries the reason (#2635 post
   });
 
   it("the message never decides: a plain 400 with the trade sentence is not the refusal", async () => {
-    const e = await thrownFor(json({ message: "a live job must name one of the 16 trades" }, 400));
+    const e = await thrownFor(json({ message: "a live job must name a trade companies can post" }, 400));
     expect(isPostingTradeRequired(e)).toBe(false);
     expect(isPostingTradeRequired(new Error("posting_trade_required"))).toBe(false);
   });

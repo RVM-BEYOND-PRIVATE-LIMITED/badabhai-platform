@@ -57,7 +57,7 @@ void main() {
     expect(find.text('Role'), findsOneWidget);
     expect(
       find.text(
-        'The 16 trades did not load. Check your internet connection and try '
+        'The trades did not load. Check your internet connection and try '
         'again.',
       ),
       findsOneWidget,
@@ -86,9 +86,9 @@ void main() {
   testWidgets("the role's inline error shows under it; none without one",
       (WidgetTester tester) async {
     await pump(tester, loading: false);
-    expect(find.text('Pick one of the 16 trades'), findsNothing);
+    expect(find.text('Pick a trade'), findsNothing);
 
-    await pump(tester, loading: false, errorText: 'Pick one of the 16 trades');
-    expect(find.text('Pick one of the 16 trades'), findsOneWidget);
+    await pump(tester, loading: false, errorText: 'Pick a trade');
+    expect(find.text('Pick a trade'), findsOneWidget);
   });
 }

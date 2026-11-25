@@ -77,7 +77,10 @@ const SESSION_ONLY_ROUTES = ["admin/me", "admin/me/display-prefs"];
  * ONLY when no route is found, and the page is still required to gate on the capability the route
  * will carry — so when part C lands this file needs no edit and the real check resumes.
  */
-const PENDING_API_ROUTES: ReadonlyMap<string, AdminCapability> = new Map();
+const PENDING_API_ROUTES: ReadonlyMap<string, AdminCapability> = new Map([
+  // #3014 (PR #3068) — the held Campus roles for /trades; final shape in #3067. Remove on merge.
+  ["/admin/campus-roles/held", "read_entities"],
+]);
 
 interface ApiRoute {
   segments: string[];

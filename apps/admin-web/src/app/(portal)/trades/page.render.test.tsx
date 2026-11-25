@@ -2,15 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 /**
- * #3023 — the Trades page as the server renders it: the `read_entities` gate, the metadata title,
- * the catalogue in the server's order, the department/status filters, the two switches (disabled
- * for a session without `manage_postings`), the honest read failure, and the held list's three
- * states.
+ * #3023 / #3067 — the Trades page as the server renders it: the `read_entities` gate, the
+ * metadata title, the catalogue in the order the lib returns, the department/status filters, the
+ * two switches (only for a session holding `manage_trade_release`, which the API needs for the
+ * read too), the catalogue-only view for everyone else, the honest read failure, and the held
+ * list's three states.
  */
 const stub = vi.hoisted(() => ({
   gate: vi.fn(),
   capabilities: [] as string[],
   rows: [] as Record<string, unknown>[],
+  catalogue: [] as Record<string, unknown>[],
+  releaseReads: 0,
   held: [] as { role_label: string; count: number }[],
   listError: null as Error | null,
   heldError: null as Error | null,
@@ -42,9 +45,11 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("../../../lib/trade-release", () => ({
   getTradeRelease: async () => {
+    stub.releaseReads += 1;
     if (stub.listError) throw stub.listError;
     return stub.rows;
   },
+  getTradeCatalogue: () => stub.catalogue,
   getHeldCampusRoles: async () => {
     if (stub.heldError) throw stub.heldError;
     return stub.held;
@@ -53,59 +58,61 @@ vi.mock("../../../lib/trade-release", () => ({
 
 const { default: TradesPage, metadata } = await import("./page");
 
-const row = (over: Record<string, unknown> = {}) => ({
+const release = (over: Record<string, unknown> = {}) => ({
   role_kind: "cnc_turner",
-  role_label: "CNC Turner",
-  department: "production",
-  department_label: "Production",
-  kind: "shop_floor",
-  wave: 1,
   posting_enabled: true,
   form_enabled: false,
-  posting_changed_at: "2026-11-20T09:00:00.000Z",
-  form_changed_at: null,
   updated_by: "a-1",
   updated_at: "2026-11-21T10:30:00.000Z",
   ...over,
 });
 
+const row = (over: Record<string, unknown> = {}, rel: Record<string, unknown> | null = {}) => {
+  const base = {
+    role_kind: "cnc_turner",
+    role_label: "CNC Turner",
+    department: "Machining",
+    kind: "shop_floor",
+    wave: 0,
+    ...over,
+  };
+  return { ...base, release: rel === null ? null : release({ role_kind: base.role_kind, ...rel }) };
+};
+
 const FIXTURE = [
   row(),
-  row({
-    role_kind: "arc_welder",
-    role_label: "Arc Welder",
-    department: "fabrication",
-    department_label: "Fabrication",
-    kind: "shop_floor",
-    wave: 2,
-    posting_enabled: false,
-    form_enabled: true,
-    posting_changed_at: null,
-    form_changed_at: "2026-11-22T08:00:00.000Z",
-  }),
-  row({
-    role_kind: "design_checker",
-    role_label: "Design Checker",
-    department: "design",
-    department_label: "Design",
-    kind: "desk",
-    wave: null,
-    posting_enabled: false,
-    form_enabled: false,
-    posting_changed_at: null,
-    form_changed_at: null,
-    updated_by: null,
-    updated_at: null,
-  }),
+  row(
+    {
+      role_kind: "welder",
+      role_label: "Welder",
+      department: "Sheet Metal & Fabrication",
+      wave: 0,
+    },
+    { posting_enabled: false, form_enabled: true, updated_at: "2026-11-22T08:00:00.000Z" },
+  ),
+  row(
+    {
+      role_kind: "foundry_forging_operator",
+      role_label: "Foundry / Forging Operator",
+      department: "Not in the catalogue",
+      kind: null,
+      wave: null,
+    },
+    { posting_enabled: false, form_enabled: false, updated_by: null, updated_at: null },
+  ),
 ];
+
+const CATALOGUE = FIXTURE.map((r) => ({ ...r, release: null }));
 
 const render = async () =>
   renderToStaticMarkup(await TradesPage());
 
 beforeEach(() => {
   stub.gate.mockReset();
-  stub.capabilities = ["read_entities", "manage_postings"];
+  stub.capabilities = ["read_entities", "manage_trade_release"];
   stub.rows = FIXTURE;
+  stub.catalogue = CATALOGUE;
+  stub.releaseReads = 0;
   stub.held = [
     { role_label: "CNC Operator", count: 4 },
     { role_label: "Lathe Setter", count: 2 },
@@ -123,54 +130,57 @@ describe("the gate and the title", () => {
 });
 
 describe("the catalogue", () => {
-  it("renders every column from the server rows, in server order", async () => {
+  it("renders every column from the rows, in the order given", async () => {
     const out = await render();
-    for (const heading of [
-      "Code",
-      "Name",
-      "Department",
-      "Kind",
-      "Wave",
-      "Posting on",
-      "Form hand-over on",
-      "Last changed by",
-      "When",
-    ]) {
-      expect(out).toContain(`>${heading}<`);
+    for (const heading of ["Code", "Name", "Department", "Kind", "Wave", "Last changed by", "When"]) {
+      expect(out).toContain(`>${heading}</th>`);
     }
     expect(out).toContain("cnc_turner");
     expect(out).toContain("CNC Turner");
-    expect(out).toContain("Production");
+    expect(out).toContain("Machining");
     expect(out).toContain("Shop floor");
-    expect(out).toContain("Arc Welder");
-    expect(out).toContain("Fabrication");
-    expect(out).toContain("Design Checker");
-    expect(out).toContain("Desk");
-    expect(out).toContain("2026-11-20");
+    expect(out).toContain("Welder");
+    expect(out).toContain("Sheet Metal &amp; Fabrication");
+    expect(out).toContain("Foundry / Forging Operator");
+    expect(out).toContain("Not in the catalogue");
     expect(out).toContain("2026-11-21");
-    // Server order is preserved: no local A–Z sort.
-    expect(out.indexOf("CNC Turner")).toBeLessThan(out.indexOf("Arc Welder"));
-    expect(out.indexOf("Arc Welder")).toBeLessThan(out.indexOf("Design Checker"));
+    expect(out).toContain("2026-11-22");
+    // The given order is kept: no local A–Z sort.
+    expect(out.indexOf("CNC Turner")).toBeLessThan(out.indexOf("Welder"));
+    expect(out.indexOf("Welder")).toBeLessThan(out.indexOf("Foundry / Forging Operator"));
   });
 
-  it("offers the server's department labels and every status filter", async () => {
+  it("offers the catalogue's departments and every status filter", async () => {
     const out = await render();
     expect(out).toContain("All departments");
-    expect(out).toContain(">Production</option>");
-    expect(out).toContain(">Fabrication</option>");
-    expect(out).toContain(">Design</option>");
+    expect(out).toContain(">Machining</option>");
+    expect(out).toContain(">Sheet Metal &amp; Fabrication</option>");
+    expect(out).toContain(">Not in the catalogue</option>");
     expect(out).toContain("All trades");
-    expect(out).toContain("Posting on");
-    expect(out).toContain("Posting off");
-    expect(out).toContain("Form hand-over on");
-    expect(out).toContain("Form hand-over off");
+    expect(out).toContain(">Posting on</option>");
+    expect(out).toContain(">Posting off</option>");
+    expect(out).toContain(">Form hand-over on</option>");
+    expect(out).toContain(">Form hand-over off</option>");
   });
 
-  it("disables both switches for a reader without manage_postings", async () => {
-    stub.capabilities = ["read_entities"];
+  it("draws both switches per row, live, for a session holding manage_trade_release", async () => {
     const out = await render();
-    expect(out).toContain("Your role can read the catalogue but not change it.");
-    expect((out.match(/role="switch"[^>]*disabled=""/g) ?? []).length).toBe(6);
+    expect(stub.releaseReads).toBe(1);
+    expect((out.match(/role="switch"/g) ?? []).length).toBe(6);
+    expect(out).not.toMatch(/role="switch"[^>]*disabled=""/);
+    expect(out).toContain("Changing a switch asks for confirmation first.");
+  });
+
+  it("shows the catalogue read-only, with no switch read, without manage_trade_release", async () => {
+    stub.capabilities = ["read_entities", "manage_postings"];
+    const out = await render();
+    expect(stub.releaseReads).toBe(0);
+    expect(out).toContain("Only a super admin can see and change the release switches.");
+    expect(out).toContain("CNC Turner");
+    expect(out).toContain("Foundry / Forging Operator");
+    expect(out).not.toContain('role="switch"');
+    expect(out).not.toContain(">Last changed by</th>");
+    expect(out).not.toContain(">Posting off</option>");
   });
 
   it("says an empty catalogue is empty, not a broken table", async () => {

@@ -1,4 +1,4 @@
-import type { TradeReleaseRow } from "./trade-release";
+import type { TradeRow } from "./trade-release";
 
 /** The screen's own vocabulary. No route strings live here — see lib/trade-release.ts. */
 
@@ -26,7 +26,8 @@ export function isTradeStatusFilter(value: unknown): value is TradeStatusFilter 
   );
 }
 
-export function tradeKindLabel(kind: TradeReleaseRow["kind"]): string {
+export function tradeKindLabel(kind: TradeRow["kind"]): string {
+  if (kind === null) return "—";
   return kind === "shop_floor" ? "Shop floor" : "Desk";
 }
 
@@ -41,50 +42,41 @@ export interface TradeFilters {
 }
 
 /**
- * Apply the two client-side filters WITHOUT re-sorting: `filter` keeps the server's order
- * (department then pack order) byte for byte. An empty department means every department.
+ * Apply the two client-side filters WITHOUT re-sorting: `filter` keeps the catalogue order byte
+ * for byte. An empty department means every department. A row whose switches this session cannot
+ * read matches only "All trades".
  */
-export function filterTradeRows(
-  rows: readonly TradeReleaseRow[],
-  filters: TradeFilters,
-): TradeReleaseRow[] {
+export function filterTradeRows(rows: readonly TradeRow[], filters: TradeFilters): TradeRow[] {
   return rows.filter((row) => {
     if (filters.department && row.department !== filters.department) return false;
+    if (filters.status === "all") return true;
+    if (row.release === null) return false;
     switch (filters.status) {
       case "posting_on":
-        return row.posting_enabled;
+        return row.release.posting_enabled;
       case "posting_off":
-        return !row.posting_enabled;
+        return !row.release.posting_enabled;
       case "form_on":
-        return row.form_enabled;
+        return row.release.form_enabled;
       case "form_off":
-        return !row.form_enabled;
-      default:
-        return true;
+        return !row.release.form_enabled;
     }
   });
 }
 
 export interface DepartmentGroup {
   department: string;
-  label: string;
-  rows: TradeReleaseRow[];
+  rows: TradeRow[];
 }
 
-/** Departments in server order, each with its rows in server order. */
-export function departmentGroups(
-  rows: readonly TradeReleaseRow[],
-): DepartmentGroup[] {
+/** Departments in first-seen order, each with its rows in the order given. */
+export function departmentGroups(rows: readonly TradeRow[]): DepartmentGroup[] {
   const groups = new Map<string, DepartmentGroup>();
   for (const row of rows) {
     const found = groups.get(row.department);
     if (found) found.rows.push(row);
     else
-      groups.set(row.department, {
-        department: row.department,
-        label: row.department_label,
-        rows: [row],
-      });
+      groups.set(row.department, { department: row.department, rows: [row] });
   }
   return [...groups.values()];
 }

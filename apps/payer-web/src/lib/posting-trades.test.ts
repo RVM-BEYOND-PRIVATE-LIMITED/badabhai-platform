@@ -25,7 +25,7 @@ const TRADE: PostingTradeFormWire = {
 
 describe("the refusal's copy", () => {
   it("is the app's own words — the payer app's kPostingTradeRequiredMessage, not the API's", () => {
-    expect(POSTING_TRADE_REQUIRED_MESSAGE).toBe("Pick one of the 16 trades");
+    expect(POSTING_TRADE_REQUIRED_MESSAGE).toBe("Pick a trade");
     expect(POSTING_TRADE_REQUIRED_MESSAGE).not.toContain("a live job must name");
   });
 });
@@ -48,24 +48,24 @@ describe("postingTradesProblemMessage — the REAL cause, never a generic line",
     [null, "No trades are open for posting right now. Try again in a moment."],
     [
       { kind: "rate-limited" } as const,
-      "The 16 trades did not load: too many requests just now. Wait a minute, then retry.",
+      "The trades did not load: too many requests just now. Wait a minute, then retry.",
     ],
-    [{ kind: "session" } as const, "The 16 trades did not load: your session has ended. Sign in again."],
+    [{ kind: "session" } as const, "The trades did not load: your session has ended. Sign in again."],
     [
       { kind: "http", status: 503 } as const,
-      "The 16 trades did not load: the BadaBhai server had a problem (error 503).",
+      "The trades did not load: the BadaBhai server had a problem (error 503).",
     ],
     [
       { kind: "http", status: 404 } as const,
-      "The 16 trades did not load: the server refused the request (error 404).",
+      "The trades did not load: the server refused the request (error 404).",
     ],
     [
       { kind: "unreadable" } as const,
-      "The 16 trades did not load: the server's answer could not be read.",
+      "The trades did not load: the server's answer could not be read.",
     ],
     [
       { kind: "unreachable" } as const,
-      "The 16 trades did not load: the BadaBhai server could not be reached.",
+      "The trades did not load: the BadaBhai server could not be reached.",
     ],
   ])("%o", (problem, message) => {
     expect(postingTradesProblemMessage(problem)).toBe(message);

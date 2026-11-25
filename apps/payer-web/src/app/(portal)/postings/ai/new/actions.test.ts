@@ -74,7 +74,7 @@ describe("publishJobPostingChatAction (#1912)", () => {
   it("#2645 — a publish with no trade is refused before anything is sent", async () => {
     for (const roleKind of [undefined, ""]) {
       const res = await publishJobPostingChatAction({ sessionId: SESSION, roleKind });
-      expect(res).toEqual({ ok: false, error: "Pick one of the 16 trades" });
+      expect(res).toEqual({ ok: false, error: "Pick a trade" });
     }
     expect(publishJobPostingChatSession).not.toHaveBeenCalled();
   });

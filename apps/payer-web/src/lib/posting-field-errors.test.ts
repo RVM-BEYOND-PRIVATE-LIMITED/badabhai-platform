@@ -42,7 +42,7 @@ describe("mapPostingIssues (#1912)", () => {
 
 describe("postingTradeRequiredFieldErrors (#2645)", () => {
   it("puts the 16-trade refusal AT the trade picker — role_kind's form field — in the app's words", () => {
-    expect(postingTradeRequiredFieldErrors()).toEqual({ roleKind: "Pick one of the 16 trades" });
+    expect(postingTradeRequiredFieldErrors()).toEqual({ roleKind: "Pick a trade" });
     // The same field a server issue on `role_kind` lands on, so both refusals share one control.
     expect(Object.keys(mapPostingIssues([{ path: "role_kind", message: "x" }]).fieldErrors)).toEqual(
       Object.keys(postingTradeRequiredFieldErrors()),

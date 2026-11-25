@@ -14,7 +14,7 @@ import type { PostingTradeFormWire } from "./contracts";
  */
 
 /** The refusal, said AT the trade picker. Same copy as the payer app (`kPostingTradeRequiredMessage`). */
-export const POSTING_TRADE_REQUIRED_MESSAGE = "Pick one of the 16 trades";
+export const POSTING_TRADE_REQUIRED_MESSAGE = "Pick a trade";
 
 /** Whether `roleKind` is one of the trades the catalogue listed. */
 export function isPostingTrade(
@@ -55,7 +55,7 @@ export function postingTradesProblemMessage(problem: PostingTradesProblem | null
   if (problem === null || problem.kind === "empty") {
     return "No trades are open for posting right now. Try again in a moment.";
   }
-  const lead = "The 16 trades did not load";
+  const lead = "The trades did not load";
   switch (problem.kind) {
     case "rate-limited":
       return `${lead}: too many requests just now. Wait a minute, then retry.`;
@@ -97,7 +97,7 @@ export function postingTradeFormProblemMessage(problem: PostingTradesProblem | n
 }
 
 /**
- * `?trade=required` on the edit page — it opens with "Pick one of the 16 trades" at its trade
+ * `?trade=required` on the edit page — it opens with "Pick a trade" at its trade
  * picker, because the API refused to put this job live without one (a refused publish elsewhere
  * lands here). Linkable on purpose: the refusal is said where the fix is, after any navigation.
  */

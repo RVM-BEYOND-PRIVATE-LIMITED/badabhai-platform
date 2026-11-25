@@ -184,7 +184,7 @@ describe("PostingTradePicker — the catalogue did not load", () => {
     expect(spot.props.tabIndex).toBe(-1);
     expect(spot.props.role).toBe("group");
     expect(text(els.find((el) => el.props.id === "roleKind-cause"))).toBe(
-      "The 16 trades did not load: too many requests just now. Wait a minute, then retry.",
+      "The trades did not load: too many requests just now. Wait a minute, then retry.",
     );
     expect(els.filter((el) => el.type === "button").map((b) => text(b))).toEqual(["Retry"]);
   });
@@ -194,14 +194,14 @@ describe("PostingTradePicker — the catalogue did not load", () => {
       pick({
         trades: [],
         problem: { kind: "empty" },
-        error: "Pick one of the 16 trades",
+        error: "Pick a trade",
       }),
     );
     expect(text(els.find((el) => el.props.id === "roleKind-cause"))).toBe(
       "No trades are open for posting right now. Try again in a moment.",
     );
     expect(text(els.find((el) => el.props.id === "roleKind-msg"))).toBe(
-      "Pick one of the 16 trades",
+      "Pick a trade",
     );
   });
 });

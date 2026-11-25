@@ -495,7 +495,7 @@ describe("PostingForm render — #2645: the trade's fields are the only match su
 });
 
 describe("PostingForm — #2645: the trade is REQUIRED, one of the 16", () => {
-  const TRADE_MSG = "Pick one of the 16 trades";
+  const TRADE_MSG = "Pick a trade";
 
   it("Next on step 1 without a trade refuses at the picker (index 1 — fieldErrors) and stays", () => {
     const tree = render({ fields: { ...FULL_FIELDS, roleKind: "" }, fieldErrors: {} });
@@ -614,7 +614,7 @@ describe("PostingForm — #2645: the 16 trades did not load", () => {
     const { tagById, texts, buttons } = collect(tree);
     expect(tagById.roleKind).toBe("div"); // the focus target that stands in for the picker
     const joined = texts.join(" ");
-    expect(joined).toContain("The 16 trades did not load: the BadaBhai server had a problem (error 503).");
+    expect(joined).toContain("The trades did not load: the BadaBhai server had a problem (error 503).");
     expect(joined).not.toContain("CNC Turner");
     expect(buttons.map((b) => b.text)).toContain("Retry");
   });
@@ -642,12 +642,12 @@ describe("PostingForm — #2645: the 16 trades did not load", () => {
     expect(createPostingAction).not.toHaveBeenCalled();
     const refused = render({
       fields: BLANK_FIELDS,
-      fieldErrors: { roleKind: "Pick one of the 16 trades" },
+      fieldErrors: { roleKind: "Pick a trade" },
       postingTrades: [],
       postingTradesProblem: FAILED,
     });
     expect(byId(refused, "roleKind").props["aria-describedby"]).toBe("roleKind-cause roleKind-msg");
-    expect(textOf(byId(refused, "roleKind-msg"))).toBe("Pick one of the 16 trades");
+    expect(textOf(byId(refused, "roleKind-msg"))).toBe("Pick a trade");
   });
 });
 

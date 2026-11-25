@@ -279,7 +279,7 @@ describe("updatePostingAction — #2645: the role is the job's trade (#2635)", (
       initial: INITIAL,
       publish: { matchSkillIds: ["mskill_cnc_turner"], untickedRelatedIds: [] },
     });
-    expect(res).toEqual({ ok: false, error: "Pick one of the 16 trades", tradeRequired: true });
+    expect(res).toEqual({ ok: false, error: "Pick a trade", tradeRequired: true });
   });
 
   it("another reason on a 400 keeps the existing copy — the reason decides, not the status", async () => {

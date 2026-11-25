@@ -1199,7 +1199,7 @@ const String kPostingTradeRequiredCode = 'posting_trade_required';
 /// picker, never in place of it, and never the server's own message. Also the
 /// forms' own refusal when a company job has no trade picked yet, so one rule
 /// reads one way wherever it is met.
-const String kPostingTradeRequiredMessage = 'Pick one of the 16 trades';
+const String kPostingTradeRequiredMessage = 'Pick a trade';
 
 /// #2746 — the server's `error.reason` when targeting is sent with an audience
 /// that has no RVM part.
@@ -1270,7 +1270,7 @@ const Map<String, String> kAgencyTradeLabels = <String, String>{
 /// Label for a trade key — falls back to the raw key for an unknown value.
 String agencyTradeLabel(String key) => kAgencyTradeLabels[key] ?? key;
 
-/// The 27 declared job ROLE kinds (`role_kind`, migration 0131) — DISPLAY /
+/// The 63 declared job ROLE kinds (`role_kind`, migration 0131 + #2999) — DISPLAY /
 /// CLASSIFICATION ONLY, never a match input. This is the value that picks the
 /// role illustration on the worker's job card; a posting without it still
 /// renders the generic art. Mirrors `TRADE_FORM_KINDS_ALL` in
@@ -1304,6 +1304,43 @@ const List<String> kJobRoleKinds = <String>[
   'heat_treatment_technician',
   'production_supervisor',
   'foundry_forging_operator',
+  // CEO pack v2 — the 36 declared trades of the 60-trade catalogue (#2999).
+  'gear_cutting_operator',
+  'boring_machine_operator',
+  'spm_finishing_operator',
+  'cnc_router_operator',
+  'fabricator',
+  'tube_bending_operator',
+  'foundry_operator',
+  'die_casting_operator',
+  'forging_operator',
+  'plating_operator',
+  'plastic_extrusion_operator',
+  'cmm_operator',
+  'ndt_technician',
+  'calibration_technician',
+  'material_lab_technician',
+  'quality_engineer',
+  'robot_operator_programmer',
+  'instrumentation_technician',
+  'hvac_rac_technician',
+  'utility_operator',
+  'maintenance_engineer',
+  'service_engineer',
+  'production_engineer',
+  'process_engineer',
+  'npd_engineer',
+  'safety_officer',
+  'project_site_engineer',
+  'technical_sales_engineer',
+  'ppc_engineer',
+  'store_keeper',
+  'purchase_engineer',
+  'dispatch_logistics_executive',
+  'forklift_operator',
+  'crane_operator',
+  'cae_analyst',
+  'piping_designer',
 ];
 
 /// Human labels for [kJobRoleKinds] (display only — the wire always carries the
@@ -1327,8 +1364,8 @@ const Map<String, String> kJobRoleLabels = <String, String>{
   'quality_inspector': 'Quality Inspector / QC',
   'injection_moulding_operator': 'Injection Moulding Operator',
   'mould_die_maker': 'Mould / Die Maker (Plastics)',
-  'blow_moulding_operator': 'Blow Moulding / Extrusion Operator',
-  'rubber_moulding_operator': 'Rubber Moulding / Compression Operator',
+  'blow_moulding_operator': 'Blow Moulding Operator',
+  'rubber_moulding_operator': 'Rubber Moulding Operator',
   'plastic_process_technician': 'Plastic Process / Quality Technician',
   'cad_designer_3d': '3D CAD Designer',
   'plc_automation_technician': 'PLC / Automation Technician',
@@ -1336,6 +1373,43 @@ const Map<String, String> kJobRoleLabels = <String, String>{
   'heat_treatment_technician': 'Heat-Treatment Technician',
   'production_supervisor': 'Production Supervisor',
   'foundry_forging_operator': 'Foundry / Forging Operator',
+  // CEO pack v2 (#2999).
+  'gear_cutting_operator': 'Gear Cutting Operator',
+  'boring_machine_operator': 'Boring Machine Operator (HBM)',
+  'spm_finishing_operator': 'Honing / Broaching / SPM Operator',
+  'cnc_router_operator': 'CNC Router / Engraving Operator (ArtCAM)',
+  'fabricator': 'Fabricator / Structural Fitter',
+  'tube_bending_operator': 'Tube Bending / Roll Forming Operator',
+  'foundry_operator': 'Foundry / Casting Operator',
+  'die_casting_operator': 'Die Casting Operator (PDC / GDC)',
+  'forging_operator': 'Forging Operator',
+  'plating_operator': 'Plating / Surface Treatment Operator',
+  'plastic_extrusion_operator': 'Plastic Extrusion Operator',
+  'cmm_operator': 'CMM Operator / Programmer',
+  'ndt_technician': 'NDT Technician',
+  'calibration_technician': 'Calibration / Metrology Lab Technician',
+  'material_lab_technician': 'Material Testing / Met Lab Technician',
+  'quality_engineer': 'Quality Engineer (QA / QC / SQA)',
+  'robot_operator_programmer': 'Robot Operator / Programmer',
+  'instrumentation_technician': 'Instrumentation Technician',
+  'hvac_rac_technician': 'Refrigeration & AC (HVAC) Technician',
+  'utility_operator': 'Utility Operator (Boiler / Compressor / DG / ETP)',
+  'maintenance_engineer': 'Maintenance Engineer',
+  'service_engineer': 'Service Engineer (Field / Machine Service)',
+  'production_engineer': 'Production Engineer',
+  'process_engineer': 'Process / Manufacturing Engineer',
+  'npd_engineer': 'NPD / Development Engineer',
+  'safety_officer': 'Safety / EHS Officer',
+  'project_site_engineer': 'Project / Site Engineer (Mechanical)',
+  'technical_sales_engineer': 'Technical Sales / Application Engineer',
+  'ppc_engineer': 'PPC / Production Planning Engineer',
+  'store_keeper': 'Store Keeper / Stores Executive',
+  'purchase_engineer': 'Purchase / Vendor Development Engineer',
+  'dispatch_logistics_executive': 'Dispatch / Logistics Executive',
+  'forklift_operator': 'Forklift / Reach Truck Operator',
+  'crane_operator': 'EOT Crane Operator / Rigger',
+  'cae_analyst': 'CAE / FEA Analyst',
+  'piping_designer': 'Piping Designer / Draughtsman',
 };
 
 /// Label for a role kind — null when the value is not one of the 27.

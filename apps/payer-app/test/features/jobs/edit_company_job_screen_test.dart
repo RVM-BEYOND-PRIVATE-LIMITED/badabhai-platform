@@ -837,7 +837,7 @@ void main() {
 
       expect(
         atPicker(
-          'The 16 trades did not load. Check your internet connection and '
+          'The trades did not load. Check your internet connection and '
           'try again.',
         ),
         findsOneWidget,
@@ -868,7 +868,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(api.updated, hasLength(1));
-      expect(atPicker('Pick one of the 16 trades'), findsOneWidget);
+      expect(atPicker('Pick a trade'), findsOneWidget);
       expect(find.byType(SnackBar), findsNothing);
       expect(find.textContaining('a live job must name'), findsNothing);
       // Still on the form, Save live again.
@@ -882,7 +882,7 @@ void main() {
 
       // Picking another trade is what clears it.
       await pickTrade(tester, 'CNC Turner');
-      expect(find.text('Pick one of the 16 trades'), findsNothing);
+      expect(find.text('Pick a trade'), findsNothing);
     });
 
     testWidgets(
@@ -892,17 +892,17 @@ void main() {
     ) async {
       await open(tester, job: _draftNoTrade, tradeRequired: true);
 
-      expect(atPicker('Pick one of the 16 trades'), findsOneWidget);
+      expect(atPicker('Pick a trade'), findsOneWidget);
       expect(find.byType(SnackBar), findsNothing);
 
       // Editing something else leaves it standing…
       await typeInto(tester, 'City', 'Nashik');
       await tester.pumpAndSettle();
-      expect(atPicker('Pick one of the 16 trades'), findsOneWidget);
+      expect(atPicker('Pick a trade'), findsOneWidget);
 
       // …picking a trade clears it and opens that trade's form.
       await pickTrade(tester, 'Welder');
-      expect(find.text('Pick one of the 16 trades'), findsNothing);
+      expect(find.text('Pick a trade'), findsNothing);
       expect(find.text('Trade requirements'), findsOneWidget);
 
       await save(tester);

@@ -86,6 +86,9 @@ importers:
       '@badabhai/pricing':
         specifier: workspace:*
         version: link:../../packages/pricing
+      '@badabhai/taxonomy':
+        specifier: workspace:*
+        version: link:../../packages/taxonomy
       '@badabhai/theme-web':
         specifier: workspace:*
         version: link:../../packages/theme-web
