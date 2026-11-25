@@ -1,0 +1,1200 @@
+{
+  "_why": "Role track for Process / Manufacturing Engineer (T47), new trade (CEO pack v2). fam_process_engineer binds the 2141 and 2144 process codes.",
+  "_scope": "Production and Engineering desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "21 questions (easy 6, medium 6, advanced 9); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T47 (Process / Manufacturing Engineer). Status: NEW",
+  "pack_id": "qp_process_engineer",
+  "version": 1,
+  "family_id": "fam_process_engineer",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T47): new trade.",
+  "items": [
+    {
+      "question_key": "proc_experience",
+      "min_tier": "easy",
+      "prompt_text": "Process ya manufacturing engineering me kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "proc_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Process ya manufacturing engineering me kaam kiya hai?"
+    },
+    {
+      "question_key": "proc_level",
+      "min_tier": "easy",
+      "prompt_text": "ME department me aapki post kya hai?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "proc_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "GET / DET / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "engineer",
+          "label_text": "Engineer",
+          "value_text": "engineer"
+        },
+        {
+          "option_key": "senior_engineer",
+          "label_text": "Senior Engineer",
+          "value_text": "senior_engineer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Asst. Manager / Section head",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Manager / HOD",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "ME department me trainee, engineer ya senior engineer hain?"
+    },
+    {
+      "question_key": "proc_senior_engineer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye part ka process sheet aur cycle time aap khud banate hain?",
+      "why_text": "Process khud banane wale senior engineer ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "proc_senior_engineer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud banata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior banate hain, main update karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "proc_level"
+        },
+        "right": {
+          "const": [
+            "senior_engineer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "proc_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Nayi line ka layout aur capacity aap khud final karte hain?",
+      "why_text": "Line final karne wale section head ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "proc_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, main final karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, mere senior final karte hain",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "proc_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "proc_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Aapke under kitne engineer hain aur kitni line aapke zimme hain?",
+      "why_text": "Poora ME department sambhalne wale HOD ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "proc_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "proc_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "proc_function",
+      "min_tier": "medium",
+      "prompt_text": "ME me aapka main kaam kya hai?",
+      "why_text": "Kaam ke hisaab se sahi post dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "proc_function",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "process_planning",
+          "label_text": "Process planning aur routing",
+          "value_text": "process_planning"
+        },
+        {
+          "option_key": "industrial_engg",
+          "label_text": "Industrial engineering (time study, manpower)",
+          "value_text": "industrial_engg"
+        },
+        {
+          "option_key": "tooling_fixture",
+          "label_text": "Tooling aur jig-fixture",
+          "value_text": "tooling_fixture"
+        },
+        {
+          "option_key": "new_line_setup",
+          "label_text": "Nayi line ya machine lagana",
+          "value_text": "new_line_setup"
+        },
+        {
+          "option_key": "tool_optimisation",
+          "label_text": "Cutting tool aur parameter optimisation",
+          "value_text": "tool_optimisation"
+        },
+        {
+          "option_key": "layout_capacity",
+          "label_text": "Layout aur capacity planning",
+          "value_text": "layout_capacity"
+        },
+        {
+          "option_key": "lca_poka_yoke",
+          "label_text": "Low-cost automation aur poka-yoke",
+          "value_text": "lca_poka_yoke"
+        },
+        {
+          "option_key": "cost_reduction_vave",
+          "label_text": "Cost reduction / VAVE",
+          "value_text": "cost_reduction_vave"
+        }
+      ]
+    },
+    {
+      "question_key": "proc_process_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kis process ki engineering karte hain?",
+      "why_text": "Process ke hisaab se sahi company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "proc_process_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "machining",
+          "label_text": "Machining (CNC / VMC / HMC)",
+          "value_text": "machining"
+        },
+        {
+          "option_key": "press_sheet_metal",
+          "label_text": "Press aur sheet metal",
+          "value_text": "press_sheet_metal"
+        },
+        {
+          "option_key": "welding",
+          "label_text": "Welding (MIG, spot, robot)",
+          "value_text": "welding"
+        },
+        {
+          "option_key": "assembly",
+          "label_text": "Assembly",
+          "value_text": "assembly"
+        },
+        {
+          "option_key": "moulding",
+          "label_text": "Injection moulding",
+          "value_text": "moulding"
+        },
+        {
+          "option_key": "casting",
+          "label_text": "Casting ya die casting",
+          "value_text": "casting"
+        },
+        {
+          "option_key": "forging",
+          "label_text": "Forging",
+          "value_text": "forging"
+        },
+        {
+          "option_key": "surface_heat_treatment",
+          "label_text": "Painting, plating ya heat treatment",
+          "value_text": "surface_heat_treatment"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur process",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "proc_documents_owned",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse document aap khud banate hain?",
+      "why_text": "Document khud banane wale engineer ko senior kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "proc_documents_owned",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pfd",
+          "label_text": "Process flow diagram (PFD)",
+          "value_text": "pfd"
+        },
+        {
+          "option_key": "pfmea",
+          "label_text": "PFMEA",
+          "value_text": "pfmea"
+        },
+        {
+          "option_key": "control_plan",
+          "label_text": "Control plan",
+          "value_text": "control_plan"
+        },
+        {
+          "option_key": "process_sheet",
+          "label_text": "Process sheet ya operation sheet",
+          "value_text": "process_sheet"
+        },
+        {
+          "option_key": "sop_work_instruction",
+          "label_text": "SOP ya work instruction",
+          "value_text": "sop_work_instruction"
+        },
+        {
+          "option_key": "tooling_list",
+          "label_text": "Tooling list ya tool layout",
+          "value_text": "tooling_list"
+        },
+        {
+          "option_key": "layout_drawing",
+          "label_text": "Plant layout drawing",
+          "value_text": "layout_drawing"
+        },
+        {
+          "option_key": "capacity_sheet",
+          "label_text": "Capacity sheet",
+          "value_text": "capacity_sheet"
+        }
+      ]
+    },
+    {
+      "question_key": "proc_software",
+      "min_tier": "medium",
+      "prompt_text": "Kaam me aap kaunsa software chalate hain?",
+      "why_text": "Software jaanne wale engineer ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "proc_software",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "autocad",
+          "label_text": "AutoCAD",
+          "value_text": "autocad"
+        },
+        {
+          "option_key": "solidworks",
+          "label_text": "SolidWorks",
+          "value_text": "solidworks"
+        },
+        {
+          "option_key": "catia_nx",
+          "label_text": "CATIA ya NX",
+          "value_text": "catia_nx"
+        },
+        {
+          "option_key": "creo",
+          "label_text": "Creo",
+          "value_text": "creo"
+        },
+        {
+          "option_key": "sap_pp",
+          "label_text": "SAP PP (routing, BOM)",
+          "value_text": "sap_pp"
+        },
+        {
+          "option_key": "excel",
+          "label_text": "MS Excel (pivot, VLOOKUP)",
+          "value_text": "excel"
+        },
+        {
+          "option_key": "minitab",
+          "label_text": "Minitab",
+          "value_text": "minitab"
+        },
+        {
+          "option_key": "ms_project",
+          "label_text": "MS Project",
+          "value_text": "ms_project"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap part ki drawing padh lete hain?",
+      "why_text": "Drawing se hi process aur fixture tay hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "proc_six_sigma_belt",
+      "min_tier": "hard",
+      "prompt_text": "Six Sigma ka kaunsa belt aapke paas hai?",
+      "why_text": "Green ya Black Belt wale engineer ko kai company alag se dhoondhti hain.",
+      "target_kind": "attribute",
+      "target_field": "proc_six_sigma_belt",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "black_belt",
+          "label_text": "Black Belt",
+          "value_text": "black_belt"
+        },
+        {
+          "option_key": "green_belt",
+          "label_text": "Green Belt",
+          "value_text": "green_belt"
+        },
+        {
+          "option_key": "yellow_belt",
+          "label_text": "Yellow Belt",
+          "value_text": "yellow_belt"
+        },
+        {
+          "option_key": "project_only",
+          "label_text": "Project kiya hai, certificate nahi",
+          "value_text": "project_only"
+        },
+        {
+          "option_key": "none",
+          "label_text": "Koi belt nahi",
+          "value_text": "none"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "proc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "proc_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "proc_time_study",
+      "min_tier": "hard",
+      "prompt_text": "Time study aur capacity ka kaunsa kaam aap karte hain?",
+      "why_text": "Time study se hi manpower aur machine ki ginti nikalti hai.",
+      "target_kind": "attribute",
+      "target_field": "proc_time_study",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "stopwatch_study",
+          "label_text": "Stopwatch se cycle time lena",
+          "value_text": "stopwatch_study"
+        },
+        {
+          "option_key": "takt_time",
+          "label_text": "Takt time nikalna",
+          "value_text": "takt_time"
+        },
+        {
+          "option_key": "line_balancing",
+          "label_text": "Line balancing (Yamazumi chart)",
+          "value_text": "line_balancing"
+        },
+        {
+          "option_key": "manpower_calc",
+          "label_text": "Manpower calculation",
+          "value_text": "manpower_calc"
+        },
+        {
+          "option_key": "most_mtm",
+          "label_text": "MOST ya MTM se standard time",
+          "value_text": "most_mtm"
+        },
+        {
+          "option_key": "capacity_calc",
+          "label_text": "Machine capacity calculation",
+          "value_text": "capacity_calc"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "proc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "proc_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "proc_tooling_work",
+      "min_tier": "hard",
+      "prompt_text": "Tooling aur fixture me aap kya karte hain?",
+      "why_text": "Tooling sambhalne wale engineer ki machine shop me alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "proc_tooling_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "fixture_concept",
+          "label_text": "Jig-fixture ka concept banana",
+          "value_text": "fixture_concept"
+        },
+        {
+          "option_key": "fixture_development",
+          "label_text": "Tool room ya vendor se fixture banwana",
+          "value_text": "fixture_development"
+        },
+        {
+          "option_key": "tool_selection",
+          "label_text": "Insert, drill aur tap ka grade chunna",
+          "value_text": "tool_selection"
+        },
+        {
+          "option_key": "tool_life_trial",
+          "label_text": "Tool life trial lena",
+          "value_text": "tool_life_trial"
+        },
+        {
+          "option_key": "parameter_optimisation",
+          "label_text": "Speed aur feed optimise karna",
+          "value_text": "parameter_optimisation"
+        },
+        {
+          "option_key": "gauge_planning",
+          "label_text": "Gauge aur checking fixture plan karna",
+          "value_text": "gauge_planning"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "proc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "proc_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Aapne kis industry ke plant me kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler parts",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Home appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electronics / EMS",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Tractor aur agri equipment",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "construction_equipment",
+          "label_text": "Construction equipment",
+          "value_text": "construction_equipment"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence ya aerospace",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "proc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "proc_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "proc_new_line_work",
+      "min_tier": "hard",
+      "prompt_text": "Nayi machine ya line lagane me aapne kya kiya hai?",
+      "why_text": "Nayi line laga chuke engineer ko naye plant sabse pehle lete hain.",
+      "target_kind": "attribute",
+      "target_field": "proc_new_line_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "machine_spec",
+          "label_text": "Machine specification banana",
+          "value_text": "machine_spec"
+        },
+        {
+          "option_key": "machine_buyoff",
+          "label_text": "Vendor ke yahan machine buy-off",
+          "value_text": "machine_buyoff"
+        },
+        {
+          "option_key": "installation",
+          "label_text": "Installation aur commissioning",
+          "value_text": "installation"
+        },
+        {
+          "option_key": "capability_trial",
+          "label_text": "Machine capability (Cm, Cmk) trial",
+          "value_text": "capability_trial"
+        },
+        {
+          "option_key": "layout_design",
+          "label_text": "Layout banana",
+          "value_text": "layout_design"
+        },
+        {
+          "option_key": "capex_proposal",
+          "label_text": "Capex proposal aur ROI",
+          "value_text": "capex_proposal"
+        },
+        {
+          "option_key": "line_shifting",
+          "label_text": "Line shifting",
+          "value_text": "line_shifting"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Abhi tak nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "proc_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "proc_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "proc_improvement_work",
+      "min_tier": "hard",
+      "prompt_text": "Sudhaar ka kaunsa project aapne khud kiya hai?",
+      "why_text": "Sudhaar ke project se engineer ki asli pehchaan banti hai.",
+      "target_kind": "attribute",
+      "target_field": "proc_improvement_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "kaizen",
+          "label_text": "Kaizen",
+          "value_text": "kaizen"
+        },
+        {
+          "option_key": "poka_yoke",
+          "label_text": "Poka-yoke",
+          "value_text": "poka_yoke"
+        },
+        {
+          "option_key": "low_cost_automation",
+          "label_text": "Low-cost automation",
+          "value_text": "low_cost_automation"
+        },
+        {
+          "option_key": "vave",
+          "label_text": "VAVE ya cost reduction",
+          "value_text": "vave"
+        },
+        {
+          "option_key": "smed",
+          "label_text": "SMED",
+          "value_text": "smed"
+        },
+        {
+          "option_key": "cycle_time_reduction",
+          "label_text": "Cycle time kam karna",
+          "value_text": "cycle_time_reduction"
+        },
+        {
+          "option_key": "lean_vsm",
+          "label_text": "Lean (VSM)",
+          "value_text": "lean_vsm"
+        },
+        {
+          "option_key": "six_sigma_project",
+          "label_text": "Six Sigma (DMAIC) project",
+          "value_text": "six_sigma_project"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "proc_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "proc_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "proc_quality_system",
+      "min_tier": "hard",
+      "prompt_text": "Quality system ka kaunsa kaam aap khud karte hain?",
+      "why_text": "IATF ke document jaanne wale engineer ko auto plant jaldi lete hain.",
+      "target_kind": "attribute",
+      "target_field": "proc_quality_system",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "apqp_ppap",
+          "label_text": "APQP aur PPAP ke document banana",
+          "value_text": "apqp_ppap"
+        },
+        {
+          "option_key": "process_capability",
+          "label_text": "Process capability (Cp, Cpk) study",
+          "value_text": "process_capability"
+        },
+        {
+          "option_key": "msa",
+          "label_text": "MSA ya gauge R&R",
+          "value_text": "msa"
+        },
+        {
+          "option_key": "four_m_change",
+          "label_text": "4M change management",
+          "value_text": "four_m_change"
+        },
+        {
+          "option_key": "iatf_audit",
+          "label_text": "IATF 16949 audit face karna",
+          "value_text": "iatf_audit"
+        },
+        {
+          "option_key": "customer_audit",
+          "label_text": "Customer audit (Maruti, Hero, Honda jaise)",
+          "value_text": "customer_audit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "proc_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "proc_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Process ki kaunsi dikkat aap khud suljhaate hain?",
+      "why_text": "Process ki dikkat suljhaane wale engineer ki shop par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cycle_time_high",
+          "label_text": "Cycle time target se zyada aana",
+          "value_text": "cycle_time_high"
+        },
+        {
+          "option_key": "tool_life_low",
+          "label_text": "Tool jaldi ghisna ya tootna",
+          "value_text": "tool_life_low"
+        },
+        {
+          "option_key": "low_cpk",
+          "label_text": "Cpk kam aana ya size variation",
+          "value_text": "low_cpk"
+        },
+        {
+          "option_key": "fixture_issue",
+          "label_text": "Fixture me job sahi na baithna",
+          "value_text": "fixture_issue"
+        },
+        {
+          "option_key": "bottleneck",
+          "label_text": "Bottleneck station",
+          "value_text": "bottleneck"
+        },
+        {
+          "option_key": "high_rejection",
+          "label_text": "Rejection badh jaana",
+          "value_text": "high_rejection"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "proc_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "proc_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "proc_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapne kaunsi branch se padhai ki hai?",
+      "why_text": "Branch ke hisaab se company post tay karti hai.",
+      "target_kind": "attribute",
+      "target_field": "proc_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "production_engg",
+          "label_text": "Production ya Industrial engineering",
+          "value_text": "production_engg"
+        },
+        {
+          "option_key": "tool_die_diploma",
+          "label_text": "Tool and Die diploma (NTTF, IGTR, MSME Tool Room)",
+          "value_text": "tool_die_diploma"
+        },
+        {
+          "option_key": "electrical_engg",
+          "label_text": "Electrical ya Electronics",
+          "value_text": "electrical_engg"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad promote hua",
+          "value_text": "iti_promoted"
+        }
+      ]
+    },
+    {
+      "question_key": "proc_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke dauraan factory ka kaunsa kaam aapne dekha ya kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi employer dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "proc_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "vocational_training",
+          "label_text": "Plant me vocational training",
+          "value_text": "vocational_training"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "College ka major project",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "proc_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "proc_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

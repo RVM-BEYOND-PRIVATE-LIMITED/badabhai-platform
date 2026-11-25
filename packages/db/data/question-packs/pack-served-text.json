@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 203,
+  "pack_count": 218,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -82,6 +82,10 @@
       "served_text_sha256": "e983c2e568242e9d50e4b7fcc115fb3030734ffc8553b1594134247e80e434ec",
       "served_text_count": 34
     },
+    "qp_cad_design_3d@2": {
+      "served_text_sha256": "36f1a97ba57f2269d125326fcc3325821d9004372497ee6d73fbeeb762c36803",
+      "served_text_count": 67
+    },
     "qp_cad_drafting@1": {
       "served_text_sha256": "7d8199a9e5c451bb048f354605c9aaff8f9131d27a2f01abfc98b12166461e12",
       "served_text_count": 53
@@ -150,6 +154,10 @@
       "served_text_sha256": "7180bc3eb633ccbbe7d4d825d037e9b770f8813c48a026c4917628c3a6d6eae2",
       "served_text_count": 9
     },
+    "qp_cmm@1": {
+      "served_text_sha256": "d4751a32e2b01aa4a644af659c1d1b84135cc56a190890762c9bedefe113133f",
+      "served_text_count": 73
+    },
     "qp_cnc_grinding@1": {
       "served_text_sha256": "bc388994f5bf247cee476e13140a6c59ab06ca9da289901923233653b6bfad6d",
       "served_text_count": 56
@@ -173,6 +181,10 @@
     "qp_cnc_grinding@6": {
       "served_text_sha256": "ead77ea60cddd5f278925dda3c05e10ed936f99c13c79496223b7fe419b52aa2",
       "served_text_count": 64
+    },
+    "qp_cnc_router@1": {
+      "served_text_sha256": "ef011a8f0e09b45cf81744b5b9fe8d1304b2f90cfaa716dbb1fe585c8dadce41",
+      "served_text_count": 73
     },
     "qp_cnc_turning@1": {
       "served_text_sha256": "f0c9d86a85eb636ad6ceeab6146aad0e24382b8f87c0a0613c8341f18f977a71",
@@ -282,6 +294,10 @@
       "served_text_sha256": "ea8af9c16a329dfebdb16ee4c9c58fc993887906cead23bfa6cd83607866a04d",
       "served_text_count": 33
     },
+    "qp_edm_wirecut@2": {
+      "served_text_sha256": "b50e760a313cd4533aa9248efc3b373e5e45838cb1a731406ba49ec01ec8a10d",
+      "served_text_count": 73
+    },
     "qp_electrical@1": {
       "served_text_sha256": "ff6f61ecc67a9b912307dcd189202fd364260b4ac78a8ce17049076b7fe39515",
       "served_text_count": 15
@@ -386,6 +402,10 @@
       "served_text_sha256": "7cf985ad5eabd8804854282d2369825a0791c70158adaefb896f16f3c7c0baa6",
       "served_text_count": 27
     },
+    "qp_heat_treatment@2": {
+      "served_text_sha256": "334142a00a43b09889f5db7225a50183665bba2a36d4a783652f7d02f326a7d2",
+      "served_text_count": 70
+    },
     "qp_industrial_electrician@1": {
       "served_text_sha256": "1be166c2d2f0b3df11aefa110befe626185dd4c4be92d4a7132bb8f4ef0decce",
       "served_text_count": 62
@@ -397,6 +417,10 @@
     "qp_injection_moulding@1": {
       "served_text_sha256": "0b0fe611501ff5e75ed038c802783c28e76fd0732f7edde01f98dacdf9b3794a",
       "served_text_count": 34
+    },
+    "qp_injection_moulding@2": {
+      "served_text_sha256": "d600e656bd10ccaa18e2f9088f86bbbb4ee1890ba665edb323c579ee2d024155",
+      "served_text_count": 73
     },
     "qp_lineman@1": {
       "served_text_sha256": "8341ede962b173a30860840ae9825d17dcfc6d8c25a6972e280fcb6fcf742b9d",
@@ -413,6 +437,10 @@
     "qp_machining@1": {
       "served_text_sha256": "610d4a72e35ebe3cfce5e4e911c2d2054fec0c41045c49b30826314e8d1acdd0",
       "served_text_count": 18
+    },
+    "qp_maintenance_engineer@1": {
+      "served_text_sha256": "096264b68fc1940df6736a75f208e44e7f21e22c676c74f845a6b10670ba7894",
+      "served_text_count": 70
     },
     "qp_maintenance_tech@1": {
       "served_text_sha256": "fd2f72d22d1bc5336193ce7c530b8c1432f159b16bb502a7d347f2e2c753c151",
@@ -466,6 +494,10 @@
       "served_text_sha256": "199509d4db3cac3a225c354a60e72abe5951616519a3c9537db5fbf4e39a5a60",
       "served_text_count": 9
     },
+    "qp_npd_engineer@1": {
+      "served_text_sha256": "32238d8df3b74ab3332f6b63a0c735bd22aa6a36f05c0237ba4ee5e930566496",
+      "served_text_count": 70
+    },
     "qp_other_craft@1": {
       "served_text_sha256": "5248a6728753db58a985fc6553e7b2b0f20735325948d00f13aa63591ca3b38a",
       "served_text_count": 15
@@ -514,6 +546,10 @@
       "served_text_sha256": "ec6aee54a1d1efa7d0e40a02e08507d6d7363a383c2dd1bb33d8fd9f5954d87a",
       "served_text_count": 33
     },
+    "qp_plc_automation@2": {
+      "served_text_sha256": "ebdcbe1f00d98ca1542d548d35f48cbc3d661da46f77f2ec5567438119c9a0d3",
+      "served_text_count": 73
+    },
     "qp_plumbing@1": {
       "served_text_sha256": "d91d3caf157e5c77ad236f98d3e1a0962d87e92f3d5a18edd26ace07fa3c4138",
       "served_text_count": 15
@@ -525,6 +561,10 @@
     "qp_powder_coating@2": {
       "served_text_sha256": "abf2994ead9a799b15f272b763115c3eaa172948fb3920dd59987a60223b468f",
       "served_text_count": 96
+    },
+    "qp_ppc@1": {
+      "served_text_sha256": "1fd7946c589b6bc1bf09dd1d657505fd364fee9b5111130ad1aa0d26b9bea4a4",
+      "served_text_count": 70
     },
     "qp_press_operation@1": {
       "served_text_sha256": "082b4054c99e69479aed3896fd211595b6c386fec26a893e63a27e2983af92d0",
@@ -538,9 +578,21 @@
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
     },
+    "qp_process_engineer@1": {
+      "served_text_sha256": "b8fdf7e30db72adb9dce2792453877dfeab8abf5ea2f0b7cb449328517515b18",
+      "served_text_count": 67
+    },
+    "qp_production_engineer@1": {
+      "served_text_sha256": "c502378020059c6c519fd39c9a834cee5a7aa71f67524a730a9e5c296e43ac30",
+      "served_text_count": 70
+    },
     "qp_production_supervisor@1": {
       "served_text_sha256": "cd74f46702c06123c9a5da48d25d4efed71f9931e2167ab1b6ffb0019d6299ef",
       "served_text_count": 31
+    },
+    "qp_production_supervisor@2": {
+      "served_text_sha256": "f98e24457660448867d2aa4674676016d85ea68fd51e8e1fdf0b200ead5d577c",
+      "served_text_count": 64
     },
     "qp_protective_service@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
@@ -549,6 +601,14 @@
     "qp_protective_service@2": {
       "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
       "served_text_count": 9
+    },
+    "qp_purchase@1": {
+      "served_text_sha256": "bb550867867c11f67f068166b6f7d440d951671cb665e2649a0a0c65a609d3e0",
+      "served_text_count": 70
+    },
+    "qp_quality_engineer@1": {
+      "served_text_sha256": "7a15dcabbc51c7a7c2f7989b984ef922a37781dfcc549fadfb299c3b2d15a976",
+      "served_text_count": 70
     },
     "qp_quality_inspection@1": {
       "served_text_sha256": "738450e08410a0f1048815fd3a26add6d4f9775eb7d2fe8a4901b09ed5322ad5",

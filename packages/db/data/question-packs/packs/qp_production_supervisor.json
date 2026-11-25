@@ -8,7 +8,7 @@
   "version": 1,
   "family_id": "fam_production_supervisor",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "v1 (CEO Launch Plan Pack v1, Phase 2 #10): new trade. Easy/Medium/Advanced tiers; 6-band experience; sheet-23 level ladder (Line Leader = senior / Supervisor / Production In-charge = lead, mandatory; the sheet's own chips); confirmed from supervisor: Line Leader is NOT confirmed in this trade (a per-pack override of the shared senior rung rule). The sheet's two-question separating prompt is split along its own rows (owner ruling 2026-11-04, the runtime refuses two question marks): 'Shift report aap banate ho?' is the self/other confirm, asked of supervisor and, by the standing owner rule of 2026-11-03, of production in-charge; 'Kitne log / kitni machines aapke under?' is Medium Q7 as two banded rows (team size from the sheet's own 5-15 / 15-50 / 50+ ladder bands). Medium Q6 area; Advanced Q9 systems, Q10 industry (shared sector_worked key), Q11 own trade background, gated years OR rung. Deviations recorded: Q11 asks the trade only, not its years (one more ask for a figure the experience row already bounds); Q12 is the shared qp_universal education block (new-trade precedent). Drafted for owner review (Prakash).",
   "items": [
     {

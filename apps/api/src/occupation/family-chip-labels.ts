@@ -203,6 +203,21 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   fam_production_supervisor: "production supervisor",
   // Phase 2 #11. Formless, like heat treatment: a pin keeps talking.
   fam_foundry_forging: "Foundry / forging",
+  // CEO pack v2, Wave 1 (#3008). The Latin reading of each new family's `label_hi`. The roles
+  // are declared and disabled (#3004), so a pin here keeps talking, like the thin forms above.
+  fam_cnc_router: "CNC router / engraving",
+  fam_cmm: "CMM operator / programmer",
+  // A DELIBERATE DEPARTURE from the Latin reading ("quality engineer"): that phrase is one of the
+  // live QC inspector's occupation terms (`quality-inspector.role.ts`), so as a pinned label it
+  // would hand T16's inspection form to every code bound here. Moving the word to T37 is a
+  // routing change for #3010 / #3027; until then the label names the trade without routing.
+  fam_quality_engineer: "QA / SQA engineer",
+  fam_maintenance_engineer: "maintenance engineer",
+  fam_production_engineer: "production engineer",
+  fam_process_engineer: "process engineer",
+  fam_npd_engineer: "NPD / development engineer",
+  fam_ppc: "PPC / production planning",
+  fam_purchase: "purchase / vendor development",
 });
 
 /**

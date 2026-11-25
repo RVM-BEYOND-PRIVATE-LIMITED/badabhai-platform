@@ -26,7 +26,7 @@ import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 
 import { captureAnswer } from "./answer-capture";
 import { recordAnswer, recordDeclined, type AnswerMap } from "./answer-map";
-import { computeLookahead } from "./lookahead";
+import { computeLookahead, LOOKAHEAD_DECLINED, LOOKAHEAD_MAX_BRANCHES } from "./lookahead";
 import { nextQuestion, type Decision, type EnginePacks, type EngineState } from "./next-question";
 
 // Anchored to THIS FILE rather than `process.cwd()`: with cwd it resolves only when vitest is
@@ -120,6 +120,7 @@ describe("the lookahead against the shipped corpus", () => {
     const universal = toPack("qp_universal", [toItem(universalRaw.items[0] as never)]);
 
     let checked = 0;
+    let declinedToPredict = 0;
     const mispredicted: string[] = [];
 
     for (const file of readdirSync(PACK_DIR).filter((name) => name.endsWith(".json"))) {
@@ -151,6 +152,18 @@ describe("the lookahead against the shipped corpus", () => {
           nextTurn: 4,
         });
 
+        // ABOVE THE BRANCH CAP THE LOOKAHEAD PREDICTS NO CHIP, BY DESIGN (`lookahead.ts`): it
+        // declines the whole question rather than truncate it. What must hold there is that it
+        // never offers a per-chip prediction at all, so no stale render can reach the worker.
+        // The compiled CEO pack v2 sheets (#3008) are the first forms with such a question.
+        if (item.options.length > LOOKAHEAD_MAX_BRANCHES) {
+          const offered = Object.keys(predicted ?? {}).filter((k) => k !== LOOKAHEAD_DECLINED);
+          if (offered.length > 0) {
+            mispredicted.push(`${raw.pack_id}/${item.question_key}: predicted ${offered.join(",")}`);
+          }
+          declinedToPredict++;
+          continue;
+        }
         for (const option of item.options) {
           const real = actuallyServed(before, packs, item, option.label_text);
           checked++;
@@ -167,6 +180,7 @@ describe("the lookahead against the shipped corpus", () => {
     // A guard on the guard: if the corpus stops being readable this test must fail rather than
     // pass vacuously over zero chips.
     expect(checked).toBeGreaterThan(400);
+    expect(declinedToPredict).toBeLessThan(checked);
     expect(mispredicted).toEqual([]);
   });
 });

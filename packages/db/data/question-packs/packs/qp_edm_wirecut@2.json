@@ -1,0 +1,1255 @@
+{
+  "_why": "Role track for EDM / Wire-cut Operator (T17), deepening the live thin form (CEO pack v2). fam_edm_wirecut binds NCO 7223.2800.",
+  "_scope": "Machining shop-floor trade, not the tool room. The interview separates at setter; higher contact price from setter.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T17 (EDM / Wire-cut Operator). Status: DEEPEN (supersedes the live thin form)",
+  "pack_id": "qp_edm_wirecut",
+  "version": 2,
+  "family_id": "fam_edm_wirecut",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v2 (CEO pack v2, sheet T17): deepens the live thin form. Sheet wording and chips under the kept live keys (key table #3008). Live-only questions stay in v1.",
+  "items": [
+    {
+      "question_key": "edm_experience",
+      "min_tier": "easy",
+      "prompt_text": "Wire cut ya EDM ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "edm_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Wire cut ya EDM ka kaam kiya hai?"
+    },
+    {
+      "question_key": "edm_level",
+      "min_tier": "easy",
+      "prompt_text": "Wire cut ya EDM machine pe aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "edm_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper/Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "setter",
+          "label_text": "Setter",
+          "value_text": "setter"
+        },
+        {
+          "option_key": "setter_programmer",
+          "label_text": "Setter-cum-Programmer",
+          "value_text": "setter_programmer"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Machine par helper, operator ya setter hain?"
+    },
+    {
+      "question_key": "edm_setting_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye job ki clamping, dialling aur edge find aap khud karte ho?",
+      "why_text": "Job khud set karne wale setter ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_setting_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Koi aur karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "edm_level"
+        },
+        "right": {
+          "const": [
+            "setter"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "edm_program_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Drawing ya DXF se cutting program aap khud banate ho?",
+      "why_text": "Khud program banane wale ko programmer ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_program_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud banata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Bana-banaya program chalata hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "edm_level"
+        },
+        "right": {
+          "const": [
+            "setter_programmer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "edm_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitni machine aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "edm_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "edm_machine",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi EDM machine chalate hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_machine",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "wirecut",
+          "label_text": "CNC wire cut (brass wire)",
+          "value_text": "wirecut"
+        },
+        {
+          "option_key": "moly_wirecut",
+          "label_text": "Molybdenum / reusable wire cut",
+          "value_text": "moly_wirecut"
+        },
+        {
+          "option_key": "znc_sinker",
+          "label_text": "ZNC die-sinking EDM",
+          "value_text": "znc_sinker"
+        },
+        {
+          "option_key": "cnc_sinker",
+          "label_text": "CNC die-sinking EDM",
+          "value_text": "cnc_sinker"
+        },
+        {
+          "option_key": "edm_drill",
+          "label_text": "EDM drill / super drill",
+          "value_text": "edm_drill"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur machine",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "edm_brand",
+      "min_tier": "medium",
+      "prompt_text": "Machine kis company ki hai?",
+      "why_text": "Usi company ki machine wale employer aapko pehle dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "edm_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "electronica",
+          "label_text": "Electronica (Sprintcut, Ultracut)",
+          "value_text": "electronica"
+        },
+        {
+          "option_key": "sodick",
+          "label_text": "Sodick",
+          "value_text": "sodick"
+        },
+        {
+          "option_key": "mitsubishi",
+          "label_text": "Mitsubishi",
+          "value_text": "mitsubishi"
+        },
+        {
+          "option_key": "makino",
+          "label_text": "Makino",
+          "value_text": "makino"
+        },
+        {
+          "option_key": "fanuc_robocut",
+          "label_text": "Fanuc Robocut",
+          "value_text": "fanuc_robocut"
+        },
+        {
+          "option_key": "agie_charmilles",
+          "label_text": "AgieCharmilles / GF",
+          "value_text": "agie_charmilles"
+        },
+        {
+          "option_key": "ratnaparkhi",
+          "label_text": "Ratnaparkhi",
+          "value_text": "ratnaparkhi"
+        },
+        {
+          "option_key": "sparkonix",
+          "label_text": "Sparkonix",
+          "value_text": "sparkonix"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur company",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "edm_work_type",
+      "min_tier": "medium",
+      "prompt_text": "Machine par kaunsa kaam karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "edm_work_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "profile_cut",
+          "label_text": "Seedha profile cutting (punch, die, insert)",
+          "value_text": "profile_cut"
+        },
+        {
+          "option_key": "taper_cut",
+          "label_text": "Taper cutting",
+          "value_text": "taper_cut"
+        },
+        {
+          "option_key": "skim_cut",
+          "label_text": "Skim cut / multi-pass finishing",
+          "value_text": "skim_cut"
+        },
+        {
+          "option_key": "four_axis_cut",
+          "label_text": "Top-bottom alag shape (4-axis)",
+          "value_text": "four_axis_cut"
+        },
+        {
+          "option_key": "cavity_sparking",
+          "label_text": "Cavity sparking (die-sinking)",
+          "value_text": "cavity_sparking"
+        },
+        {
+          "option_key": "rib_slot",
+          "label_text": "Rib, slot aur corner sparking",
+          "value_text": "rib_slot"
+        },
+        {
+          "option_key": "start_hole",
+          "label_text": "Start hole / chhota hole drilling",
+          "value_text": "start_hole"
+        },
+        {
+          "option_key": "tap_removal",
+          "label_text": "Tooti hui tap ya drill nikalna",
+          "value_text": "tap_removal"
+        }
+      ]
+    },
+    {
+      "question_key": "edm_job_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunse job banate hain?",
+      "why_text": "Job ke hisaab se milti julti tool room dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_job_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "press_tool_parts",
+          "label_text": "Press tool ke punch aur die",
+          "value_text": "press_tool_parts"
+        },
+        {
+          "option_key": "mould_inserts",
+          "label_text": "Plastic mould ke core, cavity, insert",
+          "value_text": "mould_inserts"
+        },
+        {
+          "option_key": "extrusion_die",
+          "label_text": "Extrusion die",
+          "value_text": "extrusion_die"
+        },
+        {
+          "option_key": "carbide_die",
+          "label_text": "Carbide die aur punch",
+          "value_text": "carbide_die"
+        },
+        {
+          "option_key": "casting_forging_die",
+          "label_text": "Die casting ya forging die",
+          "value_text": "casting_forging_die"
+        },
+        {
+          "option_key": "gear_keyway",
+          "label_text": "Gear, spline ya keyway cutting",
+          "value_text": "gear_keyway"
+        },
+        {
+          "option_key": "jig_gauge",
+          "label_text": "Jig, fixture aur gauge",
+          "value_text": "jig_gauge"
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse material par cutting ya sparking ki hai?",
+      "why_text": "Hard material aur carbide ka tajurba alag mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "die_steel",
+          "label_text": "Hardened die steel (D2, HCHCr, OHNS)",
+          "value_text": "die_steel"
+        },
+        {
+          "option_key": "hot_die_steel",
+          "label_text": "Hot die steel (H13, H11)",
+          "value_text": "hot_die_steel"
+        },
+        {
+          "option_key": "mould_steel",
+          "label_text": "Mould steel (P20)",
+          "value_text": "mould_steel"
+        },
+        {
+          "option_key": "carbide",
+          "label_text": "Carbide",
+          "value_text": "carbide"
+        },
+        {
+          "option_key": "mild_steel",
+          "label_text": "MS, mild steel",
+          "value_text": "mild_steel"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "EN series alloy steel",
+          "value_text": "alloy_steel"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "brass",
+          "label_text": "Copper ya brass",
+          "value_text": "brass"
+        }
+      ]
+    },
+    {
+      "question_key": "edm_wire_electrode",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsi wire ya electrode use karte hain?",
+      "why_text": "Wire aur electrode se aapke kaam ki baariki pata chalti hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_wire_electrode",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "brass_wire",
+          "label_text": "Brass wire 0.25 mm",
+          "value_text": "brass_wire"
+        },
+        {
+          "option_key": "coated_wire",
+          "label_text": "Zinc coated wire",
+          "value_text": "coated_wire"
+        },
+        {
+          "option_key": "fine_wire",
+          "label_text": "Patli wire, 0.20 mm ya usse kam",
+          "value_text": "fine_wire"
+        },
+        {
+          "option_key": "moly_wire",
+          "label_text": "Molybdenum wire",
+          "value_text": "moly_wire"
+        },
+        {
+          "option_key": "copper_electrode",
+          "label_text": "Copper electrode",
+          "value_text": "copper_electrode"
+        },
+        {
+          "option_key": "graphite_electrode",
+          "label_text": "Graphite electrode",
+          "value_text": "graphite_electrode"
+        },
+        {
+          "option_key": "copper_tungsten",
+          "label_text": "Copper tungsten electrode",
+          "value_text": "copper_tungsten"
+        },
+        {
+          "option_key": "tube_electrode",
+          "label_text": "Brass ya copper tube (EDM drill)",
+          "value_text": "tube_electrode"
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse measuring instrument chala lete hain?",
+      "why_text": "Naap lene wale operator ko fine kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "micrometer",
+          "label_text": "Micrometer",
+          "value_text": "micrometer"
+        },
+        {
+          "option_key": "dial_indicator",
+          "label_text": "Dial indicator / lever dial",
+          "value_text": "dial_indicator"
+        },
+        {
+          "option_key": "height_gauge",
+          "label_text": "Height gauge",
+          "value_text": "height_gauge"
+        },
+        {
+          "option_key": "pin_gauge",
+          "label_text": "Pin gauge",
+          "value_text": "pin_gauge"
+        },
+        {
+          "option_key": "slip_gauge",
+          "label_text": "Slip gauge",
+          "value_text": "slip_gauge"
+        },
+        {
+          "option_key": "profile_projector",
+          "label_text": "Profile projector",
+          "value_text": "profile_projector"
+        },
+        {
+          "option_key": "bore_gauge",
+          "label_text": "Bore dial gauge",
+          "value_text": "bore_gauge"
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "edm_setting_work",
+      "min_tier": "hard",
+      "prompt_text": "Setting mein aap kya kya karte hain?",
+      "why_text": "Setting karne wale ko operator se zyada paisa milta hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_setting_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "clamping_dialling",
+          "label_text": "Job clamping aur dialling",
+          "value_text": "clamping_dialling"
+        },
+        {
+          "option_key": "wire_alignment",
+          "label_text": "Wire vertical alignment",
+          "value_text": "wire_alignment"
+        },
+        {
+          "option_key": "edge_centre_find",
+          "label_text": "Edge find aur centre find",
+          "value_text": "edge_centre_find"
+        },
+        {
+          "option_key": "wire_threading",
+          "label_text": "Wire threading, auto ya haath se",
+          "value_text": "wire_threading"
+        },
+        {
+          "option_key": "electrode_setting",
+          "label_text": "Electrode centring aur depth set karna",
+          "value_text": "electrode_setting"
+        },
+        {
+          "option_key": "flushing_setting",
+          "label_text": "Flushing nozzle aur pressure set karna",
+          "value_text": "flushing_setting"
+        },
+        {
+          "option_key": "guide_contact_change",
+          "label_text": "Wire guide aur power contact badalna",
+          "value_text": "guide_contact_change"
+        },
+        {
+          "option_key": "first_piece",
+          "label_text": "Pehla piece set karna",
+          "value_text": "first_piece"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "edm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "edm_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "edm_parameter_work",
+      "min_tier": "hard",
+      "prompt_text": "Cutting parameter mein aap kya set karte hain?",
+      "why_text": "Parameter samajhne wale ko mushkil job diye jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "edm_parameter_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "tech_table",
+          "label_text": "Technology table se condition chunna",
+          "value_text": "tech_table"
+        },
+        {
+          "option_key": "pulse_on_off",
+          "label_text": "Pulse on / off time",
+          "value_text": "pulse_on_off"
+        },
+        {
+          "option_key": "peak_current",
+          "label_text": "Peak current (IP)",
+          "value_text": "peak_current"
+        },
+        {
+          "option_key": "servo_voltage",
+          "label_text": "Servo voltage / gap voltage",
+          "value_text": "servo_voltage"
+        },
+        {
+          "option_key": "wire_tension_feed",
+          "label_text": "Wire tension aur wire feed",
+          "value_text": "wire_tension_feed"
+        },
+        {
+          "option_key": "wire_offset",
+          "label_text": "Skim cut ke liye wire offset",
+          "value_text": "wire_offset"
+        },
+        {
+          "option_key": "spark_gap",
+          "label_text": "Electrode undersize / spark gap ka hisaab",
+          "value_text": "spark_gap"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Parameter koi aur set karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "edm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "edm_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "edm_tolerance",
+      "min_tier": "hard",
+      "prompt_text": "Aap kitni tolerance tak kaam kar lete hain?",
+      "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_tolerance",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "point_one_zero",
+          "label_text": "0.10 mm tak",
+          "value_text": "0.10"
+        },
+        {
+          "option_key": "point_zero_five",
+          "label_text": "0.05 mm tak",
+          "value_text": "0.05"
+        },
+        {
+          "option_key": "point_zero_two",
+          "label_text": "0.02 mm tak",
+          "value_text": "0.02"
+        },
+        {
+          "option_key": "point_zero_one",
+          "label_text": "0.01 mm tak",
+          "value_text": "0.01"
+        },
+        {
+          "option_key": "point_zero_zero_five",
+          "label_text": "0.005 mm (5 micron) tak",
+          "value_text": "0.005"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "edm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "edm_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis line ke liye kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "die_mould",
+          "label_text": "Tool room, die aur mould",
+          "value_text": "die_mould"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Automotive ya auto parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job shop",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence ya aerospace",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electronics, connector, motor lamination",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "medical",
+          "label_text": "Medical ya surgical parts",
+          "value_text": "medical"
+        },
+        {
+          "option_key": "fasteners",
+          "label_text": "Fastener ke die",
+          "value_text": "fasteners"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "edm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "edm_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "edm_program_source",
+      "min_tier": "hard",
+      "prompt_text": "Program ke saath aap kitna kaam karte hain?",
+      "why_text": "Program banane wale ko sabse zyada paisa milta hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_program_source",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "load_run",
+          "label_text": "Sirf program load karke chalata hoon",
+          "value_text": "load_run"
+        },
+        {
+          "option_key": "edit_program",
+          "label_text": "Offset, taper aur condition badal leta hoon",
+          "value_text": "edit_program"
+        },
+        {
+          "option_key": "machine_cam",
+          "label_text": "Machine par hi profile bana kar program nikalta hoon",
+          "value_text": "machine_cam"
+        },
+        {
+          "option_key": "cam",
+          "label_text": "Computer par CAM software se banata hoon",
+          "value_text": "cam"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "edm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "edm_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "edm_cam_software",
+      "min_tier": "hard",
+      "prompt_text": "Program kis software se banate hain?",
+      "why_text": "Software jaanne wale programmer ki tool room me maang hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_cam_software",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "elcam",
+          "label_text": "ELCAM",
+          "value_text": "elcam"
+        },
+        {
+          "option_key": "heart_nc",
+          "label_text": "Heart NC (Sodick)",
+          "value_text": "heart_nc"
+        },
+        {
+          "option_key": "onboard_cam",
+          "label_text": "Machine ka apna onboard CAM",
+          "value_text": "onboard_cam"
+        },
+        {
+          "option_key": "autocad_dxf",
+          "label_text": "AutoCAD se DXF bana kar",
+          "value_text": "autocad_dxf"
+        },
+        {
+          "option_key": "mastercam_wire",
+          "label_text": "Mastercam Wire",
+          "value_text": "mastercam_wire"
+        },
+        {
+          "option_key": "autocut",
+          "label_text": "AutoCut (reusable wire machine)",
+          "value_text": "autocut"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur software",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "edm_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "edm_level"
+            },
+            "right": {
+              "const": [
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Machine ki kaunsi dikkat aap sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "wire_break",
+          "label_text": "Wire baar baar tootna",
+          "value_text": "wire_break"
+        },
+        {
+          "option_key": "size_variation",
+          "label_text": "Size ya taper ka farak",
+          "value_text": "size_variation"
+        },
+        {
+          "option_key": "surface_finish",
+          "label_text": "Surface par line ya mark aana",
+          "value_text": "surface_finish"
+        },
+        {
+          "option_key": "short_circuit",
+          "label_text": "Short circuit ya arcing",
+          "value_text": "short_circuit"
+        },
+        {
+          "option_key": "electrode_wear",
+          "label_text": "Electrode jaldi ghisna",
+          "value_text": "electrode_wear"
+        },
+        {
+          "option_key": "poor_flushing",
+          "label_text": "Flushing kam, cutting slow hona",
+          "value_text": "poor_flushing"
+        },
+        {
+          "option_key": "filter_resin",
+          "label_text": "Filter, resin ya dielectric badalna",
+          "value_text": "filter_resin"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "edm_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "edm_level"
+            },
+            "right": {
+              "const": [
+                "setter_programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "wirecut",
+          "label_text": "Wire cut machine",
+          "value_text": "wirecut"
+        },
+        {
+          "option_key": "znc_sinker",
+          "label_text": "Die-sinking EDM / ZNC",
+          "value_text": "znc_sinker"
+        },
+        {
+          "option_key": "surface_grinding",
+          "label_text": "Surface grinder",
+          "value_text": "surface_grinding"
+        },
+        {
+          "option_key": "milling",
+          "label_text": "Milling machine",
+          "value_text": "milling"
+        },
+        {
+          "option_key": "conventional_lathe",
+          "label_text": "Khraad ya conventional lathe",
+          "value_text": "conventional_lathe"
+        },
+        {
+          "option_key": "drilling",
+          "label_text": "Drilling machine",
+          "value_text": "drilling"
+        },
+        {
+          "option_key": "bench_fitting",
+          "label_text": "Bench fitting, filing aur marking",
+          "value_text": "bench_fitting"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "edm_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "edm_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "edm_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

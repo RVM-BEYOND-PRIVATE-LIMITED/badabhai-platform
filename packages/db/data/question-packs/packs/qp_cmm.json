@@ -1,0 +1,1303 @@
+{
+  "_why": "Role track for CMM Operator / Programmer (T33), new trade (CEO pack v2). fam_cmm binds the new CMM entry under NCO 7543 (#3007).",
+  "_scope": "Quality and Metrology shop-floor trade. The interview separates at programmer; higher contact price from programmer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T33 (CMM Operator / Programmer). Status: NEW",
+  "pack_id": "qp_cmm",
+  "version": 1,
+  "family_id": "fam_cmm",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T33): new trade.",
+  "items": [
+    {
+      "question_key": "cmm_experience",
+      "min_tier": "easy",
+      "prompt_text": "CMM ya VMM par kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "cmm_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal CMM ya VMM par kaam kiya hai?"
+    },
+    {
+      "question_key": "cmm_level",
+      "min_tier": "easy",
+      "prompt_text": "CMM room me aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "cmm_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "programmer",
+          "label_text": "Programmer",
+          "value_text": "programmer"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior Programmer",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / CMM In-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "CMM room me helper, operator ya programmer hain?"
+    },
+    {
+      "question_key": "cmm_programmer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye part ka program drawing se aap khud banate hain?",
+      "why_text": "Khud program banane wale ko programmer ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "cmm_programmer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud banata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Bana-banaya program chalata hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "cmm_level"
+        },
+        "right": {
+          "const": [
+            "programmer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "cmm_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Layout ya PPAP report aap khud final karke sign karte hain?",
+      "why_text": "Report final karne wale senior ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "cmm_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud final karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, senior final karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "cmm_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "cmm_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "CMM room me kitni machine aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale in-charge ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "cmm_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "cmm_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "cmm_machine_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi measuring machine chalate hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "cmm_machine_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "bridge_cmm",
+          "label_text": "Bridge CMM",
+          "value_text": "bridge_cmm"
+        },
+        {
+          "option_key": "gantry_cmm",
+          "label_text": "Gantry CMM, bade part ke liye",
+          "value_text": "gantry_cmm"
+        },
+        {
+          "option_key": "horizontal_arm",
+          "label_text": "Horizontal arm CMM",
+          "value_text": "horizontal_arm"
+        },
+        {
+          "option_key": "portable_arm",
+          "label_text": "Portable arm (Faro / Romer)",
+          "value_text": "portable_arm"
+        },
+        {
+          "option_key": "vmm",
+          "label_text": "VMM / vision measuring machine",
+          "value_text": "vmm"
+        },
+        {
+          "option_key": "three_d_scanner",
+          "label_text": "3D scanner",
+          "value_text": "three_d_scanner"
+        },
+        {
+          "option_key": "profile_projector",
+          "label_text": "Profile projector",
+          "value_text": "profile_projector"
+        },
+        {
+          "option_key": "contour_tester",
+          "label_text": "Contour ya roughness tester",
+          "value_text": "contour_tester"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur machine",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "cmm_software",
+      "min_tier": "medium",
+      "prompt_text": "CMM par kaunsa software chalate hain?",
+      "why_text": "Software jaanne wale ko usi machine ka kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "cmm_software",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "calypso",
+          "label_text": "Calypso (Zeiss)",
+          "value_text": "calypso"
+        },
+        {
+          "option_key": "pc_dmis",
+          "label_text": "PC-DMIS (Hexagon)",
+          "value_text": "pc_dmis"
+        },
+        {
+          "option_key": "mcosmos",
+          "label_text": "MCOSMOS / GEOPAK (Mitutoyo)",
+          "value_text": "mcosmos"
+        },
+        {
+          "option_key": "arco_cad",
+          "label_text": "ARCO CAD (Accurate)",
+          "value_text": "arco_cad"
+        },
+        {
+          "option_key": "quartis",
+          "label_text": "Metrosoft / Quartis (Wenzel)",
+          "value_text": "quartis"
+        },
+        {
+          "option_key": "polyworks",
+          "label_text": "PolyWorks",
+          "value_text": "polyworks"
+        },
+        {
+          "option_key": "faro_cam",
+          "label_text": "Faro CAM2",
+          "value_text": "faro_cam"
+        },
+        {
+          "option_key": "gom_inspect",
+          "label_text": "GOM Inspect",
+          "value_text": "gom_inspect"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur software",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "cmm_make",
+      "min_tier": "medium",
+      "prompt_text": "CMM kis company ki hai?",
+      "why_text": "Company usi make par kaam kiya hua aadmi dhoondhti hai.",
+      "target_kind": "attribute",
+      "target_field": "cmm_make",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "zeiss",
+          "label_text": "Zeiss",
+          "value_text": "zeiss"
+        },
+        {
+          "option_key": "hexagon",
+          "label_text": "Hexagon (DEA / Brown & Sharpe)",
+          "value_text": "hexagon"
+        },
+        {
+          "option_key": "mitutoyo",
+          "label_text": "Mitutoyo",
+          "value_text": "mitutoyo"
+        },
+        {
+          "option_key": "accurate",
+          "label_text": "Accurate",
+          "value_text": "accurate"
+        },
+        {
+          "option_key": "wenzel",
+          "label_text": "Wenzel",
+          "value_text": "wenzel"
+        },
+        {
+          "option_key": "faro",
+          "label_text": "Faro",
+          "value_text": "faro"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "cmm_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "CMM par roz kaunsa kaam aap khud karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "cmm_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "run_program",
+          "label_text": "Bana hua program chala kar part check karna",
+          "value_text": "run_program"
+        },
+        {
+          "option_key": "part_clamping",
+          "label_text": "Part ko fixture par clamp karna",
+          "value_text": "part_clamping"
+        },
+        {
+          "option_key": "probe_calibration",
+          "label_text": "Probe calibration (qualification)",
+          "value_text": "probe_calibration"
+        },
+        {
+          "option_key": "alignment",
+          "label_text": "Alignment lagana",
+          "value_text": "alignment"
+        },
+        {
+          "option_key": "manual_measurement",
+          "label_text": "Joystick se manual measurement",
+          "value_text": "manual_measurement"
+        },
+        {
+          "option_key": "report_output",
+          "label_text": "Report nikalna",
+          "value_text": "report_output"
+        },
+        {
+          "option_key": "new_program",
+          "label_text": "Naya program banana",
+          "value_text": "new_program"
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "CMM ka kaam drawing padhe bina nahi hota.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "cmm_part_type",
+      "min_tier": "hard",
+      "prompt_text": "CMM par kaunse part check kiye hain?",
+      "why_text": "Part ke hisaab se clamping aur program alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "cmm_part_type",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "machined_parts",
+          "label_text": "Machined parts (shaft, housing)",
+          "value_text": "machined_parts"
+        },
+        {
+          "option_key": "castings",
+          "label_text": "Casting aur die casting parts",
+          "value_text": "castings"
+        },
+        {
+          "option_key": "forgings",
+          "label_text": "Forging",
+          "value_text": "forgings"
+        },
+        {
+          "option_key": "sheet_metal",
+          "label_text": "Sheet metal / BIW panel",
+          "value_text": "sheet_metal"
+        },
+        {
+          "option_key": "plastic_parts",
+          "label_text": "Plastic moulded parts",
+          "value_text": "plastic_parts"
+        },
+        {
+          "option_key": "die_mould",
+          "label_text": "Die, mould aur electrode",
+          "value_text": "die_mould"
+        },
+        {
+          "option_key": "fixtures_gauges",
+          "label_text": "Jig, fixture aur gauge",
+          "value_text": "fixtures_gauges"
+        }
+      ]
+    },
+    {
+      "question_key": "cmm_probe_system",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsa probe ya sensor aapne use kiya hai?",
+      "why_text": "Scanning probe chalane wale kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "cmm_probe_system",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "touch_trigger",
+          "label_text": "Touch trigger probe (TP20 / TP200)",
+          "value_text": "touch_trigger"
+        },
+        {
+          "option_key": "scanning_probe",
+          "label_text": "Scanning probe (SP25 / VAST)",
+          "value_text": "scanning_probe"
+        },
+        {
+          "option_key": "motorised_head",
+          "label_text": "Motorised head (PH10)",
+          "value_text": "motorised_head"
+        },
+        {
+          "option_key": "star_probe",
+          "label_text": "Star probe aur extension",
+          "value_text": "star_probe"
+        },
+        {
+          "option_key": "laser_sensor",
+          "label_text": "Laser ya optical sensor",
+          "value_text": "laser_sensor"
+        },
+        {
+          "option_key": "vision_sensor",
+          "label_text": "Vision / camera sensor",
+          "value_text": "vision_sensor"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cmm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cmm_level"
+            },
+            "right": {
+              "const": [
+                "programmer",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "cmm_alignment_method",
+      "min_tier": "hard",
+      "prompt_text": "Part ka alignment aap kaise lagate hain?",
+      "why_text": "Sahi alignment se hi report sahi aati hai.",
+      "target_kind": "attribute",
+      "target_field": "cmm_alignment_method",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "three_two_one",
+          "label_text": "3-2-1 (plane, line, point)",
+          "value_text": "three_two_one"
+        },
+        {
+          "option_key": "datum_alignment",
+          "label_text": "Drawing ke datum A, B, C se",
+          "value_text": "datum_alignment"
+        },
+        {
+          "option_key": "best_fit",
+          "label_text": "Best fit",
+          "value_text": "best_fit"
+        },
+        {
+          "option_key": "rps",
+          "label_text": "RPS alignment",
+          "value_text": "rps"
+        },
+        {
+          "option_key": "cad_alignment",
+          "label_text": "CAD model se alignment",
+          "value_text": "cad_alignment"
+        },
+        {
+          "option_key": "iterative",
+          "label_text": "Iterative alignment",
+          "value_text": "iterative"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cmm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cmm_level"
+            },
+            "right": {
+              "const": [
+                "programmer",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "cmm_gdt_evaluation",
+      "min_tier": "hard",
+      "prompt_text": "CMM par kaunsi GD aur T aap nikalte hain?",
+      "why_text": "GD aur T nikalne wale ko programmer ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "cmm_gdt_evaluation",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "flatness",
+          "label_text": "Flatness aur straightness",
+          "value_text": "flatness"
+        },
+        {
+          "option_key": "roundness",
+          "label_text": "Circularity aur cylindricity",
+          "value_text": "roundness"
+        },
+        {
+          "option_key": "position",
+          "label_text": "True position",
+          "value_text": "position"
+        },
+        {
+          "option_key": "orientation",
+          "label_text": "Perpendicularity, parallelism, angularity",
+          "value_text": "orientation"
+        },
+        {
+          "option_key": "runout",
+          "label_text": "Concentricity aur runout",
+          "value_text": "runout"
+        },
+        {
+          "option_key": "profile",
+          "label_text": "Profile of surface ya line",
+          "value_text": "profile"
+        },
+        {
+          "option_key": "symmetry",
+          "label_text": "Symmetry",
+          "value_text": "symmetry"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cmm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cmm_level"
+            },
+            "right": {
+              "const": [
+                "programmer",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "tolerance_band",
+      "min_tier": "hard",
+      "prompt_text": "Kitni tolerance tak ke part aapne CMM par check kiye hain?",
+      "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
+      "target_kind": "attribute",
+      "target_field": "tolerance_band",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "point_one_zero",
+          "label_text": "0.10 mm tak",
+          "value_text": "0.10"
+        },
+        {
+          "option_key": "point_zero_five",
+          "label_text": "0.05 mm tak",
+          "value_text": "0.05"
+        },
+        {
+          "option_key": "point_zero_two",
+          "label_text": "0.02 mm tak",
+          "value_text": "0.02"
+        },
+        {
+          "option_key": "point_zero_one",
+          "label_text": "0.01 mm tak",
+          "value_text": "0.01"
+        },
+        {
+          "option_key": "point_zero_zero_five",
+          "label_text": "0.005 mm ya usse kam",
+          "value_text": "0.005"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cmm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cmm_level"
+            },
+            "right": {
+              "const": [
+                "programmer",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "cmm_programming_level",
+      "min_tier": "hard",
+      "prompt_text": "CMM program ka kaam aap kitna karte hain?",
+      "why_text": "Program banane wale ko sabse zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "cmm_programming_level",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "run_only",
+          "label_text": "Bana hua program hi chalata hoon",
+          "value_text": "run_only"
+        },
+        {
+          "option_key": "edit_program",
+          "label_text": "Program me edit kar leta hoon",
+          "value_text": "edit_program"
+        },
+        {
+          "option_key": "program_from_drawing",
+          "label_text": "Drawing se naya program banata hoon",
+          "value_text": "program_from_drawing"
+        },
+        {
+          "option_key": "program_from_cad",
+          "label_text": "CAD model se program banata hoon",
+          "value_text": "program_from_cad"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cmm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cmm_level"
+            },
+            "right": {
+              "const": [
+                "programmer",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "cmm_report_type",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsi report aap khud bana kar dete hain?",
+      "why_text": "Report ke naam se employer aapka level samajhta hai.",
+      "target_kind": "attribute",
+      "target_field": "cmm_report_type",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "layout_inspection",
+          "label_text": "Layout inspection report",
+          "value_text": "layout_inspection"
+        },
+        {
+          "option_key": "ppap_dimensional",
+          "label_text": "PPAP dimensional report",
+          "value_text": "ppap_dimensional"
+        },
+        {
+          "option_key": "first_article",
+          "label_text": "First article / sample inspection report",
+          "value_text": "first_article"
+        },
+        {
+          "option_key": "colour_map",
+          "label_text": "Colour map (CAD comparison) report",
+          "value_text": "colour_map"
+        },
+        {
+          "option_key": "cpk_data",
+          "label_text": "Cp, Cpk study ka data",
+          "value_text": "cpk_data"
+        },
+        {
+          "option_key": "fixture_gauge_report",
+          "label_text": "Fixture aur gauge ki inspection report",
+          "value_text": "fixture_gauge_report"
+        },
+        {
+          "option_key": "reverse_engineering",
+          "label_text": "Reverse engineering ke liye scan data",
+          "value_text": "reverse_engineering"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cmm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cmm_level"
+            },
+            "right": {
+              "const": [
+                "programmer",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke part aapne check kiye hain?",
+      "why_text": "Industry jaanne se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler parts",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "die_mould",
+          "label_text": "Die aur mould, tool room",
+          "value_text": "die_mould"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence ya aerospace",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job shop",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "pump_valve",
+          "label_text": "Pump aur valve",
+          "value_text": "pump_valve"
+        },
+        {
+          "option_key": "bearings",
+          "label_text": "Bearing ke parts",
+          "value_text": "bearings"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electronics / EMS",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cmm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cmm_level"
+            },
+            "right": {
+              "const": [
+                "programmer",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "cmm_quality_system",
+      "min_tier": "hard",
+      "prompt_text": "Quality system ka kaunsa kaam aapne sambhala hai?",
+      "why_text": "System ka kaam jaanne wale ko CMM room ki zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "cmm_quality_system",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "msa_grr",
+          "label_text": "MSA / gauge R&R study",
+          "value_text": "msa_grr"
+        },
+        {
+          "option_key": "machine_calibration",
+          "label_text": "CMM ka calibration aur verification karwana",
+          "value_text": "machine_calibration"
+        },
+        {
+          "option_key": "customer_audit",
+          "label_text": "Customer audit me CMM room dikhana",
+          "value_text": "customer_audit"
+        },
+        {
+          "option_key": "iatf_records",
+          "label_text": "IATF 16949 ke record rakhna",
+          "value_text": "iatf_records"
+        },
+        {
+          "option_key": "operator_training",
+          "label_text": "Naye operator ko training dena",
+          "value_text": "operator_training"
+        },
+        {
+          "option_key": "fixture_planning",
+          "label_text": "Naye part ka fixture banwana",
+          "value_text": "fixture_planning"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cmm_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cmm_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "CMM ki kaunsi dikkat aap khud sambhal lete hain?",
+      "why_text": "Dikkat khud sambhalne wale ki CMM room me zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "probe_calibration_fail",
+          "label_text": "Probe calibration fail hona",
+          "value_text": "probe_calibration_fail"
+        },
+        {
+          "option_key": "repeatability",
+          "label_text": "Reading repeat na hona",
+          "value_text": "repeatability"
+        },
+        {
+          "option_key": "collision",
+          "label_text": "Probe takrana / collision",
+          "value_text": "collision"
+        },
+        {
+          "option_key": "temperature_effect",
+          "label_text": "Temperature se reading badalna",
+          "value_text": "temperature_effect"
+        },
+        {
+          "option_key": "alignment_error",
+          "label_text": "Alignment galat baithna",
+          "value_text": "alignment_error"
+        },
+        {
+          "option_key": "air_alarm",
+          "label_text": "Air pressure ya air bearing alarm",
+          "value_text": "air_alarm"
+        },
+        {
+          "option_key": "correlation_issue",
+          "label_text": "CMM aur gauge ki reading me farak",
+          "value_text": "correlation_issue"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "cmm_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "cmm_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "Training me kaunse measuring instrument ya machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vernier_micrometer",
+          "label_text": "Vernier caliper aur micrometer",
+          "value_text": "vernier_micrometer"
+        },
+        {
+          "option_key": "height_gauge",
+          "label_text": "Height gauge aur surface plate",
+          "value_text": "height_gauge"
+        },
+        {
+          "option_key": "dial_bore_gauge",
+          "label_text": "Dial indicator aur bore gauge",
+          "value_text": "dial_bore_gauge"
+        },
+        {
+          "option_key": "profile_projector",
+          "label_text": "Profile projector",
+          "value_text": "profile_projector"
+        },
+        {
+          "option_key": "cmm_practice",
+          "label_text": "CMM par practice",
+          "value_text": "cmm_practice"
+        },
+        {
+          "option_key": "cmm_software_course",
+          "label_text": "CMM software ka course (Calypso / PC-DMIS)",
+          "value_text": "cmm_software_course"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "cmm_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "cmm_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "cmm_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

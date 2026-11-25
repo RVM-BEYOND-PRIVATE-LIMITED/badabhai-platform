@@ -1,0 +1,1254 @@
+{
+  "_why": "Role track for Production Engineer (T46), new trade (CEO pack v2). fam_production_engineer binds NCO 2144.0401 and 2144.0403.",
+  "_scope": "Production and Engineering desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T46 (Production Engineer). Status: NEW",
+  "pack_id": "qp_production_engineer",
+  "version": 1,
+  "family_id": "fam_production_engineer",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T46): new trade.",
+  "items": [
+    {
+      "question_key": "prod_experience",
+      "min_tier": "easy",
+      "prompt_text": "Production department me kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "prod_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Production department me kaam kiya hai?"
+    },
+    {
+      "question_key": "prod_level",
+      "min_tier": "easy",
+      "prompt_text": "Production me aapki post kya hai?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "prod_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "GET / DET / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "engineer",
+          "label_text": "Engineer / Officer",
+          "value_text": "engineer"
+        },
+        {
+          "option_key": "senior_engineer",
+          "label_text": "Senior Engineer",
+          "value_text": "senior_engineer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Asst. Manager / Section head",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Manager / HOD",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Production me trainee, engineer ya senior engineer hain?"
+    },
+    {
+      "question_key": "prod_senior_engineer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Apni shift ka poora production aap akele sambhalte hain?",
+      "why_text": "Shift akele chalane wale senior engineer ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "prod_senior_engineer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele sambhalta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, senior saath rehte hain",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "prod_level"
+        },
+        "right": {
+          "const": [
+            "senior_engineer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "prod_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Mahine ke production target ka jawab management ko aap dete hain?",
+      "why_text": "Target ka jawab dene wale section head ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "prod_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, main deta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, mere senior dete hain",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "prod_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "prod_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Aapke under kitne engineer, supervisor aur workmen hain?",
+      "why_text": "Poora department sambhalne wale HOD ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "prod_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "prod_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "prod_shop_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi shop ya line ka production dekhte hain?",
+      "why_text": "Shop ke hisaab se sahi company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "prod_shop_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "machine_shop",
+          "label_text": "Machine shop (CNC / VMC)",
+          "value_text": "machine_shop"
+        },
+        {
+          "option_key": "press_shop",
+          "label_text": "Press shop",
+          "value_text": "press_shop"
+        },
+        {
+          "option_key": "weld_shop",
+          "label_text": "Weld shop",
+          "value_text": "weld_shop"
+        },
+        {
+          "option_key": "assembly",
+          "label_text": "Assembly line",
+          "value_text": "assembly"
+        },
+        {
+          "option_key": "moulding",
+          "label_text": "Injection moulding",
+          "value_text": "moulding"
+        },
+        {
+          "option_key": "casting",
+          "label_text": "Casting ya die casting",
+          "value_text": "casting"
+        },
+        {
+          "option_key": "forging",
+          "label_text": "Forging",
+          "value_text": "forging"
+        },
+        {
+          "option_key": "paint_shop",
+          "label_text": "Paint shop ya surface treatment",
+          "value_text": "paint_shop"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur shop",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "prod_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Roz ka kaunsa kaam aap khud karte hain?",
+      "why_text": "Roz ke kaam se employer samajhta hai aap kya sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "prod_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "plan_vs_actual",
+          "label_text": "Daily plan vs actual nikalna",
+          "value_text": "plan_vs_actual"
+        },
+        {
+          "option_key": "manpower_planning",
+          "label_text": "Manpower aur shift planning",
+          "value_text": "manpower_planning"
+        },
+        {
+          "option_key": "rejection_control",
+          "label_text": "Rejection aur rework control",
+          "value_text": "rejection_control"
+        },
+        {
+          "option_key": "downtime_followup",
+          "label_text": "Downtime aur breakdown ka follow-up",
+          "value_text": "downtime_followup"
+        },
+        {
+          "option_key": "cross_dept_coordination",
+          "label_text": "PPC, quality aur maintenance se coordination",
+          "value_text": "cross_dept_coordination"
+        },
+        {
+          "option_key": "production_mis",
+          "label_text": "Production MIS ya daily report",
+          "value_text": "production_mis"
+        },
+        {
+          "option_key": "line_balancing",
+          "label_text": "Line balancing",
+          "value_text": "line_balancing"
+        },
+        {
+          "option_key": "changeover_planning",
+          "label_text": "Changeover plan karna",
+          "value_text": "changeover_planning"
+        }
+      ]
+    },
+    {
+      "question_key": "prod_erp_system",
+      "min_tier": "medium",
+      "prompt_text": "Production ke liye aap kaunsa system chalate hain?",
+      "why_text": "SAP ya ERP jaanne wale engineer ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "prod_erp_system",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "sap_pp",
+          "label_text": "SAP PP",
+          "value_text": "sap_pp"
+        },
+        {
+          "option_key": "sap_business_one",
+          "label_text": "SAP Business One",
+          "value_text": "sap_business_one"
+        },
+        {
+          "option_key": "oracle",
+          "label_text": "Oracle ERP",
+          "value_text": "oracle"
+        },
+        {
+          "option_key": "ms_dynamics",
+          "label_text": "Microsoft Dynamics / Navision",
+          "value_text": "ms_dynamics"
+        },
+        {
+          "option_key": "infor_baan",
+          "label_text": "Infor LN / BaaN",
+          "value_text": "infor_baan"
+        },
+        {
+          "option_key": "other_erp",
+          "label_text": "Company ka apna ERP",
+          "value_text": "other_erp"
+        },
+        {
+          "option_key": "excel",
+          "label_text": "MS Excel (pivot, VLOOKUP)",
+          "value_text": "excel"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi system nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "prod_manpower_handled",
+      "min_tier": "medium",
+      "prompt_text": "Aapki shift ya line me kitne workmen hote hain?",
+      "why_text": "Kitne log sambhale hain, employer ye zaroor dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "prod_manpower_handled",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_twenty_five",
+          "label_text": "25 tak",
+          "value_text": "25"
+        },
+        {
+          "option_key": "upto_fifty",
+          "label_text": "26 se 50",
+          "value_text": "50"
+        },
+        {
+          "option_key": "upto_hundred",
+          "label_text": "51 se 100",
+          "value_text": "100"
+        },
+        {
+          "option_key": "upto_two_fifty",
+          "label_text": "101 se 250",
+          "value_text": "250"
+        },
+        {
+          "option_key": "upto_five_hundred",
+          "label_text": "250 se zyada",
+          "value_text": "500"
+        }
+      ]
+    },
+    {
+      "question_key": "prod_documents_owned",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse document aap khud banate ya bharte hain?",
+      "why_text": "Document sambhalne wale engineer audit me kaam aate hain.",
+      "target_kind": "attribute",
+      "target_field": "prod_documents_owned",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "dpr",
+          "label_text": "Daily production report (DPR)",
+          "value_text": "dpr"
+        },
+        {
+          "option_key": "hourly_sheet",
+          "label_text": "Hourly monitoring sheet",
+          "value_text": "hourly_sheet"
+        },
+        {
+          "option_key": "oee_sheet",
+          "label_text": "OEE sheet",
+          "value_text": "oee_sheet"
+        },
+        {
+          "option_key": "rejection_report",
+          "label_text": "Rejection aur rework report",
+          "value_text": "rejection_report"
+        },
+        {
+          "option_key": "skill_matrix",
+          "label_text": "Skill matrix",
+          "value_text": "skill_matrix"
+        },
+        {
+          "option_key": "work_instruction",
+          "label_text": "Work instruction, SOP ya OPL",
+          "value_text": "work_instruction"
+        },
+        {
+          "option_key": "four_m_change",
+          "label_text": "4M change record",
+          "value_text": "four_m_change"
+        },
+        {
+          "option_key": "handover_register",
+          "label_text": "Shift handover register",
+          "value_text": "handover_register"
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap part ki drawing padh lete hain?",
+      "why_text": "Drawing padhna production engineer ke liye zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Aapke plant me kis industry ka maal banta hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler parts",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Home appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electronics / EMS",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Tractor aur agri equipment",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "construction_equipment",
+          "label_text": "Construction equipment",
+          "value_text": "construction_equipment"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence ya aerospace",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "prod_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "prod_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "prod_customer_served",
+      "min_tier": "hard",
+      "prompt_text": "Aapka maal aakhir me kis OEM ko jaata hai?",
+      "why_text": "OEM ka system jaanne wale engineer ko uske vendor jaldi lete hain.",
+      "target_kind": "attribute",
+      "target_field": "prod_customer_served",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "maruti",
+          "label_text": "Maruti Suzuki",
+          "value_text": "maruti"
+        },
+        {
+          "option_key": "hero",
+          "label_text": "Hero MotoCorp",
+          "value_text": "hero"
+        },
+        {
+          "option_key": "honda",
+          "label_text": "Honda (HMSI / Honda Cars)",
+          "value_text": "honda"
+        },
+        {
+          "option_key": "tata",
+          "label_text": "Tata Motors",
+          "value_text": "tata"
+        },
+        {
+          "option_key": "mahindra",
+          "label_text": "Mahindra",
+          "value_text": "mahindra"
+        },
+        {
+          "option_key": "bajaj_tvs",
+          "label_text": "Bajaj ya TVS",
+          "value_text": "bajaj_tvs"
+        },
+        {
+          "option_key": "jcb",
+          "label_text": "JCB",
+          "value_text": "jcb"
+        },
+        {
+          "option_key": "export",
+          "label_text": "Export customer",
+          "value_text": "export"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "prod_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "prod_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "prod_metrics_tracked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse number aap khud nikal kar report karte hain?",
+      "why_text": "Number se shop chalane wale engineer ko aage badhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "prod_metrics_tracked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "oee",
+          "label_text": "OEE",
+          "value_text": "oee"
+        },
+        {
+          "option_key": "schedule_adherence",
+          "label_text": "Schedule adherence (plan vs actual)",
+          "value_text": "schedule_adherence"
+        },
+        {
+          "option_key": "rejection_ppm",
+          "label_text": "Rejection PPM ya percentage",
+          "value_text": "rejection_ppm"
+        },
+        {
+          "option_key": "downtime",
+          "label_text": "Downtime ke ghante",
+          "value_text": "downtime"
+        },
+        {
+          "option_key": "productivity",
+          "label_text": "Per man output (productivity)",
+          "value_text": "productivity"
+        },
+        {
+          "option_key": "rework",
+          "label_text": "Rework percentage",
+          "value_text": "rework"
+        },
+        {
+          "option_key": "scrap_yield",
+          "label_text": "Scrap aur yield",
+          "value_text": "scrap_yield"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "prod_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "prod_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "prod_improvement_work",
+      "min_tier": "hard",
+      "prompt_text": "Sudhaar ka kaunsa kaam aapne khud kiya ya karwaya hai?",
+      "why_text": "Kaizen aur TPM ka kaam karne wale engineer ki maang zyada hai.",
+      "target_kind": "attribute",
+      "target_field": "prod_improvement_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "kaizen",
+          "label_text": "Kaizen",
+          "value_text": "kaizen"
+        },
+        {
+          "option_key": "five_s",
+          "label_text": "5S",
+          "value_text": "five_s"
+        },
+        {
+          "option_key": "tpm",
+          "label_text": "TPM (JH ya Kobetsu Kaizen)",
+          "value_text": "tpm"
+        },
+        {
+          "option_key": "smed",
+          "label_text": "SMED, changeover time kam karna",
+          "value_text": "smed"
+        },
+        {
+          "option_key": "cycle_time_reduction",
+          "label_text": "Cycle time kam karna",
+          "value_text": "cycle_time_reduction"
+        },
+        {
+          "option_key": "poka_yoke",
+          "label_text": "Poka-yoke",
+          "value_text": "poka_yoke"
+        },
+        {
+          "option_key": "qc_circle",
+          "label_text": "QC circle",
+          "value_text": "qc_circle"
+        },
+        {
+          "option_key": "lean_six_sigma",
+          "label_text": "Lean ya Six Sigma project",
+          "value_text": "lean_six_sigma"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "prod_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "prod_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "prod_quality_system",
+      "min_tier": "hard",
+      "prompt_text": "Quality system ka kaunsa kaam aapke zimme rehta hai?",
+      "why_text": "Audit aur customer complaint sambhalne wale engineer ko senior post milti hai.",
+      "target_kind": "attribute",
+      "target_field": "prod_quality_system",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "iatf_audit",
+          "label_text": "IATF 16949 audit me apna area face karna",
+          "value_text": "iatf_audit"
+        },
+        {
+          "option_key": "customer_audit",
+          "label_text": "Customer audit (Maruti, Hero, Honda jaise)",
+          "value_text": "customer_audit"
+        },
+        {
+          "option_key": "eight_d_capa",
+          "label_text": "8D ya CAPA likhna",
+          "value_text": "eight_d_capa"
+        },
+        {
+          "option_key": "why_why",
+          "label_text": "Why-why analysis",
+          "value_text": "why_why"
+        },
+        {
+          "option_key": "control_plan",
+          "label_text": "Control plan ke hisaab se line chalana",
+          "value_text": "control_plan"
+        },
+        {
+          "option_key": "layered_audit",
+          "label_text": "Layered process audit",
+          "value_text": "layered_audit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "prod_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "prod_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Line rukne par aap khud kya sambhal lete hain?",
+      "why_text": "Ruki line jaldi chalu karne wale engineer ki zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "material_shortage",
+          "label_text": "Material kam padne par plan badalna",
+          "value_text": "material_shortage"
+        },
+        {
+          "option_key": "breakdown_reroute",
+          "label_text": "Breakdown me load doosri machine par dalna",
+          "value_text": "breakdown_reroute"
+        },
+        {
+          "option_key": "absenteeism",
+          "label_text": "Manpower kam ho to line dobara balance karna",
+          "value_text": "absenteeism"
+        },
+        {
+          "option_key": "quality_hold",
+          "label_text": "Quality hold par sorting aur rework lagana",
+          "value_text": "quality_hold"
+        },
+        {
+          "option_key": "tool_die_failure",
+          "label_text": "Tool ya die fail hone par line sambhalna",
+          "value_text": "tool_die_failure"
+        },
+        {
+          "option_key": "schedule_change",
+          "label_text": "Customer ka schedule achanak badalna",
+          "value_text": "schedule_change"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "prod_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "prod_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "prod_cost_work",
+      "min_tier": "hard",
+      "prompt_text": "Kharch ka kaunsa hisaab aap khud dekhte hain?",
+      "why_text": "Cost sambhalne wale engineer ko manager ki zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "prod_cost_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cost_per_piece",
+          "label_text": "Cost per piece",
+          "value_text": "cost_per_piece"
+        },
+        {
+          "option_key": "consumable_budget",
+          "label_text": "Tool aur consumable ka budget",
+          "value_text": "consumable_budget"
+        },
+        {
+          "option_key": "overtime_control",
+          "label_text": "Overtime control",
+          "value_text": "overtime_control"
+        },
+        {
+          "option_key": "copq",
+          "label_text": "Scrap aur rejection ka kharch (COPQ)",
+          "value_text": "copq"
+        },
+        {
+          "option_key": "energy_cost",
+          "label_text": "Power ya energy per piece",
+          "value_text": "energy_cost"
+        },
+        {
+          "option_key": "contract_manpower_cost",
+          "label_text": "Contract manpower ka bill",
+          "value_text": "contract_manpower_cost"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "prod_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "prod_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "prod_people_work",
+      "min_tier": "hard",
+      "prompt_text": "Logon se juda kaunsa kaam aap khud sambhalte hain?",
+      "why_text": "Team sambhalne ka tajurba aage ki post ke liye dekha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "prod_people_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "skill_matrix",
+          "label_text": "Skill matrix aur training plan",
+          "value_text": "skill_matrix"
+        },
+        {
+          "option_key": "shift_roster",
+          "label_text": "Shift roster banana",
+          "value_text": "shift_roster"
+        },
+        {
+          "option_key": "supervisor_review",
+          "label_text": "Supervisor aur line leader ki review",
+          "value_text": "supervisor_review"
+        },
+        {
+          "option_key": "leave_overtime_approval",
+          "label_text": "Leave aur overtime manzoor karna",
+          "value_text": "leave_overtime_approval"
+        },
+        {
+          "option_key": "discipline_ir",
+          "label_text": "Discipline ya IR ka case",
+          "value_text": "discipline_ir"
+        },
+        {
+          "option_key": "union_handling",
+          "label_text": "Union ya works committee se baat",
+          "value_text": "union_handling"
+        },
+        {
+          "option_key": "contractor_handling",
+          "label_text": "Contractor manpower sambhalna",
+          "value_text": "contractor_handling"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "prod_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "prod_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "prod_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapne kaunsi branch se padhai ki hai?",
+      "why_text": "Branch ke hisaab se company post tay karti hai.",
+      "target_kind": "attribute",
+      "target_field": "prod_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "production_engg",
+          "label_text": "Production ya Industrial engineering",
+          "value_text": "production_engg"
+        },
+        {
+          "option_key": "electrical_engg",
+          "label_text": "Electrical ya Electronics",
+          "value_text": "electrical_engg"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad promote hua",
+          "value_text": "iti_promoted"
+        }
+      ]
+    },
+    {
+      "question_key": "prod_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke dauraan factory ka kaunsa kaam aapne dekha ya kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi employer dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "prod_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "vocational_training",
+          "label_text": "Plant me vocational training",
+          "value_text": "vocational_training"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "College ka major project",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "prod_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "prod_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

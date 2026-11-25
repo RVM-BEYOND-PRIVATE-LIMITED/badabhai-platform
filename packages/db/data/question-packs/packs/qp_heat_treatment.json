@@ -8,7 +8,7 @@
   "version": 1,
   "family_id": "fam_heat_treatment",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "v1 (CEO Launch Plan Pack v1, Phase 2 #8): new trade. Easy/Medium/Advanced tiers; 6-band experience; sheet-17 level ladder (Trainee/Operator/Skilled/Senior/Supervisor, mandatory); 1 separating confirm, the sheet's question verbatim, asked of skilled AND senior (the owner's standing rule: the sheet writes none for senior); supervisor by rule. Medium Q6 process, Q7 furnace; Advanced Q9 testing, Q10 material, gated years OR rung. Deviations recorded: Q11 'shift/site' is the shared qp_universal shift question and Q12 the shared ITI block (no per-trade row; 3D / PLC / EDM precedent for a new trade); no fresher items. Drafted for owner review (Prakash).",
   "items": [
     {

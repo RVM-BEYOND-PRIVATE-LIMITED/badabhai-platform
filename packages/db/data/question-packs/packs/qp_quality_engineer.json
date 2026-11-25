@@ -1,0 +1,1233 @@
+{
+  "_why": "Role track for Quality Engineer, QA / QC / SQA (T37), new trade (CEO pack v2). fam_quality_engineer binds NCO 1213.0101, 2141.0100 and 3113.0801.",
+  "_scope": "Quality and Metrology desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T37 (Quality Engineer (QA / QC / SQA)). Status: NEW",
+  "pack_id": "qp_quality_engineer",
+  "version": 1,
+  "family_id": "fam_quality_engineer",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T37): new trade.",
+  "items": [
+    {
+      "question_key": "qe_experience",
+      "min_tier": "easy",
+      "prompt_text": "Quality department me kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "qe_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Quality department me kaam kiya hai?"
+    },
+    {
+      "question_key": "qe_level",
+      "min_tier": "easy",
+      "prompt_text": "Quality department me aapki post kya hai?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "qe_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "GET / DET / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "engineer",
+          "label_text": "Quality Engineer",
+          "value_text": "engineer"
+        },
+        {
+          "option_key": "senior_engineer",
+          "label_text": "Senior Engineer",
+          "value_text": "senior_engineer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Lead / Assistant Manager",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Manager / HOD",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Quality department me trainee, engineer ya senior engineer hain?"
+    },
+    {
+      "question_key": "qe_senior_engineer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Customer complaint ka 8D ya CAPA aap khud bana kar close karte hain?",
+      "why_text": "Problem khud close karne wale senior engineer ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_senior_engineer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud bana kar close karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, senior ko data deta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "qe_level"
+        },
+        "right": {
+          "const": [
+            "senior_engineer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "qe_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Customer audit me company ki taraf se aap hi saamne rehte hain?",
+      "why_text": "Customer ko khud sambhalne wale lead ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, main hi face karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, manager face karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "qe_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "qe_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Quality me kitne engineer aur inspector aapke under hain?",
+      "why_text": "Team sambhalne wale manager ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "qe_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "qe_function",
+      "min_tier": "medium",
+      "prompt_text": "Quality me aap kaunsa area dekhte hain?",
+      "why_text": "Area ke hisaab se sahi post dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_function",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "in_process",
+          "label_text": "In-process / line quality",
+          "value_text": "in_process"
+        },
+        {
+          "option_key": "final_pdi",
+          "label_text": "Final inspection / PDI",
+          "value_text": "final_pdi"
+        },
+        {
+          "option_key": "incoming",
+          "label_text": "Incoming / receiving quality",
+          "value_text": "incoming"
+        },
+        {
+          "option_key": "supplier_quality",
+          "label_text": "Supplier quality (SQA)",
+          "value_text": "supplier_quality"
+        },
+        {
+          "option_key": "customer_quality",
+          "label_text": "Customer quality",
+          "value_text": "customer_quality"
+        },
+        {
+          "option_key": "qms",
+          "label_text": "QMS / MR ka kaam",
+          "value_text": "qms"
+        },
+        {
+          "option_key": "npd_quality",
+          "label_text": "NPD quality",
+          "value_text": "npd_quality"
+        },
+        {
+          "option_key": "standards_room",
+          "label_text": "Standards room / lab",
+          "value_text": "standards_room"
+        },
+        {
+          "option_key": "warranty",
+          "label_text": "Warranty / field quality",
+          "value_text": "warranty"
+        }
+      ]
+    },
+    {
+      "question_key": "qe_core_tools",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse core tool par aapne khud kaam kiya hai?",
+      "why_text": "Core tools jaanne wale ko auto company pehle bulati hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_core_tools",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ppap",
+          "label_text": "PPAP",
+          "value_text": "ppap"
+        },
+        {
+          "option_key": "apqp",
+          "label_text": "APQP",
+          "value_text": "apqp"
+        },
+        {
+          "option_key": "pfmea",
+          "label_text": "PFMEA",
+          "value_text": "pfmea"
+        },
+        {
+          "option_key": "control_plan",
+          "label_text": "Control plan",
+          "value_text": "control_plan"
+        },
+        {
+          "option_key": "msa",
+          "label_text": "MSA",
+          "value_text": "msa"
+        },
+        {
+          "option_key": "spc",
+          "label_text": "SPC",
+          "value_text": "spc"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "qe_problem_solving",
+      "min_tier": "medium",
+      "prompt_text": "Problem solving ke kaunse tool aap use karte hain?",
+      "why_text": "Problem ki jad tak jaane wale engineer ki maang rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_problem_solving",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "eight_d",
+          "label_text": "8D report",
+          "value_text": "eight_d"
+        },
+        {
+          "option_key": "why_why",
+          "label_text": "Why-why analysis",
+          "value_text": "why_why"
+        },
+        {
+          "option_key": "fishbone",
+          "label_text": "Fishbone diagram",
+          "value_text": "fishbone"
+        },
+        {
+          "option_key": "seven_qc_tools",
+          "label_text": "7 QC tools",
+          "value_text": "seven_qc_tools"
+        },
+        {
+          "option_key": "capa",
+          "label_text": "CAPA",
+          "value_text": "capa"
+        },
+        {
+          "option_key": "qc_story",
+          "label_text": "QC story",
+          "value_text": "qc_story"
+        },
+        {
+          "option_key": "poka_yoke",
+          "label_text": "Poka-yoke",
+          "value_text": "poka_yoke"
+        },
+        {
+          "option_key": "six_sigma",
+          "label_text": "Six Sigma (DMAIC)",
+          "value_text": "six_sigma"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "qe_software",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse software ya system par aap kaam karte hain?",
+      "why_text": "Software jaanne wale ka report ka kaam jaldi hota hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_software",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "excel",
+          "label_text": "MS Excel (pivot, chart)",
+          "value_text": "excel"
+        },
+        {
+          "option_key": "powerpoint",
+          "label_text": "PowerPoint",
+          "value_text": "powerpoint"
+        },
+        {
+          "option_key": "sap_qm",
+          "label_text": "SAP QM",
+          "value_text": "sap_qm"
+        },
+        {
+          "option_key": "other_erp",
+          "label_text": "Koi aur ERP",
+          "value_text": "other_erp"
+        },
+        {
+          "option_key": "minitab",
+          "label_text": "Minitab",
+          "value_text": "minitab"
+        },
+        {
+          "option_key": "customer_portal",
+          "label_text": "Customer ka supplier portal",
+          "value_text": "customer_portal"
+        },
+        {
+          "option_key": "cad_viewer",
+          "label_text": "AutoCAD ya drawing viewer",
+          "value_text": "cad_viewer"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "qe_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapki padhai kis branch se hai?",
+      "why_text": "Branch ke hisaab se sahi post dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "production_engg",
+          "label_text": "Production ya Industrial engineering",
+          "value_text": "production_engg"
+        },
+        {
+          "option_key": "automobile_engg",
+          "label_text": "Automobile engineering",
+          "value_text": "automobile_engg"
+        },
+        {
+          "option_key": "electrical_engg",
+          "label_text": "Electrical ya Electronics",
+          "value_text": "electrical_engg"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad promote hua",
+          "value_text": "iti_promoted"
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhe bina part pass ya reject nahi ho sakta.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse measuring instrument aap khud chala lete hain?",
+      "why_text": "Khud naap lene wale engineer par shop floor bharosa karta hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "micrometer",
+          "label_text": "Micrometer",
+          "value_text": "micrometer"
+        },
+        {
+          "option_key": "bore_gauge",
+          "label_text": "Bore dial gauge",
+          "value_text": "bore_gauge"
+        },
+        {
+          "option_key": "height_gauge",
+          "label_text": "Height gauge",
+          "value_text": "height_gauge"
+        },
+        {
+          "option_key": "plug_gauge",
+          "label_text": "Plug ya ring gauge",
+          "value_text": "plug_gauge"
+        },
+        {
+          "option_key": "dial_indicator",
+          "label_text": "Dial indicator",
+          "value_text": "dial_indicator"
+        },
+        {
+          "option_key": "profile_projector",
+          "label_text": "Profile projector",
+          "value_text": "profile_projector"
+        },
+        {
+          "option_key": "roughness_tester",
+          "label_text": "Roughness tester",
+          "value_text": "roughness_tester"
+        },
+        {
+          "option_key": "hardness_tester",
+          "label_text": "Hardness tester",
+          "value_text": "hardness_tester"
+        }
+      ]
+    },
+    {
+      "question_key": "qe_process_area",
+      "min_tier": "hard",
+      "prompt_text": "Kis process ke plant me aapne quality ka kaam kiya hai?",
+      "why_text": "Usi process ka tajurba company sabse pehle dekhti hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_process_area",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "machining",
+          "label_text": "Machining",
+          "value_text": "machining"
+        },
+        {
+          "option_key": "press_shop",
+          "label_text": "Sheet metal / press shop",
+          "value_text": "press_shop"
+        },
+        {
+          "option_key": "welding",
+          "label_text": "Welding aur fabrication",
+          "value_text": "welding"
+        },
+        {
+          "option_key": "casting",
+          "label_text": "Casting / die casting",
+          "value_text": "casting"
+        },
+        {
+          "option_key": "forging",
+          "label_text": "Forging",
+          "value_text": "forging"
+        },
+        {
+          "option_key": "plastic_moulding",
+          "label_text": "Plastic moulding",
+          "value_text": "plastic_moulding"
+        },
+        {
+          "option_key": "assembly",
+          "label_text": "Assembly line",
+          "value_text": "assembly"
+        },
+        {
+          "option_key": "special_process",
+          "label_text": "Paint, plating ya heat treatment",
+          "value_text": "special_process"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electrical / electronics",
+          "value_text": "electronics"
+        }
+      ]
+    },
+    {
+      "question_key": "qe_documents",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse document aap khud banate ya update karte hain?",
+      "why_text": "Document khud banane wale ko audit me zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_documents",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "inspection_standard",
+          "label_text": "Inspection standard / check sheet",
+          "value_text": "inspection_standard"
+        },
+        {
+          "option_key": "work_instruction",
+          "label_text": "Work instruction / SOP",
+          "value_text": "work_instruction"
+        },
+        {
+          "option_key": "rejection_report",
+          "label_text": "Daily rejection aur PPM report",
+          "value_text": "rejection_report"
+        },
+        {
+          "option_key": "ppap_file",
+          "label_text": "PPAP file (PSW ke saath)",
+          "value_text": "ppap_file"
+        },
+        {
+          "option_key": "quality_alert",
+          "label_text": "Quality alert / one point lesson",
+          "value_text": "quality_alert"
+        },
+        {
+          "option_key": "deviation_note",
+          "label_text": "Deviation / concession note",
+          "value_text": "deviation_note"
+        },
+        {
+          "option_key": "four_m_change",
+          "label_text": "4M change record",
+          "value_text": "four_m_change"
+        },
+        {
+          "option_key": "quality_mis",
+          "label_text": "Monthly quality MIS",
+          "value_text": "quality_mis"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "qe_standards",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse standard ya system me aapne kaam kiya hai?",
+      "why_text": "Standard ka tajurba dekh kar hi company bulati hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_standards",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "iatf",
+          "label_text": "IATF 16949",
+          "value_text": "iatf"
+        },
+        {
+          "option_key": "iso_qms",
+          "label_text": "ISO 9001",
+          "value_text": "iso_qms"
+        },
+        {
+          "option_key": "ems_ohsms",
+          "label_text": "ISO 14001 / ISO 45001",
+          "value_text": "ems_ohsms"
+        },
+        {
+          "option_key": "vda",
+          "label_text": "VDA 6.3",
+          "value_text": "vda"
+        },
+        {
+          "option_key": "cqi",
+          "label_text": "CQI special process (CQI-9, CQI-11, CQI-12)",
+          "value_text": "cqi"
+        },
+        {
+          "option_key": "as_aerospace",
+          "label_text": "AS 9100 (aerospace)",
+          "value_text": "as_aerospace"
+        },
+        {
+          "option_key": "bis",
+          "label_text": "BIS / ISI marking",
+          "value_text": "bis"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "qe_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "qe_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "qe_audit_work",
+      "min_tier": "hard",
+      "prompt_text": "Audit me aapne kaunsa kaam kiya hai?",
+      "why_text": "Audit sambhalne wale engineer ko jaldi aage badhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_audit_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internal_auditor",
+          "label_text": "Certified internal auditor hoon",
+          "value_text": "internal_auditor"
+        },
+        {
+          "option_key": "process_audit",
+          "label_text": "Process audit",
+          "value_text": "process_audit"
+        },
+        {
+          "option_key": "product_audit",
+          "label_text": "Product audit",
+          "value_text": "product_audit"
+        },
+        {
+          "option_key": "layered_audit",
+          "label_text": "Layered process audit (LPA)",
+          "value_text": "layered_audit"
+        },
+        {
+          "option_key": "supplier_audit",
+          "label_text": "Supplier audit",
+          "value_text": "supplier_audit"
+        },
+        {
+          "option_key": "customer_audit",
+          "label_text": "Customer audit face karna",
+          "value_text": "customer_audit"
+        },
+        {
+          "option_key": "certification_audit",
+          "label_text": "Certification body ka audit face karna",
+          "value_text": "certification_audit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "qe_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "qe_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "qe_customer_handled",
+      "min_tier": "hard",
+      "prompt_text": "Kis customer ke saath aapne quality ka kaam kiya hai?",
+      "why_text": "Usi customer ka vendor aapko pehle bulata hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_customer_handled",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "maruti",
+          "label_text": "Maruti Suzuki",
+          "value_text": "maruti"
+        },
+        {
+          "option_key": "hero",
+          "label_text": "Hero MotoCorp",
+          "value_text": "hero"
+        },
+        {
+          "option_key": "honda",
+          "label_text": "Honda (HMSI / Honda Cars)",
+          "value_text": "honda"
+        },
+        {
+          "option_key": "tata",
+          "label_text": "Tata Motors",
+          "value_text": "tata"
+        },
+        {
+          "option_key": "mahindra",
+          "label_text": "Mahindra",
+          "value_text": "mahindra"
+        },
+        {
+          "option_key": "bajaj_tvs",
+          "label_text": "Bajaj ya TVS",
+          "value_text": "bajaj_tvs"
+        },
+        {
+          "option_key": "hyundai_kia",
+          "label_text": "Hyundai ya Kia",
+          "value_text": "hyundai_kia"
+        },
+        {
+          "option_key": "jcb",
+          "label_text": "JCB",
+          "value_text": "jcb"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "qe_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "qe_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "qe_supplier_work",
+      "min_tier": "hard",
+      "prompt_text": "Supplier quality me aapne kya kya kiya hai?",
+      "why_text": "Supplier sambhalne wale ko SQA ki post milti hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_supplier_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "supplier_ppap",
+          "label_text": "Supplier ka PPAP approve karna",
+          "value_text": "supplier_ppap"
+        },
+        {
+          "option_key": "supplier_plant_audit",
+          "label_text": "Supplier ke plant ka audit",
+          "value_text": "supplier_plant_audit"
+        },
+        {
+          "option_key": "supplier_capa",
+          "label_text": "Incoming rejection par 8D lena",
+          "value_text": "supplier_capa"
+        },
+        {
+          "option_key": "supplier_rating",
+          "label_text": "Supplier rating / scorecard",
+          "value_text": "supplier_rating"
+        },
+        {
+          "option_key": "vendor_assessment",
+          "label_text": "Naye vendor ka assessment",
+          "value_text": "vendor_assessment"
+        },
+        {
+          "option_key": "supplier_improvement",
+          "label_text": "Supplier ke yahan improvement karwana",
+          "value_text": "supplier_improvement"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Supplier ka kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "qe_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "qe_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "qe_targets_owned",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse quality target aapke naam par hain?",
+      "why_text": "Target sambhalne wale ko manager ki post ke liye dekha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_targets_owned",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "customer_ppm",
+          "label_text": "Customer PPM",
+          "value_text": "customer_ppm"
+        },
+        {
+          "option_key": "inhouse_rejection",
+          "label_text": "In-house rejection aur rework",
+          "value_text": "inhouse_rejection"
+        },
+        {
+          "option_key": "copq",
+          "label_text": "COPQ",
+          "value_text": "copq"
+        },
+        {
+          "option_key": "customer_complaints",
+          "label_text": "Customer complaint",
+          "value_text": "customer_complaints"
+        },
+        {
+          "option_key": "supplier_ppm",
+          "label_text": "Supplier PPM",
+          "value_text": "supplier_ppm"
+        },
+        {
+          "option_key": "warranty_return",
+          "label_text": "Warranty return",
+          "value_text": "warranty_return"
+        },
+        {
+          "option_key": "first_time_right",
+          "label_text": "First time right (FTR)",
+          "value_text": "first_time_right"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "qe_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "qe_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "qe_improvement_work",
+      "min_tier": "hard",
+      "prompt_text": "Improvement ka kaunsa kaam aapne khud chalaya hai?",
+      "why_text": "Improvement chalane wale ko badi zimmedari di jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "qe_improvement_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "kaizen",
+          "label_text": "Kaizen",
+          "value_text": "kaizen"
+        },
+        {
+          "option_key": "poka_yoke",
+          "label_text": "Poka-yoke lagwana",
+          "value_text": "poka_yoke"
+        },
+        {
+          "option_key": "quality_circle",
+          "label_text": "Quality circle",
+          "value_text": "quality_circle"
+        },
+        {
+          "option_key": "six_sigma",
+          "label_text": "Six Sigma project (Green / Black Belt)",
+          "value_text": "six_sigma"
+        },
+        {
+          "option_key": "five_s",
+          "label_text": "5S",
+          "value_text": "five_s"
+        },
+        {
+          "option_key": "rejection_reduction",
+          "label_text": "Rejection kam karne ka project",
+          "value_text": "rejection_reduction"
+        },
+        {
+          "option_key": "tpm_qm",
+          "label_text": "TPM ka QM pillar",
+          "value_text": "tpm_qm"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "qe_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "qe_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "qe_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke saath factory ka kaunsa exposure mila hai?",
+      "why_text": "Padhai ke saath mila exposure bhi employer dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "qe_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "College ka major project",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "qe_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "qe_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

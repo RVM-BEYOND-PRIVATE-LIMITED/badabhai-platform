@@ -1,0 +1,1218 @@
+{
+  "_why": "Role track for CNC Router / Engraving Operator, ArtCAM (T21), new trade (CEO pack v2). fam_cnc_router binds NCO 7523.0500 and 7523.1600.",
+  "_scope": "Machining shop-floor trade. The interview separates at setter; higher contact price from programmer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T21 (CNC Router / Engraving Operator (ArtCAM)). Status: NEW",
+  "pack_id": "qp_cnc_router",
+  "version": 1,
+  "family_id": "fam_cnc_router",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T21): new trade.",
+  "items": [
+    {
+      "question_key": "router_experience",
+      "min_tier": "easy",
+      "prompt_text": "CNC router ya engraving ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "router_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal CNC router ya engraving ka kaam kiya hai?"
+    },
+    {
+      "question_key": "router_level",
+      "min_tier": "easy",
+      "prompt_text": "CNC router ya engraving machine pe aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "router_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper/Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "setter",
+          "label_text": "Setter",
+          "value_text": "setter"
+        },
+        {
+          "option_key": "programmer",
+          "label_text": "Designer-cum-Programmer",
+          "value_text": "programmer"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Machine par helper, operator ya setter hain?"
+    },
+    {
+      "question_key": "router_setter_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye job ka bit, origin aur Z zero aap khud set karte ho?",
+      "why_text": "Machine khud set karne wale setter ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "router_setter_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Koi aur karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "router_level"
+        },
+        "right": {
+          "const": [
+            "setter"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "router_programmer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Design aur toolpath khud banate ho ya bani hui file chalate ho?",
+      "why_text": "Design khud banane wale ko designer ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "router_programmer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud banata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Bani hui file chalata hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "router_level"
+        },
+        "right": {
+          "const": [
+            "programmer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "router_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitni machine aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "router_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "router_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "router_machine_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi machine chalate hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "router_machine_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "wood_router",
+          "label_text": "Wood CNC router, 3-axis",
+          "value_text": "wood_router"
+        },
+        {
+          "option_key": "atc_router",
+          "label_text": "ATC router / nesting machine",
+          "value_text": "atc_router"
+        },
+        {
+          "option_key": "multi_head",
+          "label_text": "Multi-head router",
+          "value_text": "multi_head"
+        },
+        {
+          "option_key": "rotary_axis",
+          "label_text": "4-axis / rotary (pillar, murti)",
+          "value_text": "rotary_axis"
+        },
+        {
+          "option_key": "stone_router",
+          "label_text": "Stone ya marble CNC router",
+          "value_text": "stone_router"
+        },
+        {
+          "option_key": "metal_engraver",
+          "label_text": "Metal / die engraving machine",
+          "value_text": "metal_engraver"
+        },
+        {
+          "option_key": "jewellery_cnc",
+          "label_text": "Jewellery CNC",
+          "value_text": "jewellery_cnc"
+        },
+        {
+          "option_key": "laser_engraver",
+          "label_text": "Laser engraver ya laser cutter",
+          "value_text": "laser_engraver"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur machine",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "router_software",
+      "min_tier": "medium",
+      "prompt_text": "Design aur toolpath ke liye kaunsa software chalate hain?",
+      "why_text": "Software jaanne wale ko designer ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "router_software",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "artcam",
+          "label_text": "ArtCAM",
+          "value_text": "artcam"
+        },
+        {
+          "option_key": "aspire_vcarve",
+          "label_text": "Aspire / VCarve",
+          "value_text": "aspire_vcarve"
+        },
+        {
+          "option_key": "type_three",
+          "label_text": "Type3",
+          "value_text": "type_three"
+        },
+        {
+          "option_key": "jdpaint",
+          "label_text": "JDPaint",
+          "value_text": "jdpaint"
+        },
+        {
+          "option_key": "alphacam",
+          "label_text": "Alphacam",
+          "value_text": "alphacam"
+        },
+        {
+          "option_key": "coreldraw",
+          "label_text": "CorelDRAW",
+          "value_text": "coreldraw"
+        },
+        {
+          "option_key": "autocad",
+          "label_text": "AutoCAD",
+          "value_text": "autocad"
+        },
+        {
+          "option_key": "rdworks",
+          "label_text": "RDWorks (laser)",
+          "value_text": "rdworks"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Software nahi chalata, sirf machine",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "controller_brand",
+      "min_tier": "medium",
+      "prompt_text": "Machine kis controller se chalti hai?",
+      "why_text": "Controller jaanne wale operator ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "controller_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "dsp_handle",
+          "label_text": "DSP handle (RichAuto)",
+          "value_text": "dsp_handle"
+        },
+        {
+          "option_key": "ncstudio",
+          "label_text": "NCStudio",
+          "value_text": "ncstudio"
+        },
+        {
+          "option_key": "mach_three",
+          "label_text": "Mach3",
+          "value_text": "mach_three"
+        },
+        {
+          "option_key": "syntec",
+          "label_text": "Syntec",
+          "value_text": "syntec"
+        },
+        {
+          "option_key": "ruida",
+          "label_text": "Ruida (laser)",
+          "value_text": "ruida"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "router_work_type",
+      "min_tier": "medium",
+      "prompt_text": "Machine par kaunsa kaam karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "router_work_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "two_d_cutting",
+          "label_text": "2D cutting aur profile",
+          "value_text": "two_d_cutting"
+        },
+        {
+          "option_key": "jali_cutting",
+          "label_text": "Jali cutting (MDF, ACP, acrylic)",
+          "value_text": "jali_cutting"
+        },
+        {
+          "option_key": "v_grooving",
+          "label_text": "V-groove / ACP grooving",
+          "value_text": "v_grooving"
+        },
+        {
+          "option_key": "relief_carving",
+          "label_text": "2.5D relief carving",
+          "value_text": "relief_carving"
+        },
+        {
+          "option_key": "three_d_carving",
+          "label_text": "3D carving (murti, pillar, panel)",
+          "value_text": "three_d_carving"
+        },
+        {
+          "option_key": "letter_engraving",
+          "label_text": "Letter aur logo engraving",
+          "value_text": "letter_engraving"
+        },
+        {
+          "option_key": "nesting_panels",
+          "label_text": "Nesting se panel cutting aur drilling",
+          "value_text": "nesting_panels"
+        },
+        {
+          "option_key": "die_engraving",
+          "label_text": "Die ya mould engraving",
+          "value_text": "die_engraving"
+        },
+        {
+          "option_key": "laser_engraving",
+          "label_text": "Laser engraving ya marking",
+          "value_text": "laser_engraving"
+        }
+      ]
+    },
+    {
+      "question_key": "router_bed_size",
+      "min_tier": "hard",
+      "prompt_text": "Machine ka bed size kya hai?",
+      "why_text": "Bed size se pata chalta hai aap kitni badi sheet chalate hain.",
+      "target_kind": "attribute",
+      "target_field": "router_bed_size",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "bed_small",
+          "label_text": "Chhoti machine (6090)",
+          "value_text": "6090"
+        },
+        {
+          "option_key": "bed_four_eight",
+          "label_text": "4 x 8 feet (1325)",
+          "value_text": "1325"
+        },
+        {
+          "option_key": "bed_five_ten",
+          "label_text": "5 x 10 feet (1530)",
+          "value_text": "1530"
+        },
+        {
+          "option_key": "bed_large",
+          "label_text": "2030 ya usse badi",
+          "value_text": "2030"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse material par kaam kiya hai?",
+      "why_text": "Har material ka bit aur feed alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mdf_board",
+          "label_text": "MDF, HDF, particle board",
+          "value_text": "mdf_board"
+        },
+        {
+          "option_key": "wood",
+          "label_text": "Plywood aur solid wood",
+          "value_text": "wood"
+        },
+        {
+          "option_key": "acrylic",
+          "label_text": "Acrylic",
+          "value_text": "acrylic"
+        },
+        {
+          "option_key": "acp",
+          "label_text": "ACP sheet",
+          "value_text": "acp"
+        },
+        {
+          "option_key": "pvc_wpc",
+          "label_text": "PVC ya WPC board",
+          "value_text": "pvc_wpc"
+        },
+        {
+          "option_key": "stone",
+          "label_text": "Marble, granite, stone",
+          "value_text": "stone"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "brass",
+          "label_text": "Brass ya copper",
+          "value_text": "brass"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "Die steel ya mould steel",
+          "value_text": "alloy_steel"
+        }
+      ]
+    },
+    {
+      "question_key": "router_product",
+      "min_tier": "hard",
+      "prompt_text": "Aap kya product banate hain?",
+      "why_text": "Product ke hisaab se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "router_product",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "doors",
+          "label_text": "Door aur door skin design",
+          "value_text": "doors"
+        },
+        {
+          "option_key": "modular_furniture",
+          "label_text": "Modular furniture / kitchen panel",
+          "value_text": "modular_furniture"
+        },
+        {
+          "option_key": "mandir_jali",
+          "label_text": "Mandir, jali, wall panel",
+          "value_text": "mandir_jali"
+        },
+        {
+          "option_key": "signage",
+          "label_text": "Signage, letter, name plate",
+          "value_text": "signage"
+        },
+        {
+          "option_key": "acp_cladding",
+          "label_text": "ACP cladding / elevation",
+          "value_text": "acp_cladding"
+        },
+        {
+          "option_key": "stone_carving",
+          "label_text": "Murti, pillar, stone carving",
+          "value_text": "stone_carving"
+        },
+        {
+          "option_key": "footwear_mould",
+          "label_text": "Footwear / sole mould",
+          "value_text": "footwear_mould"
+        },
+        {
+          "option_key": "embossing_die",
+          "label_text": "Embossing die, coin ya jewellery die",
+          "value_text": "embossing_die"
+        }
+      ]
+    },
+    {
+      "question_key": "router_tooling",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse bit ya tool use karte hain?",
+      "why_text": "Sahi bit chunne wale ka kaam saaf nikalta hai.",
+      "target_kind": "attribute",
+      "target_field": "router_tooling",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "straight_bit",
+          "label_text": "Straight / flat end bit",
+          "value_text": "straight_bit"
+        },
+        {
+          "option_key": "ball_nose",
+          "label_text": "Ball nose bit",
+          "value_text": "ball_nose"
+        },
+        {
+          "option_key": "v_bit",
+          "label_text": "V-bit / engraving bit",
+          "value_text": "v_bit"
+        },
+        {
+          "option_key": "spiral_bit",
+          "label_text": "Spiral ya compression bit",
+          "value_text": "spiral_bit"
+        },
+        {
+          "option_key": "tapered_ball_nose",
+          "label_text": "Tapered ball nose (3D carving)",
+          "value_text": "tapered_ball_nose"
+        },
+        {
+          "option_key": "diamond_tool",
+          "label_text": "Diamond tool (stone ke liye)",
+          "value_text": "diamond_tool"
+        },
+        {
+          "option_key": "boring_head",
+          "label_text": "Drill / boring head (nesting)",
+          "value_text": "boring_head"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "hard",
+      "prompt_text": "Naap ke liye kya use karte hain?",
+      "why_text": "Sahi naap se sheet aur material kharab nahi hota.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "steel_rule",
+          "label_text": "Measuring tape aur steel rule",
+          "value_text": "steel_rule"
+        },
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "try_square",
+          "label_text": "Try square / right angle",
+          "value_text": "try_square"
+        },
+        {
+          "option_key": "tool_setter",
+          "label_text": "Z setter / tool sensor",
+          "value_text": "tool_setter"
+        },
+        {
+          "option_key": "micrometer",
+          "label_text": "Micrometer",
+          "value_text": "micrometer"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "router_setting_work",
+      "min_tier": "hard",
+      "prompt_text": "Setting mein aap kya kya karte hain?",
+      "why_text": "Setting karne wale ko operator se zyada paisa milta hai.",
+      "target_kind": "attribute",
+      "target_field": "router_setting_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "job_clamping",
+          "label_text": "Sheet clamping (vacuum bed, clamp, screw)",
+          "value_text": "job_clamping"
+        },
+        {
+          "option_key": "bit_change",
+          "label_text": "Bit lagana, collet badalna",
+          "value_text": "bit_change"
+        },
+        {
+          "option_key": "origin_zero",
+          "label_text": "X-Y origin aur Z zero set karna",
+          "value_text": "origin_zero"
+        },
+        {
+          "option_key": "feed_rpm",
+          "label_text": "Feed aur spindle RPM set karna",
+          "value_text": "feed_rpm"
+        },
+        {
+          "option_key": "file_loading",
+          "label_text": "File load karna (pen drive, DSP, NCStudio)",
+          "value_text": "file_loading"
+        },
+        {
+          "option_key": "breakpoint_resume",
+          "label_text": "Ruki hui cutting breakpoint se dobara chalana",
+          "value_text": "breakpoint_resume"
+        },
+        {
+          "option_key": "tool_length",
+          "label_text": "ATC me tool length set karna",
+          "value_text": "tool_length"
+        },
+        {
+          "option_key": "sheet_layout",
+          "label_text": "Sheet par layout lagana",
+          "value_text": "sheet_layout"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "router_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "router_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "router_design_work",
+      "min_tier": "hard",
+      "prompt_text": "Software mein aap kya kya kar lete hain?",
+      "why_text": "Design banane wale ko sabse zyada paisa milta hai.",
+      "target_kind": "attribute",
+      "target_field": "router_design_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "toolpath_from_file",
+          "label_text": "Bani hui file se toolpath nikalna",
+          "value_text": "toolpath_from_file"
+        },
+        {
+          "option_key": "vector_tracing",
+          "label_text": "Photo se vector tracing",
+          "value_text": "vector_tracing"
+        },
+        {
+          "option_key": "two_d_toolpath",
+          "label_text": "2D toolpath (profile, pocket, V-carve)",
+          "value_text": "two_d_toolpath"
+        },
+        {
+          "option_key": "relief_modelling",
+          "label_text": "3D relief banana",
+          "value_text": "relief_modelling"
+        },
+        {
+          "option_key": "three_d_toolpath",
+          "label_text": "3D roughing aur finishing toolpath",
+          "value_text": "three_d_toolpath"
+        },
+        {
+          "option_key": "nesting",
+          "label_text": "Nesting karna",
+          "value_text": "nesting"
+        },
+        {
+          "option_key": "import_scale",
+          "label_text": "STL ya relief file import karke size badalna",
+          "value_text": "import_scale"
+        },
+        {
+          "option_key": "rotary_toolpath",
+          "label_text": "Rotary (4-axis) toolpath",
+          "value_text": "rotary_toolpath"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Software nahi chalata",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "router_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "router_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis line me kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "furniture",
+          "label_text": "Furniture aur modular kitchen",
+          "value_text": "furniture"
+        },
+        {
+          "option_key": "doors_plywood",
+          "label_text": "Door ya plywood factory",
+          "value_text": "doors_plywood"
+        },
+        {
+          "option_key": "signage",
+          "label_text": "Signage aur advertising",
+          "value_text": "signage"
+        },
+        {
+          "option_key": "interior_acp",
+          "label_text": "Interior / ACP fabrication",
+          "value_text": "interior_acp"
+        },
+        {
+          "option_key": "stone_temple",
+          "label_text": "Temple, marble aur stone carving",
+          "value_text": "stone_temple"
+        },
+        {
+          "option_key": "die_mould",
+          "label_text": "Die aur mould (footwear, embossing)",
+          "value_text": "die_mould"
+        },
+        {
+          "option_key": "jewellery",
+          "label_text": "Jewellery",
+          "value_text": "jewellery"
+        },
+        {
+          "option_key": "handicraft",
+          "label_text": "Handicraft / gift item",
+          "value_text": "handicraft"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "router_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "router_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "router_design_source",
+      "min_tier": "hard",
+      "prompt_text": "Design aapko kahaan se milta hai?",
+      "why_text": "Isse pata chalta hai aap design khud banate hain ya nahi.",
+      "target_kind": "attribute",
+      "target_field": "router_design_source",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "customer_file",
+          "label_text": "Customer ki bani hui file",
+          "value_text": "customer_file"
+        },
+        {
+          "option_key": "library_edit",
+          "label_text": "Library ka design edit karta hoon",
+          "value_text": "library_edit"
+        },
+        {
+          "option_key": "from_photo",
+          "label_text": "Photo ya sample dekh kar khud banata hoon",
+          "value_text": "from_photo"
+        },
+        {
+          "option_key": "own_design",
+          "label_text": "Naya design zero se khud banata hoon",
+          "value_text": "own_design"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "router_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "router_level"
+            },
+            "right": {
+              "const": [
+                "programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Machine ki kaunsi dikkat aap sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "tool_breakage",
+          "label_text": "Bit baar baar tootna",
+          "value_text": "tool_breakage"
+        },
+        {
+          "option_key": "edge_burn_chipping",
+          "label_text": "Edge jalna ya chipping aana",
+          "value_text": "edge_burn_chipping"
+        },
+        {
+          "option_key": "size_variation",
+          "label_text": "Size ya depth ka farak",
+          "value_text": "size_variation"
+        },
+        {
+          "option_key": "step_loss",
+          "label_text": "Step chhootna, design khisak jaana",
+          "value_text": "step_loss"
+        },
+        {
+          "option_key": "surface_finish",
+          "label_text": "Carving me line ya finish kharab",
+          "value_text": "surface_finish"
+        },
+        {
+          "option_key": "sheet_shifting",
+          "label_text": "Vacuum kam, sheet hilna",
+          "value_text": "sheet_shifting"
+        },
+        {
+          "option_key": "alarm",
+          "label_text": "Limit ya driver alarm",
+          "value_text": "alarm"
+        },
+        {
+          "option_key": "spindle_heating",
+          "label_text": "Spindle garam hona ya awaaz karna",
+          "value_text": "spindle_heating"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "router_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "router_level"
+            },
+            "right": {
+              "const": [
+                "programmer",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "Training me kaunsi machine ya software par kaam kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cnc_router",
+          "label_text": "CNC router / wood carving machine",
+          "value_text": "cnc_router"
+        },
+        {
+          "option_key": "laser_engraver",
+          "label_text": "Laser engraving machine",
+          "value_text": "laser_engraver"
+        },
+        {
+          "option_key": "artcam_practice",
+          "label_text": "ArtCAM ya Aspire ki practice",
+          "value_text": "artcam_practice"
+        },
+        {
+          "option_key": "coreldraw_autocad",
+          "label_text": "CorelDRAW ya AutoCAD ki practice",
+          "value_text": "coreldraw_autocad"
+        },
+        {
+          "option_key": "vmc",
+          "label_text": "VMC ya CNC milling",
+          "value_text": "vmc"
+        },
+        {
+          "option_key": "wood_working",
+          "label_text": "Carpentry / wood working machine",
+          "value_text": "wood_working"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "router_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "router_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "router_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

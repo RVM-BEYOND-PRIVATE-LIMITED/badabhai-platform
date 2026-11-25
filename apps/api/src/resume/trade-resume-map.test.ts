@@ -5,7 +5,7 @@
  * hands to an employer, not the happy path: a raw slug, a non-answer printed as an answer, a claim
  * the worker never made, or a row order that changes between two renders of the same profile.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -68,6 +68,32 @@ function activePackFile(packId: string): string {
   return best;
 }
 
+/**
+ * Every version of the pack, folded into one item list: a question is there if ANY version asks
+ * it, with every option ANY version offered. A résumé row reads `worker_attributes`, which keep a
+ * worker's answer after the version he gave it on is retired, so a row for a v1-only question or
+ * value stays valid for him (#3008 §4: "keep their rows in the résumé map"). The newest version
+ * still has to carry the headline field; that is checked against `packJson` below.
+ */
+function allVersionsPack(packId: string): Pack {
+  const dir = join(__dirname, "../../../../packages/db/data/question-packs/packs");
+  const files = readdirSync(dir).filter(
+    (f) => f === `${packId}.json` || (f.startsWith(`${packId}@`) && f.endsWith(".json")),
+  );
+  const byKey = new Map<string, Pack["items"][number]>();
+  for (const file of files) {
+    const pack = JSON.parse(readFileSync(join(dir, file), "utf8")) as Pack;
+    for (const item of pack.items) {
+      const held = byKey.get(item.question_key);
+      byKey.set(item.question_key, {
+        question_key: item.question_key,
+        options: [...(held?.options ?? []), ...(item.options ?? [])],
+      });
+    }
+  }
+  return { items: [...byKey.values()] };
+}
+
 const map = tradeResumeMapFor("qp_cnc_turning");
 
 /**
@@ -80,7 +106,8 @@ const map = tradeResumeMapFor("qp_cnc_turning");
  */
 describe.each(TRADE_RESUME_MAPS.map((m) => m.pack_id))("trade resume map — %s", (packId) => {
   const entry = tradeResumeMapFor(packId)!;
-  const pack = packJson(packId);
+  const pack = allVersionsPack(packId);
+  const newest = packJson(packId);
 
   it("EVERY row reads a question_key that actually exists in the pack", () => {
     // The defect this catches: a renamed or mistyped `from` yields a row that can never appear,
@@ -112,6 +139,15 @@ describe.each(TRADE_RESUME_MAPS.map((m) => m.pack_id))("trade resume map — %s"
         }
       }
     }
+  });
+
+  it("the newest version still asks the headline row's question", () => {
+    // History rows may read a retired question; the headline may not, or a worker profiled on
+    // the active form would print a sheet with no headline tools.
+    const headline = entry.capability.find((row) => row.inHeadline);
+    if (headline === undefined) return;
+    const keys = new Set(newest.items.map((i) => i.question_key));
+    expect(keys.has(headline.from), `headline reads "${headline.from}"`).toBe(true);
   });
 
   it("never gives `unknown` a label, on any row or any config", () => {

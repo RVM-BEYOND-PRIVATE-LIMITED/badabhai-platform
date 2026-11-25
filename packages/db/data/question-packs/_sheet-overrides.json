@@ -471,7 +471,14 @@
       "why": "Role track for Production Supervisor (T45), deepening the live thin form (CEO pack v2). fam_production_supervisor binds the 3122 supervisor codes.",
       "scope": "Production and Engineering shop-floor trade with a three-rung ladder and no trainee. The interview separates at supervisor; higher contact price from senior (line leader).",
       "budget": "20 questions (easy 5, medium 4, advanced 11); 4 mandatory, 2 core. Gates are senior-or-above; the senior path stays inside MAX_ENGINE_ASKS.",
-      "reviewNote": "v2 (CEO pack v2, sheet T45): deepens the live thin form. Sheet wording and chips under the kept live keys (key table #3008). Carries the sheet's in-charge wording verbatim; #2995 point 1 ruled it for #3008 to fix. Live-only questions stay in v1.",
+      "reviewNote": "v2 (CEO pack v2, sheet T45): deepens the live thin form. Sheet wording and chips under the kept live keys (key table #3008). The in-charge prompt drops the sheet's second clause (#2995 point 1 default). Live-only questions stay in v1.",
+      "promptOverrides": {
+        "prodsup_incharge_confirm": {
+          "sheetAsks": "Aap kaunsa department sambhalte hain aur usme kul kitne log hain?",
+          "asks": "Aap kaunsa department sambhalte hain?",
+          "ruling": "#2995 point 1 default: 'aur usme' is a banned deictic (persona.json bannedDeictics); ask only the department and keep it free text."
+        }
+      },
       "optionKeys": {
         "prodsup_manpower_handled": {
           "10": "upto_ten",

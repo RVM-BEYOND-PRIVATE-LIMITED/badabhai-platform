@@ -1,0 +1,1271 @@
+{
+  "_why": "Role track for Maintenance Engineer (T43), new trade (CEO pack v2). fam_maintenance_engineer binds NCO 2144.0600, 3113.0501 and 3115.0501.",
+  "_scope": "Maintenance and Automation desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T43 (Maintenance Engineer). Status: NEW",
+  "pack_id": "qp_maintenance_engineer",
+  "version": 1,
+  "family_id": "fam_maintenance_engineer",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T43): new trade.",
+  "items": [
+    {
+      "question_key": "me_experience",
+      "min_tier": "easy",
+      "prompt_text": "Maintenance engineer ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "me_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Maintenance engineer ka kaam kiya hai?"
+    },
+    {
+      "question_key": "me_level",
+      "min_tier": "easy",
+      "prompt_text": "Maintenance department me aap kis level par hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "me_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "GET / DET / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "engineer",
+          "label_text": "Engineer / Shift Engineer",
+          "value_text": "engineer"
+        },
+        {
+          "option_key": "senior_engineer",
+          "label_text": "Senior Engineer",
+          "value_text": "senior_engineer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Lead / Assistant Manager",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Manager / HOD",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Maintenance department me trainee, engineer ya senior engineer hain?"
+    },
+    {
+      "question_key": "me_senior_engineer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Apne area ka breakdown aur PM plan aap akele sambhalte ho?",
+      "why_text": "Area akele sambhalne wale senior engineer ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "me_senior_engineer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele sambhalta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior ke under kaam karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "me_level"
+        },
+        "right": {
+          "const": [
+            "senior_engineer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "me_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Poore section ka PM plan, spares budget aur manpower aap tay karte ho?",
+      "why_text": "Section ka plan aur budget tay karne wale lead ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "me_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, main tay karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, manager tay karte hain",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "me_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "me_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne engineer, technician aur kitni machine aapke under hain?",
+      "why_text": "Team sambhalne wale manager ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "me_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "me_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "me_function",
+      "min_tier": "medium",
+      "prompt_text": "Aap maintenance ka kaunsa hissa sambhalte hain?",
+      "why_text": "Mechanical aur electrical maintenance ki naukri alag hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "me_function",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mechanical",
+          "label_text": "Mechanical maintenance",
+          "value_text": "mechanical"
+        },
+        {
+          "option_key": "electrical",
+          "label_text": "Electrical maintenance",
+          "value_text": "electrical"
+        },
+        {
+          "option_key": "electronics_automation",
+          "label_text": "Electronics, PLC aur automation",
+          "value_text": "electronics_automation"
+        },
+        {
+          "option_key": "utility",
+          "label_text": "Utility, boiler, compressor, DG aur HVAC",
+          "value_text": "utility"
+        },
+        {
+          "option_key": "tooling_maintenance",
+          "label_text": "Tool room, die aur mould maintenance",
+          "value_text": "tooling_maintenance"
+        },
+        {
+          "option_key": "planning",
+          "label_text": "PM planning aur spares",
+          "value_text": "planning"
+        },
+        {
+          "option_key": "projects",
+          "label_text": "Projects, naya machine installation",
+          "value_text": "projects"
+        },
+        {
+          "option_key": "facility",
+          "label_text": "Building aur facility maintenance",
+          "value_text": "facility"
+        }
+      ]
+    },
+    {
+      "question_key": "me_machine_type",
+      "min_tier": "medium",
+      "prompt_text": "Kaunsi machine ya equipment ki maintenance dekhi hai?",
+      "why_text": "Machine ke hisaab se sahi plant ka kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "me_machine_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cnc_machines",
+          "label_text": "CNC, VMC aur machine shop",
+          "value_text": "cnc_machines"
+        },
+        {
+          "option_key": "presses",
+          "label_text": "Mechanical ya hydraulic press",
+          "value_text": "presses"
+        },
+        {
+          "option_key": "moulding_diecasting",
+          "label_text": "Injection moulding ya die casting machine",
+          "value_text": "moulding_diecasting"
+        },
+        {
+          "option_key": "furnace_forging",
+          "label_text": "Furnace, heat treatment ya forging",
+          "value_text": "furnace_forging"
+        },
+        {
+          "option_key": "conveyor_assembly",
+          "label_text": "Conveyor, assembly line aur SPM",
+          "value_text": "conveyor_assembly"
+        },
+        {
+          "option_key": "robot_weld_line",
+          "label_text": "Robot aur welding line",
+          "value_text": "robot_weld_line"
+        },
+        {
+          "option_key": "paint_plating",
+          "label_text": "Paint shop ya plating line",
+          "value_text": "paint_plating"
+        },
+        {
+          "option_key": "process_equipment",
+          "label_text": "Process equipment, reactor, pump ya centrifuge",
+          "value_text": "process_equipment"
+        },
+        {
+          "option_key": "packaging_line",
+          "label_text": "Packaging ya filling line",
+          "value_text": "packaging_line"
+        }
+      ]
+    },
+    {
+      "question_key": "me_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Roz ke kaam me aap kya kya khud karte hain?",
+      "why_text": "Roz ke kaam se employer samajhta hai aap kya sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "me_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "breakdown_attend",
+          "label_text": "Breakdown attend karna",
+          "value_text": "breakdown_attend"
+        },
+        {
+          "option_key": "pm_schedule",
+          "label_text": "PM schedule banana aur follow karna",
+          "value_text": "pm_schedule"
+        },
+        {
+          "option_key": "spares_indent",
+          "label_text": "Spares ka indent ya PR banana",
+          "value_text": "spares_indent"
+        },
+        {
+          "option_key": "daily_mis",
+          "label_text": "Shift report ya daily MIS",
+          "value_text": "daily_mis"
+        },
+        {
+          "option_key": "work_allocation",
+          "label_text": "Technician ko kaam baantna",
+          "value_text": "work_allocation"
+        },
+        {
+          "option_key": "vendor_coordination",
+          "label_text": "Contractor ya AMC vendor se kaam karwana",
+          "value_text": "vendor_coordination"
+        },
+        {
+          "option_key": "history_card",
+          "label_text": "Machine history card bharna",
+          "value_text": "history_card"
+        },
+        {
+          "option_key": "work_permit_loto",
+          "label_text": "Work permit aur LOTO dena",
+          "value_text": "work_permit_loto"
+        }
+      ]
+    },
+    {
+      "question_key": "me_record_system",
+      "min_tier": "medium",
+      "prompt_text": "Maintenance ka record aap kis system me rakhte hain?",
+      "why_text": "SAP ya ERP jaanne wale engineer ko badi company jaldi rakhti hai.",
+      "target_kind": "attribute",
+      "target_field": "me_record_system",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "sap_pm",
+          "label_text": "SAP PM",
+          "value_text": "sap_pm"
+        },
+        {
+          "option_key": "maximo",
+          "label_text": "IBM Maximo",
+          "value_text": "maximo"
+        },
+        {
+          "option_key": "other_erp_cmms",
+          "label_text": "Company ka apna ERP ya CMMS",
+          "value_text": "other_erp_cmms"
+        },
+        {
+          "option_key": "excel",
+          "label_text": "MS Excel",
+          "value_text": "excel"
+        },
+        {
+          "option_key": "manual_register",
+          "label_text": "Register aur history card",
+          "value_text": "manual_register"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi record nahi rakhta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "me_technical_area",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse system ka fault aap khud samajh kar theek karwa lete hain?",
+      "why_text": "Technical pakad se pata chalta hai aap kaunsa plant sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "me_technical_area",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hydraulics",
+          "label_text": "Hydraulics",
+          "value_text": "hydraulics"
+        },
+        {
+          "option_key": "pneumatics",
+          "label_text": "Pneumatics",
+          "value_text": "pneumatics"
+        },
+        {
+          "option_key": "mechanical_drives",
+          "label_text": "Gearbox, bearing aur alignment",
+          "value_text": "mechanical_drives"
+        },
+        {
+          "option_key": "motors_mcc",
+          "label_text": "Motor, starter aur MCC panel",
+          "value_text": "motors_mcc"
+        },
+        {
+          "option_key": "drives",
+          "label_text": "VFD aur servo drive",
+          "value_text": "drives"
+        },
+        {
+          "option_key": "plc_fault_finding",
+          "label_text": "PLC fault finding",
+          "value_text": "plc_fault_finding"
+        },
+        {
+          "option_key": "cnc_machine_elements",
+          "label_text": "CNC ka spindle, ball screw aur axis",
+          "value_text": "cnc_machine_elements"
+        },
+        {
+          "option_key": "utilities",
+          "label_text": "Boiler, compressor aur chiller",
+          "value_text": "utilities"
+        },
+        {
+          "option_key": "power_distribution",
+          "label_text": "HT / LT, transformer aur DG",
+          "value_text": "power_distribution"
+        }
+      ]
+    },
+    {
+      "question_key": "me_drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse drawing aap padh lete hain?",
+      "why_text": "Drawing aur circuit padhne wale engineer fault jaldi pakadte hain.",
+      "target_kind": "attribute",
+      "target_field": "me_drawing_reading",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mechanical_drawing",
+          "label_text": "Machine assembly ya part drawing",
+          "value_text": "mechanical_drawing"
+        },
+        {
+          "option_key": "hydraulic_circuit",
+          "label_text": "Hydraulic circuit",
+          "value_text": "hydraulic_circuit"
+        },
+        {
+          "option_key": "pneumatic_circuit",
+          "label_text": "Pneumatic circuit",
+          "value_text": "pneumatic_circuit"
+        },
+        {
+          "option_key": "electrical_drawing",
+          "label_text": "Electrical wiring aur control drawing",
+          "value_text": "electrical_drawing"
+        },
+        {
+          "option_key": "plc_ladder",
+          "label_text": "PLC ladder",
+          "value_text": "plc_ladder"
+        },
+        {
+          "option_key": "p_and_id",
+          "label_text": "P&ID ya utility layout",
+          "value_text": "p_and_id"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "me_breakdown_analysis",
+      "min_tier": "hard",
+      "prompt_text": "Breakdown ke baad aap kaunsa analysis ya record banate hain?",
+      "why_text": "Analysis karne wale engineer ko senior ka kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "me_breakdown_analysis",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "breakdown_report",
+          "label_text": "Breakdown report",
+          "value_text": "breakdown_report"
+        },
+        {
+          "option_key": "why_why",
+          "label_text": "Why-why analysis",
+          "value_text": "why_why"
+        },
+        {
+          "option_key": "rca_fishbone",
+          "label_text": "RCA ya fishbone",
+          "value_text": "rca_fishbone"
+        },
+        {
+          "option_key": "mtbf_mttr",
+          "label_text": "MTBF / MTTR ka trend",
+          "value_text": "mtbf_mttr"
+        },
+        {
+          "option_key": "pareto",
+          "label_text": "Breakdown ka Pareto",
+          "value_text": "pareto"
+        },
+        {
+          "option_key": "capa_horizontal",
+          "label_text": "CAPA aur horizontal deployment",
+          "value_text": "capa_horizontal"
+        },
+        {
+          "option_key": "opl",
+          "label_text": "One point lesson, OPL",
+          "value_text": "opl"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "me_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "me_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "me_machines_handled",
+      "min_tier": "hard",
+      "prompt_text": "Aap lagbhag kitni machine ki maintenance dekhte hain?",
+      "why_text": "Machine ki ginti se plant ka size samajh aata hai.",
+      "target_kind": "attribute",
+      "target_field": "me_machines_handled",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_twenty_five",
+          "label_text": "25 tak",
+          "value_text": "25"
+        },
+        {
+          "option_key": "upto_hundred",
+          "label_text": "25 se 100",
+          "value_text": "100"
+        },
+        {
+          "option_key": "upto_three_hundred",
+          "label_text": "100 se 300",
+          "value_text": "300"
+        },
+        {
+          "option_key": "upto_five_hundred",
+          "label_text": "300 se zyada",
+          "value_text": "500"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "me_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "me_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "me_spares_vendor",
+      "min_tier": "hard",
+      "prompt_text": "Spares aur vendor ka kaunsa kaam aap karte hain?",
+      "why_text": "Spares aur vendor sambhalne wale engineer ka kharcha kam aata hai.",
+      "target_kind": "attribute",
+      "target_field": "me_spares_vendor",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "critical_spares",
+          "label_text": "Critical spares list aur min-max level",
+          "value_text": "critical_spares"
+        },
+        {
+          "option_key": "quotation_comparison",
+          "label_text": "Vendor se quotation aur technical comparison",
+          "value_text": "quotation_comparison"
+        },
+        {
+          "option_key": "amc_contracts",
+          "label_text": "Compressor, DG, chiller ya CNC ka AMC",
+          "value_text": "amc_contracts"
+        },
+        {
+          "option_key": "repair_reconditioning",
+          "label_text": "Spare ki repair ya reconditioning karwana",
+          "value_text": "repair_reconditioning"
+        },
+        {
+          "option_key": "spare_localisation",
+          "label_text": "Import spare ka local development",
+          "value_text": "spare_localisation"
+        },
+        {
+          "option_key": "bill_certification",
+          "label_text": "Contractor ka bill certify karna",
+          "value_text": "bill_certification"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "me_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "me_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "me_statutory_audit",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse statutory aur audit ke kaam aap dekhte hain?",
+      "why_text": "Statutory kaam jaanne wale engineer par plant bharosa karta hai.",
+      "target_kind": "attribute",
+      "target_field": "me_statutory_audit",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ibr_boiler",
+          "label_text": "Boiler ka IBR inspection",
+          "value_text": "ibr_boiler"
+        },
+        {
+          "option_key": "pressure_vessel",
+          "label_text": "Pressure vessel aur air receiver testing",
+          "value_text": "pressure_vessel"
+        },
+        {
+          "option_key": "lifting_tackle",
+          "label_text": "Crane, hoist aur lifting tackle testing",
+          "value_text": "lifting_tackle"
+        },
+        {
+          "option_key": "electrical_inspection",
+          "label_text": "Electrical inspector aur earth pit testing",
+          "value_text": "electrical_inspection"
+        },
+        {
+          "option_key": "pollution_board",
+          "label_text": "Pollution board, ETP, stack aur DG",
+          "value_text": "pollution_board"
+        },
+        {
+          "option_key": "fire_system",
+          "label_text": "Fire hydrant aur extinguisher",
+          "value_text": "fire_system"
+        },
+        {
+          "option_key": "iatf_iso_audit",
+          "label_text": "IATF / ISO audit ke maintenance document",
+          "value_text": "iatf_iso_audit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "me_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "me_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis tarah ke plant me maintenance dekhi hai?",
+      "why_text": "Plant ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile ya auto parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, fabrication",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "casting_forging",
+          "label_text": "Forging, casting ya foundry",
+          "value_text": "casting_forging"
+        },
+        {
+          "option_key": "plastics",
+          "label_text": "Plastic ya rubber moulding",
+          "value_text": "plastics"
+        },
+        {
+          "option_key": "fmcg",
+          "label_text": "FMCG ya food",
+          "value_text": "fmcg"
+        },
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "chemical",
+          "label_text": "Chemical ya process plant",
+          "value_text": "chemical"
+        },
+        {
+          "option_key": "steel_plant",
+          "label_text": "Steel ya metal plant",
+          "value_text": "steel_plant"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "me_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "me_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "me_tpm_improvement",
+      "min_tier": "hard",
+      "prompt_text": "TPM aur improvement ka kaunsa kaam aapne kiya hai?",
+      "why_text": "Improvement ka kaam dikhane wale engineer ko aage badhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "me_tpm_improvement",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "jishu_hozen",
+          "label_text": "JH, Jishu Hozen pillar",
+          "value_text": "jishu_hozen"
+        },
+        {
+          "option_key": "planned_maintenance",
+          "label_text": "PM, Planned Maintenance pillar",
+          "value_text": "planned_maintenance"
+        },
+        {
+          "option_key": "kobetsu_kaizen",
+          "label_text": "Kobetsu Kaizen",
+          "value_text": "kobetsu_kaizen"
+        },
+        {
+          "option_key": "kaizen_poka_yoke",
+          "label_text": "Kaizen ya poka-yoke",
+          "value_text": "kaizen_poka_yoke"
+        },
+        {
+          "option_key": "five_s",
+          "label_text": "5S",
+          "value_text": "five_s"
+        },
+        {
+          "option_key": "oee_improvement",
+          "label_text": "OEE improvement",
+          "value_text": "oee_improvement"
+        },
+        {
+          "option_key": "energy_saving",
+          "label_text": "Energy saving project",
+          "value_text": "energy_saving"
+        },
+        {
+          "option_key": "predictive_maintenance",
+          "label_text": "Predictive, vibration, thermography ya oil analysis",
+          "value_text": "predictive_maintenance"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "me_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "me_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "me_shutdown_projects",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse bade kaam aapne khud plan karke karwaye hain?",
+      "why_text": "Bade kaam plan karne wale ko lead ya manager banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "me_shutdown_projects",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "annual_shutdown",
+          "label_text": "Annual shutdown",
+          "value_text": "annual_shutdown"
+        },
+        {
+          "option_key": "overhaul_retrofit",
+          "label_text": "Machine overhauling ya retrofitting",
+          "value_text": "overhaul_retrofit"
+        },
+        {
+          "option_key": "installation_commissioning",
+          "label_text": "Naya machine installation aur commissioning",
+          "value_text": "installation_commissioning"
+        },
+        {
+          "option_key": "machine_shifting",
+          "label_text": "Machine shifting ya layout change",
+          "value_text": "machine_shifting"
+        },
+        {
+          "option_key": "utility_expansion",
+          "label_text": "Compressor, DG ya transformer ka expansion",
+          "value_text": "utility_expansion"
+        },
+        {
+          "option_key": "capex_proposal",
+          "label_text": "Capex proposal banana",
+          "value_text": "capex_proposal"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "me_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "me_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "me_department_targets",
+      "min_tier": "hard",
+      "prompt_text": "Department ke kaunse target aapke naam par hain?",
+      "why_text": "Target sambhalne wale ko manager ki zimmedari di jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "me_department_targets",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "downtime",
+          "label_text": "Breakdown aur downtime",
+          "value_text": "downtime"
+        },
+        {
+          "option_key": "mtbf_mttr",
+          "label_text": "MTBF / MTTR",
+          "value_text": "mtbf_mttr"
+        },
+        {
+          "option_key": "maintenance_budget",
+          "label_text": "Maintenance cost aur budget",
+          "value_text": "maintenance_budget"
+        },
+        {
+          "option_key": "spares_inventory",
+          "label_text": "Spares inventory",
+          "value_text": "spares_inventory"
+        },
+        {
+          "option_key": "energy_consumption",
+          "label_text": "Bijli aur energy ka kharcha",
+          "value_text": "energy_consumption"
+        },
+        {
+          "option_key": "pm_adherence",
+          "label_text": "PM adherence",
+          "value_text": "pm_adherence"
+        },
+        {
+          "option_key": "safety",
+          "label_text": "Safety, zero accident",
+          "value_text": "safety"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "me_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "me_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "me_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapki padhai kis branch se hai?",
+      "why_text": "Branch ke hisaab se mechanical ya electrical ka kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "me_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "electrical_engg",
+          "label_text": "Electrical ya Electronics",
+          "value_text": "electrical_engg"
+        },
+        {
+          "option_key": "mechatronics_instrumentation",
+          "label_text": "Mechatronics ya Instrumentation",
+          "value_text": "mechatronics_instrumentation"
+        },
+        {
+          "option_key": "production_engg",
+          "label_text": "Production ya Industrial engineering",
+          "value_text": "production_engg"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad promote hua",
+          "value_text": "iti_promoted"
+        }
+      ]
+    },
+    {
+      "question_key": "me_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke saath plant ka kaunsa kaam dekha hai?",
+      "why_text": "Training me dekha hua kaam bhi employer ginte hain.",
+      "target_kind": "attribute",
+      "target_field": "me_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "College ka major project",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "me_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "me_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

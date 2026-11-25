@@ -9,6 +9,7 @@ import {
 import type { ProjectedAttribute } from "../profiling/answer-map-projector";
 import { descriptorForKind, TRADE_FORM_KINDS } from "../profiling/roles/role-registry";
 import {
+  allPackVersions,
   answerRecordsFor,
   attributesFor,
   latestPack,
@@ -193,17 +194,41 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
     expect(Object.keys(REACHABLE).sort()).toEqual(Object.keys(PACK_ANSWER_SKILLS).sort());
   });
 
+  // EVERY VERSION'S CHIPS, because a stored answer outlives its version (#3008 §4): a worker who
+  // answered a deepened form's v1 keeps the skill his v1 answer earned after v2 is active.
   it.each(Object.entries(REACHABLE))("%s reaches exactly its own trade", (packId, reachable) => {
-    const pack = latestPack(packId);
     const seen = new Set<string>();
-    for (const item of pack.items) {
-      for (const option of item.options ?? []) {
-        if (option.value_text === undefined && option.value_number === undefined) continue;
-        const attrs = attributesFor(pack, { [item.question_key]: [option.option_key] });
-        for (const skill of derive(packId, attrs)) seen.add(skill);
+    for (const pack of allPackVersions(packId)) {
+      for (const item of pack.items) {
+        for (const option of item.options ?? []) {
+          if (option.value_text === undefined && option.value_number === undefined) continue;
+          const attrs = attributesFor(pack, { [item.question_key]: [option.option_key] });
+          for (const skill of derive(packId, attrs)) seen.add(skill);
+        }
       }
     }
     expect([...seen].sort()).toEqual([...reachable].sort());
+  });
+
+  // A NEW ANSWER ON v2 EARNS THE SKILL TOO. The six deepened Wave 1 forms (#3008) ship v2 under
+  // their kept keys; five share enough chip values with v1 to reach their trade unchanged, and
+  // EDM's v2 machine chips got the same claim rule as v1's. #3011 adds the new trades' rows.
+  it("a new answer on each deepened Wave 1 form's v2 reaches its own trade", () => {
+    const got: Record<string, string[]> = {};
+    for (const packId of Object.keys(V2_REACH_TODAY)) {
+      const pack = latestPack(packId);
+      expect(pack.version, packId).toBe(2);
+      const seen = new Set<string>();
+      for (const item of pack.items) {
+        for (const option of item.options ?? []) {
+          if (option.value_text === undefined && option.value_number === undefined) continue;
+          const attrs = attributesFor(pack, { [item.question_key]: [option.option_key] });
+          for (const skill of derive(packId, attrs)) seen.add(skill);
+        }
+      }
+      got[packId] = [...seen].sort();
+    }
+    expect(got).toEqual(V2_REACH_TODAY);
   });
 
   it("a welder who said only MIG is not offered TIG or arc as EXACT skills", () => {
@@ -247,6 +272,16 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
   });
 });
 
+/** Each deepened Wave 1 form's v2 → the skills its chips reach (measured, then pinned). */
+const V2_REACH_TODAY: Record<string, string[]> = {
+  qp_edm_wirecut: ["mskill_edm_wirecut_operator"],
+  qp_heat_treatment: ["mskill_heat_treatment_tech"],
+  qp_injection_moulding: ["mskill_imm_operator"],
+  qp_plc_automation: ["mskill_plc_automation_tech"],
+  qp_production_supervisor: ["mskill_production_supervisor"],
+  qp_cad_design_3d: ["mskill_cad_designer_3d"],
+};
+
 describe("the table is written against what the packs actually store", () => {
   it.each(Object.keys(PACK_ANSWER_SKILLS))(
     "%s: every mapped question and option exists, and stores its option key as its value",
@@ -254,15 +289,27 @@ describe("the table is written against what the packs actually store", () => {
       // `worker_attributes` holds the option's VALUE. The table is keyed by option KEY. They are
       // spelled the same for every mapped option — asserted, because a pack edit that made them
       // differ would silently zero this trade's reach.
-      const pack = latestPack(packId);
+      // ANY published version: a row for a value only v1 offers stays, because the workers who
+      // gave it keep it (#3008 §4). Every version that asks the question must still store the
+      // option key as its value.
+      const versions = allPackVersions(packId);
       for (const [questionKey, options] of Object.entries(PACK_ANSWER_SKILLS[packId]!)) {
-        const item = pack.items.find((candidate) => candidate.question_key === questionKey);
-        expect(item, `${packId} has no question ${questionKey}`).toBeDefined();
-        expect(item!.target_field ?? item!.question_key).toBe(questionKey);
+        const items = versions.flatMap((pack) =>
+          pack.items.filter((candidate) => candidate.question_key === questionKey),
+        );
+        expect(items.length, `${packId} has no question ${questionKey}`).toBeGreaterThan(0);
+        for (const item of items) {
+          expect(item.target_field ?? item.question_key).toBe(questionKey);
+        }
         for (const optionKey of Object.keys(options)) {
-          const option = (item!.options ?? []).find((o) => o.option_key === optionKey);
-          expect(option, `${packId}.${questionKey} has no option ${optionKey}`).toBeDefined();
-          expect(option!.value_text).toBe(optionKey);
+          const found = items.flatMap((item) =>
+            (item.options ?? []).filter((o) => o.option_key === optionKey),
+          );
+          expect(
+            found.length,
+            `${packId}.${questionKey} has no option ${optionKey}`,
+          ).toBeGreaterThan(0);
+          for (const option of found) expect(option.value_text).toBe(optionKey);
         }
       }
     },

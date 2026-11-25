@@ -427,6 +427,14 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       sinker_edm: EDM_WIRECUT_OPERATOR,
       hole_drill: EDM_WIRECUT_OPERATOR,
       small_hole: EDM_WIRECUT_OPERATOR,
+      // v2 (CEO pack v2, sheet T17, #3008) asks the kept key with the sheet's own machine chips.
+      // The same rule as v1: every named EDM machine is the claim. The v1 rows above stay for
+      // the workers who gave those values (#3008 §4).
+      wirecut: EDM_WIRECUT_OPERATOR,
+      moly_wirecut: EDM_WIRECUT_OPERATOR,
+      znc_sinker: EDM_WIRECUT_OPERATOR,
+      cnc_sinker: EDM_WIRECUT_OPERATOR,
+      edm_drill: EDM_WIRECUT_OPERATOR,
     },
   },
 

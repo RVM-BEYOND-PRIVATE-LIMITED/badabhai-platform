@@ -837,3 +837,98 @@
 {"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4402"}
 {"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4501"}
 {"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4502"}
+#
+# ══ CEO PACK V2, WAVE 1 (#3008) ══ Families and bindings for the Wave 1 forms, codes from pack
+# section 13.1 (TRADE_CATALOGUE.ncoCodes), every id checked against nco2015.jsonl. Not here: the
+# foundry split (T24, T25, T26: #3009), and T45's four casting/forging supervisor codes
+# 3122.4401/4402/4501/4502, which #2995 point 4 leaves with T24 and T26 (fam_foundry_forging until
+# #3009). A code another family holds today is not moved (pack rule 13.3.1).
+# CEO pack v2, T21 (new, Wave 1, #3008): fam_cnc_router, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_cnc_router","label_en":"CNC Router / Engraving Operator (ArtCAM)","label_hi":"सीएनसी राउटर / एनग्रेविंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_cnc_router","job_domain_id":"jd_nco_7523_0500"}
+{"kind":"binding","family_id":"fam_cnc_router","job_domain_id":"jd_nco_7523_1600"}
+# CEO pack v2, T27 (deepened, Wave 1, #3008): fam_heat_treatment, codes from pack section 13.1.
+{"kind":"binding","family_id":"fam_heat_treatment","job_domain_id":"jd_nco_2146_0501"}
+{"kind":"binding","family_id":"fam_heat_treatment","job_domain_id":"jd_nco_3135_3001"}
+# CEO pack v2, T33 (new, Wave 1, #3008): fam_cmm, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_cmm","label_en":"CMM Operator / Programmer","label_hi":"सीएमएम ऑपरेटर / प्रोग्रामर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_cmm","job_domain_id":"jd_rvm_cmm_operator"}
+# CEO pack v2, T37 (new, Wave 1, #3008): fam_quality_engineer, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_quality_engineer","label_en":"Quality Engineer (QA / QC / SQA)","label_hi":"क्वालिटी इंजीनियर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_quality_engineer","job_domain_id":"jd_nco_1213_0101"}
+{"kind":"binding","family_id":"fam_quality_engineer","job_domain_id":"jd_nco_1213_0102"}
+{"kind":"binding","family_id":"fam_quality_engineer","job_domain_id":"jd_nco_1324_0101"}
+{"kind":"binding","family_id":"fam_quality_engineer","job_domain_id":"jd_nco_2141_0100"}
+{"kind":"binding","family_id":"fam_quality_engineer","job_domain_id":"jd_nco_2152_0601"}
+{"kind":"binding","family_id":"fam_quality_engineer","job_domain_id":"jd_nco_3113_0801"}
+# CEO pack v2, T43 (new, Wave 1, #3008): fam_maintenance_engineer, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_maintenance_engineer","label_en":"Maintenance Engineer","label_hi":"मेंटेनेंस इंजीनियर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_maintenance_engineer","job_domain_id":"jd_nco_2144_0600"}
+{"kind":"binding","family_id":"fam_maintenance_engineer","job_domain_id":"jd_nco_3113_0501"}
+{"kind":"binding","family_id":"fam_maintenance_engineer","job_domain_id":"jd_nco_3115_0501"}
+# CEO pack v2, T45 (deepened, Wave 1, #3008): fam_production_supervisor, codes from pack section 13.1.
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_0400"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_0500"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_2000"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_2100"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_2200"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_2300"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_4200"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_4300"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_4601"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_4602"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_4702"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_5000"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_5200"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3123_0600"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3123_0700"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3139_2001"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_7223_0502"}
+# CEO pack v2, T46 (new, Wave 1, #3008): fam_production_engineer, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_production_engineer","label_en":"Production Engineer","label_hi":"प्रोडक्शन इंजीनियर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_production_engineer","job_domain_id":"jd_nco_2144_0401"}
+{"kind":"binding","family_id":"fam_production_engineer","job_domain_id":"jd_nco_2144_0403"}
+# CEO pack v2, T47 (new, Wave 1, #3008): fam_process_engineer, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_process_engineer","label_en":"Process / Manufacturing Engineer","label_hi":"प्रोसेस इंजीनियर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_process_engineer","job_domain_id":"jd_nco_2141_0300"}
+{"kind":"binding","family_id":"fam_process_engineer","job_domain_id":"jd_nco_2141_0301"}
+{"kind":"binding","family_id":"fam_process_engineer","job_domain_id":"jd_nco_2141_0600"}
+{"kind":"binding","family_id":"fam_process_engineer","job_domain_id":"jd_nco_2144_0101"}
+{"kind":"binding","family_id":"fam_process_engineer","job_domain_id":"jd_nco_2144_0102"}
+{"kind":"binding","family_id":"fam_process_engineer","job_domain_id":"jd_nco_2144_0103"}
+{"kind":"binding","family_id":"fam_process_engineer","job_domain_id":"jd_nco_2144_0104"}
+{"kind":"binding","family_id":"fam_process_engineer","job_domain_id":"jd_nco_2144_0105"}
+{"kind":"binding","family_id":"fam_process_engineer","job_domain_id":"jd_nco_2144_0300"}
+{"kind":"binding","family_id":"fam_process_engineer","job_domain_id":"jd_nco_2144_1301"}
+{"kind":"binding","family_id":"fam_process_engineer","job_domain_id":"jd_nco_2144_1302"}
+{"kind":"binding","family_id":"fam_process_engineer","job_domain_id":"jd_nco_3115_0401"}
+{"kind":"binding","family_id":"fam_process_engineer","job_domain_id":"jd_nco_3119_0700"}
+# CEO pack v2, T48 (new, Wave 1, #3008): fam_npd_engineer, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_npd_engineer","label_en":"NPD / Development Engineer","label_hi":"एनपीडी / डेवलपमेंट इंजीनियर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_npd_engineer","job_domain_id":"jd_nco_1223_0101"}
+{"kind":"binding","family_id":"fam_npd_engineer","job_domain_id":"jd_nco_2144_0402"}
+{"kind":"binding","family_id":"fam_npd_engineer","job_domain_id":"jd_nco_2144_0701"}
+{"kind":"binding","family_id":"fam_npd_engineer","job_domain_id":"jd_nco_2144_0804"}
+{"kind":"binding","family_id":"fam_npd_engineer","job_domain_id":"jd_nco_3115_0101"}
+{"kind":"binding","family_id":"fam_npd_engineer","job_domain_id":"jd_nco_3115_0202"}
+{"kind":"binding","family_id":"fam_npd_engineer","job_domain_id":"jd_nco_3115_0301"}
+# CEO pack v2, T52 (new, Wave 1, #3008): fam_ppc, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_ppc","label_en":"PPC / Production Planning Engineer","label_hi":"पीपीसी / प्रोडक्शन प्लानिंग इंजीनियर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_ppc","job_domain_id":"jd_nco_2141_0500"}
+{"kind":"binding","family_id":"fam_ppc","job_domain_id":"jd_nco_2141_0501"}
+# CEO pack v2, T54 (new, Wave 1, #3008): fam_purchase, codes from pack section 13.1.
+{"kind":"family","family_id":"fam_purchase","label_en":"Purchase / Vendor Development Engineer","label_hi":"परचेज / वेंडर डेवलपमेंट इंजीनियर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_purchase","job_domain_id":"jd_nco_1324_0103"}
+{"kind":"binding","family_id":"fam_purchase","job_domain_id":"jd_nco_3323_0100"}
+{"kind":"binding","family_id":"fam_purchase","job_domain_id":"jd_nco_3323_0200"}
+{"kind":"binding","family_id":"fam_purchase","job_domain_id":"jd_nco_3323_0301"}
+{"kind":"binding","family_id":"fam_purchase","job_domain_id":"jd_nco_3323_0401"}
+{"kind":"binding","family_id":"fam_purchase","job_domain_id":"jd_nco_3323_9900"}
+# CEO pack v2, T58 (deepened, Wave 1, #3008): fam_cad_design_3d, codes from pack section 13.1.
+{"kind":"binding","family_id":"fam_cad_design_3d","job_domain_id":"jd_nco_2144_0200"}
+{"kind":"binding","family_id":"fam_cad_design_3d","job_domain_id":"jd_nco_2144_0201"}
+{"kind":"binding","family_id":"fam_cad_design_3d","job_domain_id":"jd_nco_2144_0301"}
+{"kind":"binding","family_id":"fam_cad_design_3d","job_domain_id":"jd_nco_2144_0800"}
+{"kind":"binding","family_id":"fam_cad_design_3d","job_domain_id":"jd_nco_2144_0801"}
+{"kind":"binding","family_id":"fam_cad_design_3d","job_domain_id":"jd_nco_2144_0803"}
+{"kind":"binding","family_id":"fam_cad_design_3d","job_domain_id":"jd_nco_2512_0203"}

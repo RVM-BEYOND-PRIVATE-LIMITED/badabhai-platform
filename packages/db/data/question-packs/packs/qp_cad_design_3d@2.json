@@ -1,0 +1,1230 @@
+{
+  "_why": "Role track for 3D CAD Designer / Mechanical Design Engineer (T58), deepening the live thin form (CEO pack v2). fam_cad_design_3d binds NCO 2144.0200 and 2144.0800.",
+  "_scope": "Design desk trade. The interview separates at senior_designer; higher contact price from designer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "21 questions (easy 6, medium 6, advanced 9); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T58 (3D CAD Designer / Mechanical Design Engineer). Status: DEEPEN (supersedes the live thin form)",
+  "pack_id": "qp_cad_design_3d",
+  "version": 2,
+  "family_id": "fam_cad_design_3d",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v2 (CEO pack v2, sheet T58): deepens the live thin form. Sheet wording and chips under the kept live keys (key table #3008); conditions on design_specialisation rewritten to design_work_area. Live-only questions stay in v1.",
+  "items": [
+    {
+      "question_key": "design_experience",
+      "min_tier": "easy",
+      "prompt_text": "3D design ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "design_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal 3D design ka kaam kiya hai?"
+    },
+    {
+      "question_key": "design_level",
+      "min_tier": "easy",
+      "prompt_text": "Design office me aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "design_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "GET / DET / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "designer",
+          "label_text": "Designer / CAD Engineer",
+          "value_text": "designer"
+        },
+        {
+          "option_key": "senior_designer",
+          "label_text": "Senior Designer",
+          "value_text": "senior_designer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Lead / Design Engineer",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Design Head / Manager",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Design office me trainee, designer ya senior designer hain?"
+    },
+    {
+      "question_key": "design_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Concept se release tak ka design aap akele nikaal lete ho?",
+      "why_text": "Akele poora design nikaalne wale senior ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "design_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele nikaal leta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, senior ke concept par kaam karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "design_level"
+        },
+        "right": {
+          "const": [
+            "senior_designer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "design_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Design review ke baad final release par sign aapka hota hai?",
+      "why_text": "Design release ki zimmedari lene wale lead ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "design_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, mera sign hota hai",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, HOD ya senior ka hota hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "design_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "design_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne designer aapke under hain aur kaunse project aap sambhalte hain?",
+      "why_text": "Team sambhalne wale design head ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "design_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "design_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "design_work_area",
+      "min_tier": "medium",
+      "prompt_text": "Aap kis cheez ka design karte hain?",
+      "why_text": "Design ki line ke hisaab se sahi company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "design_work_area",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "product_design",
+          "label_text": "Product / component design",
+          "value_text": "product_design"
+        },
+        {
+          "option_key": "spm_machine",
+          "label_text": "SPM aur machine design",
+          "value_text": "spm_machine"
+        },
+        {
+          "option_key": "sheet_metal",
+          "label_text": "Sheet-metal design",
+          "value_text": "sheet_metal"
+        },
+        {
+          "option_key": "plastic_part",
+          "label_text": "Plastic part design",
+          "value_text": "plastic_part"
+        },
+        {
+          "option_key": "jig_fixture",
+          "label_text": "Jig aur fixture design",
+          "value_text": "jig_fixture"
+        },
+        {
+          "option_key": "press_tool",
+          "label_text": "Press tool / die design",
+          "value_text": "press_tool"
+        },
+        {
+          "option_key": "mould_design",
+          "label_text": "Mould design, injection ya die-casting",
+          "value_text": "mould_design"
+        },
+        {
+          "option_key": "biw_fixture",
+          "label_text": "BIW aur welding fixture design",
+          "value_text": "biw_fixture"
+        },
+        {
+          "option_key": "reverse_engg",
+          "label_text": "Reverse engineering",
+          "value_text": "reverse_engg"
+        }
+      ]
+    },
+    {
+      "question_key": "design_software",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsa 3D software chalate hain?",
+      "why_text": "Software ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "design_software",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "solidworks",
+          "label_text": "SolidWorks",
+          "value_text": "solidworks"
+        },
+        {
+          "option_key": "catia",
+          "label_text": "CATIA V5",
+          "value_text": "catia"
+        },
+        {
+          "option_key": "nx",
+          "label_text": "NX / Unigraphics",
+          "value_text": "nx"
+        },
+        {
+          "option_key": "creo",
+          "label_text": "Creo ya Pro-E",
+          "value_text": "creo"
+        },
+        {
+          "option_key": "inventor",
+          "label_text": "Autodesk Inventor",
+          "value_text": "inventor"
+        },
+        {
+          "option_key": "fusion",
+          "label_text": "Fusion 360",
+          "value_text": "fusion"
+        },
+        {
+          "option_key": "solid_edge",
+          "label_text": "Solid Edge",
+          "value_text": "solid_edge"
+        },
+        {
+          "option_key": "autocad",
+          "label_text": "AutoCAD, 2D ke liye",
+          "value_text": "autocad"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur software",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "design_depth",
+      "min_tier": "medium",
+      "prompt_text": "Software ke kaunse module par kaam kiya hai?",
+      "why_text": "Module se pata chalta hai aap kis tarah ka design karte hain.",
+      "target_kind": "attribute",
+      "target_field": "design_depth",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "part_modelling",
+          "label_text": "Part modelling",
+          "value_text": "part_modelling"
+        },
+        {
+          "option_key": "assembly_module",
+          "label_text": "Assembly",
+          "value_text": "assembly_module"
+        },
+        {
+          "option_key": "drafting",
+          "label_text": "Drafting / detailing",
+          "value_text": "drafting"
+        },
+        {
+          "option_key": "sheet_metal",
+          "label_text": "Sheet metal",
+          "value_text": "sheet_metal"
+        },
+        {
+          "option_key": "weldment",
+          "label_text": "Weldment / structure",
+          "value_text": "weldment"
+        },
+        {
+          "option_key": "surface_module",
+          "label_text": "Surfacing",
+          "value_text": "surface_module"
+        },
+        {
+          "option_key": "mould_tools",
+          "label_text": "Mould tools, core-cavity",
+          "value_text": "mould_tools"
+        },
+        {
+          "option_key": "simulation",
+          "label_text": "Simulation ya motion study",
+          "value_text": "simulation"
+        }
+      ]
+    },
+    {
+      "question_key": "design_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Design ka kaunsa kaam aap khud karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "design_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "concept_layout",
+          "label_text": "Concept ya layout banana",
+          "value_text": "concept_layout"
+        },
+        {
+          "option_key": "modelling",
+          "label_text": "3D part aur assembly modelling",
+          "value_text": "modelling"
+        },
+        {
+          "option_key": "detailing",
+          "label_text": "2D manufacturing drawing, detailing",
+          "value_text": "detailing"
+        },
+        {
+          "option_key": "bom",
+          "label_text": "BOM banana",
+          "value_text": "bom"
+        },
+        {
+          "option_key": "design_calculation",
+          "label_text": "Design calculation",
+          "value_text": "design_calculation"
+        },
+        {
+          "option_key": "part_selection",
+          "label_text": "Material aur standard part selection",
+          "value_text": "part_selection"
+        },
+        {
+          "option_key": "ecn",
+          "label_text": "ECN aur drawing revision",
+          "value_text": "ecn"
+        },
+        {
+          "option_key": "shop_followup",
+          "label_text": "Shop floor ya vendor ke saath trial",
+          "value_text": "shop_followup"
+        },
+        {
+          "option_key": "customer_review",
+          "label_text": "Customer ke saath design review",
+          "value_text": "customer_review"
+        }
+      ]
+    },
+    {
+      "question_key": "design_work_input",
+      "min_tier": "hard",
+      "prompt_text": "Design shuru karne ke liye aapko kya milta hai?",
+      "why_text": "Isse pata chalta hai aap concept khud banate hain ya nahi.",
+      "target_kind": "attribute",
+      "target_field": "design_work_input",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "customer_data",
+          "label_text": "Customer ka 3D model ya drawing",
+          "value_text": "customer_data"
+        },
+        {
+          "option_key": "own_concept",
+          "label_text": "Customer ki requirement, concept khud banata hoon",
+          "value_text": "own_concept"
+        },
+        {
+          "option_key": "sample_part",
+          "label_text": "Sample part, naap kar model banata hoon",
+          "value_text": "sample_part"
+        },
+        {
+          "option_key": "scan_data",
+          "label_text": "3D scan data, STL ya point cloud",
+          "value_text": "scan_data"
+        },
+        {
+          "option_key": "senior_concept",
+          "label_text": "Senior ka concept ya layout",
+          "value_text": "senior_concept"
+        }
+      ]
+    },
+    {
+      "question_key": "design_tolerance",
+      "min_tier": "hard",
+      "prompt_text": "GD aur T aur tolerance ka kaunsa kaam aap karte hain?",
+      "why_text": "Tolerance sahi dene wale designer ki drawing seedha production me jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "design_tolerance",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "gdt_apply",
+          "label_text": "Drawing par GD aur T symbol lagana",
+          "value_text": "gdt_apply"
+        },
+        {
+          "option_key": "fits_selection",
+          "label_text": "Fit aur tolerance chunna, jaise H7/g6",
+          "value_text": "fits_selection"
+        },
+        {
+          "option_key": "datum_scheme",
+          "label_text": "Datum scheme tay karna",
+          "value_text": "datum_scheme"
+        },
+        {
+          "option_key": "tolerance_stack",
+          "label_text": "Tolerance stack-up nikalna",
+          "value_text": "tolerance_stack"
+        },
+        {
+          "option_key": "finish_weld_symbols",
+          "label_text": "Surface finish aur weld symbol dena",
+          "value_text": "finish_weld_symbols"
+        },
+        {
+          "option_key": "gdt_standard",
+          "label_text": "ASME Y14.5 ya ISO standard follow karna",
+          "value_text": "gdt_standard"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "design_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "design_level"
+            },
+            "right": {
+              "const": [
+                "senior_designer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "design_process_knowledge",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse manufacturing process ke hisaab se design karna aata hai?",
+      "why_text": "DFM jaanne wale designer ka part shop par aasani se banta hai.",
+      "target_kind": "attribute",
+      "target_field": "design_process_knowledge",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "machining",
+          "label_text": "Machining, turning aur milling",
+          "value_text": "machining"
+        },
+        {
+          "option_key": "sheet_metal",
+          "label_text": "Sheet metal, bending, laser aur press",
+          "value_text": "sheet_metal"
+        },
+        {
+          "option_key": "fabrication",
+          "label_text": "Welding aur fabrication",
+          "value_text": "fabrication"
+        },
+        {
+          "option_key": "injection_moulding",
+          "label_text": "Plastic injection moulding",
+          "value_text": "injection_moulding"
+        },
+        {
+          "option_key": "casting",
+          "label_text": "Casting, die casting ya sand",
+          "value_text": "casting"
+        },
+        {
+          "option_key": "forging",
+          "label_text": "Forging",
+          "value_text": "forging"
+        },
+        {
+          "option_key": "three_d_printing",
+          "label_text": "3D printing ya prototype",
+          "value_text": "three_d_printing"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "design_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "design_level"
+            },
+            "right": {
+              "const": [
+                "senior_designer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "design_tool_work",
+      "min_tier": "hard",
+      "prompt_text": "Tool ya fixture design me aap kya kya khud karte hain?",
+      "why_text": "Tool design ka kaam tool room aur mould maker alag se dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "design_tool_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "strip_layout",
+          "label_text": "Progressive die ka strip layout",
+          "value_text": "strip_layout"
+        },
+        {
+          "option_key": "core_cavity",
+          "label_text": "Core-cavity extraction aur parting line",
+          "value_text": "core_cavity"
+        },
+        {
+          "option_key": "slider_lifter",
+          "label_text": "Slider, lifter aur ejection design",
+          "value_text": "slider_lifter"
+        },
+        {
+          "option_key": "runner_cooling",
+          "label_text": "Runner, gate aur cooling layout",
+          "value_text": "runner_cooling"
+        },
+        {
+          "option_key": "mould_base",
+          "label_text": "Mould base aur standard part selection",
+          "value_text": "mould_base"
+        },
+        {
+          "option_key": "fixture_locating",
+          "label_text": "Fixture locating aur clamping, 3-2-1",
+          "value_text": "fixture_locating"
+        },
+        {
+          "option_key": "clamp_selection",
+          "label_text": "Pneumatic ya hydraulic clamp selection",
+          "value_text": "clamp_selection"
+        },
+        {
+          "option_key": "tonnage_calculation",
+          "label_text": "Press tonnage aur spring calculation",
+          "value_text": "tonnage_calculation"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "design_work_area"
+        },
+        "right": {
+          "const": [
+            "jig_fixture",
+            "press_tool",
+            "mould_design",
+            "biw_fixture"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "design_machine_elements",
+      "min_tier": "hard",
+      "prompt_text": "Machine design me kaunse element aap khud select karte hain?",
+      "why_text": "Element khud chunne wale designer ko machine design ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "design_machine_elements",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "bearing_lm_guide",
+          "label_text": "Bearing aur LM guide",
+          "value_text": "bearing_lm_guide"
+        },
+        {
+          "option_key": "ball_screw_servo",
+          "label_text": "Ball screw aur servo motor sizing",
+          "value_text": "ball_screw_servo"
+        },
+        {
+          "option_key": "drives",
+          "label_text": "Gearbox, belt aur chain drive",
+          "value_text": "drives"
+        },
+        {
+          "option_key": "pneumatics",
+          "label_text": "Pneumatic cylinder aur valve",
+          "value_text": "pneumatics"
+        },
+        {
+          "option_key": "hydraulics",
+          "label_text": "Hydraulic cylinder aur power pack",
+          "value_text": "hydraulics"
+        },
+        {
+          "option_key": "shafts_couplings",
+          "label_text": "Shaft, key aur coupling",
+          "value_text": "shafts_couplings"
+        },
+        {
+          "option_key": "structure_frame",
+          "label_text": "Fabricated frame ya structure",
+          "value_text": "structure_frame"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "design_work_area"
+        },
+        "right": {
+          "const": [
+            "spm_machine",
+            "jig_fixture",
+            "biw_fixture"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "design_pdm_plm",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsa PDM ya PLM system aapne use kiya hai?",
+      "why_text": "Badi company me PLM par kaam karne wale designer chahiye hote hain.",
+      "target_kind": "attribute",
+      "target_field": "design_pdm_plm",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "teamcenter",
+          "label_text": "Teamcenter",
+          "value_text": "teamcenter"
+        },
+        {
+          "option_key": "windchill",
+          "label_text": "Windchill",
+          "value_text": "windchill"
+        },
+        {
+          "option_key": "solidworks_pdm",
+          "label_text": "SolidWorks PDM / EPDM",
+          "value_text": "solidworks_pdm"
+        },
+        {
+          "option_key": "vault",
+          "label_text": "Autodesk Vault",
+          "value_text": "vault"
+        },
+        {
+          "option_key": "enovia",
+          "label_text": "ENOVIA",
+          "value_text": "enovia"
+        },
+        {
+          "option_key": "sap",
+          "label_text": "SAP me BOM ya ECN entry",
+          "value_text": "sap"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi, folder me file rakhte hain",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "design_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "design_level"
+            },
+            "right": {
+              "const": [
+                "senior_designer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "design_industry",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke liye design kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "design_industry",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automotive ya auto parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "spm_parts",
+          "label_text": "SPM aur machine building",
+          "value_text": "spm_parts"
+        },
+        {
+          "option_key": "die_mould",
+          "label_text": "Tool room, die aur mould",
+          "value_text": "die_mould"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Home appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering aur fabrication",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Tractor aur agri equipment",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence ya aerospace",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "design_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "design_level"
+            },
+            "right": {
+              "const": [
+                "senior_designer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "design_validation",
+      "min_tier": "hard",
+      "prompt_text": "Design validate karne ke liye aap kya karte hain?",
+      "why_text": "Design khud validate karne wale ko lead ka kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "design_validation",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "basic_fea",
+          "label_text": "Basic FEA, SolidWorks Simulation ya ANSYS",
+          "value_text": "basic_fea"
+        },
+        {
+          "option_key": "stack_up_study",
+          "label_text": "Tolerance stack-up study",
+          "value_text": "stack_up_study"
+        },
+        {
+          "option_key": "dfmea",
+          "label_text": "DFMEA",
+          "value_text": "dfmea"
+        },
+        {
+          "option_key": "prototype_test",
+          "label_text": "Prototype banwa kar testing",
+          "value_text": "prototype_test"
+        },
+        {
+          "option_key": "clash_check",
+          "label_text": "Interference ya clash check",
+          "value_text": "clash_check"
+        },
+        {
+          "option_key": "design_checklist",
+          "label_text": "Design review checklist",
+          "value_text": "design_checklist"
+        },
+        {
+          "option_key": "simulation_report",
+          "label_text": "Mould flow ya forming report padhna",
+          "value_text": "simulation_report"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "design_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "design_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "design_project_ownership",
+      "min_tier": "hard",
+      "prompt_text": "Project me aap kaunsi zimmedari sambhalte hain?",
+      "why_text": "Project sambhalne wale designer ko lead banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "design_project_ownership",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "customer_discussion",
+          "label_text": "Customer se technical discussion",
+          "value_text": "customer_discussion"
+        },
+        {
+          "option_key": "cost_estimate",
+          "label_text": "Costing ya weight estimate",
+          "value_text": "cost_estimate"
+        },
+        {
+          "option_key": "vendor_followup",
+          "label_text": "Vendor aur tool room follow-up",
+          "value_text": "vendor_followup"
+        },
+        {
+          "option_key": "drawing_check",
+          "label_text": "Junior ki drawing check karna",
+          "value_text": "drawing_check"
+        },
+        {
+          "option_key": "change_management",
+          "label_text": "ECN aur change management",
+          "value_text": "change_management"
+        },
+        {
+          "option_key": "vave",
+          "label_text": "VAVE ya cost reduction",
+          "value_text": "vave"
+        },
+        {
+          "option_key": "apqp_docs",
+          "label_text": "APQP aur PPAP ke design document",
+          "value_text": "apqp_docs"
+        },
+        {
+          "option_key": "design_standards",
+          "label_text": "Design standard ya template banana",
+          "value_text": "design_standards"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "design_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "design_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "design_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapki padhai kis branch ya course se hai?",
+      "why_text": "Kai design office branch dekhkar hi bulate hain.",
+      "target_kind": "attribute",
+      "target_field": "design_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "production_engg",
+          "label_text": "Production ya Industrial engineering",
+          "value_text": "production_engg"
+        },
+        {
+          "option_key": "tool_die_diploma",
+          "label_text": "Tool and Die Making diploma",
+          "value_text": "tool_die_diploma"
+        },
+        {
+          "option_key": "electrical_engg",
+          "label_text": "Electrical ya Electronics",
+          "value_text": "electrical_engg"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "iti_draughtsman",
+          "label_text": "ITI Draughtsman Mechanical",
+          "value_text": "iti_draughtsman"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad promote hua",
+          "value_text": "iti_promoted"
+        },
+        {
+          "option_key": "private_institute",
+          "label_text": "Sirf private CAD institute ka course",
+          "value_text": "private_institute"
+        }
+      ]
+    },
+    {
+      "question_key": "design_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke dauraan design ka kaunsa practical exposure mila hai?",
+      "why_text": "Training ka exposure bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "design_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "College ka major project",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "cad_course",
+          "label_text": "Private CAD institute ka course",
+          "value_text": "cad_course"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "design_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "design_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

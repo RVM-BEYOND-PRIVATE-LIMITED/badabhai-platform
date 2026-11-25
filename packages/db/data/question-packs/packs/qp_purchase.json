@@ -1,0 +1,1226 @@
+{
+  "_why": "Role track for Purchase / Vendor Development Engineer (T54), new trade (CEO pack v2). fam_purchase binds NCO 1324.0103 and the 3323 purchase codes.",
+  "_scope": "Planning and Supply Chain desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T54 (Purchase / Vendor Development Engineer). Status: NEW",
+  "pack_id": "qp_purchase",
+  "version": 1,
+  "family_id": "fam_purchase",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T54): new trade.",
+  "items": [
+    {
+      "question_key": "purchase_experience",
+      "min_tier": "easy",
+      "prompt_text": "Purchase ya vendor development ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "purchase_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Purchase ya vendor development ka kaam kiya hai?"
+    },
+    {
+      "question_key": "purchase_level",
+      "min_tier": "easy",
+      "prompt_text": "Purchase department me aap kis post par hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "purchase_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "GET / DET / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "engineer",
+          "label_text": "Purchase Executive / Engineer",
+          "value_text": "engineer"
+        },
+        {
+          "option_key": "senior_engineer",
+          "label_text": "Senior Engineer",
+          "value_text": "senior_engineer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Lead / Asst. Manager",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Manager / HOD",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Purchase department me trainee, executive ya senior engineer hain?"
+    },
+    {
+      "question_key": "purchase_senior_engineer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Vendor se rate negotiation aap khud final karte ho ya senior?",
+      "why_text": "Rate khud final karne wale senior engineer ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "purchase_senior_engineer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud final karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior ya manager karte hain",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "purchase_level"
+        },
+        "right": {
+          "const": [
+            "senior_engineer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "purchase_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Apni category ka vendor base aur budget aap khud sambhalte ho?",
+      "why_text": "Poori category sambhalne wale lead ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "purchase_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud sambhalta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, manager sambhalte hain",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "purchase_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "purchase_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne log aur saal ka kitna purchase aapke under hai?",
+      "why_text": "Team sambhalne wale purchase head ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "purchase_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "purchase_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "purchase_function",
+      "min_tier": "medium",
+      "prompt_text": "Purchase me aap kaunsa kaam sambhalte hain?",
+      "why_text": "Kaam ke hisaab se sahi company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "purchase_function",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "po_followup",
+          "label_text": "PO banana aur follow-up",
+          "value_text": "po_followup"
+        },
+        {
+          "option_key": "rfq_negotiation",
+          "label_text": "RFQ aur rate negotiation",
+          "value_text": "rfq_negotiation"
+        },
+        {
+          "option_key": "vendor_development",
+          "label_text": "Naya vendor dhoondhna aur develop karna",
+          "value_text": "vendor_development"
+        },
+        {
+          "option_key": "npd_sourcing",
+          "label_text": "Naye part ka development (NPD sourcing)",
+          "value_text": "npd_sourcing"
+        },
+        {
+          "option_key": "jobwork_outsourcing",
+          "label_text": "Job-work ya outsourcing",
+          "value_text": "jobwork_outsourcing"
+        },
+        {
+          "option_key": "import_purchase",
+          "label_text": "Import purchase",
+          "value_text": "import_purchase"
+        },
+        {
+          "option_key": "capex_purchase",
+          "label_text": "Capex ya machine purchase",
+          "value_text": "capex_purchase"
+        },
+        {
+          "option_key": "payment_followup",
+          "label_text": "Vendor ke bill aur payment ka follow-up",
+          "value_text": "payment_followup"
+        }
+      ]
+    },
+    {
+      "question_key": "purchase_category",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsa material ya part khareedte hain?",
+      "why_text": "Usi category ka buyer dhoondhne wali company aapko pehle dekhti hai.",
+      "target_kind": "attribute",
+      "target_field": "purchase_category",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "raw_material",
+          "label_text": "Raw material (steel, aluminium, plastic dana)",
+          "value_text": "raw_material"
+        },
+        {
+          "option_key": "casting_forging",
+          "label_text": "Casting aur forging",
+          "value_text": "casting_forging"
+        },
+        {
+          "option_key": "machined_parts",
+          "label_text": "Machined parts",
+          "value_text": "machined_parts"
+        },
+        {
+          "option_key": "sheet_metal",
+          "label_text": "Sheet metal parts",
+          "value_text": "sheet_metal"
+        },
+        {
+          "option_key": "plastic_rubber",
+          "label_text": "Plastic aur rubber parts",
+          "value_text": "plastic_rubber"
+        },
+        {
+          "option_key": "bought_out",
+          "label_text": "Bought-out, hardware, bearing",
+          "value_text": "bought_out"
+        },
+        {
+          "option_key": "tooling",
+          "label_text": "Tooling, die, fixture",
+          "value_text": "tooling"
+        },
+        {
+          "option_key": "consumables",
+          "label_text": "Consumables, packing aur MRO",
+          "value_text": "consumables"
+        },
+        {
+          "option_key": "electrical_parts",
+          "label_text": "Electrical ya electronic parts",
+          "value_text": "electrical_parts"
+        }
+      ]
+    },
+    {
+      "question_key": "purchase_erp_system",
+      "min_tier": "medium",
+      "prompt_text": "PO aur vendor ka kaam kis software me karte hain?",
+      "why_text": "ERP jaanne wale buyer ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "purchase_erp_system",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "sap_mm",
+          "label_text": "SAP MM",
+          "value_text": "sap_mm"
+        },
+        {
+          "option_key": "oracle",
+          "label_text": "Oracle ERP",
+          "value_text": "oracle"
+        },
+        {
+          "option_key": "ms_dynamics",
+          "label_text": "Microsoft Dynamics / Navision",
+          "value_text": "ms_dynamics"
+        },
+        {
+          "option_key": "infor_baan",
+          "label_text": "Infor LN / Baan",
+          "value_text": "infor_baan"
+        },
+        {
+          "option_key": "tally",
+          "label_text": "Tally",
+          "value_text": "tally"
+        },
+        {
+          "option_key": "inhouse_erp",
+          "label_text": "Company ka apna ERP",
+          "value_text": "inhouse_erp"
+        },
+        {
+          "option_key": "excel_only",
+          "label_text": "Excel aur email par",
+          "value_text": "excel_only"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur ERP",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "purchase_documents",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse document aap khud banate hain?",
+      "why_text": "Document ke naam se employer samajhta hai aap kya sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "purchase_documents",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "rfq",
+          "label_text": "RFQ / enquiry",
+          "value_text": "rfq"
+        },
+        {
+          "option_key": "comparative_statement",
+          "label_text": "Quotation comparison (comparative statement)",
+          "value_text": "comparative_statement"
+        },
+        {
+          "option_key": "purchase_order",
+          "label_text": "Purchase order (PO)",
+          "value_text": "purchase_order"
+        },
+        {
+          "option_key": "delivery_schedule",
+          "label_text": "Delivery schedule",
+          "value_text": "delivery_schedule"
+        },
+        {
+          "option_key": "rate_contract",
+          "label_text": "Rate contract",
+          "value_text": "rate_contract"
+        },
+        {
+          "option_key": "jobwork_order",
+          "label_text": "Job-work order",
+          "value_text": "jobwork_order"
+        },
+        {
+          "option_key": "vendor_registration",
+          "label_text": "Vendor registration form",
+          "value_text": "vendor_registration"
+        },
+        {
+          "option_key": "debit_note",
+          "label_text": "Debit note",
+          "value_text": "debit_note"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap part ki drawing padh lete hain?",
+      "why_text": "Drawing samajhne wala buyer vendor se sahi part banwa pata hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "purchase_vendor_count",
+      "min_tier": "hard",
+      "prompt_text": "Aap lagbhag kitne vendor sambhalte hain?",
+      "why_text": "Vendor ki ginti se aapke kaam ka size pata chalta hai.",
+      "target_kind": "attribute",
+      "target_field": "purchase_vendor_count",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "below_ten",
+          "label_text": "10 se kam",
+          "value_text": "below_ten"
+        },
+        {
+          "option_key": "ten_to_thirty",
+          "label_text": "10 se 30",
+          "value_text": "ten_to_thirty"
+        },
+        {
+          "option_key": "thirty_to_seventy_five",
+          "label_text": "30 se 75",
+          "value_text": "thirty_to_seventy_five"
+        },
+        {
+          "option_key": "above_seventy_five",
+          "label_text": "75 se zyada",
+          "value_text": "above_seventy_five"
+        }
+      ]
+    },
+    {
+      "question_key": "purchase_costing",
+      "min_tier": "hard",
+      "prompt_text": "Rate nikalne me aap kya kar lete hain?",
+      "why_text": "Costing jaanne wala buyer company ka paisa bachata hai.",
+      "target_kind": "attribute",
+      "target_field": "purchase_costing",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "rm_costing",
+          "label_text": "Raw material rate aur weight se costing",
+          "value_text": "rm_costing"
+        },
+        {
+          "option_key": "process_costing",
+          "label_text": "Machine hour rate se process cost",
+          "value_text": "process_costing"
+        },
+        {
+          "option_key": "should_cost",
+          "label_text": "Should-cost / zero-based costing",
+          "value_text": "should_cost"
+        },
+        {
+          "option_key": "cost_breakup",
+          "label_text": "Vendor se cost break-up lena",
+          "value_text": "cost_breakup"
+        },
+        {
+          "option_key": "price_revision",
+          "label_text": "RM rate badalne par price revision",
+          "value_text": "price_revision"
+        },
+        {
+          "option_key": "tooling_cost",
+          "label_text": "Tooling cost aur amortisation",
+          "value_text": "tooling_cost"
+        },
+        {
+          "option_key": "quotation_compare",
+          "label_text": "Sirf teen quotation compare karta hoon",
+          "value_text": "quotation_compare"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "purchase_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "purchase_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "purchase_vendor_development",
+      "min_tier": "hard",
+      "prompt_text": "Vendor development me aap kya karte hain?",
+      "why_text": "Naya vendor khada karne wale engineer ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "purchase_vendor_development",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vendor_search",
+          "label_text": "Naya vendor dhoondhna",
+          "value_text": "vendor_search"
+        },
+        {
+          "option_key": "vendor_assessment",
+          "label_text": "Vendor ka plant visit aur assessment",
+          "value_text": "vendor_assessment"
+        },
+        {
+          "option_key": "sample_development",
+          "label_text": "Sample development aur trial",
+          "value_text": "sample_development"
+        },
+        {
+          "option_key": "supplier_ppap",
+          "label_text": "Supplier se PPAP lena",
+          "value_text": "supplier_ppap"
+        },
+        {
+          "option_key": "vendor_rating",
+          "label_text": "Vendor rating",
+          "value_text": "vendor_rating"
+        },
+        {
+          "option_key": "vendor_audit",
+          "label_text": "Vendor audit",
+          "value_text": "vendor_audit"
+        },
+        {
+          "option_key": "tooling_development",
+          "label_text": "Tooling ya gauge vendor ke yahan banwana",
+          "value_text": "tooling_development"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yeh kaam nahi karta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "purchase_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "purchase_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "purchase_commercial_terms",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsi commercial baat aap khud sambhalte hain?",
+      "why_text": "Commercial samajh wale buyer ko bada purchase diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "purchase_commercial_terms",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "payment_terms",
+          "label_text": "Payment terms tay karna",
+          "value_text": "payment_terms"
+        },
+        {
+          "option_key": "msme_payment",
+          "label_text": "MSME vendor ka 45 din wala payment",
+          "value_text": "msme_payment"
+        },
+        {
+          "option_key": "gst_basics",
+          "label_text": "GST, HSN aur input credit",
+          "value_text": "gst_basics"
+        },
+        {
+          "option_key": "freight_terms",
+          "label_text": "Freight aur delivery terms",
+          "value_text": "freight_terms"
+        },
+        {
+          "option_key": "rate_contract",
+          "label_text": "Rate contract ya AMC",
+          "value_text": "rate_contract"
+        },
+        {
+          "option_key": "bill_passing",
+          "label_text": "Accounts se bill passing ka follow-up",
+          "value_text": "bill_passing"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "purchase_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "purchase_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "purchase_import_work",
+      "min_tier": "hard",
+      "prompt_text": "Import purchase me kaunsa kaam kiya hai?",
+      "why_text": "Import jaanne wale buyer kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "purchase_import_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "incoterms",
+          "label_text": "Incoterms (FOB, CIF, EXW)",
+          "value_text": "incoterms"
+        },
+        {
+          "option_key": "lc_remittance",
+          "label_text": "LC ya advance remittance",
+          "value_text": "lc_remittance"
+        },
+        {
+          "option_key": "cha_coordination",
+          "label_text": "CHA / forwarder se coordination",
+          "value_text": "cha_coordination"
+        },
+        {
+          "option_key": "bill_of_entry",
+          "label_text": "Bill of entry aur customs clearance",
+          "value_text": "bill_of_entry"
+        },
+        {
+          "option_key": "duty_calculation",
+          "label_text": "HS code aur duty ka hisaab",
+          "value_text": "duty_calculation"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Import nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "purchase_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "purchase_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "purchase_annual_value",
+      "min_tier": "hard",
+      "prompt_text": "Saal me lagbhag kitne ka purchase aap sambhalte hain?",
+      "why_text": "Purchase ki value se aapki zimmedari ka size pata chalta hai.",
+      "target_kind": "attribute",
+      "target_field": "purchase_annual_value",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "below_one_crore",
+          "label_text": "1 crore se kam",
+          "value_text": "below_one_crore"
+        },
+        {
+          "option_key": "one_to_ten_crore",
+          "label_text": "1 se 10 crore",
+          "value_text": "one_to_ten_crore"
+        },
+        {
+          "option_key": "ten_to_fifty_crore",
+          "label_text": "10 se 50 crore",
+          "value_text": "ten_to_fifty_crore"
+        },
+        {
+          "option_key": "above_fifty_crore",
+          "label_text": "50 crore se zyada",
+          "value_text": "above_fifty_crore"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "purchase_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "purchase_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ki company ke liye purchase kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler parts",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "spm_parts",
+          "label_text": "SPM ya machine building",
+          "value_text": "spm_parts"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Home appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electronics / EMS",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Tractor ya agriculture parts",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "pump_valve",
+          "label_text": "Pump aur valve",
+          "value_text": "pump_valve"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "purchase_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "purchase_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Supply ki kaunsi dikkat aap khud sulajhate hain?",
+      "why_text": "Supply chalu rakhne wale buyer ki har plant me zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "late_delivery",
+          "label_text": "Vendor se late delivery",
+          "value_text": "late_delivery"
+        },
+        {
+          "option_key": "incoming_rejection",
+          "label_text": "Incoming rejection",
+          "value_text": "incoming_rejection"
+        },
+        {
+          "option_key": "price_increase",
+          "label_text": "Vendor ki rate badhane ki maang",
+          "value_text": "price_increase"
+        },
+        {
+          "option_key": "capacity_shortage",
+          "label_text": "Vendor ki capacity kam padna",
+          "value_text": "capacity_shortage"
+        },
+        {
+          "option_key": "payment_hold",
+          "label_text": "Payment rukne se supply band hona",
+          "value_text": "payment_hold"
+        },
+        {
+          "option_key": "alternate_source",
+          "label_text": "Single source par doosra vendor banana",
+          "value_text": "alternate_source"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "purchase_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "purchase_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "purchase_improvement_work",
+      "min_tier": "hard",
+      "prompt_text": "Cost aur system sudhaar ka kaunsa kaam kiya hai?",
+      "why_text": "Cost bachane wale buyer ko aage ki post milti hai.",
+      "target_kind": "attribute",
+      "target_field": "purchase_improvement_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cost_reduction",
+          "label_text": "Cost reduction / VAVE",
+          "value_text": "cost_reduction"
+        },
+        {
+          "option_key": "localisation",
+          "label_text": "Localisation, import part India me banwana",
+          "value_text": "localisation"
+        },
+        {
+          "option_key": "vendor_consolidation",
+          "label_text": "Vendor consolidation",
+          "value_text": "vendor_consolidation"
+        },
+        {
+          "option_key": "vmi_kanban",
+          "label_text": "VMI ya kanban supply lagana",
+          "value_text": "vmi_kanban"
+        },
+        {
+          "option_key": "iatf_audit",
+          "label_text": "IATF 16949 ya ISO audit me purchase ka jawab dena",
+          "value_text": "iatf_audit"
+        },
+        {
+          "option_key": "erp_implementation",
+          "label_text": "SAP ya ERP implementation team me kaam",
+          "value_text": "erp_implementation"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "purchase_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "purchase_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "purchase_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapki padhai kis branch se hai?",
+      "why_text": "Kai company branch dekhkar hi bulati hain.",
+      "target_kind": "attribute",
+      "target_field": "purchase_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "production_engg",
+          "label_text": "Production ya Industrial engineering",
+          "value_text": "production_engg"
+        },
+        {
+          "option_key": "electrical_engg",
+          "label_text": "Electrical ya Electronics",
+          "value_text": "electrical_engg"
+        },
+        {
+          "option_key": "bcom",
+          "label_text": "B.Com ya BBA",
+          "value_text": "bcom"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "mba_supply_chain",
+          "label_text": "MBA / PGDM (Supply Chain ya Material Management)",
+          "value_text": "mba_supply_chain"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad promote hua",
+          "value_text": "iti_promoted"
+        }
+      ]
+    },
+    {
+      "question_key": "purchase_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke dauraan company me kya training ya kaam kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "purchase_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "College ka major project",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "software_course",
+          "label_text": "SAP MM ya Advanced Excel ka course",
+          "value_text": "software_course"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "purchase_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "purchase_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}
