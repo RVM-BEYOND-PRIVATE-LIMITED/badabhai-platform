@@ -67,6 +67,7 @@ import { MatchModule } from "./match/match.module";
 import { PostingTradesModule } from "./posting-trades/posting-trades.module";
 import { LearnModule } from "./learn/learn.module";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
+import { AppVersionModule } from "./app-version/app-version.module";
 
 @Module({
   imports: [
@@ -84,6 +85,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     PushModule,
     RateLimitModule,
     PdfModule,
+    // #3048 — the minimum supported app build: public GET /app-config and the GLOBAL 426 guard
+    // (APP_GUARD) on writes from a build below the minimum. Seeded at 0: blocks nobody.
+    AppVersionModule,
     // Matching V1 (ADR-0036) — @Global: match config + the worker-supply/reach
     // services are consumed by profiles (moments ①/②), job-postings (③),
     // applications (④/⑤), payer-portal (⑥) and posting-plans (the boost supply

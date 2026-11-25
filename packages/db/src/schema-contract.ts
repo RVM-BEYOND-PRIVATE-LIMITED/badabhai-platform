@@ -2168,6 +2168,24 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "live; an open grant lets any PostgREST role switch a trade on (companies post into an " +
       "unreviewed trade) or off (a live trade stops being postable)",
   },
+  // #3048: the minimum supported app build. Only AppVersionService names the table, and every
+  // reader of it fails safe on a missing table (the 426 guard fails OPEN, GET /app-config and the
+  // admin routes answer 503), so a deploy ahead of the migration breaks no request and it is not a
+  // `table` entry. Listed for its lock (the 0134 rule).
+  {
+    id: "0199-app-release-policy-rls",
+    migration: "0199_app_release_policy",
+    kind: "rls",
+    table: "app_release_policy",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table decides which installed app builds may write; an open grant lets any " +
+      "PostgREST role raise a minimum (every worker on an older build is stopped from writing) " +
+      "or point the update button at another link",
+  },
   // #2787: the send log of the first sign-in message to a moved company. Only the import CLI names
   // it (no route, sweep or read path), so a deploy ahead of the migration breaks nothing and it is
   // not a `table` entry. Listed for its locks (the 0134 rule). The id and tag carry the slot number:

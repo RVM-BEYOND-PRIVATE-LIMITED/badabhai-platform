@@ -21,6 +21,8 @@ import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controlle
 import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
 import { AdminTradeReleaseController } from "./trade-release/admin-trade-release.controller";
 import { TradeReleaseModule } from "../trade-release/trade-release.module";
+import { AdminAppReleasePolicyController } from "./app-release-policy/admin-app-release-policy.controller";
+import { AppVersionModule } from "../app-version/app-version.module";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 import { MatchModule } from "../match/match.module";
@@ -273,5 +275,12 @@ describe("AdminModule wiring (DI regression guard)", () => {
     // unit test misses.
     expect(getMeta("controllers", AdminModule)).toContain(AdminTradeReleaseController);
     expect(getMeta("imports", AdminModule)).toContain(TradeReleaseModule);
+  });
+
+  it("declares the #3048 app-release-policy controller + imports the module that provides it", () => {
+    // AdminAppReleasePolicyController injects AppVersionService, which lives in AppVersionModule
+    // (with its repository and the global 426 guard).
+    expect(getMeta("controllers", AdminModule)).toContain(AdminAppReleasePolicyController);
+    expect(getMeta("imports", AdminModule)).toContain(AppVersionModule);
   });
 });

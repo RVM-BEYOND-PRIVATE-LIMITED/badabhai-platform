@@ -222,6 +222,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     manage_campus_trades: ["super_admin"],
     // #3002 — the per-trade release switch. A policy list: super_admin only.
     manage_trade_release: ["super_admin"],
+    // #3048 — the minimum supported app build. A policy number: super_admin only.
+    manage_app_release_policy: ["super_admin"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -296,6 +298,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "manage_campus_trades",
       // #3002 - switching a trade's release flags is a write.
       "manage_trade_release",
+      // #3048 - raising the minimum supported app build is a write.
+      "manage_app_release_policy",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }

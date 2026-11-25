@@ -1395,6 +1395,13 @@
       "when": 1795512807121,
       "tag": "0198_trade_release",
       "breakpoints": true
+    },
+    {
+      "idx": 199,
+      "version": "7",
+      "when": 1795584102246,
+      "tag": "0199_app_release_policy",
+      "breakpoints": true
     }
   ]
 }

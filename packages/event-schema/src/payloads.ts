@@ -8017,3 +8017,43 @@ export const TradeReleaseChangedPayload = z
   })
   .strict();
 export type TradeReleaseChangedPayload = z.infer<typeof TradeReleaseChangedPayload>;
+
+/**
+ * #3048 — an admin changed one app and platform's release policy (`app_release_policy`): the
+ * minimum supported build (a build below it gets 426 on every mutating route and the apps'
+ * "Update required" page), the latest build (below it: a dismissible notice), the store link or
+ * the copy key. The change's durable record: which app and platform, the OLD and NEW value of
+ * both builds, the link and key after the write, and the admin who made it. One event per REAL
+ * change.
+ *
+ * FACELESS: the app and platform are closed values, the builds integers, the store link a public
+ * URL the owner typed, the admin id opaque. No reason text is recorded.
+ */
+const appBuildNumberSchema = z.number().int().min(0).max(2_147_483_647);
+export const AppVersionPolicyChangedPayload = z
+  .object({
+    /** Which app: the worker app or the company (payer) app. */
+    app: z.enum(["worker", "payer"]),
+    /** Which platform's build line. */
+    platform: z.enum(["android", "ios"]),
+    /** The minimum supported build before the write. */
+    old_min_supported_build: appBuildNumberSchema,
+    /** The minimum supported build after the write (a build below it gets 426 on writes). */
+    new_min_supported_build: appBuildNumberSchema,
+    /** The latest build before the write. */
+    old_latest_build: appBuildNumberSchema,
+    /** The latest build after the write. */
+    new_latest_build: appBuildNumberSchema,
+    /** Where the update button goes, after the write (null: not set). */
+    store_url: z
+      .string()
+      .max(512)
+      .regex(/^https:\/\/\S+$/)
+      .nullable(),
+    /** The copy key the apps map to text, after the write. */
+    message_key: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
+    /** The admin who changed it (`admin_users.id`). */
+    updated_by_admin_id: uuidSchema,
+  })
+  .strict();
+export type AppVersionPolicyChangedPayload = z.infer<typeof AppVersionPolicyChangedPayload>;

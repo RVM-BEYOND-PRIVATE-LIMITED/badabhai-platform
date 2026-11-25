@@ -351,6 +351,15 @@ export const ADMIN_CAPABILITIES = [
    * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
    */
   "manage_trade_release",
+  /**
+   * #3048 — read and set the minimum supported app build per app and platform
+   * (`/admin/app-release-policy`): which installed builds get "Update required" and a 426 on
+   * every write. One raised number can stop every older install from writing, so `super_admin`
+   * only. A set emits `app_version.policy_changed` with the admin.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "manage_app_release_policy",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -449,6 +458,9 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   // #3002 — the per-trade release switch. A trade policy list: super_admin only, like the
   // Campus trade list (a flipped switch opens or closes a whole trade to companies).
   manage_trade_release: ["super_admin"],
+  // #3048 — the minimum supported app build. One raised number stops every older install from
+  // writing, so super_admin only (the same class as the trade release switch).
+  manage_app_release_policy: ["super_admin"],
 } as const;
 
 /**

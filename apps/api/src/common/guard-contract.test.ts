@@ -13,6 +13,7 @@ import { ConsentController } from "../consent/consent.controller";
 import { EventsController } from "../events/events.controller";
 import { WorkerFeedbackController } from "../feedback/worker-feedback.controller";
 import { HealthController } from "../health/health.controller";
+import { AppConfigController } from "../app-version/app-config.controller";
 import { InterviewKitController } from "../interview-kit/interview-kit.controller";
 import { JobsController } from "../jobs/jobs.controller";
 import { JobPostingsController } from "../job-postings/job-postings.controller";
@@ -249,6 +250,9 @@ const CONTRACT: ControllerContract[] = [
   },
   { name: "Events", ctor: EventsController, routes: { list: [I] } },
   { name: "Health", ctor: HealthController, routes: { check: [] } },
+  // #3048 — the apps' start-up check. PUBLIC by design: the app asks before anyone signs in, and
+  // the answer (closed values, build integers, a public store link) is the same for every caller.
+  { name: "AppConfig", ctor: AppConfigController, routes: { getConfig: [] } },
   // The download is PUBLIC and stays public — the kit is per-trade, PII-free content a worker
   // must be able to reach before committing to the app. `OW` is attribution only (see its
   // declaration): it can allow, never deny, so the route's effective posture is unchanged.
