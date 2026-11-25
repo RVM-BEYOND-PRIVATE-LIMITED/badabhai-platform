@@ -36,6 +36,7 @@ import { PayerCreateJobPostingSchema } from "../job-postings/job-postings.dto";
 import { PostingTradesService } from "../posting-trades/posting-trades.service";
 import { toCorpusItem } from "../profiling/corpus-packs.fixture";
 import type { PackRegistryService } from "../profiling/pack-registry.service";
+import { releaseServiceFor } from "../trade-release/trade-release.test-support";
 import { descriptorForKind, TRADE_FORM_KINDS } from "../profiling/roles/role-registry";
 import { attributesFor } from "./form-onboarding.test-support";
 import type { MatchConfigService } from "./match-config.service";
@@ -217,12 +218,15 @@ function activeEnginePack(familyId: string): QuestionPack | null {
   return ENGINE_PACKS.get(familyId)!;
 }
 
-/** The posting validator over the checked-in corpus: each family resolves its ACTIVE version. */
+/**
+ * The posting validator over the checked-in corpus: each family resolves its ACTIVE version.
+ * The release switch is migration 0198's seed (the 16 live trades on, nothing else).
+ */
 function postingTrades(): PostingTradesService {
   const packs = {
     loadForFamily: async (familyId: string) => activeEnginePack(familyId),
   } as unknown as PackRegistryService;
-  return new PostingTradesService(packs);
+  return new PostingTradesService(packs, releaseServiceFor());
 }
 
 /** The search service with the database stubbed out; `searchPool` records what it was asked. */
@@ -401,27 +405,27 @@ describe.each(LAUNCH_TRADES.filter((t) => t.postable))("$kind — a posting can 
   });
 });
 
-describe("cad_designer_3d — KNOWN GAP: a posting can name the role but cannot go live or carry a level", () => {
-  // 3D CAD is not one of the 16 postable trades (#2635, owner rulings 2026-11-03/04). A company may
-  // save a DRAFT naming it (the role enum is all declared kinds), but publishing is refused with
-  // `posting_trade_required`, the trade fields are refused, and no 16-trade job can reach the
-  // trade's own skill. Making it postable is a 17th catalogue row plus the "16 trades" copy in
-  // both payer clients and the API's refusal — an owner decision, reported on #2753, not made here.
+describe("cad_designer_3d — declared postable (T58, #3005) but switched off until its wave", () => {
+  // CEO pack v2 makes 3D CAD a postable trade (T58, Wave 1), and it ships with its release switch
+  // off (#3002): it is in the catalogue, but the posting form does not offer it, its trade fields
+  // are refused and a publish naming it is refused (posting_trade_required) until the owner
+  // switches Wave 1 on (#3013). Its skill stays outside the matching scope until then too.
   const trade = LAUNCH_TRADES.find((t) => t.kind === "cad_designer_3d")!;
 
   it("is accepted as a role on a draft", () => {
     expect(roleKindSchema.safeParse(trade.kind).success).toBe(true);
   });
 
-  it("is not postable, so a publish naming it is refused and its rungs are rejected", async () => {
-    expect(postingTradeFor(trade.kind)).toBeUndefined();
-    expect(scopePostingSkills(trade.kind, [trade.skillId])).toBeUndefined();
+  it("is declared, but not offered while its switch is off, and its rungs are rejected", async () => {
+    expect(postingTradeFor(trade.kind)?.matchSkillId).toBe(trade.skillId);
+    expect(scopePostingSkills(trade.kind, [trade.skillId])?.kept).toEqual([trade.skillId]);
+    expect(await postingTrades().formFor(trade.kind)).toBeNull();
     await expect(
       postingTrades().normalizeSelection(trade.kind, "senior_designer", {}),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it("keeps the trade's own skill outside the 16-trade matching scope", () => {
+  it("keeps the trade's own skill outside the live matching scope", () => {
     expect(isInPostingScope(trade.skillId)).toBe(false);
   });
 });

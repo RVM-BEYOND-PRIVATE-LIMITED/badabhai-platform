@@ -30,7 +30,7 @@
  *   pnpm --filter @badabhai/db db:backfill:worker-skills --apply
  *   pnpm --filter @badabhai/db db:materialize:reach --apply
  *
- * THE 16 = the 16 postable trades (`POSTING_TRADE_KINDS`, packages/taxonomy/src/posting-trades.ts).
+ * THE 16 = the 16 live postable trades (`LIVE_POSTING_TRADE_KINDS`, packages/taxonomy/src/posting-trades.ts).
  *
  * LADDERS. Each trade's rungs are its CEO posting ladder (`POSTING_TRADES[].ladder` — the
  * Launch Plan Pack v1 sheet ladder the worker answers too, #2550), and `levelConfirmed` is the

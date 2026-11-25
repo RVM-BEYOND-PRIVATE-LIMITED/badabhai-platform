@@ -363,6 +363,8 @@ export class AgencyService {
       nextRole,
       dto.trade_level ?? (cleared.has("trade_level") ? null : current.tradeLevel),
       dto.trade_answers ?? (cleared.has("trade_answers") ? null : current.tradeAnswers),
+      // #3005 — a job keeps saving its own stored trade after that trade is switched off.
+      { storedRoleKind: current.roleKind },
     );
     return {
       ...dto,

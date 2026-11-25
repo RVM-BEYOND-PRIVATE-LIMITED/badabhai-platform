@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, expect, it, vi } from "vitest";
 import { ServiceUnavailableException } from "@nestjs/common";
 import type { Database, TradeReleaseRow } from "@badabhai/db";
+import { LIVE_POSTING_TRADE_KINDS } from "@badabhai/taxonomy";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
@@ -77,6 +78,36 @@ describe("readers — what a company may post, and what is live", () => {
     repo.all.mockRejectedValueOnce(new Error("connection reset"));
     expect(await service.isPostingEnabled("cnc_turner")).toBe(false);
     expect(await service.isFormEnabled("cnc_turner")).toBe(false);
+  });
+
+  it("#3005: a MISSING table (0198 not applied) reads as its seed — the 16 live kinds post, nothing else", async () => {
+    const { service, repo } = build([]);
+    repo.all.mockRejectedValue(Object.assign(new Error("relation does not exist"), { code: "42P01" }));
+    expect(await service.isPostingEnabled("cnc_turner")).toBe(true);
+    expect(await service.isPostingEnabled("quality_inspector")).toBe(true);
+    expect(await service.isPostingEnabled("gear_cutting_operator")).toBe(false);
+    expect(await service.isFormEnabled("cnc_turner")).toBe(false);
+    expect([...(await service.postingEnabledKinds())]).toEqual([...LIVE_POSTING_TRADE_KINDS]);
+    // Cached like rows: one failed read per window, not one per trade.
+    expect(repo.all).toHaveBeenCalledTimes(1);
+    // The admin screen still says the table is missing.
+    await expect(service.getAll()).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it("#3005: postingEnabledKinds answers from one read; any other read error is still off", async () => {
+    const { service, repo } = build([
+      row("cnc_turner"),
+      row("welder", { postingEnabled: false }),
+      row("gear_cutting_operator"),
+    ]);
+    expect([...(await service.postingEnabledKinds())]).toEqual([
+      "cnc_turner",
+      "gear_cutting_operator",
+    ]);
+    expect(repo.all).toHaveBeenCalledTimes(1);
+    const failing = build([row("cnc_turner")]);
+    failing.repo.all.mockRejectedValueOnce(new Error("connection reset"));
+    expect((await failing.service.postingEnabledKinds()).size).toBe(0);
   });
 
   it("caches the table for 30 seconds; a set clears it", async () => {

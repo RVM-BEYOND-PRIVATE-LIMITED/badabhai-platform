@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deriveWorkerSkills, workerSkillDeriveInput } from "@badabhai/match-engine";
-import { POSTING_TRADE_KINDS, isLevelConfirmed, postingTradeFor } from "@badabhai/taxonomy";
+import { LIVE_POSTING_TRADE_KINDS, isLevelConfirmed, postingTradeFor } from "@badabhai/taxonomy";
 import { isSampleWorkerId } from "./sample-workers";
 import {
   PAYER_DEMO_PHONE_PATTERN,
@@ -23,7 +23,8 @@ describe("seed-payer-demo-candidates — the cohort", () => {
   it("is 30 workers for each of exactly the 16 postable trades", () => {
     expect(PLAN).toHaveLength(PAYER_DEMO_WORKER_COUNT);
     expect(PAYER_DEMO_WORKER_COUNT).toBe(480);
-    expect(PAYER_DEMO_TRADES.map((t) => t.roleKind).sort()).toEqual([...POSTING_TRADE_KINDS].sort());
+    // The demo seed covers the 16 live trades; the 44 of trades v2 join it with #3025.
+    expect(PAYER_DEMO_TRADES.map((t) => t.roleKind).sort()).toEqual([...LIVE_POSTING_TRADE_KINDS].sort());
     for (const trade of PAYER_DEMO_TRADES) {
       expect(PLAN.filter((w) => w.trade.roleKind === trade.roleKind), trade.roleKind).toHaveLength(
         PER_TRADE_COUNT,

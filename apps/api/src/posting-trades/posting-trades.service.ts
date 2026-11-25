@@ -14,6 +14,7 @@ import {
   type TradeLevel,
 } from "@badabhai/taxonomy";
 import { PackRegistryService } from "../profiling/pack-registry.service";
+import { TradeReleaseService } from "../trade-release/trade-release.service";
 
 /** One option/chip on the posting form. */
 export interface PostingTradeOption {
@@ -61,23 +62,16 @@ export interface TradeFacetDisplay {
   values: string[];
 }
 
-/**
- * Questions a POSTING must never ask. They are worker-interview material: a tenure
- * bucket, the fresher-only ITI/trade-test block, the rung question itself (the ladder
- * is the posting's rung control) and the separating-confirm questions that only make
- * sense on the worker's side. `programming_level` and `inspection_level` are kept:
- * they are real posting requirements ("must write programs", "QC engineer"), not a
- * self-assessment of tenure.
- */
-const POSTING_LEVEL_ALLOWLIST = new Set(["programming_level", "inspection_level"]);
-
-function isPostingQuestion(key: string): boolean {
-  if (key.endsWith("_experience")) return false;
-  if (key.startsWith("iti_")) return false;
-  if (key === "trade_test_status") return false;
-  if (key.endsWith("_confirm")) return false;
-  if (key.endsWith("_level") && !POSTING_LEVEL_ALLOWLIST.has(key)) return false;
-  return true;
+/** Options for {@link PostingTradesService.normalizeSelection}. */
+export interface NormalizeSelectionOptions {
+  /**
+   * The role kind the posting ALREADY stores (an edit), or null/absent for a create. A posting
+   * keeps saving its own stored trade after that trade's release switch goes off — the same
+   * reasoning as `legacyRungs`: an edit that fails on its own stored value is a 400 the payer
+   * cannot fix. Moving a posting ONTO a switched-off trade is still refused.
+   */
+  readonly storedRoleKind?: string | null;
+  readonly now?: number;
 }
 
 /**
@@ -92,11 +86,16 @@ function isPostableRung(trade: PostingTrade, form: PostingTradeForm, level: stri
 }
 
 /**
- * The trade-specific posting form (owner ruling 2026-11-03, 16 live trades).
+ * The trade-specific posting form (owner ruling 2026-11-03; 60 trades since CEO pack v2, #3005).
  *
  * THE PACK IS THE SOURCE. Question text, option labels and chip values come from the
  * checked-in question pack the worker side already answers; this service only decides
- * which of those questions make sense on a vacancy and which chips are match-affecting.
+ * which chips are match-affecting. WHICH questions a vacancy may ask is the trade's explicit
+ * `postingQuestionKeys` list (`TRADE_CATALOGUE`), never a rule on how a key is spelt.
+ *
+ * OFFERED ONLY WHEN RELEASED (#3002). A trade is listed, served and accepted only while its
+ * `trade_release.posting_enabled` switch is on; the 16 live trades are seeded on, the 44 new
+ * ones ship off. A posting that already stores a switched-off trade still loads and saves.
  * That decision is deterministic and comes from the SAME `PACK_ANSWER_SKILLS` bridge the
  * worker derive path reads, so a chip that reaches a worker from a profile also moves a
  * posting's reach when a company asks for it — one vocabulary, no second copy.
@@ -110,20 +109,37 @@ export class PostingTradesService {
   /** Built forms are pure functions of an immutable pack version. */
   private readonly forms = new Map<string, PostingTradeForm>();
 
-  constructor(private readonly packs: PackRegistryService) {}
+  constructor(
+    private readonly packs: PackRegistryService,
+    private readonly release: TradeReleaseService,
+  ) {}
 
-  /** The picker + form definitions for all 16 postable trades. */
+  /** The picker + form definitions for every trade whose posting switch is on. */
   async listForms(now: number = Date.now()): Promise<PostingTradeForm[]> {
-    return Promise.all(POSTING_TRADES.map(async (trade) => this.buildForm(trade, now)));
+    const enabled = await this.release.postingEnabledKinds();
+    return Promise.all(
+      POSTING_TRADES.filter((trade) => enabled.has(trade.roleKind)).map(async (trade) =>
+        this.buildForm(trade, now),
+      ),
+    );
   }
 
-  /** One trade's form, or null when the role is not one of the 16 (or its pack is absent). */
+  /**
+   * One trade's form, or null when the role is not a postable trade or its posting switch is
+   * off. A trade whose pack is absent still answers, with its ladder and no questions.
+   */
   async formFor(
     roleKind: string | null | undefined,
     now: number = Date.now(),
   ): Promise<PostingTradeForm | null> {
     const trade = postingTradeFor(roleKind);
-    return trade ? this.buildForm(trade, now) : null;
+    if (!trade || !(await this.release.isPostingEnabled(trade.roleKind))) return null;
+    return this.buildForm(trade, now);
+  }
+
+  /** Whether this trade's posting switch is on (#3002). Declared-but-off trades answer false. */
+  async isReleased(roleKind: string): Promise<boolean> {
+    return this.release.isPostingEnabled(roleKind);
   }
 
   /**
@@ -131,21 +147,28 @@ export class PostingTradesService {
    * skills. Fail closed: an unknown role, rung, question or option is a 400, never a
    * silently dropped answer. Returns `matchSkillIds` with the base trade skill always
    * present, so a posting cannot name a role and still reach nobody.
+   *
+   * A trade whose posting switch is off is refused with the same error as an unknown role,
+   * unless it is the trade the posting already stores (`opts.storedRoleKind`).
    */
   async normalizeSelection(
     roleKind: string | null | undefined,
     tradeLevel: string | null | undefined,
     tradeAnswers: Record<string, readonly string[]> | null | undefined,
-    now: number = Date.now(),
+    opts: NormalizeSelectionOptions = {},
   ): Promise<NormalizedTradeSelection> {
     if (tradeLevel == null && tradeAnswers == null) {
       return { tradeLevel: null, tradeAnswers: null, matchSkillIds: [] };
     }
     const trade = postingTradeFor(roleKind);
-    if (!trade) {
+    const accepted =
+      trade !== undefined &&
+      (trade.roleKind === opts.storedRoleKind ||
+        (await this.release.isPostingEnabled(trade.roleKind)));
+    if (!trade || !accepted) {
       throw new BadRequestException("trade fields are only available for a postable role");
     }
-    const form = await this.buildForm(trade, now);
+    const form = await this.buildForm(trade, opts.now ?? Date.now());
 
     const level = tradeLevel == null ? null : tradeLevel.trim();
     // A legacy rung (#2550: a key the CEO sheets dropped) is never offered, but a posting that
@@ -195,7 +218,8 @@ export class PostingTradesService {
   /**
    * Resolve a stored answer set to DISPLAY text for a worker read. Labels come from the
    * same pack the employer saw, so the worker and the employer read one vocabulary.
-   * Unknown/legacy keys are ignored rather than echoed.
+   * Unknown/legacy keys are ignored rather than echoed. Not gated by the release switch: a
+   * stored posting keeps printing after its trade is switched off.
    */
   async describeSelection(
     roleKind: string | null | undefined,
@@ -257,7 +281,7 @@ export class PostingTradesService {
       pack_id: trade.packId,
       match_skill_id: trade.matchSkillId,
       ladder: [...trade.ladder],
-      questions: questionsForPack(pack, trade.matchSkillId),
+      questions: questionsForPack(pack, trade.postingQuestionKeys, trade.matchSkillId),
     };
     this.forms.set(cacheKey, form);
     return form;
@@ -265,8 +289,11 @@ export class PostingTradesService {
 }
 
 /**
- * The posting-relevant questions from one pack, with each chip's match meaning
- * resolved through the taxonomy bridges.
+ * The posting questions from one pack, in `questionKeys` order (the trade's explicit
+ * `postingQuestionKeys`, #3005), with each chip's match meaning resolved through the
+ * taxonomy bridges. A listed key the pack does not carry is skipped (a form loaded before its
+ * deepened version), and so is any key whose question is not a select: free text never becomes
+ * a posting chip, whatever a list says.
  *
  * `baseMatchSkillId` is the role's own skill, which is ALWAYS in a posting's match set.
  * A chip that only resolves to that same id does not change reach, so it is a facet chip
@@ -275,12 +302,15 @@ export class PostingTradesService {
  */
 export function questionsForPack(
   pack: QuestionPack,
+  questionKeys: readonly string[],
   baseMatchSkillId?: string,
 ): PostingTradeQuestion[] {
   const packMap = PACK_ANSWER_SKILLS[pack.pack_id.split("@")[0]!] ?? {};
+  const byKey = new Map(pack.items.map((item) => [item.question_key, item]));
   const questions: PostingTradeQuestion[] = [];
-  for (const item of pack.items) {
-    if (!isPostingQuestion(item.question_key)) continue;
+  for (const key of new Set(questionKeys)) {
+    const item = byKey.get(key);
+    if (item === undefined) continue;
     if (item.answer_type !== "single_select" && item.answer_type !== "multi_select") continue;
     const mapped = packMap[item.question_key] ?? {};
     const options: PostingTradeOption[] = [];

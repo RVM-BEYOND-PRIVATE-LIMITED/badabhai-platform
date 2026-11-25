@@ -1,22 +1,86 @@
 import { describe, expect, it } from "vitest";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 import { isMatchSkillId } from "./match-skills";
-import { POSTING_TRADES, POSTING_TRADE_KINDS, postingTradeFor } from "./posting-trades";
+import {
+  LIVE_POSTING_TRADE_KINDS,
+  POSTING_TRADES,
+  POSTING_TRADE_KINDS,
+  TRADES_V2_POSTING_KINDS,
+  isLivePostingTradeKind,
+  isPostingTradeKind,
+  postingTradeFor,
+} from "./posting-trades";
+import { TRADE_CATALOGUE } from "./trade-catalogue";
 import { TRADE_LEVEL_LABELS } from "./trade-levels";
 
+const LIVE_TRADES = POSTING_TRADES.filter((trade) => isLivePostingTradeKind(trade.roleKind));
+
 /**
- * The 16-trade posting catalogue is a product contract, not a convenience list.
+ * The 60-trade posting catalogue (16 live + 44 of CEO pack v2, #3005) is a product contract,
+ * not a convenience list.
  * These pins keep it from drifting from the declared role vocabulary or from the
  * closed match-skill / trade-level sets the rest of the system validates against.
  */
 describe("posting trade catalogue", () => {
-  it("declares exactly the 16 non-polymer roles, once each", () => {
-    expect(POSTING_TRADE_KINDS).toHaveLength(16);
-    expect(new Set(POSTING_TRADE_KINDS).size).toBe(16);
-    expect(POSTING_TRADES).toHaveLength(16);
-    for (const kind of POSTING_TRADE_KINDS) {
-      expect(TRADE_FORM_KINDS_ALL).toContain(kind);
+  it("keeps the 16 live non-polymer roles, once each, first", () => {
+    expect(LIVE_POSTING_TRADE_KINDS).toHaveLength(16);
+    expect(new Set(LIVE_POSTING_TRADE_KINDS).size).toBe(16);
+    expect(POSTING_TRADE_KINDS.slice(0, 16)).toEqual([...LIVE_POSTING_TRADE_KINDS]);
+    for (const kind of LIVE_POSTING_TRADE_KINDS) {
       expect(kind).not.toMatch(/moulding|mould_die|plastic_process/);
+    }
+  });
+
+  it("#3005: declares all 60 catalogue trades, once each, every one a declared role kind", () => {
+    expect(POSTING_TRADE_KINDS).toHaveLength(60);
+    expect(new Set(POSTING_TRADE_KINDS).size).toBe(60);
+    expect(POSTING_TRADES).toHaveLength(60);
+    expect(new Set(POSTING_TRADE_KINDS)).toEqual(new Set(TRADE_CATALOGUE.map((e) => e.roleKind)));
+    expect(TRADES_V2_POSTING_KINDS).toEqual(
+      TRADE_CATALOGUE.filter((e) => e.wave > 0).map((e) => e.roleKind),
+    );
+    for (const kind of POSTING_TRADE_KINDS) expect(TRADE_FORM_KINDS_ALL).toContain(kind);
+  });
+
+  it("#3005: generates each trades-v2 row from its catalogue entry", () => {
+    for (const kind of TRADES_V2_POSTING_KINDS) {
+      const trade = postingTradeFor(kind)!;
+      const entry = TRADE_CATALOGUE.find((e) => e.roleKind === kind)!;
+      expect(trade.packId, kind).toBe(entry.packId);
+      expect(trade.familyId, kind).toBe(entry.familyId);
+      expect(trade.matchSkillId, kind).toBe(entry.matchSkillId);
+      expect(trade.legacyRungs, kind).toEqual([]);
+      const rungs = entry.ladder.map((r) => r.rung);
+      expect(trade.ladder.map((r) => r.rung), kind).toEqual(rungs);
+      const confirmedAt = rungs.indexOf(entry.confirmedFrom);
+      const higherAt = rungs.indexOf(entry.higherPriceFrom);
+      trade.ladder.forEach((rung, i) => {
+        expect(rung.confirmed, `${kind}:${rung.rung}`).toBe(i >= confirmedAt);
+        expect(rung.priceTier, `${kind}:${rung.rung}`).toBe(i >= higherAt ? "higher" : "lower");
+      });
+    }
+    // A trade's separating question is its rung's evidence (sheet T17, the setter confirm).
+    expect(postingTradeFor("edm_wirecut_operator")!.ladder.find((r) => r.rung === "setter")!.evidence).toBe(
+      "Naye job ki clamping, dialling aur edge find aap khud karte ho?",
+    );
+  });
+
+  it("#3005: every trade carries its catalogue posting keys, none from the excluded set", () => {
+    for (const trade of POSTING_TRADES) {
+      const entry = TRADE_CATALOGUE.find((e) => e.roleKind === trade.roleKind)!;
+      expect(trade.postingQuestionKeys, trade.roleKind).toEqual(entry.postingQuestionKeys);
+      expect(trade.postingQuestionKeys.length, trade.roleKind).toBeGreaterThan(0);
+      expect(new Set(trade.postingQuestionKeys).size, trade.roleKind).toBe(
+        trade.postingQuestionKeys.length,
+      );
+      for (const key of trade.postingQuestionKeys) {
+        expect(key, trade.roleKind).not.toMatch(
+          /_experience$|_confirm$|_training_exposure$|^iti_|^trade_test_status$/,
+        );
+        // The 16 live lists are what the old filter kept, which allowed `inspection_level` (the
+        // quality inspector's level key) as a real requirement; the rule applies to the 44.
+        if (!isLivePostingTradeKind(trade.roleKind)) expect(key, trade.roleKind).not.toBe(entry.levelKey);
+      }
     }
   });
 
@@ -115,8 +179,8 @@ describe("posting trade catalogue", () => {
         confirmedFrom: "senior_inspector",
       },
     };
-    expect(Object.keys(SHEETS).sort()).toEqual([...POSTING_TRADE_KINDS].sort());
-    for (const trade of POSTING_TRADES) {
+    expect(Object.keys(SHEETS).sort()).toEqual([...LIVE_POSTING_TRADE_KINDS].sort());
+    for (const trade of LIVE_TRADES) {
       const sheet = SHEETS[trade.roleKind]!;
       expect(trade.ladder.map((r) => r.rung), trade.roleKind).toEqual(sheet.rungs);
       const from = sheet.rungs.indexOf(sheet.confirmedFrom);
@@ -144,20 +208,23 @@ describe("posting trade catalogue", () => {
     expect(postingTradeFor("quality_inspector")?.legacyRungs).toEqual(["lead"]);
   });
 
-  it("resolves only the 16 postable kinds", () => {
+  it("resolves only the 60 postable kinds", () => {
     for (const kind of POSTING_TRADE_KINDS) {
       expect(postingTradeFor(kind)?.roleKind).toBe(kind);
+      expect(isPostingTradeKind(kind)).toBe(true);
     }
+    // The retired polymer and foundry roles (#3030) are not in the catalogue.
     for (const kind of [
-      "injection_moulding_operator",
       "mould_die_maker",
-      "blow_moulding_operator",
-      "rubber_moulding_operator",
       "plastic_process_technician",
+      "foundry_forging_operator",
       "not_a_role",
     ]) {
       expect(postingTradeFor(kind)).toBeUndefined();
+      expect(isPostingTradeKind(kind)).toBe(false);
     }
+    expect(isLivePostingTradeKind("cnc_turner")).toBe(true);
+    expect(isLivePostingTradeKind("gear_cutting_operator")).toBe(false);
     expect(postingTradeFor(null)).toBeUndefined();
   });
 });

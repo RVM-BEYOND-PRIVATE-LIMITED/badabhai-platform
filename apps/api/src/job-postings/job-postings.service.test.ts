@@ -316,7 +316,12 @@ function make(
     { resolveForPublish: resolveForPublish } as never,
     // Migration 0141 — the trade form validator. Not exercised by the lifecycle cases;
     // the migration's own cases below pass a stub with a known selection.
-    (opts.postingTrades ?? { normalizeSelection: vi.fn() }) as never,
+    // #3005 — `isReleased` answers the release switch for the 44 trades-v2 kinds; off by default
+    // (they ship switched off), so a publish naming one is refused like an unknown role.
+    {
+      isReleased: vi.fn(async () => false),
+      ...((opts.postingTrades as object | undefined) ?? { normalizeSelection: vi.fn() }),
+    } as never,
     opts.tenancy ?? defaultModeResolver(),
     // #2746 — inert unless a case passes the real service (the audience cases do).
     opts.audience ?? inertPostingAudience(),
@@ -1786,7 +1791,7 @@ describe("migration 0131 — role_kind on the posting routes", () => {
     expect("reachSkillIds" in stored).toBe(false);
   });
 
-  it("a role OUTSIDE the 16 is still never a match input — no resolver call, no skills", async () => {
+  it("a role OUTSIDE the posting catalogue is still never a match input — no resolver call, no skills", async () => {
     const d = make();
     await d.svc.createForPayer(
       PAYER_ID,
@@ -1794,7 +1799,7 @@ describe("migration 0131 — role_kind on the posting routes", () => {
         org_label: ORG,
         role_title: ROLE,
         vacancy_band: "1",
-        role_kind: "injection_moulding_operator",
+        role_kind: "mould_die_maker",
       } as never,
       CTX as never,
     );
@@ -1836,11 +1841,11 @@ describe("migration 0131 — role_kind on the posting routes", () => {
     expect(input.roleKind).toBe("welder");
   });
 
-  it("…while a role change between two non-16 roles still moves no reach", async () => {
+  it("…while a role change between two roles outside the catalogue still moves no reach", async () => {
     const d = make(row({ status: "open" }));
     await d.svc.update(
       POSTING_ID,
-      { role_kind: "injection_moulding_operator" } as never,
+      { role_kind: "mould_die_maker" } as never,
       CTX as never,
     );
     expect(d.materializeReach).not.toHaveBeenCalled();
