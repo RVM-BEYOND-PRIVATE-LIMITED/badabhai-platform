@@ -48,6 +48,42 @@ import { RUBBER_MOULDING_OPERATOR } from "./rubber-moulding-operator.role";
 import { SHEET_METAL_WORKER } from "./sheet-metal-worker.role";
 import { TOOL_DIE_MAKER } from "./tool-die-maker.role";
 import { WELDER } from "./welder.role";
+import { BORING_MACHINE_OPERATOR } from "./boring-machine-operator.role";
+import { CAE_ANALYST } from "./cae-analyst.role";
+import { CALIBRATION_TECHNICIAN } from "./calibration-technician.role";
+import { CMM_OPERATOR } from "./cmm-operator.role";
+import { CNC_ROUTER_OPERATOR } from "./cnc-router-operator.role";
+import { CRANE_OPERATOR } from "./crane-operator.role";
+import { DIE_CASTING_OPERATOR } from "./die-casting-operator.role";
+import { DISPATCH_LOGISTICS_EXECUTIVE } from "./dispatch-logistics-executive.role";
+import { FABRICATOR } from "./fabricator.role";
+import { FORGING_OPERATOR } from "./forging-operator.role";
+import { FORKLIFT_OPERATOR } from "./forklift-operator.role";
+import { FOUNDRY_OPERATOR } from "./foundry-operator.role";
+import { GEAR_CUTTING_OPERATOR } from "./gear-cutting-operator.role";
+import { HVAC_RAC_TECHNICIAN } from "./hvac-rac-technician.role";
+import { INSTRUMENTATION_TECHNICIAN } from "./instrumentation-technician.role";
+import { MAINTENANCE_ENGINEER } from "./maintenance-engineer.role";
+import { MATERIAL_LAB_TECHNICIAN } from "./material-lab-technician.role";
+import { NDT_TECHNICIAN } from "./ndt-technician.role";
+import { NPD_ENGINEER } from "./npd-engineer.role";
+import { PIPING_DESIGNER } from "./piping-designer.role";
+import { PLASTIC_EXTRUSION_OPERATOR } from "./plastic-extrusion-operator.role";
+import { PLATING_OPERATOR } from "./plating-operator.role";
+import { PPC_ENGINEER } from "./ppc-engineer.role";
+import { PROCESS_ENGINEER } from "./process-engineer.role";
+import { PRODUCTION_ENGINEER } from "./production-engineer.role";
+import { PROJECT_SITE_ENGINEER } from "./project-site-engineer.role";
+import { PURCHASE_ENGINEER } from "./purchase-engineer.role";
+import { QUALITY_ENGINEER } from "./quality-engineer.role";
+import { ROBOT_OPERATOR_PROGRAMMER } from "./robot-operator-programmer.role";
+import { SAFETY_OFFICER } from "./safety-officer.role";
+import { SERVICE_ENGINEER } from "./service-engineer.role";
+import { SPM_FINISHING_OPERATOR } from "./spm-finishing-operator.role";
+import { STORE_KEEPER } from "./store-keeper.role";
+import { TECHNICAL_SALES_ENGINEER } from "./technical-sales-engineer.role";
+import { TUBE_BENDING_OPERATOR } from "./tube-bending-operator.role";
+import { UTILITY_OPERATOR } from "./utility-operator.role";
 
 /**
  * DECLARED ROLES — including the ones whose forms do not exist yet.
@@ -67,6 +103,12 @@ const DECLARED = [
   TOOL_DIE_MAKER,
   // Phase 2 #7 (CEO Launch Plan Pack v1, sheet 16) — formless, like PLC.
   EDM_WIRECUT,
+  // CEO pack v2 (#3004) — Wave-2 machining trades, formless like EDM.
+  GEAR_CUTTING_OPERATOR,
+  BORING_MACHINE_OPERATOR,
+  SPM_FINISHING_OPERATOR,
+  // CEO pack v2 (#3004) — Wave-1 machining trade, formless like EDM.
+  CNC_ROUTER_OPERATOR,
   // ── design ───────────────────────────────────────────────────────────────────────────────────
   CAM_PROGRAMMER,
   CAD_DRAUGHTSMAN,
@@ -80,12 +122,26 @@ const DECLARED = [
   HEAT_TREATMENT,
   // Phase 2 #11 (CEO Launch Plan Pack v1, sheet 19) — formless, like heat treatment.
   FOUNDRY_FORGING,
+  // CEO pack v2 (#3004) — Wave-2 fabrication trades, formless like heat treatment.
+  FABRICATOR,
+  TUBE_BENDING_OPERATOR,
+  // CEO pack v2 (#3004) — Wave-1 fabrication trades, formless like heat treatment.
+  FOUNDRY_OPERATOR,
+  DIE_CASTING_OPERATOR,
+  FORGING_OPERATOR,
+  // CEO pack v2 (#3004) — Wave-2 surface treatment, formless like heat treatment.
+  PLATING_OPERATOR,
   // ── maintenance ──────────────────────────────────────────────────────────────────────────────
   FITTER,
   MAINTENANCE_TECHNICIAN,
   INDUSTRIAL_ELECTRICIAN,
   // Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14) — formless, like 3D.
   PLC_AUTOMATION,
+  // CEO pack v2 (#3004) — the maintenance bench's robot, instrument, HVAC and utility trades.
+  ROBOT_OPERATOR_PROGRAMMER,
+  INSTRUMENTATION_TECHNICIAN,
+  HVAC_RAC_TECHNICIAN,
+  UTILITY_OPERATOR,
   // ── production ───────────────────────────────────────────────────────────────────────────────
   ASSEMBLY_LINE_WORKER,
   QUALITY_INSPECTOR,
@@ -97,6 +153,36 @@ const DECLARED = [
   BLOW_MOULDING_OPERATOR,
   RUBBER_MOULDING_OPERATOR,
   PLASTIC_PROCESS_TECHNICIAN,
+  // CEO pack v2 (#3004) — the extrusion operator, formless like the batch.
+  PLASTIC_EXTRUSION_OPERATOR,
+  // ── quality_lab ──────────────────────────────────────────────────────────────────────────────
+  // CEO pack v2 (#3004) — the quality and metrology lab trades, formless like 3D.
+  CMM_OPERATOR,
+  NDT_TECHNICIAN,
+  CALIBRATION_TECHNICIAN,
+  MATERIAL_LAB_TECHNICIAN,
+  // ── engineering_desk ─────────────────────────────────────────────────────────────────────────
+  // CEO pack v2 (#3004) — the desk trades, formless like 3D.
+  QUALITY_ENGINEER,
+  MAINTENANCE_ENGINEER,
+  SERVICE_ENGINEER,
+  PRODUCTION_ENGINEER,
+  PROCESS_ENGINEER,
+  NPD_ENGINEER,
+  SAFETY_OFFICER,
+  PROJECT_SITE_ENGINEER,
+  TECHNICAL_SALES_ENGINEER,
+  PPC_ENGINEER,
+  PURCHASE_ENGINEER,
+  // CEO pack v2 (#3004) — the analysis and piping trades sit on the desk, not the board.
+  CAE_ANALYST,
+  PIPING_DESIGNER,
+  // ── supply_chain ─────────────────────────────────────────────────────────────────────────────
+  // CEO pack v2 (#3004) — the stores and yard trades, formless like 3D.
+  STORE_KEEPER,
+  DISPATCH_LOGISTICS_EXECUTIVE,
+  FORKLIFT_OPERATOR,
+  CRANE_OPERATOR,
 ] as const;
 
 /**

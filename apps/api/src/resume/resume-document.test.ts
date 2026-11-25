@@ -65,12 +65,10 @@ describe("the template gate (Layer A (i) — no map, no cliff)", () => {
     expect(TRADE_RESUME_MAPS.length).toBeGreaterThan(0);
   });
 
-  it("selects the trade sheet for EVERY one of the 27 predefined roles, form or not", () => {
-    // The 27 are the owner's line, not the 16 with a form live today: the five polymer roles, the
-    // 3D designer, the PLC technician, the EDM operator, the heat-treatment technician, the
-    // production supervisor and the foundry / forging operator are declared but formless, and
-    // they stay on the trade sheet with the rest.
-    expect(ROLE_FORM_DESCRIPTORS).toHaveLength(27);
+  it("selects the trade sheet for EVERY one of the 63 predefined roles, form or not", () => {
+    // The 63 are the owner's line, not the 16 with a form live today: the formless roles stay
+    // on the trade sheet with the rest.
+    expect(ROLE_FORM_DESCRIPTORS).toHaveLength(63);
     for (const role of ROLE_FORM_DESCRIPTORS) {
       expect(packIsPredefinedRole(role.packId), role.packId).toBe(true);
       expect(templateIdForPack(role.packId), role.packId).toBe("bb_trade");
