@@ -1,0 +1,1256 @@
+{
+  "_why": "Role track for PPC / Production Planning Engineer (T52), new trade (CEO pack v2). fam_ppc binds NCO 2141.0500 and 2141.0501.",
+  "_scope": "Planning and Supply Chain desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 6 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T52 (PPC / Production Planning Engineer). Status: NEW",
+  "pack_id": "qp_ppc",
+  "version": 1,
+  "family_id": "fam_ppc",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T52): new trade.",
+  "items": [
+    {
+      "question_key": "ppc_experience",
+      "min_tier": "easy",
+      "prompt_text": "PPC ya production planning ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "ppc_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal PPC ya production planning ka kaam kiya hai?"
+    },
+    {
+      "question_key": "ppc_level",
+      "min_tier": "easy",
+      "prompt_text": "PPC department me aap kis post par hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "ppc_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "GET / DET / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "engineer",
+          "label_text": "PPC Executive / Engineer",
+          "value_text": "engineer"
+        },
+        {
+          "option_key": "senior_engineer",
+          "label_text": "Senior Engineer",
+          "value_text": "senior_engineer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Lead / Asst. Manager",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Manager / HOD",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "PPC department me trainee, executive ya senior engineer hain?"
+    },
+    {
+      "question_key": "ppc_senior_engineer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Monthly production plan aap khud banate ho ya senior ka plan follow karte ho?",
+      "why_text": "Khud plan banane wale senior engineer ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "ppc_senior_engineer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud banata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Bana hua plan follow karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "ppc_level"
+        },
+        "right": {
+          "const": [
+            "senior_engineer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "ppc_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Customer ko supply ki commitment aap khud dete ho ya manager?",
+      "why_text": "Customer ko khud commitment dene wale lead ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "ppc_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud deta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Manager dete hain",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "ppc_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "ppc_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "PPC me kitne log aur kitni line ya plant aapke under hain?",
+      "why_text": "Team sambhalne wale PPC head ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "ppc_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "ppc_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "ppc_function",
+      "min_tier": "medium",
+      "prompt_text": "PPC me aap kaunsa kaam sambhalte hain?",
+      "why_text": "Kaam ke hisaab se sahi company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "ppc_function",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "production_planning",
+          "label_text": "Production planning aur scheduling",
+          "value_text": "production_planning"
+        },
+        {
+          "option_key": "material_planning",
+          "label_text": "Material planning (RM / BOP)",
+          "value_text": "material_planning"
+        },
+        {
+          "option_key": "dispatch_planning",
+          "label_text": "Dispatch planning",
+          "value_text": "dispatch_planning"
+        },
+        {
+          "option_key": "jobwork_planning",
+          "label_text": "Job-work ya subcontract planning",
+          "value_text": "jobwork_planning"
+        },
+        {
+          "option_key": "inventory_control",
+          "label_text": "Inventory aur WIP control",
+          "value_text": "inventory_control"
+        },
+        {
+          "option_key": "customer_schedule",
+          "label_text": "Customer schedule follow-up",
+          "value_text": "customer_schedule"
+        },
+        {
+          "option_key": "mis_reporting",
+          "label_text": "PPC MIS aur reporting",
+          "value_text": "mis_reporting"
+        }
+      ]
+    },
+    {
+      "question_key": "ppc_erp_system",
+      "min_tier": "medium",
+      "prompt_text": "Planning ke liye kaunsa ERP ya software chalate hain?",
+      "why_text": "ERP jaanne wale planner ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "ppc_erp_system",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "sap_pp",
+          "label_text": "SAP PP",
+          "value_text": "sap_pp"
+        },
+        {
+          "option_key": "sap_mm",
+          "label_text": "SAP MM",
+          "value_text": "sap_mm"
+        },
+        {
+          "option_key": "oracle",
+          "label_text": "Oracle ERP",
+          "value_text": "oracle"
+        },
+        {
+          "option_key": "ms_dynamics",
+          "label_text": "Microsoft Dynamics / Navision",
+          "value_text": "ms_dynamics"
+        },
+        {
+          "option_key": "infor_baan",
+          "label_text": "Infor LN / Baan",
+          "value_text": "infor_baan"
+        },
+        {
+          "option_key": "tally",
+          "label_text": "Tally",
+          "value_text": "tally"
+        },
+        {
+          "option_key": "inhouse_erp",
+          "label_text": "Company ka apna ERP",
+          "value_text": "inhouse_erp"
+        },
+        {
+          "option_key": "excel_only",
+          "label_text": "Sirf Excel par",
+          "value_text": "excel_only"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur ERP",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ppc_excel_skill",
+      "min_tier": "medium",
+      "prompt_text": "Excel me aap kya kya kar lete hain?",
+      "why_text": "PPC ka zyada kaam Excel par hota hai, employer ise zaroor dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "ppc_excel_skill",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vlookup",
+          "label_text": "VLOOKUP / XLOOKUP",
+          "value_text": "vlookup"
+        },
+        {
+          "option_key": "pivot_table",
+          "label_text": "Pivot table",
+          "value_text": "pivot_table"
+        },
+        {
+          "option_key": "sumif_formula",
+          "label_text": "SUMIF, COUNTIF jaise formula",
+          "value_text": "sumif_formula"
+        },
+        {
+          "option_key": "dashboard",
+          "label_text": "Chart aur dashboard",
+          "value_text": "dashboard"
+        },
+        {
+          "option_key": "macro_vba",
+          "label_text": "Macro / VBA",
+          "value_text": "macro_vba"
+        },
+        {
+          "option_key": "power_bi",
+          "label_text": "Power BI ya Power Query",
+          "value_text": "power_bi"
+        },
+        {
+          "option_key": "data_entry",
+          "label_text": "Sirf data entry",
+          "value_text": "data_entry"
+        }
+      ]
+    },
+    {
+      "question_key": "ppc_plan_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsa plan khud banate hain?",
+      "why_text": "Plan khud banane wale planner ki maang zyada hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "ppc_plan_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "monthly_plan",
+          "label_text": "Monthly production plan",
+          "value_text": "monthly_plan"
+        },
+        {
+          "option_key": "weekly_plan",
+          "label_text": "Weekly plan",
+          "value_text": "weekly_plan"
+        },
+        {
+          "option_key": "daily_plan",
+          "label_text": "Daily / shift plan",
+          "value_text": "daily_plan"
+        },
+        {
+          "option_key": "machine_loading",
+          "label_text": "Machine loading plan",
+          "value_text": "machine_loading"
+        },
+        {
+          "option_key": "procurement_plan",
+          "label_text": "RM / BOP procurement plan",
+          "value_text": "procurement_plan"
+        },
+        {
+          "option_key": "dispatch_plan",
+          "label_text": "Dispatch plan",
+          "value_text": "dispatch_plan"
+        },
+        {
+          "option_key": "followup_only",
+          "label_text": "Plan nahi banata, follow-up karta hoon",
+          "value_text": "followup_only"
+        }
+      ]
+    },
+    {
+      "question_key": "ppc_documents",
+      "min_tier": "hard",
+      "prompt_text": "Roz kaunsi report ya document aap banate hain?",
+      "why_text": "Report ke naam se employer samajhta hai aap kya sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "ppc_documents",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "plan_vs_actual",
+          "label_text": "Plan vs actual report",
+          "value_text": "plan_vs_actual"
+        },
+        {
+          "option_key": "daily_production_report",
+          "label_text": "Daily production report (DPR)",
+          "value_text": "daily_production_report"
+        },
+        {
+          "option_key": "shortage_list",
+          "label_text": "Shortage list",
+          "value_text": "shortage_list"
+        },
+        {
+          "option_key": "stock_statement",
+          "label_text": "WIP / stock statement",
+          "value_text": "stock_statement"
+        },
+        {
+          "option_key": "dispatch_schedule",
+          "label_text": "Dispatch schedule",
+          "value_text": "dispatch_schedule"
+        },
+        {
+          "option_key": "job_card",
+          "label_text": "Job card ya route card",
+          "value_text": "job_card"
+        },
+        {
+          "option_key": "production_order",
+          "label_text": "Production order (SAP / ERP)",
+          "value_text": "production_order"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ppc_plant_type",
+      "min_tier": "hard",
+      "prompt_text": "Kis tarah ke plant ki planning ki hai?",
+      "why_text": "Usi tarah ke plant wali company aapko pehle dhoondhti hai.",
+      "target_kind": "attribute",
+      "target_field": "ppc_plant_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "machine_shop",
+          "label_text": "Machine shop",
+          "value_text": "machine_shop"
+        },
+        {
+          "option_key": "press_shop",
+          "label_text": "Press shop / sheet metal",
+          "value_text": "press_shop"
+        },
+        {
+          "option_key": "weld_shop",
+          "label_text": "Weld shop / fabrication",
+          "value_text": "weld_shop"
+        },
+        {
+          "option_key": "assembly",
+          "label_text": "Assembly line",
+          "value_text": "assembly"
+        },
+        {
+          "option_key": "moulding",
+          "label_text": "Plastic moulding",
+          "value_text": "moulding"
+        },
+        {
+          "option_key": "casting_forging",
+          "label_text": "Casting ya forging",
+          "value_text": "casting_forging"
+        },
+        {
+          "option_key": "surface_treatment",
+          "label_text": "Paint, plating ya heat treatment",
+          "value_text": "surface_treatment"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur plant",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ppc_customer_schedule",
+      "min_tier": "hard",
+      "prompt_text": "Customer ka schedule aapko kaise milta hai?",
+      "why_text": "OEM schedule par kaam karne wale planner ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "ppc_customer_schedule",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "oem_portal",
+          "label_text": "OEM portal se (Maruti, Hero, Honda jaisa)",
+          "value_text": "oem_portal"
+        },
+        {
+          "option_key": "email_schedule",
+          "label_text": "Email par monthly schedule",
+          "value_text": "email_schedule"
+        },
+        {
+          "option_key": "daily_calloff",
+          "label_text": "Daily call-off / JIT schedule",
+          "value_text": "daily_calloff"
+        },
+        {
+          "option_key": "po_based",
+          "label_text": "PO ke hisaab se (make to order)",
+          "value_text": "po_based"
+        },
+        {
+          "option_key": "sales_team",
+          "label_text": "Sales ya marketing team se",
+          "value_text": "sales_team"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ppc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ppc_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ppc_material_planning",
+      "min_tier": "hard",
+      "prompt_text": "Material planning me aap kya karte hain?",
+      "why_text": "Material planning jaanne wala line rukne se bachata hai.",
+      "target_kind": "attribute",
+      "target_field": "ppc_material_planning",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mrp_run",
+          "label_text": "MRP run karna",
+          "value_text": "mrp_run"
+        },
+        {
+          "option_key": "bom_requirement",
+          "label_text": "BOM se requirement nikalna",
+          "value_text": "bom_requirement"
+        },
+        {
+          "option_key": "purchase_requisition",
+          "label_text": "PR ya indent banana",
+          "value_text": "purchase_requisition"
+        },
+        {
+          "option_key": "vendor_followup",
+          "label_text": "Vendor se RM / BOP follow-up",
+          "value_text": "vendor_followup"
+        },
+        {
+          "option_key": "jobwork_stock",
+          "label_text": "Job-work vendor ka stock aur challan dekhna",
+          "value_text": "jobwork_stock"
+        },
+        {
+          "option_key": "shortage_alert",
+          "label_text": "Shortage ka pehle se alert dena",
+          "value_text": "shortage_alert"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yeh kaam nahi karta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ppc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ppc_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ppc_capacity_planning",
+      "min_tier": "hard",
+      "prompt_text": "Capacity aur loading ka kaunsa kaam karte hain?",
+      "why_text": "Capacity nikalne wale planner ko bada plant sambhalne ko milta hai.",
+      "target_kind": "attribute",
+      "target_field": "ppc_capacity_planning",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "capacity_calculation",
+          "label_text": "Machine capacity calculation",
+          "value_text": "capacity_calculation"
+        },
+        {
+          "option_key": "cycle_time_loading",
+          "label_text": "Cycle time se loading nikalna",
+          "value_text": "cycle_time_loading"
+        },
+        {
+          "option_key": "manpower_planning",
+          "label_text": "Manpower requirement nikalna",
+          "value_text": "manpower_planning"
+        },
+        {
+          "option_key": "overtime_plan",
+          "label_text": "Overtime ya extra shift ka plan",
+          "value_text": "overtime_plan"
+        },
+        {
+          "option_key": "bottleneck",
+          "label_text": "Bottleneck machine pehchanna",
+          "value_text": "bottleneck"
+        },
+        {
+          "option_key": "tooling_availability",
+          "label_text": "Tool ya die ki availability dekhna",
+          "value_text": "tooling_availability"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ppc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ppc_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ppc_inventory_control",
+      "min_tier": "hard",
+      "prompt_text": "Inventory control ka kaunsa kaam aap karte hain?",
+      "why_text": "Inventory kam rakhne wale planner ko company zyada pasand karti hai.",
+      "target_kind": "attribute",
+      "target_field": "ppc_inventory_control",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "wip_tracking",
+          "label_text": "WIP tracking",
+          "value_text": "wip_tracking"
+        },
+        {
+          "option_key": "min_max",
+          "label_text": "Min-max ya safety stock level",
+          "value_text": "min_max"
+        },
+        {
+          "option_key": "kanban",
+          "label_text": "Kanban",
+          "value_text": "kanban"
+        },
+        {
+          "option_key": "fifo",
+          "label_text": "FIFO",
+          "value_text": "fifo"
+        },
+        {
+          "option_key": "abc_analysis",
+          "label_text": "ABC analysis",
+          "value_text": "abc_analysis"
+        },
+        {
+          "option_key": "stock_verification",
+          "label_text": "Physical stock verification",
+          "value_text": "stock_verification"
+        },
+        {
+          "option_key": "non_moving",
+          "label_text": "Non-moving stock ki report",
+          "value_text": "non_moving"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ppc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ppc_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ki company me planning ki hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler parts",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Home appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electronics / EMS",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Tractor ya agriculture parts",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "fasteners",
+          "label_text": "Fastener",
+          "value_text": "fasteners"
+        },
+        {
+          "option_key": "fmcg",
+          "label_text": "FMCG ya packaging",
+          "value_text": "fmcg"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ppc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ppc_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Line rukne wali kaunsi dikkat aap khud sulajhate hain?",
+      "why_text": "Line chalu rakhne wale planner ki har plant me zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "material_shortage",
+          "label_text": "Material shortage",
+          "value_text": "material_shortage"
+        },
+        {
+          "option_key": "breakdown_replan",
+          "label_text": "Machine breakdown par plan badalna",
+          "value_text": "breakdown_replan"
+        },
+        {
+          "option_key": "schedule_change",
+          "label_text": "Customer ka urgent schedule badalna",
+          "value_text": "schedule_change"
+        },
+        {
+          "option_key": "vendor_delay",
+          "label_text": "Vendor se late supply",
+          "value_text": "vendor_delay"
+        },
+        {
+          "option_key": "rejection_shortage",
+          "label_text": "Rejection se maal kam padna",
+          "value_text": "rejection_shortage"
+        },
+        {
+          "option_key": "manpower_shortage",
+          "label_text": "Manpower kam hona",
+          "value_text": "manpower_shortage"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ppc_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ppc_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ppc_kpi_reporting",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse KPI ki report aap management ko dete hain?",
+      "why_text": "KPI sambhalne wale ko department ki zimmedari di jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "ppc_kpi_reporting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "plan_adherence",
+          "label_text": "Plan adherence",
+          "value_text": "plan_adherence"
+        },
+        {
+          "option_key": "on_time_delivery",
+          "label_text": "On-time delivery (OTD)",
+          "value_text": "on_time_delivery"
+        },
+        {
+          "option_key": "inventory_turns",
+          "label_text": "Inventory days ya turns",
+          "value_text": "inventory_turns"
+        },
+        {
+          "option_key": "line_stoppage",
+          "label_text": "Customer line stoppage",
+          "value_text": "line_stoppage"
+        },
+        {
+          "option_key": "premium_freight",
+          "label_text": "Premium freight",
+          "value_text": "premium_freight"
+        },
+        {
+          "option_key": "capacity_utilisation",
+          "label_text": "Capacity utilisation ya OEE",
+          "value_text": "capacity_utilisation"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ppc_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ppc_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ppc_improvement_work",
+      "min_tier": "hard",
+      "prompt_text": "Improvement ka kaunsa kaam aapne kiya hai?",
+      "why_text": "Improvement ka kaam karne wale ko aage ki post milti hai.",
+      "target_kind": "attribute",
+      "target_field": "ppc_improvement_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "kaizen",
+          "label_text": "Kaizen",
+          "value_text": "kaizen"
+        },
+        {
+          "option_key": "five_s",
+          "label_text": "5S",
+          "value_text": "five_s"
+        },
+        {
+          "option_key": "inventory_reduction",
+          "label_text": "Inventory reduction project",
+          "value_text": "inventory_reduction"
+        },
+        {
+          "option_key": "kanban_implementation",
+          "label_text": "Kanban ya pull system lagana",
+          "value_text": "kanban_implementation"
+        },
+        {
+          "option_key": "lean_vsm",
+          "label_text": "Lean / VSM",
+          "value_text": "lean_vsm"
+        },
+        {
+          "option_key": "erp_implementation",
+          "label_text": "SAP ya ERP implementation team me kaam",
+          "value_text": "erp_implementation"
+        },
+        {
+          "option_key": "iatf_audit",
+          "label_text": "IATF 16949 audit me PPC ka jawab dena",
+          "value_text": "iatf_audit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ppc_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ppc_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ppc_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapki padhai kis branch se hai?",
+      "why_text": "Kai company branch dekhkar hi bulati hain.",
+      "target_kind": "attribute",
+      "target_field": "ppc_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "production_engg",
+          "label_text": "Production ya Industrial engineering",
+          "value_text": "production_engg"
+        },
+        {
+          "option_key": "electrical_engg",
+          "label_text": "Electrical ya Electronics",
+          "value_text": "electrical_engg"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Com, B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "mba_operations",
+          "label_text": "MBA / PGDM (Operations ya Supply Chain)",
+          "value_text": "mba_operations"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad promote hua",
+          "value_text": "iti_promoted"
+        }
+      ]
+    },
+    {
+      "question_key": "ppc_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke dauraan company me kya training ya kaam kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "ppc_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "College ka major project",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "software_course",
+          "label_text": "SAP ya Advanced Excel ka course",
+          "value_text": "software_course"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "ppc_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "ppc_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

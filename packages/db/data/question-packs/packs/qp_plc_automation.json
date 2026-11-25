@@ -8,7 +8,7 @@
   "version": 1,
   "family_id": "fam_plc_automation",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "v1 (CEO Launch Plan Pack v1, Phase 2 #6): new trade. Easy/Medium/Advanced tiers; 6-band experience; sheet-14 level ladder (Trainee/Technician/Senior technician/Lead/Supervisor, mandatory); 2 separating confirms, the sheet's questions: technician (verbatim), and senior technician (the sheet's two questions joined into one — the runtime refuses a prompt with two question marks; same content) (also asked of lead by the standing owner rule of 2026-11-03 — the sheet writes none for lead); supervisor by rule. Medium Q6 PLC brand, Q7 work done; Advanced Q9 HMI/SCADA, Q10 industry, Q11 field devices, gated years OR rung. Deviations recorded: the sheet prices technician Higher, but rung tiers are per KEY across trades and the maintenance and electrician sheets rule `technician` Lower — the tier hook only logs today, so the shared key stands and a per-pack tier override is a follow-up; the technician confirm still confirms. No fresher items and no per-trade ITI row (Q12 is the shared qp_universal block; 3D CAD precedent for a new trade). The HMI brand chips beyond the sheet's own words (WinCC, FactoryTalk) are the common Indian-shop panels, for curator review. Drafted for owner review (Prakash).",
   "items": [
     {

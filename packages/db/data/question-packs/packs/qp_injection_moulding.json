@@ -8,7 +8,7 @@
   "version": 1,
   "family_id": "fam_injection_moulding",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "v1 (CEO Launch Plan Pack v1, Phase 2 #9): first pack for the declared kind injection_moulding_operator. Easy/Medium/Advanced tiers; 6-band experience; sheet-22 level ladder (Trainee/Operator/Setter/Senior (process technician)/Supervisor, mandatory); 2 separating confirms, both the sheet's questions verbatim: setter, and senior; supervisor by rule. Medium Q6 machine brand, Q7 tonnage; Advanced Q9 materials, Q10 process depth, Q11 defects handled, Q12 the ITI/CIPET training row (tool-room institute-row precedent), depth rows gated years OR rung. Deviations recorded: tonnage is a single 'up to' band (press-shop precedent); the sheet's 'Other' chips are the 'Inme se koi nahi' escape; no fresher items and no shared ITI block beyond Q12 (new-trade precedent). Drafted for owner review (Prakash).",
   "items": [
     {

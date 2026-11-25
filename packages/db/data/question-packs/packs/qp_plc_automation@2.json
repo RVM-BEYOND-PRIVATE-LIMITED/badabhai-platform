@@ -1,0 +1,1363 @@
+{
+  "_why": "Role track for PLC / Automation Technician (T38), deepening the live thin form (CEO pack v2). fam_plc_automation binds NCO 7412.0101.",
+  "_scope": "Maintenance and Automation shop-floor trade. The interview separates at senior_technician; higher contact price from senior_technician.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T38 (PLC / Automation Technician). Status: DEEPEN (supersedes the live thin form)",
+  "pack_id": "qp_plc_automation",
+  "version": 2,
+  "family_id": "fam_plc_automation",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v2 (CEO pack v2, sheet T38): deepens the live thin form. Sheet wording and chips under the kept live keys (key table #3008). Live-only questions (plc_technician_confirm) stay in v1.",
+  "items": [
+    {
+      "question_key": "plc_experience",
+      "min_tier": "easy",
+      "prompt_text": "PLC aur automation ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "plc_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal PLC aur automation ka kaam kiya hai?"
+    },
+    {
+      "question_key": "plc_level",
+      "min_tier": "easy",
+      "prompt_text": "PLC ke kaam me aap kis level par hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "plc_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "technician",
+          "label_text": "Technician",
+          "value_text": "technician"
+        },
+        {
+          "option_key": "senior_technician",
+          "label_text": "Automation Engineer / Senior Technician",
+          "value_text": "senior_technician"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Lead / Project Lead",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / In-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "PLC ke kaam me helper, technician ya senior technician hain?"
+    },
+    {
+      "question_key": "plc_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Nayi machine ka PLC program zero se aap khud banate ho?",
+      "why_text": "Zero se program banane wale ko automation engineer ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud banata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Bana hua program edit karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "plc_level"
+        },
+        "right": {
+          "const": [
+            "senior_technician"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "plc_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Site par poore project ki commissioning aapki zimmedari hoti hai?",
+      "why_text": "Poora project sambhalne wale lead ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, poora project main sambhalta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, senior ke saath jaata hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "plc_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "plc_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne engineer ya technician aur kitni line aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "plc_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "plc_brand",
+      "min_tier": "medium",
+      "prompt_text": "Aapne kaunse brand ke PLC par kaam kiya hai?",
+      "why_text": "PLC ke brand ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "siemens",
+          "label_text": "Siemens",
+          "value_text": "siemens"
+        },
+        {
+          "option_key": "allen_bradley",
+          "label_text": "Allen-Bradley / Rockwell",
+          "value_text": "allen_bradley"
+        },
+        {
+          "option_key": "mitsubishi",
+          "label_text": "Mitsubishi",
+          "value_text": "mitsubishi"
+        },
+        {
+          "option_key": "delta",
+          "label_text": "Delta",
+          "value_text": "delta"
+        },
+        {
+          "option_key": "omron",
+          "label_text": "Omron",
+          "value_text": "omron"
+        },
+        {
+          "option_key": "schneider",
+          "label_text": "Schneider",
+          "value_text": "schneider"
+        },
+        {
+          "option_key": "fuji",
+          "label_text": "Fuji",
+          "value_text": "fuji"
+        },
+        {
+          "option_key": "keyence",
+          "label_text": "Keyence",
+          "value_text": "keyence"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur PLC",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "plc_software",
+      "min_tier": "medium",
+      "prompt_text": "Kaunsa programming software aap chala lete hain?",
+      "why_text": "Software jaanne wale ko usi PLC ka kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_software",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "tia_portal",
+          "label_text": "TIA Portal",
+          "value_text": "tia_portal"
+        },
+        {
+          "option_key": "simatic_manager",
+          "label_text": "SIMATIC Manager / Step 7",
+          "value_text": "simatic_manager"
+        },
+        {
+          "option_key": "rslogix_studio",
+          "label_text": "RSLogix / Studio 5000",
+          "value_text": "rslogix_studio"
+        },
+        {
+          "option_key": "gx_works",
+          "label_text": "GX Works / GX Developer",
+          "value_text": "gx_works"
+        },
+        {
+          "option_key": "wplsoft_ispsoft",
+          "label_text": "WPLSoft / ISPSoft",
+          "value_text": "wplsoft_ispsoft"
+        },
+        {
+          "option_key": "cx_programmer",
+          "label_text": "CX-Programmer / Sysmac Studio",
+          "value_text": "cx_programmer"
+        },
+        {
+          "option_key": "somachine",
+          "label_text": "SoMachine / EcoStruxure",
+          "value_text": "somachine"
+        },
+        {
+          "option_key": "codesys",
+          "label_text": "Codesys",
+          "value_text": "codesys"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "plc_work",
+      "min_tier": "medium",
+      "prompt_text": "PLC par aap roz kaunsa kaam karte hain?",
+      "why_text": "Roz ke kaam se pata chalta hai aap kis level ka kaam karte hain.",
+      "target_kind": "attribute",
+      "target_field": "plc_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "online_monitoring",
+          "label_text": "Online monitoring se fault dekhna",
+          "value_text": "online_monitoring"
+        },
+        {
+          "option_key": "io_checking",
+          "label_text": "I/O checking aur sensor badalna",
+          "value_text": "io_checking"
+        },
+        {
+          "option_key": "program_edit",
+          "label_text": "Program me chhota change, timer ya interlock",
+          "value_text": "program_edit"
+        },
+        {
+          "option_key": "program_write",
+          "label_text": "Naya program banana",
+          "value_text": "program_write"
+        },
+        {
+          "option_key": "hmi_design",
+          "label_text": "HMI screen banana",
+          "value_text": "hmi_design"
+        },
+        {
+          "option_key": "panel_wiring",
+          "label_text": "Control panel ki wiring",
+          "value_text": "panel_wiring"
+        },
+        {
+          "option_key": "commissioning",
+          "label_text": "Site par commissioning",
+          "value_text": "commissioning"
+        },
+        {
+          "option_key": "program_backup",
+          "label_text": "Program ka backup lena",
+          "value_text": "program_backup"
+        }
+      ]
+    },
+    {
+      "question_key": "plc_hmi_brand",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse HMI ya SCADA par kaam kiya hai?",
+      "why_text": "HMI aur SCADA jaanne wale ko project ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_hmi_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "wincc",
+          "label_text": "Siemens WinCC / KTP panel",
+          "value_text": "wincc"
+        },
+        {
+          "option_key": "factorytalk",
+          "label_text": "FactoryTalk View / PanelView",
+          "value_text": "factorytalk"
+        },
+        {
+          "option_key": "wonderware",
+          "label_text": "Wonderware InTouch",
+          "value_text": "wonderware"
+        },
+        {
+          "option_key": "weintek",
+          "label_text": "Weintek HMI",
+          "value_text": "weintek"
+        },
+        {
+          "option_key": "mitsubishi_got",
+          "label_text": "Mitsubishi GOT",
+          "value_text": "mitsubishi_got"
+        },
+        {
+          "option_key": "delta_dop",
+          "label_text": "Delta DOP HMI",
+          "value_text": "delta_dop"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "plc_drive_servo",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse VFD ya servo drive par kaam kiya hai?",
+      "why_text": "Drive ka kaam jaanne wale automation technician kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "plc_drive_servo",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "siemens_drive",
+          "label_text": "Siemens Sinamics / Micromaster",
+          "value_text": "siemens_drive"
+        },
+        {
+          "option_key": "abb_drive",
+          "label_text": "ABB drive",
+          "value_text": "abb_drive"
+        },
+        {
+          "option_key": "danfoss",
+          "label_text": "Danfoss",
+          "value_text": "danfoss"
+        },
+        {
+          "option_key": "powerflex",
+          "label_text": "Allen-Bradley PowerFlex",
+          "value_text": "powerflex"
+        },
+        {
+          "option_key": "delta_drive",
+          "label_text": "Delta VFD / servo",
+          "value_text": "delta_drive"
+        },
+        {
+          "option_key": "mitsubishi_drive",
+          "label_text": "Mitsubishi VFD / servo",
+          "value_text": "mitsubishi_drive"
+        },
+        {
+          "option_key": "yaskawa",
+          "label_text": "Yaskawa",
+          "value_text": "yaskawa"
+        },
+        {
+          "option_key": "altivar",
+          "label_text": "Schneider Altivar",
+          "value_text": "altivar"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "plc_field_devices",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse field device aap khud lagate aur check karte hain?",
+      "why_text": "Field device ka kaam har automation ki naukri me maanga jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_field_devices",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "proximity_sensor",
+          "label_text": "Proximity aur photo sensor",
+          "value_text": "proximity_sensor"
+        },
+        {
+          "option_key": "encoder",
+          "label_text": "Encoder",
+          "value_text": "encoder"
+        },
+        {
+          "option_key": "pneumatics",
+          "label_text": "Solenoid valve aur pneumatic cylinder",
+          "value_text": "pneumatics"
+        },
+        {
+          "option_key": "analog_transmitter",
+          "label_text": "4-20 mA transmitter",
+          "value_text": "analog_transmitter"
+        },
+        {
+          "option_key": "temperature_sensor",
+          "label_text": "RTD ya thermocouple",
+          "value_text": "temperature_sensor"
+        },
+        {
+          "option_key": "load_cell",
+          "label_text": "Load cell",
+          "value_text": "load_cell"
+        },
+        {
+          "option_key": "safety_devices",
+          "label_text": "Safety relay aur light curtain",
+          "value_text": "safety_devices"
+        },
+        {
+          "option_key": "vision_camera",
+          "label_text": "Vision camera ya barcode scanner",
+          "value_text": "vision_camera"
+        }
+      ]
+    },
+    {
+      "question_key": "plc_drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Electrical drawing ke saath aap kitna kaam kar lete hain?",
+      "why_text": "Drawing padhne wale ko fault jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "read_drawing",
+          "label_text": "Drawing padh kar wiring aur fault dekh leta hoon",
+          "value_text": "read_drawing"
+        },
+        {
+          "option_key": "modify_drawing",
+          "label_text": "Drawing me khud correction kar leta hoon",
+          "value_text": "modify_drawing"
+        },
+        {
+          "option_key": "make_drawing",
+          "label_text": "EPLAN ya AutoCAD Electrical me nayi drawing banata hoon",
+          "value_text": "make_drawing"
+        }
+      ]
+    },
+    {
+      "question_key": "plc_programming_scope",
+      "min_tier": "hard",
+      "prompt_text": "Program me aap kya kya khud bana lete hain?",
+      "why_text": "Program ka kaam jitna aata hai, utna bada project milta hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_programming_scope",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ladder",
+          "label_text": "Ladder logic",
+          "value_text": "ladder"
+        },
+        {
+          "option_key": "fbd",
+          "label_text": "FBD / function block",
+          "value_text": "fbd"
+        },
+        {
+          "option_key": "structured_text",
+          "label_text": "SCL / structured text",
+          "value_text": "structured_text"
+        },
+        {
+          "option_key": "analog_scaling",
+          "label_text": "Analog scaling",
+          "value_text": "analog_scaling"
+        },
+        {
+          "option_key": "pid_loop",
+          "label_text": "PID loop",
+          "value_text": "pid_loop"
+        },
+        {
+          "option_key": "motion_control",
+          "label_text": "Servo positioning / motion",
+          "value_text": "motion_control"
+        },
+        {
+          "option_key": "high_speed_counter",
+          "label_text": "High speed counter",
+          "value_text": "high_speed_counter"
+        },
+        {
+          "option_key": "recipe_logging",
+          "label_text": "Recipe aur data logging",
+          "value_text": "recipe_logging"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plc_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "plc_network",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse communication network par kaam kiya hai?",
+      "why_text": "Network jaanne wale ko line automation ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_network",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "profinet",
+          "label_text": "Profinet",
+          "value_text": "profinet"
+        },
+        {
+          "option_key": "profibus",
+          "label_text": "Profibus",
+          "value_text": "profibus"
+        },
+        {
+          "option_key": "modbus",
+          "label_text": "Modbus RTU / TCP",
+          "value_text": "modbus"
+        },
+        {
+          "option_key": "ethernet_ip",
+          "label_text": "EtherNet/IP",
+          "value_text": "ethernet_ip"
+        },
+        {
+          "option_key": "ethercat",
+          "label_text": "EtherCAT",
+          "value_text": "ethercat"
+        },
+        {
+          "option_key": "cc_link",
+          "label_text": "CC-Link",
+          "value_text": "cc_link"
+        },
+        {
+          "option_key": "devicenet",
+          "label_text": "DeviceNet",
+          "value_text": "devicenet"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plc_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "plc_machine_type",
+      "min_tier": "hard",
+      "prompt_text": "Kis tarah ki machine ya line ka automation kiya hai?",
+      "why_text": "Machine ka tajurba usi tarah ki company dhoondhti hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_machine_type",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "spm",
+          "label_text": "SPM, special purpose machine",
+          "value_text": "spm"
+        },
+        {
+          "option_key": "assembly_conveyor",
+          "label_text": "Assembly line aur conveyor",
+          "value_text": "assembly_conveyor"
+        },
+        {
+          "option_key": "packaging",
+          "label_text": "Packaging ya filling machine",
+          "value_text": "packaging"
+        },
+        {
+          "option_key": "process_plant",
+          "label_text": "Process plant, batching aur dosing",
+          "value_text": "process_plant"
+        },
+        {
+          "option_key": "robot_cell",
+          "label_text": "Robot cell",
+          "value_text": "robot_cell"
+        },
+        {
+          "option_key": "press_weld_line",
+          "label_text": "Press ya welding line",
+          "value_text": "press_weld_line"
+        },
+        {
+          "option_key": "plastic_machine",
+          "label_text": "Injection moulding ya extrusion machine",
+          "value_text": "plastic_machine"
+        },
+        {
+          "option_key": "furnace_utility",
+          "label_text": "Furnace, boiler ya compressor",
+          "value_text": "furnace_utility"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plc_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "plc_commissioning_work",
+      "min_tier": "hard",
+      "prompt_text": "Commissioning me aap kya kya khud karte hain?",
+      "why_text": "Commissioning akele karne wale ko site ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_commissioning_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "io_check",
+          "label_text": "I/O checking aur loop test",
+          "value_text": "io_check"
+        },
+        {
+          "option_key": "drive_parameter",
+          "label_text": "Drive parameter setting",
+          "value_text": "drive_parameter"
+        },
+        {
+          "option_key": "servo_tuning",
+          "label_text": "Servo tuning aur homing",
+          "value_text": "servo_tuning"
+        },
+        {
+          "option_key": "machine_trial",
+          "label_text": "Machine trial aur cycle time set karna",
+          "value_text": "machine_trial"
+        },
+        {
+          "option_key": "customer_training",
+          "label_text": "Customer ke operator ko training",
+          "value_text": "customer_training"
+        },
+        {
+          "option_key": "fat_sat",
+          "label_text": "FAT / SAT ke document",
+          "value_text": "fat_sat"
+        },
+        {
+          "option_key": "solo_site",
+          "label_text": "Customer site par akele commissioning",
+          "value_text": "solo_site"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plc_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke plant me automation ka kaam kiya hai?",
+      "why_text": "Industry jaanne se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile ya auto parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "fmcg",
+          "label_text": "FMCG, food aur beverage",
+          "value_text": "fmcg"
+        },
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "chemical",
+          "label_text": "Chemical",
+          "value_text": "chemical"
+        },
+        {
+          "option_key": "steel_plant",
+          "label_text": "Steel ya metal plant",
+          "value_text": "steel_plant"
+        },
+        {
+          "option_key": "machine_builder",
+          "label_text": "SPM / machine banane wali company",
+          "value_text": "machine_builder"
+        },
+        {
+          "option_key": "system_integrator",
+          "label_text": "System integrator ya panel builder",
+          "value_text": "system_integrator"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plc_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plc_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Breakdown me kaunsi dikkat aap khud sudhaar lete hain?",
+      "why_text": "Breakdown jaldi sudhaarne wale ki plant me sabse zyada zaroorat hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "plc_fault",
+          "label_text": "PLC fault ya CPU stop",
+          "value_text": "plc_fault"
+        },
+        {
+          "option_key": "io_card",
+          "label_text": "Input ya output card kharab",
+          "value_text": "io_card"
+        },
+        {
+          "option_key": "network_fault",
+          "label_text": "Communication / network fault",
+          "value_text": "network_fault"
+        },
+        {
+          "option_key": "drive_fault",
+          "label_text": "Drive trip aur alarm",
+          "value_text": "drive_fault"
+        },
+        {
+          "option_key": "servo_alarm",
+          "label_text": "Servo alarm",
+          "value_text": "servo_alarm"
+        },
+        {
+          "option_key": "hmi_fault",
+          "label_text": "HMI hang ya communication band",
+          "value_text": "hmi_fault"
+        },
+        {
+          "option_key": "backup_restore",
+          "label_text": "Program download aur backup restore",
+          "value_text": "backup_restore"
+        },
+        {
+          "option_key": "sensor_wiring",
+          "label_text": "Sensor ya wiring fault",
+          "value_text": "sensor_wiring"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plc_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plc_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "plc_advanced_system",
+      "min_tier": "hard",
+      "prompt_text": "Inme se kaunse advance system par kaam kiya hai?",
+      "why_text": "Ye kaam jaanne wale kam milte hain, isliye alag se poochha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_advanced_system",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "dcs",
+          "label_text": "DCS",
+          "value_text": "dcs"
+        },
+        {
+          "option_key": "safety_plc",
+          "label_text": "Safety PLC",
+          "value_text": "safety_plc"
+        },
+        {
+          "option_key": "vision_system",
+          "label_text": "Vision system, Cognex ya Keyence",
+          "value_text": "vision_system"
+        },
+        {
+          "option_key": "robot_interface",
+          "label_text": "Robot ke saath PLC interfacing",
+          "value_text": "robot_interface"
+        },
+        {
+          "option_key": "robot_programming",
+          "label_text": "Robot teaching / programming bhi karta hoon",
+          "value_text": "robot_programming"
+        },
+        {
+          "option_key": "multi_axis_motion",
+          "label_text": "Multi-axis motion controller",
+          "value_text": "multi_axis_motion"
+        },
+        {
+          "option_key": "iiot_mes",
+          "label_text": "IIoT, OEE data ya MES connection",
+          "value_text": "iiot_mes"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plc_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plc_level"
+            },
+            "right": {
+              "const": [
+                "senior_technician",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "plc_project_role",
+      "min_tier": "hard",
+      "prompt_text": "Project me kaunsa kaam aap sambhalte hain?",
+      "why_text": "Project sambhalne wale ko lead ka kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "plc_project_role",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "io_list_bom",
+          "label_text": "I/O list aur BOM banana",
+          "value_text": "io_list_bom"
+        },
+        {
+          "option_key": "panel_design",
+          "label_text": "Panel design aur drawing",
+          "value_text": "panel_design"
+        },
+        {
+          "option_key": "vendor_handling",
+          "label_text": "Panel builder ya vendor se kaam karwana",
+          "value_text": "vendor_handling"
+        },
+        {
+          "option_key": "customer_fat",
+          "label_text": "Customer se baat aur FAT",
+          "value_text": "customer_fat"
+        },
+        {
+          "option_key": "junior_training",
+          "label_text": "Junior ko sikhana",
+          "value_text": "junior_training"
+        },
+        {
+          "option_key": "spares_backup_record",
+          "label_text": "Spares aur program backup ka record",
+          "value_text": "spares_backup_record"
+        },
+        {
+          "option_key": "pm_schedule",
+          "label_text": "PM schedule banana",
+          "value_text": "pm_schedule"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "plc_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "plc_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "Training me kaunse PLC ya saamaan par haath se kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "plc_trainer_kit",
+          "label_text": "PLC trainer kit",
+          "value_text": "plc_trainer_kit"
+        },
+        {
+          "option_key": "siemens",
+          "label_text": "Siemens PLC",
+          "value_text": "siemens"
+        },
+        {
+          "option_key": "allen_bradley",
+          "label_text": "Allen-Bradley PLC",
+          "value_text": "allen_bradley"
+        },
+        {
+          "option_key": "mitsubishi_delta",
+          "label_text": "Mitsubishi ya Delta PLC",
+          "value_text": "mitsubishi_delta"
+        },
+        {
+          "option_key": "hmi_scada",
+          "label_text": "HMI / SCADA software",
+          "value_text": "hmi_scada"
+        },
+        {
+          "option_key": "vfd",
+          "label_text": "VFD drive",
+          "value_text": "vfd"
+        },
+        {
+          "option_key": "starter_wiring",
+          "label_text": "DOL aur star-delta starter wiring",
+          "value_text": "starter_wiring"
+        },
+        {
+          "option_key": "pneumatic_kit",
+          "label_text": "Pneumatic trainer kit",
+          "value_text": "pneumatic_kit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "plc_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "plc_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "plc_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

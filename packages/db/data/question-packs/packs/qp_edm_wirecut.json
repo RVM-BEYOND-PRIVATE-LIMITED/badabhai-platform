@@ -8,7 +8,7 @@
   "version": 1,
   "family_id": "fam_edm_wirecut",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "v1 (CEO Launch Plan Pack v1, Phase 2 #7): new trade. Easy/Medium/Advanced tiers; 6-band experience; sheet-16 level ladder (Trainee/Operator/Setter/Setter-cum-Programmer/Supervisor, mandatory); 2 separating confirms, the sheet's questions verbatim: setter, and setter-cum-programmer; supervisor by rule. Medium Q6 machine, Q7 brand; Advanced Q9 program source, Q10 tolerance / finish, Q11 work (taper, 4-axis, electrode making, carbide), gated years OR rung. Deviations recorded: Q10's bands are the grinding / tool-room tolerance bands (the sheet names the row, not its chips); no fresher items and no per-trade ITI row (Q12 is the shared qp_universal block; 3D / PLC precedent for a new trade). Drafted for owner review (Prakash).",
   "items": [
     {

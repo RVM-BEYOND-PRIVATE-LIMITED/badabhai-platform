@@ -8,7 +8,7 @@
   "version": 1,
   "family_id": "fam_cad_design_3d",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "v1 (CEO Launch Plan Pack v1, Track A #4): new trade. Easy/Medium/Advanced tiers; 6-band experience; sheet-4 level ladder (Trainee/Designer/Senior Designer/Lead/Supervisor); sheet-4 software + work-area sets (Medium); Advanced depth/tolerance/industry rows; 3 separating confirm items (easy, gated on rung). No fresher/ITI block (Track A supply is RVM alumni + poly/BTech; the shared ITI block is Track B packs only). No separate Other controller question (no controllers on this trade). Drafted for owner review (Prakash).",
   "items": [
     {

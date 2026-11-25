@@ -1,0 +1,1212 @@
+{
+  "_why": "Role track for Heat-Treatment Technician (T27), deepening the live thin form (CEO pack v2). fam_heat_treatment binds NCO 8121.4700, 8121.4800 and 8121.4900.",
+  "_scope": "Casting, Forging and Surface Treatment shop-floor trade. The interview separates at skilled; higher contact price from skilled.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 3 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T27 (Heat-Treatment Technician). Status: DEEPEN (supersedes the live thin form)",
+  "pack_id": "qp_heat_treatment",
+  "version": 2,
+  "family_id": "fam_heat_treatment",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v2 (CEO pack v2, sheet T27): deepens the live thin form. Sheet wording and chips under the kept live keys (key table #3008).",
+  "items": [
+    {
+      "question_key": "heat_experience",
+      "min_tier": "easy",
+      "prompt_text": "Heat treatment ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "heat_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Heat treatment ka kaam kiya hai?"
+    },
+    {
+      "question_key": "heat_level",
+      "min_tier": "easy",
+      "prompt_text": "Heat treatment shop me aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "heat_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Furnace Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "skilled",
+          "label_text": "Skilled Technician",
+          "value_text": "skilled"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior Technician",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / Shift in-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Heat treatment shop me helper, operator ya skilled hain?"
+    },
+    {
+      "question_key": "heat_skilled_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Process sheet dekhkar poora charge aap akele chala lete ho?",
+      "why_text": "Akele charge chalane wale technician ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "heat_skilled_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele chalata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior ke kehne par chalata hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "heat_level"
+        },
+        "right": {
+          "const": [
+            "skilled"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "ht_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Hardness ya case depth bahar aaye to cycle aap khud badalte ho?",
+      "why_text": "Cycle khud sudhaarne wale senior technician ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "ht_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud badalta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Supervisor ya engineer batata hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "heat_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "ht_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitni furnace aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "ht_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "heat_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "heat_process",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsa heat treatment process karte hain?",
+      "why_text": "Process ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "heat_process",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hardening_tempering",
+          "label_text": "Hardening aur tempering",
+          "value_text": "hardening_tempering"
+        },
+        {
+          "option_key": "carburising",
+          "label_text": "Case carburising",
+          "value_text": "carburising"
+        },
+        {
+          "option_key": "carbonitriding",
+          "label_text": "Carbonitriding",
+          "value_text": "carbonitriding"
+        },
+        {
+          "option_key": "nitriding",
+          "label_text": "Nitriding (gas, plasma ya salt)",
+          "value_text": "nitriding"
+        },
+        {
+          "option_key": "induction_hardening",
+          "label_text": "Induction hardening",
+          "value_text": "induction_hardening"
+        },
+        {
+          "option_key": "annealing",
+          "label_text": "Annealing",
+          "value_text": "annealing"
+        },
+        {
+          "option_key": "normalising",
+          "label_text": "Normalising",
+          "value_text": "normalising"
+        },
+        {
+          "option_key": "stress_relieving",
+          "label_text": "Stress relieving",
+          "value_text": "stress_relieving"
+        },
+        {
+          "option_key": "austempering",
+          "label_text": "Austempering",
+          "value_text": "austempering"
+        }
+      ]
+    },
+    {
+      "question_key": "heat_furnace",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi furnace chalate hain?",
+      "why_text": "Furnace jaanne wale technician ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "heat_furnace",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "sealed_quench",
+          "label_text": "Sealed quench furnace (SQF)",
+          "value_text": "sealed_quench"
+        },
+        {
+          "option_key": "pit_furnace",
+          "label_text": "Pit type furnace",
+          "value_text": "pit_furnace"
+        },
+        {
+          "option_key": "mesh_belt",
+          "label_text": "Continuous mesh belt furnace",
+          "value_text": "mesh_belt"
+        },
+        {
+          "option_key": "rotary_furnace",
+          "label_text": "Rotary furnace",
+          "value_text": "rotary_furnace"
+        },
+        {
+          "option_key": "salt_bath",
+          "label_text": "Salt bath",
+          "value_text": "salt_bath"
+        },
+        {
+          "option_key": "vacuum_furnace",
+          "label_text": "Vacuum furnace",
+          "value_text": "vacuum_furnace"
+        },
+        {
+          "option_key": "induction_machine",
+          "label_text": "Induction hardening machine",
+          "value_text": "induction_machine"
+        },
+        {
+          "option_key": "box_furnace",
+          "label_text": "Box ya bogie hearth furnace",
+          "value_text": "box_furnace"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur furnace",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ht_furnace_make",
+      "min_tier": "medium",
+      "prompt_text": "Furnace kaunsi company ki hai?",
+      "why_text": "Wahi make chalane wale ko company jaldi le leti hai.",
+      "target_kind": "attribute",
+      "target_field": "ht_furnace_make",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "aichelin",
+          "label_text": "Aichelin Unitherm",
+          "value_text": "aichelin"
+        },
+        {
+          "option_key": "hightemp",
+          "label_text": "Hightemp",
+          "value_text": "hightemp"
+        },
+        {
+          "option_key": "fluidtherm",
+          "label_text": "Fluidtherm",
+          "value_text": "fluidtherm"
+        },
+        {
+          "option_key": "ipsen",
+          "label_text": "Ipsen",
+          "value_text": "ipsen"
+        },
+        {
+          "option_key": "therelek",
+          "label_text": "Therelek",
+          "value_text": "therelek"
+        },
+        {
+          "option_key": "wesman",
+          "label_text": "Wesman",
+          "value_text": "wesman"
+        },
+        {
+          "option_key": "seco_warwick",
+          "label_text": "Seco/Warwick",
+          "value_text": "seco_warwick"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Local make ya pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ht_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Shift me kaunsa kaam aap khud karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "ht_daily_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "charge_loading",
+          "label_text": "Fixture ya basket me charge lagana",
+          "value_text": "charge_loading"
+        },
+        {
+          "option_key": "cycle_running",
+          "label_text": "Furnace cycle chalana",
+          "value_text": "cycle_running"
+        },
+        {
+          "option_key": "quenching",
+          "label_text": "Quenching",
+          "value_text": "quenching"
+        },
+        {
+          "option_key": "tempering",
+          "label_text": "Tempering",
+          "value_text": "tempering"
+        },
+        {
+          "option_key": "shot_blasting",
+          "label_text": "Shot blasting",
+          "value_text": "shot_blasting"
+        },
+        {
+          "option_key": "straightening",
+          "label_text": "Straightening",
+          "value_text": "straightening"
+        },
+        {
+          "option_key": "hardness_check",
+          "label_text": "Hardness check karna",
+          "value_text": "hardness_check"
+        },
+        {
+          "option_key": "log_sheet",
+          "label_text": "Log sheet aur chart bharna",
+          "value_text": "log_sheet"
+        }
+      ]
+    },
+    {
+      "question_key": "ht_quench_media",
+      "min_tier": "hard",
+      "prompt_text": "Quenching kisme karte hain?",
+      "why_text": "Quenching ka tareeka job ki hardness aur distortion tay karta hai.",
+      "target_kind": "attribute",
+      "target_field": "ht_quench_media",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "oil",
+          "label_text": "Oil",
+          "value_text": "oil"
+        },
+        {
+          "option_key": "water",
+          "label_text": "Paani ya brine",
+          "value_text": "water"
+        },
+        {
+          "option_key": "polymer",
+          "label_text": "Polymer",
+          "value_text": "polymer"
+        },
+        {
+          "option_key": "salt",
+          "label_text": "Salt bath",
+          "value_text": "salt"
+        },
+        {
+          "option_key": "gas_quench",
+          "label_text": "Gas ya nitrogen (vacuum furnace)",
+          "value_text": "gas_quench"
+        },
+        {
+          "option_key": "press_quench",
+          "label_text": "Press quench",
+          "value_text": "press_quench"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "heat_material",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse material ka heat treatment kiya hai?",
+      "why_text": "Har grade ka temperature aur cycle alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "heat_material",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "case_hardening_steel",
+          "label_text": "20MnCr5, SAE 8620, EN353",
+          "value_text": "case_hardening_steel"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "EN8, EN19, EN24",
+          "value_text": "alloy_steel"
+        },
+        {
+          "option_key": "bearing_steel",
+          "label_text": "EN31, bearing steel",
+          "value_text": "bearing_steel"
+        },
+        {
+          "option_key": "tool_steel",
+          "label_text": "D2, H13, HSS tool steel",
+          "value_text": "tool_steel"
+        },
+        {
+          "option_key": "spring_steel",
+          "label_text": "Spring steel (EN47)",
+          "value_text": "spring_steel"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "cast_iron",
+          "label_text": "SG iron ya cast iron",
+          "value_text": "cast_iron"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium (T6)",
+          "value_text": "aluminium"
+        }
+      ]
+    },
+    {
+      "question_key": "ht_part",
+      "min_tier": "hard",
+      "prompt_text": "Aap kaunse parts ka heat treatment karte hain?",
+      "why_text": "Part ke naam se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "ht_part",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "gears_shafts",
+          "label_text": "Gear aur shaft",
+          "value_text": "gears_shafts"
+        },
+        {
+          "option_key": "bearing_parts",
+          "label_text": "Bearing race aur roller",
+          "value_text": "bearing_parts"
+        },
+        {
+          "option_key": "fasteners",
+          "label_text": "Bolt, nut, fastener",
+          "value_text": "fasteners"
+        },
+        {
+          "option_key": "dies_tools",
+          "label_text": "Die, mould aur tool",
+          "value_text": "dies_tools"
+        },
+        {
+          "option_key": "springs",
+          "label_text": "Spring aur leaf spring",
+          "value_text": "springs"
+        },
+        {
+          "option_key": "forgings",
+          "label_text": "Forging, crankshaft, connecting rod",
+          "value_text": "forgings"
+        },
+        {
+          "option_key": "small_parts",
+          "label_text": "Pin, bush, sprocket jaise chhote parts",
+          "value_text": "small_parts"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur part",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "heat_testing",
+      "min_tier": "hard",
+      "prompt_text": "Heat treatment ke baad kaunsa test aap khud karte hain?",
+      "why_text": "Test khud karne wale technician par quality ka bharosa hota hai.",
+      "target_kind": "attribute",
+      "target_field": "heat_testing",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "rockwell",
+          "label_text": "Rockwell (HRC / HRB)",
+          "value_text": "rockwell"
+        },
+        {
+          "option_key": "brinell",
+          "label_text": "Brinell (BHN)",
+          "value_text": "brinell"
+        },
+        {
+          "option_key": "vickers",
+          "label_text": "Vickers ya micro Vickers (HV)",
+          "value_text": "vickers"
+        },
+        {
+          "option_key": "case_depth",
+          "label_text": "Case depth nikaalna",
+          "value_text": "case_depth"
+        },
+        {
+          "option_key": "microstructure",
+          "label_text": "Microstructure dekhna",
+          "value_text": "microstructure"
+        },
+        {
+          "option_key": "file_test",
+          "label_text": "File se hardness check",
+          "value_text": "file_test"
+        },
+        {
+          "option_key": "mpi",
+          "label_text": "MPI se crack check",
+          "value_text": "mpi"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ht_cycle_setting",
+      "min_tier": "hard",
+      "prompt_text": "Furnace par kaunsi setting aap khud karte hain?",
+      "why_text": "Cycle khud set karne wale ko operator se zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "ht_cycle_setting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "temp_soak",
+          "label_text": "Temperature aur soaking time",
+          "value_text": "temp_soak"
+        },
+        {
+          "option_key": "carbon_potential_set",
+          "label_text": "Carbon potential set karna",
+          "value_text": "carbon_potential_set"
+        },
+        {
+          "option_key": "quench_setting",
+          "label_text": "Quench oil temperature aur agitation",
+          "value_text": "quench_setting"
+        },
+        {
+          "option_key": "tempering_setting",
+          "label_text": "Tempering temperature tay karna",
+          "value_text": "tempering_setting"
+        },
+        {
+          "option_key": "recipe_plc",
+          "label_text": "PLC ya SCADA me recipe chalana",
+          "value_text": "recipe_plc"
+        },
+        {
+          "option_key": "induction_setting",
+          "label_text": "Induction power, coil aur scan speed",
+          "value_text": "induction_setting"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Sirf set cycle chalata hoon",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "heat_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "heat_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ht_atmosphere",
+      "min_tier": "hard",
+      "prompt_text": "Furnace atmosphere me aap kya sambhalte hain?",
+      "why_text": "Atmosphere sambhalne wale technician carburising line par chahiye hote hain.",
+      "target_kind": "attribute",
+      "target_field": "ht_atmosphere",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "endo_gas",
+          "label_text": "Endo gas generator",
+          "value_text": "endo_gas"
+        },
+        {
+          "option_key": "enrichment",
+          "label_text": "LPG ya propane enrichment",
+          "value_text": "enrichment"
+        },
+        {
+          "option_key": "methanol_nitrogen",
+          "label_text": "Methanol aur nitrogen",
+          "value_text": "methanol_nitrogen"
+        },
+        {
+          "option_key": "ammonia",
+          "label_text": "Ammonia",
+          "value_text": "ammonia"
+        },
+        {
+          "option_key": "carbon_potential",
+          "label_text": "Oxygen probe se carbon potential",
+          "value_text": "carbon_potential"
+        },
+        {
+          "option_key": "dew_point",
+          "label_text": "Dew point check",
+          "value_text": "dew_point"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Atmosphere ka kaam nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "heat_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "heat_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Aap kis industry ke parts ka heat treatment karte hain?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "bearings",
+          "label_text": "Bearing",
+          "value_text": "bearings"
+        },
+        {
+          "option_key": "fasteners",
+          "label_text": "Fastener",
+          "value_text": "fasteners"
+        },
+        {
+          "option_key": "die_mould",
+          "label_text": "Tool room, die aur mould",
+          "value_text": "die_mould"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Tractor aur agriculture",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence ya aerospace",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job work",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "heat_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "heat_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Heat treatment ki kaunsi dikkat aap khud sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale technician ki shop par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hardness_variation",
+          "label_text": "Hardness kam ya zyada aana",
+          "value_text": "hardness_variation"
+        },
+        {
+          "option_key": "case_depth_variation",
+          "label_text": "Case depth kam ya zyada",
+          "value_text": "case_depth_variation"
+        },
+        {
+          "option_key": "distortion",
+          "label_text": "Distortion ya bend",
+          "value_text": "distortion"
+        },
+        {
+          "option_key": "quench_crack",
+          "label_text": "Quench crack",
+          "value_text": "quench_crack"
+        },
+        {
+          "option_key": "soft_spot",
+          "label_text": "Soft spot",
+          "value_text": "soft_spot"
+        },
+        {
+          "option_key": "decarb",
+          "label_text": "Decarb ya scaling",
+          "value_text": "decarb"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "heat_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "heat_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ht_quality_system",
+      "min_tier": "hard",
+      "prompt_text": "Quality system ka kaunsa kaam aap sambhalte hain?",
+      "why_text": "CQI-9 jaanne wale technician ko auto company pehle leti hai.",
+      "target_kind": "attribute",
+      "target_field": "ht_quality_system",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cqi_nine",
+          "label_text": "CQI-9 audit",
+          "value_text": "cqi_nine"
+        },
+        {
+          "option_key": "tus",
+          "label_text": "TUS, temperature uniformity survey",
+          "value_text": "tus"
+        },
+        {
+          "option_key": "sat",
+          "label_text": "SAT, thermocouple check",
+          "value_text": "sat"
+        },
+        {
+          "option_key": "traceability",
+          "label_text": "Furnace chart aur batch traceability",
+          "value_text": "traceability"
+        },
+        {
+          "option_key": "customer_audit",
+          "label_text": "Customer audit",
+          "value_text": "customer_audit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "heat_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "heat_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ht_furnace_upkeep",
+      "min_tier": "hard",
+      "prompt_text": "Furnace ki dekhbhaal me aap kya karte hain?",
+      "why_text": "Furnace sambhalne wale senior se breakdown kam hota hai.",
+      "target_kind": "attribute",
+      "target_field": "ht_furnace_upkeep",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "burn_out",
+          "label_text": "Furnace burn-out",
+          "value_text": "burn_out"
+        },
+        {
+          "option_key": "probe_change",
+          "label_text": "Thermocouple ya oxygen probe badalna",
+          "value_text": "probe_change"
+        },
+        {
+          "option_key": "quench_oil_check",
+          "label_text": "Quench oil level aur test",
+          "value_text": "quench_oil_check"
+        },
+        {
+          "option_key": "burner_check",
+          "label_text": "Burner, heater ya radiant tube check",
+          "value_text": "burner_check"
+        },
+        {
+          "option_key": "fixture_check",
+          "label_text": "Fixture aur tray ka crack check",
+          "value_text": "fixture_check"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Maintenance wale karte hain",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "heat_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "heat_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me heat treatment ka kaunsa kaam kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "box_furnace",
+          "label_text": "Muffle ya box furnace me hardening",
+          "value_text": "box_furnace"
+        },
+        {
+          "option_key": "tempering",
+          "label_text": "Tempering",
+          "value_text": "tempering"
+        },
+        {
+          "option_key": "annealing",
+          "label_text": "Annealing ya normalising",
+          "value_text": "annealing"
+        },
+        {
+          "option_key": "quenching",
+          "label_text": "Oil ya paani me quenching",
+          "value_text": "quenching"
+        },
+        {
+          "option_key": "rockwell",
+          "label_text": "Rockwell hardness tester",
+          "value_text": "rockwell"
+        },
+        {
+          "option_key": "hand_forging",
+          "label_text": "Anvil par hand forging",
+          "value_text": "hand_forging"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "heat_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "heat_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "heat_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

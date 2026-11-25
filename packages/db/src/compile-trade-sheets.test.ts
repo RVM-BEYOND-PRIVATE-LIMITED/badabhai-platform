@@ -3,8 +3,9 @@
  *
  * Compiles the real CEO pack v2 in memory — nothing is written — and holds the
  * contract: 44 forms, 977 questions; T18 (new) and T17 (deepened) byte-shape;
- * the compiled corpus passes validateQuestionPackCorpus with no problems except
- * the known T45 wording (point 1 of #2995); two runs are byte-identical; and the
+ * the compiled corpus passes validateQuestionPackCorpus with no problems (the
+ * T45 wording is ruled by a prompt override, point 1 of #2995); two runs are
+ * byte-identical; every form on disk matches its compile; and the
  * published-versions guard refuses a listed version.
  */
 import { describe, expect, it } from "vitest";
@@ -25,6 +26,7 @@ import {
   loadSheetOverrides,
   packFilename,
   publishedCollisions,
+  selectForms,
   serialisePack,
 } from "./compile-trade-sheets";
 
@@ -40,6 +42,25 @@ const PACK = join(
 const OVERRIDES = join(__dirname, "..", "data", "question-packs", "_sheet-overrides.json");
 const PACKS_DIR = join(__dirname, "..", "data", "question-packs", "packs");
 const LEDGER = join(__dirname, "..", "data", "question-packs", "_published-versions.jsonl");
+
+/** The 15 forms Wave 1 wrote (#3008); the foundry split's three are #3009's. */
+const WAVE_1_FORMS = [
+  "qp_edm_wirecut",
+  "qp_cnc_router",
+  "qp_heat_treatment",
+  "qp_injection_moulding",
+  "qp_cmm",
+  "qp_quality_engineer",
+  "qp_plc_automation",
+  "qp_maintenance_engineer",
+  "qp_production_supervisor",
+  "qp_production_engineer",
+  "qp_process_engineer",
+  "qp_npd_engineer",
+  "qp_ppc",
+  "qp_purchase",
+  "qp_cad_design_3d",
+];
 
 function compileAll(): PackRecord[] {
   const overrides = loadSheetOverrides(OVERRIDES);
@@ -181,16 +202,61 @@ describe("sheet compiler", () => {
     expect(tol?.options?.every((o) => o.value_number === undefined)).toBe(true);
   });
 
-  it("passes corpus validation with no problems except the known T45 wording", () => {
+  it("passes corpus validation with no problems", () => {
+    // The T45 in-charge prompt's banned deictic (#2995 point 1) is replaced by the
+    // reviewed prompt override, so nothing the compiler emits is refused.
     const corpus = testCorpus(compileAll());
     const problems = validateQuestionPackCorpus(corpus);
-    const fatal = problems.filter((p) => !p.includes("WARN"));
-    // The T45 in-charge prompt carries the banned deictic (#2995 point 1, ruled
-    // for #3008 to fix) — the compiler transcribes the sheet as written.
-    expect(fatal.length).toBeGreaterThan(0);
-    for (const p of fatal) {
-      expect(p).toContain("prodsup_incharge_confirm");
-    }
+    expect(problems.filter((p) => !p.includes("WARN"))).toEqual([]);
+  });
+
+  it("serves the ruled T45 in-charge prompt, and refuses an override whose sheet line moved", () => {
+    const t45 = compileAll().find((p) => p.pack_id === "qp_production_supervisor") as PackRecord;
+    const item = t45.items?.find((i) => i.question_key === "prodsup_incharge_confirm");
+    expect(item?.prompt_text).toBe("Aap kaunsa department sambhalte hain?");
+    expect(item?.answer_type).toBe("text");
+
+    const overrides = loadSheetOverrides(OVERRIDES);
+    const form = overrides.forms.qp_production_supervisor;
+    const stale = {
+      ...overrides,
+      forms: {
+        ...overrides.forms,
+        qp_production_supervisor: {
+          ...form,
+          promptOverrides: {
+            prodsup_incharge_confirm: {
+              sheetAsks: "an older wording of the sheet line",
+              asks: "Aap kaunsa department sambhalte hain?",
+              ruling: "test",
+            },
+          },
+        },
+      },
+    } as typeof overrides;
+    expect(() => compileAllSheets(readFileSync(PACK, "utf8"), stale)).toThrow(
+      /prompt override prodsup_incharge_confirm pins/,
+    );
+  });
+
+  it("selects a subset of forms, and refuses a form id it did not compile", () => {
+    const packs = compileAll();
+    expect(selectForms(packs, null)).toHaveLength(44);
+    expect(selectForms(packs, ["qp_cmm", "qp_ppc"]).map((p) => p.pack_id)).toEqual([
+      "qp_cmm",
+      "qp_ppc",
+    ]);
+    expect(() => selectForms(packs, ["qp_cmm", "qp_not_a_form"])).toThrow(/qp_not_a_form/);
+  });
+
+  it("every form already on disk is byte-identical to its compile", () => {
+    // The written files are a pure function of the sheet plus the overrides file:
+    // a hand edit to a compiled form, or a sheet edit after writing, shows up here.
+    const result = dryRun(PACK, OVERRIDES, PACKS_DIR);
+    const changed = result.diffs.filter((d) => d.status === "changed").map((d) => d.filename);
+    expect(changed).toEqual([]);
+    const written = result.diffs.filter((d) => d.status === "unchanged").map((d) => d.formId);
+    expect(written).toEqual(expect.arrayContaining(WAVE_1_FORMS));
   });
 
   it("is byte-identical across runs", () => {
@@ -200,7 +266,8 @@ describe("sheet compiler", () => {
   });
 
   it("refuses a version the ledger already publishes", () => {
-    // Pinned to reality: the live thin EDM form shipped, so v1 is published.
+    // Pinned to reality: the live thin EDM form shipped, so v1 is published; Wave 1
+    // (#3008) published its 15 compiled forms; Wave 2 is not published yet.
     const published = loadPublishedVersions(LEDGER);
     expect(published.has("qp_edm_wirecut@1")).toBe(true);
     expect(published.has("qp_gear_cutting@1")).toBe(false);
@@ -208,11 +275,22 @@ describe("sheet compiler", () => {
     const packs = compileAll();
     const t17 = packs.find((p) => p.pack_id === "qp_edm_wirecut") as PackRecord;
     const t18 = packs.find((p) => p.pack_id === "qp_gear_cutting") as PackRecord;
-    // The compiled versions are new, so nothing collides.
-    expect(publishedCollisions(packs, published)).toEqual([]);
-    // But a v1 recompile of the live form would collide.
+    // Only the loaded wave collides; a rerun of --write for it is refused.
     expect(
-      publishedCollisions([{ ...t18, pack_id: "qp_edm_wirecut", version: 1 }, t17], published),
+      publishedCollisions(packs, published)
+        .map((kv) => kv.split("@")[0])
+        .sort(),
+    ).toEqual([...WAVE_1_FORMS].sort());
+    expect(publishedCollisions([t18], published)).toEqual([]);
+    // A v1 recompile of the live form would collide; an unpublished version would not.
+    expect(
+      publishedCollisions(
+        [
+          { ...t18, pack_id: "qp_edm_wirecut", version: 1 },
+          { ...t17, version: 3 },
+        ],
+        published,
+      ),
     ).toEqual(["qp_edm_wirecut@1"]);
   });
 });

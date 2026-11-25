@@ -151,9 +151,22 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
 ];
 
 const LATEST = new Map<string, PackRecord>();
+const ALL_VERSIONS = new Map<string, PackRecord[]>();
 for (const pack of loadQuestionPackCorpus().packs) {
   const held = LATEST.get(pack.pack_id);
   if (!held || pack.version > held.version) LATEST.set(pack.pack_id, pack);
+  ALL_VERSIONS.set(pack.pack_id, [...(ALL_VERSIONS.get(pack.pack_id) ?? []), pack]);
+}
+
+/**
+ * Every corpus version of a pack, oldest first. A stored answer keys on (pack_id, question_key),
+ * never on the version, so an answer a worker gave on v1 stays his after v2 is the active form;
+ * a table row that reads such an answer is valid while ANY version offers its value (#3008 §4).
+ */
+export function allPackVersions(packId: string): readonly PackRecord[] {
+  const packs = ALL_VERSIONS.get(packId);
+  if (!packs) throw new Error(`${packId} is not in the corpus`);
+  return [...packs].sort((a, b) => a.version - b.version);
 }
 
 /** The latest corpus version of a pack, as authored (raw option values intact). */

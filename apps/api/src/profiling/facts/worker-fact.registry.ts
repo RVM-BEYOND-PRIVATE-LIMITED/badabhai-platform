@@ -340,6 +340,18 @@ export const NOT_A_WORKER_FACT: Readonly<Record<string, string>> = {
   education_field: "the trade or stream of a credential (an ITI's 'Machinist'), not its level",
   // Pack question keys.
   city_knowledge: "a driver knowing a city's roads — not where the worker lives or wants to work",
+  // CEO pack v2, Wave 1 (#3008). Trade capability chips, not the worker's papers
+  // (`documents_ready`) or the engagement he wants (`job_type`).
+  edm_job_type: "the kind of part an EDM operator cuts (punch and die, mould insert) — capability",
+  npd_documents_owned:
+    "engineering documents an NPD engineer authors (APQP plan, FMEA) — capability",
+  ppc_documents: "planning reports a PPC engineer prepares (plan vs actual, DPR) — capability",
+  proc_documents_owned: "process documents a process engineer authors (PFD, PFMEA) — capability",
+  prod_documents_owned:
+    "production documents a production engineer fills (DPR, OEE sheet) — capability",
+  purchase_documents: "purchase documents a buyer prepares (RFQ, purchase order) — capability",
+  qe_documents:
+    "quality documents a quality engineer maintains (check sheet, PPAP file) — capability",
 };
 
 /** The page types a trade form serves as markers rather than questions. */

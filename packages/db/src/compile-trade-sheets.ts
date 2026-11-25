@@ -7,6 +7,8 @@
  *
  *   pnpm db:compile:sheets          # dry run: parse 44 sheets, print the diff, write nothing
  *   pnpm db:compile:sheets --write  # write one file per form into data/question-packs/packs/
+ *   pnpm db:compile:sheets --write --forms qp_cmm,qp_ppc
+ *                                   # write only the named forms (a wave loads a subset, #3008)
  *
  * FIELD MAPPING (the contract, spelled once so the test can hold it):
  *   tier advanced -> min_tier "hard"; easy and medium unchanged.
@@ -77,6 +79,13 @@ export interface SheetFormOverride {
   scope: string;
   budget: string;
   reviewNote: string;
+  /**
+   * Reviewed prompt rewrites, sheet question key -> the served wording. Only for a sheet
+   * line a ruling replaced (T45 `prodsup_incharge_confirm`, #2995 point 1). `sheetAsks`
+   * pins the sheet text it replaces, so a pack edit to that line fails the build instead
+   * of being silently overridden.
+   */
+  promptOverrides?: Record<string, { sheetAsks: string; asks: string; ruling: string }>;
   /**
    * Reviewed option keys for NUMBER bands only: question key -> stored value ->
    * option key. Slug values use themselves; the escape chip uses "unknown".
@@ -425,6 +434,25 @@ export function compileSheet(sheet: TradeSheet, overrides: SheetOverrides): Pack
       );
     }
   }
+  const prompts = ov.promptOverrides ?? {};
+  for (const [from, po] of Object.entries(prompts)) {
+    const q = sheet.questions.find((sq) => sq.key === from);
+    if (!q) {
+      throw new Error(
+        `${SCRIPT}: sheet ${sheet.code}: prompt override ${from} is not a question on the sheet`,
+      );
+    }
+    if (q.asks !== po.sheetAsks) {
+      throw new Error(
+        `${SCRIPT}: sheet ${sheet.code}: prompt override ${from} pins ${JSON.stringify(po.sheetAsks)} but the sheet now asks ${JSON.stringify(q.asks)}`,
+      );
+    }
+    if (po.asks.trim() === "" || po.ruling.trim() === "") {
+      throw new Error(
+        `${SCRIPT}: sheet ${sheet.code}: prompt override ${from} needs asks and ruling text`,
+      );
+    }
+  }
   const questions = sheet.questions;
   if (questions.length === 0)
     throw new Error(`${SCRIPT}: sheet ${sheet.code} carries no questions`);
@@ -529,7 +557,7 @@ export function compileSheet(sheet: TradeSheet, overrides: SheetOverrides): Pack
     const item: PackItemRecord = {
       question_key: key,
       min_tier: MIN_TIER[q.tier] as PackItemRecord["min_tier"],
-      prompt_text: q.asks,
+      prompt_text: prompts[q.key]?.asks ?? q.asks,
       why_text: q.reason,
       target_kind: "attribute",
       target_field: key,
@@ -727,10 +755,30 @@ export interface CompileResult {
   questions: number;
 }
 
-export function dryRun(packPath: string, overridesPath: string, packsDir: string): CompileResult {
+/**
+ * Keep only the named forms. Every sheet is still parsed and compiled first, so a broken
+ * sheet outside the subset fails the run exactly as a full compile would.
+ */
+export function selectForms(packs: PackRecord[], only: readonly string[] | null): PackRecord[] {
+  if (only === null) return packs;
+  const known = new Set(packs.map((p) => p.pack_id));
+  const unknown = only.filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    throw new Error(`${SCRIPT}: --forms names no compiled form: ${unknown.join(", ")}`);
+  }
+  const keep = new Set(only);
+  return packs.filter((p) => keep.has(p.pack_id));
+}
+
+export function dryRun(
+  packPath: string,
+  overridesPath: string,
+  packsDir: string,
+  only: readonly string[] | null = null,
+): CompileResult {
   const packText = readFileSync(packPath, "utf8");
   const overrides = loadSheetOverrides(overridesPath);
-  const packs = compileAllSheets(packText, overrides);
+  const packs = selectForms(compileAllSheets(packText, overrides), only);
   const diffs = diffAgainstPacks(packs, packsDir);
   const questions = packs.reduce((n, p) => n + (p.items?.length ?? 0), 0);
   return { packs, diffs, questions };
@@ -750,6 +798,19 @@ function printDryRun(result: CompileResult): void {
 function main(): number {
   const args = process.argv.slice(2);
   const write = args.includes("--write");
+  const formsAt = args.indexOf("--forms");
+  let only: string[] | null = null;
+  if (formsAt !== -1) {
+    const list = args[formsAt + 1];
+    if (list === undefined || list.startsWith("--")) {
+      console.error(`[${SCRIPT}] FAILED: --forms needs a comma-separated list of form ids`);
+      return 1;
+    }
+    only = list
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s !== "");
+  }
   const here = __dirname;
   const packPath = join(here, PACK_REL);
   const overridesPath = join(here, OVERRIDES_REL);
@@ -758,7 +819,7 @@ function main(): number {
 
   let result: CompileResult;
   try {
-    result = dryRun(packPath, overridesPath, packsDir);
+    result = dryRun(packPath, overridesPath, packsDir, only);
   } catch (err) {
     console.error(`[${SCRIPT}] FAILED: ${(err as Error).message}`);
     return 1;

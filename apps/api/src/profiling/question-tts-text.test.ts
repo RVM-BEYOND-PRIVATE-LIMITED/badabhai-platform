@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { CONSTANT_REPLIES, normalizeReplyText } from "./reply-closure";
+import { packFromCorpus, PACK_DIR } from "./form/corpus-pack.test-support";
+import { CONSTANT_REPLIES, normalizeReplyText, replyClosure } from "./reply-closure";
 import {
   DEVANAGARI_RE,
   TTS_CONSTANT_SOURCES,
@@ -65,14 +66,62 @@ describe("question-tts-text — coverage of the reply closure's constants", () =
  * hears mispronounced, so the interesting number is not "how much is covered" but "which ones are
  * not" — hence the failure message lists them.
  */
+/**
+ * NOT YET VOICE READY: the CEO pack v2 forms compiled for Wave 1 (#3008). Their wording waits for a
+ * practising worker's sign-off (#3029) before any Devanagari twin is written, and #3018 adds the
+ * per-form `voiceReady` flag that keeps a voice session off them meanwhile. Until #3018 replaces
+ * this list with that flag, a clip is exempt ONLY when no other form in the corpus can say it —
+ * every string a live or older form serves is still held to a twin.
+ */
+const NOT_YET_VOICE_READY = new Set([
+  "qp_edm_wirecut@2",
+  "qp_cnc_router",
+  "qp_heat_treatment@2",
+  "qp_injection_moulding@2",
+  "qp_cmm",
+  "qp_quality_engineer",
+  "qp_plc_automation@2",
+  "qp_maintenance_engineer",
+  "qp_production_supervisor@2",
+  "qp_production_engineer",
+  "qp_process_engineer",
+  "qp_npd_engineer",
+  "qp_ppc",
+  "qp_purchase",
+  "qp_cad_design_3d@2",
+]);
+const CORPUS_FILES = readdirSync(PACK_DIR)
+  .filter((f) => f.endsWith(".json"))
+  .map((f) => f.slice(0, -".json".length));
+const VOICE_HELD_ONLY: ReadonlySet<string> = (() => {
+  const elsewhere = new Set(
+    replyClosure(CORPUS_FILES.filter((f) => !NOT_YET_VOICE_READY.has(f)).map(packFromCorpus)).map(
+      (c) => c.id,
+    ),
+  );
+  return new Set(
+    replyClosure([...NOT_YET_VOICE_READY].map(packFromCorpus))
+      .map((c) => c.id)
+      .filter((id) => !elsewhere.has(id)),
+  );
+})();
+const VOICE_CLIPS = CLOSURE.clips.filter((c) => !VOICE_HELD_ONLY.has(c.id));
+
 describe("question-tts-text — coverage of the reply closure", () => {
+  it("holds back only clips the Wave 1 forms alone can say, and every one is in the closure", () => {
+    const closureIds = new Set(CLOSURE.clips.map((c) => c.id));
+    expect(VOICE_HELD_ONLY.size).toBeGreaterThan(0);
+    for (const id of VOICE_HELD_ONLY) expect(closureIds.has(id), id).toBe(true);
+    expect(VOICE_CLIPS.length).toBeGreaterThan(1500);
+  });
+
   it("covers EVERY clip: constants, prompts, retries, why-texts and composed clarifies", () => {
-    const missing = CLOSURE.clips
+    const missing = VOICE_CLIPS
       .filter((c) => ttsTextFor(c.text) === undefined)
       .map((c) => `${c.producer}: ${c.text}`);
     expect(
       missing,
-      `${missing.length} of ${CLOSURE.clips.length} clips have no Devanagari twin:\n  ${missing.join("\n  ")}`,
+      `${missing.length} of ${VOICE_CLIPS.length} clips have no Devanagari twin:\n  ${missing.join("\n  ")}`,
     ).toEqual([]);
   });
 
@@ -81,7 +130,7 @@ describe("question-tts-text — coverage of the reply closure", () => {
     // the authored table. If one ever needs a hand-written entry, the join rule has changed and
     // `composeClarify` is what should be fixed.
     const authored = new Set(TTS_TEXT_ENTRIES.map(([roman]) => normalizeReplyText(roman)));
-    const clarifies = CLOSURE.clips.filter((c) => c.producer === "clarify");
+    const clarifies = VOICE_CLIPS.filter((c) => c.producer === "clarify");
     expect(clarifies.length).toBeGreaterThan(0);
     for (const clip of clarifies) {
       expect(authored.has(normalizeReplyText(clip.text)), `authored by hand: ${clip.text}`).toBe(

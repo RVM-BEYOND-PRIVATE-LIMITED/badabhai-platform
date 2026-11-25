@@ -1267,10 +1267,10 @@ describe("Batch 2 part two — press / machine operator", () => {
     expect(familyFor("setter drop forging machine")).toBe("fam_foundry_forging");
     // "Puncher, Metal" punches boiler frames; it stays with its unit.
     expect(familyFor("puncher metal")).toBe("fam_plumbing");
-    // SUPERVISORY, and unbound on purpose. They reach the universal pack today because no family
-    // binds 3122 — a pre-existing hole this change neither makes nor widens.
-    expect(familyFor("press shop supervisor")).toBe("fam_universal");
-    expect(familyFor("press shop shift in charge")).toBe("fam_universal");
+    // SUPERVISORY. The press shop supervisor's code is one CEO pack v2 section 13.1 lists under
+    // T45 Production Supervisor, so Wave 1 (#3008) binds it there; it never reaches the press form.
+    expect(familyFor("press shop supervisor")).toBe("fam_production_supervisor");
+    expect(familyFor("press shop shift in charge")).toBe("fam_production_supervisor");
     expect(familyFor("extrusion press operator")).toBe("fam_metal_processing");
     expect(familyFor("pressing machine operator")).toBe("fam_assemblers_other");
     // "press brake" is the sheet metal worker's, and the press binding takes none of it.
@@ -1590,9 +1590,10 @@ describe("Batch 2 part two — quality inspection", () => {
     // 2. THE TRADE'S OTHER TITLES LAND ON UNBOUND CODES. "quality control inspector" is the
     //    published title of 3139.5001, whose description is generic ("manufactured products"), not
     //    metal — so it is not bound without a ruling, and the phrase keeps the universal pack.
-    //    "quality engineer" is 2152.0601, a medical-devices professional. Both are gaps.
+    //    "quality engineer" is 2152.0601, which CEO pack v2 section 13.1 lists under T37 Quality
+    //    Engineer: Wave 1 (#3008) binds it to that trade's own family, never to this one.
     expect(familyFor("quality control inspector")).toBe("fam_universal");
-    expect(familyFor("quality engineer")).toBe("fam_universal");
+    expect(familyFor("quality engineer")).toBe("fam_quality_engineer");
     // 3. BARE "quality" IS RATIFIED ON THE METAL CODE (item 10), so "quality manager" reaches this
     //    family. NOT in the 2026-09-24 guard ruling — left as an accepted imprecision.
     expect(familyFor("quality manager")).toBe("fam_quality_inspection");
@@ -1849,8 +1850,9 @@ describe("Batch 2 part two — maintenance technician", () => {
       "mechanic dairy maintenance": "fam_fitting",
       // Alignment is on the fitter's page too, so it stays generic for either.
       "fitter levelling alignment and balancing": "fam_fitting",
-      // Supervisory.
-      "manager maintenance mechanical and electrical": "fam_universal",
+      // Supervisory: CEO pack v2 section 13.1 lists 3115.0501 under T43 Maintenance Engineer, so
+      // Wave 1 (#3008) binds it to that trade's family, not to this technician form.
+      "manager maintenance mechanical and electrical": "fam_maintenance_engineer",
     };
     const got = Object.fromEntries(Object.keys(stays).map((p) => [p, familyFor(p)]));
     expect(got).toEqual(stays);
@@ -2081,12 +2083,15 @@ describe("Phase 2 #8 — heat treatment, a new family on four 8121 codes (CEO La
       .sort();
   };
 
-  it("binds exactly the four codes", () => {
+  it("binds exactly the four codes, plus the two CEO pack v2 adds (Wave 1, #3008)", () => {
     const codes = corpus.bindings
       .filter((b) => b.family_id === "fam_heat_treatment")
       .map((b) => b.job_domain_id)
       .sort();
     expect(codes).toEqual([
+      // Pack v2 section 13.1, T27: the metallurgist and the heat-treatment technician titles.
+      "jd_nco_2146_0501",
+      "jd_nco_3135_3001",
       "jd_nco_8121_3701",
       "jd_nco_8121_4700",
       "jd_nco_8121_4800",
@@ -2147,7 +2152,7 @@ describe("Phase 2 #10 — production supervisor, a new family on the cross-trade
       .sort();
   };
 
-  it("binds exactly the four cross-trade supervisor codes (owner ruling 2026-11-04)", () => {
+  it("binds the four cross-trade supervisor codes (owner ruling 2026-11-04) and pack v2's list (#3008)", () => {
     const codes = corpus.bindings
       .filter((b) => b.family_id === "fam_production_supervisor")
       .map((b) => b.job_domain_id);
@@ -2156,6 +2161,26 @@ describe("Phase 2 #10 — production supervisor, a new family on the cross-trade
       "jd_nco_3122_1900",
       "jd_nco_3122_0601",
       "jd_nco_3122_6503",
+      // CEO pack v2 section 13.1, T45 (Akshit, 23 Nov 2026), loaded by Wave 1 (#3008). The four
+      // casting and forging supervisor codes the pack also lists (3122.4401/4402/4501/4502) stay
+      // with those trades (#2995 point 4 default), so they are not here.
+      "jd_nco_3122_0400",
+      "jd_nco_3122_0500",
+      "jd_nco_3122_2000",
+      "jd_nco_3122_2100",
+      "jd_nco_3122_2200",
+      "jd_nco_3122_2300",
+      "jd_nco_3122_4200",
+      "jd_nco_3122_4300",
+      "jd_nco_3122_4601",
+      "jd_nco_3122_4602",
+      "jd_nco_3122_4702",
+      "jd_nco_3122_5000",
+      "jd_nco_3122_5200",
+      "jd_nco_3123_0600",
+      "jd_nco_3123_0700",
+      "jd_nco_3139_2001",
+      "jd_nco_7223_0502",
     ]);
   });
 
@@ -2188,15 +2213,24 @@ describe("Phase 2 #10 — production supervisor, a new family on the cross-trade
   it("routes bare 'supervisor' nowhere, and leaves the trade supervisors where they were", () => {
     // A3: bare supervisor is every trade's top rung; the interview asks the department first.
     expect(familyFor("supervisor")).toBeNull();
-    // Sheet 23: a trade supervisor keeps his trade — these codes are untouched by this change.
-    for (const phrase of [
-      "Press Shop Supervisor",
-      "Welding Supervisor",
-      "Plastic Moulding Shop Supervisor",
-      "Forging Shop Supervisor",
-    ]) {
-      expect(familyFor(phrase), phrase).not.toBe("fam_production_supervisor");
-    }
+    // Sheet 23 kept a trade supervisor with his trade. CEO pack v2 (Akshit, 23 Nov 2026) is the
+    // later ruling: section 13.1 lists the press, welding and plastic-moulding shop supervisor
+    // codes under T45, so Wave 1 (#3008) binds them here. The forging and casting shop
+    // supervisors stay with those trades (#2995 point 4 default: T26 and T24, #3009).
+    const got = Object.fromEntries(
+      [
+        "Press Shop Supervisor",
+        "Welding Supervisor",
+        "Plastic Moulding Shop Supervisor",
+        "Forging Shop Supervisor",
+      ].map((phrase) => [phrase, familyFor(phrase)]),
+    );
+    expect(got).toEqual({
+      "Press Shop Supervisor": "fam_production_supervisor",
+      "Welding Supervisor": "fam_production_supervisor",
+      "Plastic Moulding Shop Supervisor": "fam_production_supervisor",
+      "Forging Shop Supervisor": "fam_foundry_forging",
+    });
   });
 });
 

@@ -1,0 +1,1262 @@
+{
+  "_why": "Role track for NPD / Development Engineer (T48), new trade (CEO pack v2). fam_npd_engineer binds NCO 1223.0101, 2144.0402 and 3115.0101.",
+  "_scope": "Production and Engineering desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T48 (NPD / Development Engineer). Status: NEW",
+  "pack_id": "qp_npd_engineer",
+  "version": 1,
+  "family_id": "fam_npd_engineer",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T48): new trade.",
+  "items": [
+    {
+      "question_key": "npd_experience",
+      "min_tier": "easy",
+      "prompt_text": "NPD ya development ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "npd_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal NPD ya development ka kaam kiya hai?"
+    },
+    {
+      "question_key": "npd_level",
+      "min_tier": "easy",
+      "prompt_text": "NPD department me aapki post kya hai?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "npd_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "GET / DET / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "engineer",
+          "label_text": "Engineer",
+          "value_text": "engineer"
+        },
+        {
+          "option_key": "senior_engineer",
+          "label_text": "Senior Engineer",
+          "value_text": "senior_engineer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Asst. Manager / Section head",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Manager / HOD",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "NPD department me trainee, engineer ya senior engineer hain?"
+    },
+    {
+      "question_key": "npd_senior_engineer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naya part RFQ se PPAP tak aap akele nikaal lete hain?",
+      "why_text": "Part akele develop karne wale senior engineer ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "npd_senior_engineer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele nikaal leta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior ke saath karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "npd_level"
+        },
+        "right": {
+          "const": [
+            "senior_engineer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "npd_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Customer ko project ki timeline aap khud commit karte hain?",
+      "why_text": "Customer ko jawab dene wale section head ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "npd_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, main commit karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, mere senior karte hain",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "npd_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "npd_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Aapke under kitne engineer hain aur saal me kitne naye part develop hote hain?",
+      "why_text": "Poora NPD sambhalne wale HOD ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "npd_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "npd_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "npd_function",
+      "min_tier": "medium",
+      "prompt_text": "NPD me aapka main kaam kya hai?",
+      "why_text": "Kaam ke hisaab se sahi post dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "npd_function",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "rfq_costing",
+          "label_text": "RFQ feasibility aur costing",
+          "value_text": "rfq_costing"
+        },
+        {
+          "option_key": "apqp_timing",
+          "label_text": "APQP timing plan ka follow-up",
+          "value_text": "apqp_timing"
+        },
+        {
+          "option_key": "tooling_development",
+          "label_text": "Tooling, die ya mould development",
+          "value_text": "tooling_development"
+        },
+        {
+          "option_key": "gauge_fixture_development",
+          "label_text": "Gauge aur fixture development",
+          "value_text": "gauge_fixture_development"
+        },
+        {
+          "option_key": "sample_prototype",
+          "label_text": "Sample ya prototype banwana",
+          "value_text": "sample_prototype"
+        },
+        {
+          "option_key": "ppap_submission",
+          "label_text": "PPAP document aur submission",
+          "value_text": "ppap_submission"
+        },
+        {
+          "option_key": "customer_communication",
+          "label_text": "Customer se technical baat",
+          "value_text": "customer_communication"
+        },
+        {
+          "option_key": "testing_validation",
+          "label_text": "Testing aur validation",
+          "value_text": "testing_validation"
+        },
+        {
+          "option_key": "vendor_part_development",
+          "label_text": "BOP ya vendor part development",
+          "value_text": "vendor_part_development"
+        }
+      ]
+    },
+    {
+      "question_key": "npd_part_process",
+      "min_tier": "medium",
+      "prompt_text": "Aap kis tarah ke part develop karte hain?",
+      "why_text": "Part ke hisaab se sahi company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "npd_part_process",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "machined",
+          "label_text": "Machined parts",
+          "value_text": "machined"
+        },
+        {
+          "option_key": "sheet_metal",
+          "label_text": "Sheet metal ya press parts",
+          "value_text": "sheet_metal"
+        },
+        {
+          "option_key": "plastic",
+          "label_text": "Plastic moulded parts",
+          "value_text": "plastic"
+        },
+        {
+          "option_key": "casting",
+          "label_text": "Casting ya die casting parts",
+          "value_text": "casting"
+        },
+        {
+          "option_key": "forging",
+          "label_text": "Forged parts",
+          "value_text": "forging"
+        },
+        {
+          "option_key": "rubber",
+          "label_text": "Rubber parts",
+          "value_text": "rubber"
+        },
+        {
+          "option_key": "weld_assembly",
+          "label_text": "Welded ya fabricated assembly",
+          "value_text": "weld_assembly"
+        },
+        {
+          "option_key": "electrical",
+          "label_text": "Electrical parts ya wiring harness",
+          "value_text": "electrical"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur part",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "npd_documents_owned",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse document aap khud banate hain?",
+      "why_text": "Document khud banane wale engineer ko senior kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "npd_documents_owned",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "apqp_plan",
+          "label_text": "APQP timing plan",
+          "value_text": "apqp_plan"
+        },
+        {
+          "option_key": "feasibility_report",
+          "label_text": "Feasibility report (TFC)",
+          "value_text": "feasibility_report"
+        },
+        {
+          "option_key": "fmea",
+          "label_text": "DFMEA ya PFMEA",
+          "value_text": "fmea"
+        },
+        {
+          "option_key": "control_plan",
+          "label_text": "Control plan",
+          "value_text": "control_plan"
+        },
+        {
+          "option_key": "psw",
+          "label_text": "PSW (part submission warrant)",
+          "value_text": "psw"
+        },
+        {
+          "option_key": "ecn",
+          "label_text": "ECN ya drawing change record",
+          "value_text": "ecn"
+        },
+        {
+          "option_key": "bom",
+          "label_text": "BOM",
+          "value_text": "bom"
+        },
+        {
+          "option_key": "cost_sheet",
+          "label_text": "Cost sheet ya quotation",
+          "value_text": "cost_sheet"
+        }
+      ]
+    },
+    {
+      "question_key": "npd_software",
+      "min_tier": "medium",
+      "prompt_text": "Kaam me aap kaunsa software chalate hain?",
+      "why_text": "Software jaanne wale engineer ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "npd_software",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "autocad",
+          "label_text": "AutoCAD",
+          "value_text": "autocad"
+        },
+        {
+          "option_key": "solidworks",
+          "label_text": "SolidWorks",
+          "value_text": "solidworks"
+        },
+        {
+          "option_key": "catia",
+          "label_text": "CATIA",
+          "value_text": "catia"
+        },
+        {
+          "option_key": "nx",
+          "label_text": "NX / Unigraphics",
+          "value_text": "nx"
+        },
+        {
+          "option_key": "creo",
+          "label_text": "Creo",
+          "value_text": "creo"
+        },
+        {
+          "option_key": "sap",
+          "label_text": "SAP (BOM, material master)",
+          "value_text": "sap"
+        },
+        {
+          "option_key": "excel",
+          "label_text": "MS Excel",
+          "value_text": "excel"
+        },
+        {
+          "option_key": "ms_project",
+          "label_text": "MS Project",
+          "value_text": "ms_project"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap customer ki drawing padh lete hain?",
+      "why_text": "Customer ki drawing samajhna NPD ka pehla kaam hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "npd_customer_served",
+      "min_tier": "hard",
+      "prompt_text": "Aapne kis customer ke part develop kiye hain?",
+      "why_text": "Customer ka system jaanne wale engineer ko uske vendor jaldi lete hain.",
+      "target_kind": "attribute",
+      "target_field": "npd_customer_served",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "maruti",
+          "label_text": "Maruti Suzuki",
+          "value_text": "maruti"
+        },
+        {
+          "option_key": "hero",
+          "label_text": "Hero MotoCorp",
+          "value_text": "hero"
+        },
+        {
+          "option_key": "honda",
+          "label_text": "Honda (HMSI / Honda Cars)",
+          "value_text": "honda"
+        },
+        {
+          "option_key": "tata",
+          "label_text": "Tata Motors",
+          "value_text": "tata"
+        },
+        {
+          "option_key": "mahindra",
+          "label_text": "Mahindra",
+          "value_text": "mahindra"
+        },
+        {
+          "option_key": "bajaj_tvs",
+          "label_text": "Bajaj ya TVS",
+          "value_text": "bajaj_tvs"
+        },
+        {
+          "option_key": "jcb",
+          "label_text": "JCB",
+          "value_text": "jcb"
+        },
+        {
+          "option_key": "export",
+          "label_text": "Export customer",
+          "value_text": "export"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "npd_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "npd_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Aapke part kis industry me lagte hain?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile (car, commercial vehicle)",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Home appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electronics / EMS",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Tractor aur agri equipment",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "construction_equipment",
+          "label_text": "Construction equipment",
+          "value_text": "construction_equipment"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence ya aerospace",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "npd_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "npd_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "npd_projects_handled",
+      "min_tier": "hard",
+      "prompt_text": "Ek saal me aap kitne naye part develop karte hain?",
+      "why_text": "Part ki ginti se aapke kaam ka size pata chalta hai.",
+      "target_kind": "attribute",
+      "target_field": "npd_projects_handled",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_five",
+          "label_text": "5 tak",
+          "value_text": "5"
+        },
+        {
+          "option_key": "upto_fifteen",
+          "label_text": "6 se 15",
+          "value_text": "15"
+        },
+        {
+          "option_key": "upto_thirty",
+          "label_text": "16 se 30",
+          "value_text": "30"
+        },
+        {
+          "option_key": "upto_fifty",
+          "label_text": "30 se zyada",
+          "value_text": "50"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "npd_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "npd_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "npd_trial_work",
+      "min_tier": "hard",
+      "prompt_text": "Tooling trial me aap khud kya karte hain?",
+      "why_text": "Trial sambhalne wale engineer par tool room aur customer dono bharosa karte hain.",
+      "target_kind": "attribute",
+      "target_field": "npd_trial_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "tool_trial",
+          "label_text": "T0 / T1 trial attend karna",
+          "value_text": "tool_trial"
+        },
+        {
+          "option_key": "trial_report",
+          "label_text": "Trial report aur correction list banana",
+          "value_text": "trial_report"
+        },
+        {
+          "option_key": "layout_inspection",
+          "label_text": "Sample ka layout inspection karwana",
+          "value_text": "layout_inspection"
+        },
+        {
+          "option_key": "tool_correction",
+          "label_text": "Tool room ya vendor se correction karwana",
+          "value_text": "tool_correction"
+        },
+        {
+          "option_key": "pilot_lot",
+          "label_text": "Pilot lot chalwana",
+          "value_text": "pilot_lot"
+        },
+        {
+          "option_key": "production_handover",
+          "label_text": "Production ko handover dena",
+          "value_text": "production_handover"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "npd_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "npd_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "npd_costing_work",
+      "min_tier": "hard",
+      "prompt_text": "Naye part ki costing me aap kitna kaam karte hain?",
+      "why_text": "Costing jaanne wale NPD engineer ko alag se dhoondha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "npd_costing_work",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Costing nahi karta",
+          "value_text": "none"
+        },
+        {
+          "option_key": "rm_cost",
+          "label_text": "Raw material ka weight aur cost nikalta hoon",
+          "value_text": "rm_cost"
+        },
+        {
+          "option_key": "full_cost_sheet",
+          "label_text": "Poori cost sheet (RM, process, tooling) banata hoon",
+          "value_text": "full_cost_sheet"
+        },
+        {
+          "option_key": "price_negotiation",
+          "label_text": "Customer se price negotiation bhi karta hoon",
+          "value_text": "price_negotiation"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "npd_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "npd_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "npd_tooling_source",
+      "min_tier": "hard",
+      "prompt_text": "Tooling aur gauge aap kahaan se banwate hain?",
+      "why_text": "Vendor se tooling banwana alag tajurba maana jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "npd_tooling_source",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "inhouse_tool_room",
+          "label_text": "In-house tool room",
+          "value_text": "inhouse_tool_room"
+        },
+        {
+          "option_key": "local_vendor",
+          "label_text": "Local tool room vendor",
+          "value_text": "local_vendor"
+        },
+        {
+          "option_key": "import_tooling",
+          "label_text": "China, Taiwan ya Korea se import",
+          "value_text": "import_tooling"
+        },
+        {
+          "option_key": "customer_supplied",
+          "label_text": "Customer ka diya hua tool",
+          "value_text": "customer_supplied"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Tooling ka kaam main nahi dekhta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "npd_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "npd_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "npd_ppap_work",
+      "min_tier": "hard",
+      "prompt_text": "PPAP me kaunsa kaam aap khud karte hain?",
+      "why_text": "PPAP khud pass karwane wale engineer ki maang har vendor ke yahan hai.",
+      "target_kind": "attribute",
+      "target_field": "npd_ppap_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "dimensional_report",
+          "label_text": "Dimensional layout report",
+          "value_text": "dimensional_report"
+        },
+        {
+          "option_key": "test_reports",
+          "label_text": "Material aur performance test report",
+          "value_text": "test_reports"
+        },
+        {
+          "option_key": "msa",
+          "label_text": "MSA ya gauge R&R",
+          "value_text": "msa"
+        },
+        {
+          "option_key": "process_capability",
+          "label_text": "Initial process study (Cp, Cpk)",
+          "value_text": "process_capability"
+        },
+        {
+          "option_key": "pfmea_control_plan",
+          "label_text": "PFD, PFMEA aur control plan",
+          "value_text": "pfmea_control_plan"
+        },
+        {
+          "option_key": "psw_approval",
+          "label_text": "PSW par customer ka approval lena",
+          "value_text": "psw_approval"
+        },
+        {
+          "option_key": "imds",
+          "label_text": "IMDS entry",
+          "value_text": "imds"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "npd_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "npd_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "npd_validation_tests",
+      "min_tier": "hard",
+      "prompt_text": "Naye part par kaunse test aap karwate hain?",
+      "why_text": "Validation karwane wale engineer ko R&D ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "npd_validation_tests",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "endurance",
+          "label_text": "Endurance ya durability test",
+          "value_text": "endurance"
+        },
+        {
+          "option_key": "salt_spray",
+          "label_text": "Salt spray test",
+          "value_text": "salt_spray"
+        },
+        {
+          "option_key": "leak_test",
+          "label_text": "Leak test",
+          "value_text": "leak_test"
+        },
+        {
+          "option_key": "cmm_dimensional",
+          "label_text": "CMM se dimensional check",
+          "value_text": "cmm_dimensional"
+        },
+        {
+          "option_key": "material_test",
+          "label_text": "Hardness aur material test",
+          "value_text": "material_test"
+        },
+        {
+          "option_key": "fitment_trial",
+          "label_text": "Customer ke yahan fitment trial",
+          "value_text": "fitment_trial"
+        },
+        {
+          "option_key": "vibration",
+          "label_text": "Vibration test",
+          "value_text": "vibration"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "npd_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "npd_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Development me aayi kaunsi dikkat aap khud suljhaate hain?",
+      "why_text": "Dikkat suljhaa kar part time par dene wale engineer ki zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "dimension_out",
+          "label_text": "Trial me dimension out aana",
+          "value_text": "dimension_out"
+        },
+        {
+          "option_key": "tooling_delay",
+          "label_text": "Tooling late hona",
+          "value_text": "tooling_delay"
+        },
+        {
+          "option_key": "ecn_change",
+          "label_text": "Customer ka drawing change (ECN)",
+          "value_text": "ecn_change"
+        },
+        {
+          "option_key": "sample_rejection",
+          "label_text": "Sample reject hona",
+          "value_text": "sample_rejection"
+        },
+        {
+          "option_key": "cost_overrun",
+          "label_text": "Cost target se upar jaana",
+          "value_text": "cost_overrun"
+        },
+        {
+          "option_key": "vendor_part_failure",
+          "label_text": "Vendor ka part fail hona",
+          "value_text": "vendor_part_failure"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "npd_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "npd_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "npd_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapne kaunsi branch se padhai ki hai?",
+      "why_text": "Branch ke hisaab se company post tay karti hai.",
+      "target_kind": "attribute",
+      "target_field": "npd_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "production_engg",
+          "label_text": "Production ya Industrial engineering",
+          "value_text": "production_engg"
+        },
+        {
+          "option_key": "automobile_engg",
+          "label_text": "Automobile engineering",
+          "value_text": "automobile_engg"
+        },
+        {
+          "option_key": "plastics_cipet",
+          "label_text": "Plastics (CIPET)",
+          "value_text": "plastics_cipet"
+        },
+        {
+          "option_key": "electrical_engg",
+          "label_text": "Electrical ya Electronics",
+          "value_text": "electrical_engg"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad promote hua",
+          "value_text": "iti_promoted"
+        }
+      ]
+    },
+    {
+      "question_key": "npd_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke dauraan factory ka kaunsa kaam aapne dekha ya kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi employer dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "npd_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "College ka major project",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "student_competition",
+          "label_text": "SAE Baja ya Supra jaisi team",
+          "value_text": "student_competition"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "npd_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "npd_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}
