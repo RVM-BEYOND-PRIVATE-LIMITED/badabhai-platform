@@ -137,3 +137,35 @@ describe("trade catalogue", () => {
     }
   });
 });
+
+describe("claim question per trade (#3011)", () => {
+  const claimed = TRADE_CATALOGUE.filter((e) => e.claimQuestionKey !== undefined);
+
+  it("every recorded claim question has answer-skill rows, and each reaches exactly the base skill", () => {
+    expect(claimed.length).toBeGreaterThan(0);
+    for (const e of claimed) {
+      const rows = PACK_ANSWER_SKILLS[e.packId]?.[e.claimQuestionKey!];
+      expect(rows, `${e.code} ${e.packId}.${e.claimQuestionKey}`).toBeDefined();
+      for (const [option, ids] of Object.entries(rows ?? {})) {
+        const reached = new Set<string>();
+        for (const id of ids) {
+          if (isMatchSkillId(id)) reached.add(id);
+          else if (id.startsWith("role_")) {
+            const s = matchSkillForRole(id);
+            if (s) reached.add(s);
+          } else for (const s of matchSkillsForAttribute(id)) reached.add(s);
+        }
+        expect([...reached], `${e.code} ${e.claimQuestionKey}.${option}`).toEqual([e.matchSkillId]);
+      }
+    }
+  });
+
+  it("every Wave 1 trade records its claim question, except the foundry split still in #3009", () => {
+    // T24-T26 are re-cut by #3009 (qp_foundry_casting, qp_die_casting, qp_forging); their rows
+    // and claim keys land with or after it. Waves 2 and 3 record theirs in #3016 and #3017.
+    const pending = new Set(["T24", "T25", "T26"]);
+    for (const e of TRADE_CATALOGUE.filter((t) => t.wave === 1 && !pending.has(t.code))) {
+      expect(e.claimQuestionKey, `${e.code} claim question`).toBeDefined();
+    }
+  });
+});

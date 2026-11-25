@@ -62,9 +62,12 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
     expect(bypassing).toEqual([]);
   });
 
-  it("names exactly the eight pack-only skills the owner minted for #2022, plus the PLC trade", () => {
+  it("names exactly the eight pack-only skills the owner minted for #2022, the Phase 2 trades and Wave 1", () => {
     expect(packAnswerIdsEmitted().filter((id) => id.startsWith("mskill_"))).toEqual([
       "mskill_assembly_line_worker",
+      // #3011: the nine new Wave 1 trades of CEO pack v2 (minted by #3001), each pack-only.
+      "mskill_cmm_operator",
+      "mskill_cnc_router_operator",
       "mskill_conventional_machinist",
       // Phase 2 #7: the new EDM trade's own ID.
       "mskill_edm_wirecut_operator",
@@ -75,13 +78,22 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
       // Phase 2 #9: the new injection-moulding trade's own ID.
       "mskill_imm_operator",
       "mskill_industrial_electrician",
+      "mskill_maintenance_engineer",
       "mskill_maintenance_technician",
+      "mskill_npd_engineer",
       "mskill_painter_coater",
       // Phase 2 #6: the new PLC trade's own ID, pack-only like the #2022 mints.
       "mskill_plc_automation_tech",
+      "mskill_ppc_engineer",
       "mskill_press_operator",
+      "mskill_process_engineer",
+      "mskill_production_engineer",
       // Phase 2 #10: the new production supervisor's own ID.
       "mskill_production_supervisor",
+      "mskill_purchase_engineer",
+      "mskill_quality_engineer",
+      // #3011 §3: the PLC form's second-skill chip (robot programming).
+      "mskill_robot_operator_programmer",
       "mskill_sheet_metal_worker",
       "mskill_tool_die_maker",
     ]);
@@ -157,8 +169,9 @@ describe("the reachable set per pack — pinned exactly", () => {
     qp_press_operation: ["mskill_press_operator"],
     qp_powder_coating: ["mskill_painter_coater"],
     qp_maintenance_tech: ["mskill_maintenance_technician"],
-    // Phase 2 #6: a named PLC or a programming/HMI/drive task reaches the new trade.
-    qp_plc_automation: ["mskill_plc_automation_tech"],
+    // Phase 2 #6: a named PLC or a programming/HMI/drive task reaches the new trade; #3011 §3:
+    // the second-skill chip `plc_advanced_system` = `robot_programming` adds the robot skill.
+    qp_plc_automation: ["mskill_plc_automation_tech", "mskill_robot_operator_programmer"],
     // Phase 2 #7: a named EDM machine reaches the new trade.
     qp_edm_wirecut: ["mskill_edm_wirecut_operator"],
     // Phase 2 #8: a named heat-treatment process reaches the new trade.
@@ -171,6 +184,16 @@ describe("the reachable set per pack — pinned exactly", () => {
     qp_production_supervisor: ["mskill_production_supervisor"],
     qp_industrial_electrician: ["mskill_industrial_electrician"],
     qp_assembly_line: ["mskill_assembly_line_worker"],
+    // #3011: each new Wave 1 trade's claim question reaches its own skill and nothing else.
+    qp_cnc_router: ["mskill_cnc_router_operator"],
+    qp_cmm: ["mskill_cmm_operator"],
+    qp_quality_engineer: ["mskill_quality_engineer"],
+    qp_maintenance_engineer: ["mskill_maintenance_engineer"],
+    qp_production_engineer: ["mskill_production_engineer"],
+    qp_process_engineer: ["mskill_process_engineer"],
+    qp_npd_engineer: ["mskill_npd_engineer"],
+    qp_ppc: ["mskill_ppc_engineer"],
+    qp_purchase: ["mskill_purchase_engineer"],
   };
 
   it("pins every mapped pack", () => {
