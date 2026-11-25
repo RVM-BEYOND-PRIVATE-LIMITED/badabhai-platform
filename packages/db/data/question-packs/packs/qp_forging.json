@@ -1,0 +1,1183 @@
+{
+  "_why": "Role track for Forging Operator (T26), new trade out of the foundry split (CEO pack v2, #3009). fam_forging binds the 7221 forging codes.",
+  "_scope": "Casting, Forging and Surface Treatment shop-floor trade. The interview separates at setter; higher contact price from setter.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 3 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T26 (Forging Operator). Status: NEW (splits the live \"Foundry / Forging Operator\")",
+  "pack_id": "qp_forging",
+  "version": 1,
+  "family_id": "fam_forging",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T26): new form in the foundry split (#3009).",
+  "items": [
+    {
+      "question_key": "forging_experience",
+      "min_tier": "easy",
+      "prompt_text": "Forging ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "forging_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Forging ka kaam kiya hai?"
+    },
+    {
+      "question_key": "forging_level",
+      "min_tier": "easy",
+      "prompt_text": "Forging shop me aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "forging_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "setter",
+          "label_text": "Die Setter / Hammerman",
+          "value_text": "setter"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / Shift in-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Forging shop me helper, operator ya die setter hain?"
+    },
+    {
+      "question_key": "forging_setter_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Die lagana aur pehla piece nikaalna aap khud karte ho ya koi aur?",
+      "why_text": "Die khud lagane wale setter ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "forging_setter_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Koi aur karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "forging_level"
+        },
+        "right": {
+          "const": [
+            "setter"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "forging_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye die ka trial aur forging temperature aap khud tay karte ho?",
+      "why_text": "Trial khud nikaalne wale senior ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "forging_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud tay karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Supervisor ya engineer batata hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "forging_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "forging_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne hammer ya press aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "forging_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "forging_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "forging_machine",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi forging machine par kaam karte hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "forging_machine",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "drop_hammer",
+          "label_text": "Drop hammer",
+          "value_text": "drop_hammer"
+        },
+        {
+          "option_key": "power_hammer",
+          "label_text": "Pneumatic / power hammer",
+          "value_text": "power_hammer"
+        },
+        {
+          "option_key": "screw_press",
+          "label_text": "Friction screw press",
+          "value_text": "screw_press"
+        },
+        {
+          "option_key": "forging_press",
+          "label_text": "Mechanical forging press",
+          "value_text": "forging_press"
+        },
+        {
+          "option_key": "hydraulic_press",
+          "label_text": "Hydraulic press",
+          "value_text": "hydraulic_press"
+        },
+        {
+          "option_key": "upsetter",
+          "label_text": "Upsetter",
+          "value_text": "upsetter"
+        },
+        {
+          "option_key": "ring_rolling_mill",
+          "label_text": "Ring rolling machine",
+          "value_text": "ring_rolling_mill"
+        },
+        {
+          "option_key": "bolt_former",
+          "label_text": "Bolt former / header",
+          "value_text": "bolt_former"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur machine",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "forging_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi forging karte hain?",
+      "why_text": "Forging ke type se usi line ki company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "forging_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hot_closed_die",
+          "label_text": "Hot forging, closed die",
+          "value_text": "hot_closed_die"
+        },
+        {
+          "option_key": "open_die",
+          "label_text": "Open die forging",
+          "value_text": "open_die"
+        },
+        {
+          "option_key": "upset_forging",
+          "label_text": "Upset forging",
+          "value_text": "upset_forging"
+        },
+        {
+          "option_key": "ring_rolling",
+          "label_text": "Ring rolling",
+          "value_text": "ring_rolling"
+        },
+        {
+          "option_key": "warm_forging",
+          "label_text": "Warm forging",
+          "value_text": "warm_forging"
+        },
+        {
+          "option_key": "cold_forging",
+          "label_text": "Cold forging ya heading",
+          "value_text": "cold_forging"
+        }
+      ]
+    },
+    {
+      "question_key": "forging_heating",
+      "min_tier": "medium",
+      "prompt_text": "Billet kis furnace ya heater me garam hota hai?",
+      "why_text": "Heating ka tareeka jaanne wale ko usi line par kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "forging_heating",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "induction_heater",
+          "label_text": "Induction billet heater",
+          "value_text": "induction_heater"
+        },
+        {
+          "option_key": "oil_fired",
+          "label_text": "Oil fired furnace",
+          "value_text": "oil_fired"
+        },
+        {
+          "option_key": "gas_fired",
+          "label_text": "Gas fired furnace",
+          "value_text": "gas_fired"
+        },
+        {
+          "option_key": "no_heating",
+          "label_text": "Cold forging hai, heating nahi",
+          "value_text": "no_heating"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "forging_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Forging line par aap kaunsa kaam khud karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "forging_daily_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "billet_cutting",
+          "label_text": "Billet cutting",
+          "value_text": "billet_cutting"
+        },
+        {
+          "option_key": "billet_heating",
+          "label_text": "Furnace ya heater charge karna",
+          "value_text": "billet_heating"
+        },
+        {
+          "option_key": "forger",
+          "label_text": "Tongs se job pakadkar forging",
+          "value_text": "forger"
+        },
+        {
+          "option_key": "machine_driving",
+          "label_text": "Hammer ya press chalana",
+          "value_text": "machine_driving"
+        },
+        {
+          "option_key": "trimming",
+          "label_text": "Trimming aur piercing",
+          "value_text": "trimming"
+        },
+        {
+          "option_key": "coining",
+          "label_text": "Coining ya sizing",
+          "value_text": "coining"
+        },
+        {
+          "option_key": "die_lubrication",
+          "label_text": "Die par lubricant spray",
+          "value_text": "die_lubrication"
+        },
+        {
+          "option_key": "shot_blasting",
+          "label_text": "Shot blasting aur grinding",
+          "value_text": "shot_blasting"
+        }
+      ]
+    },
+    {
+      "question_key": "forging_capacity",
+      "min_tier": "hard",
+      "prompt_text": "Kitne ton ke hammer ya press par kaam kiya hai?",
+      "why_text": "Bade hammer aur press chalane wale kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "forging_capacity",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hammer_small",
+          "label_text": "Hammer 1 ton tak",
+          "value_text": "hammer_small"
+        },
+        {
+          "option_key": "hammer_medium",
+          "label_text": "Hammer 1 se 3 ton",
+          "value_text": "hammer_medium"
+        },
+        {
+          "option_key": "hammer_heavy",
+          "label_text": "Hammer 3 ton se zyada",
+          "value_text": "hammer_heavy"
+        },
+        {
+          "option_key": "press_small",
+          "label_text": "Press 1000 ton tak",
+          "value_text": "press_small"
+        },
+        {
+          "option_key": "press_medium",
+          "label_text": "Press 1000 se 2500 ton",
+          "value_text": "press_medium"
+        },
+        {
+          "option_key": "press_heavy",
+          "label_text": "Press 2500 ton se zyada",
+          "value_text": "press_heavy"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse material ki forging ki hai?",
+      "why_text": "Har material ka forging temperature alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mild_steel",
+          "label_text": "MS, low carbon steel",
+          "value_text": "mild_steel"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "EN8, EN19, EN24 steel",
+          "value_text": "alloy_steel"
+        },
+        {
+          "option_key": "case_hardening_steel",
+          "label_text": "20MnCr5, SAE 8620",
+          "value_text": "case_hardening_steel"
+        },
+        {
+          "option_key": "micro_alloy",
+          "label_text": "Micro-alloy steel",
+          "value_text": "micro_alloy"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "brass",
+          "label_text": "Brass",
+          "value_text": "brass"
+        }
+      ]
+    },
+    {
+      "question_key": "forging_part",
+      "min_tier": "hard",
+      "prompt_text": "Aap kaunse part ki forging karte hain?",
+      "why_text": "Part ke naam se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "forging_part",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "crankshaft",
+          "label_text": "Crankshaft",
+          "value_text": "crankshaft"
+        },
+        {
+          "option_key": "connecting_rod",
+          "label_text": "Connecting rod",
+          "value_text": "connecting_rod"
+        },
+        {
+          "option_key": "gear_blank",
+          "label_text": "Gear blank, bearing race, ring",
+          "value_text": "gear_blank"
+        },
+        {
+          "option_key": "flange",
+          "label_text": "Flange aur pipe fitting",
+          "value_text": "flange"
+        },
+        {
+          "option_key": "axle_shaft",
+          "label_text": "Axle, spindle, shaft",
+          "value_text": "axle_shaft"
+        },
+        {
+          "option_key": "hub_knuckle",
+          "label_text": "Hub, knuckle, yoke",
+          "value_text": "hub_knuckle"
+        },
+        {
+          "option_key": "fasteners",
+          "label_text": "Bolt, nut, fastener",
+          "value_text": "fasteners"
+        },
+        {
+          "option_key": "hand_tools",
+          "label_text": "Spanner, plier jaise hand tools",
+          "value_text": "hand_tools"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur part",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "forging_cold_heading",
+      "min_tier": "hard",
+      "prompt_text": "Cold forging me kaunsi machine chalayi hai?",
+      "why_text": "Fastener banane wali company cold forging ka tajurba dhoondhti hai.",
+      "target_kind": "attribute",
+      "target_field": "forging_cold_heading",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "header",
+          "label_text": "Header, 1 die 2 blow",
+          "value_text": "header"
+        },
+        {
+          "option_key": "multi_station",
+          "label_text": "Multi-station bolt former",
+          "value_text": "multi_station"
+        },
+        {
+          "option_key": "nut_former",
+          "label_text": "Nut former",
+          "value_text": "nut_former"
+        },
+        {
+          "option_key": "thread_rolling",
+          "label_text": "Thread rolling machine",
+          "value_text": "thread_rolling"
+        },
+        {
+          "option_key": "cold_press",
+          "label_text": "Cold forging press",
+          "value_text": "cold_press"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Cold forging nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "hard",
+      "prompt_text": "Forging check karne me kya use karte hain?",
+      "why_text": "Naap lene wale operator ko quality ka kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "steel_rule",
+          "label_text": "Steel rule",
+          "value_text": "steel_rule"
+        },
+        {
+          "option_key": "snap_gauge",
+          "label_text": "Snap gauge",
+          "value_text": "snap_gauge"
+        },
+        {
+          "option_key": "template_gauge",
+          "label_text": "Template ya profile gauge",
+          "value_text": "template_gauge"
+        },
+        {
+          "option_key": "height_gauge",
+          "label_text": "Height gauge",
+          "value_text": "height_gauge"
+        },
+        {
+          "option_key": "pyrometer",
+          "label_text": "Pyrometer se temperature",
+          "value_text": "pyrometer"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap forging drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "forging_setting_work",
+      "min_tier": "hard",
+      "prompt_text": "Die setting me aap kya kya karte hain?",
+      "why_text": "Setting karne wale ko operator se zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "forging_setting_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "die_clamping",
+          "label_text": "Die lagana aur clamp karna",
+          "value_text": "die_clamping"
+        },
+        {
+          "option_key": "die_matching",
+          "label_text": "Top aur bottom die match karna",
+          "value_text": "die_matching"
+        },
+        {
+          "option_key": "die_preheat",
+          "label_text": "Die preheating",
+          "value_text": "die_preheat"
+        },
+        {
+          "option_key": "shut_height",
+          "label_text": "Press ki shut height set karna",
+          "value_text": "shut_height"
+        },
+        {
+          "option_key": "trim_die",
+          "label_text": "Trimming die lagana",
+          "value_text": "trim_die"
+        },
+        {
+          "option_key": "ejector",
+          "label_text": "Ejector ya knock-out set karna",
+          "value_text": "ejector"
+        },
+        {
+          "option_key": "heater_setting",
+          "label_text": "Billet heater ka temperature set karna",
+          "value_text": "heater_setting"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "forging_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "forging_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Aapke forging parts kis industry me jaate hain?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Tractor aur agriculture",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "bearings",
+          "label_text": "Bearing",
+          "value_text": "bearings"
+        },
+        {
+          "option_key": "fasteners",
+          "label_text": "Fastener",
+          "value_text": "fasteners"
+        },
+        {
+          "option_key": "oil_gas",
+          "label_text": "Oil aur gas, flange",
+          "value_text": "oil_gas"
+        },
+        {
+          "option_key": "railways",
+          "label_text": "Railways",
+          "value_text": "railways"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "forging_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "forging_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Forging ka kaunsa defect aap khud sudhaar lete hain?",
+      "why_text": "Defect sudhaarne wale karigar ki shop par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "lap",
+          "label_text": "Lap ya fold",
+          "value_text": "lap"
+        },
+        {
+          "option_key": "underfill",
+          "label_text": "Underfill",
+          "value_text": "underfill"
+        },
+        {
+          "option_key": "mismatch",
+          "label_text": "Mismatch",
+          "value_text": "mismatch"
+        },
+        {
+          "option_key": "scale_pit",
+          "label_text": "Scale pit",
+          "value_text": "scale_pit"
+        },
+        {
+          "option_key": "crack",
+          "label_text": "Crack",
+          "value_text": "crack"
+        },
+        {
+          "option_key": "overheating",
+          "label_text": "Overheating ya burning",
+          "value_text": "overheating"
+        },
+        {
+          "option_key": "bend",
+          "label_text": "Bend ya warpage",
+          "value_text": "bend"
+        },
+        {
+          "option_key": "sticking",
+          "label_text": "Die me job chipakna",
+          "value_text": "sticking"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "forging_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "forging_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "forging_die_care",
+      "min_tier": "hard",
+      "prompt_text": "Die life badhane ke liye aap kya karte hain?",
+      "why_text": "Die life badhane wale karigar se company ka kharcha bachta hai.",
+      "target_kind": "attribute",
+      "target_field": "forging_die_care",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "preheat_control",
+          "label_text": "Die preheat sahi rakhna",
+          "value_text": "preheat_control"
+        },
+        {
+          "option_key": "lubrication_control",
+          "label_text": "Lubricant aur cooling control",
+          "value_text": "lubrication_control"
+        },
+        {
+          "option_key": "die_polish",
+          "label_text": "Die polish karna",
+          "value_text": "die_polish"
+        },
+        {
+          "option_key": "wear_check",
+          "label_text": "Die wear aur crack check",
+          "value_text": "wear_check"
+        },
+        {
+          "option_key": "die_life_record",
+          "label_text": "Die life record rakhna",
+          "value_text": "die_life_record"
+        },
+        {
+          "option_key": "resink",
+          "label_text": "Die re-sinking ya welding ke liye bhejna",
+          "value_text": "resink"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "forging_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "forging_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "quality_work",
+      "min_tier": "hard",
+      "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
+      "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "quality_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "first_piece_check",
+          "label_text": "Pehla piece check karna",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "in_process",
+          "label_text": "Beech beech me checking",
+          "value_text": "in_process"
+        },
+        {
+          "option_key": "rejection",
+          "label_text": "Rejection analysis",
+          "value_text": "rejection"
+        },
+        {
+          "option_key": "crack_detection",
+          "label_text": "MPI se crack check dekhna",
+          "value_text": "crack_detection"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "forging_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "forging_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me forging ka kaunsa kaam kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hand_forging",
+          "label_text": "Anvil par hand forging",
+          "value_text": "hand_forging"
+        },
+        {
+          "option_key": "power_hammer",
+          "label_text": "Power hammer",
+          "value_text": "power_hammer"
+        },
+        {
+          "option_key": "heating_furnace",
+          "label_text": "Furnace me job garam karna",
+          "value_text": "heating_furnace"
+        },
+        {
+          "option_key": "press",
+          "label_text": "Press machine",
+          "value_text": "press"
+        },
+        {
+          "option_key": "heat_treatment",
+          "label_text": "Hardening aur tempering",
+          "value_text": "heat_treatment"
+        },
+        {
+          "option_key": "grinding",
+          "label_text": "Grinding machine",
+          "value_text": "grinding"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "forging_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "forging_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "forging_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

@@ -90,9 +90,13 @@ describe("the shipped corpus, as the trade form serves it", () => {
   it("serves no 'Koi aur …' escape on any select question in any pack", () => {
     // THE GUARD FOR THE NEXT PACK. A new "Koi aur controller" chip fails here until its label
     // joins the closed set in `form-redundant-options.ts`.
+    // An escape that is ALSO the question's only "don't know" stays served (#3009, T25's
+    // `diecast_machine_brand`): "Pata nahi" is a real answer the typed card cannot give.
+    const KEPT_AS_DONT_KNOW = new Set(["Koi aur ya pata nahi"]);
     const leaks = selectItems.flatMap(({ at, item }) =>
       formServedOptions(item, [])
         .filter((o) => o.is_none_of_above && /^\s*koi\s+aur\b/i.test(o.label_text))
+        .filter((o) => !KEPT_AS_DONT_KNOW.has(o.label_text))
         .map((o) => `${at} → ${o.label_text}`),
     );
     expect(leaks).toEqual([]);
@@ -139,12 +143,17 @@ describe("the shipped corpus, as the trade form serves it", () => {
       "qp_cnc_turning@4:turning_machine",
       "qp_cnc_turning@5:turning_machine",
       "qp_cnc_turning@6:turning_machine",
+      "qp_die_casting:diecast_part",
+      "qp_die_casting:diecast_process",
       "qp_draughting:cad_software",
       "qp_draughting:draughting_field",
       "qp_edm_wirecut@2:edm_brand",
       "qp_edm_wirecut@2:edm_cam_software",
       "qp_edm_wirecut@2:edm_machine",
       "qp_fitting:fitting_type",
+      "qp_forging:forging_machine",
+      "qp_forging:forging_part",
+      "qp_foundry_casting:foundry_casting_product",
       "qp_heat_treatment@2:heat_furnace",
       "qp_heat_treatment@2:ht_part",
       "qp_injection_moulding@2:moulding_machine_brand",

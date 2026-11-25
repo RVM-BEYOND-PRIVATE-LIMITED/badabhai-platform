@@ -818,31 +818,15 @@
 # the 7221 forging codes (NOT 7221.0100/.0200, the village blacksmith's), the drop-forging
 # setter and the four casting / forging shop supervisors (a trade supervisor keeps his trade).
 {"kind":"family","family_id":"fam_foundry_forging","label_en":"Foundry / Forging Operator","label_hi":"फाउंड्री / फोर्जिंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7211_0100"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7211_0200"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7211_0201"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7211_0500"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_3301"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_3801"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_4200"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_4201"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_4300"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_4600"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7221_0300"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7221_0301"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7221_0400"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7221_0500"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7223_0300"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4401"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4402"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4501"}
-{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4502"}
+# #3009: this family binds nothing now. Its 19 codes moved to fam_foundry_casting (T24),
+# fam_die_casting (T25) and fam_forging (T26) below; qp_foundry_forging v1 is deprecated in place,
+# so no worker resolves here. The family stays so the old form's rows and answers keep their parent.
 #
 # ══ CEO PACK V2, WAVE 1 (#3008) ══ Families and bindings for the Wave 1 forms, codes from pack
 # section 13.1 (TRADE_CATALOGUE.ncoCodes), every id checked against nco2015.jsonl. Not here: the
-# foundry split (T24, T25, T26: #3009), and T45's four casting/forging supervisor codes
-# 3122.4401/4402/4501/4502, which #2995 point 4 leaves with T24 and T26 (fam_foundry_forging until
-# #3009). A code another family holds today is not moved (pack rule 13.3.1).
+# foundry split (T24, T25, T26: #3009, in its own block at the end of this file), and T45's four
+# casting/forging supervisor codes 3122.4401/4402/4501/4502, which #2995 point 4 leaves with T24 and
+# T26. A code another family holds today is not moved (pack rule 13.3.1).
 # CEO pack v2, T21 (new, Wave 1, #3008): fam_cnc_router, codes from pack section 13.1.
 {"kind":"family","family_id":"fam_cnc_router","label_en":"CNC Router / Engraving Operator (ArtCAM)","label_hi":"सीएनसी राउटर / एनग्रेविंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
 {"kind":"binding","family_id":"fam_cnc_router","job_domain_id":"jd_nco_7523_0500"}
@@ -932,3 +916,44 @@
 {"kind":"binding","family_id":"fam_cad_design_3d","job_domain_id":"jd_nco_2144_0801"}
 {"kind":"binding","family_id":"fam_cad_design_3d","job_domain_id":"jd_nco_2144_0803"}
 {"kind":"binding","family_id":"fam_cad_design_3d","job_domain_id":"jd_nco_2512_0203"}
+#
+# ══ CEO PACK V2, THE FOUNDRY SPLIT (#3009) ══ fam_foundry_forging's 19 codes, split three ways, plus
+# the section 13.1 codes no family held (T24: 3135.3100, 7211.0300/0400/0600/9900, 8121.4400/4500;
+# T26: 7221.0100, 7221.9900). Every id checked against nco2015.jsonl.
+# SUPERVISOR CODES, #2995 point 4 DEFAULT (awaiting Akshit's ruling): pack 13.1 lists 3122.4401/4402
+# and 3122.4501/4502 under T45; until ruled, the casting pair binds T24 and the forging pair T26, as
+# they did under fam_foundry_forging. Moving them to T45 later is four lines here.
+# CEO pack v2, T24 (deepened under a new form id, Wave 1, #3009): fam_foundry_casting.
+{"kind":"family","family_id":"fam_foundry_casting","label_en":"Foundry / Casting Operator","label_hi":"फाउंड्री / कास्टिंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_3135_3100"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_7211_0100"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_7211_0200"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_7211_0201"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_7211_0300"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_7211_0400"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_7211_0500"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_7211_0600"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_7211_9900"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_8121_3301"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_8121_3801"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_8121_4300"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_8121_4400"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_8121_4500"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_8121_4600"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_3122_4401"}
+{"kind":"binding","family_id":"fam_foundry_casting","job_domain_id":"jd_nco_3122_4402"}
+# CEO pack v2, T25 (new, Wave 1, #3009): fam_die_casting.
+{"kind":"family","family_id":"fam_die_casting","label_en":"Die Casting Operator (PDC / GDC)","label_hi":"डाई कास्टिंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_die_casting","job_domain_id":"jd_nco_8121_4200"}
+{"kind":"binding","family_id":"fam_die_casting","job_domain_id":"jd_nco_8121_4201"}
+# CEO pack v2, T26 (new, Wave 1, #3009): fam_forging.
+{"kind":"family","family_id":"fam_forging","label_en":"Forging Operator","label_hi":"फोर्जिंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_forging","job_domain_id":"jd_nco_7221_0100"}
+{"kind":"binding","family_id":"fam_forging","job_domain_id":"jd_nco_7221_0300"}
+{"kind":"binding","family_id":"fam_forging","job_domain_id":"jd_nco_7221_0301"}
+{"kind":"binding","family_id":"fam_forging","job_domain_id":"jd_nco_7221_0400"}
+{"kind":"binding","family_id":"fam_forging","job_domain_id":"jd_nco_7221_0500"}
+{"kind":"binding","family_id":"fam_forging","job_domain_id":"jd_nco_7221_9900"}
+{"kind":"binding","family_id":"fam_forging","job_domain_id":"jd_nco_7223_0300"}
+{"kind":"binding","family_id":"fam_forging","job_domain_id":"jd_nco_3122_4501"}
+{"kind":"binding","family_id":"fam_forging","job_domain_id":"jd_nco_3122_4502"}

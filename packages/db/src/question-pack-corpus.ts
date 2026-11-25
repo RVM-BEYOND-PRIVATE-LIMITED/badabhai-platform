@@ -512,6 +512,11 @@ export function validateQuestionPackCorpus(
   // ── Packs ─────────────────────────────────────────────────────────────────
   const seenPacks = new Set<string>();
   const familiesWithActivePack = new Set<string>();
+  // Built up front, not in the loop below: the binding check on a deprecated version must see
+  // an active version of the same family that sorts after it.
+  const familiesWithAnActivePack = new Set(
+    packs.filter((p) => (p.status ?? "draft") === "active").map((p) => p.family_id),
+  );
   for (const p of packs) {
     const where = `pack ${p.pack_id}@${p.version}`;
     if (!PACK_ID_RE.test(p.pack_id ?? "")) {
@@ -732,8 +737,14 @@ export function validateQuestionPackCorpus(
       }
     }
 
-    // Every family with a pack should also have a binding, or the pack is unreachable.
-    if (!bindings.some((b) => b.family_id === p.family_id)) {
+    // Every family with an ACTIVE pack should also have a binding, or the pack is unreachable.
+    // A family whose every form is deprecated or draft may bind nothing (#3009): that is how a
+    // trade is retired once its codes move to the families that replace it. Its old versions
+    // stay in the corpus so stored answers keep their pack, but nothing should resolve to it.
+    if (
+      familiesWithAnActivePack.has(p.family_id) &&
+      !bindings.some((b) => b.family_id === p.family_id)
+    ) {
       problems.push(
         `${where}: family ${p.family_id} has no binding — this pack can never be resolved`,
       );

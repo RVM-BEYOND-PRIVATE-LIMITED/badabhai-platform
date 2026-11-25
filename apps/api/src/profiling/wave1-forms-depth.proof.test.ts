@@ -72,6 +72,10 @@ const UNIVERSAL_ASKS = 18;
 const WAVE_1: ReadonlyArray<readonly [file: string, fresher: number]> = [
   ["qp_edm_wirecut@2", 3],
   ["qp_cnc_router", 3],
+  // The foundry split (#3009): T24, T25 and T26, three shop-floor sheets.
+  ["qp_foundry_casting", 3],
+  ["qp_die_casting", 3],
+  ["qp_forging", 3],
   ["qp_heat_treatment@2", 3],
   ["qp_injection_moulding@2", 3],
   ["qp_cmm", 3],

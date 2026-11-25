@@ -271,7 +271,11 @@ describe("MACHINE_ROW_LABELS — the split stays true to the trade maps (#2257)"
       // Phase 2 #10: a supervisor's machines are a COUNT under his charge, not machines he runs.
       "qp_production_supervisor",
     ]);
+    // #3009: `qp_foundry_casting` holds only the history rows the foundry split carries over; its
+    // own rows, including the furnace (Machines line), are #3012. Remove it from here then.
+    const HISTORY_ROWS_ONLY = new Set(["qp_foundry_casting"]);
     for (const { pack_id } of TRADE_RESUME_MAPS) {
+      if (HISTORY_ROWS_ONLY.has(pack_id)) continue;
       const hasMachineRow = listRows.some(
         (row) => row.packId === pack_id && MACHINE_ROW_LABELS.has(row.label),
       );

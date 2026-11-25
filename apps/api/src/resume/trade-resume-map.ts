@@ -4212,6 +4212,54 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  // ══ CEO PACK V2, T24 — FOUNDRY / CASTING OPERATOR (#3009): HISTORY ROWS ONLY ══
+  //
+  // `qp_foundry_casting` replaces `qp_foundry_forging` for the casting codes and reuses five of its
+  // keys, so a foundry worker's stored answers carry over. Of the five, `foundry_process` and
+  // `foundry_testing` are the two whose stored values differ between the forms. This entry keeps
+  // EVERY value the old form stored under them, with the English the old map already printed, so a
+  // worker profiled on the old form still prints the same chips after the new form takes over.
+  //
+  // NOT HERE (#3012): the new form's own chips (green_sand, no_bake, co_two_sand, investment,
+  // centrifugal; ce_meter, wedge_test, sand_moisture, sand_strength, mould_hardness), its headline,
+  // `section_title`/`tier_section_titles` wording and the rest of its rows. Until then a value with
+  // no entry is dropped, as for every map.
+  {
+    pack_id: "qp_foundry_casting",
+    section_title: "Foundry, processes & capability",
+    capability: [
+      {
+        from: "foundry_process",
+        rank: 21,
+        maxValues: 3,
+        label: "Processes",
+        kind: "chips",
+        values: {
+          sand_moulding: "Sand moulding",
+          shell_moulding: "Shell moulding",
+          die_casting: "Die casting (HPDC/GDC)",
+          investment_casting: "Investment casting",
+          hammer_forging: "Hammer forging",
+          press_forging: "Press forging",
+          upset_forging: "Upset forging",
+          melting: "Melting",
+          fettling: "Fettling",
+          core_making: "Core making",
+        },
+      },
+      {
+        from: "foundry_testing",
+        rank: 42,
+        label: "Testing",
+        kind: "chips",
+        values: {
+          spectro: "Spectro (chemistry)",
+          hardness: "Hardness testing",
+          dimensional: "Dimensional check",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

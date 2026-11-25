@@ -194,3 +194,39 @@ describe("matchTierFor", () => {
     expect(matchTierFor([MIG], [VMC, MIG])).toBe(1);
   });
 });
+
+/**
+ * THE FOUNDRY SPLIT (#3009). Foundry / Forging becomes Foundry (T24), Die Casting (T25) and
+ * Forging (T26). `mskill_foundry_forging_operator` is assigned to no new worker, but the workers
+ * who already hold it keep their rows, and the curated pairs (#3001) relate it to all three new
+ * skills. A job for any of the three must still reach them, as a related (tier 2) match.
+ */
+describe("the foundry split (#3009) — a legacy foundry / forging worker on the three new trades", () => {
+  const LEGACY = "mskill_foundry_forging_operator";
+  const NEW_TRADES = [
+    "mskill_foundry_operator",
+    "mskill_die_casting_operator",
+    "mskill_forging_operator",
+  ] as const;
+
+  it.each(NEW_TRADES)("a %s job reaches him, at tier 2", (posted) => {
+    const reach = resolveReachSet({ postedSkillIds: [posted], relatedDefault: "on" });
+    expect(reach.suggestedRelatedIds).toContain(LEGACY);
+    expect(reach.reachSkillIds).toContain(LEGACY);
+    expect(matchTierFor(wantedSkillIds([row(LEGACY)]), reach.postedSkillIds)).toBe(2);
+    // The new trade's own worker is the exact match, ahead of him.
+    expect(matchTierFor(wantedSkillIds([row(posted)]), reach.postedSkillIds)).toBe(1);
+  });
+
+  it.each(NEW_TRADES)(
+    "a %s job does not reach him when the payer unticks the legacy skill",
+    (posted) => {
+      const reach = resolveReachSet({
+        postedSkillIds: [posted],
+        relatedDefault: "on",
+        untickedIds: [LEGACY],
+      });
+      expect(reach.reachSkillIds).not.toContain(LEGACY);
+    },
+  );
+});

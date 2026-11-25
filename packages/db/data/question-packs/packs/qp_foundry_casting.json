@@ -1,0 +1,1156 @@
+{
+  "_why": "Role track for Foundry / Casting Operator (T24), splitting the live Foundry / Forging Operator with T25 and T26 (CEO pack v2, #3009). fam_foundry_casting binds the 7211 and 8121 casting codes.",
+  "_scope": "Casting, Forging and Surface Treatment shop-floor trade. The interview separates at skilled; higher contact price from skilled.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 3 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T24 (Foundry / Casting Operator). Status: DEEPEN (splits the live \"Foundry / Forging Operator\")",
+  "pack_id": "qp_foundry_casting",
+  "version": 1,
+  "family_id": "fam_foundry_casting",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T24): new form in the foundry split (#3009). Reuses the live foundry experience, level, skilled-confirm, process and testing keys.",
+  "items": [
+    {
+      "question_key": "foundry_experience",
+      "min_tier": "easy",
+      "prompt_text": "Foundry ya casting ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "foundry_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Foundry ya casting ka kaam kiya hai?"
+    },
+    {
+      "question_key": "foundry_level",
+      "min_tier": "easy",
+      "prompt_text": "Foundry me aap kis level par kaam karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "foundry_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "skilled",
+          "label_text": "Skilled (moulder, melter, core maker)",
+          "value_text": "skilled"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / Shift in-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Foundry me helper, operator ya skilled hain?"
+    },
+    {
+      "question_key": "foundry_skilled_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Apne section ka poora kaam aap bina senior ke akele nikaalte ho?",
+      "why_text": "Akele kaam nikaalne wale skilled karigar ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_skilled_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele nikaalta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior ke saath karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "foundry_level"
+        },
+        "right": {
+          "const": [
+            "skilled"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "foundry_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Casting reject aaye to sand ya metal me sudhaar aap khud tay karte ho?",
+      "why_text": "Rejection khud sudhaarne wale senior ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud tay karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Supervisor ya engineer batata hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "foundry_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "foundry_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kaunsa section aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "foundry_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "foundry_section",
+      "min_tier": "medium",
+      "prompt_text": "Foundry ke kaunse section me aap kaam karte hain?",
+      "why_text": "Section ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_section",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "moulding",
+          "label_text": "Moulding",
+          "value_text": "moulding"
+        },
+        {
+          "option_key": "core_making",
+          "label_text": "Core shop",
+          "value_text": "core_making"
+        },
+        {
+          "option_key": "melting",
+          "label_text": "Melting / furnace",
+          "value_text": "melting"
+        },
+        {
+          "option_key": "pouring",
+          "label_text": "Pouring",
+          "value_text": "pouring"
+        },
+        {
+          "option_key": "sand_plant",
+          "label_text": "Sand plant",
+          "value_text": "sand_plant"
+        },
+        {
+          "option_key": "knock_out",
+          "label_text": "Knock-out",
+          "value_text": "knock_out"
+        },
+        {
+          "option_key": "fettling",
+          "label_text": "Fettling aur grinding",
+          "value_text": "fettling"
+        },
+        {
+          "option_key": "shot_blasting",
+          "label_text": "Shot blasting",
+          "value_text": "shot_blasting"
+        },
+        {
+          "option_key": "wax_shell_room",
+          "label_text": "Wax room ya shell room (investment casting)",
+          "value_text": "wax_shell_room"
+        }
+      ]
+    },
+    {
+      "question_key": "foundry_process",
+      "min_tier": "medium",
+      "prompt_text": "Aapki foundry me kaunsa casting process chalta hai?",
+      "why_text": "Process jaanne wale karigar ko usi line ki foundry dhoondhti hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_process",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "green_sand",
+          "label_text": "Green sand",
+          "value_text": "green_sand"
+        },
+        {
+          "option_key": "no_bake",
+          "label_text": "No-bake / furan sand",
+          "value_text": "no_bake"
+        },
+        {
+          "option_key": "co_two_sand",
+          "label_text": "CO2 sand",
+          "value_text": "co_two_sand"
+        },
+        {
+          "option_key": "shell_moulding",
+          "label_text": "Shell moulding",
+          "value_text": "shell_moulding"
+        },
+        {
+          "option_key": "investment",
+          "label_text": "Investment / lost wax",
+          "value_text": "investment"
+        },
+        {
+          "option_key": "centrifugal",
+          "label_text": "Centrifugal casting",
+          "value_text": "centrifugal"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "foundry_moulding_method",
+      "min_tier": "medium",
+      "prompt_text": "Mould kis machine ya tareeke se banate hain?",
+      "why_text": "Moulding machine chalane wale ko usi line par kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_moulding_method",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hand_moulding",
+          "label_text": "Hand moulding, floor ya bench",
+          "value_text": "hand_moulding"
+        },
+        {
+          "option_key": "jolt_squeeze",
+          "label_text": "Jolt-squeeze machine",
+          "value_text": "jolt_squeeze"
+        },
+        {
+          "option_key": "arpa",
+          "label_text": "ARPA machine",
+          "value_text": "arpa"
+        },
+        {
+          "option_key": "disa",
+          "label_text": "DISA flaskless line",
+          "value_text": "disa"
+        },
+        {
+          "option_key": "high_pressure_line",
+          "label_text": "High pressure moulding line (Sinto, KW)",
+          "value_text": "high_pressure_line"
+        },
+        {
+          "option_key": "shell_machine",
+          "label_text": "Shell moulding machine",
+          "value_text": "shell_machine"
+        },
+        {
+          "option_key": "continuous_mixer",
+          "label_text": "Continuous sand mixer (no-bake)",
+          "value_text": "continuous_mixer"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Mould nahi banata",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "foundry_furnace",
+      "min_tier": "medium",
+      "prompt_text": "Aapne kaunsi melting furnace par kaam kiya hai?",
+      "why_text": "Furnace ka tajurba melting ke kaam me sabse pehle dekha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_furnace",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "induction",
+          "label_text": "Induction furnace (Inductotherm, Electrotherm, Megatherm)",
+          "value_text": "induction"
+        },
+        {
+          "option_key": "cupola",
+          "label_text": "Cupola",
+          "value_text": "cupola"
+        },
+        {
+          "option_key": "arc_furnace",
+          "label_text": "Arc furnace",
+          "value_text": "arc_furnace"
+        },
+        {
+          "option_key": "crucible_furnace",
+          "label_text": "Oil ya gas fired crucible furnace",
+          "value_text": "crucible_furnace"
+        },
+        {
+          "option_key": "rotary_furnace",
+          "label_text": "Rotary furnace",
+          "value_text": "rotary_furnace"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Furnace par kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "foundry_core_process",
+      "min_tier": "hard",
+      "prompt_text": "Core kis process se banate hain?",
+      "why_text": "Core banane wale karigar ki core shop me alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_core_process",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cold_box",
+          "label_text": "Cold box",
+          "value_text": "cold_box"
+        },
+        {
+          "option_key": "shell_core",
+          "label_text": "Shell core",
+          "value_text": "shell_core"
+        },
+        {
+          "option_key": "co_two_core",
+          "label_text": "CO2 core",
+          "value_text": "co_two_core"
+        },
+        {
+          "option_key": "oil_sand_core",
+          "label_text": "Oil sand core",
+          "value_text": "oil_sand_core"
+        },
+        {
+          "option_key": "no_bake_core",
+          "label_text": "No-bake core",
+          "value_text": "no_bake_core"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Core nahi banata",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse metal ki casting par kaam kiya hai?",
+      "why_text": "Har metal ki melting aur pouring alag hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cast_iron",
+          "label_text": "Grey cast iron (CI / FG)",
+          "value_text": "cast_iron"
+        },
+        {
+          "option_key": "sg_iron",
+          "label_text": "SG iron / ductile iron",
+          "value_text": "sg_iron"
+        },
+        {
+          "option_key": "carbon_steel",
+          "label_text": "Carbon steel casting (WCB)",
+          "value_text": "carbon_steel"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "Alloy ya manganese steel",
+          "value_text": "alloy_steel"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel (CF8 / CF8M)",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium (LM6 / LM25)",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "brass",
+          "label_text": "Brass, bronze, gunmetal",
+          "value_text": "brass"
+        }
+      ]
+    },
+    {
+      "question_key": "foundry_casting_product",
+      "min_tier": "hard",
+      "prompt_text": "Aap kaunsi casting banate hain?",
+      "why_text": "Casting ke naam se employer samajhta hai aap kya bana sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "foundry_casting_product",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "brake_flywheel",
+          "label_text": "Brake drum, disc, flywheel",
+          "value_text": "brake_flywheel"
+        },
+        {
+          "option_key": "engine_block",
+          "label_text": "Engine block, cylinder head",
+          "value_text": "engine_block"
+        },
+        {
+          "option_key": "housing",
+          "label_text": "Gearbox, axle ya tractor housing",
+          "value_text": "housing"
+        },
+        {
+          "option_key": "pump_valve_body",
+          "label_text": "Pump aur valve body",
+          "value_text": "pump_valve_body"
+        },
+        {
+          "option_key": "motor_body",
+          "label_text": "Motor body aur end cover",
+          "value_text": "motor_body"
+        },
+        {
+          "option_key": "municipal_casting",
+          "label_text": "Manhole cover, pipe fitting",
+          "value_text": "municipal_casting"
+        },
+        {
+          "option_key": "heavy_casting",
+          "label_text": "Machine bed, heavy casting",
+          "value_text": "heavy_casting"
+        },
+        {
+          "option_key": "investment_parts",
+          "label_text": "Chhote precision parts (investment casting)",
+          "value_text": "investment_parts"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur casting",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "foundry_casting_weight",
+      "min_tier": "hard",
+      "prompt_text": "Sabse bhaari casting kitne kilo ki nikaali hai?",
+      "why_text": "Bhaari casting ka kaam har foundry me nahi hota.",
+      "target_kind": "attribute",
+      "target_field": "foundry_casting_weight",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_five",
+          "label_text": "5 kg tak",
+          "value_text": "5"
+        },
+        {
+          "option_key": "upto_fifty",
+          "label_text": "5 se 50 kg",
+          "value_text": "50"
+        },
+        {
+          "option_key": "upto_five_hundred",
+          "label_text": "50 se 500 kg",
+          "value_text": "500"
+        },
+        {
+          "option_key": "upto_two_thousand",
+          "label_text": "500 kg se 2 ton",
+          "value_text": "2000"
+        },
+        {
+          "option_key": "upto_five_thousand",
+          "label_text": "2 ton se zyada",
+          "value_text": "5000"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap casting drawing ya method card padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "foundry_melt_work",
+      "min_tier": "hard",
+      "prompt_text": "Melting aur pouring me aap kya kya karte hain?",
+      "why_text": "Metal khud taiyaar karne wale ko zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_melt_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "charge_mix",
+          "label_text": "Charge mix banana",
+          "value_text": "charge_mix"
+        },
+        {
+          "option_key": "tapping",
+          "label_text": "Slag hatana aur tapping",
+          "value_text": "tapping"
+        },
+        {
+          "option_key": "temperature_check",
+          "label_text": "Pyrometer se temperature lena",
+          "value_text": "temperature_check"
+        },
+        {
+          "option_key": "inoculation",
+          "label_text": "Inoculation",
+          "value_text": "inoculation"
+        },
+        {
+          "option_key": "mg_treatment",
+          "label_text": "Mg treatment (SG iron)",
+          "value_text": "mg_treatment"
+        },
+        {
+          "option_key": "ladle_pouring",
+          "label_text": "Ladle se pouring",
+          "value_text": "ladle_pouring"
+        },
+        {
+          "option_key": "lining",
+          "label_text": "Furnace lining ya patching",
+          "value_text": "lining"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Melting pouring nahi karta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "foundry_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "foundry_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "foundry_testing",
+      "min_tier": "hard",
+      "prompt_text": "Shop par kaunsa test aap khud karte hain?",
+      "why_text": "Test khud karne wale karigar par quality ka bharosa hota hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_testing",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "spectro",
+          "label_text": "Spectro sample lena",
+          "value_text": "spectro"
+        },
+        {
+          "option_key": "ce_meter",
+          "label_text": "CE meter",
+          "value_text": "ce_meter"
+        },
+        {
+          "option_key": "wedge_test",
+          "label_text": "Wedge ya chill test",
+          "value_text": "wedge_test"
+        },
+        {
+          "option_key": "sand_moisture",
+          "label_text": "Sand moisture aur compactability",
+          "value_text": "sand_moisture"
+        },
+        {
+          "option_key": "sand_strength",
+          "label_text": "Permeability aur GCS",
+          "value_text": "sand_strength"
+        },
+        {
+          "option_key": "mould_hardness",
+          "label_text": "Mould hardness",
+          "value_text": "mould_hardness"
+        },
+        {
+          "option_key": "hardness",
+          "label_text": "Casting hardness (BHN)",
+          "value_text": "hardness"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "foundry_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "foundry_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Aapki casting kis industry me jaati hai?",
+      "why_text": "Industry jaanne se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Tractor aur agriculture",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "pump_valve",
+          "label_text": "Pump aur valve",
+          "value_text": "pump_valve"
+        },
+        {
+          "option_key": "railways",
+          "label_text": "Railways",
+          "value_text": "railways"
+        },
+        {
+          "option_key": "construction_equipment",
+          "label_text": "Construction equipment",
+          "value_text": "construction_equipment"
+        },
+        {
+          "option_key": "oil_gas",
+          "label_text": "Oil aur gas",
+          "value_text": "oil_gas"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "foundry_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "foundry_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Casting ka kaunsa defect aap khud sudhaar lete hain?",
+      "why_text": "Defect sudhaarne wale karigar ki foundry me zyada zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "blow_hole",
+          "label_text": "Blow hole / gas porosity",
+          "value_text": "blow_hole"
+        },
+        {
+          "option_key": "shrinkage",
+          "label_text": "Shrinkage",
+          "value_text": "shrinkage"
+        },
+        {
+          "option_key": "cold_shut",
+          "label_text": "Cold shut ya misrun",
+          "value_text": "cold_shut"
+        },
+        {
+          "option_key": "sand_inclusion",
+          "label_text": "Sand inclusion / sand drop",
+          "value_text": "sand_inclusion"
+        },
+        {
+          "option_key": "mismatch",
+          "label_text": "Mismatch / shift",
+          "value_text": "mismatch"
+        },
+        {
+          "option_key": "slag_inclusion",
+          "label_text": "Slag inclusion",
+          "value_text": "slag_inclusion"
+        },
+        {
+          "option_key": "chill",
+          "label_text": "Hard spot / chill",
+          "value_text": "chill"
+        },
+        {
+          "option_key": "crack",
+          "label_text": "Crack / hot tear",
+          "value_text": "crack"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "foundry_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "foundry_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "quality_work",
+      "min_tier": "hard",
+      "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
+      "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "quality_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "first_piece_check",
+          "label_text": "Pehli casting check karna",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "in_process",
+          "label_text": "Beech beech me checking",
+          "value_text": "in_process"
+        },
+        {
+          "option_key": "heat_record",
+          "label_text": "Har heat ka record rakhna",
+          "value_text": "heat_record"
+        },
+        {
+          "option_key": "rejection",
+          "label_text": "Rejection analysis",
+          "value_text": "rejection"
+        },
+        {
+          "option_key": "gating_change",
+          "label_text": "Gating aur riser me sudhaar",
+          "value_text": "gating_change"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "foundry_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "foundry_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me foundry ka kaunsa kaam kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hand_moulding",
+          "label_text": "Pattern se hand moulding",
+          "value_text": "hand_moulding"
+        },
+        {
+          "option_key": "core_making",
+          "label_text": "Core banana",
+          "value_text": "core_making"
+        },
+        {
+          "option_key": "melting",
+          "label_text": "Furnace me metal galana",
+          "value_text": "melting"
+        },
+        {
+          "option_key": "pouring",
+          "label_text": "Pouring",
+          "value_text": "pouring"
+        },
+        {
+          "option_key": "fettling",
+          "label_text": "Fettling aur grinding",
+          "value_text": "fettling"
+        },
+        {
+          "option_key": "sand_testing",
+          "label_text": "Sand testing",
+          "value_text": "sand_testing"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "foundry_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "foundry_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "foundry_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}
