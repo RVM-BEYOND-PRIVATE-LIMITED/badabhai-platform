@@ -600,6 +600,32 @@ def test_job_posting_area_bound_matches_the_zod_source():
         JobPostingDraft(area="x" * (area_max + 1))
 
 
+# --- #3053: the résumé parse's trade-kind bound, on both sides and in the prompt ---
+#
+# The bound was 32 in three places (Zod, Pydantic, the prompt builder's count cap) and the
+# declared kind list outgrew it with trades v2. A bound moved on one side only would turn
+# the parse back into a 422 (Zod above Pydantic) or a silent truncation (prompt below both).
+_RESUME_IMPORT_TS = _REPO / "packages" / "ai-contracts" / "src" / "resume-import.ts"
+
+
+def test_resume_parse_trade_kinds_bound_matches_the_zod_source_and_the_prompt_cap():
+    from app.contracts import ResumeParseInput
+    from app.resume_import import parse_prompt
+
+    match = re.search(
+        r"trade_kinds: z\.array\(z\.string\(\)\)\.max\((\d+)\)",
+        _RESUME_IMPORT_TS.read_text(encoding="utf-8"),
+    )
+    assert match, "trade_kinds not found in resume-import.ts — the mirror has moved"
+    zod_max = int(match.group(1))
+    assert parse_prompt._MAX_TRADE_KINDS == zod_max
+    # Behaviour at the boundary, so the Field constraint itself is compared.
+    base = {"worker_ref": "w", "storage_key": "k", "mime": "application/pdf"}
+    ResumeParseInput(**base, trade_kinds=[f"k{i}" for i in range(zod_max)])
+    with pytest.raises(ValidationError):
+        ResumeParseInput(**base, trade_kinds=[f"k{i}" for i in range(zod_max + 1)])
+
+
 # --- Chat companion v2 (ADR-0046 Phase 1) -------------------------------------
 #
 # Mirrors `packages/ai-contracts/src/companion.ts`. The classifier's output set and the edit

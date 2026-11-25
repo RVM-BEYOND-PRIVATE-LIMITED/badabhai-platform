@@ -1,6 +1,6 @@
 import { Logger } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ResumeParseOutput } from "@badabhai/ai-contracts";
+import { ResumeParseInputSchema, type ResumeParseOutput } from "@badabhai/ai-contracts";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 
 import { ResumeParseService } from "./resume-parse.service";
@@ -379,13 +379,25 @@ describe("ResumeParseService", () => {
 });
 
 describe("ResumeParseService — trade association (Task 1 B2)", () => {
-  it("sends the closed 21-kind list for the model to choose from", async () => {
+  it("sends the closed declared kind list for the model to choose from", async () => {
     const { svc, ai } = setup({});
     await svc.parse(WORKER, IMPORT, CTX);
 
     const sent = ai.parseResume.mock.calls[0]![0] as { trade_kinds: unknown };
     expect(sent.trade_kinds).toEqual([...TRADE_FORM_KINDS_ALL]);
     expect(sent.trade_kinds).toContain("cnc_turner");
+  });
+
+  it("sends a request the parse contract accepts, so the far side never 422s on the kind list (#3053)", async () => {
+    // The 36 trades-v2 kinds (#2999) took the declared list from 27 to 63 while the
+    // contract still capped it at 32, and every résumé parse failed as unreachable.
+    const { svc, ai } = setup({});
+    await svc.parse(WORKER, IMPORT, CTX);
+
+    const sent = ai.parseResume.mock.calls[0]![0] as { trade_kinds: string[] };
+    const checked = ResumeParseInputSchema.safeParse(sent);
+    expect(checked.success, JSON.stringify(checked.error?.issues)).toBe(true);
+    expect(sent.trade_kinds).toContain("quality_engineer");
   });
 
   it("carries a listed judgment on the draft", async () => {

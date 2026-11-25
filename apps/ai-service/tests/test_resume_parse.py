@@ -1479,6 +1479,61 @@ def test_an_omitted_key_is_no_judgment_not_a_failure(monkeypatch):
     assert out.trade_association is None
 
 
+# --- #3053: the whole declared list, as apps/api really sends it ---------------
+#
+# apps/api sends every `TRADE_FORM_KINDS_ALL` kind. The trades-v2 kinds (#2999) took
+# that list to 63 while the contract capped it at 32, so every parse request was a 422
+# here and the import settled as `parse_unavailable`. These read the real list from
+# packages/types, so the next widening fails here before it fails in production.
+
+_TYPES_TS = Path(__file__).resolve().parents[3] / "packages" / "types" / "src" / "index.ts"
+
+
+def _declared_trade_kinds() -> list[str]:
+    source = _TYPES_TS.read_text(encoding="utf-8")
+    match = re.search(
+        r"export const TRADE_FORM_KINDS_ALL = Object\.freeze\(\[(.*?)\] as const\);", source, re.S
+    )
+    assert match, "TRADE_FORM_KINDS_ALL not found in packages/types — the list has moved"
+    return re.findall(r'^\s*"([a-z0-9_]+)",', match.group(1), re.M)
+
+
+def test_the_declared_kind_list_fits_the_request_contract():
+    kinds = _declared_trade_kinds()
+    # Non-vacuous: the regex found the real list, trades-v2 kinds included.
+    assert len(kinds) > 32
+    assert {"cnc_turner", "quality_engineer", "piping_designer"} <= set(kinds)
+    body = ResumeParseInput(
+        worker_ref="w_ref", storage_key="resumes/x.pdf", mime="application/pdf", trade_kinds=kinds
+    )
+    assert body.trade_kinds == kinds
+
+
+def test_every_declared_kind_reaches_the_prompt_and_a_new_trade_survives_the_gate(monkeypatch):
+    kinds = _declared_trade_kinds()
+    out, router = run_parse(
+        texts=["Quality Engineer, 6 saal, PPAP aur 8D"],
+        reply=assoc_reply("quality_engineer"),
+        trade_kinds=kinds,
+        monkeypatch=monkeypatch,
+    )
+    for kind in kinds:
+        assert f"- {kind}\n" in router.prompt_text + "\n", f"{kind} was truncated from the prompt"
+    assert out.trade_association is not None
+    assert out.trade_association.kind == "quality_engineer"
+
+
+def test_a_trade_the_list_does_not_name_is_still_dropped_with_the_full_list(monkeypatch):
+    # Widening the list widens what the model may pick from, never the gate itself.
+    out, _ = run_parse(
+        texts=["Machine Operator, Pune"],
+        reply=assoc_reply("machine_operator"),
+        trade_kinds=_declared_trade_kinds(),
+        monkeypatch=monkeypatch,
+    )
+    assert out.trade_association is None
+
+
 # ===========================================================================
 # 10. SHAPE DAMAGE IS PER-ENTRY — the reply that used to be all-or-nothing
 # ===========================================================================
