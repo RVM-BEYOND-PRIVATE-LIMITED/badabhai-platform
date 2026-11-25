@@ -469,7 +469,7 @@ function narrowExtractionMethod(
 
 /**
  * Task 1 B2 — the model's trade classification, narrowed to the closed
- * 21-kind list, or null.
+ * list of declared kinds (`TRADE_FORM_KINDS_ALL`), or null.
  *
  * A MEMBERSHIP TEST, NOT A CAST — the same posture as `narrowExtractionMethod`
  * above, for the same reason: whatever is not in the set becomes null so the
@@ -541,7 +541,7 @@ export type ParsedDraft =
       fields: Record<string, ParsedField>;
       employments: ResumeEmployment[];
       /**
-       * Task 1 B2 — which of the 21 declared trades the model judged this
+       * Task 1 B2 — which declared trade the model judged this
        * résumé, or null (no judgment / none fits / far side predates it).
        * RECORDED, NOT ACTED ON: routing still comes from `routeToTradeForm`
        * alone until the recall path is ruled in.

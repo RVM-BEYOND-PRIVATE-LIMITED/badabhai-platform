@@ -24,7 +24,7 @@ export interface WorkerVisibilityListItem {
   title: string;
   city: string | null;
   role_kind: string | null;
-  /** Names one of the 16 trades, so `on` is allowed (#2635). */
+  /** Names a posting trade, so `on` is allowed (#2635). */
   trade_ready: boolean;
   status: string;
   hidden: boolean;
@@ -119,7 +119,7 @@ export class AdminPostingWorkerVisibilityService {
         return outcome(jobPostingId, "audience_excludes_workers", current.state);
       }
       // #2635 — turning it on PUTS IT ON WORKER SURFACES, which is a publish to them: the same
-      // 16-trade gate a company publish passes (owner ruling 2026-11-04).
+      // posting-trade gate a company publish passes (owner ruling 2026-11-04).
       if (dto.state === "on" && postingTradeFor(current.roleKind) === undefined) {
         return outcome(jobPostingId, "trade_required", current.state);
       }

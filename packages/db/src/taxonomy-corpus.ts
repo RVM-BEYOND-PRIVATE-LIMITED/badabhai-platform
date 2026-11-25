@@ -12,7 +12,7 @@
  * The taxonomy corpus has a SECOND, harder reason, and it is the one that decides the
  * question. `packages/taxonomy/src/match-skills.test.ts` asserts that
  * `ATTRIBUTE_TO_MATCH_SKILLS` is EXHAUSTIVE over `SKILL_CORPUS` — every attribute skill
- * must carry a hand-authored bridge into the closed 18-member `mskill_*` matchable
+ * must carry a hand-authored bridge into the closed `mskill_*` matchable
  * vocabulary. That test is correct and load-bearing: it is what stops a descriptive skill
  * silently becoming invisible to matching. But it also means every id appended to
  * `SKILL_CORPUS` costs a hand-authored bridge entry, and hand-authoring does not scale to
@@ -120,7 +120,7 @@ export interface TaxonomySkillAliasRecord {
 /**
  * A canonical SKILL (`skills.jsonl`). Becomes one `skill` row with `kind='attribute'`.
  *
- * ATTRIBUTE, NEVER MATCHABLE. The `mskill_*` space is a closed 18-member vocabulary the
+ * ATTRIBUTE, NEVER MATCHABLE. The `mskill_*` space is a closed vocabulary the
  * match engine consumes directly; this corpus is DESCRIPTIVE — it drives the employer's
  * skill picker and worker profiling, and invariant #4 keeps it out of ranking. That is
  * why `skill_id` is validated against `^skill_[a-z0-9_]+$` and an `mskill_*` id is

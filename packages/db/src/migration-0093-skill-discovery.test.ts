@@ -112,7 +112,7 @@ describe("0093 is additive — nothing existing is touched", () => {
 });
 
 describe("the match-skill wall, at BOTH ends", () => {
-  // `mskill_*` is a closed, CEO-ratified 18-member vocabulary the deterministic match engine
+  // `mskill_*` is a closed, CEO-ratified vocabulary the deterministic match engine
   // consumes. A discovered phrase that could resolve onto one — or even be OFFERED as one to a
   // reviewer — would make a mined alias an author of ranking vocabulary. CLAUDE.md §3 forbids it,
   // the pipe refuses it, `validateCandidate` refuses it, and these two are what still refuse it

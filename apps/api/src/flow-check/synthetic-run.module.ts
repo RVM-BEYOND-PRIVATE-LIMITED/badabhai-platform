@@ -8,6 +8,7 @@ import { EventsModule } from "../events/events.module";
 import { JobPostingsModule } from "../job-postings/job-postings.module";
 import { PayerPortalModule } from "../payer-portal/payer-portal.module";
 import { FLOW_SYNTHETIC_RUN_QUEUE } from "../queue/queue.constants";
+import { TradeReleaseModule } from "../trade-release/trade-release.module";
 import { UnlocksModule } from "../unlocks/unlocks.module";
 import { SyntheticRunController, SyntheticRunEnabledGuard } from "./synthetic-run.controller";
 import { SyntheticRunProcessor } from "./synthetic-run.processor";
@@ -29,6 +30,7 @@ import { SyntheticRunService } from "./synthetic-run.service";
     EventsModule,
     JobPostingsModule,
     PayerPortalModule,
+    TradeReleaseModule,
     UnlocksModule,
     BullModule.registerQueue({ name: FLOW_SYNTHETIC_RUN_QUEUE }),
   ],

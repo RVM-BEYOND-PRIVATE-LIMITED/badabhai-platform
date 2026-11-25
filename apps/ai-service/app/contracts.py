@@ -1998,8 +1998,9 @@ class ResumeSummaryInput(BaseModel):
     storage_key: str = Field(min_length=1)
     mime: str = Field(min_length=1)
     #: The CLOSED role ids the model may return in `role_kind` — the ENABLED form
-    #: kinds (9 today), supplied by apps/api. Rendered into the prompt verbatim,
-    #: so bounded in count; each entry is length-capped at render time.
+    #: kinds (`TRADE_FORM_KINDS`), supplied by apps/api. Rendered into the prompt
+    #: verbatim, so bounded in count; each entry is length-capped at render time.
+    #: apps/api fails a test before the enabled set passes 32 (#3025).
     role_kinds: list[str] = Field(default_factory=list, max_length=32)
     #: BOUNDED like `ResumeParseInput.language`: the one request field that reaches
     #: a trace attribute without passing through the masker.

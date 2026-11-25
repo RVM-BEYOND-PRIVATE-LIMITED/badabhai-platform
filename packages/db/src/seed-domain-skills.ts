@@ -78,7 +78,7 @@
  * not carry.
  *
  * NOT matchable. Every skill is written `kind='attribute'`. The `mskill_*` vocabulary is
- * closed at 18 members and changing that needs an ADR and an `engine_version` bump
+ * closed, and changing it needs an ADR and an `engine_version` bump
  * (invariant #4); the corpus validator rejects the prefix outright.
  *
  * PRIVACY: trade reference vocabulary and published occupation ids. No worker PII

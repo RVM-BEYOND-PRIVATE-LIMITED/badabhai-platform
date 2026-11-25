@@ -25,7 +25,7 @@ import type { ManagedHiringTier, VacancyBand } from "@badabhai/types";
 export interface ManagedHiringJobFacts {
   readonly vacancyBand: VacancyBand;
   readonly minExperienceYears: number | null;
-  /** The posting's `role_kind` (one of the 16 postable trades), or null. */
+  /** The posting's `role_kind` (a posting trade, `postingTradeFor`), or null. */
   readonly roleKind: string | null;
   /** The posting's `trade_level` ("Level needed"), or null. */
   readonly tradeLevel: string | null;

@@ -64,6 +64,25 @@ describe("managedHiringTierFor", () => {
     }
   });
 
+  // #3025 — the trades of CEO pack v2 tier by their own sheets, through the same catalogue.
+  it.each([
+    // A desk trade: Engineer is above the trainee floor, so Higher.
+    ["quality_engineer", "engineer", "large", true],
+    ["quality_engineer", "trainee", "standard", false],
+    // Stores: Executive is the working rung, priced Lower; Senior Executive is Higher.
+    ["store_keeper", "executive", "standard", false],
+    ["store_keeper", "senior_executive", "large", true],
+    // T21 CNC Router: its sheet prices Setter Lower (unlike the CNC trades); Programmer is Higher.
+    ["cnc_router_operator", "setter", "standard", false],
+    ["cnc_router_operator", "programmer", "large", true],
+  ] as const)("a trades-v2 job: %s at %s is %s", (roleKind, tradeLevel, tier, experienced) => {
+    expect(managedHiringTierFor(job({ roleKind, tradeLevel }))).toEqual({
+      kind: "tier",
+      tier,
+      experienced,
+    });
+  });
+
   it("11 or more vacancies: no checkout, a callback request (B7-05)", () => {
     expect(managedHiringTierFor(job({ vacancyBand: "11-25" }))).toEqual({ kind: "callback" });
     expect(managedHiringTierFor(job({ vacancyBand: "25+", minExperienceYears: 10 }))).toEqual({

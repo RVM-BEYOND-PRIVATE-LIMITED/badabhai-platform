@@ -8,7 +8,7 @@ import {
 } from "./posting-trade-required";
 
 /**
- * #2635 — the WIRE shape of the "a live job must name one of the 16 trades" 400, rendered
+ * #2635 — the WIRE shape of the posting_trade_required 400, rendered
  * through the REAL global `AllExceptionsFilter`. Clients are told to branch on `reason`, so it
  * must survive the filter: nested under `error`, next to the same keys a string-form
  * `BadRequestException` produces.

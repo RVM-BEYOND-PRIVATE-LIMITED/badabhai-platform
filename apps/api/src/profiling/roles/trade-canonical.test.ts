@@ -34,6 +34,19 @@ describe("trade-canonical (#2202)", () => {
     expect(canonicalIdsForKind("")).toBeNull();
   });
 
+  it("CEO pack v2 trades fail closed too: none has an exact taxonomy role yet (#3025)", () => {
+    // `role_cnc_operator` is the GENERAL CNC operator, not a router or a CMM role: no proxy.
+    for (const kind of [
+      "cnc_router_operator",
+      "cmm_operator",
+      "quality_engineer",
+      "store_keeper",
+    ]) {
+      expect(canonicalIdsForKind(kind), kind).toBeNull();
+    }
+    expect(canonicalIdsForPack("qp_cnc_router")).toBeNull();
+  });
+
   it("resolves through the pack id the form was built from", () => {
     expect(canonicalIdsForPack("qp_cnc_turning")).toEqual({
       canonicalRoleId: "role_cnc_turner_operator",

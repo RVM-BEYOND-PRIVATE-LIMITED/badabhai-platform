@@ -85,7 +85,7 @@ export const neededBySchema = z.enum(["immediate", "soon", "flexible"]);
 export const payTypeSchema = z.enum(["in_hand", "gross", "ctc"]);
 
 /**
- * THE POSTING'S ROLE (migration 0131) — one of the 21 DECLARED worker-side kinds
+ * THE POSTING'S ROLE (migration 0131) — one of the DECLARED worker-side kinds
  * (`TRADE_FORM_KINDS_ALL`). Closed and PII-free, so it needs no heuristic screen.
  *
  * DISPLAY / CLASSIFICATION ONLY (ADR-0036 addendum 2026-09-29): never a match or rank input,
@@ -93,8 +93,9 @@ export const payTypeSchema = z.enum(["in_hand", "gross", "ctc"]);
  * and no inference — omitted stores NULL ("no role picked"). A `null` in a body is a 400 like
  * every other field here; unsetting goes through `clear: ["role_kind"]` (#1652).
  *
- * ALL 21, NOT THE 16 WITH A WORKER FORM: whether a worker-side form exists is a profiling
- * concern, and the owner ruled every declared role postable.
+ * EVERY DECLARED KIND, NOT ONLY THOSE WITH A WORKER FORM: whether a worker-side form exists is
+ * a profiling concern, and the owner ruled every declared role a valid pick. Whether a posting on
+ * it may go LIVE is the publish gate's question (`postingTradeFor` and the release switch, #3005).
  */
 export const roleKindSchema = z.enum(TRADE_FORM_KINDS_ALL);
 

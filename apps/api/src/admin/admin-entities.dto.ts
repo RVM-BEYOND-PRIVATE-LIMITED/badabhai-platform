@@ -335,7 +335,7 @@ export interface AdminJobPostingDetail extends AdminJobPostingListItem {
   requirements: string[] | null;
   benefits: string[] | null;
   /**
-   * The display ROLE the payer picked (migration 0131), one of the 21 declared kinds, or NULL.
+   * The display ROLE the payer picked (migration 0131), a declared kind, or NULL.
    * Returned RAW — the admin UI labels it (`jobRoleLabel`) and shows the raw id if it is not
    * one it knows. Display / classification only; never a match input.
    */

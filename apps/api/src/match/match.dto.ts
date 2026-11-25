@@ -35,9 +35,9 @@ export const ReachPreviewSchema = z.object({
    */
   unticked_related_ids: z.array(matchSkillIdSchema).max(200).default([]),
   /**
-   * #2635 — the form's trade, when it knows it. One of the 16 → the posted ids are scoped to
+   * #2635 — the form's trade, when it knows it. A posting trade → the posted ids are scoped to
    * that trade exactly as publish scopes them. Optional and additive: a client that omits it
-   * still gets the 16-trade related scope, just not the posted-id scoping.
+   * still gets the live trades' related scope, just not the posted-id scoping.
    */
   role_kind: roleKindSchema.nullable().optional(),
   /**

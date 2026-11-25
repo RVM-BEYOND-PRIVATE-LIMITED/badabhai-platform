@@ -98,7 +98,7 @@ function push(map: Map<string, string[]>, key: string, value: string): void {
  * Build the index of skills a discovered phrase may be matched against.
  *
  * `kind = 'match_skill'` ROWS ARE DROPPED, and this is the Phase-12 wall at its earliest
- * possible point. `mskill_*` is a closed, CEO-ratified 18-member vocabulary the deterministic
+ * possible point. `mskill_*` is a closed, CEO-ratified vocabulary the deterministic
  * match engine consumes directly; a discovered phrase must never resolve onto it, and must
  * never even be OFFERED one as an option — a reviewer shown `"customs inspector" ->
  * mskill_quality_inspector (0.50)` would reasonably conclude that mapping was available.

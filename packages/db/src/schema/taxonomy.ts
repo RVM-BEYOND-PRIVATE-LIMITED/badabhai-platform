@@ -257,7 +257,7 @@ export const jobDomainSkills = pgTable(
  *
  * `worker_skill` is NOT being replaced or widened — its own schema calls it a
  * "DERIVED, rebuildable projection ... never a system of record for anything a worker
- * told us", it carries a closed 18-member vocabulary, and its hot path is a partial
+ * told us", it carries a closed vocabulary, and its hot path is a partial
  * covering index with a hand-appended INCLUDE payload that a schema change would put
  * at risk. It keeps its exact meaning; only its INPUT moves here.
  */

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ResumeSummaryInputSchema } from "@badabhai/ai-contracts";
+import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 
 import { TRADE_FORM_KINDS } from "../trade-form-router";
 import { ResumeSummaryService } from "./resume-summary.service";
@@ -60,16 +62,41 @@ function setup(
 describe("ResumeSummaryService — summarize (best-effort, never shown in chat)", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("sends the storage KEY with the 16 enabled kinds, never the document", async () => {
+  it("sends the storage KEY with the enabled kinds, never the document", async () => {
     const { svc, ai } = setup();
     await svc.summarize(WORKER, STORAGE_KEY, MIME, CTX);
 
     const sent = ai.summarizeResume.mock.calls[0]![0];
     expect(sent.storage_key).toBe(STORAGE_KEY);
     expect(sent.role_kinds).toEqual([...TRADE_FORM_KINDS]);
-    // 16 enabled forms, not the 21 declared kinds.
-    expect(sent.role_kinds).toHaveLength(16);
+    // The enabled forms, not every declared kind.
+    expect(sent.role_kinds.length).toBeLessThan(TRADE_FORM_KINDS_ALL.length);
     expect(JSON.stringify(sent)).not.toContain("lines");
+  });
+
+  // #3025 — `role_kinds` is capped at 32 by the contract (`ResumeSummaryInputSchema` and
+  // `contracts.py`). The far side refuses a longer list with a 422, which degrades every summary to
+  // null with no error a worker sees. The enabled set is far under it today; this goes red first,
+  // so the cap is raised on both sides before the forms of a wave push the list past it.
+  it("the enabled kinds fit the contract's role_kinds cap", () => {
+    expect(TRADE_FORM_KINDS.length).toBeLessThanOrEqual(32);
+    const input = ResumeSummaryInputSchema.safeParse({
+      worker_ref: WORKER,
+      storage_key: STORAGE_KEY,
+      mime: MIME,
+      role_kinds: [...TRADE_FORM_KINDS],
+    });
+    expect(input.success).toBe(true);
+    // The cap itself is 32: the bound above and the contract agree.
+    const over = Array.from({ length: 33 }, (_, i) => `kind_${i}`);
+    expect(
+      ResumeSummaryInputSchema.safeParse({
+        worker_ref: WORKER,
+        storage_key: STORAGE_KEY,
+        mime: MIME,
+        role_kinds: over,
+      }).success,
+    ).toBe(false);
   });
 
   it("records the spend even when the summary degraded", async () => {

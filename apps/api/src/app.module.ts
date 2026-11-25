@@ -126,7 +126,7 @@ import { AppVersionModule } from "./app-version/app-version.module";
     // JobsModule whose exports it reads. INERT until CHAT_COMPANION_ENABLED is on.
     ChatCompanionModule,
     JobPostingsModule,
-    // The 16-trade posting form catalogue: the payer route (`GET /payer/posting-trades`)
+    // The posting-trade form catalogue: the payer route (`GET /payer/posting-trades`)
     // and the shared validator both posting producers use (2026-11-03).
     PostingTradesModule,
     PricingModule,

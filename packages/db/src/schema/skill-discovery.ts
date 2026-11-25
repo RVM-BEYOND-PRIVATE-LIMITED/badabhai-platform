@@ -50,7 +50,7 @@
  * ===========================================================================
  * THE MATCH-SKILL WALL (Phase 12)
  * ===========================================================================
- * `mskill_*` is a closed, CEO-ratified 18-member vocabulary the deterministic match engine
+ * `mskill_*` is a closed, CEO-ratified vocabulary the deterministic match engine
  * consumes directly. Nothing in this schema may reference it: `resulting_skill_id` carries a
  * CHECK refusing the prefix, and there is no column anywhere that could propose one. A
  * discovered skill is an ATTRIBUTE and stays unmapped to `MATCH_SKILLS` until a separate
@@ -539,7 +539,7 @@ export const skillCandidates = pgTable(
     /**
      * THE MATCH-SKILL WALL, IN THE DATABASE (Phase 12).
      *
-     * `mskill_*` is a closed 18-member vocabulary the deterministic match engine consumes.
+     * `mskill_*` is a closed vocabulary the deterministic match engine consumes.
      * A discovery candidate resolving onto one would let a mined phrase change what the
      * engine ranks on — which CLAUDE.md §3 forbids outright. Stated as a constraint and not
      * as a service-layer check, because the service layer is not the only thing that can

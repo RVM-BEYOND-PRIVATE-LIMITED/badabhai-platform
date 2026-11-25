@@ -14,7 +14,7 @@ import { cleanList, cleanScalar } from "../resume/resume-clean";
  * THE PROFILE ON THE GENERAL ROAD (ADR-0045 §3.4) — built with ZERO model calls.
  * ══════════════════════════════════════════════════════════════════════════════════════
  *
- * A worker outside the 21 declared roles is profiled in three steps: the model captures the role,
+ * A worker outside the declared roles is profiled in three steps: the model captures the role,
  * then the skills (certified twice, confirmed by the worker at the gate, and persisted durably as
  * `conversation_state.general_road`), and everything else is asked OFFLINE by the general form. By
  * the time this runs, nothing is left for a model to do: the answer map's deterministic projection

@@ -96,7 +96,7 @@ export interface MatchFeedItem {
   matched_skill_label: string | null;
   /**
    * THE POSTING'S ROLE, FOR THE CARD'S ILLUSTRATION (owner ruling 2026-10-05, ADR-0024 addendum).
-   * One of the 21 declared kinds or NULL ("no role picked" — every pre-0131 and chat-published
+   * A declared kind or NULL ("no role picked" — every pre-0131 and chat-published
    * posting). ADDITIVE: a client that ignores it renders what it rendered before. Drawn as art,
    * never as text, and never a match/rank input. Not on `feed.shown_v2`.
    */

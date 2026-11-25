@@ -548,7 +548,7 @@ export class JobPostingsService {
     const origin = opts.origin ?? "campus_posted";
     await this.repo.withTransaction((tx) => holdPostingFromWorkers(tx, draft.id, origin));
     // OPEN AT ONCE, as Campus puts a staff-posted job live today. Not through the company
-    // publish gate: that gate requires one of the 16 trades because publishing MATCHES BadaBhai
+    // publish gate: that gate requires a postable trade because publishing MATCHES BadaBhai
     // workers (#2635), and a held posting reaches no worker at all. Reach is built when an admin
     // turns its worker visibility on (`materializeAfterWorkerVisibility`).
     const opened = await this.repo.transitionOwned(draft.id, scope.tenantKey, "draft", "open");
@@ -744,8 +744,9 @@ export class JobPostingsService {
       throw postingTradeRequired();
     }
     const tradeDto = await this.prepareTradeUpdate(current, dto);
-    // #2635 — matching runs only for the 16 postable trades, so a company may PUBLISH only a
-    // posting that names one, and may not move a live posting off one. Checked before any
+    // #2635 — matching runs only for the posting trades, so a company may PUBLISH only a
+    // posting that names one it may post now (`isPostableNow`), and may not move a live posting
+    // off one. Checked before any
     // write; the ops surface is unchanged, and so is an edit that leaves the role alone.
     const roleAfter = nextRoleKind(current, tradeDto);
     const goesOrStaysLive =
@@ -1007,8 +1008,8 @@ export class JobPostingsService {
     audienceBefore?: JobPostingAudience,
   ): Promise<boolean> {
     const publishing = before.status === "draft" && after.status === "open";
-    // #2635 — a 16-trade posting's match set follows its trade, so moving an OPEN posting into
-    // or out of one is a reach change even when the edit carried no skill ids.
+    // #2635 — a posting-trade posting's match set follows its trade, so moving an OPEN posting
+    // into or out of one is a reach change even when the edit carried no skill ids.
     const tradeMoved =
       before.role_kind !== after.role_kind &&
       (postingTradeFor(before.role_kind) !== undefined ||
@@ -1024,7 +1025,7 @@ export class JobPostingsService {
 
     // The skills to resolve from: the edit's, else what the posting already carries.
     const matchSkillIds = dto.match_skill_ids ?? after.match_skill_ids;
-    // A 16-trade posting is never empty once scoped (its base skill is always kept).
+    // A posting-trade posting is never empty once scoped (its base skill is always kept).
     if (matchSkillIds.length === 0 && postingTradeFor(after.role_kind) === undefined) {
       // Reaches nobody. Not a crash and not a guess — the E13 alert is the right
       // channel for it, and `materialize` emits it once the (empty) set is written.
@@ -1079,7 +1080,8 @@ export class JobPostingsService {
     // the reach silently widened past what the payer chose. A resume had the same problem
     // in a slower form — it must not re-widen a reach the payer deliberately narrowed.
     const unticked = untickedIds ?? posting.unticked_related_ids;
-    // A 16-trade posting always has its base skill once scoped, so it never short-circuits here.
+    // A posting-trade posting always has its base skill once scoped, so it never short-circuits
+    // here.
     const sixteenTrade = postingTradeFor(posting.role_kind) !== undefined;
     if (skills.length === 0 && trigger !== "publish" && !sixteenTrade) return false;
     try {
@@ -1091,7 +1093,8 @@ export class JobPostingsService {
           trigger,
           actor,
           // #2635 — scope the match set to the posting's trade and keep related reach inside
-          // the 16. A non-16 posting (ops / agency) resolves exactly as before.
+          // the live trades' scope. A posting on no posting trade (ops / agency) resolves as
+          // before.
           roleKind: posting.role_kind,
         },
         ctx,
@@ -1209,7 +1212,7 @@ export class JobPostingsService {
       benefits: dto.benefits ?? null,
       requirements: dto.requirements ?? null,
       // Migration 0131 — the payer's role pick, or NULL. Since #2635 it BOUNDS the match set
-      // of a 16-trade posting (see above); it still derives no domain and no rank key.
+      // of a posting-trade posting (see above); it still derives no domain and no rank key.
       roleKind: dto.role_kind ?? null,
       // Migration 0141 — the poster's ladder rung and chip answers. NULL means "not
       // stated"; the derived match set above is separate from this reviewable answer set.
@@ -1377,11 +1380,11 @@ export class JobPostingsService {
   }
 
   /**
-   * #2635 — surface a 16-trade posting's skill-cap 400 BEFORE the write. The rebuild after a
+   * #2635 — surface a posting-trade posting's skill-cap 400 BEFORE the write. The rebuild after a
    * publish or skill edit never fails the request (it only logs), so a scoped set over
    * `max_skills_per_posting` — the trade's base skill is added to what the client sent — would
-   * otherwise go live reaching nobody. Only 16-trade postings: their scoped set is never empty,
-   * so the cap is the only thing this can refuse. Other postings keep the old behaviour.
+   * otherwise go live reaching nobody. Only posting-trade postings: their scoped set is never
+   * empty, so the cap is the only thing this can refuse. Other postings keep the old behaviour.
    */
   private async assertScopedSkillsValid(
     current: JobPostingApi,

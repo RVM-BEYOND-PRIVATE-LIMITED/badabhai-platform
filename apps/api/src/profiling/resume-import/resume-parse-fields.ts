@@ -32,7 +32,7 @@ import type { TargetField } from "@badabhai/ai-contracts";
  * ── TASK 1 B2 AMENDMENT: THE MODEL NOW ALSO CLASSIFIES ────────────────────────────────
  *
  * The parse additionally returns `trade_association.kind` — one id from the closed
- * 21-kind list the caller supplies (`trade_kinds`), or null. This is a classification
+ * list of declared kinds the caller supplies (`trade_kinds`), or null. This is a classification
  * among caller-supplied options (the posture ADR-0041 §6 already allows: the model
  * selects, `canonicalize_skill`/`OccupationService`-style code decides) — NOT a canonical
  * id the model produced on its own, and NOT a ninth target field (it is uncitable by

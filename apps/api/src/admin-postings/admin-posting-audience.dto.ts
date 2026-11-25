@@ -94,7 +94,8 @@ export type ShownTo = "campus" | "both" | "badabhai" | "nobody";
  *  - `twin_not_allowed` — an agency job's synced copy; it is BadaBhai only by a database rule.
  *  - `posting_closed` — closed postings are not changed.
  *  - `trade_required` — the choice reaches BadaBhai workers, and the posting is live, but it names
- *    none of the 16 trades (#2635). Set its trade first (`PATCH admin/postings/:id/edit`).
+ *    no posting trade (#2635, `postingTradeFor`). Set its trade first
+ *    (`PATCH admin/postings/:id/edit`).
  *    Also: a choice that includes Campus on a posting with no trade at all.
  *  - `trade_not_taught_at_campus` — the choice includes Campus, but RVM does not train the
  *    posting's trade (`campus_trades`, #2957). A Campus-origin posting is exempt.
