@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
+import { isPackVersionVoiceReady } from "@badabhai/taxonomy";
+
 import { packFromCorpus, PACK_DIR } from "./form/corpus-pack.test-support";
 import { CONSTANT_REPLIES, normalizeReplyText, replyClosure } from "./reply-closure";
 import {
@@ -67,32 +69,21 @@ describe("question-tts-text — coverage of the reply closure's constants", () =
  * not" — hence the failure message lists them.
  */
 /**
- * NOT YET VOICE READY: the CEO pack v2 forms compiled for Wave 1 (#3008). Their wording waits for a
- * practising worker's sign-off (#3029) before any Devanagari twin is written, and #3018 adds the
- * per-form `voiceReady` flag that keeps a voice session off them meanwhile. Until #3018 replaces
- * this list with that flag, a clip is exempt ONLY when no other form in the corpus can say it —
- * every string a live or older form serves is still held to a twin.
+ * NOT YET VOICE READY (#3018): every pack version `VOICE_READY_THROUGH_VERSION` holds back — the
+ * CEO pack v2 forms whose wording waits for a practising worker's sign-off (#3029) before any
+ * Devanagari twin is written. A clip is exempt ONLY when no voice-ready form in the corpus can say
+ * it: every string a live or older form serves is still held to a twin. Signing a sheet raises its
+ * row, and this test then demands that version's twins.
  */
-const NOT_YET_VOICE_READY = new Set([
-  "qp_edm_wirecut@2",
-  "qp_cnc_router",
-  "qp_heat_treatment@2",
-  "qp_injection_moulding@2",
-  "qp_cmm",
-  "qp_quality_engineer",
-  "qp_plc_automation@2",
-  "qp_maintenance_engineer",
-  "qp_production_supervisor@2",
-  "qp_production_engineer",
-  "qp_process_engineer",
-  "qp_npd_engineer",
-  "qp_ppc",
-  "qp_purchase",
-  "qp_cad_design_3d@2",
-]);
 const CORPUS_FILES = readdirSync(PACK_DIR)
   .filter((f) => f.endsWith(".json"))
   .map((f) => f.slice(0, -".json".length));
+const NOT_YET_VOICE_READY = new Set(
+  CORPUS_FILES.filter((f) => {
+    const pack = packFromCorpus(f);
+    return !isPackVersionVoiceReady(pack.pack_id, pack.version);
+  }),
+);
 const VOICE_HELD_ONLY: ReadonlySet<string> = (() => {
   const elsewhere = new Set(
     replyClosure(CORPUS_FILES.filter((f) => !NOT_YET_VOICE_READY.has(f)).map(packFromCorpus)).map(
@@ -108,7 +99,11 @@ const VOICE_HELD_ONLY: ReadonlySet<string> = (() => {
 const VOICE_CLIPS = CLOSURE.clips.filter((c) => !VOICE_HELD_ONLY.has(c.id));
 
 describe("question-tts-text — coverage of the reply closure", () => {
-  it("holds back only clips the Wave 1 forms alone can say, and every one is in the closure", () => {
+  it("holds back only clips the not-voice-ready forms alone can say, and every one is in the closure", () => {
+    // Today: the 15 Wave 1 forms (#3008), and never a live form's file.
+    expect(NOT_YET_VOICE_READY.size).toBe(15);
+    expect(NOT_YET_VOICE_READY.has("qp_edm_wirecut")).toBe(false);
+    expect(NOT_YET_VOICE_READY.has("qp_edm_wirecut@2")).toBe(true);
     const closureIds = new Set(CLOSURE.clips.map((c) => c.id));
     expect(VOICE_HELD_ONLY.size).toBeGreaterThan(0);
     for (const id of VOICE_HELD_ONLY) expect(closureIds.has(id), id).toBe(true);

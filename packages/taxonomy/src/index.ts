@@ -274,3 +274,4 @@ export * from "./skill-identity";
 export * from "./enums";
 // #2998 — the one statement of each of the 60 trades, and the loaded wave.
 export * from "./trade-catalogue";
+export * from "./voice-ready";

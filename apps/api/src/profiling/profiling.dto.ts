@@ -234,6 +234,15 @@ const ProfilingQuestionSchema = z.object({
    * Absent, never null, when no Devanagari is authored — same additive contract as chat.
    */
   tts_text: z.string().optional(),
+  /**
+   * #3018 — `false` when this question's voice is held: its form is not signed for voice yet and
+   * the line has no Devanagari twin (`voice-hold.ts`). There is no `tts_text` then, and the client
+   * shows {@link voice_hint} with the chips so the worker taps or types instead of hearing nothing.
+   * ABSENT, never true, on every other question, so every existing body is byte-identical.
+   */
+  voice_ready: z.literal(false).optional(),
+  /** #3018 — the fixed tap-or-type line, Hinglish, shown and never read aloud. With `voice_ready`. */
+  voice_hint: z.string().optional(),
 });
 
 /**
@@ -278,6 +287,9 @@ export const ProfilingStepSchema = z.discriminatedUnion("kind", [
           options: z.array(ProfilingOptionSchema),
           /** Content-addressed, exactly like the served question's — so the client can prefetch. */
           tts_clip_id: z.string(),
+          /** #3018 — as on the served question: held voice, the fixed tap-or-type line. */
+          voice_ready: z.literal(false).optional(),
+          voice_hint: z.string().optional(),
           index: z.number().int().positive(),
           total: z.number().int().nonnegative(),
           /**

@@ -34,6 +34,7 @@ import { isSettled } from "./answer-map";
 import { otherAnswerTextOf } from "./pack-answer-row";
 import { clipId } from "./reply-closure";
 import { ttsField } from "./question-tts-text";
+import { VOICE_FALLBACK_HINT, voiceHeld, type PinnedPack } from "./voice-hold";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ProfilesService } from "../profiles/profiles.service";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
@@ -129,9 +130,15 @@ export class ProfilingSessionService {
   async start(workerId: string, ctx: RequestContext): Promise<ProfilingSessionResponse> {
     const live = await this.chat.listActiveSessionsByWorker(workerId, VOICE_REATTACH_CANDIDATES);
     let sessionId: string | null = null;
+    // #3018 — the reattached session's DURABLE pin (`chat_sessions.pack_id`), which decides
+    // whether its re-served question may be read aloud. A minted session has no pin yet: its first
+    // question is the opener, never a pack's. Read from the row already in hand, so the reattach
+    // decision still never needs the live envelope.
+    let pin: PinnedPack | null = null;
     for (const candidate of live) {
       if (!(await this.notContinuable(candidate))) {
         sessionId = candidate.id;
+        pin = { packId: candidate.packId ?? null, packVersion: candidate.packVersion ?? null };
         break;
       }
     }
@@ -151,7 +158,7 @@ export class ProfilingSessionService {
       now: new Date(),
       ctx,
     });
-    return { session_id: sessionId, step: this.stepOf(turn) };
+    return { session_id: sessionId, step: this.stepOf(turn, pin) };
   }
 
   /**
@@ -927,9 +934,16 @@ export class ProfilingSessionService {
     return String(value);
   }
 
-  private stepOf(turn: TurnResult): ProfilingStep {
+  private stepOf(turn: TurnResult, pin: PinnedPack | null | undefined): ProfilingStep {
     if (turn.unavailable) return { kind: "unavailable", reply: turn.reply };
     if (turn.complete) return { kind: "done" };
+    // #3018 — A QUESTION WHOSE VOICE IS HELD IS NEVER SILENCE. It carries no `tts_text`, says so
+    // (`voice_ready: false`), and brings the one fixed tap-or-type line; its chips are unchanged,
+    // so the worker answers by tapping or typing. See `voice-hold.ts` for when a turn is held.
+    const voice = (questionKey: string | null, text: string) =>
+      voiceHeld(pin, questionKey, text)
+        ? { voice_ready: false as const, voice_hint: VOICE_FALLBACK_HINT }
+        : ttsField(text);
     return {
       kind: "question",
       question: {
@@ -954,7 +968,7 @@ export class ProfilingSessionService {
         why_text: turn.whyText,
         tts_clip_id: clipId(turn.reply),
         // #896 — the on-device fallback for when the clip id resolves to no bundled asset.
-        ...ttsField(turn.reply),
+        ...voice(turn.questionKey, turn.reply),
       },
       // 1-BASED, and derived from what is settled rather than counted client-side. `answered` is
       // how many questions are behind the worker, so the one in front of them is the next.
@@ -987,7 +1001,7 @@ export class ProfilingSessionService {
                     is_none_of_above: option.is_none_of_above,
                   })),
                   tts_clip_id: clipId(entry.promptText),
-                  ...ttsField(entry.promptText),
+                  ...voice(entry.questionKey, entry.promptText),
                   index: Math.min(entry.progress.answered + 1, Math.max(entry.progress.total, 1)),
                   total: entry.progress.total,
                   // #766 item 4. Load-bearing on THIS surface specifically: `tts_clip_id` above
@@ -1011,9 +1025,9 @@ export class ProfilingSessionService {
       case "degraded":
         return { kind: "unavailable", reply: outcome.reply };
       case "replay":
-        return this.stepOf(outcome.turn);
+        return this.stepOf(outcome.turn, outcome.envelope);
       case "turn":
-        return this.stepOf(outcome.turn);
+        return this.stepOf(outcome.turn, outcome.buffered.profiling);
     }
   }
 }
