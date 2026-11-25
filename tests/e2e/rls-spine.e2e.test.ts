@@ -361,6 +361,9 @@ const LOCKED_TABLES = [
   // #3002: the per-trade release switch (a role kind, two booleans, the admin id, times).
   // RLS+FORCE+REVOKE in the hand-written tail of `*_trade_release`.
   "trade_release",
+  // #3048: the minimum supported app build (app, platform, two integers, a store link, the admin
+  // id, times). RLS+FORCE+REVOKE in the hand-written tail of `*_app_release_policy`.
+  "app_release_policy",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

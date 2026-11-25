@@ -115,6 +115,8 @@ import { AdminWaiversController } from "./waivers/admin-waivers.controller";
 import { RvmWaiversModule } from "../rvm-waivers/rvm-waivers.module";
 import { AdminTradeReleaseController } from "./trade-release/admin-trade-release.controller";
 import { TradeReleaseModule } from "../trade-release/trade-release.module";
+import { AdminAppReleasePolicyController } from "./app-release-policy/admin-app-release-policy.controller";
+import { AppVersionModule } from "../app-version/app-version.module";
 import { AdminReachDeskController } from "./reach-desk/admin-reach-desk.controller";
 import { ReachDeskModule } from "../reach-desk/reach-desk.module";
 import { ManagedHiringModule } from "../managed-hiring/managed-hiring.module";
@@ -247,6 +249,9 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // #3002 - the per-trade release switch (`/admin/trade-release`). TradeReleaseModule does
     // not import AdminModule, so no cycle.
     TradeReleaseModule,
+    // #3048 - the minimum supported app build (`/admin/app-release-policy`). AppVersionModule
+    // imports nothing, so no cycle.
+    AppVersionModule,
     // #2750 items 7 and 12 - the worker desk (`/admin/desk/reach-cases`). ReachDeskModule does not
     // import AdminModule, so no cycle.
     ReachDeskModule,
@@ -311,6 +316,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminCreditRulesController,
     AdminWaiversController,
     AdminTradeReleaseController,
+    AdminAppReleasePolicyController,
     AdminReachDeskController,
     AdminManagedHiringController,
     AdminPaymentRefundsController,

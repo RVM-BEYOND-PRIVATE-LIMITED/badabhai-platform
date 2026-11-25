@@ -186,6 +186,10 @@ export const EVENT_DOMAINS = [
   // `job_posting` (the inventory the switch gates): the switch is its own row with its own
   // lifecycle. IDS AND CLOSED VALUES ONLY: the role kind, the two booleans, the admin id.
   "trade_release",
+  // #3048 — the minimum supported app build per app and platform (who gets "Update required"). A
+  // DISTINCT domain from `admin` (the actor) and from any worker or payer domain: the policy is
+  // its own row with its own lifecycle. CLOSED VALUES, INTEGERS AND THE ADMIN ID ONLY.
+  "app_version",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;

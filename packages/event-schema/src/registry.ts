@@ -2104,6 +2104,14 @@ export const EVENT_REGISTRY = {
     domain: "trade_release",
     payload: p.TradeReleaseChangedPayload,
   },
+  // #3048 — an admin changed one app and platform's minimum / latest build, store link or copy key:
+  // old and new values of both builds, the link and key after the write, and the admin. One event
+  // per REAL change (a set that changes nothing writes nothing and emits nothing). No PII. v1.
+  "app_version.policy_changed": {
+    version: 1,
+    domain: "app_version",
+    payload: p.AppVersionPolicyChangedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
