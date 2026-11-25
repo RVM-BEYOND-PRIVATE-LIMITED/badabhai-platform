@@ -523,12 +523,12 @@ describe("MatchSkillsService.resolveForPublish — #2635 matching runs only for 
     ).rejects.toThrow(/mskill_not_a_skill/);
   });
 
-  it("a role outside the 16 resolves exactly as a posting with no role", async () => {
+  it("a role outside the posting catalogue resolves exactly as a posting with no role", async () => {
     const { svc } = setup();
-    const polymer = await svc.resolveForPublish([VMC], [], {
-      roleKind: "injection_moulding_operator",
+    const retired = await svc.resolveForPublish([VMC], [], {
+      roleKind: "mould_die_maker",
     });
     const none = await svc.resolveForPublish([VMC], []);
-    expect(polymer).toEqual(none);
+    expect(retired).toEqual(none);
   });
 });

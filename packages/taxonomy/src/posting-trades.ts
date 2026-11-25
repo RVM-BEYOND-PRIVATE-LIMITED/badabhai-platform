@@ -1,19 +1,22 @@
 import type { TradeFormKindName } from "@badabhai/types";
+import { TRADES_V2_RUNG_EVIDENCE } from "./posting-trades-v2-evidence";
+import { TRADE_CATALOGUE, type TradeCatalogueEntry } from "./trade-catalogue";
 import type { TradeLevel } from "./trade-levels";
 
 /**
- * THE 16 TRADES THE JOB-POSTING FORM CATERS TODAY.
+ * THE 60 TRADES A COMPANY MAY POST (CEO pack v2, ruled 23 Nov 2026; #3005).
  *
- * The owner ruled (2026-11-03) that only these trades are postable right now. The five
- * polymer roles in `TRADE_FORM_KINDS_ALL` stay declared on the worker side — removing them
- * would be a breaking change — but they are deliberately absent from the posting picker and
- * from this catalogue: there is no posting question pack for them yet.
+ * The owner ruled (2026-11-03) that 16 trades were postable; the CEO pack v2 makes all 60
+ * postable. DECLARED IS NOT OFFERED: a trade is offered on the posting form and accepted by
+ * posting validation only while its release switch is on (`trade_release.posting_enabled`,
+ * #3002, read by the API's `PostingTradesService`). The 16 live trades are seeded on; the 44
+ * new ones ship off and the owner switches each wave on (#3013).
  *
  * THIS IS THE ONE DECLARATION between a posting's `role_kind`, the trade's worker question
  * pack, its base `mskill_*`, and the CEO launch-pack ladder. The API builds the posting form
  * from the packs themselves (so question text and chips can never drift), and this file
- * supplies the four things a pack does not carry: the pack id, the family id, the base match
- * skill and the display-only ladder.
+ * supplies the five things a pack does not carry: the pack id, the family id, the base match
+ * skill, the display-only ladder and the ordered question keys a posting may ask.
  *
  * WHAT A LADDER IS, AND IS NOT. Posting a rung never changes `job_reach`; it is the
  * collar/function fact the payer states and the worker reads. The error to avoid is treating
@@ -21,11 +24,19 @@ import type { TradeLevel } from "./trade-levels";
  * reach. Since engine v1.1 (ADR-0061) the rung SORTS the applicant list of the 4 CNC trades
  * ("Level needed", sort never hide); that rung order lives in `level-needed.ts`, not here.
  *
- * ADDING A 17TH TRADE IS ONE ROW. No migration (the DB validates only the jsonb shape), no
- * second form, no new branch in either client: the API's posting-trades route reflects this
- * list and both forms render whatever it returns.
+ * ADDING A TRADE IS ONE CATALOGUE ROW. No migration (the DB validates only the jsonb shape), no
+ * second form, no new branch in either client: the API's posting-trades routes reflect this
+ * list (filtered by the release switch) and both forms render whatever they return.
  */
-export const POSTING_TRADE_KINDS = [
+
+/**
+ * The 16 trades that were postable before trades v2 (owner ruling 2026-11-03). Still a list of
+ * its own because three readers must keep exactly these: the migration-0198 seed of the
+ * release switch, the matching scope (`posting-scope.ts`: related expansion of a live job must
+ * not reach a trade nobody has switched on), and the old `GET /payer/posting-trades` route that
+ * installed company apps read (#3006).
+ */
+export const LIVE_POSTING_TRADE_KINDS = [
   "cnc_turner",
   "vmc_milling",
   "cnc_grinding",
@@ -44,11 +55,78 @@ export const POSTING_TRADE_KINDS = [
   "quality_inspector",
 ] as const satisfies readonly TradeFormKindName[];
 
+/**
+ * The 44 trades the CEO pack v2 adds to the posting catalogue, in `TRADE_CATALOGUE` order
+ * (Wave 1, 2, 3). Every one ships with its release switch off.
+ */
+export const TRADES_V2_POSTING_KINDS = [
+  // Wave 1
+  "edm_wirecut_operator",
+  "cnc_router_operator",
+  "foundry_operator",
+  "die_casting_operator",
+  "forging_operator",
+  "heat_treatment_technician",
+  "injection_moulding_operator",
+  "cmm_operator",
+  "quality_engineer",
+  "plc_automation_technician",
+  "maintenance_engineer",
+  "production_supervisor",
+  "production_engineer",
+  "process_engineer",
+  "npd_engineer",
+  "ppc_engineer",
+  "purchase_engineer",
+  "cad_designer_3d",
+  // Wave 2
+  "gear_cutting_operator",
+  "boring_machine_operator",
+  "spm_finishing_operator",
+  "fabricator",
+  "tube_bending_operator",
+  "plating_operator",
+  "blow_moulding_operator",
+  "plastic_extrusion_operator",
+  "rubber_moulding_operator",
+  "ndt_technician",
+  "calibration_technician",
+  "material_lab_technician",
+  "robot_operator_programmer",
+  "instrumentation_technician",
+  "hvac_rac_technician",
+  "utility_operator",
+  "forklift_operator",
+  "crane_operator",
+  // Wave 3
+  "service_engineer",
+  "safety_officer",
+  "project_site_engineer",
+  "technical_sales_engineer",
+  "store_keeper",
+  "dispatch_logistics_executive",
+  "cae_analyst",
+  "piping_designer",
+] as const satisfies readonly TradeFormKindName[];
+
+/** Every postable trade: the 16 live ones first, then the 44 of trades v2. */
+export const POSTING_TRADE_KINDS = [...LIVE_POSTING_TRADE_KINDS, ...TRADES_V2_POSTING_KINDS] as const;
+
 export type PostingTradeKind = (typeof POSTING_TRADE_KINDS)[number];
+export type LivePostingTradeKind = (typeof LIVE_POSTING_TRADE_KINDS)[number];
 
 const POSTING_TRADE_KIND_SET: ReadonlySet<string> = new Set(POSTING_TRADE_KINDS);
+const LIVE_POSTING_TRADE_KIND_SET: ReadonlySet<string> = new Set(LIVE_POSTING_TRADE_KINDS);
 
-/** Whether a value is one of the 16 postable trades. */
+/** Whether a value is one of the 16 trades postable before trades v2. */
+export function isLivePostingTradeKind(value: unknown): value is LivePostingTradeKind {
+  return typeof value === "string" && LIVE_POSTING_TRADE_KIND_SET.has(value);
+}
+
+/**
+ * Whether a value is one of the 60 declared postable trades. Declared only: whether a company
+ * may post it NOW is the release switch's answer, which the API reads.
+ */
 export function isPostingTradeKind(value: unknown): value is PostingTradeKind {
   return typeof value === "string" && POSTING_TRADE_KIND_SET.has(value);
 }
@@ -83,6 +161,14 @@ export interface PostingTrade {
    * stored one still loads and saves; the form never offers it again.
    */
   readonly legacyRungs: readonly TradeLevel[];
+  /**
+   * The ordered question keys a posting of this trade may ask (#3005), from
+   * `TRADE_CATALOGUE.postingQuestionKeys`. Every select question of the sheet except the
+   * experience question, the level question, each `…_confirm` and each question asked only at
+   * zero experience. For the 16 live trades it is exactly what the retired key-ending filter
+   * yielded from each active pack.
+   */
+  readonly postingQuestionKeys: readonly string[];
 }
 
 /**
@@ -94,7 +180,7 @@ export interface PostingTrade {
  * takes its evidence from the sheet and its months floor from the nearest analogue. Neither
  * field is displayed today.
  */
-export const POSTING_TRADES: readonly PostingTrade[] = [
+const LIVE_POSTING_TRADE_ROWS: readonly Omit<PostingTrade, "postingQuestionKeys">[] = [
   {
     roleKind: "cnc_turner",
     packId: "qp_cnc_turning",
@@ -811,11 +897,105 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
   },
 ] as const;
 
+const CATALOGUE_BY_KIND: ReadonlyMap<string, TradeCatalogueEntry> = new Map(
+  TRADE_CATALOGUE.map((entry) => [entry.roleKind, entry]),
+);
+
+function catalogueEntry(roleKind: string): TradeCatalogueEntry {
+  const entry = CATALOGUE_BY_KIND.get(roleKind);
+  if (entry === undefined) throw new Error(`posting trade ${roleKind} has no TRADE_CATALOGUE row`);
+  return entry;
+}
+
+/**
+ * The months floor a trades-v2 rung takes from the live ladders (not displayed, like the 16's
+ * own). A rung the live ladders use takes the floor most of them give it; the four desk and
+ * supply-chain rungs of #3000, which no live ladder has, take the floor of the live rung in the
+ * same place on a ladder: engineer = designer, senior engineer = senior designer, executive =
+ * operator, senior executive = senior.
+ */
+const RUNG_FLOOR_ANALOGUE: Readonly<Record<string, TradeLevel>> = {
+  engineer: "designer",
+  senior_engineer: "senior_designer",
+  executive: "operator",
+  senior_executive: "senior",
+};
+
+const LIVE_RUNG_FLOOR: ReadonlyMap<string, string> = (() => {
+  const counts = new Map<string, Map<string, number>>();
+  for (const trade of LIVE_POSTING_TRADE_ROWS) {
+    for (const { rung, monthsFloor } of trade.ladder) {
+      const byFloor = counts.get(rung) ?? new Map<string, number>();
+      byFloor.set(monthsFloor, (byFloor.get(monthsFloor) ?? 0) + 1);
+      counts.set(rung, byFloor);
+    }
+  }
+  const out = new Map<string, string>();
+  for (const [rung, byFloor] of counts) {
+    // Most common floor; a tie goes to the floor seen first (catalogue order), deterministic.
+    let best: [string, number] | null = null;
+    for (const entry of byFloor) if (best === null || entry[1] > best[1]) best = entry;
+    out.set(rung, best![0]);
+  }
+  return out;
+})();
+
+function monthsFloorFor(rung: string): string {
+  const floor = LIVE_RUNG_FLOOR.get(RUNG_FLOOR_ANALOGUE[rung] ?? rung);
+  if (floor === undefined) throw new Error(`no live months floor for rung ${rung}`);
+  return floor;
+}
+
+/**
+ * One trades-v2 posting trade, generated from its catalogue row: the sheet's ladder in sheet
+ * order, `confirmed` from "Confirmed from" and `priceTier` from "Higher contact price from".
+ */
+function postingTradeFromCatalogue(roleKind: PostingTradeKind): PostingTrade {
+  const entry = catalogueEntry(roleKind);
+  const rungs = entry.ladder.map((rung) => rung.rung);
+  const confirmedAt = rungs.indexOf(entry.confirmedFrom);
+  const higherAt = rungs.indexOf(entry.higherPriceFrom);
+  if (confirmedAt < 0 || higherAt < 0) {
+    throw new Error(`${roleKind}: confirmedFrom/higherPriceFrom is not a ladder rung`);
+  }
+  const evidence = TRADES_V2_RUNG_EVIDENCE[roleKind] ?? {};
+  return {
+    roleKind,
+    packId: entry.packId,
+    familyId: entry.familyId,
+    matchSkillId: entry.matchSkillId,
+    ladder: rungs.map((rung, i) => ({
+      rung: rung as TradeLevel,
+      monthsFloor: monthsFloorFor(rung),
+      evidence: evidence[rung] ?? entry.ladder[i]!.label,
+      confirmed: i >= confirmedAt,
+      priceTier: i >= higherAt ? "higher" : "lower",
+    })),
+    legacyRungs: [],
+    postingQuestionKeys: entry.postingQuestionKeys,
+  };
+}
+
+/**
+ * The catalogue: the 16 live trades (hand-kept rows above, unchanged), then the 44 of trades
+ * v2 generated from `TRADE_CATALOGUE`. Every trade's posting question keys come from the
+ * catalogue.
+ */
+export const POSTING_TRADES: readonly PostingTrade[] = [
+  ...LIVE_POSTING_TRADE_ROWS.map(
+    (trade): PostingTrade => ({
+      ...trade,
+      postingQuestionKeys: catalogueEntry(trade.roleKind).postingQuestionKeys,
+    }),
+  ),
+  ...TRADES_V2_POSTING_KINDS.map(postingTradeFromCatalogue),
+];
+
 const POSTING_TRADE_BY_KIND: ReadonlyMap<string, PostingTrade> = new Map(
   POSTING_TRADES.map((trade) => [trade.roleKind, trade]),
 );
 
-/** The posting trade for a role kind, or undefined for the five non-postable roles. */
+/** The posting trade for a role kind (one of the 60 declared), or undefined for any other role. */
 export function postingTradeFor(roleKind: string | null | undefined): PostingTrade | undefined {
   return roleKind == null ? undefined : POSTING_TRADE_BY_KIND.get(roleKind);
 }

@@ -1,6 +1,11 @@
 import { isMatchSkillId, type MatchSkillId } from "./match-skills";
 import { packReachableMatchSkills } from "./pack-answer-skills";
-import { POSTING_TRADES, postingTradeFor, type PostingTradeKind } from "./posting-trades";
+import {
+  POSTING_TRADES,
+  isLivePostingTradeKind,
+  postingTradeFor,
+  type PostingTradeKind,
+} from "./posting-trades";
 
 /**
  * MATCHING RUNS ONLY FOR THE 16 POSTABLE TRADES (owner ruling 2026-11-04, #2635).
@@ -12,8 +17,15 @@ import { POSTING_TRADES, postingTradeFor, type PostingTradeKind } from "./postin
  *   - A trade's OWN skill set is its base skill plus every skill its own question pack's chips
  *     can name (`packReachableMatchSkills`) — the same closed bridge the worker derive path
  *     reads, so a job can ask for exactly what that trade's workers can hold.
- *   - THE SCOPE is the union of the 16 own sets. Related expansion of a 16-trade job never
- *     leaves it, so a Fitter job reaches Maintenance and QC workers but never a plumber.
+ *   - THE SCOPE is the union of the 16 LIVE trades' own sets. Related expansion of a posting-
+ *     trade job never leaves it, so a Fitter job reaches Maintenance and QC workers but never a
+ *     plumber.
+ *
+ * #3005 — THE SCOPE STAYS ON THE 16. The 44 trades of CEO pack v2 are postable trades (each has
+ * its own set below, so a job for one scopes to it), but their skills are not in the scope yet:
+ * section-5 pairs (#3001) relate live skills to new ones, and a scope holding the new skills
+ * would widen the reach of LIVE jobs on their next rebuild before any owner switched a wave on.
+ * Widening the scope to a wave is part of switching that wave on (#3013, checked by #3051).
  *
  * WHY HERE. Both writers of a job's match set (`MatchSkillsService.resolveForPublish` at create,
  * publish, edit and unpause) and the reach preview must agree on one table. It is a pure
@@ -34,9 +46,13 @@ const OWN_SKILLS_BY_TRADE: ReadonlyMap<PostingTradeKind, readonly MatchSkillId[]
   POSTING_TRADES.map((trade) => [trade.roleKind, ownSkillsOf(trade.packId, trade.matchSkillId)]),
 );
 
-/** Every `mskill_*` a 16-trade job may name or reach. Sorted, deduped. */
+/** Every `mskill_*` a related expansion may reach: the 16 live trades' own sets. Sorted, deduped. */
 export const POSTING_SCOPE_SKILL_IDS: readonly MatchSkillId[] = [
-  ...new Set([...OWN_SKILLS_BY_TRADE.values()].flat()),
+  ...new Set(
+    [...OWN_SKILLS_BY_TRADE.entries()]
+      .filter(([kind]) => isLivePostingTradeKind(kind))
+      .flatMap(([, skills]) => skills),
+  ),
 ].sort();
 
 const POSTING_SCOPE_SET: ReadonlySet<string> = new Set(POSTING_SCOPE_SKILL_IDS);
@@ -48,7 +64,7 @@ export function isInPostingScope(skillId: string): boolean {
 
 /**
  * The skills a job for this trade may name: its base skill plus its own pack's chip skills.
- * `undefined` when the role is not one of the 16 (or is null).
+ * `undefined` when the role is not a postable trade (or is null).
  */
 export function postingTradeSkillIds(
   roleKind: string | null | undefined,
@@ -70,7 +86,7 @@ export interface ScopedPostingSkills {
  *
  * The base skill is ALWAYS kept (a job that names a trade can never reach nobody), every
  * requested id the trade owns is kept, and everything else is dropped — never rejected: the
- * caller records the drop on an event. `undefined` when the role is not one of the 16, so the
+ * caller records the drop on an event. `undefined` when the role is not a postable trade, so the
  * caller keeps the pre-#2635 behaviour for it.
  *
  * Deterministic and order-preserving: the same request always yields the same lists.

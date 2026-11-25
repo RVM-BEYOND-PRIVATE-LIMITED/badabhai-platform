@@ -7,7 +7,9 @@ import {
   postingTradeSkillIds,
   scopePostingSkills,
 } from "./posting-scope";
-import { POSTING_TRADES } from "./posting-trades";
+import { POSTING_TRADES, TRADES_V2_POSTING_KINDS, isLivePostingTradeKind } from "./posting-trades";
+
+const LIVE_TRADES = POSTING_TRADES.filter((trade) => isLivePostingTradeKind(trade.roleKind));
 
 /**
  * #2635 — matching runs only for the 16 postable trades. The scope is a PRODUCT CONTRACT: the
@@ -55,8 +57,8 @@ describe("16-trade matching scope", () => {
     }
   });
 
-  it("gives every trade its base skill and its own pack's chip skills, all inside the scope", () => {
-    for (const trade of POSTING_TRADES) {
+  it("gives every live trade its base skill and its own pack's chip skills, all inside the scope", () => {
+    for (const trade of LIVE_TRADES) {
       const own = postingTradeSkillIds(trade.roleKind);
       expect(own, trade.roleKind).toBeDefined();
       expect(own).toContain(trade.matchSkillId);
@@ -65,14 +67,27 @@ describe("16-trade matching scope", () => {
     }
   });
 
-  it("has no own set for a role outside the 16, or for no role", () => {
-    expect(postingTradeSkillIds("injection_moulding_operator")).toBeUndefined();
+  it("#3005: gives each trades-v2 trade its own set, but keeps its skill out of the live scope", () => {
+    // Section-5 pairs relate live skills to these; a scope holding them would widen LIVE jobs'
+    // reach before any wave is switched on. Widening the scope is part of switching a wave on.
+    for (const kind of TRADES_V2_POSTING_KINDS) {
+      const trade = POSTING_TRADES.find((t) => t.roleKind === kind)!;
+      expect(postingTradeSkillIds(kind), kind).toContain(trade.matchSkillId);
+      expect(scopePostingSkills(kind, [])?.kept, kind).toEqual([trade.matchSkillId]);
+      expect(isInPostingScope(trade.matchSkillId), kind).toBe(
+        LIVE_TRADES.some((live) => postingTradeSkillIds(live.roleKind)!.includes(trade.matchSkillId as never)),
+      );
+    }
+  });
+
+  it("has no own set for a role outside the catalogue, or for no role", () => {
+    expect(postingTradeSkillIds("mould_die_maker")).toBeUndefined();
     expect(postingTradeSkillIds(null)).toBeUndefined();
     expect(postingTradeSkillIds(undefined)).toBeUndefined();
   });
 
   it("leaves some related skills outside the scope — the expansion the engine must trim", () => {
-    const leaks = POSTING_TRADES.flatMap((trade) =>
+    const leaks = LIVE_TRADES.flatMap((trade) =>
       relatedMatchSkills(trade.matchSkillId).filter((id) => !isInPostingScope(id)),
     );
     // #3001 adds 22 more: every new trade relates out of the 16-trade scope until its
@@ -158,10 +173,8 @@ describe("scopePostingSkills", () => {
     ).toEqual({ kept: ["mskill_welder", "mskill_tig_welder"], dropped: ["mskill_not_a_skill"] });
   });
 
-  it("does not scope a role outside the 16 (the caller keeps the old behaviour)", () => {
-    expect(scopePostingSkills("injection_moulding_operator", ["mskill_imm_operator"])).toBe(
-      undefined,
-    );
+  it("does not scope a role outside the catalogue (the caller keeps the old behaviour)", () => {
+    expect(scopePostingSkills("mould_die_maker", ["mskill_imm_operator"])).toBe(undefined);
     expect(scopePostingSkills(null, ["mskill_welder"])).toBeUndefined();
   });
 });

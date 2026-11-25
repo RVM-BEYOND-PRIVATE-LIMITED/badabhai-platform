@@ -26,7 +26,12 @@ import {
   type NewJobPosting,
 } from "@badabhai/db";
 import type { JobPostingVerificationStatus } from "@badabhai/types";
-import { postingTradeFor, postingTradeSkillIds, scopePostingSkills } from "@badabhai/taxonomy";
+import {
+  isLivePostingTradeKind,
+  postingTradeFor,
+  postingTradeSkillIds,
+  scopePostingSkills,
+} from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
@@ -735,7 +740,7 @@ export class JobPostingsService {
     const rawGoesOrStaysLive =
       isPublishing(current, dto) ||
       (current.status !== "draft" && rawRoleAfter !== current.role_kind);
-    if (rawGoesOrStaysLive && !postingTradeFor(rawRoleAfter)) {
+    if (rawGoesOrStaysLive && !(await this.isPostableNow(rawRoleAfter))) {
       throw postingTradeRequired();
     }
     const tradeDto = await this.prepareTradeUpdate(current, dto);
@@ -746,7 +751,7 @@ export class JobPostingsService {
     const goesOrStaysLive =
       isPublishing(current, tradeDto) ||
       (current.status !== "draft" && roleAfter !== current.role_kind);
-    if (goesOrStaysLive && !postingTradeFor(roleAfter)) {
+    if (goesOrStaysLive && !(await this.isPostableNow(roleAfter))) {
       throw postingTradeRequired();
     }
     await this.assertScopedSkillsValid(current, tradeDto);
@@ -762,7 +767,7 @@ export class JobPostingsService {
       requested !== undefined &&
       !audienceReachesBadaBhaiWorkers(current.audience) &&
       audienceReachesBadaBhaiWorkers(requested);
-    if (widensToWorkers && current.status !== "draft" && !postingTradeFor(roleAfter)) {
+    if (widensToWorkers && current.status !== "draft" && !(await this.isPostableNow(roleAfter))) {
       throw postingTradeRequired();
     }
     const prepared = this.prepareUpdate(current, tradeDto, audienceRequest !== null);
@@ -1322,6 +1327,20 @@ export class JobPostingsService {
    * A request that carries no trade fields is untouched and keeps the pre-0141 behaviour:
    * the client that sends it cannot have authored trade answers (the columns are new).
    */
+  /**
+   * #2635 / #3005 — may a posting go live (or widen to workers) on this role? Only a postable
+   * trade, and for the 44 trades of CEO pack v2 only while its release switch is on: declaring
+   * a trade is not offering it, and a client that sends only `role_kind` (no trade fields, so no
+   * `normalizeSelection`) must not publish a trade no owner switched on. The 16 live trades do
+   * not read the switch here, as the old picker route serves them whatever it says (#3006).
+   */
+  private async isPostableNow(roleKind: string | null | undefined): Promise<boolean> {
+    const trade = postingTradeFor(roleKind);
+    if (trade === undefined) return false;
+    if (isLivePostingTradeKind(trade.roleKind)) return true;
+    return this.postingTrades.isReleased(trade.roleKind);
+  }
+
   private async prepareTradeUpdate(
     current: JobPostingApi,
     dto: UpdateJobPostingDto,
@@ -1337,6 +1356,8 @@ export class JobPostingsService {
       nextRole,
       dto.trade_level ?? (cleared.has("trade_level") ? null : current.trade_level),
       dto.trade_answers ?? (cleared.has("trade_answers") ? null : current.trade_answers),
+      // #3005 — a posting keeps saving its own stored trade after that trade is switched off.
+      { storedRoleKind: current.role_kind },
     );
     // `match_skill_ids` present is what makes `materializeIfNeeded` rebuild the reach set.
     // A rung-only or facet-only edit derives the SAME set the posting already carries, so
