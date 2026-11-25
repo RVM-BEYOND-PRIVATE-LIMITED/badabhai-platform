@@ -247,6 +247,45 @@ describe("packs — each defect must be caught", () => {
     expect(fatal(c).join()).toContain("has no binding");
   });
 
+  // #3009: a trade is retired by moving its codes to the families that replace it and
+  // deprecating its form in place. The old family then binds nothing, and that is allowed only
+  // while none of its forms is active.
+  it("allows a retired family (every form deprecated) to bind nothing", () => {
+    const c = valid();
+    expect(c.packs[0]!.status).toBe("active");
+    c.families.push({
+      kind: "family",
+      family_id: "fam_retired",
+      label_en: "Retired",
+      label_hi: "x",
+    });
+    c.packs.push({
+      ...c.packs[0]!,
+      pack_id: "qp_retired",
+      family_id: "fam_retired",
+      status: "deprecated",
+    });
+    expect(fatal(c)).toEqual([]);
+  });
+
+  it("still refuses an unbound family when one of its forms is active, whatever the order", () => {
+    const c = valid();
+    c.families.push({ kind: "family", family_id: "fam_orphan", label_en: "Orphan", label_hi: "x" });
+    // The deprecated version is listed FIRST, so the check must not depend on loop order.
+    c.packs.push({
+      ...c.packs[0]!,
+      pack_id: "qp_orphan",
+      family_id: "fam_orphan",
+      status: "deprecated",
+    });
+    c.packs.push({ ...c.packs[0]!, pack_id: "qp_orphan", version: 2, family_id: "fam_orphan" });
+    const problems = fatal(c).filter((p) => p.includes("has no binding"));
+    expect(problems).toEqual([
+      "pack qp_orphan@1: family fam_orphan has no binding — this pack can never be resolved",
+      "pack qp_orphan@2: family fam_orphan has no binding — this pack can never be resolved",
+    ]);
+  });
+
   it("catches a question_key that would fail the event-payload slug filter", () => {
     // A bad id does not fail loudly — it makes the flush transaction DISCARD a completed
     // interview, which is the worst possible failure mode.

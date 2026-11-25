@@ -218,6 +218,12 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   fam_npd_engineer: "NPD / development engineer",
   fam_ppc: "PPC / production planning",
   fam_purchase: "purchase / vendor development",
+  // The foundry split (#3009): the Latin reading of each new family's `label_hi`. The roles are
+  // declared and disabled (#3004), like the Wave 1 families above. `fam_foundry_forging` keeps its
+  // label: it binds nothing now, but its deprecated form's rows still name it.
+  fam_foundry_casting: "foundry / casting",
+  fam_die_casting: "die casting",
+  fam_forging: "forging",
 });
 
 /**

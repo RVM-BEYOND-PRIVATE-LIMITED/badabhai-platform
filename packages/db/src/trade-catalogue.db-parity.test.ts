@@ -73,15 +73,29 @@ describe("trade catalogue DB parity", () => {
 });
 
 /**
- * Wave 1 (#3008), checked ahead of LOADED_WAVE. Raising LOADED_WAVE to 1 also turns on the
- * posting-trade, answer-skill and résumé-map checks, which land with #3005, #3011 and #3012, and
- * the foundry split's three trades, which land with #3009. Until then this block holds the part
- * #3008 loads: the family, every section 13.1 binding, and the form files.
+ * Wave 1 (#3008, and the foundry split #3009), checked ahead of LOADED_WAVE. Raising LOADED_WAVE
+ * to 1 also turns on the posting-trade, answer-skill and résumé-map checks, which land with #3005,
+ * #3011 and #3012. Until then this block holds what #3008 and #3009 load: the family, every
+ * section 13.1 binding, and the form files.
  */
-const WAVE_1_LATER = new Set(["T24", "T25", "T26"]); // the foundry split, #3009
-/** #2995 point 4 default: these four stay with T24 and T26, so T45 does not bind them. */
-const T45_LEFT_WITH_FOUNDRY = new Set(["3122.4401", "3122.4402", "3122.4501", "3122.4502"]);
-const wave1 = TRADE_CATALOGUE.filter((e) => e.wave === 1 && !WAVE_1_LATER.has(e.code));
+/**
+ * #2995 point 4 default, awaiting Akshit's ruling: pack 13.1 lists these four under T45, but the
+ * casting pair stays with T24 and the forging pair with T26 (#3009), so T45 does not bind them.
+ */
+const T45_LEFT_WITH_FOUNDRY: Readonly<Record<string, string>> = {
+  "3122.4401": "fam_foundry_casting",
+  "3122.4402": "fam_foundry_casting",
+  "3122.4501": "fam_forging",
+  "3122.4502": "fam_forging",
+};
+/**
+ * T24 deepens the live Foundry / Forging trade under a NEW form id, so its v1 is the compiled sheet
+ * and the form it replaces (another id, on another family) is the one deprecated in place.
+ */
+const DEEPENED_UNDER_NEW_ID: Readonly<Record<string, { packId: string; familyId: string }>> = {
+  T24: { packId: "qp_foundry_forging", familyId: "fam_foundry_forging" },
+};
+const wave1 = TRADE_CATALOGUE.filter((e) => e.wave === 1);
 
 interface PackFileHead {
   pack_id: string;
@@ -95,10 +109,13 @@ function packHead(file: string): PackFileHead {
 }
 
 describe("trade catalogue DB parity — Wave 1 forms (#3008)", () => {
-  it("covers the 15 trades #3008 loads", () => {
+  it("covers the 18 trades #3008 and #3009 load", () => {
     expect(wave1.map((e) => e.code)).toEqual([
       "T17",
       "T21",
+      "T24",
+      "T25",
+      "T26",
       "T27",
       "T29",
       "T33",
@@ -130,9 +147,13 @@ describe("trade catalogue DB parity — Wave 1 forms (#3008)", () => {
       const bound = bindings.get(e.familyId) ?? new Set<string>();
       for (const code of e.ncoCodes) {
         const binding = `jd_nco_${code.replace(".", "_")}`;
-        const expected = !(e.code === "T45" && T45_LEFT_WITH_FOUNDRY.has(code));
+        const expected = !(e.code === "T45" && code in T45_LEFT_WITH_FOUNDRY);
         expect(bound.has(binding), `${e.code} binds ${binding}`).toBe(expected);
       }
+    }
+    for (const [code, familyId] of Object.entries(T45_LEFT_WITH_FOUNDRY)) {
+      const binding = `jd_nco_${code.replace(".", "_")}`;
+      expect(bindings.get(familyId)?.has(binding), `${familyId} binds ${binding}`).toBe(true);
     }
     // T33 has no NCO-2015 code (pack section 13.2); it binds the minted entry (#3007).
     expect(bindings.get("fam_cmm")?.has("jd_rvm_cmm_operator")).toBe(true);
@@ -152,9 +173,20 @@ describe("trade catalogue DB parity — Wave 1 forms (#3008)", () => {
       ).toHaveLength(1);
       expect(active[0]?.family_id).toBe(e.familyId);
       // A deepened trade's live v1 is kept, deprecated in place; v2 is the compiled sheet.
-      const expectedActive = e.status === "deepen" ? 2 : 1;
+      // Deepened under a new form id (T24), the compiled sheet is v1 and the replaced form is
+      // the one deprecated.
+      const replaced = DEEPENED_UNDER_NEW_ID[e.code];
+      const expectedActive = e.status === "deepen" && !replaced ? 2 : 1;
       expect(active[0]?.version, `${e.code} active version`).toBe(expectedActive);
-      if (e.status === "deepen") {
+      if (replaced) {
+        const old = [...packFiles]
+          .filter((f) => f === `${replaced.packId}.json` || f.startsWith(`${replaced.packId}@`))
+          .map(packHead);
+        expect(
+          old.map((h) => `${h.family_id}@${h.version}:${h.status}`),
+          `${e.code} replaced form`,
+        ).toEqual([`${replaced.familyId}@1:deprecated`]);
+      } else if (e.status === "deepen") {
         expect(heads.find((h) => h.version === 1)?.status, `${e.code} v1`).toBe("deprecated");
       }
     }

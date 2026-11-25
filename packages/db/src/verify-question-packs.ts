@@ -260,12 +260,20 @@ async function main(): Promise<void> {
         count: versionDrift.statusDrift.length,
       },
       {
+        // Same rule as the corpus validator (#3009): a RETIRED family (it has pack versions, none
+        // active) may bind nothing, because its codes moved to the families that replace it and
+        // its deprecated versions stay only so stored answers keep their pack. A family with an
+        // active pack, or with no pack at all, still needs a binding.
         name: "families with no binding (unreachable)",
         level: "FAIL",
         detail: "A family nothing binds to can never be resolved, so its pack is dead weight.",
         count: await one(dsql`
           SELECT count(*)::int AS n FROM profiling_family f
-          WHERE NOT EXISTS (SELECT 1 FROM profiling_family_binding b WHERE b.family_id = f.family_id)`),
+          WHERE NOT EXISTS (SELECT 1 FROM profiling_family_binding b WHERE b.family_id = f.family_id)
+            AND (
+              EXISTS (SELECT 1 FROM question_pack p WHERE p.family_id = f.family_id AND p.status = 'active')
+              OR NOT EXISTS (SELECT 1 FROM question_pack p WHERE p.family_id = f.family_id)
+            )`),
       },
       {
         // THE ONLY GENUINELY FATAL MISSING PACK. A family with a binding but no pack is

@@ -47,6 +47,10 @@ const LEDGER = join(__dirname, "..", "data", "question-packs", "_published-versi
 const WAVE_1_FORMS = [
   "qp_edm_wirecut",
   "qp_cnc_router",
+  // The foundry split (#3009).
+  "qp_foundry_casting",
+  "qp_die_casting",
+  "qp_forging",
   "qp_heat_treatment",
   "qp_injection_moulding",
   "qp_cmm",
@@ -267,7 +271,8 @@ describe("sheet compiler", () => {
 
   it("refuses a version the ledger already publishes", () => {
     // Pinned to reality: the live thin EDM form shipped, so v1 is published; Wave 1
-    // (#3008) published its 15 compiled forms; Wave 2 is not published yet.
+    // (#3008) published its 15 compiled forms and the foundry split (#3009) its three; Wave 2 is
+    // not published yet.
     const published = loadPublishedVersions(LEDGER);
     expect(published.has("qp_edm_wirecut@1")).toBe(true);
     expect(published.has("qp_gear_cutting@1")).toBe(false);

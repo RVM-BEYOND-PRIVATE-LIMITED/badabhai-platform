@@ -1,0 +1,1211 @@
+{
+  "_why": "Role track for Die Casting Operator, PDC / GDC (T25), new trade out of the foundry split (CEO pack v2, #3009). fam_die_casting binds NCO 8121.4200 and 8121.4201.",
+  "_scope": "Casting, Forging and Surface Treatment shop-floor trade. The interview separates at setter; higher contact price from setter.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "23 questions (easy 6, medium 6, advanced 11); 4 mandatory, 3 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T25 (Die Casting Operator (PDC / GDC)). Status: NEW",
+  "pack_id": "qp_die_casting",
+  "version": 1,
+  "family_id": "fam_die_casting",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T25): new form in the foundry split (#3009).",
+  "items": [
+    {
+      "question_key": "diecast_experience",
+      "min_tier": "easy",
+      "prompt_text": "Die casting ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "diecast_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Die casting ka kaam kiya hai?"
+    },
+    {
+      "question_key": "diecast_level",
+      "min_tier": "easy",
+      "prompt_text": "Die casting machine par aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "diecast_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Helper / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "setter",
+          "label_text": "Setter",
+          "value_text": "setter"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Process Technician",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor / Shift in-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Machine par helper, operator ya setter hain?"
+    },
+    {
+      "question_key": "diecast_setter_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Die change aur shot setting aap khud karte ho ya koi aur?",
+      "why_text": "Die khud lagane wale setter ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "diecast_setter_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Koi aur karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "diecast_level"
+        },
+        "right": {
+          "const": [
+            "setter"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "diecast_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naye die ka trial lekar parameter aap khud final karte ho?",
+      "why_text": "Parameter khud final karne wale process technician ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "diecast_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud final karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Engineer ya senior final karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "diecast_level"
+        },
+        "right": {
+          "const": [
+            "senior"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "diecast_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitni machine aur kitne log aapke under hain?",
+      "why_text": "Team sambhalne wale supervisor ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "diecast_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "diecast_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "diecast_process",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi die casting karte hain?",
+      "why_text": "Process ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "diecast_process",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hpdc_cold",
+          "label_text": "HPDC cold chamber",
+          "value_text": "hpdc_cold"
+        },
+        {
+          "option_key": "hpdc_hot",
+          "label_text": "HPDC hot chamber",
+          "value_text": "hpdc_hot"
+        },
+        {
+          "option_key": "lpdc",
+          "label_text": "LPDC, low pressure",
+          "value_text": "lpdc"
+        },
+        {
+          "option_key": "gdc",
+          "label_text": "GDC, gravity die casting",
+          "value_text": "gdc"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur process",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "diecast_machine_brand",
+      "min_tier": "medium",
+      "prompt_text": "Kaunsi company ki die casting machine chalayi hai?",
+      "why_text": "Machine ka make jaanne wale operator ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "diecast_machine_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "toshiba",
+          "label_text": "Toshiba",
+          "value_text": "toshiba"
+        },
+        {
+          "option_key": "buhler",
+          "label_text": "Buhler",
+          "value_text": "buhler"
+        },
+        {
+          "option_key": "zitai",
+          "label_text": "Zitai",
+          "value_text": "zitai"
+        },
+        {
+          "option_key": "lk",
+          "label_text": "LK",
+          "value_text": "lk"
+        },
+        {
+          "option_key": "hmt",
+          "label_text": "HMT",
+          "value_text": "hmt"
+        },
+        {
+          "option_key": "ube",
+          "label_text": "Ube",
+          "value_text": "ube"
+        },
+        {
+          "option_key": "frech",
+          "label_text": "Frech",
+          "value_text": "frech"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur ya pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "diecast_tonnage",
+      "min_tier": "medium",
+      "prompt_text": "Sabse badi machine kitne ton ki chalayi hai?",
+      "why_text": "Badi tonnage ki machine chalane wale kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "diecast_tonnage",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_one_fifty",
+          "label_text": "150 ton tak",
+          "value_text": "150"
+        },
+        {
+          "option_key": "upto_four_hundred",
+          "label_text": "150 se 400 ton",
+          "value_text": "400"
+        },
+        {
+          "option_key": "upto_eight_hundred",
+          "label_text": "400 se 800 ton",
+          "value_text": "800"
+        },
+        {
+          "option_key": "upto_sixteen_hundred",
+          "label_text": "800 se 1600 ton",
+          "value_text": "1600"
+        },
+        {
+          "option_key": "upto_twenty_five_hundred",
+          "label_text": "1600 ton se zyada",
+          "value_text": "2500"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi ya GDC hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "diecast_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Machine par roz kaunsa kaam aap khud karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "diecast_daily_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "manual_ladle",
+          "label_text": "Haath se ladling",
+          "value_text": "manual_ladle"
+        },
+        {
+          "option_key": "auto_cell",
+          "label_text": "Auto ladle ya robot cell chalana",
+          "value_text": "auto_cell"
+        },
+        {
+          "option_key": "die_spray",
+          "label_text": "Die par spray karna",
+          "value_text": "die_spray"
+        },
+        {
+          "option_key": "extraction",
+          "label_text": "Casting nikaalna",
+          "value_text": "extraction"
+        },
+        {
+          "option_key": "degating",
+          "label_text": "Runner aur overflow todna",
+          "value_text": "degating"
+        },
+        {
+          "option_key": "trimming",
+          "label_text": "Trimming press chalana",
+          "value_text": "trimming"
+        },
+        {
+          "option_key": "fettling",
+          "label_text": "Fettling aur deburring",
+          "value_text": "fettling"
+        },
+        {
+          "option_key": "visual_check",
+          "label_text": "Visual check",
+          "value_text": "visual_check"
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse alloy ki casting ki hai?",
+      "why_text": "Har alloy ka temperature aur setting alag hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "adc_twelve",
+          "label_text": "ADC12",
+          "value_text": "adc_twelve"
+        },
+        {
+          "option_key": "lm_six",
+          "label_text": "LM6",
+          "value_text": "lm_six"
+        },
+        {
+          "option_key": "lm_twentyfour",
+          "label_text": "LM24",
+          "value_text": "lm_twentyfour"
+        },
+        {
+          "option_key": "lm_twentyfive",
+          "label_text": "LM25 / A356",
+          "value_text": "lm_twentyfive"
+        },
+        {
+          "option_key": "zinc",
+          "label_text": "Zinc (Zamak)",
+          "value_text": "zinc"
+        },
+        {
+          "option_key": "magnesium",
+          "label_text": "Magnesium",
+          "value_text": "magnesium"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium, grade pata nahi",
+          "value_text": "aluminium"
+        }
+      ]
+    },
+    {
+      "question_key": "diecast_part",
+      "min_tier": "hard",
+      "prompt_text": "Aap kaunse part ki casting nikaalte hain?",
+      "why_text": "Part ke naam se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "diecast_part",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "engine_covers",
+          "label_text": "Crankcase, clutch ya magneto cover",
+          "value_text": "engine_covers"
+        },
+        {
+          "option_key": "gearbox_housing",
+          "label_text": "Gearbox ya transmission housing",
+          "value_text": "gearbox_housing"
+        },
+        {
+          "option_key": "cylinder_head",
+          "label_text": "Cylinder head ya block",
+          "value_text": "cylinder_head"
+        },
+        {
+          "option_key": "alloy_wheel",
+          "label_text": "Alloy wheel",
+          "value_text": "alloy_wheel"
+        },
+        {
+          "option_key": "motor_housing",
+          "label_text": "Motor body aur end cover",
+          "value_text": "motor_housing"
+        },
+        {
+          "option_key": "led_housing",
+          "label_text": "LED light housing, heat sink",
+          "value_text": "led_housing"
+        },
+        {
+          "option_key": "fan_parts",
+          "label_text": "Fan ke parts",
+          "value_text": "fan_parts"
+        },
+        {
+          "option_key": "zinc_hardware",
+          "label_text": "Zinc ke chhote parts, lock, hardware",
+          "value_text": "zinc_hardware"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur part",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "diecast_melting_work",
+      "min_tier": "hard",
+      "prompt_text": "Metal aur furnace ka kaunsa kaam aap karte hain?",
+      "why_text": "Metal ki quality sambhalne wale operator ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "diecast_melting_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "furnace_charging",
+          "label_text": "Melting ya holding furnace charge karna",
+          "value_text": "furnace_charging"
+        },
+        {
+          "option_key": "degassing",
+          "label_text": "Degassing",
+          "value_text": "degassing"
+        },
+        {
+          "option_key": "fluxing",
+          "label_text": "Flux daalna aur dross nikaalna",
+          "value_text": "fluxing"
+        },
+        {
+          "option_key": "metal_temperature",
+          "label_text": "Metal temperature check",
+          "value_text": "metal_temperature"
+        },
+        {
+          "option_key": "density_index",
+          "label_text": "Density index test",
+          "value_text": "density_index"
+        },
+        {
+          "option_key": "spectro_sample",
+          "label_text": "Spectro sample dena",
+          "value_text": "spectro_sample"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Furnace ka kaam nahi karta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "hard",
+      "prompt_text": "Casting check karne me kya use karte hain?",
+      "why_text": "Naap lene wale operator ko quality ka kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "micrometer",
+          "label_text": "Micrometer",
+          "value_text": "micrometer"
+        },
+        {
+          "option_key": "height_gauge",
+          "label_text": "Height gauge",
+          "value_text": "height_gauge"
+        },
+        {
+          "option_key": "plug_gauge",
+          "label_text": "Plug ya thread gauge",
+          "value_text": "plug_gauge"
+        },
+        {
+          "option_key": "checking_fixture",
+          "label_text": "Checking fixture",
+          "value_text": "checking_fixture"
+        },
+        {
+          "option_key": "leak_tester",
+          "label_text": "Leak test machine",
+          "value_text": "leak_tester"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "diecast_setting_work",
+      "min_tier": "hard",
+      "prompt_text": "Die setting me aap kya kya karte hain?",
+      "why_text": "Setting karne wale ko operator se zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "diecast_setting_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "die_loading",
+          "label_text": "Die loading aur clamping",
+          "value_text": "die_loading"
+        },
+        {
+          "option_key": "die_height",
+          "label_text": "Die height aur tie bar setting",
+          "value_text": "die_height"
+        },
+        {
+          "option_key": "ejector_core",
+          "label_text": "Ejector aur core pull setting",
+          "value_text": "ejector_core"
+        },
+        {
+          "option_key": "plunger_tip",
+          "label_text": "Shot sleeve aur plunger tip badalna",
+          "value_text": "plunger_tip"
+        },
+        {
+          "option_key": "cooling_line",
+          "label_text": "Die cooling line lagana",
+          "value_text": "cooling_line"
+        },
+        {
+          "option_key": "die_preheat",
+          "label_text": "Die preheating",
+          "value_text": "die_preheat"
+        },
+        {
+          "option_key": "trim_die",
+          "label_text": "Trim die lagana",
+          "value_text": "trim_die"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "diecast_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "diecast_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "diecast_parameter",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse parameter aap khud set karte hain?",
+      "why_text": "Parameter jaanne wale ko process ka kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "diecast_parameter",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "shot_speed",
+          "label_text": "Slow aur fast shot speed",
+          "value_text": "shot_speed"
+        },
+        {
+          "option_key": "changeover",
+          "label_text": "Fast shot changeover position",
+          "value_text": "changeover"
+        },
+        {
+          "option_key": "intensification",
+          "label_text": "Intensification pressure",
+          "value_text": "intensification"
+        },
+        {
+          "option_key": "biscuit",
+          "label_text": "Biscuit thickness",
+          "value_text": "biscuit"
+        },
+        {
+          "option_key": "die_temperature",
+          "label_text": "Die temperature",
+          "value_text": "die_temperature"
+        },
+        {
+          "option_key": "cooling_time",
+          "label_text": "Cooling ya solidification time",
+          "value_text": "cooling_time"
+        },
+        {
+          "option_key": "spray_setting",
+          "label_text": "Spray time aur dilution",
+          "value_text": "spray_setting"
+        },
+        {
+          "option_key": "vacuum",
+          "label_text": "Vacuum",
+          "value_text": "vacuum"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Parameter nahi badalta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "diecast_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "diecast_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Aapke casting parts kis industry me jaate hain?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Car aur commercial vehicle",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Fan aur home appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "LED lighting aur electronics",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "hardware",
+          "label_text": "Hardware, lock, fittings",
+          "value_text": "hardware"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "diecast_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "diecast_level"
+            },
+            "right": {
+              "const": [
+                "setter",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Casting ka kaunsa defect aap khud sudhaar lete hain?",
+      "why_text": "Defect sudhaarne wale technician ki shop par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "porosity",
+          "label_text": "Porosity",
+          "value_text": "porosity"
+        },
+        {
+          "option_key": "cold_shut",
+          "label_text": "Cold shut ya flow mark",
+          "value_text": "cold_shut"
+        },
+        {
+          "option_key": "flash",
+          "label_text": "Flash",
+          "value_text": "flash"
+        },
+        {
+          "option_key": "soldering",
+          "label_text": "Soldering, die par chipakna",
+          "value_text": "soldering"
+        },
+        {
+          "option_key": "blister",
+          "label_text": "Blister",
+          "value_text": "blister"
+        },
+        {
+          "option_key": "crack",
+          "label_text": "Crack",
+          "value_text": "crack"
+        },
+        {
+          "option_key": "non_fill",
+          "label_text": "Non-filling",
+          "value_text": "non_fill"
+        },
+        {
+          "option_key": "leakage",
+          "label_text": "Leak test me leakage",
+          "value_text": "leakage"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "diecast_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "diecast_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "diecast_die_care",
+      "min_tier": "hard",
+      "prompt_text": "Die ki dekhbhaal me aap kya karte hain?",
+      "why_text": "Die sambhalne wale technician se die life badhti hai.",
+      "target_kind": "attribute",
+      "target_field": "diecast_die_care",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "die_polish",
+          "label_text": "Die polish aur soldering saaf karna",
+          "value_text": "die_polish"
+        },
+        {
+          "option_key": "pin_change",
+          "label_text": "Ejector ya core pin badalna",
+          "value_text": "pin_change"
+        },
+        {
+          "option_key": "die_coat",
+          "label_text": "Die coat lagana (GDC)",
+          "value_text": "die_coat"
+        },
+        {
+          "option_key": "die_life_record",
+          "label_text": "Shot count aur die life record",
+          "value_text": "die_life_record"
+        },
+        {
+          "option_key": "die_pm",
+          "label_text": "Die PM checklist",
+          "value_text": "die_pm"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Tool room wale karte hain",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "diecast_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "diecast_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "quality_work",
+      "min_tier": "hard",
+      "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
+      "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "quality_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "first_piece_check",
+          "label_text": "Pehla piece check karna",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "in_process",
+          "label_text": "Beech beech me checking",
+          "value_text": "in_process"
+        },
+        {
+          "option_key": "spc",
+          "label_text": "SPC chart bharna",
+          "value_text": "spc"
+        },
+        {
+          "option_key": "rejection",
+          "label_text": "Rejection analysis",
+          "value_text": "rejection"
+        },
+        {
+          "option_key": "xray_check",
+          "label_text": "X-ray ya cut section dekhna",
+          "value_text": "xray_check"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "diecast_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "diecast_level"
+            },
+            "right": {
+              "const": [
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ya training me kaunsa kaam kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pdc_machine",
+          "label_text": "Die casting machine par kaam",
+          "value_text": "pdc_machine"
+        },
+        {
+          "option_key": "gdc_pouring",
+          "label_text": "Gravity die me pouring",
+          "value_text": "gdc_pouring"
+        },
+        {
+          "option_key": "melting",
+          "label_text": "Furnace me metal galana",
+          "value_text": "melting"
+        },
+        {
+          "option_key": "fitting",
+          "label_text": "Fitter shop, filing aur drilling",
+          "value_text": "fitting"
+        },
+        {
+          "option_key": "trimming_press",
+          "label_text": "Trimming ya power press",
+          "value_text": "trimming_press"
+        },
+        {
+          "option_key": "fettling",
+          "label_text": "Fettling aur grinding",
+          "value_text": "fettling"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "diecast_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "diecast_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI ya training me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "diecast_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

@@ -36,6 +36,10 @@ const FORM_REDUNDANT_OTHER_LABELS: ReadonlySet<string> = new Set([
   "koi aur plc",
   "koi aur process",
   "koi aur shop",
+  // The foundry split (#3009): T24's casting-product escape. NOT T25's "Koi aur ya pata nahi"
+  // (`diecast_machine_brand`): it is also that question's only "don't know", a real answer the
+  // typed card does not replace, so the form keeps it.
+  "koi aur casting",
 ]);
 
 /** NFKC → lower case → single spaces. Deliberately no particle stripping: whole labels only. */

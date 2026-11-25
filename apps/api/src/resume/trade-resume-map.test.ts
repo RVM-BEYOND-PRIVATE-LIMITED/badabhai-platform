@@ -77,22 +77,39 @@ function activePackFile(packId: string): string {
  */
 function allVersionsPack(packId: string): Pack {
   const dir = join(__dirname, "../../../../packages/db/data/question-packs/packs");
-  const files = readdirSync(dir).filter(
-    (f) => f === `${packId}.json` || (f.startsWith(`${packId}@`) && f.endsWith(".json")),
-  );
+  const versionFiles = (id: string) =>
+    readdirSync(dir).filter(
+      (f) => f === `${id}.json` || (f.startsWith(`${id}@`) && f.endsWith(".json")),
+    );
   const byKey = new Map<string, Pack["items"][number]>();
-  for (const file of files) {
+  const fold = (item: Pack["items"][number]) => {
+    const held = byKey.get(item.question_key);
+    byKey.set(item.question_key, {
+      question_key: item.question_key,
+      options: [...(held?.options ?? []), ...(item.options ?? [])],
+    });
+  };
+  for (const file of versionFiles(packId)) {
     const pack = JSON.parse(readFileSync(join(dir, file), "utf8")) as Pack;
-    for (const item of pack.items) {
-      const held = byKey.get(item.question_key);
-      byKey.set(item.question_key, {
-        question_key: item.question_key,
-        options: [...(held?.options ?? []), ...(item.options ?? [])],
-      });
+    for (const item of pack.items) fold(item);
+  }
+  // A form that REPLACES another under a new id (#3009) carries the old form's answers on the
+  // keys both ask, so the old form's values on those keys are history values here too. Keys only
+  // the old form asked are not folded: the new form's map does not read them.
+  const ownKeys = new Set(byKey.keys());
+  for (const old of REPLACED_FORMS[packId] ?? []) {
+    for (const file of versionFiles(old)) {
+      const pack = JSON.parse(readFileSync(join(dir, file), "utf8")) as Pack;
+      for (const item of pack.items) if (ownKeys.has(item.question_key)) fold(item);
     }
   }
   return { items: [...byKey.values()] };
 }
+
+/** A form id that replaces another (#3009): new id → the ids whose stored answers it carries. */
+const REPLACED_FORMS: Readonly<Record<string, readonly string[]>> = {
+  qp_foundry_casting: ["qp_foundry_forging"],
+};
 
 const map = tradeResumeMapFor("qp_cnc_turning");
 
@@ -190,6 +207,7 @@ describe("trade resume map — qp_cnc_turning", () => {
       "qp_heat_treatment",
       "qp_production_supervisor",
       "qp_foundry_forging",
+      "qp_foundry_casting",
     ]);
     // `qp_welding` IS THE GENERIC ISCO-UNIT PACK AND STILL HAS NO MAP — and this row is now doing
     // real work rather than naming an arbitrary absent pack. Batch 2 added `qp_welding_trade`
@@ -1051,5 +1069,54 @@ describe("trade resume map — qp_cad_drafting against the ratified fresher samp
     // AND THE PRONOUN-FREE LABEL, on the row that carried this file's only gendered string.
     const facts = new Map(rows.factRows.map((r) => [r.label, r.value]));
     expect(facts.get("Design input")).toBe("Designs it independently");
+  });
+});
+
+describe("trade resume map — the foundry split carry-over (#3009)", () => {
+  const dir = join(__dirname, "../../../../packages/db/data/question-packs/packs");
+  const stored = (file: string, key: string): string[] => {
+    const pack = JSON.parse(readFileSync(join(dir, file), "utf8")) as Pack;
+    const item = pack.items.find((i) => i.question_key === key);
+    expect(item, `${file} asks ${key}`).toBeDefined();
+    return (item?.options ?? []).map((o) => o.value_text ?? o.option_key);
+  };
+  const REUSED = [
+    "foundry_experience",
+    "foundry_level",
+    "foundry_skilled_confirm",
+    "foundry_process",
+    "foundry_testing",
+  ] as const;
+
+  it("the new T24 form asks all five reused keys, and three of them store the same values", () => {
+    for (const key of REUSED) {
+      stored("qp_foundry_forging.json", key);
+      stored("qp_foundry_casting.json", key);
+    }
+    for (const key of ["foundry_experience", "foundry_level", "foundry_skilled_confirm"]) {
+      expect(stored("qp_foundry_casting.json", key), key).toEqual(
+        stored("qp_foundry_forging.json", key),
+      );
+    }
+  });
+
+  it("every value the old form stored under the two changed keys still prints on the new form's map", () => {
+    const entry = tradeResumeMapFor("qp_foundry_casting")!;
+    for (const key of ["foundry_process", "foundry_testing"]) {
+      const row = entry.capability.find((r) => r.from === key);
+      const old = stored("qp_foundry_forging.json", key).filter((v) => v !== "unknown");
+      expect(Object.keys(row?.values ?? {}).sort(), key).toEqual(
+        expect.arrayContaining(old.sort()),
+      );
+    }
+    // A worker who answered on the old form prints the same chips once the new form takes over.
+    // (The headline and section title are the new form's own, written in #3012.)
+    const attrs = {
+      foundry_process: ["sand_moulding", "core_making"],
+      foundry_testing: ["dimensional"],
+    };
+    const now = buildTradeCapabilityRows("qp_foundry_casting", attrs).chipRows;
+    expect(now.length).toBe(2);
+    expect(now).toEqual(buildTradeCapabilityRows("qp_foundry_forging", attrs).chipRows);
   });
 });

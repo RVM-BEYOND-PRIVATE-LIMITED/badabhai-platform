@@ -83,6 +83,7 @@ qp_crop_growing@1
 qp_dairy@1
 qp_delivery_driving@1
 qp_delivery_driving@2
+qp_die_casting@1
 qp_domestic@1
 qp_draughting@1
 qp_driving_heavy@1
@@ -107,6 +108,8 @@ qp_food_prep_assist@1
 qp_food_processing@1
 qp_food_processing@2
 qp_forestry@1
+qp_forging@1
+qp_foundry_casting@1
 qp_foundry_forging@1
 qp_fuel_station@1
 qp_fuel_station@2

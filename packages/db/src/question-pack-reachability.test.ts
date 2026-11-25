@@ -1258,13 +1258,14 @@ describe("Batch 2 part two — press / machine operator", () => {
   it("leaves forging, punching, supervision and the non-metal presses where they were", () => {
     // Forge work — bare "stamper" is 7221.0500's alias, and that code is hot drop forging. It sat
     // on fam_blacksmithing only because no forging trade existed; Phase 2 #11 (CEO Launch Plan
-    // Pack v1, sheet 19) moves the industrial forging codes to fam_foundry_forging. Never press.
+    // Pack v1, sheet 19) moved the industrial forging codes to the forging trade, and the foundry
+    // split (#3009) gives them their own family, fam_forging (T26). Never press.
     for (const p of ["stamper", "forging operator", "power hammer operator", "hammer man"]) {
-      expect(familyFor(p), p).toBe("fam_foundry_forging");
+      expect(familyFor(p), p).toBe("fam_forging");
     }
-    // The drop-forging die setter sits in unit 7223 beside the press tool setter; Phase 2 #11
-    // binds it to the forging trade too, and still never to the press shop.
-    expect(familyFor("setter drop forging machine")).toBe("fam_foundry_forging");
+    // The drop-forging die setter sits in unit 7223 beside the press tool setter; it binds to the
+    // forging trade too, and still never to the press shop.
+    expect(familyFor("setter drop forging machine")).toBe("fam_forging");
     // "Puncher, Metal" punches boiler frames; it stays with its unit.
     expect(familyFor("puncher metal")).toBe("fam_plumbing");
     // SUPERVISORY. The press shop supervisor's code is one CEO pack v2 section 13.1 lists under
@@ -2216,25 +2217,32 @@ describe("Phase 2 #10 — production supervisor, a new family on the cross-trade
     // Sheet 23 kept a trade supervisor with his trade. CEO pack v2 (Akshit, 23 Nov 2026) is the
     // later ruling: section 13.1 lists the press, welding and plastic-moulding shop supervisor
     // codes under T45, so Wave 1 (#3008) binds them here. The forging and casting shop
-    // supervisors stay with those trades (#2995 point 4 default: T26 and T24, #3009).
+    // supervisors stay with those trades (#2995 point 4 default, awaiting Akshit's ruling: the
+    // forging pair to T26 and the casting pair to T24, #3009).
     const got = Object.fromEntries(
       [
         "Press Shop Supervisor",
         "Welding Supervisor",
         "Plastic Moulding Shop Supervisor",
         "Forging Shop Supervisor",
+        "Forging Shop Shift In charge",
+        "Casting Line Supervisor",
+        "Casting Line In charge",
       ].map((phrase) => [phrase, familyFor(phrase)]),
     );
     expect(got).toEqual({
       "Press Shop Supervisor": "fam_production_supervisor",
       "Welding Supervisor": "fam_production_supervisor",
       "Plastic Moulding Shop Supervisor": "fam_production_supervisor",
-      "Forging Shop Supervisor": "fam_foundry_forging",
+      "Forging Shop Supervisor": "fam_forging",
+      "Forging Shop Shift In charge": "fam_forging",
+      "Casting Line Supervisor": "fam_foundry_casting",
+      "Casting Line In charge": "fam_foundry_casting",
     });
   });
 });
 
-describe("Phase 2 #11 — foundry / forging, a new family on the casting and forging codes (CEO Launch Plan Pack v1)", () => {
+describe("The foundry split (#3009) — Foundry T24, Die Casting T25 and Forging T26 replace fam_foundry_forging (CEO pack v2)", () => {
   const offline = resolveJobDomainCorpus();
   const parents = new Set(
     offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
@@ -2249,67 +2257,98 @@ describe("Phase 2 #11 — foundry / forging, a new family on the casting and for
       .map((d) => d.jobDomainId)
       .sort();
   };
-
-  it("binds exactly the casting and forging codes", () => {
-    const codes = corpus.bindings
-      .filter((b) => b.family_id === "fam_foundry_forging")
+  const boundTo = (familyId: string) =>
+    corpus.bindings
+      .filter((b) => b.family_id === familyId)
       .map((b) => b.job_domain_id)
       .sort();
-    expect(codes).toEqual([
-      "jd_nco_3122_4401",
-      "jd_nco_3122_4402",
-      "jd_nco_3122_4501",
-      "jd_nco_3122_4502",
+
+  it("retires fam_foundry_forging: it binds nothing, and its only form is deprecated", () => {
+    expect(boundTo("fam_foundry_forging")).toEqual([]);
+    const forms = corpus.packs.filter((p) => p.family_id === "fam_foundry_forging");
+    expect(forms.map((p) => `${p.pack_id}@${p.version}:${p.status}`)).toEqual([
+      "qp_foundry_forging@1:deprecated",
+    ]);
+  });
+
+  it("binds each family exactly its pack section 13.1 codes, plus the #2995 point 4 supervisor default", () => {
+    expect(boundTo("fam_foundry_casting")).toEqual([
+      "jd_nco_3122_4401", // #2995 point 4 default (the pack lists it under T45)
+      "jd_nco_3122_4402", // #2995 point 4 default (the pack lists it under T45)
+      "jd_nco_3135_3100",
       "jd_nco_7211_0100",
       "jd_nco_7211_0200",
       "jd_nco_7211_0201",
+      "jd_nco_7211_0300",
+      "jd_nco_7211_0400",
       "jd_nco_7211_0500",
+      "jd_nco_7211_0600",
+      "jd_nco_7211_9900",
+      "jd_nco_8121_3301",
+      "jd_nco_8121_3801",
+      "jd_nco_8121_4300",
+      "jd_nco_8121_4400",
+      "jd_nco_8121_4500",
+      "jd_nco_8121_4600",
+    ]);
+    expect(boundTo("fam_die_casting")).toEqual(["jd_nco_8121_4200", "jd_nco_8121_4201"]);
+    expect(boundTo("fam_forging")).toEqual([
+      "jd_nco_3122_4501", // #2995 point 4 default (the pack lists it under T45)
+      "jd_nco_3122_4502", // #2995 point 4 default (the pack lists it under T45)
+      "jd_nco_7221_0100",
       "jd_nco_7221_0300",
       "jd_nco_7221_0301",
       "jd_nco_7221_0400",
       "jd_nco_7221_0500",
+      "jd_nco_7221_9900",
       "jd_nco_7223_0300",
-      "jd_nco_8121_3301",
-      "jd_nco_8121_3801",
-      "jd_nco_8121_4200",
-      "jd_nco_8121_4201",
-      "jd_nco_8121_4300",
-      "jd_nco_8121_4600",
     ]);
   });
 
-  it("reaches the family on the trade's own words, each the ONLY claimant in production", () => {
-    for (const [phrase, code] of [
-      ["foundry", "jd_nco_7211_0201"],
-      ["casting", "jd_nco_7211_0201"],
-      ["sand casting", "jd_nco_7211_0201"],
-      ["shell moulding", "jd_nco_7211_0201"],
-      ["investment casting", "jd_nco_7211_0201"],
-      ["aluminium casting", "jd_nco_7211_0201"],
-      ["फाउंड्री", "jd_nco_7211_0201"],
-      ["core making", "jd_nco_7211_0500"],
-      ["cupola", "jd_nco_8121_3801"],
-      ["melting", "jd_nco_8121_3801"],
-      ["induction furnace", "jd_nco_8121_3801"],
-      ["fettling", "jd_nco_8121_3301"],
-      ["die casting", "jd_nco_8121_4201"],
-      ["hpdc", "jd_nco_8121_4201"],
-      ["pressure die casting", "jd_nco_8121_4201"],
-      ["forging", "jd_nco_7221_0301"],
-      ["hot forging", "jd_nco_7221_0301"],
-      ["press forging", "jd_nco_7221_0301"],
-      ["फोर्जिंग", "jd_nco_7221_0301"],
-      ["power hammer", "jd_nco_7221_0300"],
+  it("reaches each trade on its own words, each the ONLY claimant in production, and none reaches the old family", () => {
+    for (const [phrase, family, code] of [
+      // T24 Foundry / Casting
+      ["foundry", "fam_foundry_casting", "jd_nco_7211_0201"],
+      ["casting", "fam_foundry_casting", "jd_nco_7211_0201"],
+      ["sand casting", "fam_foundry_casting", "jd_nco_7211_0201"],
+      ["shell moulding", "fam_foundry_casting", "jd_nco_7211_0201"],
+      ["investment casting", "fam_foundry_casting", "jd_nco_7211_0201"],
+      ["aluminium casting", "fam_foundry_casting", "jd_nco_7211_0201"],
+      ["फाउंड्री", "fam_foundry_casting", "jd_nco_7211_0201"],
+      ["core making", "fam_foundry_casting", "jd_nco_7211_0500"],
+      ["core maker", "fam_foundry_casting", "jd_nco_7211_0500"],
+      ["cupola", "fam_foundry_casting", "jd_nco_8121_3801"],
+      ["melting", "fam_foundry_casting", "jd_nco_8121_3801"],
+      ["induction furnace", "fam_foundry_casting", "jd_nco_8121_3801"],
+      ["fettling", "fam_foundry_casting", "jd_nco_8121_3301"],
+      // T25 Die Casting
+      ["die casting", "fam_die_casting", "jd_nco_8121_4201"],
+      ["hpdc", "fam_die_casting", "jd_nco_8121_4201"],
+      ["pressure die casting", "fam_die_casting", "jd_nco_8121_4201"],
+      ["gravity die casting", "fam_die_casting", "jd_nco_8121_4201"],
+      // T26 Forging
+      ["forging", "fam_forging", "jd_nco_7221_0301"],
+      ["hot forging", "fam_forging", "jd_nco_7221_0301"],
+      ["press forging", "fam_forging", "jd_nco_7221_0301"],
+      ["upset forging", "fam_forging", "jd_nco_7221_0301"],
+      ["फोर्जिंग", "fam_forging", "jd_nco_7221_0301"],
+      ["power hammer", "fam_forging", "jd_nco_7221_0300"],
     ] as const) {
-      expect(familyFor(phrase), phrase).toBe("fam_foundry_forging");
+      expect(familyFor(phrase), phrase).toBe(family);
       expect(liveClaimants(phrase), phrase).toEqual([code]);
     }
-  }, 30_000); // 20 phrases, each scanned against the whole live corpus — CI runs every file at once.
+  }, 30_000); // 23 phrases, each scanned against the whole live corpus — CI runs every file at once.
 
   it("leaves the press shop, the village blacksmith and the plastics moulder where they were", () => {
     expect(familyFor("press operator")).toBe("fam_press_operation");
     expect(familyFor("furnace")).toBe("fam_metal_processing");
+    // Pack 13.1 binds 7221.0100 "Blacksmith" to T26, but the bare word resolves to the ISCO 7221
+    // unit row, which fam_blacksmithing holds by its minor-group binding. The pack also says
+    // "lohar ka kaam" must not lead to T26 without asking.
+    expect(familyFor("blacksmith")).toBe("fam_blacksmithing");
     for (const phrase of ["blacksmith", "moulding", "injection moulding"]) {
+      expect(familyFor(phrase), phrase).not.toBe("fam_forging");
+      expect(familyFor(phrase), phrase).not.toBe("fam_foundry_casting");
       expect(familyFor(phrase), phrase).not.toBe("fam_foundry_forging");
     }
   });

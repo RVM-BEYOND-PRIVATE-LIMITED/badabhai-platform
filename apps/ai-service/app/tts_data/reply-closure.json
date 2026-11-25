@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "clip_count": 2434,
+  "clip_count": 2584,
   "producers": {
-    "clarify": 904,
-    "retry": 160,
-    "prompt": 700,
-    "why": 573,
+    "clarify": 965,
+    "retry": 165,
+    "prompt": 754,
+    "why": 603,
     "constant": 97
   },
   "clips": [
@@ -78,6 +78,11 @@
       "id": "00fa4ebc4131baf1",
       "text": "Kaunsa probe ya sensor aapne use kiya hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "011eb871c98a9f9f",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Foundry ya casting ke kaam ka kitna tajurba hai?",
+      "producer": "clarify"
     },
     {
       "id": "012879448f11ada9",
@@ -190,6 +195,16 @@
       "producer": "retry"
     },
     {
+      "id": "03bc2292d66c9470",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal Die casting ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "03c89d78bea1852b",
+      "text": "Trial khud nikaalne wale senior ki alag maang hai. Naye die ka trial aur forging temperature aap khud tay karte ho?",
+      "producer": "clarify"
+    },
+    {
       "id": "03dcfb75a8035f60",
       "text": "Dikkat sudhaarne wale fitter ki plant par zaroorat rehti hai.",
       "producer": "why"
@@ -277,6 +292,11 @@
     {
       "id": "0584c0c566ee8f14",
       "text": "Quality department me kitna tajurba hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "05a238307bcab2ca",
+      "text": "Die lagana aur pehla piece nikaalna aap khud karte ho ya koi aur?",
       "producer": "prompt"
     },
     {
@@ -515,6 +535,11 @@
       "producer": "clarify"
     },
     {
+      "id": "093d65ff9a163d5d",
+      "text": "Core kis process se banate hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "0942374d5e6fb112",
       "text": "Lagbhag kitne saal press par kaam kiya hai?",
       "producer": "retry"
@@ -595,6 +620,11 @@
       "producer": "retry"
     },
     {
+      "id": "0b3500fd68b6617c",
+      "text": "Bhaari casting ka kaam har foundry me nahi hota. Sabse bhaari casting kitne kilo ki nikaali hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "0b57dc7a6aef5192",
       "text": "Problem khud close karne wale senior engineer ki alag maang hai.",
       "producer": "why"
@@ -670,6 +700,11 @@
       "producer": "prompt"
     },
     {
+      "id": "0c48d28264b52b6d",
+      "text": "Kaunsa section aur kitne log aapke under hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "0c5f29ae8c62a9a6",
       "text": "PPAP, control plan, 8D — aap banate ho?",
       "producer": "prompt"
@@ -737,6 +772,11 @@
     {
       "id": "0d76d472c1fd50a3",
       "text": "Kaunse plastic material ki moulding ki hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "0d7fb054b976de7c",
+      "text": "Shop par kaunsa test aap khud karte hain?",
       "producer": "prompt"
     },
     {
@@ -830,6 +870,11 @@
       "producer": "why"
     },
     {
+      "id": "0ea54f67802fc999",
+      "text": "Badi tonnage ki machine chalane wale kam milte hain.",
+      "producer": "why"
+    },
+    {
       "id": "0eb244e497583a9b",
       "text": "Jab aapki profile ban jayegi, tab aapke kaam ki jobs dikhayenge. Resume banayein?",
       "producer": "constant"
@@ -883,6 +928,11 @@
       "id": "0f075c882a98a8d9",
       "text": "Gas charging ek alag hunar hai. Kya aap gas charging karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "0f0dc2c7d016b8b2",
+      "text": "Die ki dekhbhaal me aap kya karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "0f26728186330c85",
@@ -1015,6 +1065,11 @@
       "producer": "retry"
     },
     {
+      "id": "12adff4704ceac54",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Forging shop me aap kya karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "12c14b2b4b2a6406",
       "text": "Program banana aana EDM ka sabse bada hunar hai. Program kahan se aata hai?",
       "producer": "clarify"
@@ -1042,6 +1097,11 @@
     {
       "id": "133f6410c727ba7d",
       "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal Heat treatment ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "138743f5d041fcd2",
+      "text": "Har material ka forging temperature alag hota hai. Kaunse material ki forging ki hai?",
       "producer": "clarify"
     },
     {
@@ -1175,6 +1235,11 @@
       "producer": "clarify"
     },
     {
+      "id": "164492c7819fcbb5",
+      "text": "Process jaanne wale karigar ko usi line ki foundry dhoondhti hai. Aapki foundry me kaunsa casting process chalta hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "165d14b7acd7a12d",
       "text": "Kaunse bath ya chemical ka kaam khud sambhalte hain?",
       "producer": "prompt"
@@ -1218,6 +1283,11 @@
       "id": "16f84c5230b0b92b",
       "text": "Material ki samajh se mushkil job ka kaam milta hai. Kaunse plastic material ki moulding ki hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "170d928a2bc0b222",
+      "text": "Process jaanne wale karigar ko usi line ki foundry dhoondhti hai.",
+      "producer": "why"
     },
     {
       "id": "170f72b17b1db98f",
@@ -1330,6 +1400,11 @@
       "producer": "why"
     },
     {
+      "id": "18e80908dc8e4949",
+      "text": "Part ke naam se milti julti company dikhayi jaati hai. Aap kaunse part ki forging karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "1908954b6986e957",
       "text": "Kaam ke hisaab se sahi post dikhayi jaati hai. NPD me aapka main kaam kya hai?",
       "producer": "clarify"
@@ -1435,6 +1510,11 @@
       "producer": "retry"
     },
     {
+      "id": "1b10b2803829566e",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Foundry me helper, operator ya skilled hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "1b1de98adc24dcf2",
       "text": "Equipment ka tajurba employer sabse pehle dekhte hain. Gearbox, pump, conveyor ya hydraulic, kis par kaam kiya hai?",
       "producer": "clarify"
@@ -1465,8 +1545,23 @@
       "producer": "why"
     },
     {
+      "id": "1bed698593f7a4ef",
+      "text": "Aap kaunsi forging machine par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "1bf198d9efc68253",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Aapke forging parts kis industry me jaate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "1bf8c2b258cbe152",
       "text": "Aap kaunsa heat treatment process karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "1c15c0074ab46085",
+      "text": "Kaunse alloy ki casting ki hai?",
       "producer": "prompt"
     },
     {
@@ -1685,6 +1780,11 @@
       "producer": "clarify"
     },
     {
+      "id": "203c3aa8a9394acc",
+      "text": "Foundry ya casting ke kaam ka kitna tajurba hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "2052e24944501e48",
       "text": "Cycle khud set karne wale ko operator se zyada vetan milta hai. Furnace par kaunsi setting aap khud karte hain?",
       "producer": "clarify"
@@ -1788,6 +1888,11 @@
       "id": "22d95bbb8a21847a",
       "text": "Rod aur wire ka sahi chunaav welder ka hunar hai.",
       "producer": "why"
+    },
+    {
+      "id": "22dd0b15b089cd66",
+      "text": "ITI ya training me kaunsa kaam kiya hai?",
+      "producer": "prompt"
     },
     {
       "id": "22dddd60ab2ede32",
@@ -1935,6 +2040,11 @@
       "producer": "clarify"
     },
     {
+      "id": "260e84a934ebc9bd",
+      "text": "Setting karne wale ko operator se zyada vetan milta hai. Die setting me aap kya kya karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "2640f66a2cab0bf4",
       "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Drawing aur CAD ke kaam ka kitna tajurba hai?",
       "producer": "clarify"
@@ -2012,6 +2122,11 @@
     {
       "id": "27e2921340c682d2",
       "text": "Hath aur machine packing alag hai. Aap kaise packing karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "27f61162fd2d8927",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Die casting machine par aap kya karte hain?",
       "producer": "clarify"
     },
     {
@@ -2360,6 +2475,11 @@
       "producer": "prompt"
     },
     {
+      "id": "2dd4c698d18da90e",
+      "text": "Akele kaam nikaalne wale skilled karigar ko alag kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "2de6a14d74810882",
       "text": "Company ke hisaab se sahi naukri milti hai.",
       "producer": "why"
@@ -2430,6 +2550,11 @@
       "producer": "clarify"
     },
     {
+      "id": "2fd8f7ce700b1517",
+      "text": "Aap kaunsi forging karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "2fe7c56a2a1bcc38",
       "text": "Milling ka kitna tajurba hai?",
       "producer": "prompt"
@@ -2438,6 +2563,16 @@
       "id": "30373f5dff2072a2",
       "text": "Trade test ka result aa gaya hai?",
       "producer": "retry"
+    },
+    {
+      "id": "303e07e9d0cc119c",
+      "text": "Apne section ka poora kaam aap bina senior ke akele nikaalte ho?",
+      "producer": "prompt"
+    },
+    {
+      "id": "305fb2d56b5d3107",
+      "text": "Aap kaunse part ki casting nikaalte hain?",
+      "producer": "prompt"
     },
     {
       "id": "30605869b7298382",
@@ -2675,6 +2810,11 @@
       "producer": "clarify"
     },
     {
+      "id": "35ce2438ccd6f4ed",
+      "text": "Metal aur furnace ka kaunsa kaam aap karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "35de1975b5076b81",
       "text": "CCTV wale ko control room milta hai.",
       "producer": "why"
@@ -2807,6 +2947,11 @@
     {
       "id": "384662507ca31241",
       "text": "Stock wale ko godam sambhalne milta hai. Kya aap stock ginte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "384ec94d3101fc41",
+      "text": "Furnace ka tajurba melting ke kaam me sabse pehle dekha jaata hai. Aapne kaunsi melting furnace par kaam kiya hai?",
       "producer": "clarify"
     },
     {
@@ -2970,8 +3115,18 @@
       "producer": "clarify"
     },
     {
+      "id": "3c28e4b0453b2794",
+      "text": "Defect sudhaarne wale technician ki shop par zaroorat rehti hai. Casting ka kaunsa defect aap khud sudhaar lete hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "3c50d40af56fe25e",
       "text": "Wheel aur setting khud karne wale setter ko alag kaam milta hai. Wheel change, dressing aur naya job setting aap karte ho?",
+      "producer": "clarify"
+    },
+    {
+      "id": "3c626397d3cfa47c",
+      "text": "Fastener banane wali company cold forging ka tajurba dhoondhti hai. Cold forging me kaunsi machine chalayi hai?",
       "producer": "clarify"
     },
     {
@@ -3080,6 +3235,11 @@
       "producer": "retry"
     },
     {
+      "id": "3f532083f13ee9d9",
+      "text": "Core banane wale karigar ki core shop me alag maang hai. Core kis process se banate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "3f621743c8d8204e",
       "text": "Aapki mehnat samajh aati hai. Thoda aur batayiye.",
       "producer": "constant"
@@ -3127,6 +3287,11 @@
     {
       "id": "4062e153dcfe12f0",
       "text": "Testing khud karne wale technician ki alag maang hai. Kaunsi testing khud karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "406c8ee01f11216a",
+      "text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain. ITI ya training me kaunsa kaam kiya hai?",
       "producer": "clarify"
     },
     {
@@ -3298,6 +3463,11 @@
       "id": "443c2f1338070417",
       "text": "Kya aage ki saari baat English mein karein?",
       "producer": "constant"
+    },
+    {
+      "id": "443e6e52fb19112c",
+      "text": "Lagbhag kitne saal Forging ka kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "446c7c9f0d067c26",
@@ -3695,9 +3865,19 @@
       "producer": "prompt"
     },
     {
+      "id": "4bfcf7fc7bd638b4",
+      "text": "Die life badhane ke liye aap kya karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "4c34f3cf1b502552",
       "text": "Quality system ka kaunsa kaam aap khud karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "4c73a73421cbe962",
+      "text": "Parameter jaanne wale ko process ka kaam diya jaata hai. Kaunse parameter aap khud set karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "4c8e471519e71aa7",
@@ -3935,6 +4115,11 @@
       "producer": "clarify"
     },
     {
+      "id": "51ff0e3974eaf2b5",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Forging shop me helper, operator ya die setter hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "520467453db537c3",
       "text": "Thoda sa aur. Bas 17 sawaal bache hain.",
       "producer": "constant"
@@ -4087,6 +4272,11 @@
     {
       "id": "54284bec46bbbc8d",
       "text": "CMM ka kaam drawing padhe bina nahi hota. Kya aap drawing padh lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "542c503669a81203",
+      "text": "Section ke hisaab se sahi kaam dikhaya jaata hai. Foundry ke kaunse section me aap kaam karte hain?",
       "producer": "clarify"
     },
     {
@@ -4250,6 +4440,11 @@
       "producer": "why"
     },
     {
+      "id": "57532e9a8b2bee79",
+      "text": "Forging shop me helper, operator ya die setter hain?",
+      "producer": "retry"
+    },
+    {
       "id": "5773600f77d91386",
       "text": "Kharabi sudhaarne wale welder ki shop par zaroorat rehti hai. Weld ki kaunsi kharabi aap sudhaar lete hain?",
       "producer": "clarify"
@@ -4318,6 +4513,11 @@
       "id": "58b8cb407f637924",
       "text": "Mixer aur plant ka kaam alag hai.",
       "producer": "why"
+    },
+    {
+      "id": "58bd0193902d88fb",
+      "text": "Naye die ka trial aur forging temperature aap khud tay karte ho?",
+      "producer": "prompt"
     },
     {
       "id": "58c2e1be305ee577",
@@ -4428,6 +4628,11 @@
       "id": "5aabed1692fe08bc",
       "text": "Vendor development me aap kya karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "5abd56b99e67a322",
+      "text": "Heating ka tareeka jaanne wale ko usi line par kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "5ac50db4be1a1972",
@@ -4665,6 +4870,11 @@
       "producer": "retry"
     },
     {
+      "id": "5ee9138d6ed1f655",
+      "text": "Casting reject aaye to sand ya metal me sudhaar aap khud tay karte ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "5f12216c259639a4",
       "text": "Level se employer ko aapka darja saaf pata chalta hai. Helper, operator, setter, senior ya supervisor hain?",
       "producer": "clarify"
@@ -4815,6 +5025,11 @@
       "producer": "prompt"
     },
     {
+      "id": "6289093a07542cfb",
+      "text": "Sabse badi machine kitne ton ki chalayi hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "62976a13f5e4c2a6",
       "text": "Roz ke kaam me aap kya kya khud karte hain?",
       "producer": "prompt"
@@ -4852,6 +5067,11 @@
     {
       "id": "637857c4559deecb",
       "text": "Material ka tajurba employer ke liye alag mayne rakhta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "6382a1f5cc1438c9",
+      "text": "Die sambhalne wale technician se die life badhti hai.",
       "producer": "why"
     },
     {
@@ -4935,6 +5155,11 @@
       "producer": "prompt"
     },
     {
+      "id": "64f18ddf5a529e08",
+      "text": "Die setting me aap kya kya karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "64fb204a263df711",
       "text": "Micrometer wale ko fine kaam milta hai.",
       "producer": "why"
@@ -4980,6 +5205,11 @@
       "producer": "why"
     },
     {
+      "id": "65f2c6b6d42bd8ed",
+      "text": "Die khud lagane wale setter ko alag kaam milta hai. Die lagana aur pehla piece nikaalna aap khud karte ho ya koi aur?",
+      "producer": "clarify"
+    },
+    {
       "id": "660cab3cbd86be31",
       "text": "Kya aap taul ka kaam karte hain?",
       "producer": "prompt"
@@ -5018,6 +5248,11 @@
       "id": "668b392562f72b5b",
       "text": "Turning ka kitna tajurba hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "6691d9047aed16f5",
+      "text": "Trial khud nikaalne wale senior ki alag maang hai.",
+      "producer": "why"
     },
     {
       "id": "66a390e0d29a9b58",
@@ -5135,6 +5370,11 @@
       "producer": "why"
     },
     {
+      "id": "69678338d21e461b",
+      "text": "Billet kis furnace ya heater me garam hota hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "698bfe3ab8d95ec1",
       "text": "Auto electrician ki alag maang hai.",
       "producer": "why"
@@ -5190,6 +5430,11 @@
       "producer": "prompt"
     },
     {
+      "id": "6aab38ea363f6f23",
+      "text": "Har metal ki melting aur pouring alag hoti hai.",
+      "producer": "why"
+    },
+    {
       "id": "6ab9581e605c12ec",
       "text": "Control wiring jaanne wale ko panel ki zimmedaari milti hai. Kaunsa control circuit khud wire kar lete hain?",
       "producer": "clarify"
@@ -5243,6 +5488,11 @@
       "id": "6b7dc2651b1467bd",
       "text": "Gas, arc, MIG ya TIG mein se kaunsi?",
       "producer": "retry"
+    },
+    {
+      "id": "6b916a1c9fafc657",
+      "text": "Aap kaunse part ki forging karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "6b940eee273b4c07",
@@ -5535,6 +5785,11 @@
       "producer": "clarify"
     },
     {
+      "id": "71e4f3c792049a67",
+      "text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain. ITI ya training me foundry ka kaunsa kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "71e541bb5914950c",
       "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Quality department me trainee, engineer ya senior engineer hain?",
       "producer": "clarify"
@@ -5605,14 +5860,29 @@
       "producer": "clarify"
     },
     {
+      "id": "73534ea8ed046054",
+      "text": "Kitne hammer ya press aur kitne log aapke under hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "73579872d71349cd",
       "text": "Kaleen aur kapda bunai alag hai. Aap kya bunte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "735a02736035a03f",
+      "text": "Team sambhalne wale supervisor ko alag zimmedari milti hai. Kitne hammer ya press aur kitne log aapke under hain?",
       "producer": "clarify"
     },
     {
       "id": "735cf12abb893516",
       "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Trainee, draughtsman, senior, lead ya head hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "7374d73caf3cfbd5",
+      "text": "Sabse bhaari casting kitne kilo ki nikaali hai?",
+      "producer": "prompt"
     },
     {
       "id": "73ad82524c63eb4a",
@@ -5668,6 +5938,11 @@
       "id": "741afc927e9f6fc3",
       "text": "Capacity nikalne wale planner ko bada plant sambhalne ko milta hai. Capacity aur loading ka kaunsa kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "7428faec5ef43d27",
+      "text": "Kaunse metal ki casting par kaam kiya hai?",
+      "producer": "prompt"
     },
     {
       "id": "742d319e6b42e301",
@@ -5785,6 +6060,11 @@
       "producer": "why"
     },
     {
+      "id": "7740dce9c0fcbe09",
+      "text": "Section ke hisaab se sahi kaam dikhaya jaata hai.",
+      "producer": "why"
+    },
+    {
       "id": "7744cdb433eda927",
       "text": "KPI sambhalne wale ko department ki zimmedari di jaati hai. Kaunse KPI ki report aap management ko dete hain?",
       "producer": "clarify"
@@ -5793,6 +6073,11 @@
       "id": "774d582ac894e599",
       "text": "ITI ya training me kaunsi machine par kaam kiya hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "774ffe034a7c985f",
+      "text": "Moulding machine chalane wale ko usi line par kaam milta hai. Mould kis machine ya tareeke se banate hain?",
+      "producer": "clarify"
     },
     {
       "id": "777e894337e94d60",
@@ -5865,6 +6150,11 @@
       "producer": "why"
     },
     {
+      "id": "78cec6552af3cf6f",
+      "text": "Forging ke type se usi line ki company dikhayi jaati hai. Aap kaunsi forging karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "78d4999130484489",
       "text": "Maintenance me kaunse instrument istemaal karte hain?",
       "producer": "prompt"
@@ -5893,6 +6183,11 @@
       "id": "791355376075c75b",
       "text": "Aap kaunsi EDM machine chalate hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "7928076aca59210b",
+      "text": "Bade hammer aur press chalane wale kam milte hain.",
+      "producer": "why"
     },
     {
       "id": "792fc873982fea46",
@@ -6065,6 +6360,16 @@
       "producer": "prompt"
     },
     {
+      "id": "7d7626ba17ddfde3",
+      "text": "Defect sudhaarne wale karigar ki shop par zaroorat rehti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "7d82225271e31ae4",
+      "text": "Bhaari casting ka kaam har foundry me nahi hota.",
+      "producer": "why"
+    },
+    {
       "id": "7d88b6a4e5139328",
       "text": "Cost sambhalne wale engineer ko manager ki zimmedari milti hai.",
       "producer": "why"
@@ -6148,6 +6453,11 @@
       "id": "7f9483d92a37e814",
       "text": "Improvement ka kaam karne wale ko aage ki post milti hai. Improvement ka kaunsa kaam aapne kiya hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "7f9712cb31a5317e",
+      "text": "Kaunsi company ki die casting machine chalayi hai?",
+      "producer": "prompt"
     },
     {
       "id": "7fa1afd7885c903a",
@@ -6235,6 +6545,11 @@
       "producer": "constant"
     },
     {
+      "id": "80f624145a3312ce",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Foundry me aap kis level par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "80f6b40cd96f3e41",
       "text": "Naap lene wale operator ko quality ka kaam diya jaata hai.",
       "producer": "why"
@@ -6292,6 +6607,11 @@
     {
       "id": "822b8c9616cef055",
       "text": "Aap kaunsi milling machine chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "82434f381c6a66a5",
+      "text": "Aapke casting parts kis industry me jaate hain?",
       "producer": "prompt"
     },
     {
@@ -6395,6 +6715,11 @@
       "producer": "prompt"
     },
     {
+      "id": "83ab819b11de0ca6",
+      "text": "Naap lene wale operator ko quality ka kaam diya jaata hai. Casting check karne me kya use karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "83ac0ff0351758db",
       "text": "Roz kaunsi report ya document aap banate hain?",
       "producer": "prompt"
@@ -6475,6 +6800,16 @@
       "producer": "clarify"
     },
     {
+      "id": "84cc02010dc854ea",
+      "text": "Aap kaunsi die casting karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "84cda68f339156bf",
+      "text": "Drawing padhna kai jagah zaroori hota hai. Kya aap casting drawing ya method card padh lete hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "84d81f409c31ca47",
       "text": "CMM kis company ki hai?",
       "producer": "prompt"
@@ -6488,6 +6823,11 @@
       "id": "84fef38bdd1657da",
       "text": "Tool room ka kitna tajurba hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "851ae36714981cc2",
+      "text": "Naap lene wale operator ko quality ka kaam diya jaata hai. Forging check karne me kya use karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "852024c677f73446",
@@ -6550,6 +6890,11 @@
       "producer": "clarify"
     },
     {
+      "id": "86615e62ef4a78b6",
+      "text": "Casting ke naam se employer samajhta hai aap kya bana sakte hain. Aap kaunsi casting banate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "866d0b10384fec66",
       "text": "Output dekhkar employer samajhta hai aap kya kaam de sakte hain. Aap kaunsa output banakar dete hain?",
       "producer": "clarify"
@@ -6557,6 +6902,11 @@
     {
       "id": "86d315dc0def51fe",
       "text": "Program khud banane wale ko programmer ka kaam milta hai. Program khud banate ho (machine pe ya CAM se)?",
+      "producer": "clarify"
+    },
+    {
+      "id": "86dcf9a941440042",
+      "text": "Die sambhalne wale technician se die life badhti hai. Die ki dekhbhaal me aap kya karte hain?",
       "producer": "clarify"
     },
     {
@@ -6790,6 +7140,11 @@
       "producer": "prompt"
     },
     {
+      "id": "8a9e836e7616d43f",
+      "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain. Forging line par aap kaunsa kaam khud karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "8ae77cc90d8f82b8",
       "text": "Har jagah ki duty alag hoti hai.",
       "producer": "why"
@@ -6870,6 +7225,11 @@
       "producer": "clarify"
     },
     {
+      "id": "8c86872d7d21317e",
+      "text": "Core banane wale karigar ki core shop me alag maang hai.",
+      "producer": "why"
+    },
+    {
       "id": "8c8ad3153970a7f8",
       "text": "Kaizen aur TPM ka kaam karne wale engineer ki maang zyada hai.",
       "producer": "why"
@@ -6888,6 +7248,11 @@
       "id": "8cf8de6b225f5960",
       "text": "Powder coating ya paint ka kitna tajurba hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "8d0ff787241a348a",
+      "text": "Metal ki quality sambhalne wale operator ki alag maang hai. Metal aur furnace ka kaunsa kaam aap karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "8d4609e3da7c7b23",
@@ -6915,6 +7280,11 @@
       "producer": "clarify"
     },
     {
+      "id": "8d961dccaa524896",
+      "text": "Aap kaunsi casting banate hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "8daa89666d47d67b",
       "text": "Har device ka kaam alag hota hai.",
       "producer": "why"
@@ -6933,6 +7303,11 @@
       "id": "8dcc5292a17b71a4",
       "text": "Dhaat ke hisaab se coating ka tarika badal jaata hai.",
       "producer": "why"
+    },
+    {
+      "id": "8dd119300c421de4",
+      "text": "Lagbhag kitne saal Foundry ya casting ka kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "8de70169e7a9996d",
@@ -6985,6 +7360,11 @@
       "producer": "clarify"
     },
     {
+      "id": "8f35a720bc1b70e2",
+      "text": "Heating ka tareeka jaanne wale ko usi line par kaam milta hai. Billet kis furnace ya heater me garam hota hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "8f385775b1a00d6b",
       "text": "CNC aane wale ko dono taraf ka kaam milta hai.",
       "producer": "why"
@@ -7008,6 +7388,11 @@
       "id": "900b0eceaad48729",
       "text": "GD aur T nikalne wale ko programmer ka kaam milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "9010ecddfa7a2e99",
+      "text": "Bade hammer aur press chalane wale kam milte hain. Kitne ton ke hammer ya press par kaam kiya hai?",
+      "producer": "clarify"
     },
     {
       "id": "9053f4d95411ec82",
@@ -7108,6 +7493,11 @@
       "id": "9269a73c724290f0",
       "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis cheez ki sheet metal fabrication me kaam kiya hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "929b01dcb434f4c3",
+      "text": "Casting ke naam se employer samajhta hai aap kya bana sakte hain.",
+      "producer": "why"
     },
     {
       "id": "92a32b36ebd0c3fa",
@@ -7315,6 +7705,11 @@
       "producer": "prompt"
     },
     {
+      "id": "97cbf60f45b0b2fb",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsi forging machine par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "97eb454338b77ea5",
       "text": "Aap kaunsi shop ya line sambhalte hain?",
       "producer": "prompt"
@@ -7362,6 +7757,11 @@
     {
       "id": "98bb39e7ab7673ba",
       "text": "Team sambhalne wale in-charge ko alag zimmedari milti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "98beb4d85425adcd",
+      "text": "Parameter jaanne wale ko process ka kaam diya jaata hai.",
       "producer": "why"
     },
     {
@@ -7560,6 +7960,11 @@
       "producer": "why"
     },
     {
+      "id": "9dbef26aa65cc1cd",
+      "text": "Forging ka kaunsa defect aap khud sudhaar lete hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "9dc499ba2c0c63e2",
       "text": "Maintenance ka kitna tajurba hai?",
       "producer": "prompt"
@@ -7588,6 +7993,11 @@
       "id": "9e6421154b6b551d",
       "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal CNC router ya engraving ka kaam kiya hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "9e7a203995bf6472",
+      "text": "Forging shop me aap kya karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "9e7d29a1c2fb9a31",
@@ -7665,13 +8075,28 @@
       "producer": "prompt"
     },
     {
+      "id": "9f9aa911cf362500",
+      "text": "Kitne ton ke hammer ya press par kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "9fc28fcdd596934a",
       "text": "Sirf requirement mile to design khud karte ho, ya drawing dekh ke model banate ho?",
       "producer": "prompt"
     },
     {
+      "id": "9fd65e44d64610db",
+      "text": "Metal khud taiyaar karne wale ko zyada vetan milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "9fdfcead4739a574",
       "text": "Audit face kar chuke supervisor ko certified plant jaldi lete hain. Aapki line par kaunsa audit aapne khud face kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "9fed831be1e1b8b9",
+      "text": "Process ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsi die casting karte hain?",
       "producer": "clarify"
     },
     {
@@ -7697,6 +8122,11 @@
     {
       "id": "a09c316abd099e1c",
       "text": "Branch ke hisaab se company post tay karti hai. Aapne kaunsi branch se padhai ki hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "a0a556c2aacf9e57",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal Foundry ya casting ka kaam kiya hai?",
       "producer": "clarify"
     },
     {
@@ -7728,6 +8158,11 @@
       "id": "a12397b5d30ee0dc",
       "text": "KPI sambhalne wale ko department ki zimmedari di jaati hai.",
       "producer": "why"
+    },
+    {
+      "id": "a14aaf897b45aca4",
+      "text": "Aapne kaunsi melting furnace par kaam kiya hai?",
+      "producer": "prompt"
     },
     {
       "id": "a17bc9fce8172575",
@@ -7773,6 +8208,11 @@
       "id": "a1a235fa11580e95",
       "text": "Course wale ko parlour jaldi rakhta hai.",
       "producer": "why"
+    },
+    {
+      "id": "a1b9fb47a102d315",
+      "text": "Aapki casting kis industry me jaati hai?",
+      "producer": "prompt"
     },
     {
       "id": "a1c6dfc18dee88aa",
@@ -7860,6 +8300,11 @@
       "producer": "prompt"
     },
     {
+      "id": "a355d17cdfe2f0b4",
+      "text": "Aapki foundry me kaunsa casting process chalta hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "a38a2cc1d77279fb",
       "text": "Mixer aur plant ka kaam alag hai. Aap kaunsi machine chalate hain?",
       "producer": "clarify"
@@ -7930,6 +8375,11 @@
       "producer": "clarify"
     },
     {
+      "id": "a52e8b1628e1b8b9",
+      "text": "Fastener banane wali company cold forging ka tajurba dhoondhti hai.",
+      "producer": "why"
+    },
+    {
       "id": "a547c5dcaa250346",
       "text": "Aap kahaan safai karte hain?",
       "producer": "prompt"
@@ -7980,6 +8430,11 @@
       "producer": "prompt"
     },
     {
+      "id": "a66aee0a5cd9a6b1",
+      "text": "Har alloy ka temperature aur setting alag hoti hai.",
+      "producer": "why"
+    },
+    {
       "id": "a6739cebab4e25d8",
       "text": "Kaizen aur TPM karne wale supervisor ki maang har plant me hai. Sudhaar ka kaunsa kaam aapne apni line par kiya hai?",
       "producer": "clarify"
@@ -8018,6 +8473,11 @@
       "id": "a6eef2e98b7bc02a",
       "text": "Aap kaunsa oven chalate hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "a734aaee33220b78",
+      "text": "Team sambhalne wale supervisor ko alag zimmedari milti hai. Kaunsa section aur kitne log aapke under hain?",
+      "producer": "clarify"
     },
     {
       "id": "a7471d7de7e8c116",
@@ -8170,6 +8630,11 @@
       "producer": "clarify"
     },
     {
+      "id": "a9d14707a6db4d72",
+      "text": "Defect sudhaarne wale technician ki shop par zaroorat rehti hai.",
+      "producer": "why"
+    },
+    {
       "id": "a9de237dbdd8acc3",
       "text": "Khraad aur milling ka kitna tajurba hai?",
       "producer": "prompt"
@@ -8198,6 +8663,11 @@
       "id": "aac49aceba09e0da",
       "text": "Press tool, mould, jig ya gauge, kya banate hain?",
       "producer": "retry"
+    },
+    {
+      "id": "aac660ec217e93b8",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Forging ka kitna tajurba hai?",
+      "producer": "clarify"
     },
     {
       "id": "aadd66390ac2ab4d",
@@ -8245,6 +8715,11 @@
       "producer": "why"
     },
     {
+      "id": "ac0ef0250ef257cd",
+      "text": "Die life badhane wale karigar se company ka kharcha bachta hai. Die life badhane ke liye aap kya karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "ac1ebbb52fcdfa3b",
       "text": "Curing oven kis temperature par chalate hain?",
       "producer": "prompt"
@@ -8283,6 +8758,11 @@
       "id": "ad2d44cbddb9224c",
       "text": "Time study aur capacity ka kaunsa kaam aap karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "ad2efb55b567a985",
+      "text": "Machine ka make jaanne wale operator ko jaldi kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "ad3967413c503437",
@@ -8435,6 +8915,16 @@
       "producer": "clarify"
     },
     {
+      "id": "afd1c1e5238f42c2",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Die casting ka kitna tajurba hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "afe9b52488c626d2",
+      "text": "Test khud karne wale karigar par quality ka bharosa hota hai. Shop par kaunsa test aap khud karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "afeeb6604d442a7f",
       "text": "Khud program banane wale ko programmer ka kaam milta hai.",
       "producer": "why"
@@ -8515,6 +9005,11 @@
       "producer": "why"
     },
     {
+      "id": "b195e8612952b8ce",
+      "text": "Die life badhane wale karigar se company ka kharcha bachta hai.",
+      "producer": "why"
+    },
+    {
       "id": "b1a095d43346842a",
       "text": "Controller jaanne wale operator ko jaldi kaam milta hai. Machine kis controller se chalti hai?",
       "producer": "clarify"
@@ -8523,6 +9018,11 @@
       "id": "b1a6dc1f61ec8f4a",
       "text": "Jis kaam se aap upar aaye hain, usi shop me aapki pakad hoti hai. Line sambhalne se pehle aap kaunsa kaam karte the?",
       "producer": "clarify"
+    },
+    {
+      "id": "b1b8c572a77cf5c8",
+      "text": "Casting check karne me kya use karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "b1ebb0a46df70fe5",
@@ -8645,6 +9145,11 @@
       "producer": "clarify"
     },
     {
+      "id": "b44ec15679cbd2a7",
+      "text": "Har material ka forging temperature alag hota hai.",
+      "producer": "why"
+    },
+    {
       "id": "b48fd7fe119bf353",
       "text": "Industry ke hisaab se milti julti company milti hai.",
       "producer": "why"
@@ -8673,6 +9178,11 @@
       "id": "b4f0e8b527a62dca",
       "text": "Aap kahaan guard ka kaam karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "b52bab77f11641f9",
+      "text": "Drawing padhna kai jagah zaroori hota hai. Kya aap forging drawing padh lete hain?",
+      "producer": "clarify"
     },
     {
       "id": "b53be69ce2593ba3",
@@ -8765,6 +9275,11 @@
       "producer": "why"
     },
     {
+      "id": "b7841af962c0306c",
+      "text": "Furnace ka tajurba melting ke kaam me sabse pehle dekha jaata hai.",
+      "producer": "why"
+    },
+    {
       "id": "b7c5baacc2c9c6b4",
       "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis line ki fabrication me kaam kiya hai?",
       "producer": "clarify"
@@ -8823,6 +9338,11 @@
       "id": "b8e6298b9a99115b",
       "text": "Kaam shuru karne se pehle kaunsi safety khud karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "b90632e30791cb85",
+      "text": "Part ke naam se milti julti company dikhayi jaati hai. Aap kaunse part ki casting nikaalte hain?",
+      "producer": "clarify"
     },
     {
       "id": "b9140e4facba2ed3",
@@ -9035,6 +9555,11 @@
       "producer": "clarify"
     },
     {
+      "id": "bd97527e2fe16f9c",
+      "text": "Har alloy ka temperature aur setting alag hoti hai. Kaunse alloy ki casting ki hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "bda29800e714fec8",
       "text": "Oven ke hisaab se kaam milta hai.",
       "producer": "why"
@@ -9175,6 +9700,11 @@
       "producer": "constant"
     },
     {
+      "id": "c0906d37b4b14317",
+      "text": "Foundry ke kaunse section me aap kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "c090e2d4c2ad3c7d",
       "text": "Product ka tajurba usi line ke employer dhoondhte hain.",
       "producer": "why"
@@ -9235,6 +9765,11 @@
       "producer": "clarify"
     },
     {
+      "id": "c20470e8d620cebd",
+      "text": "Forging line par aap kaunsa kaam khud karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "c2159cca13df1506",
       "text": "Assembly, maintenance ya erection, kaunsi fitting karte hain?",
       "producer": "retry"
@@ -9260,6 +9795,11 @@
       "producer": "clarify"
     },
     {
+      "id": "c2d4a97d68621989",
+      "text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain. ITI ya training me forging ka kaunsa kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "c2d626eb59044e52",
       "text": "Machine ki kaunsi setting khud karte hain?",
       "producer": "prompt"
@@ -9268,6 +9808,11 @@
       "id": "c2dd65ade830a9f0",
       "text": "Kya aap CCTV dekh sakte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "c2e8569915e032ec",
+      "text": "Foundry me helper, operator ya skilled hain?",
+      "producer": "retry"
     },
     {
       "id": "c2fb30540b53c2e2",
@@ -9565,6 +10110,11 @@
       "producer": "why"
     },
     {
+      "id": "c7c6cbd07e97b713",
+      "text": "Har metal ki melting aur pouring alag hoti hai. Kaunse metal ki casting par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "c7db3a8ce04c240d",
       "text": "Company usi make par kaam kiya hua aadmi dhoondhti hai.",
       "producer": "why"
@@ -9620,6 +10170,11 @@
       "producer": "clarify"
     },
     {
+      "id": "c8e92689c7f67a8f",
+      "text": "Test khud karne wale karigar par quality ka bharosa hota hai.",
+      "producer": "why"
+    },
+    {
       "id": "c8f1828134e1ef0f",
       "text": "Lagbhag kitne saal PLC aur automation ka kaam kiya hai?",
       "producer": "retry"
@@ -9628,6 +10183,16 @@
       "id": "c90713040dce71f9",
       "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Production me trainee, engineer ya senior engineer hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "c907aac099e5dad2",
+      "text": "Forging check karne me kya use karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "c91f618ba8e906a0",
+      "text": "Cold forging me kaunsi machine chalayi hai?",
+      "producer": "prompt"
     },
     {
       "id": "c939459027acbbd1",
@@ -9790,6 +10355,11 @@
       "producer": "clarify"
     },
     {
+      "id": "ccd854f5669cfaec",
+      "text": "Melting aur pouring me aap kya kya karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "ccfcd85175830e94",
       "text": "Job pakadna turning ka sabse zaroori hissa hai.",
       "producer": "why"
@@ -9920,6 +10490,11 @@
       "producer": "clarify"
     },
     {
+      "id": "ce863284f77146fd",
+      "text": "Industry jaanne se milti julti company dikhayi jaati hai. Aapki casting kis industry me jaati hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "ce8d4c405ecac033",
       "text": "Trainee, programmer, senior, lead ya supervisor hain?",
       "producer": "retry"
@@ -9955,6 +10530,11 @@
       "producer": "clarify"
     },
     {
+      "id": "cf7d59cb106a7a61",
+      "text": "Forging ka kitna tajurba hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "cfc888a142999a9f",
       "text": "Kis tarah ke plant ya company me kaam kiya hai?",
       "producer": "prompt"
@@ -9962,6 +10542,11 @@
     {
       "id": "d007ecd85abbd269",
       "text": "Kaunsi machine ya furnace chalayi hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "d00be8cab2c63a3c",
+      "text": "Die casting ka kitna tajurba hai?",
       "producer": "prompt"
     },
     {
@@ -10085,6 +10670,21 @@
       "producer": "clarify"
     },
     {
+      "id": "d24e82c2583b8465",
+      "text": "Kaunse material ki forging ki hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "d25ca47a737d4c00",
+      "text": "Aapke forging parts kis industry me jaate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "d26bb6244813d8c5",
+      "text": "Die change aur shot setting aap khud karte ho ya koi aur?",
+      "producer": "prompt"
+    },
+    {
       "id": "d300797f82db0de2",
       "text": "Programming me aap kya karte hain?",
       "producer": "prompt"
@@ -10150,6 +10750,11 @@
       "producer": "clarify"
     },
     {
+      "id": "d43d70d761313656",
+      "text": "Die khud lagane wale setter ko alag kaam milta hai. Die change aur shot setting aap khud karte ho ya koi aur?",
+      "producer": "clarify"
+    },
+    {
       "id": "d44064c98b1c690f",
       "text": "Aap kis tarah ka kaam karte hain?",
       "producer": "prompt"
@@ -10193,6 +10798,11 @@
       "id": "d4e0d2496d86fff0",
       "text": "Lagbhag kitne saal Injection moulding ka kaam kiya hai?",
       "producer": "retry"
+    },
+    {
+      "id": "d4e2968a0855aef9",
+      "text": "Naye die ka trial lekar parameter aap khud final karte ho?",
+      "producer": "prompt"
     },
     {
       "id": "d5057bbbfd432a92",
@@ -10345,6 +10955,11 @@
       "producer": "prompt"
     },
     {
+      "id": "d87e757725fb91ce",
+      "text": "Casting ka kaunsa defect aap khud sudhaar lete hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "d897f5e67e888379",
       "text": "Thoda sa aur. Bas 14 sawaal bache hain.",
       "producer": "constant"
@@ -10392,6 +11007,11 @@
     {
       "id": "d93fc057d2f0eccb",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsi grinding machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "d94c02ca1a594cd0",
+      "text": "Defect sudhaarne wale karigar ki shop par zaroorat rehti hai. Forging ka kaunsa defect aap khud sudhaar lete hain?",
       "producer": "clarify"
     },
     {
@@ -10580,6 +11200,16 @@
       "producer": "why"
     },
     {
+      "id": "de0ba6471025d99f",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal Forging ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "de107780cbd2a01f",
+      "text": "Parameter khud final karne wale process technician ki alag maang hai.",
+      "producer": "why"
+    },
+    {
       "id": "de19c1ed4cb5e54e",
       "text": "Har welding alag hoti hai, isse sahi naukri milti hai. Gas, arc, MIG ya TIG mein se kaunsi?",
       "producer": "clarify"
@@ -10665,6 +11295,11 @@
       "producer": "clarify"
     },
     {
+      "id": "e0278d6f690e8805",
+      "text": "Machine ka make jaanne wale operator ko jaldi kaam milta hai. Kaunsi company ki die casting machine chalayi hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "e02b93f2945ef200",
       "text": "Akele poora design nikaalne wale senior ko alag kaam milta hai.",
       "producer": "why"
@@ -10673,6 +11308,11 @@
       "id": "e042821ac7eaba2c",
       "text": "Level se employer ko aapke kaam ka darja pata chalta hai. Shop par aap kis level ka kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "e05881d533755ca8",
+      "text": "Forging ke type se usi line ki company dikhayi jaati hai.",
+      "producer": "why"
     },
     {
       "id": "e05d6487bad39aff",
@@ -10765,6 +11405,11 @@
       "producer": "retry"
     },
     {
+      "id": "e1c2d66cff123f69",
+      "text": "Foundry me aap kis level par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "e1ca577a346ccff0",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsi milling machine chalate hain?",
       "producer": "clarify"
@@ -10845,6 +11490,11 @@
       "producer": "clarify"
     },
     {
+      "id": "e2dd4698bf44427e",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Aapke casting parts kis industry me jaate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "e2e48067b90dc815",
       "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Bench aur assembly ka kaunsa kaam khud karte hain?",
       "producer": "clarify"
@@ -10895,6 +11545,11 @@
       "producer": "clarify"
     },
     {
+      "id": "e3c8e6b4fb115617",
+      "text": "Defect sudhaarne wale karigar ki foundry me zyada zaroorat rehti hai. Casting ka kaunsa defect aap khud sudhaar lete hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "e4269c9146173fa9",
       "text": "Stock wale ko godam sambhalne milta hai.",
       "producer": "why"
@@ -10927,6 +11582,11 @@
     {
       "id": "e4ee8b17c049a839",
       "text": "Tonnage se pata chalta hai aap kitna bada mould sambhal sakte hain.",
+      "producer": "why"
+    },
+    {
+      "id": "e4f7a999b86506fd",
+      "text": "Moulding machine chalane wale ko usi line par kaam milta hai.",
       "producer": "why"
     },
     {
@@ -10992,6 +11652,11 @@
     {
       "id": "e63c16982ba6636a",
       "text": "Kis industry ke parts banaye hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "e65e786cb20457f9",
+      "text": "Kya aap casting drawing ya method card padh lete hain?",
       "producer": "prompt"
     },
     {
@@ -11085,6 +11750,11 @@
       "producer": "prompt"
     },
     {
+      "id": "e7778341eb0f7049",
+      "text": "Die casting machine par aap kya karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "e78062c74ed22741",
       "text": "Alignment aur setting khud karne wale setter ko alag kaam milta hai.",
       "producer": "why"
@@ -11103,6 +11773,11 @@
       "id": "e7ad629a41e33637",
       "text": "Licence wale ko badi jagah kaam milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "e7e44b8aa2efe0b5",
+      "text": "ITI ya training me foundry ka kaunsa kaam kiya hai?",
+      "producer": "prompt"
     },
     {
       "id": "e8228c94562c7527",
@@ -11195,6 +11870,11 @@
       "producer": "retry"
     },
     {
+      "id": "e9d374342c85e2a5",
+      "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain. Machine par roz kaunsa kaam aap khud karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "e9e01961c050c9f3",
       "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Assembly line par kitna tajurba hai?",
       "producer": "clarify"
@@ -11202,6 +11882,11 @@
     {
       "id": "ea2ff6c77efbcff3",
       "text": "Customer ko khud commitment dene wale lead ko alag zimmedari milti hai. Customer ko supply ki commitment aap khud dete ho ya manager?",
+      "producer": "clarify"
+    },
+    {
+      "id": "ea71fc4794829e7b",
+      "text": "Metal khud taiyaar karne wale ko zyada vetan milta hai. Melting aur pouring me aap kya kya karte hain?",
       "producer": "clarify"
     },
     {
@@ -11213,6 +11898,11 @@
       "id": "ea89f7f00163e4dc",
       "text": "Supplier sambhalne wale ko SQA ki post milti hai.",
       "producer": "why"
+    },
+    {
+      "id": "eaa34847d632de16",
+      "text": "Kaunse parameter aap khud set karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "eb1c2f64135b18a2",
@@ -11410,6 +12100,11 @@
       "producer": "clarify"
     },
     {
+      "id": "ee8dbdc6d2d3e891",
+      "text": "Mould kis machine ya tareeke se banate hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "ee93d284a221b491",
       "text": "Trial sambhalne wale engineer par tool room aur customer dono bharosa karte hain. Tooling trial me aap khud kya karte hain?",
       "producer": "clarify"
@@ -11423,6 +12118,11 @@
       "id": "eea221b8fa01e67c",
       "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. 3D design ke kaam ka kitna tajurba hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "eedad073cd0bdd3b",
+      "text": "Rejection khud sudhaarne wale senior ki alag maang hai.",
+      "producer": "why"
     },
     {
       "id": "eee4d64a15d35ece",
@@ -11500,6 +12200,11 @@
       "producer": "clarify"
     },
     {
+      "id": "f113113d84a3a0ef",
+      "text": "ITI ya training me forging ka kaunsa kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "f120df72675c0ea3",
       "text": "Plant ki kaunsi utility sambhaali hai?",
       "producer": "prompt"
@@ -11560,6 +12265,11 @@
       "producer": "retry"
     },
     {
+      "id": "f25b28b81d3b9d66",
+      "text": "Parameter khud final karne wale process technician ki alag maang hai. Naye die ka trial lekar parameter aap khud final karte ho?",
+      "producer": "clarify"
+    },
+    {
       "id": "f286e0978e55fa2c",
       "text": "Badi machine chalane wale ko bade job ka kaam milta hai. Sabse bada job kitne dia ka kiya hai?",
       "producer": "clarify"
@@ -11578,6 +12288,11 @@
       "id": "f2a10686a3d44b48",
       "text": "Program kahan se aata hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "f2ac6f4f760f7781",
+      "text": "Badi tonnage ki machine chalane wale kam milte hain. Sabse badi machine kitne ton ki chalayi hai?",
+      "producer": "clarify"
     },
     {
       "id": "f2ad05c189a792d0",
@@ -11795,6 +12510,11 @@
       "producer": "clarify"
     },
     {
+      "id": "f78289d3c533456e",
+      "text": "Metal ki quality sambhalne wale operator ki alag maang hai.",
+      "producer": "why"
+    },
+    {
       "id": "f7a622fb5a51cab3",
       "text": "ITI me banaya hua koi ek kaam bata dijiye.",
       "producer": "retry"
@@ -11868,6 +12588,11 @@
       "id": "f9263707cc7a6389",
       "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Aapki line par kis industry ka maal banta hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "f94b8088d1f342d8",
+      "text": "Kya aap forging drawing padh lete hain?",
+      "producer": "prompt"
     },
     {
       "id": "f95594d43748dafd",
@@ -11980,6 +12705,11 @@
       "producer": "why"
     },
     {
+      "id": "fc0dcd81839d2a01",
+      "text": "Rejection khud sudhaarne wale senior ki alag maang hai. Casting reject aaye to sand ya metal me sudhaar aap khud tay karte ho?",
+      "producer": "clarify"
+    },
+    {
       "id": "fc141d3c795c127e",
       "text": "Bahut baatein ho gayin. Ab aapka resume bana lete hain?",
       "producer": "constant"
@@ -12090,6 +12820,16 @@
       "producer": "constant"
     },
     {
+      "id": "fde15162f9081492",
+      "text": "Lagbhag kitne saal Die casting ka kaam kiya hai?",
+      "producer": "retry"
+    },
+    {
+      "id": "fde4009f2b0440f8",
+      "text": "Die khud lagane wale setter ko alag kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "fdf773c52c77d43e",
       "text": "Line par target poocha jaata hai. Aap ek shift me kitne piece karte hain?",
       "producer": "clarify"
@@ -12128,6 +12868,11 @@
       "id": "fee0d3ce113aa210",
       "text": "Machine ki ginti se plant ka size samajh aata hai.",
       "producer": "why"
+    },
+    {
+      "id": "fee31b60475ff2de",
+      "text": "Akele kaam nikaalne wale skilled karigar ko alag kaam milta hai. Apne section ka poora kaam aap bina senior ke akele nikaalte ho?",
+      "producer": "clarify"
     },
     {
       "id": "fee436269baa559f",
@@ -12178,6 +12923,11 @@
       "id": "ff8a436324119377",
       "text": "Piece rate wali jagah ye poochte hain. Aap ek din me kitne piece kar lete hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "ffee50475754a5cb",
+      "text": "Defect sudhaarne wale karigar ki foundry me zyada zaroorat rehti hai.",
+      "producer": "why"
     }
   ]
 }
