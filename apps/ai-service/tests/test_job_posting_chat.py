@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.contracts import JobPostingChatState
+from app.contracts import JobPostingChatState, JobPostingDraft
 from app.job_posting_chat import answers, interview_engine, prompts, question_bank
 from app.main import app
 
@@ -70,6 +70,39 @@ def test_the_system_prompt_explicitly_forbids_asking_for_the_org_name():
 def test_the_draft_the_engine_builds_has_no_org_field():
     draft = interview_engine.build_draft(None)
     assert "org_label" not in draft.model_dump()
+
+
+# --- #3053: the chat never names a trade ----------------------------------------
+# The trade a posting is saved under (`role_kind`) is the company's pick from the posting
+# catalogue on the publish step, validated by apps/api against that catalogue. The chat only
+# records the words the company typed. A shared word (pack section 6: "machine operator",
+# "engineer", "supervisor") or an unknown title must never be turned into a trade here, or
+# the publish step would show a guess the company did not make.
+_TRADE_FIELD_HINTS = ("role_kind", "trade", "skill_id", "level")
+
+
+def test_the_draft_contract_has_no_trade_field():
+    fields = set(JobPostingDraft.model_fields)
+    assert not {f for f in fields if any(h in f for h in _TRADE_FIELD_HINTS)}
+    # Non-vacuous: the free-text title the company typed IS on the draft.
+    assert "role_title" in fields
+
+
+@pytest.mark.parametrize(
+    "typed",
+    ["Machine Operator", "Engineer", "Supervisor", "Quality Engineer", "Rocket Surgeon"],
+)
+def test_a_typed_role_is_kept_as_words_and_never_becomes_a_trade(typed: str):
+    _, asked_id, state, _ = interview_engine.next_turn(None, typed)
+    draft = interview_engine.build_draft(state)
+    # The company's own words, as typed, and the interview moves on to the next topic.
+    assert draft.role_title == typed
+    assert asked_id != "role_title"
+    # Nothing on the state or the draft carries a trade id.
+    assert state.trade_hint is None
+    dumped = {**draft.model_dump(), **state.model_dump()}
+    assert not [k for k in dumped if k != "trade_hint" and "trade" in k]
+    assert "quality_engineer" not in repr(dumped)
 
 
 # --- 4. count -> band, mirrored from packages/validators --------------------

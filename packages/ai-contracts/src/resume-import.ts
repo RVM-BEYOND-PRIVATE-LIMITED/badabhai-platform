@@ -87,14 +87,17 @@ export const ResumeParseInputSchema = z.object({
   target_fields: z.array(TargetFieldSchema).default([]),
   /**
    * Task 1 B2 — the CLOSED trade-kind ids the model may return in
-   * `trade_association.kind` (the 21 `TRADE_FORM_KINDS_ALL`, supplied by
+   * `trade_association.kind` (every declared `TRADE_FORM_KINDS_ALL` kind, supplied by
    * apps/api, the single source of truth). Rendered into the prompt verbatim;
    * the far side shape-checks each entry before it nears the prompt.
    *
-   * `max(32)` mirrors `contracts.py`'s `max_length=32` — a bound on the list,
-   * not on each id (the far side caps entry length at render time).
+   * `max(96)` mirrors `contracts.py`'s `max_length=96` — a bound on the list,
+   * not on each id (the far side caps entry length at render time). It was 32 until
+   * #3053: the 36 trades-v2 kinds (#2999) took the declared list to 63, and every
+   * parse request was then a 422 on the far side. `resume-parse.service.test.ts`
+   * fails when the declared list outgrows this bound.
    */
-  trade_kinds: z.array(z.string()).max(32).default([]),
+  trade_kinds: z.array(z.string()).max(96).default([]),
   language: languageCode.optional(),
 });
 export type ResumeParseInput = z.infer<typeof ResumeParseInputSchema>;

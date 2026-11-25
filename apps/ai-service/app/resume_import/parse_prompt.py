@@ -101,7 +101,9 @@ def _render_target(target: TargetField) -> str:
 #: Trade-kind ids are caller-controlled (our own server's closed list), but they are
 #: still rendered into a prompt — so shape-checked here: non-blank strings, capped
 #: in length and count, deduplicated. Anything else is dropped, never repaired.
-_MAX_TRADE_KINDS = 32
+#: The count matches `ResumeParseInput.trade_kinds` (96 since #3053), so a list the
+#: contract accepts is never silently truncated here.
+_MAX_TRADE_KINDS = 96
 _MAX_TRADE_KIND_LEN = 64
 
 

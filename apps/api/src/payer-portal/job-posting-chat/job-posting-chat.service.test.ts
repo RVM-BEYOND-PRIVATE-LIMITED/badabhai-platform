@@ -10,6 +10,9 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { createEvent } from "@badabhai/event-schema";
+import { postingTradeFor, TRADE_CATALOGUE } from "@badabhai/taxonomy";
+import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
+import { POSTING_TRADE_REQUIRED_REASON } from "../../job-postings/posting-trade-required";
 import type { RequestContext } from "../../common/request-context";
 import { fakeAiTraceRecorder } from "../../ai/ai-trace-recorder.fake";
 import { EventsService } from "../../events/events.service";
@@ -752,6 +755,42 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
     expect(PublishJobPostingChatSchema.safeParse({}).success).toBe(true);
   });
 
+  it("refuses a declared role_kind outside the posting catalogue before any write (#3053)", async () => {
+    // `roleKindSchema` admits every DECLARED kind; the publish reads the catalogue itself.
+    const outside = TRADE_FORM_KINDS_ALL.find((k) => postingTradeFor(k) === undefined);
+    expect(outside, "every declared kind is postable: pick another fixture").toBeDefined();
+    const err = await d.svc
+      .publish(PAYER_A, SESSION, CTX, { role_kind: outside! })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as BadRequestException).getResponse()).toMatchObject({
+      reason: POSTING_TRADE_REQUIRED_REASON,
+    });
+    expect(d.chat.claimForPublish).not.toHaveBeenCalled();
+    expect(d.jobPostings.createInScope).not.toHaveBeenCalled();
+  });
+
+  it("accepts a Wave 1 trade from the catalogue even before its switch is on — a draft, not live (#3053)", async () => {
+    await d.svc.publish(PAYER_A, SESSION, CTX, { role_kind: "quality_engineer" });
+    const dto = d.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
+    expect(dto.role_kind).toBe("quality_engineer");
+  });
+
+  it.each(["Machine Operator", "Engineer", "Supervisor", "Quality Engineer"])(
+    "never turns the typed title %j into a trade: no pick, no role_kind (#3053)",
+    async (typed) => {
+      const own = make({
+        session: { ...publishable.session, draft: { ...FULL_DRAFT, role_title: typed } },
+      });
+      await own.svc.publish(PAYER_A, SESSION, CTX);
+      const dto = own.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
+      expect(dto.role_title).toBe(typed);
+      expect("role_kind" in dto).toBe(false);
+      expect("trade_level" in dto).toBe(false);
+      expect("trade_answers" in dto).toBe(false);
+    },
+  );
+
   it("does not report role_kind as an unset CARD field — it is display-only, not on the worker card", async () => {
     const res = await d.svc.publish(PAYER_A, SESSION, CTX);
     expect(res.unset_card_fields as readonly string[]).not.toContain("role_kind");
@@ -1053,10 +1092,10 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
 describe("JobPostingChatService — a publish whose job_posting.created emit fails creates no posting (#1928)", () => {
   const LIVE = ["active", "draft_ready"];
 
-  function wired() {
+  function wired(opts: { failFirstEmit?: boolean } = {}) {
     const TX = { executor: "publish-test-tx" };
     type Stored = {
-      postings: { id: string }[];
+      postings: { id: string; role_kind?: string | null; match_skill_ids?: readonly string[] }[];
       spine: { event_name: string; subject_id: string }[];
     };
     const committed: Stored = { postings: [], spine: [] };
@@ -1087,7 +1126,8 @@ describe("JobPostingChatService — a publish whose job_posting.created emit fai
           vacancy_band: input.vacancyBand,
           location_label: input.locationLabel ?? null,
           description: input.description ?? null,
-          role_kind: input.roleKind ?? null,
+          role_kind: (input.roleKind as string | undefined) ?? null,
+          match_skill_ids: (input.matchSkillIds as readonly string[] | undefined) ?? [],
           status: "draft",
         };
         write(tx, "postings", posting);
@@ -1096,7 +1136,7 @@ describe("JobPostingChatService — a publish whose job_posting.created emit fai
     };
 
     // The FIRST events insert fails, as a dropped connection would; every later one succeeds.
-    let failNextEventInsert = true;
+    let failNextEventInsert = opts.failFirstEmit ?? true;
     const eventsRepo = {
       insert: async (
         event: { event_name: string; subject: { subject_id: string } },
@@ -1133,7 +1173,9 @@ describe("JobPostingChatService — a publish whose job_posting.created emit fai
       traces.recorder,
       // A create never materializes reach and a chat publish sends no match_skill_ids.
       {} as never,
-      {} as never,
+      // #3053 — a catalogue trade's create checks its derived base skill against the
+      // closed set; the closed set itself is the match-skills suite's to pin.
+      { resolveForPublish: vi.fn(async () => ({})) } as never,
       {} as never, // PostingTradesService
       tenancy,
       inertPostingAudience(), // #2746 — a chat publish carries no audience
@@ -1213,6 +1255,27 @@ describe("JobPostingChatService — a publish whose job_posting.created emit fai
 
     await expect(w.svc.publish(PAYER_A, SESSION, CTX)).rejects.toBeInstanceOf(ConflictException);
     expect(w.committed.postings).toHaveLength(1);
+  });
+
+  it("saves a chat-made Wave 1 posting with its trade's role kind and base skill (#3053)", async () => {
+    // Through the REAL create path: the base skill is derived from the posting catalogue at
+    // run time (`scopePostingSkills`), not from any list the chat or the publish carries.
+    const w = wired({ failFirstEmit: false });
+    const res = await w.svc.publish(PAYER_A, SESSION, CTX, { role_kind: "quality_engineer" });
+
+    const base = postingTradeFor("quality_engineer")?.matchSkillId;
+    // Non-vacuous: T37 is a Wave 1 trade with its own base skill in the manifest.
+    const row = TRADE_CATALOGUE.find((t) => t.roleKind === "quality_engineer");
+    expect(row).toMatchObject({ code: "T37", wave: 1 });
+    expect(base).toBe(row!.matchSkillId);
+    expect(w.committed.postings).toEqual([
+      expect.objectContaining({
+        id: res.job_posting_id,
+        role_kind: "quality_engineer",
+        match_skill_ids: [base],
+        status: "draft",
+      }),
+    ]);
   });
 });
 

@@ -1804,11 +1804,14 @@ class ResumeParseInput(BaseModel):
     mime: str = Field(min_length=1)
     target_fields: list[TargetField] = Field(default_factory=list)
     #: The CLOSED trade-kind ids the model may return in `trade_association.kind`
-    #: (Task 1 B2 — the 21 `TRADE_FORM_KINDS_ALL`, supplied by apps/api, the single
-    #: source of truth). Rendered into the prompt verbatim, so bounded in count;
-    #: each entry is length-capped at render time, not here, because this list is
-    #: caller-controlled (our own server), never worker input.
-    trade_kinds: list[str] = Field(default_factory=list, max_length=32)
+    #: (Task 1 B2 — every declared `TRADE_FORM_KINDS_ALL` kind, supplied by apps/api,
+    #: the single source of truth). Rendered into the prompt verbatim, so bounded in
+    #: count; each entry is length-capped at render time, not here, because this list
+    #: is caller-controlled (our own server), never worker input. 96, not 32, since
+    #: #3053: the trades-v2 kinds (#2999) made the declared list 63, and a 33rd kind
+    #: turned every parse into a 422. Mirrored by the Zod `max(96)` and by
+    #: `parse_prompt._MAX_TRADE_KINDS` (tests/test_contract_parity.py).
+    trade_kinds: list[str] = Field(default_factory=list, max_length=96)
     #: BOUNDED, unlike `ProfileParseInput.language`, and matching the TypeScript mirror's
     #: `min(2).max(35)`. This is the one request field that reaches a trace attribute without
     #: passing through the masker, so an unbounded string here would be a free-text channel

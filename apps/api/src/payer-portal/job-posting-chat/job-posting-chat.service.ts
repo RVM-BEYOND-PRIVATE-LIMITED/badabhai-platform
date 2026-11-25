@@ -16,6 +16,7 @@ import {
   type JobPostingDraft,
 } from "@badabhai/ai-contracts";
 import type { PayerJobPostingChatSession, PayerJobPostingChatStatus } from "@badabhai/db";
+import { postingTradeFor } from "@badabhai/taxonomy";
 import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
 import { AiService } from "../../ai/ai.service";
@@ -26,6 +27,7 @@ import { PayersRepository } from "../../payers/payers.repository";
 import { PayerTenantScopeService } from "../../payers/payer-tenant-scope.service";
 import type { TenantKey } from "../../payers/payer-tenant-scope";
 import { JobPostingsService } from "../../job-postings/job-postings.service";
+import { postingTradeRequired } from "../../job-postings/posting-trade-required";
 import {
   PayerCreateJobPostingSchema,
   type PayerCreateJobPostingDto,
@@ -548,6 +550,17 @@ export class JobPostingChatService {
         message: "There is no usable draft on this conversation yet",
         issues: [{ path: "draft", message: "answer a few more questions first" }],
       });
+    }
+    // #3053 — THE TRADE IS THE COMPANY'S PICK FROM THE POSTING CATALOGUE, NEVER THE CHAT'S.
+    // The interview records the words the company typed (`role_title`), and nothing on this
+    // path turns them into a trade: a shared word ("machine operator", "engineer",
+    // "supervisor") or an unknown title is answered by the client's picker, which lists the
+    // catalogue route and starts empty. `roleKindSchema` admits every DECLARED kind, so the
+    // body is checked again here against the posting catalogue as it stands at run time
+    // (`postingTradeFor` — it grows with each wave, no copied list), before any write. Absent
+    // stays absent: the draft stores NULL and cannot go live until a trade is picked.
+    if (publishDto.role_kind !== undefined && postingTradeFor(publishDto.role_kind) === undefined) {
+      throw postingTradeRequired();
     }
 
     // THE WHOLE DRAFT, NOT SIX FIELDS OF IT (#1650). This mapped org_label, role_title,
