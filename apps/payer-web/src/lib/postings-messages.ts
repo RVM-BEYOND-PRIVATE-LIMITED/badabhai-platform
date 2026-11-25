@@ -19,7 +19,7 @@ export const POSTINGS_UNREACHABLE_MESSAGE = "Could not reach the server. Please 
 export const POSTINGS_MESSAGES: ErrorCatalogue = withCommon(
   {
     posting_trade_required:
-      "Pick one of the 16 trades before you continue with this posting.",
+      "Pick a trade before you continue with this posting.",
     targeting_needs_rvm_audience:
       "Choose RVM students (or both) before picking branches or courses.",
     targeting_option_not_offered:

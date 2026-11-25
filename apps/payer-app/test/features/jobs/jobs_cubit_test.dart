@@ -279,10 +279,10 @@ void main() {
 
       expect(result.success, isFalse);
       expect(result.tradeRequired, isTrue);
-      expect(result.message, 'Pick one of the 16 trades');
+      expect(result.message, 'Pick a trade');
       // Pinned to the role control, so a form shows it AT the picker.
       expect(result.fieldErrors, <String, String>{
-        'role_kind': 'Pick one of the 16 trades',
+        'role_kind': 'Pick a trade',
       });
       expect(api.fetches, 0, reason: 'nothing changed, so no refetch');
     });

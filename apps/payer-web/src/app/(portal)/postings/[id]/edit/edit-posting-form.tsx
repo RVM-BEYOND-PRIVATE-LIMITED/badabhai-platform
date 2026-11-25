@@ -76,7 +76,7 @@ import { postingsErrorMessage } from "../../../../../lib/postings-messages";
  * served (no free role list, no flat skill picker; if they did not load, the picker says why with a
  * Retry). It is sent only when the payer moved it to another trade and is never cleared, so an
  * unrelated save cannot move a live job off the 16. A publish needs one, and the API's
- * `posting_trade_required` refusal lands AT the picker ("Pick one of the 16 trades"), as does a page
+ * `posting_trade_required` refusal lands AT the picker ("Pick a trade"), as does a page
  * opened with `?trade=required` (a publish refused elsewhere). A publish always carries the trade
  * form, so the server derives the match set from the trade — the set the trade panel previews.
  */

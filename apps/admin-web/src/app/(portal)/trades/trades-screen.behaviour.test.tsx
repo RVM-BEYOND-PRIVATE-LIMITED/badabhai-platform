@@ -5,9 +5,10 @@ import type { ReactElement, ReactNode } from "react";
 import { createHookHarness, type HookHarness } from "../../../../test/hook-harness";
 
 /**
- * #3023 — the trade catalogue's client half, render by render: the two filters only NARROW the
- * server order; a switch opens an explicit dialog; Cancel changes nothing; Confirm calls the
- * action and shows the new state; a refusal keeps the old state and shows the server's message.
+ * #3023 / #3067 — the trade catalogue's client half, render by render: the two filters only
+ * NARROW the given order; a switch opens an explicit dialog; Cancel changes nothing; Confirm sends
+ * BOTH flags (the changed one and the other as it stands) and shows the new state; a refusal keeps
+ * the old state and shows the server's message; without `manage_trade_release` there is no switch.
  */
 const h = vi.hoisted(() => ({
   harness: null as unknown,
@@ -43,41 +44,47 @@ vi.mock("./actions", () => ({
 
 const { TradesScreen } = await import("./trades-screen");
 
-const row = (over: Record<string, unknown> = {}) => ({
+const release = (over: Record<string, unknown> = {}) => ({
   role_kind: "cnc_turner",
-  role_label: "CNC Turner",
-  department: "production",
-  department_label: "Production",
-  kind: "shop_floor" as const,
-  wave: 1,
   posting_enabled: false,
   form_enabled: false,
-  posting_changed_at: null,
-  form_changed_at: null,
   updated_by: "a-1",
   updated_at: "2026-11-21T10:30:00.000Z",
   ...over,
 });
 
+const row = (over: Record<string, unknown> = {}, rel: Record<string, unknown> = {}) => {
+  const base = {
+    role_kind: "cnc_turner",
+    role_label: "CNC Turner",
+    department: "Machining",
+    kind: "shop_floor" as "shop_floor" | "desk" | null,
+    wave: 0 as number | null,
+    ...over,
+  };
+  return { ...base, release: release({ role_kind: base.role_kind, ...rel }) };
+};
+
 const ROWS = [
   row(),
+  row(
+    {
+      role_kind: "welder",
+      role_label: "Welder",
+      department: "Sheet Metal & Fabrication",
+    },
+    { posting_enabled: true },
+  ),
   row({
-    role_kind: "arc_welder",
-    role_label: "Arc Welder",
-    department: "fabrication",
-    department_label: "Fabrication",
-    wave: 2,
-    posting_enabled: true,
-  }),
-  row({
-    role_kind: "design_checker",
-    role_label: "Design Checker",
-    department: "design",
-    department_label: "Design",
-    kind: "desk" as const,
+    role_kind: "cad_draughtsman",
+    role_label: "CAD Designer / Draughtsman",
+    department: "Design",
+    kind: "desk",
     wave: null,
   }),
 ];
+
+const state = { canManage: true };
 
 function walk(node: ReactNode): ReactElement<Record<string, unknown>>[] {
   if (Array.isArray(node)) return node.flatMap(walk);
@@ -95,7 +102,7 @@ function textOf(node: ReactNode): string {
 
 const tree = () =>
   harness().render(() =>
-    TradesScreen({ rows: ROWS, canWrite: true, held: [], heldState: "ready" }),
+    TradesScreen({ rows: ROWS, canManage: state.canManage, held: [], heldState: "ready" }),
   ) as ReactElement;
 
 const html = () => renderToStaticMarkup(tree());
@@ -129,29 +136,30 @@ beforeEach(() => {
   h.harness = createHookHarness();
   h.overlay = null;
   updateTradeReleaseAction.mockReset();
+  state.canManage = true;
 });
 
 describe("the filters", () => {
   it("narrows by department and keeps the server order", () => {
-    change(selectWith("All departments"), "fabrication");
+    change(selectWith("All departments"), "Sheet Metal & Fabrication");
     const out = html();
-    expect(out).toContain("Arc Welder");
+    expect(out).toContain("Welder");
     expect(out).not.toContain("CNC Turner");
-    expect(out).not.toContain("Design Checker");
+    expect(out).not.toContain("CAD Designer");
   });
 
   it("narrows by posting and form status", () => {
     change(selectWith("All trades"), "posting_on");
-    expect(html()).toContain("Arc Welder");
+    expect(html()).toContain("Welder");
     expect(html()).not.toContain("CNC Turner");
 
     change(selectWith("All trades"), "form_off");
     expect(html()).toContain("CNC Turner");
-    expect(html()).toContain("Arc Welder");
+    expect(html()).toContain("Welder");
   });
 
   it("says when no trade matches", () => {
-    change(selectWith("All departments"), "design");
+    change(selectWith("All departments"), "Design");
     change(selectWith("All trades"), "posting_on");
     expect(html()).toContain("No trades match these filters");
   });
@@ -175,10 +183,7 @@ describe("a switch's confirm dialog", () => {
   it("Confirm calls the action and shows the new state", async () => {
     updateTradeReleaseAction.mockResolvedValueOnce({
       ok: true,
-      row: row({
-        posting_enabled: true,
-        posting_changed_at: "2026-11-24T09:00:00.000Z",
-      }),
+      release: release({ posting_enabled: true, updated_at: "2026-11-24T09:00:00.000Z" }),
     });
     click(switchFor("Posting for CNC Turner"));
     click(button("Confirm"));
@@ -186,8 +191,10 @@ describe("a switch's confirm dialog", () => {
     expect(updateTradeReleaseAction).toHaveBeenCalledWith({
       roleKind: "cnc_turner",
       postingEnabled: true,
+      formEnabled: false,
     });
     expect(switchFor("Posting for CNC Turner")!.props["aria-checked"]).toBe(true);
+    expect(html()).toContain("2026-11-24");
     expect(html()).toContain("Turn posting on for CNC Turner — saved.");
     expect(html()).not.toContain('data-dialog=""');
   });
@@ -203,5 +210,41 @@ describe("a switch's confirm dialog", () => {
     expect(switchFor("Posting for CNC Turner")!.props["aria-checked"]).toBe(false);
     expect(html()).toContain("Wave 1 is frozen for review.");
     expect(html()).toContain("Turn posting on for CNC Turner");
+  });
+});
+
+describe("both flags go to the API", () => {
+  it("a form change sends the posting flag as it stands", async () => {
+    updateTradeReleaseAction.mockResolvedValueOnce({
+      ok: true,
+      release: release({ role_kind: "welder", posting_enabled: true, form_enabled: true }),
+    });
+    click(switchFor("Form hand-over for Welder"));
+    click(button("Confirm"));
+    await flush();
+    expect(updateTradeReleaseAction).toHaveBeenCalledWith({
+      roleKind: "welder",
+      postingEnabled: true,
+      formEnabled: true,
+    });
+    expect(switchFor("Form hand-over for Welder")!.props["aria-checked"]).toBe(true);
+    expect(switchFor("Posting for Welder")!.props["aria-checked"]).toBe(true);
+  });
+});
+
+describe("without manage_trade_release", () => {
+  it("lists the trades with no switch and no status filter", () => {
+    state.canManage = false;
+    const rows = ROWS.map((r) => ({ ...r, release: null }));
+    const out = renderToStaticMarkup(
+      harness().render(() =>
+        TradesScreen({ rows, canManage: false, held: [], heldState: "ready" }),
+      ) as ReactElement,
+    );
+    expect(out).toContain("CNC Turner");
+    expect(out).toContain("CAD Designer / Draughtsman");
+    expect(out).toContain("Only a super admin can see and change the release switches.");
+    expect(out).not.toContain('role="switch"');
+    expect(out).not.toContain("All trades");
   });
 });

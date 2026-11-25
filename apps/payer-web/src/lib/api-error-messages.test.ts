@@ -63,7 +63,7 @@ describe("messageFor — API codes/statuses become human copy", () => {
 
 describe("domain catalogues", () => {
   it("postings understands the trade reason and its own fallback", () => {
-    expect(postingsErrorMessage("posting_trade_required")).toContain("16 trades");
+    expect(postingsErrorMessage("posting_trade_required")).toContain("Pick a trade");
     expect(postingsErrorMessage("mystery_posting_code")).toBe(
       "We couldn't complete that posting change right now. Please try again.",
     );

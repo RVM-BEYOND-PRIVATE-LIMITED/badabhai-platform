@@ -166,7 +166,7 @@ export interface DraftPreviewProps {
   trades: readonly PostingTradeCatalogueEntryWire[];
   /** Why `trades` is empty. */
   tradesProblem: PostingTradesProblem | null;
-  /** A publish refused for want of a trade — "Pick one of the 16 trades" at the picker. */
+  /** A publish refused for want of a trade — "Pick a trade" at the picker. */
   roleError?: string;
   /**
    * The publish-step area/locality (#2493) — prefilled from `draft.area`, editable

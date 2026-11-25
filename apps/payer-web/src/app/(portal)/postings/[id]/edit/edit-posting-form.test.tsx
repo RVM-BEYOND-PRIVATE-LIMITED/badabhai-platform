@@ -529,7 +529,7 @@ describe("EditPostingForm — a refused save says why AT the field focus moves t
 });
 
 describe("EditPostingForm — #2645: the role is the job's trade, one of the 16", () => {
-  const TRADE_MSG = "Pick one of the 16 trades";
+  const TRADE_MSG = "Pick a trade";
   /** The posting as saved, with a role. */
   const STORED = { ...INITIAL, roleKind: "cnc_turner" };
   /** What an older payer-app's flat picker (or the old web fallback) stored on the row. */
@@ -835,7 +835,7 @@ describe("EditPostingForm — #2645: the 16 trades did not load", () => {
     const els = hosts(tree);
     expect(els.some((e) => e.type === "select" && e.props.id === "roleKind")).toBe(false);
     expect(deepText(els.find((e) => e.props.id === "roleKind-cause"))).toBe(
-      "The 16 trades did not load: the BadaBhai server could not be reached.",
+      "The trades did not load: the BadaBhai server could not be reached.",
     );
     expect(els.some((e) => e.type === "button" && deepText(e) === "Retry")).toBe(true);
     // The rest of a live job still saves, and the role is neither sent nor cleared.
@@ -858,12 +858,12 @@ describe("EditPostingForm — #2645: the 16 trades did not load", () => {
     expect(updatePostingAction).not.toHaveBeenCalled();
     expect(setters[10]).toHaveBeenCalledWith({
       control: "roleKind",
-      message: "Pick one of the 16 trades",
+      message: "Pick a trade",
     });
   });
 
   describe("opened with ?trade=required (a publish refused elsewhere)", () => {
-    const REFUSED = { control: "roleKind", message: "Pick one of the 16 trades" };
+    const REFUSED = { control: "roleKind", message: "Pick a trade" };
     const open = (postingTrades: Array<ReturnType<typeof tradeRow>>) =>
       render({ roleKind: "" }, "draft", {}, undefined, { problem: REFUSED, error: REFUSED.message }, {
         postingTrades,

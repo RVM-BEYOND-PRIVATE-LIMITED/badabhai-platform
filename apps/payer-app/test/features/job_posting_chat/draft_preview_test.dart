@@ -137,11 +137,11 @@ void main() {
     await tapPublish(tester);
 
     expect(published, 0);
-    expect(atPicker('Pick one of the 16 trades'), findsOneWidget);
+    expect(atPicker('Pick a trade'), findsOneWidget);
 
     // Picking a trade clears it, and the next tap publishes.
     await pickTrade(tester, 'CNC Turner');
-    expect(find.text('Pick one of the 16 trades'), findsNothing);
+    expect(find.text('Pick a trade'), findsNothing);
     await tapPublish(tester);
     expect(published, 1);
   });
@@ -161,7 +161,7 @@ void main() {
 
     expect(
       atPicker(
-        'The 16 trades did not load. Check your internet connection and try '
+        'The trades did not load. Check your internet connection and try '
         'again.',
       ),
       findsOneWidget,
@@ -174,7 +174,7 @@ void main() {
     // Still never published without a trade.
     await tapPublish(tester);
     expect(published, 0);
-    expect(atPicker('Pick one of the 16 trades'), findsOneWidget);
+    expect(atPicker('Pick a trade'), findsOneWidget);
   });
 
   testWidgets('while the trades load, the picker says so', (

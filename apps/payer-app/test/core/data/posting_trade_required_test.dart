@@ -26,7 +26,7 @@ http.Response _json(Object body, [int status = 200]) =>
 const String _jobId = 'cccccccc-0000-4000-8000-000000000003';
 
 /// The server's message — pinned by the API tests. It must never reach a payer.
-const String _serverMessage = 'a live job must name one of the 16 trades';
+const String _serverMessage = 'a live job must name a trade companies can post';
 
 /// The 400 exactly as `apps/api/src/job-postings/posting-trade-required.wire
 /// .test.ts` renders it through the real global exception filter.
@@ -98,9 +98,9 @@ void main() {
       final PayerApiException e =
           await _patchFailure(_tradeRequired(), status: 'open');
 
-      expect(e.validationMessage, 'Pick one of the 16 trades');
+      expect(e.validationMessage, 'Pick a trade');
       expect(e.fieldErrors, <String, String>{
-        'role_kind': 'Pick one of the 16 trades',
+        'role_kind': 'Pick a trade',
       });
     });
 

@@ -60,7 +60,7 @@ http.Response _tradeRequired() => _json(
         'error': <String, dynamic>{
           'statusCode': 400,
           'error': 'Bad Request',
-          'message': 'a live job must name one of the 16 trades',
+          'message': 'a live job must name a trade companies can post',
           'reason': 'posting_trade_required',
         },
       },
@@ -175,7 +175,7 @@ void main() {
       find.descendant(
         of: find.ancestor(
             of: find.text('Role'), matching: find.byType(BbShake)),
-        matching: find.text('Pick one of the 16 trades'),
+        matching: find.text('Pick a trade'),
       ),
       findsOneWidget,
     );

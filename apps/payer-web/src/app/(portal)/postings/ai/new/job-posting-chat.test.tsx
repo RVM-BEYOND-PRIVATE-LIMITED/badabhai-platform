@@ -648,7 +648,7 @@ describe("publish — gated on the ENGINE's readiness, routes to the existing de
 /* ── 3b. #2645 — the draft's trade is one of the 16 ─────────────────────────────── */
 
 describe("publish — #2645: the draft must name one of the 16 trades", () => {
-  const TRADE_MSG = "Pick one of the 16 trades";
+  const TRADE_MSG = "Pick a trade";
   const READY = { ...CONVO, draftReady: true };
 
   it("Publish without a trade is refused AT the picker and sends nothing (index 8)", async () => {
@@ -696,7 +696,7 @@ describe("publish — #2645: the draft must name one of the 16 trades", () => {
     });
     expect(acc.fields.some((f) => f.tag === "select" && f.id === "chatRoleKind")).toBe(false);
     expect(allText(acc)).toContain(
-      "The 16 trades did not load: too many requests just now. Wait a minute, then retry.",
+      "The trades did not load: too many requests just now. Wait a minute, then retry.",
     );
     expect(button(acc, "Retry")).toBeDefined();
     button(acc, "Publish")?.onClick?.();

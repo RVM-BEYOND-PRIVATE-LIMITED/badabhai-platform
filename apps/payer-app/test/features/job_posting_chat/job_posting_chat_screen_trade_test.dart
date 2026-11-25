@@ -90,7 +90,7 @@ void main() {
     expect(
       find.descendant(
         of: find.ancestor(of: find.text('Role'), matching: find.byType(BbShake)),
-        matching: find.text('Pick one of the 16 trades'),
+        matching: find.text('Pick a trade'),
       ),
       findsOneWidget,
     );
@@ -99,7 +99,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Welder').last);
     await tester.pumpAndSettle();
-    expect(find.text('Pick one of the 16 trades'), findsNothing);
+    expect(find.text('Pick a trade'), findsNothing);
 
     await tester.tap(publish);
     await tester.pump();

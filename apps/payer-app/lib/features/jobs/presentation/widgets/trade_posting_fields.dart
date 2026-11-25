@@ -97,7 +97,7 @@ class PostingTradesUnavailable extends StatelessWidget {
   /// The line shown, naming the real cause.
   static String messageFor(PayerFailure? failure) => failure == null
       ? 'No trades are open for posting right now. Try again in a moment.'
-      : 'The 16 trades did not load. ${failure.message}';
+      : 'The trades did not load. ${failure.message}';
 
   @override
   Widget build(BuildContext context) {

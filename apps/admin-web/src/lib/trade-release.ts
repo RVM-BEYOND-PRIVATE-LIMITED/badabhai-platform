@@ -1,96 +1,108 @@
 import "server-only";
 import { z } from "zod";
+import { TRADE_CATALOGUE } from "@badabhai/taxonomy";
+import { JOB_ROLE_LABELS, TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 import { adminFetch } from "./admin-http";
 
 /**
- * THE TRADE CATALOGUE'S ONE ROUTE MODULE (#3023).
+ * THE TRADE CATALOGUE'S ONE ROUTE MODULE (#3023, contract fixed by #3067).
  *
- * The backend halves are #3002 (the release table and admin route) and #3014 (the held-role
- * list). They are NOT merged yet, so every route string the screen uses is kept here, and only
- * here, against the assumed contract below. When the real routes land, changing this file is the
- * whole adaptation.
+ * GET /admin/trade-release            capability: manage_trade_release (super_admin)
+ *   -> { "releases": [ { role_kind, posting_enabled, form_enabled, updated_by, updated_at } ] }
+ *   One row per declared trade kind. The API carries no name, department, kind or wave: those
+ *   come from the trade catalogue (`@badabhai/taxonomy` TRADE_CATALOGUE) and the role labels
+ *   (`@badabhai/types` JOB_ROLE_LABELS), joined here by `role_kind`.
  *
- * ── ASSUMED BACKEND CONTRACT ──────────────────────────────────────────────────────────────
+ * PUT /admin/trade-release            capability: manage_trade_release
+ *   body { role_kind, posting_enabled, form_enabled }  (strict, both flags required)
+ *   -> { "changed": boolean, "release": <one row as above> }
+ *   503 while the trade_release table is missing.
  *
- * GET /admin/trade-release
- *   -> { "trades": [ {
- *          "role_kind": string,
- *          "role_label": string,
- *          "department": string,
- *          "department_label": string,
- *          "kind": "shop_floor" | "desk",
- *          "wave": number | null,
- *          "posting_enabled": boolean,
- *          "form_enabled": boolean,
- *          "posting_changed_at": string | null,
- *          "form_changed_at": string | null,
- *          "updated_by": string | null,
- *          "updated_at": string | null
- *        } ] }
- *   Rows are ordered by department then pack order (server order); the screen never re-sorts
- *   names locally.
- *
- * PUT /admin/trade-release/:role_kind
- *   body { "posting_enabled"?: boolean, "form_enabled"?: boolean }
- *   -> the updated row, in the same shape as one catalogue row above.
- *   `role_kind` is URL-encoded. The server may refuse with a problem message; the screen shows
- *   that message. A 404 means the feature is not switched on.
- *
- * GET /admin/campus-roles/held
- *   -> { "roles": [ { "role_label": string, "count": number } ] }
- *   Already sorted by count desc. Names and counts only — never personal data.
+ * GET /admin/campus-roles/held        capability: read_entities (#3014)
+ *   -> { "roles": [ { role_label, count, … } ], "courses": [ … ] }
+ *   Already sorted by count desc. Names and counts only. A 404 means it is not switched on yet.
  *
  * The release switch does NOT gate a worker reaching a form in chat. That is decided by the
  * seeded phrases and code bindings (#3002); this screen only reads and changes the two flags.
  */
 
-export const TRADE_RELEASE_ROUTES = {
-  list: "/admin/trade-release",
-  update: (roleKind: string) => `/admin/trade-release/${encodeURIComponent(roleKind)}`,
-  held: "/admin/campus-roles/held",
-} as const;
-
-export const TRADE_RELEASE_KINDS = ["shop_floor", "desk"] as const;
-
-export const tradeReleaseRowSchema = z.object({
+export const tradeReleaseSchema = z.object({
   role_kind: z.string(),
-  role_label: z.string(),
-  department: z.string(),
-  department_label: z.string(),
-  kind: z.enum(TRADE_RELEASE_KINDS),
-  wave: z.number().nullable(),
   posting_enabled: z.boolean(),
   form_enabled: z.boolean(),
-  posting_changed_at: z.string().nullable(),
-  form_changed_at: z.string().nullable(),
   updated_by: z.string().nullable(),
   updated_at: z.string().nullable(),
 });
-export type TradeReleaseRow = z.infer<typeof tradeReleaseRowSchema>;
+/** One trade's two switches, and who last changed them. */
+export type TradeRelease = z.infer<typeof tradeReleaseSchema>;
 
-const tradeReleaseListSchema = z.object({
-  trades: z.array(tradeReleaseRowSchema),
-});
+const tradeReleaseListSchema = z.object({ releases: z.array(tradeReleaseSchema) });
+const tradeReleaseSetSchema = z.object({ changed: z.boolean(), release: tradeReleaseSchema });
 
-export async function getTradeRelease(): Promise<TradeReleaseRow[]> {
-  const res = await adminFetch(TRADE_RELEASE_ROUTES.list, { schema: tradeReleaseListSchema });
-  return res.trades;
+/** The department a declared kind the catalogue does not list is grouped under. */
+export const UNCATALOGUED_DEPARTMENT = "Not in the catalogue";
+
+/** One row of the screen: the catalogue's statement of a trade, plus its switches. */
+export interface TradeRow {
+  role_kind: string;
+  role_label: string;
+  department: string;
+  kind: "shop_floor" | "desk" | null;
+  wave: number | null;
+  /** Null when this session may not read the switches (`manage_trade_release` is super_admin). */
+  release: TradeRelease | null;
 }
 
+const CATALOGUE = new Map(TRADE_CATALOGUE.map((entry, index) => [entry.roleKind, { entry, index }]));
+const LABELS: Readonly<Record<string, { label: string } | undefined>> = JOB_ROLE_LABELS;
+
+function tradeRow(roleKind: string, release: TradeRelease | null): TradeRow {
+  const entry = CATALOGUE.get(roleKind)?.entry;
+  return {
+    role_kind: roleKind,
+    role_label: LABELS[roleKind]?.label ?? roleKind,
+    department: entry?.department ?? UNCATALOGUED_DEPARTMENT,
+    kind: entry?.kind ?? null,
+    wave: entry?.wave ?? null,
+    release,
+  };
+}
+
+/** Catalogue order (T01…T60); kinds the catalogue does not list keep their order, last. */
+function inCatalogueOrder(rows: TradeRow[]): TradeRow[] {
+  const position = (row: TradeRow) => CATALOGUE.get(row.role_kind)?.index ?? Number.MAX_SAFE_INTEGER;
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => position(a.row) - position(b.row) || a.index - b.index)
+    .map(({ row }) => row);
+}
+
+/** Every declared trade with its switches. Needs `manage_trade_release`. */
+export async function getTradeRelease(): Promise<TradeRow[]> {
+  const res = await adminFetch("/admin/trade-release", { schema: tradeReleaseListSchema });
+  return inCatalogueOrder(res.releases.map((release) => tradeRow(release.role_kind, release)));
+}
+
+/** Every declared trade WITHOUT its switches — what a session without the capability sees. */
+export function getTradeCatalogue(): TradeRow[] {
+  return inCatalogueOrder(TRADE_FORM_KINDS_ALL.map((roleKind) => tradeRow(roleKind, null)));
+}
+
+/** Set one trade's two switches. The API takes both flags, so the caller sends both. */
 export async function setTradeRelease(
   roleKind: string,
-  change: { postingEnabled?: boolean; formEnabled?: boolean },
-): Promise<TradeReleaseRow> {
-  return adminFetch(TRADE_RELEASE_ROUTES.update(roleKind), {
+  flags: { postingEnabled: boolean; formEnabled: boolean },
+): Promise<TradeRelease> {
+  const res = await adminFetch("/admin/trade-release", {
     method: "PUT",
     body: {
-      ...(change.postingEnabled === undefined
-        ? {}
-        : { posting_enabled: change.postingEnabled }),
-      ...(change.formEnabled === undefined ? {} : { form_enabled: change.formEnabled }),
+      role_kind: roleKind,
+      posting_enabled: flags.postingEnabled,
+      form_enabled: flags.formEnabled,
     },
-    schema: tradeReleaseRowSchema,
+    schema: tradeReleaseSetSchema,
   });
+  return res.release;
 }
 
 export const heldCampusRoleSchema = z.object({
@@ -104,6 +116,6 @@ const heldCampusRolesSchema = z.object({
 });
 
 export async function getHeldCampusRoles(): Promise<HeldCampusRole[]> {
-  const res = await adminFetch(TRADE_RELEASE_ROUTES.held, { schema: heldCampusRolesSchema });
+  const res = await adminFetch("/admin/campus-roles/held", { schema: heldCampusRolesSchema });
   return res.roles;
 }

@@ -80,8 +80,8 @@ describe("createPostingAction — #2645: a company job is always one of the 16 t
     const res = await createPostingAction({ ...INPUT, roleKind: "" });
     expect(res).toEqual({
       ok: false,
-      error: "Pick one of the 16 trades",
-      fieldErrors: { roleKind: "Pick one of the 16 trades" },
+      error: "Pick a trade",
+      fieldErrors: { roleKind: "Pick a trade" },
     });
     expect(createPosting).not.toHaveBeenCalled();
     expect(publishPostingWithChoice).not.toHaveBeenCalled();

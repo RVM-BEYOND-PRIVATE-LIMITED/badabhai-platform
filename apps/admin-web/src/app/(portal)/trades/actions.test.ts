@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * #3023 — the trade-release write action. A 4xx is the server refusing a change, so its own
- * message is shown to the signed-in operator; anything else goes through the safe copy. Nothing
- * invalid reaches the network.
+ * #3023 / #3067 — the trade-release write action. It passes BOTH flags on (the API's PUT is
+ * strict and needs both). A 4xx is the server refusing a change, so its own message is shown to
+ * the signed-in operator; anything else goes through the safe copy. Nothing invalid reaches the
+ * network.
  */
 const setTradeRelease = vi.fn();
 
@@ -27,17 +28,10 @@ vi.mock("../../../lib/admin-http", () => ({
 
 const { updateTradeReleaseAction } = await import("./actions");
 
-const ROW = {
+const RELEASE = {
   role_kind: "cnc_turner",
-  role_label: "CNC Turner",
-  department: "production",
-  department_label: "Production",
-  kind: "shop_floor",
-  wave: 1,
   posting_enabled: true,
   form_enabled: false,
-  posting_changed_at: "2026-11-23T09:00:00.000Z",
-  form_changed_at: null,
   updated_by: "a-1",
   updated_at: "2026-11-23T09:00:00.000Z",
 };
@@ -45,15 +39,17 @@ const ROW = {
 beforeEach(() => setTradeRelease.mockReset());
 
 describe("updateTradeReleaseAction", () => {
-  it("sends exactly the switch that changed and returns the new row", async () => {
-    setTradeRelease.mockResolvedValueOnce(ROW);
+  it("sends both flags and returns the trade's release after the call", async () => {
+    setTradeRelease.mockResolvedValueOnce(RELEASE);
     const out = await updateTradeReleaseAction({
       roleKind: "cnc_turner",
       postingEnabled: true,
+      formEnabled: false,
     });
-    expect(out).toEqual({ ok: true, row: ROW });
+    expect(out).toEqual({ ok: true, release: RELEASE });
     expect(setTradeRelease).toHaveBeenCalledWith("cnc_turner", {
       postingEnabled: true,
+      formEnabled: false,
     });
   });
 
@@ -63,6 +59,7 @@ describe("updateTradeReleaseAction", () => {
     );
     const out = await updateTradeReleaseAction({
       roleKind: "cnc_turner",
+      postingEnabled: false,
       formEnabled: true,
     });
     expect(out).toEqual({ ok: false, error: "Wave 1 is frozen for review." });
@@ -72,20 +69,24 @@ describe("updateTradeReleaseAction", () => {
     setTradeRelease.mockRejectedValueOnce(new FakeRequestError(500, "SQLSTATE 42P01"));
     const out = await updateTradeReleaseAction({
       roleKind: "cnc_turner",
+      postingEnabled: false,
       formEnabled: true,
     });
     expect(out.ok).toBe(false);
     expect(!out.ok && out.error).not.toContain("SQLSTATE");
   });
 
-  it("refuses an empty change before it reaches the network", async () => {
+  it("refuses a change missing a flag before it reaches the network", async () => {
     expect(await updateTradeReleaseAction({ roleKind: "cnc_turner" })).toEqual({
       ok: false,
       error: "Choose what to change.",
     });
-    expect(await updateTradeReleaseAction({ roleKind: "" , postingEnabled: true })).toMatchObject({
-      ok: false,
-    });
+    expect(
+      await updateTradeReleaseAction({ roleKind: "cnc_turner", postingEnabled: true }),
+    ).toEqual({ ok: false, error: "Choose what to change." });
+    expect(
+      await updateTradeReleaseAction({ roleKind: "", postingEnabled: true, formEnabled: false }),
+    ).toMatchObject({ ok: false });
     expect(setTradeRelease).not.toHaveBeenCalled();
   });
 });

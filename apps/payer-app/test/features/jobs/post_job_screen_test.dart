@@ -1657,11 +1657,11 @@ void main() {
       await tapPost(tester);
       await tester.pumpAndSettle();
       expect(api.created, isEmpty);
-      expect(atTradePicker('Pick one of the 16 trades'), findsOneWidget);
+      expect(atTradePicker('Pick a trade'), findsOneWidget);
       expect(find.byType(SnackBar), findsNothing);
 
       await pickTrade(tester);
-      expect(find.text('Pick one of the 16 trades'), findsNothing);
+      expect(find.text('Pick a trade'), findsNothing);
       await tapPost(tester);
       expect(api.created, hasLength(1));
       expect(api.companyRoleKind, 'welder');
@@ -1687,7 +1687,7 @@ void main() {
 
       expect(
         atTradePicker(
-          'The 16 trades did not load. Check your internet connection and '
+          'The trades did not load. Check your internet connection and '
           'try again.',
         ),
         findsOneWidget,
@@ -1706,7 +1706,7 @@ void main() {
       await tapPost(tester);
       await tester.pumpAndSettle();
       expect(api.created, isEmpty);
-      expect(atTradePicker('Pick one of the 16 trades'), findsOneWidget);
+      expect(atTradePicker('Pick a trade'), findsOneWidget);
 
       // Retry brings the 16 back; picking one posts.
       await tester.tap(find.widgetWithText(BbButton, 'Retry'));
@@ -1734,7 +1734,7 @@ void main() {
       await tapPost(tester);
       await tester.pumpAndSettle();
       expect(api.created, isEmpty);
-      expect(atTradePicker('Pick one of the 16 trades'), findsOneWidget);
+      expect(atTradePicker('Pick a trade'), findsOneWidget);
     });
 
     testWidgets("the company reach preview carries the job's trade", (
