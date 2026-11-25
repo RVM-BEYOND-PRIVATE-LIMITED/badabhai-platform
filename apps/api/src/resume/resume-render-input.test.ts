@@ -322,6 +322,46 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
     expect(input.canonicalRole).toBe("Tandoor Cook");
   });
 
+  it("#3033 prints a Campus label-only role as stated text, never as a trade", () => {
+    // A moved student whose only role is label-only: the headline and the summary state it
+    // ("Campus role: Interior Designer"), and nothing here resolves it to a trade.
+    const input = buildResumeRenderInput(
+      { import_source: "campus", role_label: "Interior Designer" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
+    expect(input.canonicalRole).toBe("Campus role: Interior Designer");
+    expect(input.profileHeadline).toContain("Campus role: Interior Designer");
+    expect(input.summary).toContain("Campus role: Interior Designer");
+  });
+
+  it("#3033 leaves the same text alone without the Campus marker", () => {
+    const input = buildResumeRenderInput(
+      { role_label: "Interior Designer" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
+    expect(input.canonicalRole).toBe("Interior Designer");
+  });
+
+  it("#3033 a Campus trade name still prints the trade", () => {
+    const input = buildResumeRenderInput(
+      { import_source: "campus", role_label: "CNC Turner" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
+    expect(input.canonicalRole).toBe("CNC Turner");
+  });
+
   it("never lets role_label outrank a resolved taxonomy role", () => {
     // The canonical id is the reviewed, matchable value; the label is free text the model wrote.
     // Where both exist the taxonomy wins, so this leg can only ever FILL A BLANK.
@@ -825,6 +865,19 @@ describe("buildResumeRenderInput — the résumé container", () => {
     expect(build({ availability: "1_month", shift: null }).availability).toBe(
       "Available in 1 month",
     );
+  });
+
+  it("#3033 prints a Campus label-only role as stated text, never as a trade", () => {
+    const input = buildResumeRenderInput(
+      { import_source: "campus", resume_profile: { ...TRACE, role_label: "BIM Modeller" } },
+      "Asha Kumari",
+      "classic",
+      null,
+      false,
+      "worker",
+    );
+    expect(input.canonicalRole).toBe("Campus role: BIM Modeller");
+    expect(input.profileHeadline).toContain("Campus role: BIM Modeller");
   });
 
   describe("a typed notice period the model's word cannot state (#2469)", () => {

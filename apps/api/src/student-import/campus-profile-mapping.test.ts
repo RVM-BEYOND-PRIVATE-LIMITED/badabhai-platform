@@ -220,6 +220,25 @@ describe("mapCampusStudentProfile", () => {
     ]);
   });
 
+  it("#3033 a student whose only role is BIM Modeller: the label, no skills", () => {
+    // The issue's case: "BIM Modeller" is "none, label only", so the profile carries it as a
+    // display label and no worker_skill row may ever be written for it (proved against
+    // Postgres in `candidates/campus-label-only.db.test.ts`).
+    const out = mapCampusStudentProfile(
+      {
+        rvm: { course: null, trade: null },
+        profile: { job_domain: "Design Architecture", job_role: "BIM Modeller" },
+      },
+      LIVE,
+    );
+    expect(out.skills).toEqual([]);
+    expect(out.labelOnly).toEqual([{ field: "job_role", value: "BIM Modeller" }]);
+    expect(out.unmapped).toEqual([
+      { field: "job_domain", value: "Design Architecture", reason: "no_certain_skill" },
+    ]);
+    expect(out.hints).toEqual([]);
+  });
+
   it("a role on a new trade that is switched off is held with that reason, and gets no skill", () => {
     const out = mapCampusStudentProfile({ profile: { job_role: "Quality Engineer" } }, LIVE);
     expect(out.skills).toEqual([]);

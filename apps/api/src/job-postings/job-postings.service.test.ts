@@ -2443,6 +2443,44 @@ describe("#2635 — company jobs match only within the 16 postable trades", () =
     expect(d.updateOwned).not.toHaveBeenCalled();
   });
 
+  it("#3033 — a create with ONLY the general CNC skill is refused, and writes nothing", async () => {
+    // The posting form already requires a machine trade; an old Campus job on the general
+    // skill waits in the admin narrow queue. A new job — company or placement-team — must
+    // never be saved that way.
+    const d = make();
+    const err = await d.svc
+      .createForPayer(
+        PAYER_ID,
+        {
+          org_label: ORG,
+          role_title: ROLE,
+          vacancy_band: "1",
+          match_skill_ids: ["mskill_cnc_operator_general"],
+        } as never,
+        CTX as never,
+      )
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as BadRequestException).message).toContain("general CNC");
+    expect(d.create).not.toHaveBeenCalled();
+  });
+
+  it("#3033 — …but the general skill beside a real skill is not the refused shape", async () => {
+    // The refusal is the singleton: "saved with the general CNC skill ALONE".
+    const d = make();
+    await d.svc.createForPayer(
+      PAYER_ID,
+      {
+        org_label: ORG,
+        role_title: ROLE,
+        vacancy_band: "1",
+        match_skill_ids: ["mskill_cnc_operator_general", "mskill_welder"],
+      } as never,
+      CTX as never,
+    );
+    expect(d.create).toHaveBeenCalledTimes(1);
+  });
+
   it("…while a DRAFT may change its role freely (the gate is at publish)", async () => {
     const draft = row({ status: "draft", roleKind: "fitter" });
     const d = make(draft);

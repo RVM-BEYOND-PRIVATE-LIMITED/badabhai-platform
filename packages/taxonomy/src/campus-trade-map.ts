@@ -349,10 +349,41 @@ function tradeResult(
 
 const GENERAL_CNC: MatchSkillId = "mskill_cnc_operator_general";
 
+/** The live general CNC skill a "Machine Operator" / "CNC Operator" Campus role maps to (#3033 narrows it). */
+export const GENERAL_CNC_SKILL_ID: MatchSkillId = GENERAL_CNC;
+
 /** A name is AutoCAD when its normalised form starts with the word "autocad". */
 function isAutocad(name: string): boolean {
   const n = normalizeCampusName(name);
   return n === "autocad" || n.startsWith("autocad ");
+}
+
+/**
+ * #3033 — is this Campus role name "none, label only" (pack 7.2: civil, architecture, interior,
+ * BIM and HVAC design)? Pure: the release switch never gates a label (it is not a trade), so no
+ * posting-enabled set is needed. Held and trade names answer false.
+ */
+export function isCampusLabelOnlyRole(role: string | null | undefined): boolean {
+  const key = typeof role === "string" ? normalizeCampusName(role) : "";
+  if (key.length === 0) return false;
+  return CAMPUS_ROLE_TO_TRADE.get(key)?.kind === "label_only";
+}
+
+/**
+ * #3033 — the display label for a Campus-stated role that is "none, label only".
+ *
+ * Returns `Campus role: <stated text>` when the profile the import wrote (`import_source`)
+ * is Campus's AND the stated role is label-only; null otherwise. A trade, a held name, an
+ * empty label and any non-Campus label render as they do today — the prefix is never a trade,
+ * never a skill, and never matches anything.
+ */
+export function campusRoleDisplayLabel(
+  roleLabel: string | null | undefined,
+  importSource: string | null | undefined,
+): string | null {
+  const stated = typeof roleLabel === "string" ? roleLabel.trim().replace(/\s+/g, " ") : "";
+  if (importSource !== "campus" || stated.length === 0) return null;
+  return isCampusLabelOnlyRole(stated) ? `Campus role: ${stated}` : null;
 }
 
 export interface CampusRoleContext {

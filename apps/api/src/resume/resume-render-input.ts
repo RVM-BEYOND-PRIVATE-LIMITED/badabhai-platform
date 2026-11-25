@@ -1,5 +1,5 @@
 import { DraftProfileSchema, resumeProfileCarriesValues } from "@badabhai/ai-contracts";
-import { labelForTaxonomyId, skillIdForPhrase } from "@badabhai/taxonomy";
+import { campusRoleDisplayLabel, labelForTaxonomyId, skillIdForPhrase } from "@badabhai/taxonomy";
 import { titleCaseRoleLabel } from "./resume-text-case";
 // The read-path screens, in a leaf module since ADR-0045 Phase 5 (the brief module needs them and
 // is itself imported here). Every `cleanList` / `cleanScalar` note in this file still applies.
@@ -447,6 +447,18 @@ function buildUndegraded(
   tradeSheet?: TradeSheetContext | null,
 ): ResumeRenderInput {
   const draft = DraftProfileSchema.parse(snapshot ?? {});
+  // #3033 — the import's source marker, read off the RAW snapshot: the parsed draft drops unknown
+  // keys, so this is the only place that can still see it. A Campus-stated "label only" role
+  // (BIM Modeller, Interior Designer, …) prints as "Campus role: <stated>", never as a trade.
+  const snapshotImportSource =
+    typeof snapshot === "object" &&
+    snapshot !== null &&
+    !Array.isArray(snapshot) &&
+    typeof (snapshot as Record<string, unknown>).import_source === "string"
+      ? ((snapshot as Record<string, unknown>).import_source as string)
+      : null;
+  const campusRoleLabel = (stated: string | null): string | null =>
+    campusRoleDisplayLabel(stated, snapshotImportSource);
 
   // COMPUTED BEFORE THE BRANCH, and that placement is the point. This function has two return
   // paths — the résumé container and the legacy answer-map shape — and a worker reaches one or
@@ -789,6 +801,9 @@ function buildUndegraded(
       // Layer A (f)/(i) — the declared secondary occupations, off the context the caller built.
       tradeSheet?.occupations ?? [],
       tradeSheet?.profilingTier ?? null,
+      // #3033 — the Campus "label only" display for the container path, computed from the raw
+      // snapshot's import marker (the parsed draft has already dropped it).
+      campusRoleLabel(cleanScalar(draft.resume_profile?.role_label)),
     );
   }
 
@@ -796,9 +811,11 @@ function buildUndegraded(
   // ADR-0045 — on the general road the role is ONE cased value (`road.role`), read by the Verdict
   // Line, `canonicalRole`, the profile headline and the brief's {R} alike: the fallback line's role
   // must be the headline's role letter for letter, or the page names the worker two ways.
+  // #3033 — a Campus label-only role prints as "Campus role: <stated>", never as a trade.
   const legacyRole = road
     ? road.role
-    : (trade?.display_name ?? resolveId(draft.canonical_role_id) ?? draft.role_label ?? null);
+    : (campusRoleLabel(draft.role_label) ??
+      (trade?.display_name ?? resolveId(draft.canonical_role_id) ?? draft.role_label ?? null));
   const legacyCity =
     draft.location_preference.current_city ?? draft.location_preference.preferred_cities[0] ?? null;
   // SCREENED WITH `cleanList`, AS THE CONTAINER PATH'S LISTS ARE. `skill_labels` are the worker's
@@ -1071,11 +1088,13 @@ function buildUndegraded(
     // `titleCaseRoleLabel` for why this is not `titleCaseName`.
     //
     // ADR-0045 — the general road's one cased role (`road.role`), the value the Verdict Line reads.
+    // #3033 — a Campus label-only role prints as "Campus role: <stated>", never as a trade.
     canonicalRole: road
       ? road.role
-      : (trade?.display_name ??
-        resolveId(draft.canonical_role_id) ??
-        titleCaseRoleLabel(draft.role_label)),
+      : (campusRoleLabel(draft.role_label) ??
+        (trade?.display_name ??
+          resolveId(draft.canonical_role_id) ??
+          titleCaseRoleLabel(draft.role_label))),
     // Layer A (h) — the richer `{{headline}}`, same segments and helpers as the Verdict Line.
     profileHeadline: buildProfileHeadline({
       role: legacyHeadlineRole,
@@ -1293,6 +1312,13 @@ function fromResumeProfile(
    * description, below Medium. Display and quotes only — the years figure keeps its precedence.
    */
   profilingTier: ProfilingTier | null = null,
+  /**
+   * #3033 — the Campus "label only" display (`Campus role: <stated>`), or null. PASSED IN, NOT
+   * REBUILT: the caller reads the import marker off the raw snapshot, which the parsed draft
+   * this function receives has already dropped. A Campus-stated label-only role prints as
+   * stated text, never as a trade.
+   */
+  campusRoleLabel: string | null = null,
 ): ResumeRenderInput {
   const tierExperiences = tierScopedExperiences(rp.experiences, profilingTier);
   // CERTIFIED ONCE, AT THE TOP (#831). `role_label` and `domain_label` are each read TWICE —
@@ -1310,7 +1336,11 @@ function fromResumeProfile(
   // headline/summary. Casing at
   // one of them and not the others is how "CNC turner" would survive on the sheet it was reported
   // on while disappearing from the one beside it.
-  const roleLabel = titleCaseRoleLabel(cleanScalar(rp.role_label));
+  // #3033 — a Campus label-only role prints as stated text ("Campus role: Interior Designer"),
+  // never as a trade. The prefix is applied to the cleaned label; title-casing stays on the
+  // non-Campus arm only, so the stated text is never re-cased into something the worker did not write.
+  const roleLabel =
+    campusRoleLabel ?? titleCaseRoleLabel(cleanScalar(rp.role_label));
   const domainLabel = cleanScalar(rp.domain_label);
 
   // THE BAND (R10 R-1). The container carries one figure — `ResumeProfileSchema.expected_salary`
