@@ -48,11 +48,22 @@ interface ConfirmDialogBase {
 }
 
 export type ConfirmDialogProps =
-  | (ConfirmDialogBase & { tier: "consequential"; targetName?: undefined })
+  | (ConfirmDialogBase & {
+      tier: "consequential";
+      targetName?: undefined;
+      /**
+       * `false` for a consequential change whose route stores NO reason (#3058: the app release
+       * policy PUT is strict and has no reason field). The dialog then shows the diff and the
+       * Cancel / confirm pair only, rather than asking for words the server would throw away,
+       * and `onConfirm` receives an empty reason. Omit it for every route that keeps a reason.
+       */
+      askReason?: boolean;
+    })
   | (ConfirmDialogBase & {
       tier: "destructive";
       /** The name the operator must type to confirm (the company's, the admin's). */
       targetName: string;
+      askReason?: undefined;
     });
 
 const EMPTY: ConfirmDraft = { category: "", reason: "", typedName: "" };
@@ -64,6 +75,9 @@ const EMPTY: ConfirmDraft = { category: "", reason: "", typedName: "" };
  * REASON_MIN_CHARS characters. T3 `destructive`: all of that, plus typing the target's name, and
  * focus STARTS ON CANCEL so a reflexive Enter never fires it. The confirm button stays disabled
  * until every gate is met, and the first unmet one is named under it.
+ *
+ * A T2 whose route stores no reason passes `askReason={false}`: the diff and the two buttons, and
+ * nothing to type (#3058).
  *
  * A failure stays in the dialog with the server's own text, so the operator can retry without
  * re-entering the reason; a success closes it. Closing at any point clears what was entered.
@@ -83,6 +97,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     returnFocus,
     tier,
     targetName,
+    askReason,
   } = props;
   const [draft, setDraft] = useState<ConfirmDraft>(EMPTY);
   const [failure, setFailure] = useState<AdminActionOutcome | null>(null);
@@ -93,13 +108,16 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
   const nameRef = useRef<HTMLInputElement>(null);
   const id = useId();
 
-  const blockers = confirmBlockers(tier, draft, categories, targetName);
+  const asksReason = askReason !== false;
+  const blockers = asksReason ? confirmBlockers(tier, draft, categories, targetName) : [];
   const reasonLength = draft.reason.trim().length;
   const destructive = tier === "destructive";
   const validation = useFormValidation({
     order: destructive
       ? (["category", "reason", "typedName"] as const)
-      : (["category", "reason"] as const),
+      : asksReason
+        ? (["category", "reason"] as const)
+        : ([] as const),
     focus: (field) => {
       if (field === "category") categoryRef.current?.focus();
       else if (field === "reason") reasonRef.current?.focus();
@@ -109,6 +127,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
       field === "typedName" ? `${id}-name` : field === "reason" ? `${id}-reason` : `${id}-category`,
     validate: () => {
       const errors: Partial<Record<"category" | "reason" | "typedName", string>> = {};
+      if (!asksReason) return errors;
       if (!categories.some((c) => c.value === draft.category))
         errors.category = "Choose a reason category.";
       if (!reasonLongEnough(draft.reason))
@@ -193,88 +212,90 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
           ))}
         </tbody>
       </table>
-      <div className={validation.shaking ? "form form--shake" : "form"}>
-        <FormSummary errors={validation.visible} />
-        <label className="field" htmlFor={`${id}-category`}>
-          <span className="field__label">
-            Reason<span className="req">*</span>
-          </span>
-          <select
-            id={`${id}-category`}
-            ref={categoryRef}
-            className="field__input"
-            required
-            value={draft.category}
-            onChange={(e) => set({ category: e.target.value })}
-            onBlur={() => validation.onBlur("category")}
-            aria-invalid={validation.errors.category ? true : undefined}
-            aria-describedby={
-              validation.errors.category ? `${id}-category-error` : undefined
-            }
-          >
-            <option value="" disabled>
-              Choose a category
-            </option>
-            {categories.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-          <FieldError id={`${id}-category-error`}>{validation.errors.category}</FieldError>
-        </label>
-        <label className="field" htmlFor={`${id}-reason`}>
-          <span className="field__label">
-            Explain why<span className="req">*</span>
-          </span>
-          <textarea
-            id={`${id}-reason`}
-            ref={reasonRef}
-            className="field__input"
-            rows={3}
-            required
-            minLength={REASON_MIN_CHARS}
-            value={draft.reason}
-            onChange={(e) => set({ reason: e.target.value })}
-            onBlur={() => validation.onBlur("reason")}
-            aria-invalid={validation.errors.reason ? true : undefined}
-            aria-describedby={
-              validation.errors.reason
-                ? `${id}-reason-count ${id}-reason-error`
-                : `${id}-reason-count`
-            }
-          />
-          <FieldError id={`${id}-reason-error`}>{validation.errors.reason}</FieldError>
-          <span className="field__help" id={`${id}-reason-count`}>
-            {reasonLength} of at least {REASON_MIN_CHARS} characters
-          </span>
-        </label>
-        {destructive ? (
-          <label className="field" htmlFor={`${id}-name`}>
+      {asksReason ? (
+        <div className={validation.shaking ? "form form--shake" : "form"}>
+          <FormSummary errors={validation.visible} />
+          <label className="field" htmlFor={`${id}-category`}>
             <span className="field__label">
-              Type <strong className="confirm__name">{targetName}</strong> to confirm
-              <span className="req">*</span>
+              Reason<span className="req">*</span>
             </span>
-            <input
-              id={`${id}-name`}
-              ref={nameRef}
+            <select
+              id={`${id}-category`}
+              ref={categoryRef}
               className="field__input"
-              type="text"
-              autoComplete="off"
-              spellCheck={false}
               required
-              value={draft.typedName}
-              onChange={(e) => set({ typedName: e.target.value })}
-              onBlur={() => validation.onBlur("typedName")}
-              aria-invalid={validation.errors.typedName ? true : undefined}
+              value={draft.category}
+              onChange={(e) => set({ category: e.target.value })}
+              onBlur={() => validation.onBlur("category")}
+              aria-invalid={validation.errors.category ? true : undefined}
               aria-describedby={
-                validation.errors.typedName ? `${id}-name-error` : undefined
+                validation.errors.category ? `${id}-category-error` : undefined
+              }
+            >
+              <option value="" disabled>
+                Choose a category
+              </option>
+              {categories.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <FieldError id={`${id}-category-error`}>{validation.errors.category}</FieldError>
+          </label>
+          <label className="field" htmlFor={`${id}-reason`}>
+            <span className="field__label">
+              Explain why<span className="req">*</span>
+            </span>
+            <textarea
+              id={`${id}-reason`}
+              ref={reasonRef}
+              className="field__input"
+              rows={3}
+              required
+              minLength={REASON_MIN_CHARS}
+              value={draft.reason}
+              onChange={(e) => set({ reason: e.target.value })}
+              onBlur={() => validation.onBlur("reason")}
+              aria-invalid={validation.errors.reason ? true : undefined}
+              aria-describedby={
+                validation.errors.reason
+                  ? `${id}-reason-count ${id}-reason-error`
+                  : `${id}-reason-count`
               }
             />
-            <FieldError id={`${id}-name-error`}>{validation.errors.typedName}</FieldError>
+            <FieldError id={`${id}-reason-error`}>{validation.errors.reason}</FieldError>
+            <span className="field__help" id={`${id}-reason-count`}>
+              {reasonLength} of at least {REASON_MIN_CHARS} characters
+            </span>
           </label>
-        ) : null}
-      </div>
+          {destructive ? (
+            <label className="field" htmlFor={`${id}-name`}>
+              <span className="field__label">
+                Type <strong className="confirm__name">{targetName}</strong> to confirm
+                <span className="req">*</span>
+              </span>
+              <input
+                id={`${id}-name`}
+                ref={nameRef}
+                className="field__input"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                required
+                value={draft.typedName}
+                onChange={(e) => set({ typedName: e.target.value })}
+                onBlur={() => validation.onBlur("typedName")}
+                aria-invalid={validation.errors.typedName ? true : undefined}
+                aria-describedby={
+                  validation.errors.typedName ? `${id}-name-error` : undefined
+                }
+              />
+              <FieldError id={`${id}-name-error`}>{validation.errors.typedName}</FieldError>
+            </label>
+          ) : null}
+        </div>
+      ) : null}
       {failure ? (
         <AdminActionResultBanner outcome={failure} eventsLink={null} onRetry={confirm} />
       ) : null}

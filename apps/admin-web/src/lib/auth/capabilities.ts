@@ -97,6 +97,13 @@ export const ADMIN_CAPABILITIES = [
   // #2957 — the trades RVM trains (only these may be sent to Campus).
   // Vocabulary only: this file carries no role mapping.
   "manage_campus_trades",
+  // #3002 — the per-trade release switch (`/admin/trade-release`), super_admin on the server.
+  // Named here so the server's list is not filtered short; the Trades screen's own gate is
+  // unchanged by this entry. Vocabulary only: this file carries no role mapping.
+  "manage_trade_release",
+  // #3058 — the minimum supported app build per app and platform (Settings → App versions).
+  // Vocabulary only: this file carries no role mapping.
+  "manage_app_release_policy",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -151,6 +158,8 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   refund_payments: "Refund a company's paid credit pack",
   work_managed_hiring: "Work the Managed Hiring desk",
   manage_campus_trades: "Choose the trades that can be sent to Campus",
+  manage_trade_release: "Turn a trade's posting and form switches on or off",
+  manage_app_release_policy: "Set the oldest app build that may still write",
 };
 
 /** Narrow an unknown string to a known capability (anything else is dropped, not trusted). */

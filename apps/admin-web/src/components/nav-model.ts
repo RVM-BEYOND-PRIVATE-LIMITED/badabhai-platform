@@ -35,16 +35,18 @@ export interface NavSection {
 }
 
 /**
- * THE SIDEBAR (A6, #2576) — five groups, at most 20 items, so the whole nav fits a 1080p screen
- * with no scrolling (it was 18, which pushed Account and Sign out below the fold; those two now
- * live in the topbar's avatar menu). Workers is Candidates; Companies holds Agencies (a Kind
- * filter); Agency match skills is a tab on the agency posting, under Postings. Routes, API paths
+ * THE SIDEBAR (A6, #2576) — five groups, at most 21 items. Up to 20 the whole nav fit a 1080p
+ * screen with no scrolling (it was 18, which pushed Account and Sign out below the fold; those
+ * two now live in the topbar's avatar menu). Workers is Candidates; Companies holds Agencies
+ * (a Kind filter); Agency match skills is a tab on the agency posting, under Postings. Routes, API paths
  * and capability keys did not move with the labels — the old addresses redirect
  * (next.config.mjs) — and every item's capability is still its page's own gate
  * (`nav-model.test.ts` reads each page's source to hold that). Numbers (#2884) sits under
  * Finance, where the commercial figures live. Hire records (#2753) is the nineteenth and sits
  * under Directory; its pay-on-joining view is linked from that page's header rather than given
- * a second sidebar row. Trades (#3023) is the twentieth, in Quality & AI.
+ * a second sidebar row. Trades (#3023) is the twentieth, in Quality & AI. App versions (#3058)
+ * is the twenty-first, in Audit & Admin beside System; with every group open that is past a
+ * 1080p screen's height (see `nav-model.test.ts`).
  */
 export const NAV: NavSection[] = [
   {
@@ -205,16 +207,26 @@ export const NAV: NavSection[] = [
       // No capability either: dependency health is not a secret. The page itself hides the
       // switch table from anyone without `toggle_kill_switch`, rather than 403-ing the lot.
       { href: "/system", label: "System", icon: "gauge" },
+      // #3058 — the minimum supported app build per app and platform, a platform setting
+      // beside System. `manage_app_release_policy` mirrors both `/admin/app-release-policy`
+      // routes: super_admin only, because one raised number stops every older install writing.
+      {
+        href: "/app-versions",
+        label: "App versions",
+        icon: "rocket-launch",
+        capability: "manage_app_release_policy",
+      },
     ],
   },
 ];
 
 /**
  * The most items the sidebar may list (A6 acceptance: it fits 1920×1080 with no scrolling).
- * Raised from 18 to 19 when Hire records (#2753) landed, then to 20 for Trades (#3023) —
- * deliberately; see the docs and the height budget in `nav-model.test.ts`.
+ * Raised from 18 to 19 when Hire records (#2753) landed, then to 20 for Trades (#3023), then to
+ * 21 for App versions (#3058) — deliberately; see the docs and the height budget in
+ * `nav-model.test.ts`. 21 rows no longer fit a 1080p screen with every group open.
  */
-export const NAV_ITEM_LIMIT = 20;
+export const NAV_ITEM_LIMIT = 21;
 
 /**
  * Does `pathname` sit at or below `href`? Exact for the dashboard, prefix elsewhere — but on a

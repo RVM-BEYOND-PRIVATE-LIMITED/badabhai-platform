@@ -139,6 +139,40 @@ describe("T2 consequential", () => {
   });
 });
 
+describe("T2 whose route stores no reason (askReason={false}, #3058)", () => {
+  const noReason = () =>
+    renderToStaticMarkup(
+      <ConfirmDialog
+        open
+        onClose={() => {}}
+        tier="consequential"
+        askReason={false}
+        title="Raise the minimum build for Worker app Android"
+        description="Every worker app on Android older than build 50 will be stopped until it updates. Continue?"
+        changes={[{ label: "Minimum build", before: "40", after: "50" }]}
+        confirmLabel="Raise minimum"
+        onConfirm={ok}
+      />,
+    );
+
+  it("shows the diff, and asks for no category, explanation or typed name", () => {
+    const out = noReason();
+    expect(out).toContain(
+      '<tr><th scope="row">Minimum build</th><td class="diff__before">40</td><td class="diff__after">50</td></tr>',
+    );
+    expect(out).not.toContain("Choose a category");
+    expect(out).not.toContain("<textarea");
+    expect(out).not.toContain("to confirm");
+  });
+
+  it("starts with confirm enabled and no blocker named", () => {
+    const out = noReason();
+    expect(confirmButton(out)).toContain('class="btn btn--primary"');
+    expect(confirmButton(out)).not.toContain("disabled");
+    expect(out).not.toContain("overlay__hint");
+  });
+});
+
 describe("T3 destructive", () => {
   it("is T2 plus typing the target's name, in the danger tone", () => {
     const out = t3();

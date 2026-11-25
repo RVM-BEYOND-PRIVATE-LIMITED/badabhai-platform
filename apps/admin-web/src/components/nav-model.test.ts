@@ -23,12 +23,12 @@ describe("the groups and their items (A6)", () => {
       ["Directory", ["Candidates", "User accounts", "Companies", "Postings", "Hire records"]],
       ["Finance", ["Credits", "Payment orders", "Credit rules", "Waivers", "Numbers"]],
       ["Quality & AI", ["Feedback", "AI calls", "Skill discovery", "Engine view", "Trades"]],
-      ["Audit & Admin", ["Events", "Admin users", "Roles", "System"]],
+      ["Audit & Admin", ["Events", "Admin users", "Roles", "System", "App versions"]],
     ]);
   });
 
   it(`lists at most ${NAV_ITEM_LIMIT} items — it was 18`, () => {
-    expect(NAV_ITEM_LIMIT).toBe(20);
+    expect(NAV_ITEM_LIMIT).toBe(21);
     expect(items.length).toBeLessThanOrEqual(NAV_ITEM_LIMIT);
   });
 
@@ -69,6 +69,14 @@ describe("the groups and their items (A6)", () => {
     expect(byHref("/hires")?.label).toBe("Hire records");
     expect(groupOf("/hires")).toBe("Directory");
     expect(byHref("/hires")?.capability).toBe("manage_companies");
+    expect(items.length).toBeLessThanOrEqual(NAV_ITEM_LIMIT);
+  });
+
+  it("App versions is listed in Audit & Admin, gated by its own capability (#3058)", () => {
+    // super_admin only on the API: the nav hides the door from every other role.
+    expect(byHref("/app-versions")?.label).toBe("App versions");
+    expect(groupOf("/app-versions")).toBe("Audit & Admin");
+    expect(byHref("/app-versions")?.capability).toBe("manage_app_release_policy");
     expect(items.length).toBeLessThanOrEqual(NAV_ITEM_LIMIT);
   });
 
@@ -198,7 +206,9 @@ describe("which item a path belongs to — one answer for the sidebar and the cr
  * they ship). 960px is the 1080p browser viewport budget once #2878 added the credit-rules row;
  * the 900px plan covered the 15-row sidebar. The 1000px budget held 18 rows; #2753 raised it to
  * 1040 for 19 when Hire records joined Directory, and #3023 raised it to 1080 for 20 with
- * Trades in Quality & AI — still deliberately under a 1080p display.
+ * Trades in Quality & AI — still under a 1080p display. #3058 raised it to 1120 for 21 with App
+ * versions in Audit & Admin (1116px, measured by this sum): PAST a 1080p display, so on such a
+ * screen the sidebar scrolls when all five groups are open. Collapsing any one group fits it.
  */
 describe("the nav fits a 1080p browser without scrolling", () => {
   const CSS = globalsCss();
@@ -222,7 +232,7 @@ describe("the nav fits a 1080p browser without scrolling", () => {
   /** A `padding` / `gap` shorthand's block (vertical) value. */
   const block = (shorthand: string): number => px(shorthand.split(/\s+/)[0]!);
 
-  it("adds up to at most 1080px with every group open and all 20 rows", () => {
+  it("adds up to at most 1120px with every group open and all 21 rows", () => {
     const groups = NAV.length;
     const rows = NAV_ITEM_LIMIT;
     const sidebarPad = block(last(".sidebar", "padding")) * 2;
@@ -241,7 +251,7 @@ describe("the nav fits a 1080p browser without scrolling", () => {
       (groups - 1) * groupGap +
       rows * row +
       (rows - groups) * rowGap;
-    expect(total).toBeLessThanOrEqual(1080);
+    expect(total).toBeLessThanOrEqual(1120);
   });
 
   it("has no sidebar foot left to push it down", () => {
