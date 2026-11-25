@@ -62,17 +62,23 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
     expect(bypassing).toEqual([]);
   });
 
-  it("names exactly the eight pack-only skills the owner minted for #2022, the Phase 2 trades and Wave 1", () => {
+  it("names exactly the pack-only skills: #2022, Phase 2 trades, Wave 1 new and foundry-split trades", () => {
     expect(packAnswerIdsEmitted().filter((id) => id.startsWith("mskill_"))).toEqual([
       "mskill_assembly_line_worker",
       // #3011: the nine new Wave 1 trades of CEO pack v2 (minted by #3001), each pack-only.
       "mskill_cmm_operator",
       "mskill_cnc_router_operator",
       "mskill_conventional_machinist",
+      // #3011 (foundry split, T25): pressure and gravity die casting, pack-only.
+      "mskill_die_casting_operator",
       // Phase 2 #7: the new EDM trade's own ID.
       "mskill_edm_wirecut_operator",
+      // #3011 (foundry split, T26): hammer, press and upset forging, pack-only.
+      "mskill_forging_operator",
       // Phase 2 #11: the new foundry / forging trade's own ID.
       "mskill_foundry_forging_operator",
+      // #3011 (foundry split, T24): sand moulding and core making, melting and fettling.
+      "mskill_foundry_operator",
       // Phase 2 #8: the new heat-treatment trade's own ID.
       "mskill_heat_treatment_tech",
       // Phase 2 #9: the new injection-moulding trade's own ID.
@@ -185,6 +191,7 @@ describe("the reachable set per pack — pinned exactly", () => {
     qp_industrial_electrician: ["mskill_industrial_electrician"],
     qp_assembly_line: ["mskill_assembly_line_worker"],
     // #3011: each new Wave 1 trade's claim question reaches its own skill and nothing else.
+    // T24-T26 are the #3009 foundry split (casting, die casting, forging).
     qp_cnc_router: ["mskill_cnc_router_operator"],
     qp_cmm: ["mskill_cmm_operator"],
     qp_quality_engineer: ["mskill_quality_engineer"],
@@ -194,6 +201,9 @@ describe("the reachable set per pack — pinned exactly", () => {
     qp_npd_engineer: ["mskill_npd_engineer"],
     qp_ppc: ["mskill_ppc_engineer"],
     qp_purchase: ["mskill_purchase_engineer"],
+    qp_foundry_casting: ["mskill_foundry_operator"],
+    qp_die_casting: ["mskill_die_casting_operator"],
+    qp_forging: ["mskill_forging_operator"],
   };
 
   it("pins every mapped pack", () => {

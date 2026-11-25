@@ -827,6 +827,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "skilled",
     higherPriceFrom: "skilled",
     levelKey: "foundry_level",
+    claimQuestionKey: "foundry_section",
     relatedTo: ["mskill_die_casting_operator", "mskill_foundry_forging_operator"],
     postingQuestionKeys: [
       "foundry_section",
@@ -882,6 +883,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "setter",
     higherPriceFrom: "setter",
     levelKey: "diecast_level",
+    claimQuestionKey: "diecast_process",
     relatedTo: ["mskill_foundry_operator", "mskill_foundry_forging_operator"],
     postingQuestionKeys: [
       "diecast_process",
@@ -922,6 +924,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     confirmedFrom: "setter",
     higherPriceFrom: "setter",
     levelKey: "forging_level",
+    claimQuestionKey: "forging_machine",
     relatedTo: ["mskill_foundry_forging_operator", "mskill_press_operator"],
     postingQuestionKeys: [
       "forging_machine",

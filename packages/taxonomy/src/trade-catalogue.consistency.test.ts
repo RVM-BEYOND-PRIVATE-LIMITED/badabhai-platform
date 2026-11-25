@@ -160,11 +160,9 @@ describe("claim question per trade (#3011)", () => {
     }
   });
 
-  it("every Wave 1 trade records its claim question, except the foundry split still in #3009", () => {
-    // T24-T26 are re-cut by #3009 (qp_foundry_casting, qp_die_casting, qp_forging); their rows
-    // and claim keys land with or after it. Waves 2 and 3 record theirs in #3016 and #3017.
-    const pending = new Set(["T24", "T25", "T26"]);
-    for (const e of TRADE_CATALOGUE.filter((t) => t.wave === 1 && !pending.has(t.code))) {
+  it("every Wave 1 trade records its claim question", () => {
+    // Waves 2 and 3 record theirs in #3016 and #3017.
+    for (const e of TRADE_CATALOGUE.filter((t) => t.wave === 1)) {
       expect(e.claimQuestionKey, `${e.code} claim question`).toBeDefined();
     }
   });
