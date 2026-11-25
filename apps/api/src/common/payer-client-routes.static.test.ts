@@ -117,7 +117,8 @@ export function clientSegments(withHoles: string): string[] | null {
       continue;
     }
     // `due${suffix}`: a hole only at the end of a literal segment is a query suffix.
-    const trimmed = raw.replace(new RegExp(`${HOLE}+$`), "");
+    let trimmed = raw;
+    while (trimmed.endsWith(HOLE)) trimmed = trimmed.slice(0, -HOLE.length);
     if (trimmed.includes(HOLE)) return null;
     out.push(trimmed);
   }
@@ -415,7 +416,9 @@ export function scanDartClient(fileName: string, text: string): Scan<ClientCall>
       literals = [arg.slice(1, -1)];
     } else {
       // The nearest `<Type> arg =` before the call; its initialiser runs to the next `;`.
-      const decl = [...text.slice(0, m.index).matchAll(new RegExp(`\\b${arg}\\s*=(?!=)`, "g"))].pop();
+      const decl = [...text.slice(0, m.index).matchAll(/\b([A-Za-z_]\w*)\s*=(?!=)/g)]
+        .filter((d) => d[1] === arg)
+        .pop();
       if (!decl) {
         unreadable.push(`send(${arg}) at ${where}`);
         continue;
