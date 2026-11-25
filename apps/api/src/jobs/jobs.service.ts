@@ -90,7 +90,7 @@ export interface WorkerVisibleJob {
   requirements: string[] | null;
   /**
    * The job's role, for the illustration the detail screen shares with its feed card (owner
-   * ruling 2026-10-05, ADR-0024 addendum). One of the 21 declared kinds or NULL. ADDITIVE.
+   * ruling 2026-10-05, ADR-0024 addendum). A declared kind or NULL. ADDITIVE.
    */
   role_kind: TradeFormKindName | null;
   /** Migration 0141 — the trade facts the worker reads, already resolved to labels. */

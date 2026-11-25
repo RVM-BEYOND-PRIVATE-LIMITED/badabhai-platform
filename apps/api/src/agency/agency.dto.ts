@@ -144,7 +144,7 @@ export const CreateAgencyJobSchema = z
     shift: shift.optional(),
     benefits: benefits.optional(),
     requirements: requirements.optional(),
-    // Migration 0131 — the display ROLE, one of the 21 declared kinds. A SECOND classifier
+    // Migration 0131 — the display ROLE, a declared kind. A SECOND classifier
     // beside `trade_key`, and deliberately not a replacement for it: `trade_key` (15 trades)
     // stays this job's matching classifier; `role_kind` (21 roles) is display / classification
     // only (ADR-0036 addendum 2026-09-29). Optional with no default — omitted stores NULL.

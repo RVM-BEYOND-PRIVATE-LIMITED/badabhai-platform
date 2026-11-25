@@ -9,7 +9,12 @@ import {
   type FlowSyntheticFailure,
   type FlowSyntheticStep,
 } from "@badabhai/event-schema";
-import { POSTING_TRADES, postingTradeFor, type PostingTrade } from "@badabhai/taxonomy";
+import {
+  LIVE_POSTING_TRADE_KINDS,
+  POSTING_TRADES,
+  postingTradeFor,
+  type PostingTrade,
+} from "@badabhai/taxonomy";
 import { SERVER_CONFIG } from "../config/config.module";
 import { DATABASE, DB_CLIENT } from "../database/database.module";
 import { runRolledBack, type SyntheticStudent } from "../database/synthetic-scope";
@@ -25,6 +30,7 @@ import { RvmStudentApiUnavailableError } from "../campus-link/rvm-student-api.cl
 import { StudentNotAvailableError } from "../campus-link/institute-link.service";
 import { ApplicationsService } from "../applications/applications.service";
 import { PayerApplicantsService } from "../payer-portal/payer-applicants.service";
+import { TradeReleaseService } from "../trade-release/trade-release.service";
 import { UnlockService } from "../unlocks/unlocks.service";
 import { flowCheckDay } from "./flow-check.service";
 
@@ -68,14 +74,22 @@ export function failureCodeOf(err: unknown): FlowSyntheticFailure {
   return "error";
 }
 
-/** The run's Campus trade: the first postable trade on the Campus list, or null when none is. */
-export function pickTrade(campusTradeKeys: readonly string[]): {
+/**
+ * The run's Campus trade: the first trade on the Campus list that a company may post NOW, in key
+ * order. #3025: the catalogue declares trades that are switched off for companies, and the run's
+ * publish step would refuse one (`isPostableNow`), so `postableNow` is the same answer the publish
+ * gate gives: the live trades, plus every trade whose release switch is on.
+ */
+export function pickTrade(
+  campusTradeKeys: readonly string[],
+  postableNow: ReadonlySet<string>,
+): {
   trade: PostingTrade;
   onCampusList: boolean;
 } {
   for (const key of [...campusTradeKeys].sort()) {
     const trade = postingTradeFor(key);
-    if (trade) return { trade, onCampusList: true };
+    if (trade && postableNow.has(trade.roleKind)) return { trade, onCampusList: true };
   }
   // No Campus trade: still walk the BadaBhai half on the first postable trade; the audience step
   // then fails with `no_campus_trade`, which is the finding.
@@ -123,6 +137,7 @@ export class SyntheticRunService {
     private readonly applications: ApplicationsService,
     private readonly applicants: PayerApplicantsService,
     private readonly unlocks: UnlockService,
+    private readonly release: TradeReleaseService,
   ) {}
 
   enabled(): boolean {
@@ -332,7 +347,14 @@ export class SyntheticRunService {
     const campusTrades = (await this.db.execute(sql`
       SELECT trade_key FROM campus_trades WHERE removed_at IS NULL
     `)) as unknown as Array<{ trade_key: string }>;
-    const { trade, onCampusList } = pickTrade(campusTrades.map((r) => r.trade_key));
+    const postableNow = new Set<string>([
+      ...LIVE_POSTING_TRADE_KINDS,
+      ...(await this.release.postingEnabledKinds()),
+    ]);
+    const { trade, onCampusList } = pickTrade(
+      campusTrades.map((r) => r.trade_key),
+      postableNow,
+    );
 
     const studentHash = this.pii.hashPhone(`+91${run.student.phone}`);
     const taken = (await this.db.execute(sql`

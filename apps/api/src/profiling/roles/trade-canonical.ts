@@ -27,9 +27,9 @@ import { descriptorForPack } from "./role-registry";
  * that renamed it) also resolves to null at read time, so a stale table can never write an
  * id the match engine cannot resolve.
  *
- * WHY ONLY FIVE. The taxonomy mints 13 roles; the form registry declares 21 trades. Only the
- * trades below have an EXACT taxonomy counterpart — same occupation, same domain. Everything
- * else is deliberately absent:
+ * WHY ONLY FIVE. The taxonomy mints far fewer roles than the form registry declares trades. Only
+ * the trades below have an EXACT taxonomy counterpart — same occupation, same domain. Everything
+ * else is deliberately absent (the CEO pack v2 trades too, #3025: none has an exact role yet):
  *   - `cad_draughtsman` is a MECHANICAL draughtsman; `role_designer` is a generic Designer
  *     (retrieval once resolved "cad designer" to a garment designer). Mapping them would be
  *     the nearest-skill proxy the `PACK_ANSWER_SKILLS` rules forbid.

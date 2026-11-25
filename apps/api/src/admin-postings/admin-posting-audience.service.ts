@@ -41,7 +41,7 @@ export interface AudienceListItem {
   title: string;
   city: string | null;
   role_kind: string | null;
-  /** Names one of the 16 trades, so a choice that includes BadaBhai workers is allowed (#2635). */
+  /** Names a posting trade, so a choice that includes BadaBhai workers is allowed (#2635). */
   trade_ready: boolean;
   /** Its trade is on the Campus trade list (#2957), so a choice that includes Campus is allowed. */
   taught_at_campus: boolean;
@@ -88,7 +88,7 @@ function workersSee(audience: JobPostingAudience, hold: JobWorkerVisibilityState
  * THE RULES, in order (each refusal stores nothing):
  *   - an agency job's synced copy stays BadaBhai only (`twin_not_allowed`);
  *   - a closed posting is not changed (`posting_closed`);
- *   - a choice that includes BadaBhai workers, on a live posting, needs one of the 16 trades
+ *   - a choice that includes BadaBhai workers, on a live posting, needs a posting trade
  *     (#2635, `trade_required`) — it is a publish to them;
  *   - a choice that includes Campus needs a trade RVM trains (#2957, `trade_not_taught_at_campus`;
  *     `trade_required` when the posting has no trade), except on a posting that came from Campus;
@@ -298,8 +298,8 @@ export class AdminPostingAudienceService {
   ): Promise<AudienceOutcome | null> {
     if (p.syncSource !== null) return "twin_not_allowed";
     if (p.status === "closed") return "posting_closed";
-    // #2635 — reaching BadaBhai workers is a publish to them: the same 16-trade gate. A draft is
-    // gated again by the company's own publish.
+    // #2635 — reaching BadaBhai workers is a publish to them: the same posting-trade gate. A
+    // draft is gated again by the company's own publish.
     if (
       audienceReachesBadaBhaiWorkers(audience) &&
       p.status !== "draft" &&

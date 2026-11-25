@@ -370,7 +370,7 @@ export interface CandidateProblem {
  * THREE RULES CARRY THE SAFETY PROPERTIES AND THE REST IS HYGIENE:
  *
  *   `*_IS_MATCH_SKILL`        the Phase-12 wall. `mskill_*` is a closed, CEO-ratified
- *                             18-member vocabulary the deterministic match engine consumes.
+ *                             vocabulary the deterministic match engine consumes.
  *                             A discovery candidate that could reference, resolve onto, or
  *                             mint one would make a mined phrase an author of ranking
  *                             vocabulary — CLAUDE.md §3 forbids it outright.

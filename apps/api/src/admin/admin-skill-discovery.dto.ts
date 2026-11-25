@@ -47,8 +47,8 @@ import type { AdminPage } from "./admin-entities.dto";
  * "skill created" without the type telling it otherwise.
  *
  * ── THE MATCH-SKILL WALL (`mskill_*`) ───────────────────────────────────────────────────
- * `mskill_*` is a CLOSED, CEO-ratified 18-member vocabulary that the deterministic match engine
- * consumes (`MATCH_SKILLS`, packages/taxonomy/src/match-skills.ts — 18 members, counted). It is
+ * `mskill_*` is a CLOSED, CEO-ratified vocabulary that the deterministic match engine
+ * consumes (`MATCH_SKILLS`, packages/taxonomy/src/match-skills.ts). It is
  * not a skill catalogue and nothing discovered may ever join it. The wall is already built at
  * four levels — index build (skill-discovery-match.ts:113 drops `kind === "match_skill"` and any
  * `mskill_` prefix), `validateCandidate`'s MATCH_IS_MATCH_SKILL / RESULTING_IS_MATCH_SKILL /
@@ -580,7 +580,7 @@ export const SkillCorpusSkillId = z
       "This is a match-skill label in corpus-id clothing. See PROPOSED_LABEL_IS_MATCH_SKILL.",
   })
   .refine((id) => !MATCH_SKILL_IDS.has(id.toLowerCase()), {
-    message: "This id is a member of MATCH_SKILLS, the closed 18-member match vocabulary.",
+    message: "This id is a member of MATCH_SKILLS, the closed match vocabulary.",
   });
 
 /**
@@ -1921,7 +1921,7 @@ export interface AdminCanonicalSkill {
   label_en: string;
   /** CHECK-backed. */
   status: string;
-  /** CHECK-backed. `match_skill` is the closed 18-member vocabulary. */
+  /** CHECK-backed. `match_skill` is the closed vocabulary. */
   kind: string;
   /** Whether a MAP/MERGE decision may resolve onto this one. */
   mappable: boolean;

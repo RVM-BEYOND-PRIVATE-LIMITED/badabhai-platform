@@ -1938,7 +1938,7 @@ export function readGeneralFormCompletedAt(conversationState: unknown): string |
 
 /**
  * Task 1 — the closed road vocabulary, as a set for {@link conversationFormKind}. Built from
- * `TRADE_FORM_KINDS_ALL` (all 21 declared kinds), not the enabled-only subset: the handover is
+ * `TRADE_FORM_KINDS_ALL` (every declared kind), not the enabled-only subset: the handover is
  * `form_kind`'s sole writer today, but the road question is "was this worker handed a form", not
  * "is that form switched on right now".
  */

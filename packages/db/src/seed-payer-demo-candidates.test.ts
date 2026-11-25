@@ -20,10 +20,11 @@ import {
 const PLAN = buildPayerDemoWorkers();
 
 describe("seed-payer-demo-candidates — the cohort", () => {
-  it("is 30 workers for each of exactly the 16 postable trades", () => {
+  it("is 30 workers for each of exactly the live postable trades", () => {
     expect(PLAN).toHaveLength(PAYER_DEMO_WORKER_COUNT);
     expect(PAYER_DEMO_WORKER_COUNT).toBe(480);
-    // The demo seed covers the 16 live trades; the 44 of trades v2 join it with #3025.
+    // The demo seed covers the live trades only (ruled 2026-11-25, #3025): a trades-v2 trade joins
+    // it when its wave is switched on (#3013), never while companies cannot post it.
     expect(PAYER_DEMO_TRADES.map((t) => t.roleKind).sort()).toEqual([...LIVE_POSTING_TRADE_KINDS].sort());
     for (const trade of PAYER_DEMO_TRADES) {
       expect(PLAN.filter((w) => w.trade.roleKind === trade.roleKind), trade.roleKind).toHaveLength(

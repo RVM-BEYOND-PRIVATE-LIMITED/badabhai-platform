@@ -130,11 +130,23 @@ describe("tradeGroupOf — a form kind or a taxonomy role to a trade group", () 
   };
 
   it("EXHAUSTIVE: every known form kind and taxonomy role maps to its pinned group", () => {
-    // A 28th form kind or a new taxonomy role lands in `other` until someone classifies it here.
+    // A new form kind or taxonomy role lands in `other` until someone classifies it here.
     const keys = [...TRADE_FORM_KINDS_ALL, ...ROLES.map((r) => r.id)];
     expect(knownTradeKeys()).toEqual([...new Set(keys)].sort());
     for (const key of keys) {
       expect(tradeGroupOf(key), key).toBe(LAUNCH[key] ?? "other");
+    }
+  });
+
+  it("the trades of CEO pack v2 are known trades in `other`, never `unknown` (#3025)", () => {
+    // The CNC router is not a launch CNC operator: a group is the launch trade, not a lookalike.
+    for (const kind of [
+      "cnc_router_operator",
+      "quality_engineer",
+      "store_keeper",
+      "crane_operator",
+    ]) {
+      expect(tradeGroupOf(kind), kind).toBe("other");
     }
   });
 

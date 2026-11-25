@@ -166,8 +166,12 @@ export const ResumeSummaryInputSchema = z.object({
   mime: z.string().min(1),
   /**
    * The CLOSED role ids the model may return in `role_kind` — the ENABLED form
-   * kinds (9 today), supplied by apps/api, the single source of truth.
+   * kinds (`TRADE_FORM_KINDS`), supplied by apps/api, the single source of truth.
    * Rendered into the prompt verbatim; the far side shape-checks each entry.
+   *
+   * `max(32)` mirrors `contracts.py`. #3025: no change while the enabled set is far
+   * under it; `resume-summary.service.test.ts` fails before the enabled set passes it,
+   * so the cap is raised on both sides first.
    */
   role_kinds: z.array(z.string()).max(32).default([]),
   language: languageCode.optional(),

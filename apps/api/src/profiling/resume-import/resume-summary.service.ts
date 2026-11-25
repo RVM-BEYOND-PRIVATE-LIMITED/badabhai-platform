@@ -30,9 +30,9 @@ import { ResumeImportRepository } from "./resume-import.repository";
  * (role id + lengths + closed reason, never the Hinglish text). The caller
  * (`ResumeImportProcessor`) runs this beside the route and ignores null.
  *
- * THE ROLE LIST IS THE 9 ENABLED FORMS, NOT THE 21 DECLARED KINDS. The parse's
- * `trade_association` classifies against `TRADE_FORM_KINDS_ALL` (21, vocabulary
- * included); this summary classifies for a worker-facing line that will open a
+ * THE ROLE LIST IS THE ENABLED FORMS, NOT EVERY DECLARED KIND. The parse's
+ * `trade_association` classifies against `TRADE_FORM_KINDS_ALL` (every declared
+ * kind); this summary classifies for a worker-facing line that will open a
  * form-or-chat confirm — so only kinds with a form behind them are honest options.
  * `TRADE_FORM_KINDS` is derived from the role registry's `formEnabled: true` filter,
  * which is the single source of truth for "routable".

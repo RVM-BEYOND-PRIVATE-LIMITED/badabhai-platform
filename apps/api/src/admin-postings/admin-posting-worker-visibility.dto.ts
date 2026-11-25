@@ -59,7 +59,7 @@ export type WorkerVisibilityBulkDto = z.infer<typeof WorkerVisibilityBulkSchema>
  *    not exist. Never created here: the control exists only for Campus-origin postings.
  *  - `audience_excludes_workers` — `on` was asked, but the posting's own audience is RVM students
  *    only (the company narrowed it), so turning it on would change nothing a worker sees.
- *  - `trade_required` — `on` was asked, but the posting names none of the 16 trades. A posting on
+ *  - `trade_required` — `on` was asked, but the posting names no posting trade. A posting on
  *    a worker surface must name one (#2635, owner ruling 2026-11-04; the same gate a company
  *    publish and a company widening to BadaBhai workers pass). Set its trade with
  *    `PATCH admin/postings/:id/edit` (`role_kind`), then turn it on.

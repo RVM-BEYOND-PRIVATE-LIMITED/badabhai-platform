@@ -128,7 +128,7 @@ export interface CompanionJobsFacts {
 /**
  * Whether the worker's trade is one of the form-based profiles the platform serves.
  *
- * THE 21 DECLARED TRADE KINDS ARE THE SERVED SET (`TRADE_FORM_KINDS_ALL`), and `worker_profiles.source`
+ * THE DECLARED TRADE KINDS ARE THE SERVED SET (`TRADE_FORM_KINDS_ALL`), and `worker_profiles.source`
  * is the durable record of which road produced the profile: `form` = a trade form (one of those
  * kinds), `chat` = the general chat road (not a served trade). NULL is a pre-0107 row — unknown,
  * never asserted as outside (a false "aapki profile industrial manufacturing mein nahi aati" is
@@ -136,7 +136,8 @@ export interface CompanionJobsFacts {
  *
  * This deliberately reads the ROAD, not `canonical_role_id`: only five form kinds have an exact
  * taxonomy role (`trade-canonical.ts`), so a fitter or welder carries a form kind and a null role.
- * The road is what every form-based trade has in common.
+ * The road is what every form-based trade has in common, so a trade added to the catalogue is
+ * served the day its form is (#3025: no kind list to extend here).
  */
 export type IndustrialTradeScope = "served" | "outside" | "unknown";
 

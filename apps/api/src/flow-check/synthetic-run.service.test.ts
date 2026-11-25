@@ -9,7 +9,7 @@ import {
 } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
-import { POSTING_TRADES } from "@badabhai/taxonomy";
+import { LIVE_POSTING_TRADE_KINDS, POSTING_TRADES } from "@badabhai/taxonomy";
 import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { RvmStudentApiUnavailableError } from "../campus-link/rvm-student-api.client";
 import { StudentNotAvailableError } from "../campus-link/institute-link.service";
@@ -50,22 +50,39 @@ describe("failureCodeOf", () => {
   });
 });
 
+/** What the publish gate takes with every release switch off: the live trades. */
+const LIVE: ReadonlySet<string> = new Set(LIVE_POSTING_TRADE_KINDS);
+
 describe("pickTrade", () => {
   it("takes the first postable trade on the Campus list, in key order", () => {
     const keys = POSTING_TRADES.slice(0, 2)
       .map((t) => t.roleKind)
       .reverse();
-    const picked = pickTrade(["not_a_trade", ...keys]);
+    const picked = pickTrade(["not_a_trade", ...keys], LIVE);
     expect(picked.onCampusList).toBe(true);
     expect(picked.trade.roleKind).toBe([...keys].sort()[0]);
   });
 
   it("with no postable Campus trade, still walks the BadaBhai half on a postable trade", () => {
     for (const keys of [[], ["not_a_trade"]]) {
-      const picked = pickTrade(keys);
+      const picked = pickTrade(keys, LIVE);
       expect(picked.onCampusList).toBe(false);
       expect(picked.trade).toBe(POSTING_TRADES[0]);
     }
+    expect(LIVE.has(POSTING_TRADES[0]!.roleKind)).toBe(true);
+  });
+
+  // #3025 — a trades-v2 trade on the Campus list can sort first ("calibration…" before
+  // "cnc_turner"), but a switched-off one would be refused at publish, so the run skips it.
+  it("skips a Campus trade whose release switch is off, and takes it once it is on", () => {
+    const keys = ["cnc_turner", "calibration_technician"];
+    expect(pickTrade(keys, LIVE).trade.roleKind).toBe("cnc_turner");
+    expect(pickTrade(["calibration_technician"], LIVE).onCampusList).toBe(false);
+    const switchedOn = new Set([...LIVE, "calibration_technician"]);
+    expect(pickTrade(keys, switchedOn)).toMatchObject({
+      onCampusList: true,
+      trade: { roleKind: "calibration_technician" },
+    });
   });
 });
 
@@ -77,6 +94,7 @@ function service(enabled: boolean, result?: SyntheticRunResult) {
     {} as never,
     { FLOW_SYNTHETIC_RUN_ENABLED: enabled } as ServerConfig,
     { emit, emitOnce } as unknown as EventsService,
+    {} as never,
     {} as never,
     {} as never,
     {} as never,

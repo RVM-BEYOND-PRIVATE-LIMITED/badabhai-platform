@@ -253,6 +253,10 @@ const SKILL_DERIVE_ROUTE: Readonly<Record<string, SkillDeriveRoute>> = {
  * (#2536) was caught the day it landed. Each later trade is excluded for the same reason: this
  * seed is the recovery data for the cohort production holds, so a new trade joins it only by a
  * deliberate decision (a route here + the 20-trade assertion moved), never by accident.
+ *
+ * #3025: no change for the 60-trade catalogue. This cohort is built from DEMO_TRADES, never from
+ * the posting catalogue, and the new kinds stay out of DEMO_TRADES (`TRADES_V2_NOT_DEMOED`), so a
+ * trade with no seeded form cannot reach it.
  */
 const EXCLUDED_FROM_WORKFORCE = new Set([
   "mskill_designer",

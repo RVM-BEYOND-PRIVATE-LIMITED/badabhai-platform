@@ -305,7 +305,7 @@ export const PAYER_DEMO_WORKER_COUNT = PAYER_DEMO_TRADES.length * PER_TRADE_COUN
  */
 export function payerDemoLadder(roleKind: string): readonly TradeLevel[] {
   const trade = postingTradeFor(roleKind);
-  if (!trade) throw new Error(`[${NAME}] ${roleKind} is not one of the 16 postable trades`);
+  if (!trade) throw new Error(`[${NAME}] ${roleKind} is not a postable trade`);
   return trade.ladder.map((rung) => rung.rung);
 }
 

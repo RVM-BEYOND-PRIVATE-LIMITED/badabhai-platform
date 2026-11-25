@@ -129,7 +129,7 @@ import type {
  *
  * ── THE SEVEN INVARIANTS THIS FILE IS ACCOUNTABLE FOR ──────────────────────────────────
  *   1. NO CORPUS WRITE. See above.
- *   2. THE MATCH-SKILL WALL. `mskill_*` is a closed, 18-member, CEO-ratified vocabulary the
+ *   2. THE MATCH-SKILL WALL. `mskill_*` is a closed, CEO-ratified vocabulary the
  *      deterministic match engine consumes; nothing discovered may ever join it. Refused here
  *      twice: by re-running {@link SkillCorpusSkillId} (prefix + skill_mskill_ + `MATCH_SKILLS`
  *      membership) on the body value, and by refusing a target whose `skill.kind` is

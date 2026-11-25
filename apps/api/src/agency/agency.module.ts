@@ -50,7 +50,7 @@ import { WorkerActivityModule } from "../worker-activity/worker-activity.module"
   imports: [
     PayersModule,
     ConsentModule,
-    // The 16-trade posting form catalogue/validator. The agency job form renders the SAME
+    // The posting-trade form catalogue/validator. The agency job form renders the SAME
     // fields as a company posting and stores the same answer set (2026-11-03).
     PostingTradesModule,
     // ADR-0050 (#1983) — ONLY so `AgencyJobsOpsController` can mount `AdminAuthGuard` (the

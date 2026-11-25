@@ -105,7 +105,7 @@ export interface FeedItem {
   posted_at: string | null;
   /**
    * THE JOB'S ROLE, FOR THE CARD'S ILLUSTRATION (owner ruling 2026-10-05, ADR-0024 addendum) —
-   * the twin of `MatchFeedItem.role_kind`, same key on both feed shapes. One of the 21 declared
+   * the twin of `MatchFeedItem.role_kind`, same key on both feed shapes. A declared
    * kinds or NULL. ADDITIVE; drawn as art, never text; never a filter/rank input; not on
    * `feed.shown`.
    */

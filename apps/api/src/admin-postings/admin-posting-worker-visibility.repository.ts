@@ -21,7 +21,7 @@ export interface WorkerVisibilityListRow {
   orgLabel: string;
   roleTitle: string;
   city: string | null;
-  /** The posting's trade pick (`role_kind`); `on` needs one of the 16 trades. */
+  /** The posting's trade pick (`role_kind`); `on` needs a posting trade. */
   roleKind: string | null;
   status: JobPostingStatus;
   hidden: boolean;

@@ -1005,7 +1005,7 @@ export interface TradeReportRow {
 }
 
 /**
- * The 22 declared role kinds → the role pack their trade FORM asks (the `packId` on each
+ * Every declared role kind → the role pack its trade FORM asks (the `packId` on each
  * `apps/api/src/profiling/roles/*.role.ts` descriptor; packages/db cannot import apps/api).
  * Formless kinds map to the pack the CHAT serves (same `packId`, no form behind it).
  */

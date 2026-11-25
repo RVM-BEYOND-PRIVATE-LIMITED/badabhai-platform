@@ -224,7 +224,7 @@ export const jobPostings = pgTable(
     // Short requirement tags (e.g. "Fanuc control"), mirrors `jobs.requirements`.
     requirements: jsonb("requirements").$type<string[]>(),
     // ── The posting's ROLE (migration 0131, ADR-0036 addendum 2026-09-29) ──
-    // Which of the 21 declared worker-side roles (`TRADE_FORM_KINDS_ALL`) the payer picked
+    // Which declared worker-side role (`TRADE_FORM_KINDS_ALL`) the payer picked
     // for this posting — the classification the payer portal's picker and card preview read.
     //
     // DISPLAY / CLASSIFICATION ONLY. Never a match or rank input: `match_skill_ids` above
@@ -437,7 +437,7 @@ export const jobPostings = pgTable(
       "job_postings_experience_order_chk",
       sql`${t.minExperienceYears} IS NULL OR ${t.maxExperienceYears} IS NULL OR ${t.maxExperienceYears} >= ${t.minExperienceYears}`,
     ),
-    // Migration 0131 — the closed 21-kind DECLARED vocabulary (`TRADE_FORM_KINDS_ALL`), spelled
+    // Migration 0131 — the closed DECLARED vocabulary (`TRADE_FORM_KINDS_ALL`), spelled
     // out like `wri_identity_role_kind_chk` rather than referenced: a migration is a frozen
     // record. NULL-tolerant, because "no role picked" is every legacy and chat-published row.
     // A 22nd declared kind widens this list (and `jobs_role_kind_chk`) in the same change —
@@ -689,7 +689,7 @@ export const jobs = pgTable(
     // The job's ROLE (migration 0131) — the twin of `job_postings.role_kind`; see that column
     // for the full rationale. DISPLAY / CLASSIFICATION ONLY: `trade_key` above stays the agency
     // job's matching classifier (15 trade keys) and is untouched by this; `role_kind` is the
-    // 21-kind display role. Nullable, no default, no backfill; NULL = "no role picked".
+    // declared-kind display role. Nullable, no default, no backfill; NULL = "no role picked".
     roleKind: text("role_kind").$type<TradeFormKindName>(),
     // ADR-0050 §4.1 C4 (migration 0133) — the agency job's EXPLICIT match input: the closed
     // `mskill_*` ids an agent picked on the agency job form or ops set. `[]` = "not chosen

@@ -41,7 +41,7 @@ export type AgencyJobUpdate = Partial<
     | "requirements"
     // #1648 — what the ₹ band MEANS (in_hand | gross | ctc). Coarse, closed, non-PII.
     | "payType"
-    // Migration 0131 — the display role (one of the 21 declared kinds). Closed, non-PII.
+    // Migration 0131 — the display role (a declared kind). Closed, non-PII.
     | "roleKind"
     // ADR-0050 C4 — the explicit `mskill_*` pick, already validated against
     // the closed vocabulary and the cap by the service. `[]` = "not chosen yet".

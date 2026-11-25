@@ -66,7 +66,7 @@ export interface AgencyJobView {
   /** #1648 — what the band MEANS. NULL = the poster did not state it. Never inferred. */
   payType: JobPayType | null;
   /**
-   * Migration 0131 — the display ROLE the agency picked (one of the 21 declared kinds), or NULL
+   * Migration 0131 — the display ROLE the agency picked (a declared kind), or NULL
    * for "no role picked". Returned on this owner view only; `tradeKey` above stays the job's
    * matching classifier, and this is never a match input (ADR-0036 addendum 2026-09-29).
    */
@@ -234,7 +234,7 @@ export class AgencyService {
     // ADR-0050 C4 (#1983) — the posting form's closed-vocabulary + cap check, reused so the
     // agency job form can never accept a pick the posting form would refuse. @Global.
     private readonly matchSkills: MatchSkillsService,
-    // Migration 0141 — the SAME 16-trade form/validator a company posting uses.
+    // Migration 0141 — the SAME posting-trade form/validator a company posting uses.
     private readonly postingTrades: PostingTradesService,
     // ADR-0053 — the payer tenant resolver (PayersModule, already imported for the guards).
     private readonly tenancy: PayerTenantScopeService,

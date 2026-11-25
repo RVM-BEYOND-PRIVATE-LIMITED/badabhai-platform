@@ -32,8 +32,8 @@ import { buildSuggestions, type ResumeSuggestion } from "./resume-suggestions";
  *
  * ── TASK 1 B2: THE MODEL NOW ALSO CLASSIFIES, AND THE ROUTE STILL DOES NOT LISTEN ─────────
  *
- * The parse carries `associationKind` — the model's judgment against the closed 21-kind
- * list. It is RECORDED (settled onto the import row, exposed on the read route) and NOT
+ * The parse carries `associationKind` — the model's judgment against the closed list of
+ * declared kinds. It is RECORDED (settled onto the import row, exposed on the read route) and NOT
  * acted on: `route` below still comes from `routeToTradeForm` alone. Wiring the
  * classification in as a recall path (term-match misses, classification hits, vetoes
  * still apply) waits on the handover-policy ruling — that change alters which road
@@ -51,7 +51,7 @@ import { buildSuggestions, type ResumeSuggestion } from "./resume-suggestions";
  * Every OUTAGE on the way to a route ends with a worker who can carry on. An occupation index
  * that is down, a pack registry that cannot load, a document with no role in it — all of them
  * produce the CHAT route, which is today's behaviour byte for byte. The chat route is the
- * DEFAULT rather than the fallback: only 9 of 21 declared roles have a form at all.
+ * DEFAULT rather than the fallback: most declared roles have no form at all.
  *
  * A FAULT IS NOT AN OUTAGE (amended 2026-09-15). A suggestion payload that cannot be built or
  * encrypted is not degraded to chat — it throws, nothing is settled, and the worker's client

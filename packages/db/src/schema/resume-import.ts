@@ -92,7 +92,7 @@ export const workerResumeImports = pgTable(
     formKind: text("form_kind"),
     // ── Task 1 B2: the model's closed-list judgment ──────────────────────────
     //
-    // Which of the 21 declared trades (`TRADE_FORM_KINDS_ALL`) the parse judged
+    // Which declared trade (`TRADE_FORM_KINDS_ALL`) the parse judged
     // this résumé — or NULL (no judgment, none fits, or parsed before the
     // classification existed). RECORDED, NOT ACTED ON: the route still comes
     // from the deterministic router alone; this column is the observability the
@@ -202,7 +202,7 @@ export const workerResumeImports = pgTable(
       sql`${t.extractionMethod} IS NULL OR ${t.extractionMethod} IN ('pdf_text', 'docx', 'ocr')`,
     ),
     check("wri_route_chk", sql`${t.route} IS NULL OR ${t.route} IN ('form', 'chat')`),
-    // Task 1 B2 — the closed 21-kind vocabulary (`TRADE_FORM_KINDS_ALL`), spelled
+    // Task 1 B2 — the closed declared vocabulary (`TRADE_FORM_KINDS_ALL`), spelled
     // out like every other CHECK here rather than referenced: a migration is a
     // frozen record, and a future 22nd kind widens the registry AND this list in
     // the same change (the settle test pins the SQL it compiles).
@@ -229,7 +229,7 @@ export const workerResumeImports = pgTable(
       "wri_degraded_posture_chk",
       sql`${t.degradedPosture} IS NULL OR ${t.degradedPosture} IN ('llm_unavailable', 'mock_no_parse')`,
     ),
-    // RI-identity — the closed 21-kind DECLARED vocabulary (`TRADE_FORM_KINDS_ALL`), spelled
+    // RI-identity — the closed DECLARED vocabulary (`TRADE_FORM_KINDS_ALL`), spelled
     // out like every other CHECK here rather than referenced: a migration is a frozen record.
     //
     // WIDENED FROM THE 9 ENABLED KINDS IN 0124, and the reason is the defect that forced it.

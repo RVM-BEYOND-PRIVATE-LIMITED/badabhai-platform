@@ -29,6 +29,7 @@ import { isLevelConfirmed, type TradeLevel } from "./trade-levels";
  * The trades whose applicant list sorts by "Level needed" (30 Oct ruling Q4 step 1: "Turn on for
  * the 4 CNC trades"). The next trades join one at a time, each on the CEO's sign-off — a one-line
  * change here plus a {@link LEVEL_SORT_LADDERS} row, which the exhaustiveness test enforces.
+ * CEO pack v2 (#3025) does not extend the sort: its trades are absent here on purpose.
  */
 export const LEVEL_SORT_TRADE_KINDS = [
   "cnc_turner",

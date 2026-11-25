@@ -13,10 +13,10 @@
  * (c) a large hidden set (other trades). {@link personaExpectation} computes that split from
  * the plan alone so the plan test can fail before any database is involved.
  *
- * VOCABULARY LIMIT (2026-10-05): the match vocabulary is 18 `mskill_*` ids and has NO
- * electrician, press, coating or polymer skill. The Manesar showcase is therefore a FITTER, and
- * role kinds without a real match skill get NO postings ({@link SKIPPED_ROLE_KINDS}). Closing the
- * gap is a taxonomy change, not a seed change.
+ * VOCABULARY LIMIT (2026-10-05): the match vocabulary then had NO electrician, press, coating or
+ * polymer skill. The Manesar showcase is therefore a FITTER, and role kinds without a real match
+ * skill get NO postings ({@link SKIPPED_ROLE_KINDS}). Closing the gap is a taxonomy change, not a
+ * seed change.
  *
  * TEXT: every worker-visible field (title, area, city, description, benefit and requirement
  * chips) is screened by the writer with `workerVisibleTextScreens` before any row is written,
@@ -121,7 +121,7 @@ function cityByName(name: string): DemoCity {
 
 /**
  * One posting archetype. `roleKind` is the worker-side role (`job_postings.role_kind`, the
- * 21-kind `TRADE_FORM_KINDS_ALL` vocabulary — card illustrations key on it); `skillId` is the
+ * declared `TRADE_FORM_KINDS_ALL` vocabulary — card illustrations key on it); `skillId` is the
  * ONE match skill it posts.
  *
  * THE MATCH SKILL IS CHOSEN FROM WHAT ONBOARDING ACTUALLY DERIVES (traced 2026-10-06):
@@ -145,16 +145,24 @@ function cityByName(name: string): DemoCity {
  * other kinds, and that every form the taxonomy bridges is posted.
  */
 /** Role kinds with no match skill of their own — no demo postings (see above). */
-export const SKIPPED_ROLE_KINDS: readonly TradeFormKindName[] = [
+export const NO_MATCH_SKILL_ROLE_KINDS: readonly TradeFormKindName[] = [
   // Phase 2 #9 took `injection_moulding_operator` off this list: it posts under its own
   // `mskill_imm_operator` now (DEMO_TRADES below).
   "mould_die_maker",
   "blow_moulding_operator",
   "rubber_moulding_operator",
   "plastic_process_technician",
-  // CEO pack v2 (#2999) declares the 36 new kinds before their match skills (#3001) and
-  // demo postings (#3025). They are skipped here until those land; the demo seed must not
-  // invent a proxy skill for a trade it cannot match.
+];
+
+/**
+ * CEO pack v2's new kinds (#2999), kept OUT of the demo (ruled 2026-11-25, #3025). Their match
+ * skills exist (#3001), but each trade is switched off for companies and has no seeded form, so a
+ * demo posting would show a job nobody can post or answer for. A kind leaves this list with its own
+ * `DEMO_TRADES` row when its wave is switched on (#3013). The plan test lets a kind the taxonomy
+ * bridges sit here, and only a kind of the new catalogue. The foundry row below stays one row
+ * until then.
+ */
+export const TRADES_V2_NOT_DEMOED: readonly TradeFormKindName[] = [
   "gear_cutting_operator",
   "boring_machine_operator",
   "spm_finishing_operator",
@@ -191,6 +199,12 @@ export const SKIPPED_ROLE_KINDS: readonly TradeFormKindName[] = [
   "crane_operator",
   "cae_analyst",
   "piping_designer",
+];
+
+/** Every role kind with no demo postings: no match skill of its own, or not demoed yet. */
+export const SKIPPED_ROLE_KINDS: readonly TradeFormKindName[] = [
+  ...NO_MATCH_SKILL_ROLE_KINDS,
+  ...TRADES_V2_NOT_DEMOED,
 ];
 
 export interface DemoTrade {

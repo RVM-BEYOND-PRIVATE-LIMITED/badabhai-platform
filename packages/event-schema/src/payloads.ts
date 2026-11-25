@@ -4217,7 +4217,7 @@ export const JobPostingReachAlertPayload = z
 export type JobPostingReachAlertPayload = z.infer<typeof JobPostingReachAlertPayload>;
 
 /**
- * #2635 — matching runs only for the 16 postable trades. The server SCOPED a 16-trade job's
+ * #2635 — matching runs only for the posting trades. The server SCOPED a posting-trade job's
  * requested match skills to that trade: it kept the trade's own skill plus every requested id
  * the trade owns, and DROPPED the rest (a Welder job asking for CNC grinding, a Grinding job
  * asking for delivery riders). Emitted ONLY when something was dropped, on the write that
@@ -4228,7 +4228,7 @@ export type JobPostingReachAlertPayload = z.infer<typeof JobPostingReachAlertPay
 export const JobPostingMatchSkillsScopedPayload = z
   .object({
     job_posting_id: uuidSchema,
-    /** The posting's trade — always one of the 16 (a non-16 posting is never scoped). */
+    /** The posting's trade — always a posting trade (a posting on none is never scoped). */
     role_kind: z.enum(TRADE_FORM_KINDS_ALL),
     /** Which write did the scoping. */
     trigger: z.enum(["create", "publish", "edit", "unpause"]),
@@ -5648,7 +5648,7 @@ export type ProfileResumeImportedPayload = z.infer<typeof ProfileResumeImportedP
  *
  * `route` and `form_kind` are here because the routing decision is otherwise unreproducible: it
  * is deterministic on inputs (the model's two labels, the pinned occupation) that are never
- * stored. Only 9 of 21 declared roles have a form at all, so "how often did an import actually
+ * stored. Most declared roles have no form at all, so "how often did an import actually
  * reach one" is a real question about whether the feature earns its keep.
  *
  * `fields_extracted` vs `suggestions_offered` is deliberately two numbers. They differ by

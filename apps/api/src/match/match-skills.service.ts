@@ -69,7 +69,7 @@ export interface ReachPreviewResponseDto {
 
 /**
  * A publish-time reach set, plus what scoping removed from the request (#2635). For a posting
- * outside the 16 trades nothing is scoped and `droppedSkillIds` is always empty.
+ * on no posting trade nothing is scoped and `droppedSkillIds` is always empty.
  */
 export interface ScopedReachSet extends ReachSet {
   /** Requested ids the posting's trade does not own — dropped, never rejected. */
@@ -79,8 +79,9 @@ export interface ScopedReachSet extends ReachSet {
 /** Which posting a reach set is being resolved for. */
 export interface ResolveForPublishOptions {
   /**
-   * The posting's `role_kind`. One of the 16 postable trades → the request is scoped to that
-   * trade and related expansion stays inside the 16 (#2635). Anything else → unscoped.
+   * The posting's `role_kind`. A posting trade → the request is scoped to that trade and related
+   * expansion stays inside the live trades' scope, `POSTING_SCOPE_SKILL_IDS` (#2635). Anything
+   * else → unscoped.
    */
   roleKind?: string | null;
 }
@@ -150,9 +151,10 @@ export class MatchSkillsService {
    * Every count is one `COUNT(DISTINCT worker_id) WHERE skill_id = ANY(...) AND wants`,
    * which is exactly the shape of `worker_skill_reach_idx` — index-only, no heap fetch.
    *
-   * #2635 — this is the COMPANY preview, and a company can publish only a 16-trade job, so its
-   * related expansion always stays inside the 16 (what publish will store). When the form names
-   * its trade (`role_kind`), the posted ids are scoped to that trade too, exactly as publish does.
+   * #2635 — this is the COMPANY preview, and a company can publish only a posting-trade job, so
+   * its related expansion always stays inside the live trades' scope (`POSTING_SCOPE_SKILL_IDS`),
+   * what publish will store. When the form names its trade (`role_kind`), the posted ids are
+   * scoped to that trade too, exactly as publish does.
    */
   async reachPreview(dto: ReachPreviewDto): Promise<ReachPreviewResponseDto> {
     const cfg = await this.config.get();
@@ -268,7 +270,7 @@ export class MatchSkillsService {
   /**
    * #2635 — the ONE request check the preview and publish both run, in this order:
    *  1. closed-set on the RAW ids — an unknown id is a 400, never silently scoped away;
-   *  2. for a 16-trade posting, scope to the trade (base skill kept, off-trade ids dropped);
+   *  2. for a posting-trade posting, scope to the trade (base skill kept, off-trade ids dropped);
    *  3. the cap. It counts what the CLIENT asked for: the base skill the server adds on its
    *     own never pushes a request over it, so a legacy client sending three welding skills
    *     for a Welder job is not refused for a skill it did not send.

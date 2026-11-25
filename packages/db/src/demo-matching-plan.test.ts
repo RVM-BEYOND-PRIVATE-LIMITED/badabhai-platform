@@ -7,6 +7,7 @@ import {
   PACK_ANSWER_SKILLS,
   ROLE_TO_MATCH_SKILL,
   TRADE_CATALOGUE,
+  TRADES_V2_POSTING_KINDS,
   isMatchSkillId,
 } from "@badabhai/taxonomy";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
@@ -20,6 +21,7 @@ import {
   DEMO_PHONE_PATTERN,
   RESERVED_TEST_PHONE_PATTERN,
   SKIPPED_ROLE_KINDS,
+  TRADES_V2_NOT_DEMOED,
   buildDemoPlan,
   demoIdLikePattern,
   demoPhone,
@@ -130,7 +132,8 @@ describe("demo-matching plan — catalogue", () => {
     const posted = new Set(DEMO_TRADES.map((t) => t.roleKind));
     const skipped = new Set<string>(SKIPPED_ROLE_KINDS);
     // A CEO pack v2 trade above the loaded wave can be bridged (#3011 lands its rows ahead of the
-    // wave) while its demo row waits for #3025; it must be posted once its wave loads (#3013).
+    // wave) while it waits on `TRADES_V2_NOT_DEMOED` (ruled 2026-11-25, #3025); it must be posted
+    // once its wave loads (#3013).
     const unloaded = new Set(
       TRADE_CATALOGUE.filter((e) => e.wave > LOADED_WAVE).map((e) => e.roleKind),
     );
@@ -146,6 +149,21 @@ describe("demo-matching plan — catalogue", () => {
         );
       }
     }
+  });
+
+  it("only unloaded kinds of the new catalogue wait to be demoed (#3025), none with a demo row", () => {
+    const v2 = new Set<string>(TRADES_V2_POSTING_KINDS);
+    const posted = new Set<string>(DEMO_TRADES.map((t) => t.roleKind));
+    const waveOf = new Map(TRADE_CATALOGUE.map((e) => [e.roleKind as string, e.wave]));
+    for (const kind of TRADES_V2_NOT_DEMOED) {
+      expect(v2.has(kind), `${kind} is not a trades-v2 kind`).toBe(true);
+      expect(posted.has(kind), `${kind} has a demo row, so take it off the list`).toBe(false);
+      // A kind joins the demo when its wave is switched on (#3013), so its wave has not loaded.
+      expect(waveOf.get(kind) ?? 0, `${kind}'s wave has loaded: give it a demo row`).toBeGreaterThan(
+        LOADED_WAVE,
+      );
+    }
+    expect(new Set(SKIPPED_ROLE_KINDS).size).toBe(SKIPPED_ROLE_KINDS.length);
   });
 
   it("a skipped (no-real-skill) role kind never appears on any posting", () => {
