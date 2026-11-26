@@ -1261,3 +1261,558 @@
 {"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"mechanical fitter","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"electrical technician","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_0200","text":"press tool setter","lang":"en"}
+# CEO pack v2, Wave 1 worker phrases (#3010).
+#
+# One line per phrase from the sheets' "Words that lead here" lines
+# (docs/reference/BadaBhai_Manufacturing_Taxonomy_and_Question_Pack_v2.md). Never invented.
+# Hinglish rows carry "lang":"en", Devanagari "lang":"hi", pointing at the occupation
+# of the trade that the phrase most exactly names (spread across a trade's codes the way
+# heat treatment's were, so each chip reads as the trade).
+#
+# NOT loaded here, all listed on #2995 (points 2, 3 and 5 build on the stated defaults):
+#   - 12 phrases with a digit (the validator refuses them): T21 2, T33 3, T38 1, T58 6.
+#   - 3 short phrases held (test proved a pinned route moves): bare "plc" and "plc ka kaam"
+#     (both normalize to "plc"; "police" null -> fam_plc_automation); bare "ppc" ("pcc panel"
+#     null -> fam_ppc). The other 9 shorts (edm, znc, pdc, gdc, cht, cmm, vmm, tpm, npd)
+#     proved 0 moves across 9,263 phrases and are loaded below.
+#   - 3 live-collision holds (would move a live pinned route, not listed in the issue):
+#     "qc engineer" and "quality manager" (live fam_quality_inspection -> T37); "fettler"
+#     (would route to fam_metal_plant via jd_isco_8122, not the foundry). "heat treater" moves
+#     chemical -> heat treatment and "design engineer" moves universal -> 3D CAD (both intended,
+#     non-live; pinned in the new tables).
+#   - 4 routing holds (not loaded): "plant maintenance" and "breakdown maintenance" are retired
+#     from jd_nco_7233_0101 and left to routing (#3015); their two Devanagari twins are also
+#     held for routing so the twins do not split.
+#   - 90 phrases already on the same family are skipped (no duplicate row).
+#   - 13 "ka kaam"/"ka engineer"/"ka supervisor" variants are covered by their stems (same norm).
+#   - No "must NOT lead here" phrase is loaded (only T47 "process engineer" overlaps, qualified).
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "cnc edm", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "cnc wire cut", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "die sinker", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "edm", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "edm drill", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "edm machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "electronica wire cut", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "moly wire cut", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "robocut", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "sinker edm", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "sodick machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "spark machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "sparking ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "sparking machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "sprintcut", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "wayar cut", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "wire cut machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "znc", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "znc machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "znc operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "ईडीएम ऑपरेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "ईडीएम मशीन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "जेडएनसी मशीन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "डाई सिंकिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "वायर कट मशीन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "वायरकट ऑपरेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "स्पार्क इरोज़न", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "स्पार्क मशीन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_2800", "text": "स्पार्किंग मशीन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_0500", "text": "cnc rauter", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_0500", "text": "cnc router", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_0500", "text": "cnc router operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_0500", "text": "router machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_0500", "text": "wood cnc", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_0500", "text": "wood router", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_0500", "text": "राउटर मशीन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_0500", "text": "सीएनसी राउटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "acp cutting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "acrylic cutting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "art cam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "artcam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "artcam designer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "artcam operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "aspire software", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "carving machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "cnc engraving", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "cnc wood carving", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "die engraving", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "engraving machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "engraving operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "jali cutting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "jdpaint", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "laser engraving", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "marble cnc", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "mdf cutting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "mdf jali cutting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "stone cnc", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "vcarve", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "wood carving machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "आर्टकैम ऑपरेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "आर्टकैम डिज़ाइनर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "एनग्रेविंग मशीन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "जाली कटिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "थ्रीडी कार्विंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "लेज़र एनग्रेविंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "वुड कार्विंग मशीन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7523_1600", "text": "स्टोन सीएनसी", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "accurate cmm", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "c m m", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "calypso", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "cmm", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "cmm engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "cmm inspector", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "cmm machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "cmm oprator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "cmm programmer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "cmm programming", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "cmm report", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "cmm room", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "coordinate measuring machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "faro arm", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "hexagon cmm", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "layout inspection", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "mcosmos", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "mitutoyo cmm", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "pc dmis", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "pcdmis", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "vision measuring machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "vmm", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "vmm operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "zeiss cmm", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "कैलिप्सो", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "ज़ाइस सीएमएम", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "वीएमएम ऑपरेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "सीएमएम", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "सीएमएम ऑपरेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "सीएमएम प्रोग्रामर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_rvm_cmm_operator", "text": "सीएमएम मशीन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0100", "text": "hand moulder", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0100", "text": "moulder", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0100", "text": "मोल्डर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0201", "text": "dhalai", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0201", "text": "foundary", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0201", "text": "foundryman", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0201", "text": "lost wax casting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0201", "text": "no bake moulding", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0201", "text": "ढलाई", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0201", "text": "सैंड कास्टिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0500", "text": "cold box operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0500", "text": "core shop", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7211_0500", "text": "कोर मेकर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3301", "text": "knock out", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3301", "text": "shot blasting operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3301", "text": "फेटलिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3301", "text": "शॉट ब्लास्टिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3801", "text": "arpa machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3801", "text": "disa line", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3801", "text": "induction furnace operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3801", "text": "ladle man", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3801", "text": "melter", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3801", "text": "metal galana", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3801", "text": "इंडक्शन फर्नेस ऑपरेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4600", "text": "sand moulding machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "alloy wheel casting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "aluminium casting machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "aluminium die casting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "buhler die casting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "cold chamber machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "dai casting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "die casting operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "die casting setter", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "diecasting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "gdc", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "gdc operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "hot chamber machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "toshiba die casting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "zinc die casting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "एल्युमिनियम डाई कास्टिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "ग्रेविटी डाई कास्टिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "जीडीसी", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "डाई कास्टिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "डाई कास्टिंग ऑपरेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "पीडीसी ऑपरेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "पीडीसी मशीन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4200", "text": "प्रेशर डाई कास्टिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4201", "text": "hpdc operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4201", "text": "low pressure die casting", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4201", "text": "lpdc", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4201", "text": "pdc", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4201", "text": "pdc machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4201", "text": "pdc operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4201", "text": "pdc setter", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4201", "text": "pdc shop", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0300", "text": "drop hammer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0300", "text": "hammer operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0300", "text": "ड्रॉप हैमर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0300", "text": "हैमर ऑपरेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0300", "text": "हैमरमैन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0301", "text": "cold forging", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0301", "text": "forger", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0301", "text": "forging hammer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0301", "text": "forging shop", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0301", "text": "forjing", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0301", "text": "forzing", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0301", "text": "कोल्ड फोर्जिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0301", "text": "फोर्जिंग ऑपरेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0301", "text": "बोल्ट फॉर्मर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0301", "text": "हॉट फोर्जिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0400", "text": "hammer driver", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0500", "text": "forging press operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7221_0500", "text": "फोर्जिंग प्रेस", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_0300", "text": "billet heater operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_0300", "text": "bolt banane ki machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_0300", "text": "bolt former", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_0300", "text": "cold heading", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_0300", "text": "forging die setter", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_0300", "text": "forging trimming", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_0300", "text": "friction press", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_0300", "text": "header operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_0300", "text": "nut former", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_0300", "text": "ring rolling", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_0300", "text": "screw press", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7223_0300", "text": "upsetter operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3701", "text": "heat treater", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3701", "text": "heat tritment", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3701", "text": "ht shop", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3701", "text": "paani chadhana", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3701", "text": "पानी चढ़ाना", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_3701", "text": "हीट ट्रीटमेंट ऑपरेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4700", "text": "एनीलिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4800", "text": "cht", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4800", "text": "hardning", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4800", "text": "induction hardening operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4800", "text": "mesh belt furnace", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4800", "text": "pit furnace operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4800", "text": "sealed quench furnace", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4800", "text": "sqf operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4800", "text": "vacuum hardening", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4800", "text": "इंडक्शन हार्डनिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4800", "text": "केस हार्डनिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4800", "text": "नाइट्राइडिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8121_4900", "text": "टेम्परिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "engel machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "ferromatik", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "haitian machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "imm operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "injection machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "injecton molding", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "l&t moulding machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "milacron machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "moldig machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "plastic machine operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "plastic molding machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "toshiba moulding machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "windsor moulding machine", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "प्लास्टिक मशीन ऑपरेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "प्लास्टिक मोल्डिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0501", "text": "मोल्डिंग मशीन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0502", "text": "molding operator", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0502", "text": "moulding ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_0502", "text": "मोल्डिंग ऑपरेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_1300", "text": "mold setter", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_1300", "text": "mould change ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_1300", "text": "mould loading", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_1300", "text": "मोल्ड चेंज", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_1300", "text": "मोल्ड सेटर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_1301", "text": "plastic process technician", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_1301", "text": "process technician", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_8142_1301", "text": "प्रोसेस टेक्नीशियन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "ab plc", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "allen bradley", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "autometion engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "delta plc", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "gx works", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "hmi programming", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "ladder program", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "mitsubishi plc", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "omron plc", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "plc commissioning", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "plc engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "plc mentenance", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "plc programer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "plc scada", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "rslogix", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "scada", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "servo drive", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "siemens plc", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "spm automation", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "tia portal", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "vfd drive ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "एचएमआई", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "ऑटोमेशन इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "पीएलसी", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "पीएलसी टेक्नीशियन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "पीएलसी प्रोग्रामर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "लैडर लॉजिक", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "वीएफडी ड्राइव", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "सीमेंस पीएलसी", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_7412_0101", "text": "स्काडा", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_1213_0101", "text": "qms engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_1213_0101", "text": "quality assurance", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_1213_0101", "text": "quality head", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_1213_0101", "text": "quality incharge", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_1213_0101", "text": "quality officer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_1213_0102", "text": "cqa engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_1213_0102", "text": "customer quality", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_1213_0102", "text": "कस्टमर क्वालिटी", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_1324_0101", "text": "supplier quality", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_1324_0101", "text": "सप्लायर क्वालिटी", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "det quality", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "get quality", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "mr quality", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "npd quality", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "ppap engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "qa engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "qa qc engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "quality control engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "quality engg", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "qulity engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "sqa engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "क्यूए इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "क्यूसी इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "क्वालिटी इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "क्वालिटी एश्योरेंस", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "क्वालिटी मैनेजर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2152_0601", "text": "क्वालिटी हेड", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3113_0801", "text": "in-process quality engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3113_0801", "text": "incoming quality engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3113_0801", "text": "iqc engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3113_0801", "text": "line quality engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3113_0801", "text": "pdi engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0600", "text": "electrical maintenance engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0600", "text": "jr engineer maintenance", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0600", "text": "machine maintenance engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0600", "text": "maintainance engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0600", "text": "maintenance engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0600", "text": "maintenence engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0600", "text": "mechanical maintenance engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0600", "text": "mentenance engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0600", "text": "shift engineer maintenance", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0600", "text": "मेंटेनेंस इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0600", "text": "यूटिलिटी इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3113_0501", "text": "maintenance det", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3113_0501", "text": "maintenance get", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3113_0501", "text": "maintenance officer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "maintenance head", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "maintenance in-charge", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "maintenance incharge", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "maintenance manager", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "maintenance supervisor", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "plant engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "pm planner", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "preventive maintenance planning", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "sap pm", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "tpm", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "utility engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "मेंटेनेंस इंचार्ज", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "मेंटेनेंस मैनेजर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3115_0501", "text": "मेंटेनेंस सुपरवाइजर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_2200", "text": "moulding supervisor", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "cell leader", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "chargeman", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "group leader", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "junior supervisor", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "line chalata hoon", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "line leader", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "line supervisor", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "manpower handling ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "production foreman", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "shift sambhalta hoon", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "shift supervisor", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "shop floor supervisor", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "suparvisor production", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "superviser production", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "team leader production", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "प्रोडक्शन इंचार्ज", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "लाइन इंचार्ज", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "लाइन लीडर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "लाइन सुपरवाइजर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3122_9900", "text": "शॉप फ्लोर सुपरवाइजर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0401", "text": "assembly engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0401", "text": "machine shop engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0401", "text": "moulding production engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0401", "text": "press shop engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0401", "text": "weld shop engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "diploma engineer trainee production", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "je production", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "junior engineer production", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "line engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "prodction engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "production assistant manager", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "production det", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "production engg", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "production enginer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "production executive", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "production get", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "production head", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "production hod", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "production manager", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "production me engineer hoon", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "production officer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "shift engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "shift ka production dekhta hoon", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "shop engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "उत्पादन इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "प्रोडक्शन इंजिनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "प्रोडक्शन इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "प्रोडक्शन एग्जीक्यूटिव", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "प्रोडक्शन ऑफिसर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "प्रोडक्शन मैनेजर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "लाइन इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0403", "text": "शिफ्ट इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0300", "text": "ie department", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0300", "text": "ie engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0300", "text": "आईई इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0300", "text": "इंडस्ट्रियल इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0600", "text": "cost reduction engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0600", "text": "layout planning engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0600", "text": "lean engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0600", "text": "line balancing ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0600", "text": "time study engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0600", "text": "time study ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0600", "text": "tooling engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0600", "text": "vave engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0600", "text": "टाइम स्टडी", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0600", "text": "टूलिंग इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0600", "text": "प्रोसेस प्लानिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "manufacturing engg", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "manufacturing engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "me department", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "me engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "mfg engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "new line setup ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "pe department", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "pfmea control plan banata hoon", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "process engg", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "process engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "process enginer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "process planning engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "process sheet banata hoon", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "production engineering department", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "एमई इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "प्रोसेस इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0101", "text": "मैन्युफैक्चरिंग इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "d&d engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "design and development", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "development department", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "development engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "naya part develop karta hoon", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "new part development", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "new product development", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "npd", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "npd engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "npd enginer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "npd executive", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "part development ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "product development engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "r and d engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "r&d engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "आरएंडडी इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "एनपीडी इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "डेवलपमेंट इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "न्यू प्रोडक्ट डेवलपमेंट", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "पार्ट डेवलपमेंट", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "पीपीएपी का काम", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "प्रोडक्ट डेवलपमेंट", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0402", "text": "सैंपल डेवलपमेंट", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0701", "text": "apqp engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0701", "text": "costing engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0701", "text": "customer project engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0701", "text": "engineering department", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0701", "text": "ppap apqp ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0701", "text": "ppap banata hoon", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0701", "text": "project engineer npd", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0701", "text": "rfq engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0701", "text": "sample development", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0701", "text": "tooling development engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0500", "text": "planing engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0500", "text": "planning department", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0500", "text": "planning ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0500", "text": "schedule banana", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0500", "text": "scheduling engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0500", "text": "प्लानिंग इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0500", "text": "प्लानिंग का काम", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0500", "text": "शेड्यूल बनाना", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "customer schedule follow up", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "material planner", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "material planning", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "mrp ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "p p c", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "pcc engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "plan vs actual", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "ppc assistant", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "ppc engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "ppc executive", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "ppc head", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "ppc incharge", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "ppc mis", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "production plan banata hoon", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "production planing", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "production planner", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "production planning", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "production planning and control", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "sap pp", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "पीपीसी", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "पीपीसी इंचार्ज", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "पीपीसी इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "प्रोडक्शन प्लानिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2141_0501", "text": "मटेरियल प्लानिंग", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0100", "text": "khareedari", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0100", "text": "kharid ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0100", "text": "po banana", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0100", "text": "purchaser", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0100", "text": "rate negotiation", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0100", "text": "खरीद का काम", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0301", "text": "outsourcing engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0301", "text": "sourcing engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0301", "text": "strategic sourcing", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0301", "text": "supplier development", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0301", "text": "vd engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0301", "text": "vendor development", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0301", "text": "vendor development engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0301", "text": "vendor follow up", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0301", "text": "वेंडर डेवलपमेंट", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0301", "text": "सोर्सिंग इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "material purchase", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "parchase engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "procurement engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "procurement executive", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "purchase assistant", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "purchase department", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "purchase engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "purchase ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "purchase manager", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "purchase officer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "purches executive", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "sap mm purchase", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "scm purchase", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "परचेज इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "परचेज एग्जीक्यूटिव", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "परचेज ऑफिसर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "परचेज का काम", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_3323_0401", "text": "प्रोक्योरमेंट", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "biw fixture design", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "design ka kaam", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "die design", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "jig fixture design", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "mold design", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "mould design", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "press tool design", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "sheet metal design", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "spm design", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "tool design", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "कैटिया", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "कैड डिज़ाइनर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "जिग फिक्स्चर डिज़ाइन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "टूल डिज़ाइन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "डिज़ाइन इंजीनियर", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "मशीन डिज़ाइन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "मोल्ड डिज़ाइन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "शीट मेटल डिज़ाइन", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0200", "text": "सॉलिडवर्क्स", "lang": "hi"}
+{"kind": "alias", "job_domain_id": "jd_nco_2144_0801", "text": "mechanical design engineer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_3d_cad_designer", "text": "catia designer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_3d_cad_designer", "text": "creo designer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_3d_cad_designer", "text": "nx designer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_3d_cad_designer", "text": "pro e", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_3d_cad_designer", "text": "solid works", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_3d_cad_designer", "text": "solidworks designer", "lang": "en"}
+{"kind": "alias", "job_domain_id": "jd_rvm_3d_cad_designer", "text": "ug nx", "lang": "en"}
