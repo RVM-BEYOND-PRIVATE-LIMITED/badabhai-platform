@@ -208,24 +208,31 @@ const MAX_OVERLAY_ALIAS_LEN = 60;
  * `chat_messages`, so the corpus is one careless promotion away from carrying a handle
  * or a link into a git-committed file that is then embedded and served.
  *
- * Ruling #2995 point 2 (26 Nov 2026, recorded on #2995): digits are ALLOWED, reversing
- * the not-loaded default. Digit phrases are in scope everywhere (#3082 Wave 1, #3016
- * T34/T35, #3017 T51/T60). The guard now refuses only '@' and URLs, never digits.
+ * Ruling #2995 point 2 (26 Nov 2026, recorded on #2995): digits are ALLOWED in
+ * manually-authored pack phrases, reversing the not-loaded default. Digit phrases are
+ * in scope everywhere for trades (#3082 Wave 1, #3016 T34/T35, #3017 T51/T60).
+ * The validator therefore refuses only '@' and URLs, never digits. Mining still
+ * refuses digits (see `hasForbiddenAliasChars`): the first real mining run proposed
+ * "30", "40 hazar", "30 hazar" — the worker's pay, extracted verbatim — so a mined
+ * salary figure or phone number must never reach even a review file.
  */
 const OVERLAY_FORBIDDEN_RE = /@|https?:|www\./i;
 
 /**
- * The guard above, as a predicate, so the chat miner applies the IDENTICAL rule at mining
- * time instead of a lookalike of its own.
+ * The mining/skill/taxonomy guard, as a predicate. Still refuses digits, '@' and URLs.
  *
- * It matters that this is shared rather than re-expressed. The validator is the last gate
- * before a commit, but the miner writes a REVIEW FILE first — and a mined salary figure or
- * phone number sitting in a review file has already left the database and landed on disk,
- * which is precisely what the guard exists to prevent. Two copies of the rule would drift,
- * and the copy that drifts is the one nobody tests.
+ * INTENTIONALLY STRICTER THAN THE VALIDATOR above. `validateAliasOverlay` allows
+ * manually-authored digit phrases from the pack (ruling #2995 point 2: "3d carving",
+ * "s7 300", "type3" are real occupation names). Mining, skill discovery and the
+ * taxonomy corpus reuse THIS predicate — never the validator's — so a salary figure,
+ * phone number or model number from chat text still stops at the review file.
+ * Two regexes exist so the validator can allow what mining must still refuse; each
+ * is pinned by its own tests (validator: job-domain-corpus.test.ts allows digits;
+ * mining: alias-generators.test.ts refuses "30"/Devanagari digits).
  */
+const MINED_FORBIDDEN_RE = /[0-9०-९@]|https?:|www\./i;
 export function hasForbiddenAliasChars(text: string): boolean {
-  return OVERLAY_FORBIDDEN_RE.test(text);
+  return MINED_FORBIDDEN_RE.test(text);
 }
 
 /**

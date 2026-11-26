@@ -16,6 +16,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  hasForbiddenAliasChars,
   validateAliasOverlay,
   type JobDomainAliasOverlayRecord,
   type ResolvedJobDomain,
@@ -114,6 +115,15 @@ describe("validateAliasOverlay", () => {
       ["a Devanagari digit phrase", "3डी स्कैनर"],
     ])("allows %s (ruling #2995 point 2)", (_label, text) => {
       expect(validateAliasOverlay([alias({ text, lang: "en" })], [domain()])).toEqual([]);
+    });
+
+    it("mining still refuses digits (hasForbiddenAliasChars), even though the validator allows them", () => {
+      // Split is intentional: manually-authored pack digits are allowed, but mining must
+      // still stop salary figures ("30", "30 hazar") and phone numbers at the review file.
+      // Pinned here; also pinned by alias-generators.test.ts and taxonomy-corpus.test.ts.
+      expect(hasForbiddenAliasChars("3d carving")).toBe(true);
+      expect(hasForbiddenAliasChars("welder@site")).toBe(true);
+      expect(hasForbiddenAliasChars("welder")).toBe(false);
     });
   });
 
