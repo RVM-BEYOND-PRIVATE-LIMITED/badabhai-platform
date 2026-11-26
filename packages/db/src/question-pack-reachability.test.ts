@@ -1549,12 +1549,10 @@ describe("Batch 2 part two — quality inspection", () => {
     expect(codes).toEqual(["jd_nco_7543_2001", "jd_nco_7311_0500"]);
     for (const p of [
       "qc", "qc inspector", "qa qc", "quality control", "क्वालिटी", "inspection", "quality check",
-      "quality", "final inspection", "patrol inspection", "incoming inspection",
+      "quality", "qc engineer", "final inspection", "patrol inspection", "incoming inspection",
     ]) {
       expect(familyFor(p), p).toBe("fam_quality_inspection");
     }
-    // #3015: "qc engineer" moved to T37 Quality Engineer (pack section 6 + T37 sheet own it);
-    // it is pinned in the Wave 1 T37 table now, not here.
     // 7311.0500's two published titles — its whole reach; no vernacular alias lands on it.
     expect(familyFor("viewer workshop")).toBe("fam_quality_inspection");
     expect(familyFor("examiner metal working")).toBe("fam_quality_inspection");
@@ -1606,9 +1604,9 @@ describe("Batch 2 part two — quality inspection", () => {
     //    Engineer: Wave 1 (#3008) binds it to that trade's own family, never to this one.
     expect(familyFor("quality control inspector")).toBe("fam_universal");
     expect(familyFor("quality engineer")).toBe("fam_quality_engineer");
-    // 3. BARE "quality" IS RATIFIED ON THE METAL CODE (item 10). "quality manager" MOVED IN #3015
-    //    to T37 Quality Engineer (pack section 6 + T37 sheet own it); pinned in the Wave 1 T37 table.
-    expect(familyFor("quality manager")).toBe("fam_quality_engineer");
+    // 3. BARE "quality" IS RATIFIED ON THE METAL CODE (item 10), so "quality manager" reaches this
+    //    family. NOT in the 2026-09-24 guard ruling — left as an accepted imprecision.
+    expect(familyFor("quality manager")).toBe("fam_quality_inspection");
   });
 
   it("GUARD ROWS (2026-09-24) — four non-metal QC phrases reach their own trade", () => {
@@ -3045,7 +3043,7 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
     });
   });
 
-  it("T37 Quality Engineer — 34 loaded phrases reach fam_quality_engineer", () => {
+  it("T37 Quality Engineer — 32 loaded phrases reach fam_quality_engineer", () => {
     const routing = Object.fromEntries(
       [
         "qms engineer",
@@ -3065,10 +3063,8 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
         "ppap engineer",
         "qa engineer",
         "qa qc engineer",
-        "qc engineer",
         "quality control engineer",
         "quality engg",
-        "quality manager",
         "qulity engineer",
         "sqa engineer",
         "क्यूए इंजीनियर",
@@ -3102,10 +3098,8 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
       "ppap engineer": "fam_quality_engineer",
       "qa engineer": "fam_quality_engineer",
       "qa qc engineer": "fam_quality_engineer",
-      "qc engineer": "fam_quality_engineer",
       "quality control engineer": "fam_quality_engineer",
       "quality engg": "fam_quality_engineer",
-      "quality manager": "fam_quality_engineer",
       "qulity engineer": "fam_quality_engineer",
       "sqa engineer": "fam_quality_engineer",
       "क्यूए इंजीनियर": "fam_quality_engineer",
@@ -3714,8 +3708,10 @@ describe("Held phrases — #3010 (listed on #2995)", () => {
     for (const p of ["plc", "ppc", "plc ka kaam"]) {
       expect(familyFor(p), p).toBeNull();
     }
-    // #3015 moved the former live-collision holds into their trades (pack-mandated, non-live
-    // exact moves): "qc engineer"/"quality manager" to T37, "fettler" to T24. Pinned in the
-    // Wave 1 T37/T24 tables now, not here.
+    // Live shared words stay on live (reachability bypasses routing, which fires first in
+    // production): "qc engineer"/"quality manager" still QC, "fettler" moved to T24 (generic
+    // metal plant -> foundry, non-live, pack-mandated) and is pinned in the Wave 1 T24 table.
+    expect(familyFor("qc engineer"), "qc engineer").toBe("fam_quality_inspection");
+    expect(familyFor("quality manager"), "quality manager").toBe("fam_quality_inspection");
   });
 });
