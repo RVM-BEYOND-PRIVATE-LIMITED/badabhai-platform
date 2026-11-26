@@ -1,0 +1,1244 @@
+{
+  "_why": "Role track for Dispatch / Logistics Executive (T55), new trade (CEO pack v2). fam_dispatch_logistics binds the 1324, 3323, 4321 and 9321 dispatch codes.",
+  "_scope": "Planning and Supply Chain desk trade. The interview separates at senior_executive; higher contact price from senior_executive.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 5, medium 6, advanced 11); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T55 (Dispatch / Logistics Executive). Status: NEW",
+  "pack_id": "qp_dispatch_logistics",
+  "version": 1,
+  "family_id": "fam_dispatch_logistics",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T55): new trade.",
+  "items": [
+    {
+      "question_key": "dispatch_experience",
+      "min_tier": "easy",
+      "prompt_text": "Dispatch ya logistics ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Dispatch ya logistics ka kaam kiya hai?"
+    },
+    {
+      "question_key": "dispatch_level",
+      "min_tier": "easy",
+      "prompt_text": "Dispatch me aap kis post par hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Dispatch Helper / Assistant",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "executive",
+          "label_text": "Dispatch Executive",
+          "value_text": "executive"
+        },
+        {
+          "option_key": "senior_executive",
+          "label_text": "Senior Executive",
+          "value_text": "senior_executive"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Dispatch / Logistics In-charge",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Dispatch me helper, executive ya senior executive hain?"
+    },
+    {
+      "question_key": "dispatch_senior_executive_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Roz ka dispatch plan aur gaadi ka arrangement aap khud karte ho?",
+      "why_text": "Dispatch khud plan karne wale senior ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_senior_executive_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "In-charge batata hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "dispatch_level"
+        },
+        "right": {
+          "const": [
+            "senior_executive"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "dispatch_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne log aur roz kitni gaadi ka dispatch aapke under hai?",
+      "why_text": "Poora dispatch sambhalne wale in-charge ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "dispatch_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "dispatch_function",
+      "min_tier": "medium",
+      "prompt_text": "Dispatch me aap kaunsa kaam sambhalte hain?",
+      "why_text": "Kaam ke hisaab se sahi company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_function",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "invoicing",
+          "label_text": "Invoice aur e-way bill banana",
+          "value_text": "invoicing"
+        },
+        {
+          "option_key": "pick_pack_loading",
+          "label_text": "Pick-pack aur loading karwana",
+          "value_text": "pick_pack_loading"
+        },
+        {
+          "option_key": "vehicle_arrangement",
+          "label_text": "Transporter aur gaadi ka arrangement",
+          "value_text": "vehicle_arrangement"
+        },
+        {
+          "option_key": "fg_stock",
+          "label_text": "FG store ka stock",
+          "value_text": "fg_stock"
+        },
+        {
+          "option_key": "dispatch_plan",
+          "label_text": "Customer schedule se dispatch plan",
+          "value_text": "dispatch_plan"
+        },
+        {
+          "option_key": "export_dispatch",
+          "label_text": "Export dispatch",
+          "value_text": "export_dispatch"
+        },
+        {
+          "option_key": "returns_handling",
+          "label_text": "Returns ya rejection wapas lena",
+          "value_text": "returns_handling"
+        },
+        {
+          "option_key": "pod_freight",
+          "label_text": "POD aur freight bill ka follow-up",
+          "value_text": "pod_freight"
+        }
+      ]
+    },
+    {
+      "question_key": "dispatch_erp_system",
+      "min_tier": "medium",
+      "prompt_text": "Invoice aur stock ka kaam kis software me karte hain?",
+      "why_text": "Software jaanne wale executive ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_erp_system",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "sap_sd",
+          "label_text": "SAP SD",
+          "value_text": "sap_sd"
+        },
+        {
+          "option_key": "sap_wm",
+          "label_text": "SAP WM / EWM",
+          "value_text": "sap_wm"
+        },
+        {
+          "option_key": "tally",
+          "label_text": "Tally",
+          "value_text": "tally"
+        },
+        {
+          "option_key": "busy",
+          "label_text": "Busy",
+          "value_text": "busy"
+        },
+        {
+          "option_key": "marg",
+          "label_text": "Marg",
+          "value_text": "marg"
+        },
+        {
+          "option_key": "inhouse_erp",
+          "label_text": "Company ka apna ERP",
+          "value_text": "inhouse_erp"
+        },
+        {
+          "option_key": "wms",
+          "label_text": "WMS software",
+          "value_text": "wms"
+        },
+        {
+          "option_key": "excel_only",
+          "label_text": "Excel par",
+          "value_text": "excel_only"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur software",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "dispatch_documents",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse kaagaz aap khud banate ya sambhalte hain?",
+      "why_text": "Kaagaz sahi banane wale ki gaadi raaste me nahi rukti.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_documents",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "tax_invoice",
+          "label_text": "Tax invoice",
+          "value_text": "tax_invoice"
+        },
+        {
+          "option_key": "e_invoice",
+          "label_text": "E-invoice (IRN)",
+          "value_text": "e_invoice"
+        },
+        {
+          "option_key": "eway_bill",
+          "label_text": "E-way bill",
+          "value_text": "eway_bill"
+        },
+        {
+          "option_key": "delivery_challan",
+          "label_text": "Delivery challan",
+          "value_text": "delivery_challan"
+        },
+        {
+          "option_key": "packing_list",
+          "label_text": "Packing list",
+          "value_text": "packing_list"
+        },
+        {
+          "option_key": "lr_bilty",
+          "label_text": "LR / bilty",
+          "value_text": "lr_bilty"
+        },
+        {
+          "option_key": "gate_pass",
+          "label_text": "Gate pass ya outward register",
+          "value_text": "gate_pass"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "dispatch_packing_work",
+      "min_tier": "medium",
+      "prompt_text": "Packing aur labelling me aap kya dekhte hain?",
+      "why_text": "Sahi packing aur label se customer ke yahan rejection nahi hota.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_packing_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "packing_standard",
+          "label_text": "Customer ka packing standard",
+          "value_text": "packing_standard"
+        },
+        {
+          "option_key": "barcode_label",
+          "label_text": "Barcode ya part label lagana",
+          "value_text": "barcode_label"
+        },
+        {
+          "option_key": "returnable_bins",
+          "label_text": "Bin, trolley ya returnable crate",
+          "value_text": "returnable_bins"
+        },
+        {
+          "option_key": "carton_packing",
+          "label_text": "Carton / corrugated box packing",
+          "value_text": "carton_packing"
+        },
+        {
+          "option_key": "wooden_pallet",
+          "label_text": "Wooden box ya pallet packing",
+          "value_text": "wooden_pallet"
+        },
+        {
+          "option_key": "stretch_strapping",
+          "label_text": "Stretch wrap aur strapping",
+          "value_text": "stretch_strapping"
+        },
+        {
+          "option_key": "vci_packing",
+          "label_text": "VCI / rust-proof packing",
+          "value_text": "vci_packing"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Packing ka kaam nahi dekhta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "dispatch_customer_type",
+      "min_tier": "hard",
+      "prompt_text": "Maal kis tarah ke customer ko jaata hai?",
+      "why_text": "Customer ke hisaab se dispatch ka tareeka badal jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_customer_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "oem_direct",
+          "label_text": "OEM plant ko seedha (Maruti, Hero, Tata jaise)",
+          "value_text": "oem_direct"
+        },
+        {
+          "option_key": "tier_one",
+          "label_text": "Tier-1 company ko",
+          "value_text": "tier_one"
+        },
+        {
+          "option_key": "dealer_distributor",
+          "label_text": "Dealer ya distributor ko",
+          "value_text": "dealer_distributor"
+        },
+        {
+          "option_key": "depot_warehouse",
+          "label_text": "Customer ke warehouse ya depot ko",
+          "value_text": "depot_warehouse"
+        },
+        {
+          "option_key": "export_customer",
+          "label_text": "Export customer",
+          "value_text": "export_customer"
+        },
+        {
+          "option_key": "ecommerce",
+          "label_text": "E-commerce ya courier order",
+          "value_text": "ecommerce"
+        },
+        {
+          "option_key": "aftermarket",
+          "label_text": "Spare parts / aftermarket",
+          "value_text": "aftermarket"
+        }
+      ]
+    },
+    {
+      "question_key": "dispatch_vehicle_mode",
+      "min_tier": "hard",
+      "prompt_text": "Maal kis tarah bhejte hain?",
+      "why_text": "Gaadi ka tareeka jaanne wale ko usi tarah ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_vehicle_mode",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "full_truck",
+          "label_text": "Full truck load (FTL)",
+          "value_text": "full_truck"
+        },
+        {
+          "option_key": "part_load",
+          "label_text": "Part load, transporter ke godown se",
+          "value_text": "part_load"
+        },
+        {
+          "option_key": "milk_run",
+          "label_text": "Milk-run gaadi",
+          "value_text": "milk_run"
+        },
+        {
+          "option_key": "own_vehicle",
+          "label_text": "Company ki apni gaadi",
+          "value_text": "own_vehicle"
+        },
+        {
+          "option_key": "courier",
+          "label_text": "Courier ya cargo",
+          "value_text": "courier"
+        },
+        {
+          "option_key": "container",
+          "label_text": "Container (export)",
+          "value_text": "container"
+        },
+        {
+          "option_key": "rail_air",
+          "label_text": "Rail ya air cargo",
+          "value_text": "rail_air"
+        }
+      ]
+    },
+    {
+      "question_key": "dispatch_daily_volume",
+      "min_tier": "hard",
+      "prompt_text": "Roz lagbhag kitni gaadi dispatch hoti hai?",
+      "why_text": "Gaadi ki ginti se aapke kaam ka size pata chalta hai.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_daily_volume",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "below_five",
+          "label_text": "5 se kam",
+          "value_text": "below_five"
+        },
+        {
+          "option_key": "five_to_fifteen",
+          "label_text": "5 se 15",
+          "value_text": "five_to_fifteen"
+        },
+        {
+          "option_key": "fifteen_to_forty",
+          "label_text": "15 se 40",
+          "value_text": "fifteen_to_forty"
+        },
+        {
+          "option_key": "above_forty",
+          "label_text": "40 se zyada",
+          "value_text": "above_forty"
+        }
+      ]
+    },
+    {
+      "question_key": "dispatch_customer_portal",
+      "min_tier": "hard",
+      "prompt_text": "Customer portal par aap kya kaam karte hain?",
+      "why_text": "Portal ka kaam jaanne wale ko OEM supplier jaldi lete hain.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_customer_portal",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "asn_creation",
+          "label_text": "ASN banana",
+          "value_text": "asn_creation"
+        },
+        {
+          "option_key": "schedule_download",
+          "label_text": "Schedule download karna",
+          "value_text": "schedule_download"
+        },
+        {
+          "option_key": "invoice_upload",
+          "label_text": "Invoice upload karna",
+          "value_text": "invoice_upload"
+        },
+        {
+          "option_key": "grn_status",
+          "label_text": "GRN ya receipt status dekhna",
+          "value_text": "grn_status"
+        },
+        {
+          "option_key": "discrepancy_reply",
+          "label_text": "Short, excess ya rejection ka jawab dena",
+          "value_text": "discrepancy_reply"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Portal par kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "dispatch_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "dispatch_level"
+            },
+            "right": {
+              "const": [
+                "senior_executive",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "dispatch_loading_plan",
+      "min_tier": "hard",
+      "prompt_text": "Gaadi aur loading ki planning me aap kya karte hain?",
+      "why_text": "Loading sahi plan karne wala freight ka kharcha bachata hai.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_loading_plan",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vehicle_selection",
+          "label_text": "Maal ke hisaab se gaadi ka size chunna",
+          "value_text": "vehicle_selection"
+        },
+        {
+          "option_key": "route_plan",
+          "label_text": "Route ya milk-run plan",
+          "value_text": "route_plan"
+        },
+        {
+          "option_key": "loading_sequence",
+          "label_text": "Loading sequence aur stacking",
+          "value_text": "loading_sequence"
+        },
+        {
+          "option_key": "freight_rate",
+          "label_text": "Transporter se rate lena",
+          "value_text": "freight_rate"
+        },
+        {
+          "option_key": "vehicle_placement",
+          "label_text": "Gaadi ki placement aur detention dekhna",
+          "value_text": "vehicle_placement"
+        },
+        {
+          "option_key": "vehicle_tracking",
+          "label_text": "Gaadi ki tracking",
+          "value_text": "vehicle_tracking"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "dispatch_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "dispatch_level"
+            },
+            "right": {
+              "const": [
+                "senior_executive",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "dispatch_export_work",
+      "min_tier": "hard",
+      "prompt_text": "Export dispatch me kaunsa kaam kiya hai?",
+      "why_text": "Export ka kaam jaanne wale executive kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_export_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "export_invoice",
+          "label_text": "Export invoice aur packing list",
+          "value_text": "export_invoice"
+        },
+        {
+          "option_key": "container_stuffing",
+          "label_text": "Container stuffing",
+          "value_text": "container_stuffing"
+        },
+        {
+          "option_key": "cha_coordination",
+          "label_text": "CHA / forwarder se coordination",
+          "value_text": "cha_coordination"
+        },
+        {
+          "option_key": "shipping_bill",
+          "label_text": "Shipping bill",
+          "value_text": "shipping_bill"
+        },
+        {
+          "option_key": "fumigation",
+          "label_text": "Fumigation ya heat-treated pallet",
+          "value_text": "fumigation"
+        },
+        {
+          "option_key": "bill_of_lading",
+          "label_text": "Bill of lading ka follow-up",
+          "value_text": "bill_of_lading"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Export nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "dispatch_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "dispatch_level"
+            },
+            "right": {
+              "const": [
+                "senior_executive",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "dispatch_warehouse_system",
+      "min_tier": "hard",
+      "prompt_text": "FG store ya warehouse me kaunsa system chalta hai?",
+      "why_text": "System wale warehouse ka tajurba badi company me kaam aata hai.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_warehouse_system",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "rack_location",
+          "label_text": "Rack aur bin location",
+          "value_text": "rack_location"
+        },
+        {
+          "option_key": "barcode_scanner",
+          "label_text": "Barcode scanner (HHT)",
+          "value_text": "barcode_scanner"
+        },
+        {
+          "option_key": "fifo",
+          "label_text": "FIFO",
+          "value_text": "fifo"
+        },
+        {
+          "option_key": "wms",
+          "label_text": "WMS",
+          "value_text": "wms"
+        },
+        {
+          "option_key": "min_max",
+          "label_text": "FG ka min-max stock",
+          "value_text": "min_max"
+        },
+        {
+          "option_key": "cycle_count",
+          "label_text": "Daily stock count",
+          "value_text": "cycle_count"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "dispatch_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "dispatch_level"
+            },
+            "right": {
+              "const": [
+                "senior_executive",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ki company me dispatch sambhala hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler parts",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "fmcg",
+          "label_text": "FMCG ya food",
+          "value_text": "fmcg"
+        },
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Home appliances",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electronics",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "logistics_warehouse",
+          "label_text": "Warehouse / 3PL",
+          "value_text": "logistics_warehouse"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "dispatch_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "dispatch_level"
+            },
+            "right": {
+              "const": [
+                "senior_executive",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Dispatch ki kaunsi dikkat aap khud sulajhate hain?",
+      "why_text": "Dikkat khud sulajhane wale ki har company me zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vehicle_shortage",
+          "label_text": "Gaadi time par na milna",
+          "value_text": "vehicle_shortage"
+        },
+        {
+          "option_key": "short_excess",
+          "label_text": "Customer ke yahan short ya excess nikalna",
+          "value_text": "short_excess"
+        },
+        {
+          "option_key": "transit_damage",
+          "label_text": "Raaste me maal ka damage",
+          "value_text": "transit_damage"
+        },
+        {
+          "option_key": "eway_bill_issue",
+          "label_text": "E-way bill expire ya galat hona",
+          "value_text": "eway_bill_issue"
+        },
+        {
+          "option_key": "wrong_part_label",
+          "label_text": "Galat part ya label chala jaana",
+          "value_text": "wrong_part_label"
+        },
+        {
+          "option_key": "line_stoppage_risk",
+          "label_text": "Customer ki line rukne ka khatra",
+          "value_text": "line_stoppage_risk"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "dispatch_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "dispatch_level"
+            },
+            "right": {
+              "const": [
+                "senior_executive",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "dispatch_kpi_reporting",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsa hisaab aap management ko dete hain?",
+      "why_text": "Hisaab rakhne wale ko department ki zimmedari di jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_kpi_reporting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "on_time_delivery",
+          "label_text": "On-time delivery (OTD)",
+          "value_text": "on_time_delivery"
+        },
+        {
+          "option_key": "freight_cost",
+          "label_text": "Freight cost",
+          "value_text": "freight_cost"
+        },
+        {
+          "option_key": "premium_freight",
+          "label_text": "Premium freight",
+          "value_text": "premium_freight"
+        },
+        {
+          "option_key": "pod_pending",
+          "label_text": "Pending POD",
+          "value_text": "pod_pending"
+        },
+        {
+          "option_key": "stock_ageing",
+          "label_text": "FG stock ageing",
+          "value_text": "stock_ageing"
+        },
+        {
+          "option_key": "customer_complaint",
+          "label_text": "Packing ya delivery ki customer complaint",
+          "value_text": "customer_complaint"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "dispatch_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "dispatch_level"
+            },
+            "right": {
+              "const": [
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "dispatch_improvement_work",
+      "min_tier": "hard",
+      "prompt_text": "Dispatch sudhaarne ka kaunsa kaam aapne kiya hai?",
+      "why_text": "Sudhaar ka kaam karne wale ko in-charge ki post milti hai.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_improvement_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "five_s",
+          "label_text": "5S",
+          "value_text": "five_s"
+        },
+        {
+          "option_key": "freight_reduction",
+          "label_text": "Freight cost kam karna",
+          "value_text": "freight_reduction"
+        },
+        {
+          "option_key": "returnable_packing",
+          "label_text": "Returnable packing lagana",
+          "value_text": "returnable_packing"
+        },
+        {
+          "option_key": "barcode_wms",
+          "label_text": "Barcode ya WMS lagana",
+          "value_text": "barcode_wms"
+        },
+        {
+          "option_key": "kaizen",
+          "label_text": "Kaizen",
+          "value_text": "kaizen"
+        },
+        {
+          "option_key": "iso_audit",
+          "label_text": "IATF ya ISO audit me dispatch ka jawab dena",
+          "value_text": "iso_audit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "dispatch_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "dispatch_level"
+            },
+            "right": {
+              "const": [
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "dispatch_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapki padhai kis line se hai?",
+      "why_text": "Kai company padhai ki line dekhkar hi bulati hain.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "twelfth_pass",
+          "label_text": "12th tak",
+          "value_text": "twelfth_pass"
+        },
+        {
+          "option_key": "iti",
+          "label_text": "ITI",
+          "value_text": "iti"
+        },
+        {
+          "option_key": "diploma_any",
+          "label_text": "Diploma (koi bhi branch)",
+          "value_text": "diploma_any"
+        },
+        {
+          "option_key": "bcom",
+          "label_text": "B.Com",
+          "value_text": "bcom"
+        },
+        {
+          "option_key": "ba",
+          "label_text": "BA",
+          "value_text": "ba"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "mba_supply_chain",
+          "label_text": "MBA / PGDM (Logistics ya Supply Chain)",
+          "value_text": "mba_supply_chain"
+        }
+      ]
+    },
+    {
+      "question_key": "dispatch_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke saath kaunsi training ya kaam kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "dispatch_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "computer_course",
+          "label_text": "Tally ya computer course",
+          "value_text": "computer_course"
+        },
+        {
+          "option_key": "transport_office_work",
+          "label_text": "Transport ya courier office me kaam",
+          "value_text": "transport_office_work"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "dispatch_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "dispatch_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

@@ -56,4 +56,15 @@ export const SERVICE_ENGINEER = {
      */
     extraConflictTerms: ["ac service", "car service", "bike service"],
   },
+  fresher: {
+    workshopMachines: {
+      internship: "Internship",
+      apprenticeship: "Apprenticeship (NATS / NAPS)",
+      college_project: "College major project",
+      industrial_visit: "Industrial visit",
+    },
+    // The pack asks no trade-test question, so no status ever maps here.
+    tradeTest: {},
+    trainingLabel: "Training and projects",
+  },
 } as const satisfies RoleFormDescriptor;

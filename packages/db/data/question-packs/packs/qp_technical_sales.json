@@ -1,0 +1,1163 @@
+{
+  "_why": "Role track for Technical Sales / Application Engineer (T51), new trade (CEO pack v2). fam_technical_sales binds NCO 3322.0101.",
+  "_scope": "Production and Engineering desk trade. The interview separates at senior_engineer; higher contact price from engineer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "22 questions (easy 6, medium 6, advanced 10); 4 mandatory, 5 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T51 (Technical Sales / Application Engineer). Status: NEW",
+  "pack_id": "qp_technical_sales",
+  "version": 1,
+  "family_id": "fam_technical_sales",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T51): new trade.",
+  "items": [
+    {
+      "question_key": "sales_experience",
+      "min_tier": "easy",
+      "prompt_text": "Industrial sales ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "sales_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Industrial sales ka kaam kiya hai?"
+    },
+    {
+      "question_key": "sales_level",
+      "min_tier": "easy",
+      "prompt_text": "Sales team me aapki post kya hai?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "sales_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "engineer",
+          "label_text": "Sales Engineer",
+          "value_text": "engineer"
+        },
+        {
+          "option_key": "senior_engineer",
+          "label_text": "Senior Sales Engineer",
+          "value_text": "senior_engineer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Area / Regional Manager",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Sales Manager / Head",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Sales team me trainee, sales engineer ya senior engineer hain?"
+    },
+    {
+      "question_key": "sales_senior_engineer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Customer se rate aur order aap akele final kar lete hain?",
+      "why_text": "Order akele close karne wale senior engineer ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "sales_senior_engineer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, akele final karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior ke saath final hota hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "sales_level"
+        },
+        "right": {
+          "const": [
+            "senior_engineer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "sales_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Poore area ka target aur dealer aapke zimme hain?",
+      "why_text": "Poora area sambhalne wale manager ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "sales_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, area mere zimme hai",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, sirf apne customer dekhta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "sales_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "sales_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Aapke under kitne sales engineer hain aur saal ka target kitna hai?",
+      "why_text": "Poori sales team sambhalne wale head ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "sales_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "sales_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "sales_product_line",
+      "min_tier": "medium",
+      "prompt_text": "Aap kya bechte hain?",
+      "why_text": "Product ke hisaab se sahi company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "sales_product_line",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "machine_tools",
+          "label_text": "CNC machine aur machine tools",
+          "value_text": "machine_tools"
+        },
+        {
+          "option_key": "cutting_tools",
+          "label_text": "Cutting tools aur inserts",
+          "value_text": "cutting_tools"
+        },
+        {
+          "option_key": "cad_cam_software",
+          "label_text": "CAD / CAM software",
+          "value_text": "cad_cam_software"
+        },
+        {
+          "option_key": "measuring_instruments",
+          "label_text": "Measuring instruments aur CMM",
+          "value_text": "measuring_instruments"
+        },
+        {
+          "option_key": "welding_automation",
+          "label_text": "Welding aur automation products",
+          "value_text": "welding_automation"
+        },
+        {
+          "option_key": "bearings_hydraulics",
+          "label_text": "Bearings, hydraulics ya pneumatics",
+          "value_text": "bearings_hydraulics"
+        },
+        {
+          "option_key": "raw_material",
+          "label_text": "Raw material (steel, aluminium, polymer)",
+          "value_text": "raw_material"
+        },
+        {
+          "option_key": "job_work_components",
+          "label_text": "Job-work aur components",
+          "value_text": "job_work_components"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur product",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sales_work_type",
+      "min_tier": "medium",
+      "prompt_text": "Sales ka kaunsa kaam aap roz khud karte hain?",
+      "why_text": "Roz ke kaam se employer samajhta hai aap kya sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "sales_work_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "lead_generation",
+          "label_text": "Cold visit aur naye customer dhoondhna",
+          "value_text": "lead_generation"
+        },
+        {
+          "option_key": "demo_trial",
+          "label_text": "Demo ya trial dena",
+          "value_text": "demo_trial"
+        },
+        {
+          "option_key": "offer_making",
+          "label_text": "Techno-commercial offer banana",
+          "value_text": "offer_making"
+        },
+        {
+          "option_key": "order_closing",
+          "label_text": "Rate tay karke order close karna",
+          "value_text": "order_closing"
+        },
+        {
+          "option_key": "collection",
+          "label_text": "Payment collection",
+          "value_text": "collection"
+        },
+        {
+          "option_key": "dealer_handling",
+          "label_text": "Dealer ya distributor sambhalna",
+          "value_text": "dealer_handling"
+        },
+        {
+          "option_key": "key_account",
+          "label_text": "Key account sambhalna",
+          "value_text": "key_account"
+        },
+        {
+          "option_key": "tender",
+          "label_text": "Tender bharna",
+          "value_text": "tender"
+        }
+      ]
+    },
+    {
+      "question_key": "sales_employer_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kis tarah ki company ki taraf se bechte hain?",
+      "why_text": "Manufacturer aur dealer ki sales ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "sales_employer_type",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "manufacturer",
+          "label_text": "Manufacturer ya OEM",
+          "value_text": "manufacturer"
+        },
+        {
+          "option_key": "dealer_distributor",
+          "label_text": "Dealer, distributor ya channel partner",
+          "value_text": "dealer_distributor"
+        },
+        {
+          "option_key": "trader",
+          "label_text": "Trader ya stockist",
+          "value_text": "trader"
+        },
+        {
+          "option_key": "component_supplier",
+          "label_text": "Job-work ya component supplier",
+          "value_text": "component_supplier"
+        },
+        {
+          "option_key": "software_reseller",
+          "label_text": "Software reseller",
+          "value_text": "software_reseller"
+        }
+      ]
+    },
+    {
+      "question_key": "sales_tools_used",
+      "min_tier": "medium",
+      "prompt_text": "Lead aur order ke liye aap kaunsa system chalate hain?",
+      "why_text": "CRM chalane wale sales engineer ko badi company jaldi leti hain.",
+      "target_kind": "attribute",
+      "target_field": "sales_tools_used",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "salesforce",
+          "label_text": "Salesforce",
+          "value_text": "salesforce"
+        },
+        {
+          "option_key": "zoho_crm",
+          "label_text": "Zoho CRM",
+          "value_text": "zoho_crm"
+        },
+        {
+          "option_key": "sap_sd",
+          "label_text": "SAP SD",
+          "value_text": "sap_sd"
+        },
+        {
+          "option_key": "other_crm",
+          "label_text": "Company ka apna CRM ya ERP",
+          "value_text": "other_crm"
+        },
+        {
+          "option_key": "excel",
+          "label_text": "MS Excel",
+          "value_text": "excel"
+        },
+        {
+          "option_key": "indiamart",
+          "label_text": "IndiaMART ya TradeIndia ki leads",
+          "value_text": "indiamart"
+        },
+        {
+          "option_key": "gem_tender_portal",
+          "label_text": "GeM ya e-tender portal",
+          "value_text": "gem_tender_portal"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi system nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sales_territory",
+      "min_tier": "hard",
+      "prompt_text": "Aapka sales area kitna bada hai?",
+      "why_text": "Area ke size se aapke kaam ka andaaza lagta hai.",
+      "target_kind": "attribute",
+      "target_field": "sales_territory",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "city",
+          "label_text": "Ek sheher ya industrial area",
+          "value_text": "city"
+        },
+        {
+          "option_key": "state",
+          "label_text": "Ek poora state",
+          "value_text": "state"
+        },
+        {
+          "option_key": "region",
+          "label_text": "Do-teen state ka region",
+          "value_text": "region"
+        },
+        {
+          "option_key": "all_india",
+          "label_text": "Poora India",
+          "value_text": "all_india"
+        },
+        {
+          "option_key": "export",
+          "label_text": "India ke saath export market bhi",
+          "value_text": "export"
+        }
+      ]
+    },
+    {
+      "question_key": "sales_vehicle",
+      "min_tier": "hard",
+      "prompt_text": "Field visit ke liye aapke paas kaunsi gaadi aur licence hai?",
+      "why_text": "Field sales me roz customer ke plant jaana padta hai.",
+      "target_kind": "attribute",
+      "target_field": "sales_vehicle",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Two-wheeler aur licence",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "car",
+          "label_text": "Car aur licence",
+          "value_text": "car"
+        },
+        {
+          "option_key": "both",
+          "label_text": "Two-wheeler aur car dono",
+          "value_text": "both"
+        },
+        {
+          "option_key": "licence_only",
+          "label_text": "Licence hai, gaadi nahi",
+          "value_text": "licence_only"
+        },
+        {
+          "option_key": "none",
+          "label_text": "Gaadi aur licence dono nahi",
+          "value_text": "none"
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap customer ke part ki drawing padh lete hain?",
+      "why_text": "Drawing samajhne wala sales engineer sahi product suggest kar pata hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "sales_target_size",
+      "min_tier": "hard",
+      "prompt_text": "Aapka saal ka sales target kitna hai?",
+      "why_text": "Target ke size se aapki zimmedari pata chalti hai.",
+      "target_kind": "attribute",
+      "target_field": "sales_target_size",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "point_five",
+          "label_text": "50 lakh tak",
+          "value_text": "0.5"
+        },
+        {
+          "option_key": "upto_two",
+          "label_text": "50 lakh se 2 crore",
+          "value_text": "2"
+        },
+        {
+          "option_key": "upto_five",
+          "label_text": "2 se 5 crore",
+          "value_text": "5"
+        },
+        {
+          "option_key": "upto_twenty",
+          "label_text": "5 se 20 crore",
+          "value_text": "20"
+        },
+        {
+          "option_key": "upto_fifty",
+          "label_text": "20 crore se zyada",
+          "value_text": "50"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Target tay nahi hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "sales_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "sales_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sales_application_work",
+      "min_tier": "hard",
+      "prompt_text": "Technical side ka kaunsa kaam aap khud karte hain?",
+      "why_text": "Technical kaam jaanne wale ko application engineer ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "sales_application_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "product_selection",
+          "label_text": "Drawing dekh kar product ya tooling suggest karna",
+          "value_text": "product_selection"
+        },
+        {
+          "option_key": "cycle_time_costing",
+          "label_text": "Cycle time aur cost per component nikalna",
+          "value_text": "cycle_time_costing"
+        },
+        {
+          "option_key": "onsite_trial",
+          "label_text": "Customer ke plant me trial lena",
+          "value_text": "onsite_trial"
+        },
+        {
+          "option_key": "demo",
+          "label_text": "Machine ya software ka demo dena",
+          "value_text": "demo"
+        },
+        {
+          "option_key": "installation_support",
+          "label_text": "Installation ya training me saath dena",
+          "value_text": "installation_support"
+        },
+        {
+          "option_key": "complaint_handling",
+          "label_text": "Complaint attend karna",
+          "value_text": "complaint_handling"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "sales_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "sales_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sales_commercial_work",
+      "min_tier": "hard",
+      "prompt_text": "Commercial side ka kaunsa kaam aap khud karte hain?",
+      "why_text": "Commercial kaam jaanne wale ko bade order sambhalne ko milte hain.",
+      "target_kind": "attribute",
+      "target_field": "sales_commercial_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "costing",
+          "label_text": "Offer ki costing aur margin nikalna",
+          "value_text": "costing"
+        },
+        {
+          "option_key": "commercial_terms",
+          "label_text": "GST, freight aur payment terms tay karna",
+          "value_text": "commercial_terms"
+        },
+        {
+          "option_key": "rate_contract",
+          "label_text": "Rate contract ya annual price agreement",
+          "value_text": "rate_contract"
+        },
+        {
+          "option_key": "tender_bid",
+          "label_text": "Tender ki technical aur price bid",
+          "value_text": "tender_bid"
+        },
+        {
+          "option_key": "outstanding_followup",
+          "label_text": "Outstanding ka follow-up",
+          "value_text": "outstanding_followup"
+        },
+        {
+          "option_key": "vendor_registration",
+          "label_text": "Customer ke yahan vendor registration",
+          "value_text": "vendor_registration"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "sales_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "sales_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Aapke customer kis industry ke hain?",
+      "why_text": "Jis industry me pehchaan hai, wahi employer aapko dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile aur auto component",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job shop",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "die_mould",
+          "label_text": "Tool room, die aur mould",
+          "value_text": "die_mould"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence ya aerospace",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "pump_valve",
+          "label_text": "Pump aur valve",
+          "value_text": "pump_valve"
+        },
+        {
+          "option_key": "oil_gas",
+          "label_text": "Oil aur gas",
+          "value_text": "oil_gas"
+        },
+        {
+          "option_key": "railways",
+          "label_text": "Railways",
+          "value_text": "railways"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electronics / EMS",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "sales_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "sales_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sales_key_account_work",
+      "min_tier": "hard",
+      "prompt_text": "Bade customer aur dealer ka kaunsa kaam aapne kiya hai?",
+      "why_text": "OEM approval aur dealer sambhalna senior sales ka kaam hai.",
+      "target_kind": "attribute",
+      "target_field": "sales_key_account_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "oem_approval",
+          "label_text": "OEM me product approve karwana",
+          "value_text": "oem_approval"
+        },
+        {
+          "option_key": "competitor_conversion",
+          "label_text": "Competitor ka customer apne paas laana",
+          "value_text": "competitor_conversion"
+        },
+        {
+          "option_key": "dealer_appointment",
+          "label_text": "Naya dealer appoint karna",
+          "value_text": "dealer_appointment"
+        },
+        {
+          "option_key": "dealer_target_stock",
+          "label_text": "Dealer ka target aur stock dekhna",
+          "value_text": "dealer_target_stock"
+        },
+        {
+          "option_key": "key_account_plan",
+          "label_text": "Key account ka saalana plan",
+          "value_text": "key_account_plan"
+        },
+        {
+          "option_key": "dealer_training",
+          "label_text": "Dealer ke sales staff ko training",
+          "value_text": "dealer_training"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "sales_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "sales_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Customer ki kaunsi dikkat aap khud suljhaate hain?",
+      "why_text": "Dikkat suljhaa kar customer bachane wale ki maang zyada hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "late_delivery",
+          "label_text": "Delivery late hone ki shikayat",
+          "value_text": "late_delivery"
+        },
+        {
+          "option_key": "product_failure",
+          "label_text": "Product ya tool fail hona",
+          "value_text": "product_failure"
+        },
+        {
+          "option_key": "payment_stuck",
+          "label_text": "Payment atak jaana",
+          "value_text": "payment_stuck"
+        },
+        {
+          "option_key": "price_competition",
+          "label_text": "Competitor ka kam rate",
+          "value_text": "price_competition"
+        },
+        {
+          "option_key": "trial_failure",
+          "label_text": "Trial fail hona",
+          "value_text": "trial_failure"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "sales_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "sales_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sales_team_work",
+      "min_tier": "hard",
+      "prompt_text": "Team aur planning ka kaunsa kaam aap khud karte hain?",
+      "why_text": "Team aur forecast sambhalne wale ko manager ki post milti hai.",
+      "target_kind": "attribute",
+      "target_field": "sales_team_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "forecast",
+          "label_text": "Sales forecast aur funnel report",
+          "value_text": "forecast"
+        },
+        {
+          "option_key": "target_allocation",
+          "label_text": "Target team me baantna",
+          "value_text": "target_allocation"
+        },
+        {
+          "option_key": "team_training",
+          "label_text": "Naye sales engineer ko training dena",
+          "value_text": "team_training"
+        },
+        {
+          "option_key": "price_approval",
+          "label_text": "Discount aur price approve karna",
+          "value_text": "price_approval"
+        },
+        {
+          "option_key": "exhibition",
+          "label_text": "Exhibition ka plan (IMTEX jaise)",
+          "value_text": "exhibition"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "sales_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "sales_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sales_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapne kaunsi branch se padhai ki hai?",
+      "why_text": "Technical product bechne ke liye company branch dekhti hai.",
+      "target_kind": "attribute",
+      "target_field": "sales_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "production_engg",
+          "label_text": "Production ya Industrial engineering",
+          "value_text": "production_engg"
+        },
+        {
+          "option_key": "electrical_engg",
+          "label_text": "Electrical ya Electronics",
+          "value_text": "electrical_engg"
+        },
+        {
+          "option_key": "engg_mba",
+          "label_text": "Engineering ke saath MBA",
+          "value_text": "engg_mba"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc, B.Com ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad sales me aaya",
+          "value_text": "iti_promoted"
+        }
+      ]
+    },
+    {
+      "question_key": "sales_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke dauraan factory ya sales ka kaunsa kaam aapne kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi employer dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sales_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "College ka major project",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "field_sales_work",
+          "label_text": "Part-time field sales ka kaam",
+          "value_text": "field_sales_work"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "sales_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "sales_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

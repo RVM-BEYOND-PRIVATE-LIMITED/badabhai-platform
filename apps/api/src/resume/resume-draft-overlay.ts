@@ -92,6 +92,8 @@ export const MACHINE_ROW_LABELS: ReadonlySet<string> = new Set([
   "Plants run", // qp_utility — boiler / compressor / DG / water plants run.
   "Trucks driven", // qp_forklift — forklifts / reach trucks driven.
   "Cranes", // qp_crane_rigging — EOT cranes / rigging gear run.
+  // #3017 Wave 3: the equipment a service engineer runs.
+  "Equipment serviced", // qp_service_engineer — machine tools, compressors, DG sets run.
 ]);
 
 /**

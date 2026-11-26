@@ -1,0 +1,1145 @@
+{
+  "_why": "Role track for Safety / EHS Officer (T49), new trade (CEO pack v2). fam_safety_ehs binds NCO 2141.2500, 2141.2600, 2263.9900 and 3257.0600.",
+  "_scope": "Production and Engineering desk trade. The interview separates at engineer; higher contact price from engineer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "21 questions (easy 7, medium 6, advanced 8); 4 mandatory, 4 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T49 (Safety / EHS Officer). Status: NEW",
+  "pack_id": "qp_safety_ehs",
+  "version": 1,
+  "family_id": "fam_safety_ehs",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T49): new trade.",
+  "items": [
+    {
+      "question_key": "ehs_experience",
+      "min_tier": "easy",
+      "prompt_text": "Safety ya EHS ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "ehs_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Safety ya EHS ka kaam kiya hai?"
+    },
+    {
+      "question_key": "ehs_level",
+      "min_tier": "easy",
+      "prompt_text": "Safety department me aapki post kya hai?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "ehs_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Safety Supervisor / Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "engineer",
+          "label_text": "Safety Officer",
+          "value_text": "engineer"
+        },
+        {
+          "option_key": "senior_engineer",
+          "label_text": "Senior Safety Officer",
+          "value_text": "senior_engineer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Asst. Manager EHS",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "EHS Manager / HOD",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Safety department me trainee, safety officer ya senior safety officer hain?"
+    },
+    {
+      "question_key": "ehs_engineer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Work permit par safety ki taraf se sign aap khud karte hain?",
+      "why_text": "Permit khud jaari karne wale officer ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "ehs_engineer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, main sign karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, senior sign karte hain",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "ehs_level"
+        },
+        "right": {
+          "const": [
+            "engineer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "ehs_senior_engineer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Accident ki investigation report aap khud banate hain?",
+      "why_text": "Investigation khud karne wale senior officer ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "ehs_senior_engineer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud banata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Senior banate hain, main madad karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "ehs_level"
+        },
+        "right": {
+          "const": [
+            "senior_engineer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "ehs_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Factory inspector aur pollution board ka kaam aap khud sambhalte hain?",
+      "why_text": "Statutory kaam sambhalne wale ko EHS ki badi zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "ehs_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, main sambhalta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, mere senior sambhalte hain",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "ehs_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "ehs_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Aapke under kitne safety officer hain aur plant me kul kitne log hain?",
+      "why_text": "Poora EHS department sambhalne wale HOD ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "ehs_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "ehs_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "ehs_site_type",
+      "min_tier": "medium",
+      "prompt_text": "Aap kis tarah ki jagah par safety dekhte hain?",
+      "why_text": "Factory aur project site ki safety ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "ehs_site_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "engineering_factory",
+          "label_text": "Engineering ya auto factory",
+          "value_text": "engineering_factory"
+        },
+        {
+          "option_key": "chemical_pharma",
+          "label_text": "Chemical ya pharma plant",
+          "value_text": "chemical_pharma"
+        },
+        {
+          "option_key": "construction_site",
+          "label_text": "Construction ya project site",
+          "value_text": "construction_site"
+        },
+        {
+          "option_key": "heavy_process_plant",
+          "label_text": "Power, steel ya cement plant",
+          "value_text": "heavy_process_plant"
+        },
+        {
+          "option_key": "oil_gas",
+          "label_text": "Oil aur gas, refinery",
+          "value_text": "oil_gas"
+        },
+        {
+          "option_key": "warehouse",
+          "label_text": "Warehouse ya logistics",
+          "value_text": "warehouse"
+        },
+        {
+          "option_key": "fmcg_food",
+          "label_text": "FMCG ya food plant",
+          "value_text": "fmcg_food"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur jagah",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ehs_daily_work",
+      "min_tier": "medium",
+      "prompt_text": "Roz ka kaunsa kaam aap khud karte hain?",
+      "why_text": "Roz ke kaam se employer samajhta hai aap kya sambhal sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "ehs_daily_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "safety_round",
+          "label_text": "Plant ya site ka safety round",
+          "value_text": "safety_round"
+        },
+        {
+          "option_key": "toolbox_talk",
+          "label_text": "Toolbox talk dena",
+          "value_text": "toolbox_talk"
+        },
+        {
+          "option_key": "work_permit",
+          "label_text": "Work permit jaari karna",
+          "value_text": "work_permit"
+        },
+        {
+          "option_key": "ppe_check",
+          "label_text": "PPE issue aur check karna",
+          "value_text": "ppe_check"
+        },
+        {
+          "option_key": "safety_induction",
+          "label_text": "Naye worker ka safety induction",
+          "value_text": "safety_induction"
+        },
+        {
+          "option_key": "near_miss_report",
+          "label_text": "Near-miss aur unsafe act report karna",
+          "value_text": "near_miss_report"
+        },
+        {
+          "option_key": "contractor_safety",
+          "label_text": "Contractor labour ki safety dekhna",
+          "value_text": "contractor_safety"
+        },
+        {
+          "option_key": "fire_equipment_check",
+          "label_text": "Fire extinguisher aur hydrant check karna",
+          "value_text": "fire_equipment_check"
+        }
+      ]
+    },
+    {
+      "question_key": "ehs_permit_types",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse work permit aapne khud handle kiye hain?",
+      "why_text": "Permit ka tajurba safety ke kaam me sabse pehle dekha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "ehs_permit_types",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hot_work",
+          "label_text": "Hot work",
+          "value_text": "hot_work"
+        },
+        {
+          "option_key": "height_work",
+          "label_text": "Height work",
+          "value_text": "height_work"
+        },
+        {
+          "option_key": "confined_space",
+          "label_text": "Confined space",
+          "value_text": "confined_space"
+        },
+        {
+          "option_key": "loto",
+          "label_text": "LOTO, electrical isolation",
+          "value_text": "loto"
+        },
+        {
+          "option_key": "excavation",
+          "label_text": "Excavation",
+          "value_text": "excavation"
+        },
+        {
+          "option_key": "lifting",
+          "label_text": "Lifting ya crane ka kaam",
+          "value_text": "lifting"
+        },
+        {
+          "option_key": "general_permit",
+          "label_text": "Cold work ya general permit",
+          "value_text": "general_permit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Abhi tak koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ehs_extra_certificate",
+      "min_tier": "medium",
+      "prompt_text": "Safety diploma ke alawa kaunsa certificate aapke paas hai?",
+      "why_text": "NEBOSH jaise certificate se badi company aur bahar ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "ehs_extra_certificate",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "nebosh_igc",
+          "label_text": "NEBOSH IGC",
+          "value_text": "nebosh_igc"
+        },
+        {
+          "option_key": "iosh",
+          "label_text": "IOSH Managing Safely",
+          "value_text": "iosh"
+        },
+        {
+          "option_key": "osha_thirty_hour",
+          "label_text": "OSHA 30-hour",
+          "value_text": "osha_thirty_hour"
+        },
+        {
+          "option_key": "ohs_lead_auditor",
+          "label_text": "ISO 45001 Lead Auditor",
+          "value_text": "ohs_lead_auditor"
+        },
+        {
+          "option_key": "internal_auditor",
+          "label_text": "ISO 45001 ya 14001 internal auditor",
+          "value_text": "internal_auditor"
+        },
+        {
+          "option_key": "first_aid",
+          "label_text": "First aid certificate",
+          "value_text": "first_aid"
+        },
+        {
+          "option_key": "fire_fighting_training",
+          "label_text": "Fire fighting training",
+          "value_text": "fire_fighting_training"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Abhi koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ehs_strength_handled",
+      "min_tier": "hard",
+      "prompt_text": "Aapke plant ya site par kul kitne log kaam karte hain?",
+      "why_text": "Plant ke size se aapki zimmedari ka andaaza lagta hai.",
+      "target_kind": "attribute",
+      "target_field": "ehs_strength_handled",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_hundred",
+          "label_text": "100 tak",
+          "value_text": "100"
+        },
+        {
+          "option_key": "upto_two_fifty",
+          "label_text": "101 se 250",
+          "value_text": "250"
+        },
+        {
+          "option_key": "upto_five_hundred",
+          "label_text": "251 se 500",
+          "value_text": "500"
+        },
+        {
+          "option_key": "upto_thousand",
+          "label_text": "501 se 1000",
+          "value_text": "1000"
+        },
+        {
+          "option_key": "upto_two_thousand",
+          "label_text": "1000 se zyada",
+          "value_text": "2000"
+        }
+      ]
+    },
+    {
+      "question_key": "ehs_fire_system",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsa fire system aap khud dekhte hain?",
+      "why_text": "Fire system sambhalne wale officer ki har plant me zaroorat hai.",
+      "target_kind": "attribute",
+      "target_field": "ehs_fire_system",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "extinguishers",
+          "label_text": "Fire extinguisher ki refilling aur checking",
+          "value_text": "extinguishers"
+        },
+        {
+          "option_key": "hydrant",
+          "label_text": "Hydrant aur hose reel",
+          "value_text": "hydrant"
+        },
+        {
+          "option_key": "sprinkler",
+          "label_text": "Sprinkler system",
+          "value_text": "sprinkler"
+        },
+        {
+          "option_key": "fire_alarm",
+          "label_text": "Fire alarm aur smoke detector panel",
+          "value_text": "fire_alarm"
+        },
+        {
+          "option_key": "fire_pump",
+          "label_text": "Fire pump house (jockey, main, diesel pump)",
+          "value_text": "fire_pump"
+        },
+        {
+          "option_key": "fire_crew",
+          "label_text": "Fire tender ya fire crew",
+          "value_text": "fire_crew"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "ehs_documents_owned",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse document aap khud banate ya sambhalte hain?",
+      "why_text": "Document khud banane wale officer audit me kaam aate hain.",
+      "target_kind": "attribute",
+      "target_field": "ehs_documents_owned",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hira",
+          "label_text": "HIRA",
+          "value_text": "hira"
+        },
+        {
+          "option_key": "jsa",
+          "label_text": "JSA",
+          "value_text": "jsa"
+        },
+        {
+          "option_key": "emergency_plan",
+          "label_text": "On-site emergency plan",
+          "value_text": "emergency_plan"
+        },
+        {
+          "option_key": "committee_minutes",
+          "label_text": "Safety committee ke minutes",
+          "value_text": "committee_minutes"
+        },
+        {
+          "option_key": "accident_register",
+          "label_text": "Accident register",
+          "value_text": "accident_register"
+        },
+        {
+          "option_key": "training_record",
+          "label_text": "Safety training calendar aur record",
+          "value_text": "training_record"
+        },
+        {
+          "option_key": "msds",
+          "label_text": "MSDS / SDS file",
+          "value_text": "msds"
+        },
+        {
+          "option_key": "safety_mis",
+          "label_text": "Monthly safety MIS",
+          "value_text": "safety_mis"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ehs_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ehs_level"
+            },
+            "right": {
+              "const": [
+                "engineer",
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ehs_standards",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse standard ya audit par aapne kaam kiya hai?",
+      "why_text": "ISO aur audit ka tajurba certified company maangti hain.",
+      "target_kind": "attribute",
+      "target_field": "ehs_standards",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "iso_ohs",
+          "label_text": "ISO 45001",
+          "value_text": "iso_ohs"
+        },
+        {
+          "option_key": "iso_ems",
+          "label_text": "ISO 14001",
+          "value_text": "iso_ems"
+        },
+        {
+          "option_key": "customer_audit",
+          "label_text": "Customer ya OEM ka safety audit",
+          "value_text": "customer_audit"
+        },
+        {
+          "option_key": "external_safety_audit",
+          "label_text": "Third-party safety audit (IS 14489)",
+          "value_text": "external_safety_audit"
+        },
+        {
+          "option_key": "fire_audit",
+          "label_text": "Fire audit",
+          "value_text": "fire_audit"
+        },
+        {
+          "option_key": "internal_audit",
+          "label_text": "Internal audit khud karta hoon",
+          "value_text": "internal_audit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ehs_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ehs_level"
+            },
+            "right": {
+              "const": [
+                "engineer",
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ehs_environment_work",
+      "min_tier": "hard",
+      "prompt_text": "Environment ka kaunsa kaam aap dekhte hain?",
+      "why_text": "Safety ke saath environment sambhalne wale ko EHS ki post milti hai.",
+      "target_kind": "attribute",
+      "target_field": "ehs_environment_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "etp_stp_records",
+          "label_text": "ETP / STP ka record rakhna",
+          "value_text": "etp_stp_records"
+        },
+        {
+          "option_key": "air_monitoring",
+          "label_text": "Stack aur ambient air monitoring karwana",
+          "value_text": "air_monitoring"
+        },
+        {
+          "option_key": "hazardous_waste",
+          "label_text": "Hazardous waste ka storage, manifest aur disposal",
+          "value_text": "hazardous_waste"
+        },
+        {
+          "option_key": "environment_statement",
+          "label_text": "Environment statement (Form V) bharna",
+          "value_text": "environment_statement"
+        },
+        {
+          "option_key": "consent_compliance",
+          "label_text": "Consent (CTO) ki sharten poori karwana",
+          "value_text": "consent_compliance"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Environment ka kaam main nahi dekhta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ehs_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ehs_level"
+            },
+            "right": {
+              "const": [
+                "engineer",
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ehs_hazard_handled",
+      "min_tier": "hard",
+      "prompt_text": "Aapke plant ya site par kaunsa bada khatra rehta hai?",
+      "why_text": "Jis khatre me kaam kiya hai, usi tarah ke plant aapko dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "ehs_hazard_handled",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "machine_guarding",
+          "label_text": "Power press aur machine guarding",
+          "value_text": "machine_guarding"
+        },
+        {
+          "option_key": "molten_metal",
+          "label_text": "Furnace ya molten metal",
+          "value_text": "molten_metal"
+        },
+        {
+          "option_key": "chemicals",
+          "label_text": "Chemical, solvent ya acid",
+          "value_text": "chemicals"
+        },
+        {
+          "option_key": "flammable_gas",
+          "label_text": "LPG, PNG ya hydrogen jaisi gas",
+          "value_text": "flammable_gas"
+        },
+        {
+          "option_key": "height_scaffolding",
+          "label_text": "Height work aur scaffolding",
+          "value_text": "height_scaffolding"
+        },
+        {
+          "option_key": "heavy_lifting",
+          "label_text": "Crane aur heavy lifting",
+          "value_text": "heavy_lifting"
+        },
+        {
+          "option_key": "electrical",
+          "label_text": "HT / LT electrical",
+          "value_text": "electrical"
+        },
+        {
+          "option_key": "paint_dust",
+          "label_text": "Paint shop ya dust ka khatra",
+          "value_text": "paint_dust"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ehs_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ehs_level"
+            },
+            "right": {
+              "const": [
+                "engineer",
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ehs_statutory_work",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsa statutory kaam aap khud sambhalte hain?",
+      "why_text": "Statutory kaam jaanne wale officer ko senior post milti hai.",
+      "target_kind": "attribute",
+      "target_field": "ehs_statutory_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory_licence",
+          "label_text": "Factory licence renewal",
+          "value_text": "factory_licence"
+        },
+        {
+          "option_key": "pollution_consent",
+          "label_text": "Pollution board se CTE / CTO lena ya renew karwana",
+          "value_text": "pollution_consent"
+        },
+        {
+          "option_key": "fire_noc",
+          "label_text": "Fire NOC",
+          "value_text": "fire_noc"
+        },
+        {
+          "option_key": "statutory_testing",
+          "label_text": "Pressure vessel aur lifting tackle ki testing karwana",
+          "value_text": "statutory_testing"
+        },
+        {
+          "option_key": "health_checkup",
+          "label_text": "Workers ka health check-up record",
+          "value_text": "health_checkup"
+        },
+        {
+          "option_key": "inspector_visit",
+          "label_text": "Factory inspector ki visit sambhalna",
+          "value_text": "inspector_visit"
+        },
+        {
+          "option_key": "statutory_returns",
+          "label_text": "Factories Act ke return bharna",
+          "value_text": "statutory_returns"
+        },
+        {
+          "option_key": "legal_register",
+          "label_text": "Legal register update rakhna",
+          "value_text": "legal_register"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ehs_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ehs_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ehs_incident_work",
+      "min_tier": "hard",
+      "prompt_text": "Accident aur emergency ka kaunsa kaam aap khud sambhalte hain?",
+      "why_text": "Accident ke baad sahi kaam karne wale officer par company bharosa karti hai.",
+      "target_kind": "attribute",
+      "target_field": "ehs_incident_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "accident_investigation",
+          "label_text": "Accident investigation (root cause)",
+          "value_text": "accident_investigation"
+        },
+        {
+          "option_key": "capa_closure",
+          "label_text": "CAPA band karwana",
+          "value_text": "capa_closure"
+        },
+        {
+          "option_key": "reportable_accident_filing",
+          "label_text": "Reportable accident ki soochna factory inspector ko dena",
+          "value_text": "reportable_accident_filing"
+        },
+        {
+          "option_key": "esic_claim",
+          "label_text": "ESIC ya compensation ka case",
+          "value_text": "esic_claim"
+        },
+        {
+          "option_key": "mock_drill",
+          "label_text": "Mock drill plan aur report",
+          "value_text": "mock_drill"
+        },
+        {
+          "option_key": "safety_committee",
+          "label_text": "Safety committee meeting chalana",
+          "value_text": "safety_committee"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "ehs_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "ehs_level"
+            },
+            "right": {
+              "const": [
+                "senior_engineer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "ehs_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Safety ki aapki main padhai kaunsi hai?",
+      "why_text": "Factory me safety officer ke liye ADIS ya PDIS maanga jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "ehs_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "adis",
+          "label_text": "ADIS (Advanced Diploma in Industrial Safety)",
+          "value_text": "adis"
+        },
+        {
+          "option_key": "pdis",
+          "label_text": "PDIS (Post Diploma in Industrial Safety)",
+          "value_text": "pdis"
+        },
+        {
+          "option_key": "fire_safety_degree",
+          "label_text": "B.Tech ya M.Tech Fire and Safety / HSE",
+          "value_text": "fire_safety_degree"
+        },
+        {
+          "option_key": "fire_safety_diploma",
+          "label_text": "Diploma in Fire and Safety (1 saal ka)",
+          "value_text": "fire_safety_diploma"
+        },
+        {
+          "option_key": "engg_no_safety_diploma",
+          "label_text": "Engineering diploma ya degree, safety diploma nahi",
+          "value_text": "engg_no_safety_diploma"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree, safety diploma nahi",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad safety me promote hua",
+          "value_text": "iti_promoted"
+        }
+      ]
+    },
+    {
+      "question_key": "ehs_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke dauraan safety ka kaunsa kaam aapne dekha ya kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi employer dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "ehs_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship factory ya site par",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "Safety diploma ka project report",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "fire_drill_practical",
+          "label_text": "Fire fighting ka practical drill",
+          "value_text": "fire_drill_practical"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Industrial visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "ehs_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "ehs_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

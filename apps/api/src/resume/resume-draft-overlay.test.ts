@@ -285,6 +285,17 @@ describe("MACHINE_ROW_LABELS — the split stays true to the trade maps (#2257)"
       "qp_calibration",
       "qp_material_lab",
       "qp_instrumentation",
+      // #3017 Wave 3 desk trades whose capability is scope, not equipment: safety sites,
+      // project types, sales lines, store types, dispatch functions, CAE domains and piping
+      // software are capability the draughtsman's and PLC's way. Service equipment IS equipment,
+      // so qp_service_engineer DOES print a Machines line.
+      "qp_safety_ehs",
+      "qp_project_site",
+      "qp_technical_sales",
+      "qp_stores",
+      "qp_dispatch_logistics",
+      "qp_cae_fea",
+      "qp_piping_design",
     ]);
     for (const { pack_id } of TRADE_RESUME_MAPS) {
       const hasMachineRow = listRows.some(

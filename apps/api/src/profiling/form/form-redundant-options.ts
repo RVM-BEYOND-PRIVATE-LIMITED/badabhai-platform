@@ -46,6 +46,11 @@ const FORM_REDUNDANT_OTHER_LABELS: ReadonlySet<string> = new Set([
   "koi aur brand",
   "koi aur robot",
   "koi aur make ya boiler nahi",
+  // CEO pack v2, Wave 3 (#3017): the escape chips of the compiled sheets.
+  "koi aur solver",
+  "koi aur project",
+  "koi aur jagah",
+  "koi aur material",
 ]);
 
 /** NFKC → lower case → single spaces. Deliberately no particle stripping: whole labels only. */

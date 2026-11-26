@@ -65,4 +65,15 @@ export const PROJECT_SITE_ENGINEER = {
       "site fabricator",
     ],
   },
+  fresher: {
+    workshopMachines: {
+      internship: "Internship",
+      apprenticeship: "Apprenticeship (NATS / NAPS)",
+      college_project: "College major project",
+      industrial_visit: "Industrial visit",
+    },
+    // The pack asks no trade-test question, so no status ever maps here.
+    tradeTest: {},
+    trainingLabel: "Training and projects",
+  },
 } as const satisfies RoleFormDescriptor;

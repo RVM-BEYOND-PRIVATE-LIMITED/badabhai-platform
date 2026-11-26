@@ -74,7 +74,7 @@ export interface TradeCatalogueEntry {
 }
 
 /** Waves at or below this number are loaded, and the three tests check them. */
-export const LOADED_WAVE = 0;
+export const LOADED_WAVE = 3;
 
 export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
   // ══ Wave 0 — the 16 live trades ═══════════════════════════════════════════
@@ -2361,6 +2361,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 3,
     packId: "qp_service_engineer",
+    claimQuestionKey: "service_equipment",
     familyId: "fam_service_engineer",
     matchSkillId: "mskill_service_engineer",
     ladder: [
@@ -2404,6 +2405,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 3,
     packId: "qp_safety_ehs",
+    claimQuestionKey: "ehs_site_type",
     familyId: "fam_safety_ehs",
     matchSkillId: "mskill_safety_officer",
     ladder: [
@@ -2443,6 +2445,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 3,
     packId: "qp_project_site",
+    claimQuestionKey: "site_project_type",
     familyId: "fam_project_site",
     matchSkillId: "mskill_project_site_engineer",
     ladder: [
@@ -2483,6 +2486,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 3,
     packId: "qp_technical_sales",
+    claimQuestionKey: "sales_product_line",
     familyId: "fam_technical_sales",
     matchSkillId: "mskill_technical_sales_engineer",
     ladder: [
@@ -2523,6 +2527,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 3,
     packId: "qp_stores",
+    claimQuestionKey: "store_type",
     familyId: "fam_stores",
     matchSkillId: "mskill_store_keeper",
     ladder: [
@@ -2574,6 +2579,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 3,
     packId: "qp_dispatch_logistics",
+    claimQuestionKey: "dispatch_function",
     familyId: "fam_dispatch_logistics",
     matchSkillId: "mskill_dispatch_logistics_executive",
     ladder: [
@@ -2624,6 +2630,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 3,
     packId: "qp_cae_fea",
+    claimQuestionKey: "cae_domain",
     familyId: "fam_cae_fea",
     matchSkillId: "mskill_cae_analyst",
     ladder: [
@@ -2664,6 +2671,7 @@ export const TRADE_CATALOGUE: readonly TradeCatalogueEntry[] = [
     status: "new",
     wave: 3,
     packId: "qp_piping_design",
+    claimQuestionKey: "piping_software",
     familyId: "fam_piping_design",
     matchSkillId: "mskill_piping_designer",
     ladder: [

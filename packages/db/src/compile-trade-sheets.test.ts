@@ -88,6 +88,18 @@ const WAVE_2_FORMS = [
   "qp_crane_rigging",
 ];
 
+/** The 8 forms Wave 3 writes (#3017). */
+const WAVE_3_FORMS = [
+  "qp_service_engineer",
+  "qp_safety_ehs",
+  "qp_project_site",
+  "qp_technical_sales",
+  "qp_stores",
+  "qp_dispatch_logistics",
+  "qp_cae_fea",
+  "qp_piping_design",
+];
+
 function compileAll(): PackRecord[] {
   const overrides = loadSheetOverrides(OVERRIDES);
   return compileAllSheets(readFileSync(PACK, "utf8"), overrides);

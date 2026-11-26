@@ -1,0 +1,1249 @@
+{
+  "_why": "Role track for Piping Designer / Draughtsman (T60), new trade (CEO pack v2). fam_piping_design binds the new piping entries under NCO 3118 and 2144.",
+  "_scope": "Design desk trade. The interview separates at senior_designer; higher contact price from designer.",
+  "_depth": "THE TIER GATE IS the experience question, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "21 questions (easy 6, medium 5, advanced 10); 4 mandatory, 3 core. The fresher block asks only at experience 0; senior gates stay inside MAX_ENGINE_ASKS.",
+  "_sheet": "CEO pack v2, sheet T60 (Piping Designer / Draughtsman). Status: NEW",
+  "pack_id": "qp_piping_design",
+  "version": 1,
+  "family_id": "fam_piping_design",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO pack v2, sheet T60): new trade.",
+  "items": [
+    {
+      "question_key": "piping_experience",
+      "min_tier": "easy",
+      "prompt_text": "Piping design ya drafting ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "piping_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal Piping design ya drafting ka kaam kiya hai?"
+    },
+    {
+      "question_key": "piping_level",
+      "min_tier": "easy",
+      "prompt_text": "Piping design office me aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "piping_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "designer",
+          "label_text": "Piping Designer / Draughtsman",
+          "value_text": "designer"
+        },
+        {
+          "option_key": "senior_designer",
+          "label_text": "Senior Designer",
+          "value_text": "senior_designer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Lead Designer / Checker",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Head / Piping HOD",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Design office me trainee, designer ya senior designer hain?"
+    },
+    {
+      "question_key": "piping_senior_designer_confirm",
+      "min_tier": "easy",
+      "prompt_text": "P&ID aur equipment layout se poore area ki routing aap khud karte ho?",
+      "why_text": "Poore area ki routing khud karne wale senior ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "piping_senior_designer_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, senior ki routing par kaam karta hoon",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "piping_level"
+        },
+        "right": {
+          "const": [
+            "senior_designer"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "piping_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Isometric aur GA check karke IFC release aap karte ho?",
+      "why_text": "Drawing check karke release karne wale lead ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "piping_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "self",
+          "label_text": "Haan, check karke release karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other",
+          "label_text": "Nahi, lead ya checker karta hai",
+          "value_text": "other"
+        }
+      ],
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "piping_level"
+        },
+        "right": {
+          "const": [
+            "lead"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "piping_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne designer aapke under hain aur kitne bade project aap sambhalte hain?",
+      "why_text": "Team sambhalne wale piping head ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "piping_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "piping_level"
+        },
+        "right": {
+          "const": [
+            "supervisor"
+          ]
+        }
+      }
+    },
+    {
+      "question_key": "piping_software",
+      "min_tier": "medium",
+      "prompt_text": "Piping ke liye aap kaunsa software chalate hain?",
+      "why_text": "Software ke hisaab se sahi project dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "piping_software",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pdms",
+          "label_text": "PDMS",
+          "value_text": "pdms"
+        },
+        {
+          "option_key": "e_three_d",
+          "label_text": "AVEVA E3D",
+          "value_text": "e_three_d"
+        },
+        {
+          "option_key": "smart_three_d",
+          "label_text": "SP3D / Smart 3D",
+          "value_text": "smart_three_d"
+        },
+        {
+          "option_key": "plant_three_d",
+          "label_text": "AutoCAD Plant 3D",
+          "value_text": "plant_three_d"
+        },
+        {
+          "option_key": "cadworx",
+          "label_text": "CADWorx",
+          "value_text": "cadworx"
+        },
+        {
+          "option_key": "autocad",
+          "label_text": "AutoCAD, 2D layout aur isometric",
+          "value_text": "autocad"
+        },
+        {
+          "option_key": "navisworks",
+          "label_text": "Navisworks",
+          "value_text": "navisworks"
+        },
+        {
+          "option_key": "microstation",
+          "label_text": "MicroStation",
+          "value_text": "microstation"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur software",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "piping_deliverables",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi drawing ya document khud banate hain?",
+      "why_text": "Drawing ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "piping_deliverables",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "piping_ga",
+          "label_text": "Piping GA / layout drawing",
+          "value_text": "piping_ga"
+        },
+        {
+          "option_key": "isometric",
+          "label_text": "Isometric drawing",
+          "value_text": "isometric"
+        },
+        {
+          "option_key": "spool_drawing",
+          "label_text": "Spool ya shop fabrication drawing",
+          "value_text": "spool_drawing"
+        },
+        {
+          "option_key": "equipment_layout",
+          "label_text": "Equipment layout / plot plan",
+          "value_text": "equipment_layout"
+        },
+        {
+          "option_key": "pid_drafting",
+          "label_text": "P&ID drafting",
+          "value_text": "pid_drafting"
+        },
+        {
+          "option_key": "mto",
+          "label_text": "MTO / BOM",
+          "value_text": "mto"
+        },
+        {
+          "option_key": "support_drawing",
+          "label_text": "Pipe support drawing",
+          "value_text": "support_drawing"
+        },
+        {
+          "option_key": "nozzle_orientation",
+          "label_text": "Nozzle orientation drawing",
+          "value_text": "nozzle_orientation"
+        },
+        {
+          "option_key": "as_built",
+          "label_text": "As-built drawing",
+          "value_text": "as_built"
+        }
+      ]
+    },
+    {
+      "question_key": "piping_model_work",
+      "min_tier": "medium",
+      "prompt_text": "3D model me aap kaunsa kaam khud karte hain?",
+      "why_text": "Model ka kaam jaanne wale ko bade project milte hain.",
+      "target_kind": "attribute",
+      "target_field": "piping_model_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "equipment_modelling",
+          "label_text": "Equipment modelling",
+          "value_text": "equipment_modelling"
+        },
+        {
+          "option_key": "pipe_routing",
+          "label_text": "Pipe routing",
+          "value_text": "pipe_routing"
+        },
+        {
+          "option_key": "support_modelling",
+          "label_text": "Support modelling",
+          "value_text": "support_modelling"
+        },
+        {
+          "option_key": "structure_modelling",
+          "label_text": "Structure aur platform modelling",
+          "value_text": "structure_modelling"
+        },
+        {
+          "option_key": "iso_extraction",
+          "label_text": "Isometric extraction",
+          "value_text": "iso_extraction"
+        },
+        {
+          "option_key": "drawing_extraction",
+          "label_text": "GA drawing extraction",
+          "value_text": "drawing_extraction"
+        },
+        {
+          "option_key": "clash_check",
+          "label_text": "Clash check aur clash clearing",
+          "value_text": "clash_check"
+        },
+        {
+          "option_key": "model_review",
+          "label_text": "Model review, 30, 60 aur 90 percent",
+          "value_text": "model_review"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "3D model par kaam nahi karta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "piping_employer_type",
+      "min_tier": "hard",
+      "prompt_text": "Aapne kis tarah ki company me kaam kiya hai?",
+      "why_text": "Company ke type se kaam ka tareeka samajh aata hai.",
+      "target_kind": "attribute",
+      "target_field": "piping_employer_type",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "epc",
+          "label_text": "EPC company",
+          "value_text": "epc"
+        },
+        {
+          "option_key": "engg_consultancy",
+          "label_text": "Detail engineering consultancy",
+          "value_text": "engg_consultancy"
+        },
+        {
+          "option_key": "drafting_services",
+          "label_text": "Outsourcing ya drafting services company",
+          "value_text": "drafting_services"
+        },
+        {
+          "option_key": "owner",
+          "label_text": "Plant owner ki project team",
+          "value_text": "owner"
+        },
+        {
+          "option_key": "fabricator",
+          "label_text": "Skid, package unit ya fabrication shop",
+          "value_text": "fabricator"
+        },
+        {
+          "option_key": "site_contractor",
+          "label_text": "Site par contractor ke saath",
+          "value_text": "site_contractor"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Koi aur",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis tarah ke plant ki piping par kaam kiya hai?",
+      "why_text": "Plant ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "oil_gas",
+          "label_text": "Oil, gas aur refinery",
+          "value_text": "oil_gas"
+        },
+        {
+          "option_key": "chemical",
+          "label_text": "Petrochemical aur chemical",
+          "value_text": "chemical"
+        },
+        {
+          "option_key": "pharma",
+          "label_text": "Pharma / API plant",
+          "value_text": "pharma"
+        },
+        {
+          "option_key": "power_plant",
+          "label_text": "Power plant",
+          "value_text": "power_plant"
+        },
+        {
+          "option_key": "fertiliser",
+          "label_text": "Fertiliser",
+          "value_text": "fertiliser"
+        },
+        {
+          "option_key": "water_treatment",
+          "label_text": "Water aur wastewater treatment",
+          "value_text": "water_treatment"
+        },
+        {
+          "option_key": "food_dairy",
+          "label_text": "Food, dairy aur brewery",
+          "value_text": "food_dairy"
+        },
+        {
+          "option_key": "steel_plant",
+          "label_text": "Steel plant",
+          "value_text": "steel_plant"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "piping_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "piping_level"
+            },
+            "right": {
+              "const": [
+                "senior_designer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "piping_codes",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse code aur standard ke hisaab se kaam kiya hai?",
+      "why_text": "Code jaanne wale designer ki drawing bina galti ke nikalti hai.",
+      "target_kind": "attribute",
+      "target_field": "piping_codes",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "asme_process_piping",
+          "label_text": "ASME B31.3, process piping",
+          "value_text": "asme_process_piping"
+        },
+        {
+          "option_key": "asme_power_piping",
+          "label_text": "ASME B31.1, power piping",
+          "value_text": "asme_power_piping"
+        },
+        {
+          "option_key": "asme_flanges_fittings",
+          "label_text": "ASME B16.5 flange aur B16.9 fittings",
+          "value_text": "asme_flanges_fittings"
+        },
+        {
+          "option_key": "ibr",
+          "label_text": "IBR",
+          "value_text": "ibr"
+        },
+        {
+          "option_key": "oisd",
+          "label_text": "OISD",
+          "value_text": "oisd"
+        },
+        {
+          "option_key": "api",
+          "label_text": "API standard, pump ya tank",
+          "value_text": "api"
+        },
+        {
+          "option_key": "pms",
+          "label_text": "PMS, piping material specification",
+          "value_text": "pms"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "piping_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "piping_level"
+            },
+            "right": {
+              "const": [
+                "senior_designer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse material ki piping par kaam kiya hai?",
+      "why_text": "Material ke hisaab se fitting aur support alag hote hain.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "carbon_steel",
+          "label_text": "Carbon steel",
+          "value_text": "carbon_steel"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel, SS304 ya SS316",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "Alloy steel, P11, P22 ya P91",
+          "value_text": "alloy_steel"
+        },
+        {
+          "option_key": "duplex",
+          "label_text": "Duplex",
+          "value_text": "duplex"
+        },
+        {
+          "option_key": "non_metallic",
+          "label_text": "HDPE, FRP ya GRP",
+          "value_text": "non_metallic"
+        },
+        {
+          "option_key": "lined_pipe",
+          "label_text": "Lined pipe, PTFE ya rubber lined",
+          "value_text": "lined_pipe"
+        },
+        {
+          "option_key": "jacketed",
+          "label_text": "Jacketed piping",
+          "value_text": "jacketed"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "piping_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "piping_level"
+            },
+            "right": {
+              "const": [
+                "senior_designer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "piping_equipment_area",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse equipment ke aas-paas ki piping aapne ki hai?",
+      "why_text": "Equipment piping ka tajurba layout ke kaam me sabse zyada dekha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "piping_equipment_area",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pump",
+          "label_text": "Pump piping",
+          "value_text": "pump"
+        },
+        {
+          "option_key": "column",
+          "label_text": "Column ya tower piping",
+          "value_text": "column"
+        },
+        {
+          "option_key": "exchanger",
+          "label_text": "Heat exchanger",
+          "value_text": "exchanger"
+        },
+        {
+          "option_key": "pipe_rack",
+          "label_text": "Pipe rack",
+          "value_text": "pipe_rack"
+        },
+        {
+          "option_key": "vessel_reactor",
+          "label_text": "Vessel aur reactor",
+          "value_text": "vessel_reactor"
+        },
+        {
+          "option_key": "compressor",
+          "label_text": "Compressor ya turbine",
+          "value_text": "compressor"
+        },
+        {
+          "option_key": "tank_farm",
+          "label_text": "Tank farm",
+          "value_text": "tank_farm"
+        },
+        {
+          "option_key": "utility_tracing",
+          "label_text": "Utility station aur steam tracing",
+          "value_text": "utility_tracing"
+        },
+        {
+          "option_key": "underground",
+          "label_text": "Underground aur fire water piping",
+          "value_text": "underground"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "piping_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "piping_level"
+            },
+            "right": {
+              "const": [
+                "senior_designer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "piping_support_work",
+      "min_tier": "hard",
+      "prompt_text": "Pipe support ka kaunsa kaam aap karte hain?",
+      "why_text": "Support ka kaam jaanne wale designer kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "piping_support_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "standard_support",
+          "label_text": "Standard support chunna, shoe, guide ya anchor",
+          "value_text": "standard_support"
+        },
+        {
+          "option_key": "special_support",
+          "label_text": "Special support drawing banana",
+          "value_text": "special_support"
+        },
+        {
+          "option_key": "support_span",
+          "label_text": "Support ki location aur span tay karna",
+          "value_text": "support_span"
+        },
+        {
+          "option_key": "spring_support",
+          "label_text": "Spring hanger ka data stress team se lena",
+          "value_text": "spring_support"
+        },
+        {
+          "option_key": "support_mto",
+          "label_text": "Support MTO",
+          "value_text": "support_mto"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Support ka kaam nahi kiya",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "piping_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "piping_level"
+            },
+            "right": {
+              "const": [
+                "senior_designer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "piping_site_exposure",
+      "min_tier": "hard",
+      "prompt_text": "Site ya fabrication shop ka kaunsa kaam aapne kiya hai?",
+      "why_text": "Site dekh chuke designer ki drawing zyada practical hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "piping_site_exposure",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "as_built_markup",
+          "label_text": "Site par as-built marking",
+          "value_text": "as_built_markup"
+        },
+        {
+          "option_key": "site_survey",
+          "label_text": "Site survey karke modelling",
+          "value_text": "site_survey"
+        },
+        {
+          "option_key": "spool_shop",
+          "label_text": "Fabrication shop ke liye spool drawing",
+          "value_text": "spool_shop"
+        },
+        {
+          "option_key": "construction_support",
+          "label_text": "Site office me construction support",
+          "value_text": "construction_support"
+        },
+        {
+          "option_key": "test_pack",
+          "label_text": "Hydrotest pack ya test loop banana",
+          "value_text": "test_pack"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Site ka tajurba nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "piping_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "piping_level"
+            },
+            "right": {
+              "const": [
+                "senior_designer",
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "piping_stress_exposure",
+      "min_tier": "hard",
+      "prompt_text": "Stress-critical line par aapka kaam kitna hai?",
+      "why_text": "Stress ka kaam jaanne wale designer ko senior kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "piping_stress_exposure",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Stress ka kaam nahi kiya",
+          "value_text": "none"
+        },
+        {
+          "option_key": "incorporate_comments",
+          "label_text": "Stress team ke comment model me lagata hoon",
+          "value_text": "incorporate_comments"
+        },
+        {
+          "option_key": "caesar_basic",
+          "label_text": "Caesar II me basic model aur run karta hoon",
+          "value_text": "caesar_basic"
+        },
+        {
+          "option_key": "caesar_full",
+          "label_text": "Caesar II me poora analysis aur report banata hoon",
+          "value_text": "caesar_full"
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "piping_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "piping_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "piping_checking_work",
+      "min_tier": "hard",
+      "prompt_text": "Checking aur coordination me aap kya kya karte hain?",
+      "why_text": "Checking aur coordination karne wale ko lead banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "piping_checking_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "iso_check",
+          "label_text": "Isometric checking",
+          "value_text": "iso_check"
+        },
+        {
+          "option_key": "ga_check",
+          "label_text": "GA aur layout checking",
+          "value_text": "ga_check"
+        },
+        {
+          "option_key": "vendor_drawing_review",
+          "label_text": "Vendor drawing review, equipment nozzle",
+          "value_text": "vendor_drawing_review"
+        },
+        {
+          "option_key": "discipline_interface",
+          "label_text": "Civil, electrical aur instrument se interface",
+          "value_text": "discipline_interface"
+        },
+        {
+          "option_key": "client_model_review",
+          "label_text": "Client ke saath model review",
+          "value_text": "client_model_review"
+        },
+        {
+          "option_key": "mto_reconcile",
+          "label_text": "MTO reconcile karna",
+          "value_text": "mto_reconcile"
+        },
+        {
+          "option_key": "site_query",
+          "label_text": "Site query ka jawab dena",
+          "value_text": "site_query"
+        },
+        {
+          "option_key": "manhour_estimate",
+          "label_text": "Man-hour estimate aur progress report",
+          "value_text": "manhour_estimate"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "piping_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "piping_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "piping_admin_work",
+      "min_tier": "hard",
+      "prompt_text": "3D software ke admin ka kaunsa kaam aap karte hain?",
+      "why_text": "Admin ka kaam jaanne wale log bahut kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "piping_admin_work",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "catalogue_spec",
+          "label_text": "Piping spec aur catalogue banana",
+          "value_text": "catalogue_spec"
+        },
+        {
+          "option_key": "template_setup",
+          "label_text": "Isometric ya drawing template setup",
+          "value_text": "template_setup"
+        },
+        {
+          "option_key": "project_setup",
+          "label_text": "Project database setup",
+          "value_text": "project_setup"
+        },
+        {
+          "option_key": "report_customise",
+          "label_text": "Report ya MTO customise karna",
+          "value_text": "report_customise"
+        },
+        {
+          "option_key": "pml",
+          "label_text": "PML ya macro likhna",
+          "value_text": "pml"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Admin ka kaam nahi karta",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "piping_experience"
+            },
+            "right": {
+              "const": 5
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "piping_level"
+            },
+            "right": {
+              "const": [
+                "lead",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "piping_qualification_branch",
+      "min_tier": "medium",
+      "prompt_text": "Aapki padhai kis branch ya course se hai?",
+      "why_text": "Kai engineering company branch dekhkar hi bulati hain.",
+      "target_kind": "attribute",
+      "target_field": "piping_qualification_branch",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "diploma_mech",
+          "label_text": "Diploma Mechanical",
+          "value_text": "diploma_mech"
+        },
+        {
+          "option_key": "btech_mech",
+          "label_text": "B.Tech / BE Mechanical",
+          "value_text": "btech_mech"
+        },
+        {
+          "option_key": "chemical_engg",
+          "label_text": "Chemical engineering",
+          "value_text": "chemical_engg"
+        },
+        {
+          "option_key": "production_engg",
+          "label_text": "Production ya Industrial engineering",
+          "value_text": "production_engg"
+        },
+        {
+          "option_key": "iti_draughtsman",
+          "label_text": "ITI Draughtsman, Mechanical ya Civil",
+          "value_text": "iti_draughtsman"
+        },
+        {
+          "option_key": "iti_promoted",
+          "label_text": "ITI ke baad promote hua",
+          "value_text": "iti_promoted"
+        },
+        {
+          "option_key": "other_degree",
+          "label_text": "B.Sc ya koi aur degree",
+          "value_text": "other_degree"
+        },
+        {
+          "option_key": "piping_course",
+          "label_text": "Sirf private institute ka piping course",
+          "value_text": "piping_course"
+        }
+      ]
+    },
+    {
+      "question_key": "piping_training_exposure",
+      "min_tier": "easy",
+      "prompt_text": "Padhai ke dauraan piping ka kaunsa practical exposure mila hai?",
+      "why_text": "Training ka exposure bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "piping_training_exposure",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "internship",
+          "label_text": "Internship company me",
+          "value_text": "internship"
+        },
+        {
+          "option_key": "apprenticeship",
+          "label_text": "Apprenticeship (NATS / NAPS)",
+          "value_text": "apprenticeship"
+        },
+        {
+          "option_key": "college_project",
+          "label_text": "College ka major project",
+          "value_text": "college_project"
+        },
+        {
+          "option_key": "piping_course",
+          "label_text": "Private institute ka piping ya PDMS course",
+          "value_text": "piping_course"
+        },
+        {
+          "option_key": "industrial_visit",
+          "label_text": "Plant ya site visit hi hua hai",
+          "value_text": "industrial_visit"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Kuch nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "piping_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "College ya training me kya project banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "piping_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

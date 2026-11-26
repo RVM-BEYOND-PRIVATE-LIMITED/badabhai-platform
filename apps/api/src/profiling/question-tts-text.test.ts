@@ -101,9 +101,9 @@ const VOICE_CLIPS = CLOSURE.clips.filter((c) => !VOICE_HELD_ONLY.has(c.id));
 describe("question-tts-text — coverage of the reply closure", () => {
   it("holds back only clips the not-voice-ready forms alone can say, and every one is in the closure", () => {
     // Today: the 18 Wave 1 forms (#3008, and the foundry split #3009) plus the 18 Wave 2
-    // forms (#3016), and never a live form's file. The old foundry form is deprecated, not
+    // forms (#3016) plus the 8 Wave 3 forms (#3017), and never a live form's file. The old foundry form is deprecated, not
     // held: its clips keep their twins.
-    expect(NOT_YET_VOICE_READY.size).toBe(36);
+    expect(NOT_YET_VOICE_READY.size).toBe(44);
     expect(NOT_YET_VOICE_READY.has("qp_edm_wirecut")).toBe(false);
     expect(NOT_YET_VOICE_READY.has("qp_edm_wirecut@2")).toBe(true);
     for (const form of ["qp_foundry_casting", "qp_die_casting", "qp_forging"]) {
