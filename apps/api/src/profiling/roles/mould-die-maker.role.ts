@@ -1,20 +1,16 @@
 import type { RoleFormDescriptor } from "./role-form-descriptor";
 
 /**
- * MOULD / DIE MAKER (PLASTICS) — 2-plate, 3-plate and hot-runner moulds, EDM, polishing.
+ * MOULD / DIE MAKER (PLASTICS) — RETIRED, FOLDED INTO TOOL & DIE MAKER (#3030).
  *
- * DECLARED FOR BATCH 3, and this one is load-bearing for Batch 2 rather than merely early.
+ * CEO pack v2 Q4 (ruled 23 Nov 2026): "Mould / Die Maker is not a new trade: it is the live
+ * Tool & Die Maker (T07), and the phrase leads there."
  *
- * ═══ THE MIRROR OF `tool-die-maker.role.ts` ═══
- *
- * The plan named Tool & Die Maker ↔ Mould / Die Maker as the cross-cluster pair, and it is real:
- * one tool room, one EDM, one surface grinder, one vocabulary, two materials. They sit in
- * `machining` and `polymer`, so `conflictTermsFor` derives NOTHING between them and the veto has
- * to be authored on both descriptors.
- *
- * BOTH SIDES, ALWAYS. A one-sided veto is worse than none: the trade that declared it would send
- * its ambiguous workers back to the interview while the trade that forgot silently claimed them,
- * so the misroute would run in exactly one direction and look like a preference rather than a bug.
+ * The kind stays in `TRADE_FORM_KINDS_ALL` and this file stays registered so the kind can still
+ * be named on stored events — removing either breaks the event spine. But its detection is empty
+ * on purpose: "mould maker", "mold maker", "mould making", "मोल्ड मेकर" and "mould polishing"
+ * moved to `tool-die-maker.role.ts`, the bare machine words are dropped, and this descriptor
+ * competes with nobody. `assertRegistryIsCoherent` allows a disabled role with no occupation terms.
  */
 export const MOULD_DIE_MAKER = {
   kind: "mould_die_maker",
@@ -27,25 +23,10 @@ export const MOULD_DIE_MAKER = {
   levelLadder: ["Trainee", "Mould Maker", "Senior"],
   tenureQuestionKey: "mould_making_experience",
   detection: {
-    occupationTerms: ["mould maker", "mold maker", "mould making", "मोल्ड मेकर"],
-    machineTerms: [
-      "mould",
-      "mold",
-      "two plate mould",
-      "three plate mould",
-      "hot runner",
-      "spark erosion",
-      "mould polishing",
-      "मोल्ड",
-    ],
-    levelTerms: ["trainee", "mould maker", "senior", "सीनियर"],
-    /** The metal tool room (`machining`). Mirrored on `tool-die-maker.role.ts` — see the header. */
-    extraConflictTerms: [
-      "press tool",
-      "progressive die",
-      "jigs and fixtures",
-      "tool room",
-      "टूल रूम",
-    ],
+    occupationTerms: [],
+    machineTerms: [],
+    levelTerms: [],
+    /** Retired: no cross-cluster rival needs declaring. */
+    extraConflictTerms: [],
   },
 } as const satisfies RoleFormDescriptor;

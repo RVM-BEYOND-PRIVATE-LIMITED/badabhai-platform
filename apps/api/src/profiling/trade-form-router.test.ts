@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { descriptorForKind } from "./roles/role-registry";
 import { routeToTradeForm, type TradeFormKind } from "./trade-form-router";
 
 /**
@@ -215,11 +216,7 @@ describe("routeToTradeForm", () => {
       }
 
       it("E4 rung phrases reach nothing unpinned", () => {
-        for (const words of [
-          "setting karta hoon",
-          "job lagata hoon",
-          "machine chalata hoon",
-        ]) {
+        for (const words of ["setting karta hoon", "job lagata hoon", "machine chalata hoon"]) {
           expect(route("Manufacturing", words, null), words).toBeNull();
         }
       });
@@ -325,9 +322,9 @@ describe("routeToTradeForm", () => {
       expect(route("विनिर्माण", "इंडस्ट्रियल इलेक्ट्रीशियन", null)).toBe("industrial_electrician");
       // MACHINE WORDS AND THE BARE RUNG NEED THE FAMILY PIN, the turner's rule: "VFD", "MCC panel"
       // and "electrician" corroborate a pin on fam_industrial_electrician and never route alone.
-      expect(route("Manufacturing", "VFD aur MCC panel ka kaam", "fam_industrial_electrician")).toBe(
-        "industrial_electrician",
-      );
+      expect(
+        route("Manufacturing", "VFD aur MCC panel ka kaam", "fam_industrial_electrician"),
+      ).toBe("industrial_electrician");
       expect(route("Manufacturing", "VFD aur MCC panel ka kaam", null)).toBeNull();
       expect(route("Manufacturing", "Senior electrician", "fam_industrial_electrician")).toBe(
         "industrial_electrician",
@@ -507,7 +504,12 @@ describe("routeToTradeForm", () => {
       // tranche's "machine repair" / "machine ki marammat" were offered the FITTER form. 0101 is
       // the maintenance technician's now, and those words are that role's: under a fitter pin they
       // are a sibling's vocabulary, so they VETO — no worker who says them gets the fitter form.
-      for (const words of ["machine repair", "machine ki marammat", "breakdown maintenance", "plant maintenance"]) {
+      for (const words of [
+        "machine repair",
+        "machine ki marammat",
+        "breakdown maintenance",
+        "plant maintenance",
+      ]) {
         expect(route(null, null, "fam_fitter", "fitter", words), words).toBeNull();
       }
     });
@@ -519,10 +521,16 @@ describe("routeToTradeForm", () => {
       // THE BARE WORD NEEDS THE FAMILY PIN (owner ruling 2026-09-25), the fitter's B3 rule:
       // "maintenance", "मेंटेनेंस", "machine repair" and "machine ki marammat" route only once the
       // resolver has placed the worker in fam_maintenance_tech.
-      expect(route("Manufacturing", "Maintenance", "fam_maintenance_tech")).toBe("maintenance_technician");
-      expect(route("विनिर्माण", "मेंटेनेंस", "fam_maintenance_tech")).toBe("maintenance_technician");
+      expect(route("Manufacturing", "Maintenance", "fam_maintenance_tech")).toBe(
+        "maintenance_technician",
+      );
+      expect(route("विनिर्माण", "मेंटेनेंस", "fam_maintenance_tech")).toBe(
+        "maintenance_technician",
+      );
       expect(route(null, "Machine repair", "fam_maintenance_tech")).toBe("maintenance_technician");
-      expect(route(null, "Machine ki marammat", "fam_maintenance_tech")).toBe("maintenance_technician");
+      expect(route(null, "Machine ki marammat", "fam_maintenance_tech")).toBe(
+        "maintenance_technician",
+      );
       expect(route("Manufacturing", "Breakdown maintenance", "fam_maintenance_tech")).toBe(
         "maintenance_technician",
       );
@@ -530,7 +538,9 @@ describe("routeToTradeForm", () => {
       expect(route("विनिर्माण", "मेंटेनेंस", null)).toBeNull();
       // THE PIN ALONE, on turn one: 7233.0101's chip is "machine repair", the technician band's
       // codes fall back to the family label "maintenance technician".
-      expect(route(null, null, "fam_maintenance_tech", "machine repair")).toBe("maintenance_technician");
+      expect(route(null, null, "fam_maintenance_tech", "machine repair")).toBe(
+        "maintenance_technician",
+      );
       expect(route(null, null, "fam_maintenance_tech", "maintenance technician")).toBe(
         "maintenance_technician",
       );
@@ -563,9 +573,15 @@ describe("routeToTradeForm", () => {
       // "machine repair" hands over the form on turn one. But the phrase contains "fitter", the
       // fitter's word, and cluster vetoes derive from every sibling term, so once the MODEL writes
       // "maintenance fitter" the handover is withheld and the worker keeps talking (fail-safe).
-      expect(route(null, null, "fam_maintenance_tech", "machine repair")).toBe("maintenance_technician");
-      expect(route(null, "Maintenance fitter", "fam_maintenance_tech", "machine repair")).toBeNull();
-      expect(route("विनिर्माण", "मेंटेनेंस फिटर", "fam_maintenance_tech", "machine repair")).toBeNull();
+      expect(route(null, null, "fam_maintenance_tech", "machine repair")).toBe(
+        "maintenance_technician",
+      );
+      expect(
+        route(null, "Maintenance fitter", "fam_maintenance_tech", "machine repair"),
+      ).toBeNull();
+      expect(
+        route("विनिर्माण", "मेंटेनेंस फिटर", "fam_maintenance_tech", "machine repair"),
+      ).toBeNull();
     });
 
     it("routes a quality inspector to the QC form — Batch 2 part two's second", () => {
@@ -747,5 +763,72 @@ describe("routeToTradeForm", () => {
     const once = route("CNC Machining", "CNC Turner");
     const twice = route("CNC Machining", "CNC Turner");
     expect(once).toBe(twice);
+  });
+
+  /**
+   * ═══ #3030: THE TWO RETIRED POLYMER ROLES FOLD INTO THEIR LIVE TRADES ═══
+   *
+   * CEO pack v2 Q4: "mould maker" is the live Tool & Die Maker (T07); "plastic process
+   * technician" is Injection Moulding's Senior rung (T29). The first two route (Tool & Die has a
+   * form); the next two name Injection Moulding's vocabulary — which has NO form, so the router
+   * hands over nothing and the worker keeps the interview on its family — and must above all not
+   * be claimed by Tool & Die. Bare "moulding" stays ask-first (#3015) and reaches neither.
+   */
+  describe("#3030 fold: mould maker to Tool & Die, process technician to Injection Moulding", () => {
+    it('"mould maker" hands over to Tool & Die', () => {
+      for (const role of ["mould maker", "mold maker", "Mould maker", "mould making"]) {
+        expect(route("Manufacturing", role, null), role).toBe("tool_die_maker");
+      }
+      expect(route("विनिर्माण", "मोल्ड मेकर", null)).toBe("tool_die_maker");
+      // Ownership, not just routing: the words live on the Tool & Die descriptor.
+      const toolDie = descriptorForKind("tool_die_maker")!;
+      for (const word of ["mould maker", "mold maker", "mould making", "मोल्ड मेकर"]) {
+        expect(toolDie.detection.occupationTerms, word).toContain(word);
+      }
+      expect(toolDie.detection.machineTerms).toContain("mould polishing");
+    });
+
+    it('"plastic process technician" is Injection Moulding\'s Senior rung and reaches no form', () => {
+      // Injection Moulding has no form: the router must hand over nothing — neither the Tool &
+      // Die form (the pre-fold misroute) nor anything else. The worker keeps the interview.
+      for (const role of [
+        "plastic process technician",
+        "process technician",
+        "प्रोसेस टेक्नीशियन",
+      ]) {
+        expect(route("Manufacturing", role, null), role).toBeNull();
+        expect(route("Manufacturing", role, "fam_injection_moulding"), role).toBeNull();
+      }
+      // Ownership: the phrases live on Injection Moulding as level words for its Senior rung.
+      const injection = descriptorForKind("injection_moulding_operator")!;
+      for (const word of [
+        "plastic process technician",
+        "process technician",
+        "प्रोसेस टेक्नीशियन",
+      ]) {
+        expect(injection.detection.levelTerms, word).toContain(word);
+      }
+    });
+
+    it('"mould setter" is Injection Moulding\'s word and reaches no form', () => {
+      expect(route("Manufacturing", "mould setter", null)).toBeNull();
+      expect(route("Manufacturing", "mould setter", "fam_injection_moulding")).toBeNull();
+      const injection = descriptorForKind("injection_moulding_operator")!;
+      expect([
+        ...injection.detection.occupationTerms,
+        ...injection.detection.machineTerms,
+      ]).toContain("mould setter");
+    });
+
+    it('"press tool die maker" still reaches Tool & Die', () => {
+      expect(route("Manufacturing", "press tool die maker", null)).toBe("tool_die_maker");
+    });
+
+    it('bare "moulding" hands over to neither (#3015 owns the ask)', () => {
+      for (const role of ["moulding", "moulding ka kaam", "Moulding"]) {
+        expect(route("Manufacturing", role, null), role).toBeNull();
+        expect(route("Manufacturing", role, "fam_injection_moulding"), role).toBeNull();
+      }
+    });
   });
 });
