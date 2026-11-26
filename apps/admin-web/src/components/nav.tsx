@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { formatCount } from "../lib/format";
 import { activeNavItem, type NavSection } from "./nav-model";
 import { NavPendingCue } from "./nav-pending";
 
@@ -213,6 +214,25 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
                           link colour, so the active row's is Safety Yellow on the navy band. */}
                       <Icon name={item.icon} className="sidebar__icon" />
                       <span className="sidebar__label">{item.label}</span>
+                      {/* A live count (#3050): the Campus jobs waiting for a machine trade. The
+                          number is part of the link's name, and the label says what it counts. */}
+                      {item.count !== undefined && item.count > 0 ? (
+                        <span
+                          className="sidebar__count"
+                          title={
+                            item.countLabel
+                              ? `${formatCount(item.count)} ${item.countLabel}`
+                              : undefined
+                          }
+                          aria-label={
+                            item.countLabel
+                              ? `${formatCount(item.count)} ${item.countLabel}`
+                              : undefined
+                          }
+                        >
+                          {formatCount(item.count)}
+                        </span>
+                      ) : null}
                       {/* Pending while this link's navigation is under way (no loading boundary
                           shows it any more — components/nav-pending.tsx). */}
                       <NavPendingCue message={`Opening ${item.label}…`} />

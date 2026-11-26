@@ -612,6 +612,20 @@ details[open] > summary > .disclosure__caret {
   border-radius: var(--radius-pill);
   margin-inline-start: auto;
 }
+/* A live count beside a nav label (#3050). It inherits the row's colour like the glyph, so the
+   active row's yellow carries it too; the pill is a shape cue, not a second colour. */
+.sidebar__count {
+  margin-inline-start: auto;
+  min-width: var(--space-5);
+  padding: 0 var(--space-2);
+  border: var(--border-hairline) solid currentColor;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  line-height: 1.45;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 /* The nav glyph (@badabhai/icons). It inherits the row's colour — muted on the band, full on
    hover, Safety Yellow on the active row — so no state needs an icon rule of its own. */
 .sidebar__icon {
@@ -906,9 +920,13 @@ details[open] > summary > .disclosure__caret {
     nav-pending-pulse var(--duration-slower) var(--ease-in-out) var(--nav-pending-delay) infinite
       alternate;
 }
-/* In a rail row the dot sits at the row's end, so the label never moves. */
+/* In a rail row the dot sits at the row's end, so the label never moves. When a live count is
+   already holding that end (#3050), the dot follows it instead of splitting the free space. */
 .sidebar__link > .nav-pending--on {
   margin-inline-start: auto;
+}
+.sidebar__link > .sidebar__count + .nav-pending--on {
+  margin-inline-start: var(--space-2);
 }
 /* On a button-styled control (a chip, the Pager, Apply) it sits on the corner: the control keeps
    its size, so a chip row never reflows while a chip is pending. */

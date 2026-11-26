@@ -222,3 +222,41 @@ describe("measureMarker", () => {
     expect(measureMarker(navWith(rowIn(box(48, body), 36)))).toBeNull();
   });
 });
+
+/**
+ * A LIVE COUNT (#3050): the Campus jobs waiting for a machine trade, attached to Postings by the
+ * portal layout. Zero draws nothing — an empty queue must not look like a badge to clear.
+ */
+describe("SidebarNav — a live count", () => {
+  const withCount = (count: number) =>
+    renderToStaticMarkup(
+      <SidebarNav
+        sections={[
+          {
+            title: "Directory",
+            items: [
+              {
+                href: "/jobs",
+                label: "Postings",
+                icon: "briefcase" as const,
+                count,
+                countLabel: "Campus jobs waiting for a trade",
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+  it("draws the number beside the label, with what it counts on the badge", () => {
+    const html = withCount(3);
+    expect(html).toContain(
+      '<span class="sidebar__count" title="3 Campus jobs waiting for a trade" aria-label="3 Campus jobs waiting for a trade">3</span>',
+    );
+    expect(html).toContain('<span class="sidebar__label">Postings</span>');
+  });
+
+  it("draws nothing for zero", () => {
+    expect(withCount(0)).not.toContain("sidebar__count");
+  });
+});

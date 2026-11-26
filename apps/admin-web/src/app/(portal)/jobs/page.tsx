@@ -112,9 +112,14 @@ export default async function JobsPage({
           <>
             {/* #2958 — where each job shows (Campus only, both, BadaBhai only). */}
             {can(session.capabilities, "manage_postings") ? (
-              <Link className="btn btn--ghost" href="/jobs/audience">
-                Where jobs show
-              </Link>
+              <>
+                <Link className="btn btn--ghost" href="/jobs/audience">
+                  Where jobs show
+                </Link>
+                <Link className="btn btn--ghost" href="/jobs/campus/narrow">
+                  Campus narrow queue
+                </Link>
+              </>
             ) : null}
             {mayOpenAgencyPostings ? (
               <Link className="btn btn--ghost" href={AGENCY_POSTINGS_HREF}>

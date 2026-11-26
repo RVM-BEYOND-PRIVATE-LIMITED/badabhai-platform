@@ -5,6 +5,7 @@ import { getApiEnvironment } from "../../lib/environment";
 import { getDisplayPrefsCached } from "../../lib/display-prefs";
 import { saveAdminTheme } from "./display-prefs-actions";
 import { getAiAlertsStatus } from "../../lib/ai-alerts";
+import { countNarrowQueue } from "../../lib/campus-narrow";
 import { NAV } from "../../components/nav-model";
 import { allowedJumpKinds } from "../../components/quick-jump-model";
 import { Shell } from "../../components/shell";
@@ -45,13 +46,25 @@ export default async function PortalLayout({ children }: { children: React.React
   // read per navigation is what "on every page" costs; it is the same `no-store` shape as
   // every other admin read.
   const mayReadEntities = can(session.capabilities, "read_entities");
-  const alerts = mayReadEntities ? await getAiAlertsStatus().catch(() => null) : null;
+  const mayManagePostings = can(session.capabilities, "manage_postings");
+  // The Campus narrow queue's count (#3050), read beside the AI alert: a failed count hides the
+  // badge and never takes a page down, and an operator without `manage_postings` never asks.
+  const [alerts, narrowCount] = await Promise.all([
+    mayReadEntities ? getAiAlertsStatus().catch(() => null) : null,
+    mayManagePostings ? countNarrowQueue().catch(() => null) : null,
+  ]);
 
   const may = (capability: Parameters<typeof can>[1]) => can(session.capabilities, capability);
+  const withCount = (item: (typeof NAV)[number]["items"][number]) =>
+    item.href === "/jobs" && narrowCount !== null && narrowCount > 0
+      ? { ...item, count: narrowCount, countLabel: "Campus jobs waiting for a trade" }
+      : item;
 
   const sections = NAV.map((section) => ({
     ...section,
-    items: section.items.filter((i) => !i.capability || may(i.capability)),
+    items: section.items
+      .filter((i) => !i.capability || may(i.capability))
+      .map(withCount),
     // A section whose every item was filtered out is dropped below, rather than rendering
     // an empty heading that reads like a broken menu.
   })).filter((section) => section.items.length > 0);

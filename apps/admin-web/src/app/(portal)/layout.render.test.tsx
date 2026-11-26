@@ -18,6 +18,11 @@ const stub = vi.hoisted(() => ({
     roleLabel: string;
   },
 }));
+const narrow = vi.hoisted(() => ({
+  count: 0,
+  calls: 0,
+  fail: false,
+}));
 
 vi.mock("../../lib/auth", () => ({
   requireSession: async () => ({
@@ -27,6 +32,13 @@ vi.mock("../../lib/auth", () => ({
   }),
 }));
 vi.mock("../../lib/environment", () => ({ getApiEnvironment: async () => stub.environment }));
+vi.mock("../../lib/campus-narrow", () => ({
+  countNarrowQueue: async () => {
+    narrow.calls++;
+    if (narrow.fail) throw new Error("queue unavailable");
+    return narrow.count;
+  },
+}));
 vi.mock("../../components/shell", () => ({
   Shell: (props: NonNullable<typeof stub.shell>) => {
     stub.shell = props;
@@ -43,6 +55,9 @@ const labels = () => stub.shell!.sections.flatMap((s) => s.items.map((i) => i.la
 beforeEach(() => {
   stub.shell = null;
   stub.environment = "production";
+  narrow.count = 0;
+  narrow.calls = 0;
+  narrow.fail = false;
 });
 
 describe("the sidebar it hands the shell", () => {
@@ -119,6 +134,43 @@ describe("the sidebar it hands the shell", () => {
     await render();
     expect(stub.shell!.sections.map((s) => s.title)).toEqual(["Home", "Audit & Admin"]);
     expect(labels()).toEqual(["Dashboard", "Roles", "System"]);
+  });
+});
+
+describe("the Campus narrow queue's count (#3050)", () => {
+  const postingsItem = () =>
+    stub.shell!.sections
+      .flatMap((s) => s.items)
+      .find((i) => i.label === "Postings")!;
+
+  it("rides on Postings for a session holding manage_postings", async () => {
+    stub.capabilities = ["read_entities", "manage_postings"];
+    narrow.count = 3;
+    await render();
+    expect(postingsItem().count).toBe(3);
+    expect(postingsItem().countLabel).toMatch(/Campus jobs waiting/);
+  });
+
+  it("draws no badge for an empty queue", async () => {
+    stub.capabilities = ["read_entities", "manage_postings"];
+    narrow.count = 0;
+    await render();
+    expect(postingsItem().count).toBeUndefined();
+  });
+
+  it("never asks a session that cannot manage postings", async () => {
+    stub.capabilities = ["read_entities"];
+    narrow.count = 3;
+    await render();
+    expect(narrow.calls).toBe(0);
+    expect(postingsItem().count).toBeUndefined();
+  });
+
+  it("a failed count hides the badge rather than taking a page down", async () => {
+    stub.capabilities = ["read_entities", "manage_postings"];
+    narrow.fail = true;
+    await render();
+    expect(postingsItem().count).toBeUndefined();
   });
 });
 

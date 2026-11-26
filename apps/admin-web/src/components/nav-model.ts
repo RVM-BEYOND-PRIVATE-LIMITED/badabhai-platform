@@ -27,6 +27,14 @@ export interface NavItem {
   capability?: AdminCapability;
   /** Sections landing in ADMIN-6..8 render disabled, so the IA is honest about scope. */
   upcoming?: boolean;
+  /**
+   * A live count beside the label (#3050's Campus narrow queue). Attached by the portal layout
+   * from the server read it already makes — never written into this static model, because a
+   * count is data, not navigation. Zero and undefined draw nothing.
+   */
+  count?: number;
+  /** What the count counts, for the badge's tooltip and screen readers. */
+  countLabel?: string;
 }
 
 export interface NavSection {
