@@ -2428,15 +2428,17 @@ describe("CEO Launch Plan Pack v1 — sheet-word audit (2026-11-04)", () => {
 /**
  * WAVE 1 WORKER PHRASES (#3010) — CEO pack v2, 23 Nov 2026.
  *
- * One table per Wave 1 trade, phrase to expected family, for every LOADED phrase (530).
+ * One table per Wave 1 trade, phrase to expected family, for every LOADED phrase (530
+ * on #3010 + 7 digit phrases on #3082 per ruling #2995 point 2 = 537).
  * "Loaded" means a row in rvm-aliases.jsonl pointing at the trade's occupation that most
  * exactly names it (spread across the trade's codes the way heat treatment's were).
  *
- * NOT in these tables (all listed on #2995, points 2/3/5 on stated defaults): digits (12,
- * validator refuses; T58 digits already reach via rvm-3d-cad-design.jsonl), shorts held (plc,
- * ppc, plc ka kaam), live-collision holds (qc engineer, quality manager, fettler), routing
- * holds (plant/breakdown + Devanagari twins to #3015), 90 same-family dups, 13 ka-kaam stems.
- * No must-NOT phrase is loaded. No pinned live route changes except plant/breakdown to null.
+ * NOT in these tables (all listed on #2995, points 2/3/5 on stated defaults): digits now
+ * LOADED in #3082 (T21 2, T33 3, T38 1, T58 1 hi; T58 five domain-file rows grandfathered),
+ * shorts held (plc, ppc, plc ka kaam), live-collision holds (qc engineer, quality manager,
+ * fettler), routing holds (plant/breakdown + Devanagari twins to #3015), 90 same-family
+ * dups, 13 ka-kaam stems. No must-NOT phrase is loaded. No pinned live route changes
+ * except plant/breakdown to null.
  */
 describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trade", () => {
   it("T17 EDM / Wire-cut — 29 loaded phrases reach fam_edm_wirecut", () => {
@@ -2506,7 +2508,7 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
     });
   });
 
-  it("T21 CNC Router — 38 loaded phrases reach fam_cnc_router", () => {
+  it("T21 CNC Router — 40 loaded phrases reach fam_cnc_router", () => {
     const routing = Object.fromEntries(
       [
         "cnc rauter",
@@ -2547,6 +2549,8 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
         "लेज़र एनग्रेविंग",
         "वुड कार्विंग मशीन",
         "स्टोन सीएनसी",
+        "3d carving",
+        "type3",
       ].map((p) => [p, familyFor(p)]),
     );
     expect(routing).toEqual({
@@ -2588,10 +2592,12 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
       "लेज़र एनग्रेविंग": "fam_cnc_router",
       "वुड कार्विंग मशीन": "fam_cnc_router",
       "स्टोन सीएनसी": "fam_cnc_router",
+      "3d carving": "fam_cnc_router",
+      "type3": "fam_cnc_router",
     });
   });
 
-  it("T33 CMM — 31 loaded phrases reach fam_cmm", () => {
+  it("T33 CMM — 34 loaded phrases reach fam_cmm", () => {
     const routing = Object.fromEntries(
       [
         "accurate cmm",
@@ -2625,6 +2631,9 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
         "सीएमएम ऑपरेटर",
         "सीएमएम प्रोग्रामर",
         "सीएमएम मशीन",
+        "3d scanner operator",
+        "3d scanning",
+        "3\u0921\u0940 \u0938\u094d\u0915\u0948\u0928\u0930",
       ].map((p) => [p, familyFor(p)]),
     );
     expect(routing).toEqual({
@@ -2659,6 +2668,9 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
       "सीएमएम ऑपरेटर": "fam_cmm",
       "सीएमएम प्रोग्रामर": "fam_cmm",
       "सीएमएम मशीन": "fam_cmm",
+      "3d scanner operator": "fam_cmm",
+      "3d scanning": "fam_cmm",
+      "3\u0921\u0940 \u0938\u094d\u0915\u0948\u0928\u0930": "fam_cmm",
     });
   });
 
@@ -2969,7 +2981,7 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
     });
   });
 
-  it("T38 PLC / Automation — 30 loaded phrases reach fam_plc_automation", () => {
+  it("T38 PLC / Automation — 31 loaded phrases reach fam_plc_automation", () => {
     const routing = Object.fromEntries(
       [
         "ab plc",
@@ -2993,6 +3005,7 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
         "spm automation",
         "tia portal",
         "vfd drive ka kaam",
+        "s7 300",
         "एचएमआई",
         "ऑटोमेशन इंजीनियर",
         "पीएलसी",
@@ -3035,6 +3048,7 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
       "वीएफडी ड्राइव": "fam_plc_automation",
       "सीमेंस पीएलसी": "fam_plc_automation",
       "स्काडा": "fam_plc_automation",
+      "s7 300": "fam_plc_automation",
     });
   });
 
@@ -3598,7 +3612,7 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
     });
   });
 
-  it("T58 3D CAD — 27 loaded phrases reach fam_cad_design_3d", () => {
+  it("T58 3D CAD — 28 loaded phrases reach fam_cad_design_3d", () => {
     const routing = Object.fromEntries(
       [
         "biw fixture design",
@@ -3628,6 +3642,7 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
         "solid works",
         "solidworks designer",
         "ug nx",
+        "3\u0921\u0940 \u0921\u093f\u091c\u093c\u093e\u0907\u0928",
       ].map((p) => [p, familyFor(p)]),
     );
     expect(routing).toEqual({
@@ -3658,6 +3673,7 @@ describe("Wave 1 worker phrases (#3010) — every loaded phrase reaches its trad
       "solid works": "fam_cad_design_3d",
       "solidworks designer": "fam_cad_design_3d",
       "ug nx": "fam_cad_design_3d",
+      "3\u0921\u0940 \u0921\u093f\u091c\u093c\u093e\u0907\u0928": "fam_cad_design_3d",
     });
   });
 
@@ -3682,18 +3698,20 @@ describe("Retirements — #3010 (CEO pack v2, 23 Nov 2026)", () => {
 });
 
 describe("Held phrases — #3010 (listed on #2995)", () => {
-  it("digits reach no Wave 1 family (validator refuses them; T58 digits already via domain file)", () => {
-    // T21, T33 (Latin + Devanagari), T38: null. T58 digits mostly already reach via
-    // rvm-3d-cad-design.jsonl (pre-existing, grandfathered); only the Devanagari "3D design" is null.
-    for (const p of ["3d carving", "type3", "3d scanner operator", "3d scanning", "s7 300"]) {
-      expect(familyFor(p), p).toBeNull();
-    }
-    expect(familyFor("3\u0921\u0940 \u0938\u094d\u0915\u0948\u0928\u0930"), "3D scanner hi").toBeNull();
-    // T58 digits already loaded (domain file, not overlay): they reach the trade, not held as null.
+  it("digits reach Wave 1 families (loaded in #3082 per ruling #2995 point 2; T58 domain file grandfathered)", () => {
+    // #3082: T21 2, T33 2 + 1 hi, T38 1, T58 1 hi — each proved 0 moves in-memory over
+    // 9,916 phrases (9,792 aliases + 829 pinned, same pattern as #3010 point-3 shorts).
+    expect(familyFor("3d carving"), "3d carving").toBe("fam_cnc_router");
+    expect(familyFor("type3"), "type3").toBe("fam_cnc_router");
+    expect(familyFor("3d scanner operator"), "3d scanner operator").toBe("fam_cmm");
+    expect(familyFor("3d scanning"), "3d scanning").toBe("fam_cmm");
+    expect(familyFor("3\u0921\u0940 \u0938\u094d\u0915\u0948\u0928\u0930"), "3D scanner hi").toBe("fam_cmm");
+    expect(familyFor("s7 300"), "s7 300").toBe("fam_plc_automation");
+    // T58 digits already loaded (domain file, not overlay): they reach the trade.
     for (const p of ["3d design", "3d designer", "3d modelling", "3d modeling", "fusion 360"]) {
       expect(familyFor(p), p).toBe("fam_cad_design_3d");
     }
-    expect(familyFor("3\u0921\u0940 \u0921\u093f\u091c\u093c\u093e\u0907\u0928"), "3D design hi").toBeNull();
+    expect(familyFor("3\u0921\u0940 \u0921\u093f\u091c\u093c\u093e\u0907\u0928"), "3D design hi").toBe("fam_cad_design_3d");
   });
 
   it("shorts held: plc, ppc and plc ka kaam reach nothing (would misroute pinned live phrases)", () => {
